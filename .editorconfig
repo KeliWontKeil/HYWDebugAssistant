@@ -1,0 +1,111 @@
+# 代码风格与开发约束（ADR-0025 · 议程 ②）
+# 说明：中文注释；标识符与 API 名保持英文。风格类规则设 suggestion（不致错），
+#       命名与关键风格设 warning（配合 TreatWarningsAsErrors=true 即构建失败）。
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+tab_width = 4
+
+[*.{cs,csx}]
+# ---- 布局与格式 ----
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+csharp_space_after_cast = false
+csharp_prefer_braces = true:warning
+
+# ---- 语言风格偏好 ----
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_style_var_for_built_in_types = false:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = true:suggestion
+csharp_style_prefer_primary_constructors = true:suggestion
+csharp_style_prefer_pattern_matching = true:suggestion
+csharp_style_prefer_switch_expression = true:suggestion
+csharp_style_throw_expression = true:suggestion
+csharp_style_conditional_delegate_call = true:suggestion
+csharp_style_deconstructed_variable_declaration = true:suggestion
+csharp_style_inlined_variable_declaration = true:suggestion
+
+# ---- .NET 风格 ----
+dotnet_style_qualification_for_field = false:warning
+dotnet_style_qualification_for_property = false:warning
+dotnet_style_qualification_for_method = false:warning
+dotnet_style_qualification_for_event = false:warning
+dotnet_style_predefined_type_for_locals_parameters_members = true:warning
+dotnet_style_predefined_type_for_member_access = true:warning
+dotnet_style_readonly_field = true:warning
+dotnet_style_require_accessibility_modifiers = always:warning
+dotnet_style_object_initializer = true:suggestion
+dotnet_style_collection_initializer = true:suggestion
+dotnet_style_coalesce_expression = true:suggestion
+dotnet_style_null_propagation = true:suggestion
+dotnet_style_explicit_tuple_names = true:warning
+dotnet_style_prefer_is_null_check_over_reference_equality_method = true:warning
+
+# ---- 命名规则：私有字段 _camelCase ----
+dotnet_naming_rule.private_fields_underscore_camel.severity = warning
+dotnet_naming_rule.private_fields_underscore_camel.symbols = private_fields
+dotnet_naming_rule.private_fields_underscore_camel.style = underscore_camel
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel.required_prefix = _
+dotnet_naming_style.underscore_camel.capitalization = camel_case
+
+# ---- 命名规则：接口 I 前缀 ----
+dotnet_naming_rule.interfaces_i_prefix.severity = warning
+dotnet_naming_rule.interfaces_i_prefix.symbols = interfaces
+dotnet_naming_rule.interfaces_i_prefix.style = i_prefix
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+dotnet_naming_style.i_prefix.required_prefix = I
+dotnet_naming_style.i_prefix.capitalization = pascal_case
+
+# ---- 命名规则：异步方法 Async 后缀 ----
+dotnet_naming_rule.async_methods_async_suffix.severity = warning
+dotnet_naming_rule.async_methods_async_suffix.symbols = async_methods
+dotnet_naming_rule.async_methods_async_suffix.style = async_suffix
+dotnet_naming_symbols.async_methods.applicable_kinds = method
+dotnet_naming_symbols.async_methods.required_modifiers = async
+dotnet_naming_style.async_suffix.required_suffix = Async
+dotnet_naming_style.async_suffix.capitalization = pascal_case
+
+# ---- 命名规则：类型与成员 PascalCase ----
+dotnet_naming_rule.types_pascal_case.severity = suggestion
+dotnet_naming_rule.types_pascal_case.symbols = types
+dotnet_naming_rule.types_pascal_case.style = pascal_case_style
+dotnet_naming_symbols.types.applicable_kinds = class,struct,interface,enum,delegate
+dotnet_naming_style.pascal_case_style.capitalization = pascal_case
+
+# ---- 分析器严重级别（选择性调整）----
+# 桌面应用不需要 ConfigureAwait(false)
+dotnet_diagnostic.CA2007.severity = none
+# 未使用的 using：由 IDE 提示（设为 suggestion，避免要求 GenerateDocumentationFile）
+dotnet_diagnostic.IDE0005.severity = suggestion
+# 建议使用明确的类型（与 var 偏好冲突时以 suggestion 为准）
+dotnet_diagnostic.IDE0008.severity = suggestion
+# 平台兼容性分析（跨平台时有用；当前 Windows 优先，暂降级）
+dotnet_diagnostic.CA1416.severity = none
+
+[*.{axaml,xaml}]
+indent_style = space
+indent_size = 4
+
+[*.{json,yml,yaml,props,targets,csproj,slnx}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.ps1]
+indent_size = 4

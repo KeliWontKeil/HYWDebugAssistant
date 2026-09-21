@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- TargetFramework / Nullable / ImplicitUsings / LangVersion 等公共属性见根目录 Directory.Build.props -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Folder Include="Models\" />
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 允许测试项目访问内部类型（入口类 Program 为 internal） -->
+    <InternalsVisibleTo Include="HYWDebugAssistant.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 版本统一由根目录 Directory.Packages.props（中央包管理）锁定 -->
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Avalonia.Fonts.Inter" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <!--
+      注意：Avalonia 模板默认包含 AvaloniaUI.DiagnosticsSupport（Avalonia Accelerate 商业线：
+      nuspec 无许可声明且 Community 版强制遥测），违反 ADR-0024 的宽松许可约束，已移除。
+      开发期诊断改用自建可观测性（L1–L5，ADR-0021）与 Visual Studio 调试器。
+      对应地，Program.cs 中的 .WithDeveloperTools() 亦已移除。
+    -->
+  </ItemGroup>
+
+</Project>

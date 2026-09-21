@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/HYWDebugAssistant/HYWDebugAssistant.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/HYWDebugAssistant.ArchitectureTests/HYWDebugAssistant.ArchitectureTests.csproj" />
+    <Project Path="tests/HYWDebugAssistant.Tests/HYWDebugAssistant.Tests.csproj" />
+  </Folder>
+</Solution>

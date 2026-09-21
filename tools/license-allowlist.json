@@ -1,0 +1,8 @@
+[
+  {
+    "package": "xunit.abstractions",
+    "version": "2.0.3",
+    "license": "Apache-2.0",
+    "reason": "旧版 xunit 依赖：nuspec 仅提供 licenseUrl（raw.githubusercontent.com/xunit/xunit/master/license.txt），无法自动识别。xunit 项目整体许可为 Apache-2.0，与同系列包（xunit 2.9.3 / xunit.core / xunit.assert 等，均为 Apache-2.0）一致；该包仅在测试依赖链中出现。"
+  }
+]

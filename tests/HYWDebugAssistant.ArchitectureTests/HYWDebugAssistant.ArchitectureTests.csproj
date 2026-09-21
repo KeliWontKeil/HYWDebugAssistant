@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!--
+      测试代码豁免（ADR-0025 §8 例外机制，原因注明）：
+      · CA1707：xUnit 测试方法采用“规则编号_场景_期望”命名，可读性优先
+      · CA1859 / CS1591：性能与注释非测试关注点
+    -->
+    <NoWarn>$(NoWarn);CA1707;CA1859;CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!--
+    架构约束测试（ADR-0025 §2，自研实现）：
+    以“源码 + 项目文件扫描”方式进行，不引用任何产品项目，避免测试自身影响依赖图。
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Shouldly" />
+  </ItemGroup>
+
+</Project>
