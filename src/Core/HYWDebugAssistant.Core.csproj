@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    L4 核心管理面：Composition 解释与校验、ChangeSet 原子应用、增量重建、持久化、Issue 中心
+    依赖：L1 + L2 + L3 + L0 + **Core.Api**（实现 L4 的公开面接口；Core.Api 自身只引 Sdk）
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\Core.Api\HYWDebugAssistant.Core.Api.csproj" />
+    <ProjectReference Include="..\Hosting\HYWDebugAssistant.Hosting.csproj" />
+    <ProjectReference Include="..\DataPlane\HYWDebugAssistant.DataPlane.csproj" />
+    <ProjectReference Include="..\Infrastructure\HYWDebugAssistant.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    参考桩模块：信息显示模块（M1-15 · 手工验收"一眼看懂收到什么"用；docs/architecture/11 §5）
+    与第三方模块**同构同路径**：只引 Sdk（AR-1）；不得引用其他模块（AR-2）
+  -->
+  <PropertyGroup>
+    <!-- 包目录名（artifacts\modules\<名字>\ 与应用输出 modules\<名字>\） -->
+    <ModulePackageName>monitor</ModulePackageName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 模块清单随构建输出（M1 物理形式：目录 + module.json + 实现程序集） -->
+    <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

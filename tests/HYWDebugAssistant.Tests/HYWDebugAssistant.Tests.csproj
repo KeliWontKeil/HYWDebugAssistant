@@ -1,11 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    T2–T5 承载：契约兼容矩阵 / 建网规则 R0–R6 / ChangeSet 原子性 / 增量重建 / 资源释放 /
+    持久化 round-trip / 故障注入（docs/architecture/06 §6.5）
+    测试项目可跨层引用（AR 规则只约束 src/ 下的产品程序集）
+  -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <!--
       测试代码豁免（ADR-0025 §8 例外机制，原因注明）：
-      · CA1707：xUnit 测试方法采用“规则编号_场景_期望”命名，可读性优先于标识符下划线禁令
+      · CA1707：xUnit 测试方法采用“场景_期望”中文命名，可读性优先于标识符下划线禁令
       · CA1859：测试辅助方法返回接口类型更清晰，性能非测试关注点
       · CS1591：测试代码不强制 XML 注释
     -->
@@ -17,10 +22,21 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Shouldly" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="coverlet.collector" />
+    <!-- 无头 UI 测试：真实 XAML + 真实布局 + 真实命中测试（M1-16 · ADR-0039 · 用户裁决 D-9） -->
+    <PackageReference Include="Avalonia.Headless" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\HYWDebugAssistant\HYWDebugAssistant.csproj" />
+    <ProjectReference Include="..\..\src\App\HYWDebugAssistant.App.csproj" />
+    <ProjectReference Include="..\..\src\Ui\HYWDebugAssistant.Ui.csproj" />
+    <ProjectReference Include="..\..\src\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\..\src\Infrastructure\HYWDebugAssistant.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Hosting\HYWDebugAssistant.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\DataPlane\HYWDebugAssistant.DataPlane.csproj" />
+    <ProjectReference Include="..\..\src\Core\HYWDebugAssistant.Core.csproj" />
+    <ProjectReference Include="..\..\src\Core.Api\HYWDebugAssistant.Core.Api.csproj" />
   </ItemGroup>
 
 </Project>

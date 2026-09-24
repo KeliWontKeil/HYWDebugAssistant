@@ -1,0 +1,361 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:HYWDebugAssistant.Ui.ViewModels"
+        xmlns:ctrl="using:HYWDebugAssistant.Ui.Controls"
+        xmlns:views="using:HYWDebugAssistant.Ui.Views"
+        x:Class="HYWDebugAssistant.Ui.Views.ModuleWindow"
+        x:DataType="vm:ModuleViewViewModel"
+        Title="模块"
+        WindowDecorations="None"
+        CanResize="False"
+        ShowInTaskbar="False"
+        Background="Transparent"
+        SizeToContent="Manual"
+        Width="260" Height="140">
+
+    <!--
+      拼图式模块窗口（ADR-0034 §2 · **M1-16 / ADR-0039 D1-D3 视觉重置**）：
+        ① **无标题栏、无身份行**——边框覆盖**整个窗口周界**，整块窗口矩形**即模块矩形**
+           （与 `DockRule.MarkerCenter` 的几何基准一致）；**模块名不在窗口上显示**；
+        ② 交互带 6 px：边中点/角点 = 缩放（6×6，**仅选中时可命中**），其余 = 拖动；
+        ③ 运行指示在**左下角**（状态点 + 状态文本）；
+        ④ 按钮簇在**右上角**、**纯图标**（锁定/隐藏/运行/关闭），悬停或选中时淡入；
+        ⑤ 内容区点击**不选中**、但会**取消已有选中**（点别处即取消，用户第六轮反馈）。
+      层级（自下而上）：内容层 → 交互带/手柄 → **口标记层** → 叠加信息层（B3）→ 按钮簇。
+    -->
+    <Window.Styles>
+        <!-- 按钮簇：悬停或选中时淡入（平时不可见，避免干扰数据阅读） -->
+        <Style Selector="Border#Cluster">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Window:pointerover Border#Cluster">
+            <Setter Property="Opacity" Value="0.95" />
+        </Style>
+        <Style Selector="Border#Cluster.selected">
+            <Setter Property="Opacity" Value="0.95" />
+        </Style>
+
+        <!-- 缩放手柄：6×6；**未选中时不可命中**（否则会压住端口标记 → 双击改标签失效） -->
+        <Style Selector="Rectangle.handle">
+            <Setter Property="Fill" Value="Transparent" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+        </Style>
+        <Style Selector="Rectangle.handle.visible">
+            <Setter Property="Fill" Value="{DynamicResource AccentPrimary}" />
+            <Setter Property="Opacity" Value="0.85" />
+            <Setter Property="IsHitTestVisible" Value="True" />
+        </Style>
+        <!-- 按钮簇自身始终可命中（未选中时按钮隐形但不该让点击穿透到窗口拖动带） -->
+        <Style Selector="Border#Cluster Button">
+            <Setter Property="IsHitTestVisible" Value="True" />
+        </Style>
+
+        <!-- 选中态：主色边框（09 §8）；边框本就覆盖整个窗口周界 -->
+        <Style Selector="Border#Frame.selected">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+    </Window.Styles>
+
+    <Border Name="Frame"
+            Background="{DynamicResource BgModule}"
+            BorderBrush="{DynamicResource BorderDefault}"
+            BorderThickness="1"
+            CornerRadius="{DynamicResource ModuleCornerRadius}">
+        <Grid>
+
+            <!-- 内容（**整块窗口**都是内容区：没有标题栏、没有身份行） -->
+            <views:ModuleContentView Name="ModuleArea"
+                                     DataContext="{Binding}"
+                                     PointerPressed="OnContentPressed" />
+
+            <!-- 交互带（叠在内容之上，只覆盖 6 px 边框；不遮挡内容区事件） -->
+            <Grid Name="Band">
+                <Rectangle Name="BandTop" Height="6" VerticalAlignment="Top" Margin="6,0,6,0"
+                           Fill="Transparent" Cursor="SizeAll" PointerPressed="OnBandPressed" />
+                <Rectangle Name="BandBottom" Height="6" VerticalAlignment="Bottom" Margin="6,0,6,0"
+                           Fill="Transparent" Cursor="SizeAll" PointerPressed="OnBandPressed" />
+                <Rectangle Name="BandLeft" Width="6" HorizontalAlignment="Left" Margin="0,6,0,6"
+                           Fill="Transparent" Cursor="SizeAll" PointerPressed="OnBandPressed" />
+                <Rectangle Name="BandRight" Width="6" HorizontalAlignment="Right" Margin="0,6,0,6"
+                           Fill="Transparent" Cursor="SizeAll" PointerPressed="OnBandPressed" />
+
+                <!-- 角点手柄（6×6） -->
+                <Rectangle Name="HandleTopLeft" Classes="handle"
+                           Width="{DynamicResource ModuleHandleSize}" Height="{DynamicResource ModuleHandleSize}"
+                           HorizontalAlignment="Left" VerticalAlignment="Top" Cursor="TopLeftCorner"
+                           PointerPressed="OnHandlePressed" />
+                <Rectangle Name="HandleTopRight" Classes="handle"
+                           Width="{DynamicResource ModuleHandleSize}" Height="{DynamicResource ModuleHandleSize}"
+                           HorizontalAlignment="Right" VerticalAlignment="Top" Cursor="TopRightCorner"
+                           PointerPressed="OnHandlePressed" />
+                <Rectangle Name="HandleBottomLeft" Classes="handle"
+                           Width="{DynamicResource ModuleHandleSize}" Height="{DynamicResource ModuleHandleSize}"
+                           HorizontalAlignment="Left" VerticalAlignment="Bottom" Cursor="BottomLeftCorner"
+                           PointerPressed="OnHandlePressed" />
+                <Rectangle Name="HandleBottomRight" Classes="handle"
+                           Width="{DynamicResource ModuleHandleSize}" Height="{DynamicResource ModuleHandleSize}"
+                           HorizontalAlignment="Right" VerticalAlignment="Bottom" Cursor="BottomRightCorner"
+                           PointerPressed="OnHandlePressed" />
+
+                <!-- 边中点手柄（6×6） -->
+                <Rectangle Name="HandleTop" Classes="handle"
+                           Width="{DynamicResource ModuleHandleSize}" Height="{DynamicResource ModuleHandleSize}"
+                           HorizontalAlignment="Center" VerticalAlignment="Top" Cursor="SizeNorthSouth"
+                           PointerPressed="OnHandlePressed" />
+                <Rectangle Name="HandleBottom" Classes="handle"
+                           Width="{DynamicResource ModuleHandleSize}" Height="{DynamicResource ModuleHandleSize}"
+                           HorizontalAlignment="Center" VerticalAlignment="Bottom" Cursor="SizeNorthSouth"
+                           PointerPressed="OnHandlePressed" />
+                <Rectangle Name="HandleLeft" Classes="handle"
+                           Width="{DynamicResource ModuleHandleSize}" Height="{DynamicResource ModuleHandleSize}"
+                           HorizontalAlignment="Left" VerticalAlignment="Center" Cursor="SizeWestEast"
+                           PointerPressed="OnHandlePressed" />
+                <Rectangle Name="HandleRight" Classes="handle"
+                           Width="{DynamicResource ModuleHandleSize}" Height="{DynamicResource ModuleHandleSize}"
+                           HorizontalAlignment="Right" VerticalAlignment="Center" Cursor="SizeWestEast"
+                           PointerPressed="OnHandlePressed" />
+            </Grid>
+
+            <!--
+              口标记层（**唯一建网入口**）：左边缘 = 接收口、右边缘 = 发送口。
+              压在交互带之上 → 双击标记不会被拖动带/缩放手柄抢走。
+              **本层自身不设背景**（不参与命中测试）：只有标记块命中，其余位置照常落到下面的交互带。
+            -->
+            <ItemsControl Name="PortMarkers"
+                          ItemsSource="{Binding Ports}"
+                          DoubleTapped="OnPortMarkersDoubleTapped">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <ctrl:PortMarkerPanel />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:PortMarkerViewModel">
+                        <!--
+                          网络标签（标准件）：**所有标记占地相同**（左右边缘 20×114 竖排、上下边缘 114×20 横排）。
+                          内容 = 网络名 + **信息类型** + 彩色方向箭头（发送=向外 / 接收=向内）+ 数据速率 + 状态指示灯。
+                          "即将自动建网"时整块以主色描边高亮（拖动中的预览，松手后由网络行为落地）。
+                        -->
+                        <Border Classes="portMarker"
+                                Width="{Binding MarkerWidth}"
+                                Height="{Binding MarkerHeight}"
+                                Background="{DynamicResource BgChrome}"
+                                BorderBrush="{DynamicResource BorderStrong}"
+                                BorderThickness="1"
+                                CornerRadius="0"
+                                Cursor="Hand"
+                                ToolTip.Tip="{Binding Tooltip}">
+                            <Grid>
+                                <!-- 即将建网：主色描边（覆盖在标记之上，不改变布局） -->
+                                <Border IsVisible="{Binding IsDockCandidate}"
+                                        BorderBrush="{DynamicResource AccentPrimary}"
+                                        BorderThickness="2"
+                                        CornerRadius="0" />
+
+                                <!-- 竖排（左右边缘）：整块内容旋转 −90°；**四段固定槽位**（名称吃掉剩余宽度，故信息变化不抖动） -->
+                                <LayoutTransformControl IsVisible="{Binding IsVertical}">
+                                    <LayoutTransformControl.LayoutTransform>
+                                        <RotateTransform Angle="-90" />
+                                    </LayoutTransformControl.LayoutTransform>
+                                    <Grid ColumnDefinitions="*,28,12,Auto" Margin="4,2" VerticalAlignment="Center">
+                                        <TextBlock Grid.Column="0"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="{DynamicResource PortMarkerFontSize}"
+                                                   FontFamily="{DynamicResource FontData}"
+                                                   Foreground="{DynamicResource TextPrimary}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Text="{Binding NetworkText}" />
+                                        <TextBlock Grid.Column="1"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="{DynamicResource PortMarkerFontSize}"
+                                                   FontFamily="{DynamicResource FontData}"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Text="{Binding TypeText}" />
+                                        <TextBlock Grid.Column="2"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="{DynamicResource PortMarkerFontSize}"
+                                                   FontWeight="Bold"
+                                                   Foreground="{DynamicResource AccentPrimary}"
+                                                   IsVisible="{Binding IsSend}"
+                                                   Text="{Binding Arrow}" />
+                                        <TextBlock Grid.Column="2"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="{DynamicResource PortMarkerFontSize}"
+                                                   FontWeight="Bold"
+                                                   Foreground="{DynamicResource AccentSecondary}"
+                                                   IsVisible="{Binding !IsSend}"
+                                                   Text="{Binding Arrow}" />
+                                        <ctrl:StateIndicator Grid.Column="3"
+                                                             Width="6" Height="6"
+                                                             Margin="3,0,0,0"
+                                                             VerticalAlignment="Center"
+                                                             State="{Binding State}"
+                                                             OkBrush="{DynamicResource SemanticOk}"
+                                                             IdleBrush="{DynamicResource SemanticIdle}"
+                                                             WarnBrush="{DynamicResource SemanticWarn}"
+                                                             ErrorBrush="{DynamicResource SemanticError}" />
+                                    </Grid>
+                                </LayoutTransformControl>
+
+                                <!-- 横排（上下边缘）：正常方向；同样四段固定槽位 -->
+                                <Grid ColumnDefinitions="*,28,12,Auto"
+                                      Margin="4,2"
+                                      IsVisible="{Binding !IsVertical}">
+                                    <TextBlock Grid.Column="0"
+                                               VerticalAlignment="Center"
+                                               FontSize="{DynamicResource PortMarkerFontSize}"
+                                               FontFamily="{DynamicResource FontData}"
+                                               Foreground="{DynamicResource TextPrimary}"
+                                               TextTrimming="CharacterEllipsis"
+                                               Text="{Binding NetworkText}" />
+                                    <TextBlock Grid.Column="1"
+                                               VerticalAlignment="Center"
+                                               FontSize="{DynamicResource PortMarkerFontSize}"
+                                               FontFamily="{DynamicResource FontData}"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               TextTrimming="CharacterEllipsis"
+                                               Text="{Binding TypeText}" />
+                                    <TextBlock Grid.Column="2"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontSize="{DynamicResource PortMarkerFontSize}"
+                                               FontWeight="Bold"
+                                               Foreground="{DynamicResource AccentPrimary}"
+                                               IsVisible="{Binding IsSend}"
+                                               Text="{Binding Arrow}" />
+                                    <TextBlock Grid.Column="2"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontSize="{DynamicResource PortMarkerFontSize}"
+                                               FontWeight="Bold"
+                                               Foreground="{DynamicResource AccentSecondary}"
+                                               IsVisible="{Binding !IsSend}"
+                                               Text="{Binding Arrow}" />
+                                    <ctrl:StateIndicator Grid.Column="3"
+                                                         Width="6" Height="6"
+                                                         Margin="3,0,0,0"
+                                                         VerticalAlignment="Center"
+                                                         State="{Binding State}"
+                                                         OkBrush="{DynamicResource SemanticOk}"
+                                                         IdleBrush="{DynamicResource SemanticIdle}"
+                                                         WarnBrush="{DynamicResource SemanticWarn}"
+                                                         ErrorBrush="{DynamicResource SemanticError}" />
+                                </Grid>
+
+                                <!-- 编辑输入框：**弹出**（不进标记内部） -->
+                                <Popup IsOpen="{Binding IsEditing, Mode=TwoWay}"
+                                       PlacementTarget="{Binding $parent[Border]}"
+                                       Placement="Pointer"
+                                       HorizontalOffset="8"
+                                       VerticalOffset="8">
+                                    <Border Background="{DynamicResource BgModule}"
+                                            BorderBrush="{DynamicResource AccentPrimary}"
+                                            BorderThickness="1"
+                                            CornerRadius="3"
+                                            Padding="8"
+                                            Width="268">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock FontSize="11"
+                                                       Foreground="{DynamicResource TextPrimary}"
+                                                       Text="{Binding PortName, StringFormat='设置网络名：{0}'}" />
+                                            <TextBox FontFamily="{DynamicResource FontData}"
+                                                     PlaceholderText="网络名（留空 = 清除）"
+                                                     Text="{Binding EditText, Mode=TwoWay}"
+                                                     KeyDown="OnPortLabelKeyDown"
+                                                     AttachedToVisualTree="OnLabelEditorAttached" />
+                                            <TextBlock FontSize="10"
+                                                       TextWrapping="Wrap"
+                                                       Foreground="{DynamicResource TextMuted}"
+                                                       Text="{Binding Hint}" />
+                                            <TextBlock FontSize="10"
+                                                       TextWrapping="Wrap"
+                                                       IsVisible="{Binding HasEditError}"
+                                                       Foreground="{DynamicResource SemanticError}"
+                                                       Text="{Binding EditError}" />
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <Button Content="确定" Padding="8,0" Click="OnPortLabelCommit" />
+                                                <Button Content="清除" Padding="8,0" Click="OnPortLabelClear" />
+                                                <Button Content="取消" Padding="8,0" Click="OnPortLabelCancel" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!--
+              **叠加信息层**【ADR-0039 D5】：窗内连接线 + 流向 + 对端信息。
+              拼接（接触）后，发送端的线画到右边缘、接收端的线从左边缘画进来 → **在公共边自然相连**。
+              不参与命中（IsHitTestVisible=False）。
+            -->
+            <ctrl:ConnectionOverlay Ports="{Binding Ports}"
+                                    IsVisible="{Binding ShowInfoOverlay}"
+                                    LineBrush="{DynamicResource AccentSecondary}"
+                                    ArrowBrush="{DynamicResource AccentPrimary}"
+                                    LabelBrush="{DynamicResource TextSecondary}"
+                                    IsHitTestVisible="False" />
+
+            <!-- 运行指示：**左下角**（状态点 + 状态文本；模块名不显示） -->
+            <StackPanel HorizontalAlignment="Left"
+                        VerticalAlignment="Bottom"
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        Margin="6,0,0,5"
+                        IsHitTestVisible="False">
+                <ctrl:StateIndicator Width="7" Height="7"
+                                     VerticalAlignment="Center"
+                                     State="{Binding State}"
+                                     OkBrush="{DynamicResource SemanticOk}"
+                                     IdleBrush="{DynamicResource SemanticIdle}"
+                                     WarnBrush="{DynamicResource SemanticWarn}"
+                                     ErrorBrush="{DynamicResource SemanticError}" />
+                <TextBlock FontSize="10"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextMuted}"
+                           Text="{Binding StateText}" />
+            </StackPanel>
+
+            <!-- 按钮簇：**右上角 · 纯图标**（锁定/解锁 · 隐藏 · 运行/停用 · 关闭） -->
+            <Border Name="Cluster"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    Margin="0,5,5,0"
+                    Padding="2"
+                    CornerRadius="3"
+                    Background="{DynamicResource BgChrome}"
+                    BorderBrush="{DynamicResource BorderDefault}"
+                    BorderThickness="1">
+                <StackPanel Orientation="Horizontal" Spacing="1">
+                    <Button Name="RunButton" Classes="icon" Click="OnToggleEnabled"
+                            ToolTip.Tip="运行 / 停用（停用 = 保留实例与配置，只停数据流）">
+                        <PathIcon Name="RunStopIcon" Data="{DynamicResource IconStop}" />
+                    </Button>
+                    <Button Name="LockButton" Classes="icon" Click="OnToggleLock"
+                            ToolTip.Tip="锁定后不可拖动、缩放与选中（仍显示数据）">
+                        <PathIcon Name="LockIcon" Data="{DynamicResource IconUnlock}" />
+                    </Button>
+                    <Button Name="HideButton" Classes="icon" Click="OnHide"
+                            ToolTip.Tip="隐藏窗口（模块继续运行；恢复入口：菜单「视图 → 模块窗口 → 全部显示」）">
+                        <PathIcon Data="{DynamicResource IconHide}" />
+                    </Button>
+                    <Button Name="CloseButton" Classes="icon" Click="OnClose"
+                            ToolTip.Tip="关闭窗口 = 移除该模块实例">
+                        <PathIcon Data="{DynamicResource IconClose}" />
+                    </Button>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

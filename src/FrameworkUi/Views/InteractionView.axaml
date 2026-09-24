@@ -1,0 +1,51 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
+             x:Class="HYWDebugAssistant.FrameworkUi.Views.InteractionView"
+             x:DataType="vm:ShellViewModel">
+
+    <!--
+      交互页（B 区侧边界面之一）【M1-16 / ADR-0038 D1】：三组开关（显示 / 交互 / 窗口）+ 操作提示。
+      · 显示：叠加信息层（端口标记始终显示）；
+      · 交互：几何吸附（拖动中按住 Alt 临时停用）；
+      · 窗口：全部锁定 / 全部置前 / 应用置顶 / 显示全部窗口。
+    -->
+    <ScrollViewer>
+        <StackPanel Margin="12" Spacing="10">
+
+            <TextBlock Text="显示" FontSize="11" FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextPrimary}" />
+            <CheckBox Content="叠加信息层（窗内连接线与数据流向）"
+                      IsChecked="{Binding ShowInfoOverlay, Mode=TwoWay}" />
+            <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"
+                       Text="端口标记（网络标签）始终显示 —— 它是唯一的建网入口：双击标记填网络名。" />
+
+            <Rectangle Height="1" Fill="{DynamicResource BorderDefault}" />
+
+            <TextBlock Text="交互" FontSize="11" FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextPrimary}" />
+            <CheckBox Content="几何吸附（拖动中按住 Alt 临时停用）"
+                      IsChecked="{Binding SnapEnabled, Mode=TwoWay}" />
+            <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"
+                       Text="吸附参照：其他模块窗口 + 外壳右边缘（拼图向右展开）。建造网络请用端口标签或「接触且对齐」。" />
+
+            <Rectangle Height="1" Fill="{DynamicResource BorderDefault}" />
+
+            <TextBlock Text="窗口" FontSize="11" FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextPrimary}" />
+            <CheckBox Content="全部锁定（不可拖动/缩放/选中）" IsChecked="{Binding AllLocked, Mode=TwoWay}" />
+            <CheckBox Content="应用置顶（本应用全部窗口一起）" IsChecked="{Binding AppTopmost, Mode=TwoWay}" />
+            <StackPanel Orientation="Horizontal" Spacing="4">
+                <Button Content="全部置前" Command="{Binding RaiseAllWindowsCommand}" />
+                <Button Content="显示全部" Command="{Binding ShowAllWindowsCommand}" />
+            </StackPanel>
+
+            <Rectangle Height="1" Fill="{DynamicResource BorderDefault}" />
+
+            <TextBlock Text="快捷键" FontSize="11" FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextPrimary}" />
+            <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"
+                       Text="M 模块清单 · I Issue · S 设置 · T 拓扑诊断 · L 叠加信息层 · G 吸附 · Ctrl+L 全部锁定（可在设置里改）" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

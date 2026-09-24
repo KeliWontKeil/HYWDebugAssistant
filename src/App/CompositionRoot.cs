@@ -1,0 +1,87 @@
+using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Core.Composition;
+using HYWDebugAssistant.Core.Runtime;
+using HYWDebugAssistant.Core.Services;
+using HYWDebugAssistant.Core.Settings;
+using HYWDebugAssistant.FrameworkUi.ViewModels;
+using HYWDebugAssistant.Sdk.Reporting;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace HYWDebugAssistant.App;
+
+/// <summary>
+/// **组合根**（AR-11 唯一白名单）：装配序 + 依赖注入 + 启动动作。
+/// </summary>
+/// <remarks>
+/// <list type="bullet">
+///   <item><b>装配链</b>（架构 `02` §2.1 / `08` §M1-11）：Application 初始化 → 创建 Core 构成（含 Registry）
+///     → 载入应用级设置（**失败不阻断启动**）→ 扫描模块来源目录 → 创建外壳视图模型（只经 `Core.Api`）
+///     → 显示外壳窗口；模块窗口由 `FrameworkUi` 侧创建（模块集控制器在 `Ui`）；</item>
+///   <item><b>只做装配</b>：不放业务/机制逻辑（一切机制在 L4 内，ADR-0027 §2.5）；</item>
+///   <item><b>依赖方向</b>：`FrameworkUi` → `Ui` → `Core.Api`；本类是唯一同时可见 L4 与 L5 的位置。</item>
+/// </list>
+/// </remarks>
+internal static class CompositionRoot
+{
+    /// <summary>设置文件路径（便携式：应用目录下）。</summary>
+    internal const string SettingsFileName = "settings.json";
+
+    /// <summary>
+    /// 内置模块包目录名（应用目录下）：构建/归拢脚本把参考模块包放到这里，
+    /// 启动时**默认扫描** → 内置模块开箱可用。
+    /// </summary>
+    internal const string BuiltInModulesDirectoryName = "modules";
+
+    /// <summary>装配全部构成并返回外壳视图模型与服务提供者。</summary>
+    /// <returns>外壳视图模型 + 服务提供者（随应用退出释放）。</returns>
+    internal static (ShellViewModel Shell, ServiceProvider Provider) Build()
+    {
+        var services = new ServiceCollection();
+
+        // ---- ① Core 构成（L2/L3/L4）----
+        _ = services.AddSingleton(static _ => new ModuleRuntime(
+            issues: null,
+            carrierOptions: null));
+
+        _ = services.AddSingleton(static provider => new SettingsService(
+            provider.GetRequiredService<ModuleRuntime>(),
+            Path.Combine(AppContext.BaseDirectory, SettingsFileName)));
+
+        _ = services.AddSingleton(static provider => new RuntimeServices(
+            provider.GetRequiredService<ModuleRuntime>(),
+            provider.GetRequiredService<SettingsService>()));
+
+        _ = services.AddSingleton<IRuntimeQuery>(static provider => provider.GetRequiredService<RuntimeServices>());
+        _ = services.AddSingleton<IRuntimeCommand>(static provider => provider.GetRequiredService<RuntimeServices>());
+
+        // ---- ② 外壳视图模型（L5；内含 `Ui` 的模块窗口集控制器）----
+        _ = services.AddSingleton(static provider => new ShellViewModel(
+            provider.GetRequiredService<IRuntimeQuery>(),
+            provider.GetRequiredService<IRuntimeCommand>()));
+
+        var provider = services.BuildServiceProvider();
+
+        // ---- ③ 启动动作（顺序即语义）----
+        var settings = provider.GetRequiredService<SettingsService>();
+        _ = settings.Load();   // 损坏 → 默认值 + Issue，**不阻断启动**（§9.5）
+
+        var runtime = provider.GetRequiredService<RuntimeServices>();
+
+        // 模块来源根（ADR-0036 D1）：**内置包目录排首位**（不可移除），其后是用户配置的根列表
+        var builtIn = Path.Combine(AppContext.BaseDirectory, BuiltInModulesDirectoryName);
+        var roots = new List<string> { builtIn };
+        roots.AddRange(settings.Current.ModuleSourceDirectories.Where(d => !string.IsNullOrWhiteSpace(d)));
+        settings.Current.ModuleSourceDirectories = [.. roots.Skip(1)];
+
+        var installed = runtime.ScanModuleSources(roots);
+        var failed = runtime.GetModuleSources().Sum(s => s.FailedPackages);
+
+        runtime.Runtime.Issues.Report("app:startup", new IssueReport(
+            IssueCategory.CompositionError,
+            failed > 0 ? IssueSeverity.Warning : IssueSeverity.Info,
+            $"模块来源根已扫描（{roots.Count} 个根）：装入 {installed} 个，失败 {failed} 个 —— "
+            + string.Join("；", roots) + "（诊断见「模块清单」弹窗）"));
+
+        return (provider.GetRequiredService<ShellViewModel>(), provider);
+    }
+}

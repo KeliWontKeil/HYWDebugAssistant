@@ -1,0 +1,8 @@
+{
+  "id": "hyw/reference-manual-sender/1.0.0",
+  "entryAssembly": "HYWDebugAssistant.Modules.Reference.ManualSender.dll",
+  "entryType": "HYWDebugAssistant.Modules.Reference.ManualSender.ManualSenderModule",
+  "frameworkCompatibility": ">=1.0.0 <2.0.0",
+  "dependsOn": [],
+  "resources": []
+}

@@ -1,0 +1,26 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="HYWDebugAssistant.App.App"
+             xmlns:local="using:HYWDebugAssistant.Ui"
+             RequestedThemeVariant="Light">
+             <!-- 默认浅色（C9-2）；深色主题后续由设置切换（V2）。 -->
+
+    <Application.DataTemplates>
+        <local:ViewLocator />
+    </Application.DataTemplates>
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- 视觉 token（颜色角色 / 字体 / 尺寸；09 §2–§5） -->
+                <ResourceInclude Source="avares://HYWDebugAssistant.Ui/Styles/Tokens.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+
+    <Application.Styles>
+        <FluentTheme />
+        <!-- 统一控件尺寸与图标按钮样式（M1-16 / ADR-0040 D4） -->
+        <StyleInclude Source="avares://HYWDebugAssistant.Ui/Styles/Controls.axaml" />
+    </Application.Styles>
+</Application>

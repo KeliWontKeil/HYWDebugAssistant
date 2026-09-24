@@ -1,0 +1,53 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
+             x:Class="HYWDebugAssistant.FrameworkUi.Views.TopologyView"
+             x:DataType="vm:TopologyViewModel"
+             FontSize="12">
+
+    <!--
+      拓扑诊断弹窗（R-4）：**只读**。
+      这是界面中唯一出现代码化标识（`实例ID.口名`）的地方——它的用途就是诊断端口与连接关系。
+      v1 不做跨窗口长连线（`11` §2.3），"谁连着谁"由本表 + 口上标记 + 选中高亮共同表达。
+    -->
+    <Grid RowDefinitions="Auto,*" Margin="10">
+        <TextBlock Grid.Row="0"
+                   Margin="0,0,0,6"
+                   Foreground="{DynamicResource TextSecondary}"
+                   Text="{Binding Summary}" />
+
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding Rows}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:TopologyRowViewModel">
+                        <Grid ColumnDefinitions="120,50,170,40,50,70,60,80" Margin="0,1">
+                            <TextBlock Grid.Column="0" Text="{Binding NetworkName}"
+                                       FontFamily="{DynamicResource FontData}"
+                                       FontSize="11" Foreground="{DynamicResource TextPrimary}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="1" Text="{Binding Kind}"
+                                       FontSize="11" Foreground="{DynamicResource TextSecondary}" />
+                            <TextBlock Grid.Column="2" Text="{Binding Member}"
+                                       FontFamily="{DynamicResource FontData}"
+                                       FontSize="11" Foreground="{DynamicResource TextSecondary}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="3" Text="{Binding Direction}"
+                                       FontSize="11" Foreground="{DynamicResource TextMuted}" />
+                            <TextBlock Grid.Column="4" Text="{Binding State}"
+                                       FontSize="11" Foreground="{DynamicResource TextMuted}" />
+                            <TextBlock Grid.Column="5" Text="{Binding Delivered}"
+                                       FontFamily="{DynamicResource FontData}"
+                                       FontSize="11" Foreground="{DynamicResource TextSecondary}" />
+                            <TextBlock Grid.Column="6" Text="{Binding Dropped}"
+                                       FontFamily="{DynamicResource FontData}"
+                                       FontSize="11" Foreground="{DynamicResource TextSecondary}" />
+                            <TextBlock Grid.Column="7" Text="{Binding LastDataTime}"
+                                       FontFamily="{DynamicResource FontData}"
+                                       FontSize="11" Foreground="{DynamicResource TextMuted}" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

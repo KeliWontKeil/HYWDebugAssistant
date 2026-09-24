@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    L5 框架自身 UI（§3.2：不作为普通 Module）：设置界面 / Issue 面板 / 模块清单与管理视图 / 诊断面板 / 模块加载入口
+    依赖：只允许 Sdk + Core.Api + Ui（AR-8）
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\Core.Api\HYWDebugAssistant.Core.Api.csproj" />
+    <ProjectReference Include="..\Ui\HYWDebugAssistant.Ui.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+
+</Project>

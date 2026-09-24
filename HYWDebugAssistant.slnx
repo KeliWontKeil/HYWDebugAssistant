@@ -1,9 +1,27 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/HYWDebugAssistant/HYWDebugAssistant.csproj" />
+    <Project Path="src/Sdk/HYWDebugAssistant.Sdk.csproj" />
+    <Project Path="src/Sdk.Testing/HYWDebugAssistant.Sdk.Testing.csproj" />
+    <Project Path="src/Infrastructure/HYWDebugAssistant.Infrastructure.csproj" />
+    <Project Path="src/Hosting/HYWDebugAssistant.Hosting.csproj" />
+    <Project Path="src/DataPlane/HYWDebugAssistant.DataPlane.csproj" />
+    <Project Path="src/Core/HYWDebugAssistant.Core.csproj" />
+    <Project Path="src/Core.Api/HYWDebugAssistant.Core.Api.csproj" />
+    <Project Path="src/Ui/HYWDebugAssistant.Ui.csproj" />
+    <Project Path="src/FrameworkUi/HYWDebugAssistant.FrameworkUi.csproj" />
+    <Project Path="src/App/HYWDebugAssistant.App.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Reference/">
+    <Project Path="src/Modules/Reference/DataGenerator/HYWDebugAssistant.Modules.Reference.DataGenerator.csproj" />
+    <Project Path="src/Modules/Reference/Recorder/HYWDebugAssistant.Modules.Reference.Recorder.csproj" />
+    <Project Path="src/Modules/Reference/Asserter/HYWDebugAssistant.Modules.Reference.Asserter.csproj" />
+    <Project Path="src/Modules/Reference/ManualSender/HYWDebugAssistant.Modules.Reference.ManualSender.csproj" />
+    <Project Path="src/Modules/Reference/Monitor/HYWDebugAssistant.Modules.Reference.Monitor.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/HYWDebugAssistant.ArchitectureTests/HYWDebugAssistant.ArchitectureTests.csproj" />
     <Project Path="tests/HYWDebugAssistant.Tests/HYWDebugAssistant.Tests.csproj" />
+    <Project Path="tests/HYWDebugAssistant.Tests.Reference/HYWDebugAssistant.Tests.Reference.csproj" />
+    <Project Path="tests/HYWDebugAssistant.ArchitectureTests/HYWDebugAssistant.ArchitectureTests.csproj" />
+    <Project Path="tests/HYWDebugAssistant.Benchmarks/HYWDebugAssistant.Benchmarks.csproj" />
   </Folder>
 </Solution>

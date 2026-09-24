@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    参考桩模块：契约/形状断言器（T1 判据测试用）
+    只引 Sdk（AR-1）；不得引用其他模块（AR-2）
+  -->
+  <PropertyGroup>
+    <!-- 包目录名（artifacts\modules\<名字>\ 与应用输出 modules\<名字>\） -->
+    <ModulePackageName>asserter</ModulePackageName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 模块清单随构建输出（M1 物理形式：目录 + module.json + 实现程序集） -->
+    <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

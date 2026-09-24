@@ -1,0 +1,162 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HYWDebugAssistant.Ui.ViewModels"
+             xmlns:ctrl="using:HYWDebugAssistant.Ui.Controls"
+             xmlns:views="using:HYWDebugAssistant.Ui.Views"
+             x:Class="HYWDebugAssistant.Ui.Views.ModuleContentView"
+             x:DataType="vm:ModuleViewViewModel"
+             Background="Transparent">
+
+    <!--
+      模块窗口的**内容层**：按声明渲染的元素 + 窗内虚线参考线。
+
+      【修订 · 缺陷修复】身份行与口标记层已上移到 `ModuleWindow`：
+        · 口标记是**窗口级覆盖层**（边缘预留带内的标准件），必须压在 6 px 拖动带与缩放手柄**之上**——
+          此前标记在内容层、交互带在其上，导致双击标记中部被 `HandleLeft/HandleRight`（同为边缘垂直居中）
+          吃掉 → 标签编辑"点了没反应"；
+        · 身份行（模块名 + 状态点）同步上移，使**标记层与内容层同处一行**：
+          标记几何（= `DockRule.MarkerCenter` 使用的模块矩形）保持不变。
+    -->
+    <Grid>
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto"
+                      Padding="20,20,20,20">
+            <ItemsControl ItemsSource="{Binding Elements}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:ViewElementViewModel">
+                        <ContentControl Content="{Binding}">
+                            <ContentControl.DataTemplates>
+
+                                <!-- A1 数值：等宽 + 单位（值不随窗口拉伸） -->
+                                <DataTemplate DataType="vm:ValueElementViewModel">
+                                    <Grid ColumnDefinitions="*,Auto" Margin="0,1,0,1">
+                                        <TextBlock Grid.Column="0"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="11"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   Text="{Binding Title}" />
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <TextBlock VerticalAlignment="Center"
+                                                       FontFamily="{DynamicResource FontData}"
+                                                       FontSize="12"
+                                                       Foreground="{DynamicResource TextPrimary}"
+                                                       Text="{Binding Display}" />
+                                            <TextBlock Margin="3,0,0,0"
+                                                       VerticalAlignment="Center"
+                                                       FontSize="10"
+                                                       Foreground="{DynamicResource TextMuted}"
+                                                       Text="{Binding Unit}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+
+                                <!-- A3 曲线：自量程折线（**随窗口拉伸**的展示元素） -->
+                                <DataTemplate DataType="vm:CurveElementViewModel">
+                                    <Border Margin="0,2,0,2"
+                                            Height="64"
+                                            Background="{DynamicResource BgWorkspace}"
+                                            BorderBrush="{DynamicResource BorderDefault}"
+                                            BorderThickness="1"
+                                            CornerRadius="2">
+                                        <ctrl:CurveControl Margin="1"
+                                                           Points="{Binding Points}"
+                                                           Min="{Binding Min}"
+                                                           Max="{Binding Max}"
+                                                           Stroke="{DynamicResource AccentSecondary}" />
+                                    </Border>
+                                </DataTemplate>
+
+                                <!-- A5 文本日志：等宽 + 自动滚到最新（**随窗口拉伸**） -->
+                                <DataTemplate DataType="vm:TextLogElementViewModel">
+                                    <views:TextLogView DataContext="{Binding}" />
+                                </DataTemplate>
+
+                                <!-- B1 配置表单：按配置 Schema 自动生成（控件固定尺寸，不随窗口拉伸） -->
+                                <DataTemplate DataType="vm:ConfigurationEditorElementViewModel">
+                                    <views:ConfigurationFormView DataContext="{Binding}" />
+                                </DataTemplate>
+
+                                <!--
+                                  【M1-16 / ADR-0040】人机操作三通道：
+                                    · B5 文本输入：**回车 / 失焦**一次提交（不逐字符写入），带"未提交"提示与就地错误；
+                                    · B2 命令按钮：点击即投递到模块线程执行；
+                                    · A10 开关：拨动即提交 true/false。
+                                -->
+                                <DataTemplate DataType="vm:TextInputElementViewModel">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,2">
+                                        <TextBlock Grid.Column="0"
+                                                   VerticalAlignment="Center"
+                                                   Margin="0,0,6,0"
+                                                   FontSize="11"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   Text="{Binding Title}" />
+                                        <TextBox Grid.Column="1"
+                                                 FontFamily="{DynamicResource FontData}"
+                                                 Text="{Binding Text, Mode=TwoWay}"
+                                                 KeyDown="OnInputKeyDown"
+                                                 LostFocus="OnInputLostFocus" />
+                                        <TextBlock Grid.Column="2"
+                                                   Margin="6,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="10"
+                                                   Foreground="{DynamicResource TextMuted}"
+                                                   Text="{Binding LastResult}" />
+                                    </Grid>
+                                </DataTemplate>
+
+                                <DataTemplate DataType="vm:CommandElementViewModel">
+                                    <Grid ColumnDefinitions="Auto,Auto,*" Margin="0,2">
+                                        <Button Grid.Column="0"
+                                                Padding="10,0"
+                                                Content="{Binding Command.Title}"
+                                                Command="{Binding InvokeCommand}"
+                                                ToolTip.Tip="{Binding Tooltip}" />
+                                        <TextBlock Grid.Column="1"
+                                                   Margin="6,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="10"
+                                                   IsVisible="{Binding HasError}"
+                                                   Foreground="{DynamicResource SemanticError}"
+                                                   Text="{Binding LastResult}" />
+                                    </Grid>
+                                </DataTemplate>
+
+                                <DataTemplate DataType="vm:ToggleElementViewModel">
+                                    <Grid ColumnDefinitions="Auto,*" Margin="0,2">
+                                        <CheckBox Grid.Column="0"
+                                                  Content="{Binding Title}"
+                                                  IsChecked="{Binding IsOn, Mode=TwoWay}" />
+                                        <TextBlock Grid.Column="1"
+                                                   Margin="6,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="10"
+                                                   Foreground="{DynamicResource SemanticError}"
+                                                   Text="{Binding LastResult}" />
+                                    </Grid>
+                                </DataTemplate>
+
+                                <!-- 其余元素：明确标注"未渲染"，不假装支持 -->
+                                <DataTemplate DataType="vm:UnsupportedElementViewModel">
+                                    <TextBlock Margin="0,1,0,1"
+                                               FontSize="10"
+                                               TextWrapping="Wrap"
+                                               Foreground="{DynamicResource TextMuted}"
+                                               Text="{Binding Notice}" />
+                                </DataTemplate>
+
+                            </ContentControl.DataTemplates>
+                        </ContentControl>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- 窗内叠加层：虚线对齐参考线 + 缩放边缘高亮（不跨窗口绘制） -->
+        <ctrl:GuideOverlay Guides="{Binding Guides}"
+                           OriginX="{Binding X}"
+                           OriginY="{Binding Y}"
+                           ResizeEdges="{Binding ResizeEdges}"
+                           LineBrush="{DynamicResource AccentPrimary}"
+                           IsHitTestVisible="False" />
+    </Grid>
+</UserControl>

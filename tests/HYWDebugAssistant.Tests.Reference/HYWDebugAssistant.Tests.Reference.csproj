@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    T1 判据测试（AC-1~6）：参考组合（三个桩模块）+ 框架 —— docs/architecture/06 §6.4/§6.5
+    测试项目可跨层引用（AR 规则只约束 src/ 下的产品程序集）
+  -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <!-- 测试专用豁免（须注明原因）：xUnit 测试方法名用中文场景描述 -->
+    <NoWarn>$(NoWarn);CA1707;CA1859;CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <!-- T6 契约测试套件：参考模块的声明面自检（与模块作者用法一致） -->
+    <ProjectReference Include="..\..\src\Sdk.Testing\HYWDebugAssistant.Sdk.Testing.csproj" />
+    <ProjectReference Include="..\..\src\Infrastructure\HYWDebugAssistant.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Hosting\HYWDebugAssistant.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\DataPlane\HYWDebugAssistant.DataPlane.csproj" />
+    <ProjectReference Include="..\..\src\Core\HYWDebugAssistant.Core.csproj" />
+    <ProjectReference Include="..\..\src\Core.Api\HYWDebugAssistant.Core.Api.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reference\DataGenerator\HYWDebugAssistant.Modules.Reference.DataGenerator.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reference\Recorder\HYWDebugAssistant.Modules.Reference.Recorder.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reference\Asserter\HYWDebugAssistant.Modules.Reference.Asserter.csproj" />
+    <!-- M1-15：手工验收用的两个测试模块也纳入自动化（发送器 → 信息显示 的端到端） -->
+    <ProjectReference Include="..\..\src\Modules\Reference\ManualSender\HYWDebugAssistant.Modules.Reference.ManualSender.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reference\Monitor\HYWDebugAssistant.Modules.Reference.Monitor.csproj" />
+  </ItemGroup>
+
+</Project>

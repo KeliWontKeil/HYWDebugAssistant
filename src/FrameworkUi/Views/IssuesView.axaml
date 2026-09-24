@@ -1,0 +1,50 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
+             x:Class="HYWDebugAssistant.FrameworkUi.Views.IssuesView"
+             x:DataType="vm:IssuesPanelViewModel"
+             FontSize="12">
+
+    <!-- Issue 弹窗（R-3）：四维过滤 + 汇总 + 明细（只读）。 -->
+    <Grid RowDefinitions="Auto,Auto,*" Margin="10">
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="4">
+            <TextBox Width="140" PlaceholderText="归属对象" Text="{Binding ObjectFilter, Mode=TwoWay}" />
+            <ComboBox Width="120" ItemsSource="{Binding Categories}" SelectedItem="{Binding CategoryFilter, Mode=TwoWay}" />
+            <ComboBox Width="100" ItemsSource="{Binding Sources}" SelectedItem="{Binding SourceFilter, Mode=TwoWay}" />
+            <ComboBox Width="90" ItemsSource="{Binding Severities}" SelectedItem="{Binding SeverityFilter, Mode=TwoWay}" />
+            <Button Content="清除过滤" Click="OnClearFilter" />
+        </StackPanel>
+
+        <TextBlock Grid.Row="1"
+                   Margin="0,6,0,6"
+                   Foreground="{DynamicResource TextSecondary}"
+                   Text="{Binding Summary}" />
+
+        <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding Issues}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:IssueRowViewModel">
+                        <Grid ColumnDefinitions="64,150,130,70,70,*" Margin="0,1">
+                            <TextBlock Grid.Column="0" Text="{Binding TimeText}"
+                                       FontFamily="{DynamicResource FontData}"
+                                       FontSize="11" Foreground="{DynamicResource TextMuted}" />
+                            <TextBlock Grid.Column="1" Text="{Binding ObjectPath}"
+                                       FontFamily="{DynamicResource FontData}"
+                                       FontSize="11" Foreground="{DynamicResource TextSecondary}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="2" Text="{Binding Category}" FontSize="11"
+                                       Foreground="{DynamicResource TextSecondary}" />
+                            <TextBlock Grid.Column="3" Text="{Binding Severity}" FontSize="11"
+                                       Foreground="{DynamicResource SemanticWarn}" />
+                            <TextBlock Grid.Column="4" Text="{Binding Source}" FontSize="11"
+                                       Foreground="{DynamicResource TextMuted}" />
+                            <TextBlock Grid.Column="5" Text="{Binding Message}" FontSize="11"
+                                       TextWrapping="Wrap" Foreground="{DynamicResource TextPrimary}" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

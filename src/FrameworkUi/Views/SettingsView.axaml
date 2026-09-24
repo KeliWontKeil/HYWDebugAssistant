@@ -1,0 +1,306 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
+             x:Class="HYWDebugAssistant.FrameworkUi.Views.SettingsView"
+             x:DataType="vm:SettingsPanelViewModel"
+             FontSize="12">
+
+    <!--
+      设置弹窗（R-3 / ADR-0036 D6）：**分类化**（左分类 · 右页面，仿成熟软件）。
+      七类：常规 · 模块与来源 · 窗口与交互 · 外观与显示 · 快捷键 · 日志与诊断 · 关于。
+      应用级设置 = 跨组合件共享、不入组合件；模块实例参数在**模块自己的窗口**里改。
+    -->
+    <TabControl TabStripPlacement="Left" Margin="6">
+
+        <!-- ============================ 常规 ============================ -->
+        <TabItem Header="常规">
+            <ScrollViewer>
+                <StackPanel Margin="12" Spacing="8">
+                    <TextBlock Text="应用行为" Foreground="{DynamicResource TextPrimary}" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="停止超时（秒）" Width="150" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondary}" />
+                        <TextBox Width="110" FontFamily="{DynamicResource FontData}"
+                                 Text="{Binding StopTimeoutSeconds, Mode=TwoWay}" />
+                        <TextBlock Text="模块停止的有界等待时限" VerticalAlignment="Center" FontSize="11"
+                                   Foreground="{DynamicResource TextMuted}" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="输入队列容量" Width="150" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondary}" />
+                        <TextBox Width="110" FontFamily="{DynamicResource FontData}"
+                                 Text="{Binding InputQueueCapacity, Mode=TwoWay}" />
+                        <TextBlock Text="（对新建队列生效）" VerticalAlignment="Center" FontSize="11"
+                                   Foreground="{DynamicResource TextMuted}" />
+                    </StackPanel>
+
+                    <CheckBox Content="对齐自动建网（模块**接触且标记对齐**时自动连上；未打标签的口）"
+                              IsChecked="{Binding AlignAutoNetworkEnabled, Mode=TwoWay}" />
+
+                    <TextBlock Margin="0,8,0,0"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextMuted}"
+                               Text="说明：本页是**应用级设置**（跨组合件共享，不随组合件保存）；模块实例的参数请在**模块自己的窗口**里改（配置表单）。" />
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+
+        <!-- ============================ 模块与来源 ============================ -->
+        <TabItem Header="模块与来源">
+            <ScrollViewer>
+                <StackPanel Margin="12" Spacing="6">
+                    <TextBlock Text="模块来源根（按顺序扫描；先扫到的包优先）" Foreground="{DynamicResource TextPrimary}" />
+
+                    <TextBlock TextWrapping="Wrap"
+                               FontSize="11"
+                               Foreground="{DynamicResource TextMuted}"
+                               Text="内置包目录（应用目录下 modules\）**始终在首位**、无需配置；下面配置的是**额外**的来源根。模块包由**构建自动归拢**，通常不需要手工指定路径。改过代码的包需重启应用才生效。" />
+
+                    <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,4,0,0">
+                        <TextBox Grid.Column="0"
+                                 PlaceholderText="来源根目录（如 D:\my-modules）"
+                                 Text="{Binding NewSourceDirectory, Mode=TwoWay}" />
+                        <Button Grid.Column="1" Content="添加" Margin="4,0,0,0" Command="{Binding AddSourceDirectoryCommand}" />
+                        <Button Grid.Column="2" Content="重扫" Margin="4,0,0,0" Command="{Binding RescanModuleSourcesCommand}"
+                                ToolTip.Tip="立刻重扫全部来源根（装入新增的包；改过代码的包仍需重启应用）" />
+                    </Grid>
+
+                    <ListBox Height="88"
+                             Margin="0,4,0,0"
+                             ItemsSource="{Binding ModuleSourceDirectories}"
+                             SelectedItem="{Binding SelectedSourceDirectory, Mode=TwoWay}" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
+                        <Button Content="上移" Command="{Binding MoveSourceDirectoryUpCommand}" />
+                        <Button Content="下移" Command="{Binding MoveSourceDirectoryDownCommand}" />
+                        <Button Content="移除" Command="{Binding RemoveSourceDirectoryCommand}" />
+                    </StackPanel>
+
+                    <TextBlock Text="扫描诊断" Margin="0,8,0,0" Foreground="{DynamicResource TextPrimary}" />
+
+                    <ItemsControl ItemsSource="{Binding ModuleSources}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="vm:ModuleSourceRowViewModel">
+                                <StackPanel Margin="0,2">
+                                    <TextBlock FontFamily="{DynamicResource FontData}"
+                                               FontSize="11"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="{DynamicResource TextPrimary}"
+                                               Text="{Binding Directory}" />
+                                    <TextBlock FontSize="11" Foreground="{DynamicResource TextSecondary}" Text="{Binding Summary}" />
+                                    <TextBlock FontSize="10"
+                                               TextWrapping="Wrap"
+                                               Foreground="{DynamicResource TextMuted}"
+                                               Text="{Binding Details}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+
+        <!-- ============================ 窗口与交互 ============================ -->
+        <TabItem Header="窗口与交互">
+            <ScrollViewer>
+                <StackPanel Margin="12" Spacing="8">
+                    <TextBlock Text="窗口层级" Foreground="{DynamicResource TextPrimary}" />
+
+                    <CheckBox Content="应用整体置顶（本应用全部窗口一起，含弹窗与新开窗口）"
+                              IsChecked="{Binding AppTopmost, Mode=TwoWay}" />
+
+                    <TextBlock TextWrapping="Wrap"
+                               FontSize="11"
+                               Foreground="{DynamicResource TextMuted}"
+                               Text="说明：模块窗口以外壳为**从属窗口**（外壳永在其下、最小化随外壳）；相对其他应用，本应用只有两种**统一**状态——普通（激活任一窗口即把其余一并抬前）或全体置顶。**不提供单窗口置顶**，避免「一部分被覆盖、一部分置顶」的过程。" />
+
+                    <TextBlock Text="拖动与吸附（修饰键为固定行为）" Margin="0,8,0,0"
+                               Foreground="{DynamicResource TextPrimary}" />
+
+                    <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}"
+                               Text="拖动窗口边框 = 移动；边中点/角点 = 缩放；按住 Ctrl = 只移动当前窗口（不带动拼接组）；按住 Alt = 本次不吸附。" />
+
+                    <TextBlock Margin="0,8,0,0"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextMuted}"
+                               Text="更细的窗口视觉与交互打磨属 **M1-16 UI 专项**（按用户设计方案进行）。" />
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+
+        <!-- ============================ 外观与显示 ============================ -->
+        <TabItem Header="外观与显示">
+            <ScrollViewer>
+                <StackPanel Margin="12" Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="刷新率（Hz）" Width="150" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondary}" />
+                        <TextBox Width="110" FontFamily="{DynamicResource FontData}"
+                                 Text="{Binding UiRefreshRateHz, Mode=TwoWay}" />
+                        <TextBlock Text="界面按此节拍从订阅缓冲抽样读取" VerticalAlignment="Center" FontSize="11"
+                                   Foreground="{DynamicResource TextMuted}" />
+                    </StackPanel>
+
+                    <CheckBox Content="显示叠加信息层（模块窗口内的连接线与数据流向；端口标记始终显示）"
+                              IsChecked="{Binding ShowInfoOverlay, Mode=TwoWay}" />
+
+                    <Rectangle Height="1" Margin="0,6" Fill="{DynamicResource BorderDefault}" />
+
+                    <TextBlock Text="外观" Foreground="{DynamicResource TextPrimary}" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="主题" Width="150" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondary}" />
+                        <ComboBox Width="140" ItemsSource="{Binding ThemeOptions}"
+                                  SelectedItem="{Binding Theme, Mode=TwoWay}" />
+                        <TextBlock Text="浅色 / 深色 / 跟随系统（即时生效）" VerticalAlignment="Center" FontSize="11"
+                                   Foreground="{DynamicResource TextMuted}" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="主题色" Width="150" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondary}" />
+                        <ItemsControl ItemsSource="{Binding AccentPresetList}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="4" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Width="24" Height="24" Padding="0"
+                                            Background="{Binding Hex}"
+                                            BorderBrush="{DynamicResource BorderStrong}"
+                                            BorderThickness="1"
+                                            ToolTip.Tip="{Binding Name}"
+                                            Command="{Binding $parent[ItemsControl].((vm:SettingsPanelViewModel)DataContext).SelectAccentCommand}"
+                                            CommandParameter="{Binding}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBox Width="110" FontFamily="{DynamicResource FontData}"
+                                 Text="{Binding AccentColor, Mode=TwoWay}" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="背景" Width="150" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondary}" />
+                        <ComboBox Width="140" ItemsSource="{Binding BackgroundOptions}"
+                                  SelectedItem="{Binding BackgroundMode, Mode=TwoWay}" />
+                        <TextBox Width="110" FontFamily="{DynamicResource FontData}"
+                                 Text="{Binding BackgroundColor, Mode=TwoWay}"
+                                 ToolTip.Tip="自定义背景色（背景档位选 Custom 时生效）" />
+                    </StackPanel>
+
+                    <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"
+                               Text="背景档位：Theme = 跟随主题（默认）· LightGray · DarkGray · Custom（取右侧色值）。模块窗口、弹窗与叠加层一并跟随。" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="主窗口比例" Width="150" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondary}" />
+                        <ComboBox Width="140" ItemsSource="{Binding ShellAspectOptions}"
+                                  SelectedItem="{Binding ShellAspect, Mode=TwoWay}" />
+                        <CheckBox Content="尺寸固定（不可缩放）" IsChecked="{Binding ShellFixedSize, Mode=TwoWay}" />
+                    </StackPanel>
+
+                    <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"
+                               Text="比例默认 9:19.5（手机竖屏常用比例）；取消「尺寸固定」后可自由缩放，比例仅作初值。" />
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+
+        <!-- ============================ 快捷键 ============================ -->
+        <TabItem Header="快捷键">
+            <Grid RowDefinitions="Auto,*,Auto" Margin="12">
+
+                <StackPanel Grid.Row="0" Spacing="4">
+                    <TextBlock Text="应用内快捷键（任一本应用窗口聚焦时生效）" Foreground="{DynamicResource TextPrimary}" />
+                    <TextBlock FontSize="11"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextMuted}"
+                               Text="点某行的「按键」框后**按下新组合键**即可修改；「默认」恢复该项；「全部恢复默认」恢复所有。空 = 不绑定。系统级全局热键（未聚焦也响应）v1 不做。" />
+                    <TextBlock FontSize="11"
+                               TextWrapping="Wrap"
+                               IsVisible="{Binding HotkeyConflicts, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                               Foreground="{DynamicResource SemanticWarn}"
+                               Text="{Binding HotkeyConflicts}" />
+                </StackPanel>
+
+                <ScrollViewer Grid.Row="1" Margin="0,6,0,0">
+                    <ItemsControl ItemsSource="{Binding Hotkeys}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="vm:HotkeyRowViewModel">
+                                <Grid ColumnDefinitions="180,110,Auto,Auto" Margin="0,2">
+                                    <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               Text="{Binding Title}" />
+                                    <TextBox Grid.Column="1"
+                                             FontFamily="{DynamicResource FontData}"
+                                             Text="{Binding Binding, Mode=OneWay}"
+                                             IsReadOnly="True"
+                                             GotFocus="OnHotkeyBoxFocused"
+                                             KeyDown="OnHotkeyBoxKeyDown" />
+                                    <Button Grid.Column="2" Content="默认" Margin="4,0,0,0"
+                                            Click="OnResetHotkey" />
+                                    <TextBlock Grid.Column="3" Margin="6,0,0,0" VerticalAlignment="Center"
+                                               FontSize="10"
+                                               Foreground="{DynamicResource TextMuted}"
+                                               Text="{Binding DefaultBinding, StringFormat='默认 {0}'}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
+                    <Button Content="全部恢复默认" Command="{Binding ResetHotkeysCommand}" />
+                </StackPanel>
+            </Grid>
+        </TabItem>
+
+        <!-- ============================ 日志与诊断 ============================ -->
+        <TabItem Header="日志与诊断">
+            <ScrollViewer>
+                <StackPanel Margin="12" Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="日志级别" Width="150" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondary}" />
+                        <ComboBox Width="150" ItemsSource="{Binding LogLevels}"
+                                  SelectedItem="{Binding LogLevel, Mode=TwoWay}" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="诊断提示阈值" Width="150" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondary}" />
+                        <TextBox Width="110" FontFamily="{DynamicResource FontData}"
+                                 Text="{Binding DiagnosticHintThreshold, Mode=TwoWay}" />
+                        <TextBlock Text="队列深度持续达到该值即提示" VerticalAlignment="Center" FontSize="11"
+                                   Foreground="{DynamicResource TextMuted}" />
+                    </StackPanel>
+
+                    <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"
+                               Text="Issue 汇总与四项过滤在「Issue」弹窗；连接关系与投递/丢弃计数在「拓扑诊断」弹窗（只读）。" />
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+
+        <!-- ============================ 关于 ============================ -->
+        <TabItem Header="关于">
+            <ScrollViewer>
+                <StackPanel Margin="12" Spacing="6">
+                    <TextBlock Text="何译位调试助手（HYWDebugAssistant）" Foreground="{DynamicResource TextPrimary}" />
+                    <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}"
+                               Text="模块 = 独立窗口的拼图式工程调试助手。每个模块实例都有自己的无边框窗口；建网 = 口上网络名同名即连。" />
+                    <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}"
+                               Text="用法速查：拖动窗口边框移动 · 边中点/角点缩放 · 右下角按钮 = 运行/停用、锁定、隐藏、移除 · 双击口标记填网络名。" />
+                    <TextBlock Margin="0,6,0,0" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"
+                               Text="设置与快捷键存在应用目录下的 settings.json（跨组合件共享）；组合件（实例/网络/配置/布局）由「文件」菜单保存与加载。" />
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+    </TabControl>
+</UserControl>

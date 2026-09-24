@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    组合根（AR-11 唯一白名单）：Program/Main + DI 组装 + 装配序（Core → UI → 主窗口）
+    唯一同时可见 L4 内部与 L5 的位置；**不得承载业务/机制逻辑**（ADR-0027 §2.5）
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ui\HYWDebugAssistant.Ui.csproj" />
+    <ProjectReference Include="..\FrameworkUi\HYWDebugAssistant.FrameworkUi.csproj" />
+    <ProjectReference Include="..\Core\HYWDebugAssistant.Core.csproj" />
+    <ProjectReference Include="..\Core.Api\HYWDebugAssistant.Core.Api.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" />
+    <!-- 组合根依赖注入（ADR-0024 选型清单：Microsoft.Extensions.DependencyInjection） -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 允许测试项目访问组合根内部类型（冒烟测试） -->
+    <InternalsVisibleTo Include="HYWDebugAssistant.Tests" />
+  </ItemGroup>
+
+  <!--
+    **内置模块包镜像**（M1-17 / ADR-0036 D2）：模块项目构建已把包归拢到 artifacts\modules\，
+    应用构建后再把它们镜像到 <应用输出>\modules\ —— 应用启动默认扫描该目录，内置模块开箱可用。
+    该目录是**构建产物**（每次构建重建），不要手工往里放东西。
+  -->
+  <Target Name="MirrorBuiltInModulePackages" AfterTargets="Build">
+    <ItemGroup>
+      <BuiltInModuleFile Include="$(MSBuildThisFileDirectory)..\..\artifacts\modules\**\*" />
+    </ItemGroup>
+
+    <RemoveDir Directories="$(OutDir)modules" Condition="Exists('$(OutDir)modules')" />
+    <MakeDir Directories="$(OutDir)modules" Condition="'@(BuiltInModuleFile)' != ''" />
+    <Copy SourceFiles="@(BuiltInModuleFile)"
+          DestinationFolder="$(OutDir)modules\%(RecursiveDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(BuiltInModuleFile)' != ''" />
+
+    <Message Importance="high"
+             Text="[built-in-modules] @(BuiltInModuleFile->'%(RecursiveDir)'->Distinct()) → $(OutDir)modules"
+             Condition="'@(BuiltInModuleFile)' != ''" />
+  </Target>
+
+</Project>

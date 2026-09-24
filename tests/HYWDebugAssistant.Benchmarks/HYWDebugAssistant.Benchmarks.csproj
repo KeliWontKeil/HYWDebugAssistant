@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Gate B 数值实测（docs/architecture/04a §5 清单；ADR-0032 C6-2）
+    **不进常规门禁**：`build.ps1 -RunBenchmarks` 按需运行
+    数值**只记录、不设阈值**（用户裁决：设计期只定结构与不变量，数值经实测后回写）
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);CA1707;CA1859;CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\..\src\Hosting\HYWDebugAssistant.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\DataPlane\HYWDebugAssistant.DataPlane.csproj" />
+    <ProjectReference Include="..\..\src\Core\HYWDebugAssistant.Core.csproj" />
+    <ProjectReference Include="..\..\src\Core.Api\HYWDebugAssistant.Core.Api.csproj" />
+  </ItemGroup>
+
+</Project>

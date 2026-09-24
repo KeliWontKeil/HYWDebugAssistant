@@ -10,13 +10,25 @@
     <PackageVersion Include="Avalonia" Version="12.1.2" />
     <PackageVersion Include="Avalonia.Desktop" Version="12.1.2" />
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.2" />
-    <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.1.2" />
     <PackageVersion Include="Avalonia.Controls.DataGrid" Version="12.1.2" />
     <PackageVersion Include="Avalonia.Headless" Version="12.1.2" />
+    <!--
+      注：**不引 Avalonia.Headless.XUnit**——它在 12.1.2 依赖 xunit **v3**，与本工程 xunit v2 冲突
+      （CS0433：FactAttribute 同时存在于 xunit.core 与 xunit.v3.core）。
+      改用 `Avalonia.Headless.HeadlessUnitTestSession`（自带独立调度线程，不绑定测试框架）。
+    -->
+    <!--
+      注：Avalonia.Fonts.Inter 已移除——视觉基线采用**系统字体**（docs/architecture/09 §3，V4 裁决），
+      无需内置字体包；数据区等宽字体使用系统自带 Cascadia Mono / Consolas。
+    -->
   </ItemGroup>
 
   <ItemGroup Label="MVVM">
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+
+  <ItemGroup Label="组合根（仅 App 使用；ADR-0024 选型清单内）">
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup Label="测试">

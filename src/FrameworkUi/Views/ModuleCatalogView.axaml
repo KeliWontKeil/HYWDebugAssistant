@@ -1,0 +1,162 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
+             xmlns:ui="using:HYWDebugAssistant.Ui.ViewModels"
+             xmlns:views="using:HYWDebugAssistant.Ui.Views"
+             x:Class="HYWDebugAssistant.FrameworkUi.Views.ModuleCatalogView"
+             x:DataType="vm:ModuleCatalogViewModel"
+             FontSize="12">
+
+    <!--
+      模块清单弹窗（R-3 / 11 §4）：可用模块 · 加入现场 · 显式加载 · 占位实例补救。
+      · 没有"连接管理"（建网唯一机制 = 模块窗口里口上的网络标签）；
+      · 没有实例清单（**每个实例都有自己的窗口**，"无界面模块"概念已撤销）；
+      · 配置一律走 Schema 生成表单，不出现 JSON 与配置类型全名。
+    -->
+    <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="10">
+
+        <!-- 加载入口 -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,4">
+            <TextBox Grid.Column="0"
+                     PlaceholderText="模块包目录（含模块清单文件与实现程序集）"
+                     Text="{Binding PackageDirectory, Mode=TwoWay}" />
+            <Button Grid.Column="1" Content="选择…" Margin="4,0,0,0" Command="{Binding PickPackageDirectoryCommand}" />
+            <Button Grid.Column="2" Content="加载" Margin="4,0,0,0" Command="{Binding InstallCommand}" />
+        </Grid>
+
+        <TextBlock Grid.Row="1"
+                   Margin="0,0,0,6"
+                   FontSize="11"
+                   TextWrapping="Wrap"
+                   Foreground="{DynamicResource TextMuted}"
+                   Text="{Binding PackageHint}" />
+
+        <TextBlock Grid.Row="2"
+                   Margin="0,0,0,6"
+                   TextWrapping="Wrap"
+                   IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                   Text="{Binding StatusMessage}"
+                   Foreground="{DynamicResource TextSecondary}" />
+
+        <Grid Grid.Row="3" ColumnDefinitions="*,8,*">
+
+            <!-- 可用模块 -->
+            <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto">
+                <TextBlock Grid.Row="0" Text="可用模块（内置模块已自动装入）" Foreground="{DynamicResource TextPrimary}" />
+                <ListBox Grid.Row="1"
+                         Margin="0,4,0,0"
+                         ItemsSource="{Binding Catalog}"
+                         SelectedItem="{Binding SelectedCatalogEntry, Mode=TwoWay}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="vm:ModuleCatalogRowViewModel">
+                            <!--
+                              **竖向排列 + 缩略图预览位**【M1-16 / ADR-0038 D6】：缩略图是"模块呈现信息"的一部分；
+                              本批先留**占位符**（等模块截图 → 放进包内预览图，`module.json` 可选字段，缺省即无图）。
+                            -->
+                            <Grid ColumnDefinitions="96,*" Margin="0,3">
+                                <Border Grid.Column="0"
+                                        Width="96" Height="54"
+                                        Background="{DynamicResource BgWorkspace}"
+                                        BorderBrush="{DynamicResource BorderDefault}"
+                                        BorderThickness="1"
+                                        CornerRadius="2"
+                                        VerticalAlignment="Top">
+                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="2">
+                                        <PathIcon Data="{DynamicResource IconModules}"
+                                                  Width="14" Height="14"
+                                                  Foreground="{DynamicResource TextMuted}" />
+                                        <TextBlock FontSize="9"
+                                                   HorizontalAlignment="Center"
+                                                   Foreground="{DynamicResource TextMuted}"
+                                                   Text="预览待补" />
+                                    </StackPanel>
+                                </Border>
+
+                                <StackPanel Grid.Column="1" Margin="8,0,0,0" Spacing="1">
+                                    <TextBlock Text="{Binding DisplayName}" Foreground="{DynamicResource TextPrimary}" />
+                                    <TextBlock Text="{Binding Description}"
+                                               FontSize="11"
+                                               TextWrapping="Wrap"
+                                               Foreground="{DynamicResource TextMuted}" />
+                                    <TextBlock Text="{Binding RestartNotice}"
+                                               FontSize="10"
+                                               TextWrapping="Wrap"
+                                               IsVisible="{Binding NeedsRestart}"
+                                               Foreground="{DynamicResource SemanticWarn}" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,4,0,0" Spacing="4">
+                    <Button Content="加入现场" Command="{Binding AddCommand}" />
+                    <Button Content="指定替代"
+                            Command="{Binding ResolveCommand}"
+                            ToolTip.Tip="为右侧选中的**占位实例**指定替代模块（版本不兼容时的补救路径）" />
+                    <Button Content="重扫来源" Command="{Binding RescanCommand}"
+                            ToolTip.Tip="立刻重扫全部来源根（装入新增的包）；改过代码的包需重启应用才生效" />
+                </StackPanel>
+            </Grid>
+
+            <!-- 来源根诊断 + 占位实例 -->
+            <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto,Auto,*">
+                <TextBlock Grid.Row="0"
+                           Text="模块来源（诊断）"
+                           Foreground="{DynamicResource TextPrimary}" />
+                <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                    <ListBox Grid.Column="0"
+                             Height="72"
+                             ItemsSource="{Binding Sources}"
+                             SelectedItem="{Binding SelectedSource, Mode=TwoWay}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="vm:ModuleSourceRowViewModel">
+                                <StackPanel Margin="0,1">
+                                    <TextBlock FontFamily="{DynamicResource FontData}"
+                                               FontSize="10"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="{DynamicResource TextPrimary}"
+                                               Text="{Binding Directory}" />
+                                    <TextBlock FontSize="10" Foreground="{DynamicResource TextSecondary}" Text="{Binding Summary}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <Button Grid.Column="1" Content="打开目录" Margin="4,0,0,0"
+                            VerticalAlignment="Top"
+                            Command="{Binding OpenSourceDirectoryCommand}" />
+                </Grid>
+
+                <TextBlock Grid.Row="2"
+                           Margin="0,6,0,0"
+                           FontSize="10"
+                           TextWrapping="Wrap"
+                           Foreground="{DynamicResource TextMuted}"
+                           Text="{Binding SelectedSource, StringFormat='已选来源根：{0}'}" />
+
+                <TextBlock Grid.Row="3"
+                           Margin="0,8,0,0"
+                           Text="占位实例（模块定义缺失：保留配置与连线声明）"
+                           TextWrapping="Wrap"
+                           Foreground="{DynamicResource TextPrimary}" />
+                <ListBox Grid.Row="4"
+                         Margin="0,4,0,0"
+                         Height="90"
+                         ItemsSource="{Binding Placeholders}"
+                         SelectedItem="{Binding SelectedPlaceholder, Mode=TwoWay}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="vm:PlaceholderRowViewModel">
+                            <TextBlock Margin="0,2" Text="{Binding InstanceId}" Foreground="{DynamicResource TextPrimary}" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <TextBlock Grid.Row="5"
+                           Margin="0,6,0,0"
+                           FontSize="11"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Top"
+                           Foreground="{DynamicResource TextMuted}"
+                           Text="提示：每个模块实例都有自己的窗口——运行/停用、锁定、隐藏、移除与配置都在它自己的窗口上操作。" />
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

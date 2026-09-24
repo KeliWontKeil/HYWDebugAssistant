@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    L2 模块宿主：模块包发现/加载/校验/注册、实例化、实例世界（成员实例表）、框架侧生命周期状态机
+    依赖：仅 L1 + L0（AR-4）
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\Infrastructure\HYWDebugAssistant.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

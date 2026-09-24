@@ -1,0 +1,8 @@
+{
+  "id": "hyw/reference-recorder/1.0.0",
+  "entryAssembly": "HYWDebugAssistant.Modules.Reference.Recorder.dll",
+  "entryType": "HYWDebugAssistant.Modules.Reference.Recorder.RecorderModule",
+  "frameworkCompatibility": ">=1.0.0 <2.0.0",
+  "dependsOn": [],
+  "resources": []
+}

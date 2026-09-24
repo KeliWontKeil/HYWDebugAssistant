@@ -1,0 +1,40 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HYWDebugAssistant.Ui.ViewModels"
+             x:Class="HYWDebugAssistant.Ui.Views.TextLogView"
+             x:DataType="vm:TextLogElementViewModel">
+
+    <!--
+      A5 文本日志：等宽、带时间戳、最新在下方（自动滚到底）。
+      行来自**定长文本样本**（框架要求同一数据源样本长度一致），UI 侧去尾空白后逐行显示。
+    -->
+    <Grid RowDefinitions="Auto,*" Margin="0,2,0,2">
+        <TextBlock Grid.Row="0"
+                   FontSize="10"
+                   Foreground="{DynamicResource TextMuted}"
+                   Text="{Binding Title}" />
+        <Border Grid.Row="1"
+                Height="88"
+                Background="{DynamicResource BgWorkspace}"
+                BorderBrush="{DynamicResource BorderDefault}"
+                BorderThickness="1"
+                CornerRadius="2">
+            <ScrollViewer Name="LogScroll"
+                          Padding="4,2"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Lines}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock FontFamily="{DynamicResource FontData}"
+                                       FontSize="10"
+                                       TextWrapping="NoWrap"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{Binding}" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</UserControl>

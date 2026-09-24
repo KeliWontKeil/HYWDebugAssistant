@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    L3 数据面：绑定执行与投递、每实例有界输入队列、池化定长缓冲、模块活动的承载与调度、L4 诊断采集
+    依赖：仅 L1 + L0；**不得反向依赖 L2/L4/L5**（AR-3 —— 这是"Core 不中转、UI 不阻塞数据面"的结构保障）
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\Infrastructure\HYWDebugAssistant.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

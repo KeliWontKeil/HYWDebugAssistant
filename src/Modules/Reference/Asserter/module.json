@@ -1,0 +1,8 @@
+{
+  "id": "hyw/reference-asserter/1.0.0",
+  "entryAssembly": "HYWDebugAssistant.Modules.Reference.Asserter.dll",
+  "entryType": "HYWDebugAssistant.Modules.Reference.Asserter.AsserterModule",
+  "frameworkCompatibility": ">=1.0.0 <2.0.0",
+  "dependsOn": [],
+  "resources": []
+}
