@@ -295,6 +295,18 @@ public sealed partial class ModuleRuntime : IDisposable
 
                     break;
 
+                case ResetModuleConfigurationOperation reset:
+                    if (!Content.TryGetInstance(reset.InstanceId, out var resetInstance) || resetInstance is null)
+                    {
+                        failures.Add($"实例不存在：{reset.InstanceId}");
+                    }
+                    else
+                    {
+                        plan.ConfigurationResets.Add(reset.InstanceId);
+                    }
+
+                    break;
+
                 case UpdatePortGeometryOperation geometry:
                     var geometryFailures = ValidatePortGeometry(geometry.InstanceId, geometry.Geometry);
                     if (geometryFailures.Count > 0)
@@ -488,6 +500,17 @@ public sealed partial class ModuleRuntime : IDisposable
             {
                 inputInstance.Context.EnqueueInput(source, text);
                 notices.Add($"已写入输入「{source}」= {text} → {inputInstance.Definition.DisplayName}");
+            }
+        }
+
+        // 配置还原（模块窗口的「还原」按钮）：丢掉已保存的配置 → 模块重读即回到默认值
+        foreach (var instanceId in plan.ConfigurationResets)
+        {
+            if (Content.TryGetInstance(instanceId, out var resetInstance) && resetInstance is not null)
+            {
+                _ = resetInstance.Context.ResetConfiguration();
+                NotifyConfigurationChanged(instanceId);
+                notices.Add($"已还原默认配置：{resetInstance.Definition.DisplayName}");
             }
         }
 
@@ -891,5 +914,8 @@ public sealed partial class ModuleRuntime : IDisposable
 
         /// <summary>本次提交要写入的输入（实例 → 输入源 → 文本）。</summary>
         public List<(string InstanceId, string Source, string Text)> InputDeliveries { get; } = [];
+
+        /// <summary>本次提交要**还原配置**的实例（回到模块默认值）。</summary>
+        public List<string> ConfigurationResets { get; } = [];
     }
 }

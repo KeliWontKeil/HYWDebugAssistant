@@ -137,11 +137,11 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
 
     partial void OnPeerSideChanged(PortSide? value) => OnPropertyChanged(nameof(HasLink));
 
-    partial void OnPeerTextChanged(string? value) => OnPropertyChanged(nameof(HasLink));
-
-    /// <summary>编辑结果提示（成功/失败原因；关闭编辑框后仍保留在标记的工具提示里）。</summary>
-    [ObservableProperty]
-    public partial string? EditResult { get; set; }
+    partial void OnPeerTextChanged(string? value)
+    {
+        OnPropertyChanged(nameof(HasLink));
+        OnPropertyChanged(nameof(Tooltip));
+    }
 
     /// <summary>编辑失败原因（**弹窗内就地显示**；空 = 无错误）。</summary>
     [ObservableProperty]
@@ -164,20 +164,25 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     /// 左右边缘的标记内容整体旋转 −90°：旋转把 <c>(x,y)</c> 映射为 <c>(y,−x)</c>，
     /// 故竖排分支必须写 <c>↓</c> 才能在屏幕上呈现为 <c>→</c>；
     /// 上下边缘（横排、无旋转）直接用 <c>→</c>（当前框架只把口放在左右，横排为将来留口）。
+    /// 【用户第十三轮反馈】箭头"过小看不清" → 字号由标记字号（11）提到 **16**（见 `Tokens.axaml` 的 `PortMarkerArrowFontSize`）。
     /// </remarks>
     public string Arrow => IsVertical ? "↓" : "→";
 
-    /// <summary>连接状态文本。</summary>
+    /// <summary>连接状态文本（**只用于工具提示**；标记本身不显示连接状态 —— 指示灯已经表达，用户第十三轮反馈）。</summary>
     public string StateText => IsStalled
         ? "停流"
         : IsConnected ? "已连接" : "未连接";
 
     /// <summary>
-    /// 标记上的主行文本（**标签优先**：打上标签就显示标签本身——即使暂时没连上，
-    /// 也显示 <c>名字（未连）</c>，否则用户会以为"改标签没生效"）。
+    /// 标记上显示的网络名（**标签优先**）。
     /// </summary>
+    /// <remarks>
+    /// 【用户第十三轮反馈】① **不再追加"（未连）"** —— 没连上时**指示灯会灭**，文字再说一遍既冗余又抢宽度；
+    /// ② 无标签但已连上（接触即连的匿名网络）显示 <c>（直连）</c>，既未连也无标签显示 <c>无网络</c> ——
+    /// 这两个是**网络名占位**，不是连接状态提示。
+    /// </remarks>
     public string NetworkText => Label is { Length: > 0 } label
-        ? IsConnected ? label : $"{label}（未连）"
+        ? label
         : IsConnected ? "（直连）" : "无网络";
 
     /// <summary>状态语义（连接状态点用；颜色 + 形状双重编码，09 §7）。</summary>
@@ -189,32 +194,45 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     /// <summary>标记是否为竖直形态（左右边缘 → 竖排；上下边缘 → 横排）。</summary>
     public bool IsVertical => Side is PortSide.Left or PortSide.Right;
 
-    /// <summary>编辑框下方的提示：说明该口如何参与建网。</summary>
+    /// <summary>
+    /// **窄颜色条 = 数据包类型**（用户第十三轮反馈）：
+    /// 标记上只留一条窄色条表明类型，**具体映射（类型 → 颜色）待定**；
+    /// 现在返回<a href="../../Styles/Tokens.axaml">占位色</a>，将来在此按 <see cref="TypeText"/> 查表即可（XAML 不用改）。
+    /// </summary>
+    public Avalonia.Media.IBrush TypeBrush => PacketTypePalette.For(TypeText);
+
+    /// <summary>编辑框的帮助文本（**收进问号按钮的弹窗**，用户第十三轮反馈："提示信息收入帮助按钮"）。</summary>
     public string Hint => IsSend
         ? "发送口：填网络名后，同名接收口自动连上（一个网络只能有一个发送端）"
         : "接收口：填网络名后，同名发送口自动连上；没有同名发送端时只保留标签并提示";
 
-    /// <summary>完整信息（工具提示）。</summary>
+    /// <summary>
+    /// 完整信息（**工具提示**）。
+    /// </summary>
+    /// <remarks>
+    /// 【用户第十三轮反馈】① **不再显示"上次操作"**（那个字段也不再保存）；② 标记本身不显示类型，
+    /// 但**允许在悬停里显式给出数据包类型**（信息量大、只在需要时出现）。
+    /// </remarks>
     public string Tooltip
     {
         get
         {
-            var text = $"{PortName}（{DirectionText}）\n{StateText}";
+            var text = $"{PortName}（{DirectionText}）\n{StateText}\n类型：{TypeText}";
             if (Label is { Length: > 0 } name)
             {
-                text += $"\n网络名：{name}" + (IsConnected ? string.Empty : "（暂无同名对端口，未连）");
+                text += $"\n网络名：{name}" + (IsConnected ? string.Empty : "（暂无同名对端口）");
             }
 
             if (IsConnected)
             {
-                text += $"\n网络：{(NetworkName is { Length: > 0 } n ? n : "（直连）")}"
-                    + $"\n投递 {Delivered} 单元 · 丢弃 {Dropped} 单元"
-                    + (BytesText is { Length: > 0 } bytes ? $"\n流量约 {bytes}（网络粒度估算）" : string.Empty);
-            }
+                text += $"\n网络：{(NetworkName is { Length: > 0 } n ? n : "（直连）")}";
+                if (PeerText is { Length: > 0 } peer)
+                {
+                    text += $"\n对端：{peer}";
+                }
 
-            if (EditResult is { Length: > 0 } result)
-            {
-                text += $"\n上次操作：{result}";
+                text += $"\n投递 {Delivered} 单元 · 丢弃 {Dropped} 单元"
+                    + (BytesText is { Length: > 0 } bytes ? $"\n流量约 {bytes}（网络粒度估算）" : string.Empty);
             }
 
             return text + "\n双击填写/清除网络名";
@@ -230,6 +248,12 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     }
 
     partial void OnEditErrorChanged(string? value) => OnPropertyChanged(nameof(HasEditError));
+
+    partial void OnTypeTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(TypeBrush));
+        OnPropertyChanged(nameof(Tooltip));
+    }
 
     partial void OnIsConnectedChanged(bool value)
     {
@@ -258,6 +282,4 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
         OnPropertyChanged(nameof(NetworkText));
         OnPropertyChanged(nameof(Tooltip));
     }
-
-    partial void OnEditResultChanged(string? value) => OnPropertyChanged(nameof(Tooltip));
 }

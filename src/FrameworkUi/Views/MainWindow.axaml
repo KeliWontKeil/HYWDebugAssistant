@@ -5,25 +5,35 @@
         xmlns:ui="using:HYWDebugAssistant.Ui.ViewModels"
         x:Class="HYWDebugAssistant.FrameworkUi.Views.MainWindow"
         x:DataType="vm:ShellViewModel"
+        xmlns:design="using:HYWDebugAssistant.FrameworkUi.Design"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        d:DataContext="{x:Static design:ShellDesignData.Shell}"
+        d:DesignWidth="420" d:DesignHeight="880"
         Title="何译位调试助手"
         FontSize="12"
-        Width="{Binding ShellWidth}"
-        Height="{Binding ShellHeight}"
+        Width="396" Height="858"
         MinWidth="360" MinHeight="360"
         CanResize="{Binding ShellResizable}"
         WindowStartupLocation="Manual">
 
     <!--
       框架外壳【M1-16 / ADR-0038 D1】**VSCode 式侧边栏**：
-        · A 区**活动栏**（左，44 px）：图标化入口（模块清单 / 交互 / 设置 / 拓扑诊断 / Issue / 帮助）；
-          选中态 = 主色滑块（左侧 2 px 竖条 + 浅色底）——即"可变色滑块"；
+        · A 区**活动栏**（左，44 px）：图标化入口（模块清单 / 交互 / 拓扑诊断 / Issue / 设置 / 帮助）；
         · B 区**侧边界面**（右）：**模块清单**与**交互**为**常驻竖向页面**；设置 / 拓扑 / Issue / 帮助为**弹窗**；
-        · 底部状态栏（Issue 计数可点）；
-        · **顶部菜单已撤销**（全部动作进活动栏或侧边页面 —— D1 裁决）。
-      外壳**仍是拼图起始点**：模块窗口从属于它（层级规则见 ADR-0036 D5），且**其右边缘是模块唯一的吸附参照**（D-2）。
+        · 底部状态栏（Issue 计数可点）；**顶部菜单已撤销**。
+      外壳**仍是拼图起始点**：模块窗口从属于它（ADR-0036 D5），且**其右边缘是模块唯一的吸附参照**（ADR-0038 D5）。
+
+      【用户第九轮反馈 · UI 开发方式】**尺寸默认值就在本文件**（`Width=396 Height=858` = 9:19.5）：
+      设置里的「主窗口比例 / 尺寸固定」只在**用户显式改过**时覆盖（见 `MainWindow.axaml.cs` 的 `ApplyShellSizeFromSettings`），
+      不再由代码"算"尺寸。`d:DataContext` 提供设计时样例 → **VS 设计器里可直接预览与调整**。
+
+      【修正 · 用户第六轮反馈】
+        · 选中标记与图标**不再重合**：按钮内容改为 `Grid ColumnDefinitions="3,*"` —— 3 px 滑块独占**最左列**，
+          图标在剩余区域**居中**（此前滑块与图标叠在同一个 Panel 里）；
+        · 图标改用**系统图标字体**（`TextBlock Classes="icon"`，见 Tokens 的 `FontIcons`），不再手绘几何。
     -->
     <Window.Styles>
-        <!-- 活动栏按钮：默认低调；选中（active）时主色滑块 + 浅底 -->
+        <!-- 活动栏按钮：默认低调；选中（active）时浅底 + 主色图标 -->
         <Style Selector="Button.rail">
             <Setter Property="Width" Value="40" />
             <Setter Property="Height" Value="36" />
@@ -31,9 +41,9 @@
             <Setter Property="Padding" Value="0" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="CornerRadius" Value="0" />
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="CornerRadius" Value="2" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
         </Style>
         <Style Selector="Button.rail:pointerover">
             <Setter Property="Background" Value="{DynamicResource OverlayHighlight}" />
@@ -41,11 +51,8 @@
         <Style Selector="Button.rail.active">
             <Setter Property="Background" Value="{DynamicResource OverlaySelection}" />
         </Style>
-        <Style Selector="Button.rail.active PathIcon">
-            <Setter Property="Foreground" Value="{DynamicResource AccentPrimary}" />
-        </Style>
 
-        <!-- 活动栏选中滑块的左侧竖条 -->
+        <!-- 选中滑块：最左 3 px 竖条（与图标分列，故不会重合） -->
         <Style Selector="Rectangle.railMark">
             <Setter Property="Fill" Value="Transparent" />
         </Style>
@@ -61,57 +68,56 @@
                 Background="{DynamicResource BgChrome}"
                 BorderBrush="{DynamicResource BorderDefault}"
                 BorderThickness="0,0,1,0">
-            <StackPanel Orientation="Vertical" Spacing="2" Margin="2,6">
+            <StackPanel Name="RailButtons" Orientation="Vertical" Spacing="2" Margin="2,6">
                 <Button Classes="rail" Classes.active="{Binding IsCatalogPage}"
                         Command="{Binding ShowPageCommand}" CommandParameter="catalog"
-                        ToolTip.Tip="模块清单（侧边页面）">
-                    <Panel>
-                        <PathIcon Data="{DynamicResource IconModules}" Width="14" Height="14" />
-                        <Rectangle Classes="railMark" Classes.active="{Binding IsCatalogPage}"
-                                   Width="2" HorizontalAlignment="Left" VerticalAlignment="Stretch" />
-                    </Panel>
+                        ToolTip.Tip="模块清单">
+                    <Grid ColumnDefinitions="3,*">
+                        <Rectangle Grid.Column="0" Classes="railMark" Classes.active="{Binding IsCatalogPage}" />
+                        <TextBlock Grid.Column="1" Classes="icon" Text="{DynamicResource GlyphModules}" />
+                    </Grid>
                 </Button>
 
                 <Button Classes="rail" Classes.active="{Binding IsInteractionPage}"
                         Command="{Binding ShowPageCommand}" CommandParameter="interaction"
                         ToolTip.Tip="交互（显示 / 吸附 / 窗口）">
-                    <Panel>
-                        <PathIcon Data="{DynamicResource IconInteraction}" Width="14" Height="14" />
-                        <Rectangle Classes="railMark" Classes.active="{Binding IsInteractionPage}"
-                                   Width="2" HorizontalAlignment="Left" VerticalAlignment="Stretch" />
-                    </Panel>
+                    <Grid ColumnDefinitions="3,*">
+                        <Rectangle Grid.Column="0" Classes="railMark" Classes.active="{Binding IsInteractionPage}" />
+                        <TextBlock Grid.Column="1" Classes="icon" Text="{DynamicResource GlyphInteraction}" />
+                    </Grid>
                 </Button>
 
                 <Rectangle Height="1" Margin="6,4" Fill="{DynamicResource BorderDefault}" />
 
-                <Button Classes="rail" Click="OnOpenTopology" ToolTip.Tip="拓扑诊断（弹窗）">
-                    <PathIcon Data="{DynamicResource IconTopology}" Width="14" Height="14" />
+                <Button Classes="rail" Click="OnOpenTopology" ToolTip.Tip="拓扑诊断">
+                    <TextBlock Classes="icon" Text="{DynamicResource GlyphTopology}" />
                 </Button>
 
-                <Button Classes="rail" Click="OnOpenIssues" ToolTip.Tip="Issue（弹窗）">
-                    <Panel>
-                        <PathIcon Data="{DynamicResource IconIssue}" Width="14" Height="14" />
-                        <Border IsVisible="{Binding HasErrors}"
+                <Button Classes="rail" Click="OnOpenIssues" ToolTip.Tip="Issue（有错误时显示计数）">
+                    <Grid ColumnDefinitions="3,*">
+                        <TextBlock Grid.Column="1" Classes="icon" Text="{DynamicResource GlyphIssue}" />
+                        <Border Grid.Column="1"
+                                IsVisible="{Binding HasErrors}"
                                 Background="{DynamicResource SemanticError}"
-                                CornerRadius="6"
-                                MinWidth="12" Height="12"
+                                CornerRadius="7"
+                                MinWidth="14" Height="14"
                                 HorizontalAlignment="Right" VerticalAlignment="Top"
-                                Margin="0,2,2,0">
-                            <TextBlock FontSize="8"
+                                Margin="0,3,3,0">
+                            <TextBlock FontSize="9"
                                        Foreground="White"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"
                                        Text="{Binding ErrorIssueCount}" />
                         </Border>
-                    </Panel>
+                    </Grid>
                 </Button>
 
-                <Button Classes="rail" Click="OnOpenSettings" ToolTip.Tip="设置（弹窗）">
-                    <PathIcon Data="{DynamicResource IconSettings}" Width="14" Height="14" />
+                <Button Classes="rail" Click="OnOpenSettings" ToolTip.Tip="设置">
+                    <TextBlock Classes="icon" Text="{DynamicResource GlyphSettings}" />
                 </Button>
 
-                <Button Classes="rail" Click="OnShowAbout" ToolTip.Tip="帮助与关于（弹窗）">
-                    <PathIcon Data="{DynamicResource IconHelp}" Width="14" Height="14" />
+                <Button Classes="rail" Click="OnShowAbout" ToolTip.Tip="帮助与关于">
+                    <TextBlock Classes="icon" Text="{DynamicResource GlyphHelp}" />
                 </Button>
             </StackPanel>
         </Border>
@@ -126,12 +132,13 @@
             <views:InteractionView DataContext="{Binding}" />
         </Panel>
 
-        <!-- ==================== 状态栏 ==================== -->
+        <!-- ==================== 状态栏（左右两端同一基线与高度） ==================== -->
         <Border Grid.Row="1" Grid.Column="1"
+                Height="28"
                 Background="{DynamicResource BgChrome}"
                 BorderBrush="{DynamicResource BorderDefault}"
                 BorderThickness="0,1,0,0">
-            <Grid ColumnDefinitions="*,Auto" Margin="8,0">
+            <Grid ColumnDefinitions="*,Auto" Margin="10,0,6,0">
                 <TextBlock Grid.Column="0"
                            VerticalAlignment="Center"
                            FontSize="11"
@@ -139,8 +146,11 @@
                            Foreground="{DynamicResource TextSecondary}"
                            Text="{Binding StatusText}" />
                 <Button Grid.Column="1"
+                        VerticalAlignment="Center"
                         FontSize="11"
-                        Padding="6,0"
+                        Padding="8,0"
+                        MinHeight="20"
+                        Height="20"
                         Background="Transparent"
                         BorderThickness="0"
                         Click="OnOpenIssues"

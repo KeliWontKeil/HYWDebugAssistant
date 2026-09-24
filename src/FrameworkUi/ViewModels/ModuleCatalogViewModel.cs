@@ -13,16 +13,109 @@ namespace HYWDebugAssistant.FrameworkUi.ViewModels;
 /// <param name="Capabilities">能力声明。</param>
 /// <param name="SourceDirectory">装入该模块的来源根（诊断用）。</param>
 /// <param name="NeedsRestart">是否"本次启动后被重新构建过"（需重启应用才生效；框架不实现热重载）。</param>
+/// <param name="CategoryKey">分类键（由标签推导；见 <see cref="ModuleCategories"/>）。</param>
 public sealed record ModuleCatalogRowViewModel(
     string ModuleId,
     string DisplayName,
     string Description,
     string Capabilities,
     string? SourceDirectory = null,
-    bool NeedsRestart = false)
+    bool NeedsRestart = false,
+    string CategoryKey = ModuleCategories.Other)
 {
     /// <summary>需重启提示（空 = 不需要）。</summary>
     public string RestartNotice => NeedsRestart ? "该包在本次启动后重新构建 —— 重启应用才生效" : string.Empty;
+}
+
+/// <summary>
+/// **模块分类**【M1-16 后 · 用户第七轮反馈】：按模块**声明的标签**归类（不声明归"其他"）。
+/// </summary>
+/// <remarks>
+/// 分类是**界面组织方式**，不改机制；标签来自 `ModuleDefinitionAttribute.Tags`（模块作者声明）。
+/// </remarks>
+public static class ModuleCategories
+{
+    /// <summary>全部（不过滤）。</summary>
+    public const string All = "all";
+
+    /// <summary>数据源（产生数据：发生器 / 手动发送器）。</summary>
+    public const string Source = "source";
+
+    /// <summary>显示与接收（显示器 / 接收端）。</summary>
+    public const string Sink = "sink";
+
+    /// <summary>记录与断言（记录器 / 断言器）。</summary>
+    public const string Verify = "verify";
+
+    /// <summary>其他（未声明可识别标签）。</summary>
+    public const string Other = "other";
+
+    /// <summary>分类目录（键 · 图标字形 · 悬停说明）。</summary>
+    public static readonly IReadOnlyList<(string Key, string Glyph, string Title)> Definitions =
+    [
+        (All, "\uE8FD", "全部模块"),
+        (Source, "\uE768", "数据源（发生器 / 发送器）"),
+        (Sink, "\uE890", "显示与接收"),
+        (Verify, "\uE73E", "记录与断言"),
+        (Other, "\uE712", "其他"),
+    ];
+
+    /// <summary>按标签推导分类键（不识别 → <see cref="Other"/>）。</summary>
+    /// <param name="tags">模块声明的标签。</param>
+    public static string FromTags(IReadOnlyList<string>? tags)
+    {
+        if (tags is null || tags.Count == 0)
+        {
+            return Other;
+        }
+
+        foreach (var tag in tags)
+        {
+            var value = tag.ToLowerInvariant();
+            switch (value)
+            {
+                case "generator" or "sender" or "source" or "input" or "producer":
+                    return Source;
+
+                case "monitor" or "display" or "view" or "sink" or "receiver" or "reader":
+                    return Sink;
+
+                case "recorder" or "logger" or "asserter" or "assert" or "test":
+                    return Verify;
+
+                default:
+                    break;
+            }
+        }
+
+        return Other;
+    }
+}
+
+/// <summary>分类按钮（界面：横向图标按钮 + 悬停说明）。</summary>
+/// <param name="Key">分类键。</param>
+/// <param name="Glyph">图标字形。</param>
+/// <param name="Title">悬停说明。</param>
+/// <param name="Count">该分类下的模块数。</param>
+public sealed partial class ModuleCategoryViewModel(string key, string glyph, string title, int count)
+    : ViewModelBase
+{
+    /// <summary>分类键。</summary>
+    public string Key { get; } = key;
+
+    /// <summary>图标字形。</summary>
+    public string Glyph { get; } = glyph;
+
+    /// <summary>悬停说明。</summary>
+    public string Title { get; } = title;
+
+    /// <summary>该分类下的模块数（悬停说明里也带上）。</summary>
+    [ObservableProperty]
+    public partial int Count { get; set; } = count;
+
+    /// <summary>是否当前选中（选中态视觉）。</summary>
+    [ObservableProperty]
+    public partial bool IsSelected { get; set; }
 }
 
 /// <summary>占位实例行（模块定义缺失/版本不兼容 → 可指定替代模块，§9.3）。</summary>
@@ -60,8 +153,83 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
         _command = command;
     }
 
-    /// <summary>可用模块目录。</summary>
+    /// <summary>可用模块目录（**已按分类 + 搜索过滤**）。</summary>
     public ObservableCollection<ModuleCatalogRowViewModel> Catalog { get; } = [];
+
+    /// <summary>分类按钮（横向；图标 + 悬停说明）。</summary>
+    public ObservableCollection<ModuleCategoryViewModel> Categories { get; } = [];
+
+    /// <summary>未过滤的全量模块（分类与搜索在内存里过滤，避免每帧扫状态）。</summary>
+    private readonly List<ModuleCatalogRowViewModel> _allModules = [];
+
+    /// <summary>搜索文本（按名称/描述/标签匹配；空 = 不过滤）。</summary>
+    [ObservableProperty]
+    public partial string? SearchText { get; set; }
+
+    /// <summary>当前分类键。</summary>
+    [ObservableProperty]
+    public partial string SelectedCategory { get; set; } = ModuleCategories.All;
+
+    partial void OnSearchTextChanged(string? value) => ApplyFilter();
+
+    partial void OnSelectedCategoryChanged(string value) => ApplyFilter();
+
+    /// <summary>切换分类（界面按钮调用）。</summary>
+    /// <param name="category">分类按钮。</param>
+    [RelayCommand]
+    private void SelectCategory(ModuleCategoryViewModel? category)
+    {
+        if (category is not null)
+        {
+            SelectedCategory = category.Key;
+        }
+    }
+
+    /// <summary>按"分类 + 搜索"过滤可见模块（列表用增量同步，避免闪烁）。</summary>
+    private void ApplyFilter()
+    {
+        var category = SelectedCategory;
+        var search = SearchText?.Trim();
+
+        var filtered = _allModules.Where(row =>
+            (string.Equals(category, ModuleCategories.All, StringComparison.Ordinal)
+                || string.Equals(row.CategoryKey, category, StringComparison.Ordinal))
+            && (string.IsNullOrEmpty(search)
+                || row.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || row.Description.Contains(search, StringComparison.OrdinalIgnoreCase)));
+
+        _ = CollectionSync.Sync(Catalog, [.. filtered]);
+
+        foreach (var item in Categories)
+        {
+            item.IsSelected = string.Equals(item.Key, SelectedCategory, StringComparison.Ordinal);
+        }
+
+        // 过滤后不再包含原选中项 → 清掉选择（避免"看不见却已选中"）
+        if (SelectedCatalogEntry is { } selected && !Catalog.Contains(selected))
+        {
+            SelectedCatalogEntry = null;
+        }
+    }
+
+    /// <summary>重建分类按钮与其计数。</summary>
+    private void RebuildCategories()
+    {
+        foreach (var (key, glyph, title) in ModuleCategories.Definitions)
+        {
+            var count = string.Equals(key, ModuleCategories.All, StringComparison.Ordinal)
+                ? _allModules.Count
+                : _allModules.Count(m => string.Equals(m.CategoryKey, key, StringComparison.Ordinal));
+
+            if (Categories.FirstOrDefault(c => string.Equals(c.Key, key, StringComparison.Ordinal)) is { } existing)
+            {
+                existing.Count = count;
+                continue;
+            }
+
+            Categories.Add(new ModuleCategoryViewModel(key, glyph, title, count));
+        }
+    }
 
     /// <summary>占位实例（可指定替代模块）。</summary>
     public ObservableCollection<PlaceholderRowViewModel> Placeholders { get; } = [];
@@ -154,15 +322,85 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
     /// <summary>请求在文件管理器里打开某个来源根（由视图实现）。</summary>
     public event EventHandler<string>? OpenSourceDirectoryRequested;
 
-    /// <summary>打开选中的来源根。</summary>
+    /// <summary>待添加的来源根（输入框；用户第十轮反馈：来源管理**显式放在外面**）。</summary>
+    [ObservableProperty]
+    public partial string? NewSourceDirectory { get; set; }
+
+    /// <summary>打开某个来源根（**行尾小按钮**用；参数为目录）。</summary>
+    /// <param name="directory">来源根目录。</param>
     [RelayCommand]
-    private void OpenSourceDirectory()
+    private void OpenDirectory(string? directory)
     {
-        if (SelectedSource is { Length: > 0 } directory)
+        var target = directory ?? SelectedSource;
+        if (target is { Length: > 0 })
         {
-            OpenSourceDirectoryRequested?.Invoke(this, directory);
+            SelectedSource = target;
+            OpenSourceDirectoryRequested?.Invoke(this, target);
         }
     }
+
+    /// <summary>添加一个来源根（写入应用级设置；重复/空值不写入）。</summary>
+    [RelayCommand]
+    private void AddSourceDirectory()
+    {
+        if (NewSourceDirectory is not { Length: > 0 } directory)
+        {
+            SetStatus(false, "请先填写来源根目录");
+            return;
+        }
+
+        var settings = _query.GetSettings();
+        var roots = settings.ModuleSourceDirectories.ToList();
+
+        if (roots.Any(r => string.Equals(r, directory, StringComparison.OrdinalIgnoreCase)))
+        {
+            SetStatus(false, "该来源根已在列表中");
+            return;
+        }
+
+        roots.Add(directory);
+        settings.ModuleSourceDirectories = roots;
+
+        var result = _command.UpdateSettings(settings);
+        SetStatus(result.Succeeded, result.Succeeded ? $"已添加来源根：{directory}" : $"失败：{string.Join("；", result.Failures)}");
+
+        if (result.Succeeded)
+        {
+            NewSourceDirectory = null;
+            RefreshSources();
+        }
+    }
+
+    /// <summary>移除选中的来源根（内置包目录不在本列表里，故都可移除）。</summary>
+    [RelayCommand]
+    private void RemoveSourceDirectory()
+    {
+        if (SelectedSource is not { Length: > 0 } directory)
+        {
+            SetStatus(false, "请先选中一个来源根");
+            return;
+        }
+
+        var settings = _query.GetSettings();
+        var roots = settings.ModuleSourceDirectories
+            .Where(r => !string.Equals(r, directory, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        settings.ModuleSourceDirectories = roots;
+
+        var result = _command.UpdateSettings(settings);
+        SetStatus(result.Succeeded, result.Succeeded ? $"已移除来源根：{directory}" : $"失败：{string.Join("；", result.Failures)}");
+
+        if (result.Succeeded)
+        {
+            SelectedSource = null;
+            RefreshSources();
+        }
+    }
+
+    /// <summary>打开选中的来源根。</summary>
+    [RelayCommand]
+    private void OpenSourceDirectory() => OpenDirectory(SelectedSource);
 
     /// <summary>
     /// **立刻重扫**全部来源根：装入新增的模块包并刷新诊断（改过代码的包需重启应用才生效）。
@@ -199,10 +437,15 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
                 entry.Description,
                 entry.Capabilities,
                 entry.SourceDirectory,
-                entry.NeedsRestart))
+                entry.NeedsRestart,
+                ModuleCategories.FromTags(entry.Tags)))
             .ToList();
 
-        _ = CollectionSync.Sync(Catalog, catalog);
+        // 全量保存 + 分类计数 + 应用"分类 + 搜索"过滤（列表用增量同步，避免每帧重建 → 闪烁）
+        _allModules.Clear();
+        _allModules.AddRange(catalog);
+        RebuildCategories();
+        ApplyFilter();
 
         // 选中项：保持原选择；原先没有选择时不自动选中（避免"扫一眼列表就被选中"的错觉）
         if (selectedModuleId is { Length: > 0 })

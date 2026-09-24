@@ -8,8 +8,9 @@
       B1 配置表单：**按配置 Schema 自动生成**（Q5-5 / 11 §4.2）。
       界面不出现代码化标识（无类型全名、无 JSON）：字段标题由模块标注或字段名生成。
       写回经模块的写回通道（一次 ChangeSet、原子应用或整体拒绝）。
+      【用户第七轮反馈】字段说明一律走**悬停提示**（不占版面），列宽与行距收紧。
     -->
-    <Border Margin="0,3,0,1"
+    <Border Margin="0,2,0,1"
             Padding="6,4"
             Background="{DynamicResource BgChrome}"
             BorderBrush="{DynamicResource BorderDefault}"
@@ -30,7 +31,7 @@
             <ItemsControl ItemsSource="{Binding Fields}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="vm:ConfigurationFieldViewModel">
-                        <Grid ColumnDefinitions="86,*,Auto" Margin="0,1">
+                        <Grid ColumnDefinitions="76,*,Auto" Margin="0,1">
                             <TextBlock Grid.Column="0"
                                        VerticalAlignment="Center"
                                        FontSize="11"

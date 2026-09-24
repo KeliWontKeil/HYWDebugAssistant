@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Threading;
 using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.ViewModels;
 
@@ -41,8 +42,16 @@ public sealed class ModuleWindowManager : IDisposable
         _controller.VisibilityChanged += OnVisibilityChanged;
         _controller.Modules.CollectionChanged += (_, _) => SyncAll();
 
-        _shell.PositionChanged += (_, _) => PublishShellRect();
-        _shell.SizeChanged += (_, _) => PublishShellRect();
+        // 外壳移动 → ① 刷新吸附参照矩形 ② **平移与外壳拼成一体的那一组**（用户第十二轮第四轮反馈）
+        _shell.PositionChanged += (_, _) => OnShellMoved();
+        _shell.SizeChanged += (_, _) =>
+        {
+            PublishShellRect();
+            _ = _controller.CommitSceneTranslation();
+        };
+
+        // 拖动组带动外壳（模块单侧吸附在外壳上时，拖模块 = 整体一起动）
+        _controller.ShellTranslationRequested += OnShellTranslationRequested;
 
         _controller.Scale = shell.Screens.Primary?.Scaling ?? 1.0;
         PublishWorkArea();
@@ -91,6 +100,12 @@ public sealed class ModuleWindowManager : IDisposable
         _disposed = true;
         _controller.GeometryChanged -= OnGeometryChanged;
         _controller.VisibilityChanged -= OnVisibilityChanged;
+        _controller.ShellTranslationRequested -= OnShellTranslationRequested;
+
+        // 关窗/退出前把"跟随外壳"造成的位移合并落盘（否则最后一次移动会丢）
+        _followCommitTimer?.Stop();
+        _followCommitTimer = null;
+        _ = _controller.CommitSceneTranslation();
 
         foreach (var window in _windows.Values)
         {
@@ -107,7 +122,8 @@ public sealed class ModuleWindowManager : IDisposable
     {
         if (_windows.TryGetValue(e.InstanceId, out var window))
         {
-            ApplyGeometry(window, e);
+            // 已有布局（用户拖过/缩过）→ 按模型应用；未摆放 → 只定位置（尺寸用 XAML 默认）
+            ApplyGeometry(window, e, hasLayout: true);
         }
     }
 
@@ -152,7 +168,14 @@ public sealed class ModuleWindowManager : IDisposable
 
         ApplyGeometry(
             window,
-            new ModuleWindowGeometryChange(module.InstanceId, module.X, module.Y, module.Width, module.Height));
+            new ModuleWindowGeometryChange(module.InstanceId, module.X, module.Y, module.Width, module.Height),
+            hasLayout: module.HasLayout || module.HasPreferredSize);
+
+        // 尺寸既非来自布局、也非来自模块声明 → 用 XAML 默认值；打开后把**实际尺寸**写回模型（使布局可持久化）
+        if (!module.HasLayout)
+        {
+            window.Opened += (_, _) => PublishActualSize(window, module);
+        }
 
         // 窗口位置的**实际**变化（用户用系统方式移动、或高 DPI 舍入）回写控制器，保持模型与屏幕一致
         window.PositionChanged += (_, _) => OnWindowMoved(module, window);
@@ -163,6 +186,21 @@ public sealed class ModuleWindowManager : IDisposable
         // 纳入应用窗口组：层级统一（激活任一窗口 → 其余一并抬升；"全体置顶"一起生效）
         WindowGroup.Track(window);
         HotkeyAttached?.Invoke(this, window);
+    }
+
+    /// <summary>
+    /// 把窗口的**实际尺寸**写回模型（未摆放过的模块用它初始化布局，之后随组合件保存）。
+    /// </summary>
+    /// <remarks>尺寸来源 = XAML 默认值；这里只做"读回事实"，不做任何计算。</remarks>
+    private void PublishActualSize(ModuleWindow window, ModuleViewViewModel module)
+    {
+        var scaling = window.RenderScaling <= 0 ? 1.0 : window.RenderScaling;
+
+        module.Width = ScreenPixels.Round(window.ClientSize.Width * scaling);
+        module.Height = ScreenPixels.Round(window.ClientSize.Height * scaling);
+        module.HasLayout = true;
+
+        _controller.CommitInitialLayout(module);
     }
 
     private static void OnWindowMoved(ModuleViewViewModel module, ModuleWindow window)
@@ -183,19 +221,36 @@ public sealed class ModuleWindowManager : IDisposable
         module.Y = y;
     }
 
-    private static void ApplyGeometry(ModuleWindow window, ModuleWindowGeometryChange geometry)
+    /// <summary>
+    /// 把模型几何应用到窗口；**未摆放过的模块只定位置、尺寸用 XAML 默认值**。
+    /// </summary>
+    /// <remarks>
+    /// 【用户第九轮反馈 · UI 开发方式】**窗口尺寸的默认值归 XAML**（`ModuleWindow.axaml` 的 `Width`/`Height`）：
+    /// · `layout is null`（首次加入现场）→ **只设 Position**，窗口按 XAML 默认尺寸打开，
+    ///   随后由 <see cref="OnWindowMoved"/> / 尺寸回写把**实际尺寸**写进模型并持久化；
+    /// · 已有布局（用户拖过/缩过，或从组合件恢复）→ 按布局应用（那是"用户的布局"）。
+    /// 这样"信息量"永远不会改变外层容器尺寸，内容排不下由内容区 ScrollViewer 处理。
+    /// </remarks>
+    private static void ApplyGeometry(ModuleWindow window, ModuleWindowGeometryChange geometry, bool hasLayout)
     {
         var scaling = window.RenderScaling <= 0 ? 1.0 : window.RenderScaling;
 
-        var position = new PixelPoint((int)Math.Round(geometry.X), (int)Math.Round(geometry.Y));
-        var size = new Size(
-            Math.Max(ModuleViewViewModel.MinWidth, geometry.Width / scaling),
-            Math.Max(ModuleViewViewModel.MinHeight, geometry.Height / scaling));
-
+        // 模型几何已是**整数物理像素**（唯一量化点：`ScreenPixels`），这里只做 px → DIP 的精确换算，
+        // 位置直接用整数（不再各自 Math.Round —— 口径不一致就等于没有口径，用户第十二轮反馈）。
+        var position = new PixelPoint(ScreenPixels.ToPixel(geometry.X), ScreenPixels.ToPixel(geometry.Y));
         if (window.Position != position)
         {
             window.Position = position;
         }
+
+        if (!hasLayout)
+        {
+            return;   // 尺寸交给 XAML 默认值
+        }
+
+        var size = new Size(
+            Math.Max(ModuleViewViewModel.MinWidth, ScreenPixels.Round(geometry.Width) / scaling),
+            Math.Max(ModuleViewViewModel.MinHeight, ScreenPixels.Round(geometry.Height) / scaling));
 
         if (Math.Abs(window.Width - size.Width) > 0.5)
         {
@@ -221,13 +276,103 @@ public sealed class ModuleWindowManager : IDisposable
         _controller.WorkArea = new CanvasRect(area.X, area.Y, area.Width, area.Height);
     }
 
+    /// <summary>
+    /// 外壳**位置**变化：**整个现场一起平移**（用户第十二轮第四轮反馈）。
+    /// </summary>
+    /// <remarks>
+    /// 【用户第十二轮第四轮反馈】外壳与模块**是同一套成组逻辑**：单侧吸附（外壳只提供右边缘）完成后，
+    /// 外壳与贴在其上的模块属于同一个**接触连通分量**；移动外壳 = 平移该组（**没拼上的模块留在原处**）；
+    /// 反过来拖动组内的模块时，外壳窗口也会一起走（见 <see cref="ModuleWindowsViewModel.ShellTranslationRequested"/>）。
+    /// <para>
+    /// **交互期间只刷新参照**：拖动组内的模块会带动外壳窗口，那次移动也会触发本方法 —— 此时不能再平移一次
+    /// （否则双重位移/自激），只更新吸附参照矩形即可。
+    /// </para>
+    /// <para>
+    /// **落盘防抖**：移动中只改内存，停下约 180ms 后合并成一次变更 —— 逐帧提交会触发建网重算并让拖动卡顿。
+    /// </para>
+    /// </remarks>
+    private void OnShellMoved()
+    {
+        // **移动前**的参照矩形：模块此刻还在旧位置上，分组判定必须用它
+        // （否则"贴上了"会被判成"没贴上" → 模块不跟随；与 implementation/02 P33 同类）
+        var before = _controller.ShellRect;
+
+        PublishShellRect();
+        var after = _controller.ShellRect;
+
+        if (before is not { IsValid: true } previous || after is not { } current)
+        {
+            return;
+        }
+
+        // 拖动/缩放进行中：外壳是"被拖动组带着走"的 → 只刷新参照，不再联动平移
+        if (_controller.IsInteracting)
+        {
+            return;
+        }
+
+        _controller.TranslateShellGroup(current.X - previous.X, current.Y - previous.Y, previous);
+
+        _followCommitTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
+        _followCommitTimer.Stop();
+        _followCommitTimer.Tick -= OnFollowCommitTick;
+        _followCommitTimer.Tick += OnFollowCommitTick;
+        _followCommitTimer.Start();
+    }
+
+    /// <summary>防抖到期：把整体平移合并落盘。</summary>
+    private void OnFollowCommitTick(object? sender, EventArgs e)
+    {
+        _followCommitTimer?.Stop();
+        _ = _controller.CommitSceneTranslation();
+    }
+
+    /// <summary>跟随落盘的防抖计时器（<see cref="OnShellMoved"/> 里懒创建）。</summary>
+    private DispatcherTimer? _followCommitTimer;
+
+    /// <summary>把"拖动组带动外壳"的请求落到真实窗口上（见 <see cref="ModuleWindowsViewModel.ShellTranslationRequested"/>）。</summary>
+    private void OnShellTranslationRequested(object? sender, (double Dx, double Dy) delta)
+    {
+        if (Math.Abs(delta.Dx) < 0.5 && Math.Abs(delta.Dy) < 0.5)
+        {
+            return;
+        }
+
+        _shell.Position = new PixelPoint(
+            _shell.Position.X + ScreenPixels.ToPixel(delta.Dx),
+            _shell.Position.Y + ScreenPixels.ToPixel(delta.Dy));
+    }
+
+    /// <summary>
+    /// 发布外壳的**可见外框**矩形（拼图起始点的吸附参照基准）。
+    /// </summary>
+    /// <remarks>
+    /// <b>缺陷修复 · M1-16 后</b>：曾用 <c>Position</c>（外框左上角）+ <c>Bounds</c>（客户区尺寸）拼矩形 →
+    /// 右边界的实际位置少一个"窗口边框宽度"（外壳有标题栏与系统边框），表现为"模块吸附到外壳右侧差几像素"。
+    /// 曾改为 <c>PointToScreen(0,0)</c> + <c>ClientSize</c>（**客户区**右边缘）—— 但用户视觉上的"窗口边缘"是
+    /// **可见外框**，两者相差"可见边框（约 1px）" ⇒ **贴上去总有 1px 的缝**（用户第十二轮反馈）。
+    /// 现在取 <see cref="WindowFrameProbe"/>（DWM 扩展外框 = 可见外框，物理像素），取不到才回退到客户区。
+    /// </remarks>
     private void PublishShellRect()
     {
+        if (WindowFrameProbe.TryGetVisibleFrame(_shell, out var frame))
+        {
+            _controller.ShellRect = new CanvasRect(
+                ScreenPixels.Round(frame.X),
+                ScreenPixels.Round(frame.Y),
+                ScreenPixels.Round(frame.Width),
+                ScreenPixels.Round(frame.Height));
+            return;
+        }
+
+        // 回退：客户区（PointToScreen(0,0) 是客户区原点；ClientSize 是 DIP，需乘缩放回到物理像素）
         var scaling = _shell.RenderScaling <= 0 ? 1.0 : _shell.RenderScaling;
+        var clientOrigin = _shell.PointToScreen(new Point(0, 0));
+
         _controller.ShellRect = new CanvasRect(
-            _shell.Position.X,
-            _shell.Position.Y,
-            _shell.Bounds.Width * scaling,
-            _shell.Bounds.Height * scaling);
+            ScreenPixels.Round(clientOrigin.X),
+            ScreenPixels.Round(clientOrigin.Y),
+            ScreenPixels.Round(_shell.ClientSize.Width * scaling),
+            ScreenPixels.Round(_shell.ClientSize.Height * scaling));
     }
 }

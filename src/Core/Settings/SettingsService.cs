@@ -166,6 +166,12 @@ public sealed class SettingsService
             failures.Add($"诊断提示阈值必须 ≥ 1（当前 {settings.DiagnosticHintThreshold}）");
         }
 
+        // 【ADR-0042 D6】吸附距离：2–8 px（越小越跟手，越大越容易吸上）
+        if (settings.SnapDistance is < 2 or > 8)
+        {
+            failures.Add($"吸附距离必须在 2–8 px 之间（当前 {settings.SnapDistance}）");
+        }
+
         return failures;
     }
 
@@ -211,6 +217,9 @@ public sealed class SettingsService
         settings.ShellAspect = ReadString(root, "shellAspect") ?? settings.ShellAspect;
         settings.ShellFixedSize = ReadBool(root, "shellFixedSize", settings.ShellFixedSize);
 
+        // 交互【ADR-0042 D6】：吸附距离（缺失即默认 4；非法值由值域校验拦下并回退默认）
+        settings.SnapDistance = ReadDouble(root, "snapDistance", settings.SnapDistance);
+
         return settings;
     }
 
@@ -231,6 +240,7 @@ public sealed class SettingsService
         root["backgroundColor"] = settings.BackgroundColor;
         root["shellAspect"] = settings.ShellAspect;
         root["shellFixedSize"] = settings.ShellFixedSize;
+        root["snapDistance"] = settings.SnapDistance;
 
         var roots = new JsonArray();
         foreach (var directory in settings.ModuleSourceDirectories)

@@ -5,13 +5,18 @@
         xmlns:views="using:HYWDebugAssistant.Ui.Views"
         x:Class="HYWDebugAssistant.Ui.Views.ModuleWindow"
         x:DataType="vm:ModuleViewViewModel"
+        xmlns:design="using:HYWDebugAssistant.Ui.Design"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        d:DataContext="{x:Static design:DesignData.ModuleWindow}"
+        d:DesignWidth="320" d:DesignHeight="220"
         Title="模块"
         WindowDecorations="None"
         CanResize="False"
         ShowInTaskbar="False"
         Background="Transparent"
         SizeToContent="Manual"
-        Width="260" Height="140">
+        MinWidth="180" MinHeight="120"
+        Width="320" Height="220">
 
     <!--
       拼图式模块窗口（ADR-0034 §2 · **M1-16 / ADR-0039 D1-D3 视觉重置**）：
@@ -22,6 +27,11 @@
         ④ 按钮簇在**右上角**、**纯图标**（锁定/隐藏/运行/关闭），悬停或选中时淡入；
         ⑤ 内容区点击**不选中**、但会**取消已有选中**（点别处即取消，用户第六轮反馈）。
       层级（自下而上）：内容层 → 交互带/手柄 → **口标记层** → 叠加信息层（B3）→ 按钮簇。
+
+      【用户第九轮反馈 · UI 开发方式】**尺寸的默认值就在本文件**（`Width`/`Height`/`MinWidth`/`MinHeight`）：
+      内容排不下时由 `ModuleContentView` 的 ScrollViewer 滚动，**代码不再按内容计算窗口尺寸**；
+      用户在界面上拖过的尺寸会随组合件保存（那是"用户的布局"，不是"代码算的布局"）。
+      `d:DataContext` = 设计时样例数据 → **VS 设计器里可直接预览与调整**（见 `Ui/Design/DesignData.cs`）。
     -->
     <Window.Styles>
         <!-- 按钮簇：悬停或选中时淡入（平时不可见，避免干扰数据阅读） -->
@@ -66,7 +76,8 @@
             Background="{DynamicResource BgModule}"
             BorderBrush="{DynamicResource BorderDefault}"
             BorderThickness="1"
-            CornerRadius="{DynamicResource ModuleCornerRadius}">
+            CornerRadius="{DynamicResource ModuleCornerRadius}"
+            ClipToBounds="True">
         <Grid>
 
             <!-- 内容（**整块窗口**都是内容区：没有标题栏、没有身份行） -->
@@ -139,8 +150,16 @@
                     <DataTemplate DataType="vm:PortMarkerViewModel">
                         <!--
                           网络标签（标准件）：**所有标记占地相同**（左右边缘 20×114 竖排、上下边缘 114×20 横排）。
-                          内容 = 网络名 + **信息类型** + 彩色方向箭头（发送=向外 / 接收=向内）+ 数据速率 + 状态指示灯。
+                          【用户第十三轮反馈重排】内容 = 窄颜色条（数据包类型）+ 网络名 + 方向箭头 + 连接指示灯：
+                            · **不再显示数据包类型文本**（标签名通常很长，放不下）→ 类型只在**悬停提示**里给出；
+                            · **不再显示"未连"**（没连上时指示灯会灭，文字多余）；
+                            · 箭头**放大**（标记字号 11 → 箭头字号 16）；指示灯 **半径 +1（6→8）并贴到标记端部**；
+                            · 窄颜色条 = 数据包类型占位色，**映射待定**（见 `PacketTypePalette` / `PortMarkerViewModel.TypeBrush`）。
                           "即将自动建网"时整块以主色描边高亮（拖动中的预览，松手后由网络行为落地）。
+                          槽位宽度固定 ⇒ 文本长度变化不引起排版抖动，名称超出用省略号截断。
+                          **色条与指示灯用 `Classes`（`typeStrip`/`markerLamp`）而不是 `Name` 标识**：
+                          竖排/横排两套分支在**同一个模板命名域**里，同名会抛
+                          "Control with the name 'X' already registered"（2026-09 实测踩过）。
                         -->
                         <Border Classes="portMarker"
                                 Width="{Binding MarkerWidth}"
@@ -158,30 +177,40 @@
                                         BorderThickness="2"
                                         CornerRadius="0" />
 
-                                <!-- 竖排（左右边缘）：整块内容旋转 −90°；**四段固定槽位**（名称吃掉剩余宽度，故信息变化不抖动） -->
+                                <!-- 竖排（左右边缘）：整块内容旋转 −90°；**槽位固定**（名称吃掉剩余宽度） -->
                                 <LayoutTransformControl IsVisible="{Binding IsVertical}">
                                     <LayoutTransformControl.LayoutTransform>
                                         <RotateTransform Angle="-90" />
                                     </LayoutTransformControl.LayoutTransform>
-                                    <Grid ColumnDefinitions="*,28,12,Auto" Margin="4,2" VerticalAlignment="Center">
-                                        <TextBlock Grid.Column="0"
+                                    <!--
+                                      槽位**固定**（内容变化不引起排版抖动）：色条(Auto=6) | 网络名(*) | 箭头(20) | 指示灯(Auto=8)。
+                                      **槽位顺序 = 读数顺序**：内容整体旋转 −90°（把 (x,y) 映射为 (y,−x)）后，
+                                      内容 x 小的一端落到屏幕**下方**（文字自下而上读），故"色条在最前、灯在最末"
+                                      在屏幕上表现为 **灯在上端（贴端部）、色条在下端** —— 与用户草图的读数顺序一致。
+                                    -->
+                                    <Grid ColumnDefinitions="Auto,*,20,Auto">
+                                        <!-- ① 窄颜色条：数据包类型（颜色映射待定 → Colors/PacketTypePalette） -->
+                                        <Border Classes="typeStrip"
+                                                Grid.Column="0"
+                                                Width="{DynamicResource PortMarkerStripWidth}"
+                                                Background="{Binding TypeBrush}"
+                                                Margin="0" />
+
+                                        <!-- ② 网络名：吃剩余宽度，超长省略 -->
+                                        <TextBlock Grid.Column="1"
+                                                   Margin="4,0,2,0"
                                                    VerticalAlignment="Center"
                                                    FontSize="{DynamicResource PortMarkerFontSize}"
                                                    FontFamily="{DynamicResource FontData}"
                                                    Foreground="{DynamicResource TextPrimary}"
                                                    TextTrimming="CharacterEllipsis"
                                                    Text="{Binding NetworkText}" />
-                                        <TextBlock Grid.Column="1"
-                                                   VerticalAlignment="Center"
-                                                   FontSize="{DynamicResource PortMarkerFontSize}"
-                                                   FontFamily="{DynamicResource FontData}"
-                                                   Foreground="{DynamicResource TextSecondary}"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   Text="{Binding TypeText}" />
+
+                                        <!-- ③ 方向箭头：发送=向外（主色）/ 接收=向内（次色） -->
                                         <TextBlock Grid.Column="2"
                                                    HorizontalAlignment="Center"
                                                    VerticalAlignment="Center"
-                                                   FontSize="{DynamicResource PortMarkerFontSize}"
+                                                   FontSize="{DynamicResource PortMarkerArrowFontSize}"
                                                    FontWeight="Bold"
                                                    Foreground="{DynamicResource AccentPrimary}"
                                                    IsVisible="{Binding IsSend}"
@@ -189,14 +218,19 @@
                                         <TextBlock Grid.Column="2"
                                                    HorizontalAlignment="Center"
                                                    VerticalAlignment="Center"
-                                                   FontSize="{DynamicResource PortMarkerFontSize}"
+                                                   FontSize="{DynamicResource PortMarkerArrowFontSize}"
                                                    FontWeight="Bold"
                                                    Foreground="{DynamicResource AccentSecondary}"
                                                    IsVisible="{Binding !IsSend}"
                                                    Text="{Binding Arrow}" />
-                                        <ctrl:StateIndicator Grid.Column="3"
-                                                             Width="6" Height="6"
-                                                             Margin="3,0,0,0"
+
+                                        <!-- ④ 连接指示灯：贴到标记端部（无外边距） -->
+                                        <ctrl:StateIndicator Classes="markerLamp"
+                                                             Grid.Column="3"
+                                                             Width="{DynamicResource PortMarkerLampSize}"
+                                                             Height="{DynamicResource PortMarkerLampSize}"
+                                                             Margin="0"
+                                                             HorizontalAlignment="Right"
                                                              VerticalAlignment="Center"
                                                              State="{Binding State}"
                                                              OkBrush="{DynamicResource SemanticOk}"
@@ -206,28 +240,28 @@
                                     </Grid>
                                 </LayoutTransformControl>
 
-                                <!-- 横排（上下边缘）：正常方向；同样四段固定槽位 -->
-                                <Grid ColumnDefinitions="*,28,12,Auto"
-                                      Margin="4,2"
+                                <!-- 横排（上下边缘）：正常方向（当前框架把口只放在左右，本支为将来留口）；同样槽位固定 -->
+                                <Grid ColumnDefinitions="Auto,*,20,Auto"
                                       IsVisible="{Binding !IsVertical}">
-                                    <TextBlock Grid.Column="0"
+                                    <Border Classes="typeStrip"
+                                            Grid.Column="0"
+                                            Width="{DynamicResource PortMarkerStripWidth}"
+                                            Background="{Binding TypeBrush}"
+                                            Margin="0" />
+
+                                    <TextBlock Grid.Column="1"
+                                               Margin="4,0,2,0"
                                                VerticalAlignment="Center"
                                                FontSize="{DynamicResource PortMarkerFontSize}"
                                                FontFamily="{DynamicResource FontData}"
                                                Foreground="{DynamicResource TextPrimary}"
                                                TextTrimming="CharacterEllipsis"
                                                Text="{Binding NetworkText}" />
-                                    <TextBlock Grid.Column="1"
-                                               VerticalAlignment="Center"
-                                               FontSize="{DynamicResource PortMarkerFontSize}"
-                                               FontFamily="{DynamicResource FontData}"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               TextTrimming="CharacterEllipsis"
-                                               Text="{Binding TypeText}" />
+
                                     <TextBlock Grid.Column="2"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"
-                                               FontSize="{DynamicResource PortMarkerFontSize}"
+                                               FontSize="{DynamicResource PortMarkerArrowFontSize}"
                                                FontWeight="Bold"
                                                Foreground="{DynamicResource AccentPrimary}"
                                                IsVisible="{Binding IsSend}"
@@ -235,14 +269,18 @@
                                     <TextBlock Grid.Column="2"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"
-                                               FontSize="{DynamicResource PortMarkerFontSize}"
+                                               FontSize="{DynamicResource PortMarkerArrowFontSize}"
                                                FontWeight="Bold"
                                                Foreground="{DynamicResource AccentSecondary}"
                                                IsVisible="{Binding !IsSend}"
                                                Text="{Binding Arrow}" />
-                                    <ctrl:StateIndicator Grid.Column="3"
-                                                         Width="6" Height="6"
-                                                         Margin="3,0,0,0"
+
+                                    <ctrl:StateIndicator Classes="markerLamp"
+                                                         Grid.Column="3"
+                                                         Width="{DynamicResource PortMarkerLampSize}"
+                                                         Height="{DynamicResource PortMarkerLampSize}"
+                                                         Margin="0"
+                                                         HorizontalAlignment="Right"
                                                          VerticalAlignment="Center"
                                                          State="{Binding State}"
                                                          OkBrush="{DynamicResource SemanticOk}"
@@ -251,7 +289,12 @@
                                                          ErrorBrush="{DynamicResource SemanticError}" />
                                 </Grid>
 
-                                <!-- 编辑输入框：**弹出**（不进标记内部） -->
+                                <!--
+                                  编辑输入框：**弹出**（不进标记内部）。
+                                  【用户第十三轮反馈】① 弹窗**过宽**（原 268）→ **收窄到 188**（只放标题 + 输入框 + 按钮）；
+                                  ② 原**行内提示文本**（多句）拿走 → 改为标题右侧 **`?` 帮助按钮 + Flyout**，
+                                  与主界面各页同一做法（`Button.helpIcon`：**不占版面、点外部关闭**）。
+                                -->
                                 <Popup IsOpen="{Binding IsEditing, Mode=TwoWay}"
                                        PlacementTarget="{Binding $parent[Border]}"
                                        Placement="Pointer"
@@ -262,20 +305,31 @@
                                             BorderThickness="1"
                                             CornerRadius="3"
                                             Padding="8"
-                                            Width="268">
+                                            Width="188">
                                         <StackPanel Spacing="4">
-                                            <TextBlock FontSize="11"
-                                                       Foreground="{DynamicResource TextPrimary}"
-                                                       Text="{Binding PortName, StringFormat='设置网络名：{0}'}" />
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <TextBlock Grid.Column="0"
+                                                           VerticalAlignment="Center"
+                                                           FontSize="11"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Foreground="{DynamicResource TextPrimary}"
+                                                           Text="{Binding PortName, StringFormat='设置网络名：{0}'}" />
+                                                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="建网规则">
+                                                    <Button.Flyout>
+                                                        <Flyout Placement="TopEdgeAlignedRight">
+                                                            <TextBlock MaxWidth="300"
+                                                                       TextWrapping="Wrap"
+                                                                       FontSize="11"
+                                                                       Text="{Binding Hint}" />
+                                                        </Flyout>
+                                                    </Button.Flyout>
+                                                </Button>
+                                            </Grid>
                                             <TextBox FontFamily="{DynamicResource FontData}"
                                                      PlaceholderText="网络名（留空 = 清除）"
                                                      Text="{Binding EditText, Mode=TwoWay}"
                                                      KeyDown="OnPortLabelKeyDown"
                                                      AttachedToVisualTree="OnLabelEditorAttached" />
-                                            <TextBlock FontSize="10"
-                                                       TextWrapping="Wrap"
-                                                       Foreground="{DynamicResource TextMuted}"
-                                                       Text="{Binding Hint}" />
                                             <TextBlock FontSize="10"
                                                        TextWrapping="Wrap"
                                                        IsVisible="{Binding HasEditError}"
@@ -338,21 +392,21 @@
                     BorderBrush="{DynamicResource BorderDefault}"
                     BorderThickness="1">
                 <StackPanel Orientation="Horizontal" Spacing="1">
-                    <Button Name="RunButton" Classes="icon" Click="OnToggleEnabled"
-                            ToolTip.Tip="运行 / 停用（停用 = 保留实例与配置，只停数据流）">
-                        <PathIcon Name="RunStopIcon" Data="{DynamicResource IconStop}" />
+                    <Button Name="ResetButton" Classes="icon" Click="OnReset"
+                            ToolTip.Tip="还原：默认尺寸，或尺寸与配置一起还原（会先确认）">
+                        <TextBlock Classes="icon" Text="{DynamicResource GlyphReset}" />
                     </Button>
                     <Button Name="LockButton" Classes="icon" Click="OnToggleLock"
                             ToolTip.Tip="锁定后不可拖动、缩放与选中（仍显示数据）">
-                        <PathIcon Name="LockIcon" Data="{DynamicResource IconUnlock}" />
+                        <TextBlock Name="LockIcon" Classes="icon" Text="{DynamicResource GlyphLock}" />
                     </Button>
                     <Button Name="HideButton" Classes="icon" Click="OnHide"
-                            ToolTip.Tip="隐藏窗口（模块继续运行；恢复入口：菜单「视图 → 模块窗口 → 全部显示」）">
-                        <PathIcon Data="{DynamicResource IconHide}" />
+                            ToolTip.Tip="隐藏窗口（模块继续运行；恢复入口：交互页 → 显示全部）">
+                        <TextBlock Classes="icon" Text="{DynamicResource GlyphHide}" />
                     </Button>
                     <Button Name="CloseButton" Classes="icon" Click="OnClose"
                             ToolTip.Tip="关闭窗口 = 移除该模块实例">
-                        <PathIcon Data="{DynamicResource IconClose}" />
+                        <TextBlock Classes="icon" Text="{DynamicResource GlyphClose}" />
                     </Button>
                 </StackPanel>
             </Border>

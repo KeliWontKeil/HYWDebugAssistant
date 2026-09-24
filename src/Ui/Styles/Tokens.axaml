@@ -77,23 +77,41 @@
     <x:Double x:Key="PortMarkerFontSize">11</x:Double>
 
     <!--
-      图标【M1-16 / ADR-0039 D1/D7】：12×12 视框的**填充几何**（`PathIcon` 使用）。
-      当前为内置几何（零依赖）；D-8 允许在白名单内引入图标包——引入后**只需替换本组资源键**，视图不动。
+      端口标记内元素尺寸【ADR-0043 · 用户第十三轮反馈】：
+      · PortMarkerArrowFontSize —— 方向箭头字号 **11 → 16**（用户："箭头太小看不清"）；
+      · PortMarkerLampSize —— 连接指示灯 **6×6 → 8×8**（`StateIndicator` 半径 = 边长/2 − 1 ⇒ 半径 2 → 3，**+1**），
+        并由"距端部 3 px"改为 **Margin=0 贴到标记端部"最边缘"**；
+      · PortMarkerStripWidth —— **数据包类型窄色条**宽度 6（沿标记长边方向的窄条；竖排时跨满标记内宽 = 20 − 边框 1×2 = 18）。
+        色条颜色 = **占位色，映射待定**（`PacketTypePalette.Placeholder`，将来只改那里，XAML 不动）。
     -->
-    <StreamGeometry x:Key="IconLock">M2.6,5.2 H9.4 V11 H2.6 Z M4.1,5.2 V3.6 A1.9,1.9 0 0 1 7.9,3.6 V5.2 H6.7 V3.7 A0.7,0.7 0 0 0 5.3,3.7 V5.2 Z</StreamGeometry>
-    <StreamGeometry x:Key="IconUnlock">M2.6,5.2 H9.4 V11 H2.6 Z M4.1,5.2 V3.6 A1.9,1.9 0 0 0 7.9,3.6 V4.4 H9.1 V3.5 A3.1,3.1 0 0 1 2.9,3.5 V5.2 Z</StreamGeometry>
-    <StreamGeometry x:Key="IconHide">M6,3 C3.4,3 1.4,4.8 0.8,6 C1.4,7.2 3.4,9 6,9 C8.6,9 10.6,7.2 11.2,6 C10.6,4.8 8.6,3 6,3 Z M6,4.4 A1.6,1.6 0 1 1 6,7.6 A1.6,1.6 0 1 1 6,4.4 Z M1.6,1 L11,10.4 L10.2,11.2 L0.8,1.8 Z</StreamGeometry>
-    <StreamGeometry x:Key="IconShow">M6,3 C3.4,3 1.4,4.8 0.8,6 C1.4,7.2 3.4,9 6,9 C8.6,9 10.6,7.2 11.2,6 C10.6,4.8 8.6,3 6,3 Z M6,4.4 A1.6,1.6 0 1 1 6,7.6 A1.6,1.6 0 1 1 6,4.4 Z</StreamGeometry>
-    <StreamGeometry x:Key="IconPlay">M4,2.8 L9.6,6 L4,9.2 Z</StreamGeometry>
-    <StreamGeometry x:Key="IconStop">M3.6,3.6 H8.4 V8.4 H3.6 Z</StreamGeometry>
-    <StreamGeometry x:Key="IconClose">M2.4,3.5 L3.5,2.4 L6,4.9 L8.5,2.4 L9.6,3.5 L7.1,6 L9.6,8.5 L8.5,9.6 L6,7.1 L3.5,9.6 L2.4,8.5 L4.9,6 Z</StreamGeometry>
+    <x:Double x:Key="PortMarkerArrowFontSize">18</x:Double>
+    <x:Double x:Key="PortMarkerLampSize">8</x:Double>
+    <x:Double x:Key="PortMarkerStripWidth">6</x:Double>
 
-    <!-- 外壳活动栏图标【M1-16 / ADR-0038 D1】（同样 12×12 视框） -->
-    <StreamGeometry x:Key="IconModules">M2,2 H5.4 V5.4 H2 Z M6.6,2 H10 V5.4 H6.6 Z M2,6.6 H5.4 V10 H2 Z M6.6,6.6 H10 V10 H6.6 Z</StreamGeometry>
-    <StreamGeometry x:Key="IconInteraction">M2,3 H10 V4.4 H2 Z M4.4,2 H5.8 V5.4 H4.4 Z M2,8.6 H10 V10 H2 Z M6.2,7.6 H7.6 V11 H6.2 Z</StreamGeometry>
-    <StreamGeometry x:Key="IconSettings">M6,4.2 A1.8,1.8 0 1 1 6,7.8 A1.8,1.8 0 1 1 6,4.2 Z M5.5,1 H6.5 L6.75,2.6 L8,2.2 L8.6,3.1 L7.6,4.1 L9,4.6 L9,5.6 L7.6,6 L8.6,7 L8.1,7.9 L6.6,7.5 L6.5,9.2 H5.5 L5.25,7.5 L3.9,7.9 L3.4,7 L4.4,6 L3,5.6 L3,4.6 L4.4,4.1 L3.4,3.1 L4,2.2 L5.25,2.6 Z</StreamGeometry>
-    <StreamGeometry x:Key="IconTopology">M6,1.6 A1.5,1.5 0 1 1 6,4.6 A1.5,1.5 0 1 1 6,1.6 Z M2.4,7.4 A1.5,1.5 0 1 1 2.4,10.4 A1.5,1.5 0 1 1 2.4,7.4 Z M9.6,7.4 A1.5,1.5 0 1 1 9.6,10.4 A1.5,1.5 0 1 1 9.6,7.4 Z M5.6,4.6 H6.4 V7 H5.6 Z M3.1,7.2 L5.8,5.6 L6.2,6.3 L3.5,7.9 Z M8.9,7.2 L6.2,5.6 L5.8,6.3 L8.5,7.9 Z</StreamGeometry>
-    <StreamGeometry x:Key="IconIssue">M6,1 L11.4,10.6 H0.6 Z M5.4,4.4 H6.6 V7.6 H5.4 Z M5.4,8.4 H6.6 V9.6 H5.4 Z</StreamGeometry>
-    <StreamGeometry x:Key="IconHelp">M6,1.2 A4.8,4.8 0 1 1 6,10.8 A4.8,4.8 0 1 1 6,1.2 Z M5.3,4.4 A0.9,0.9 0 1 1 6.6,5.2 C6.1,5.6 6,5.9 6,6.6 H5 A1.9,1.9 0 0 1 6,4.3 A1.6,1.6 0 0 1 7.4,5.9 C7.4,6.8 6.9,7.1 6.4,7.4 L6.4,7.8 H5.4 L5.4,6.8 L5.9,6.4 A0.9,0.9 0 0 0 6.3,5.6 A0.6,0.6 0 0 0 5.3,5.1 Z M5.4,8.4 H6.6 V9.6 H5.4 Z</StreamGeometry>
-    <StreamGeometry x:Key="IconRefresh">M6,2.2 A3.8,3.8 0 1 1 2.6,5.4 L2.2,4 L5.6,4.4 L4.4,5.2 A2.6,2.6 0 1 0 6,3.4 Z</StreamGeometry>
+    <!--
+      图标【M1-16 / ADR-0039 D7 · 用户第六轮反馈后改用系统图标字体】
+      · **不再手绘几何**：改用 **Segoe Fluent Icons / Segoe MDL2 Assets**（Windows 原生图标字体，随系统提供，零依赖）；
+      · 选型经过评估：`Projektanker.Icons.Avalonia`（MIT）最新 9.6.2 仍依赖 **Avalonia 11.2.8**，
+        本工程用 **Avalonia 12.1.2**（该版本还移除了 `SymbolIcon`）→ 引入有运行时风险，故不采用；
+      · 用法：`<TextBlock Classes="icon" Text="&#xE8FD;"/>`；字号/对齐由 `Controls.axaml` 的 `TextBlock.icon` 统一。
+      · 字形表（MDL2/Fluent 同码位）：
+        模块清单 E8FD · 交互 E90F · 拓扑 E774 · Issue E7BA · 设置 E713 · 帮助 E897
+        运行 E768 · 停用 E71A · 锁定 E72E · 解锁 E785 · 隐藏 E890 · 关闭 E8BB · 发送 E724 · 重扫 E72C
+    -->
+    <FontFamily x:Key="FontIcons">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+
+    <!-- 图标码位（供 XAML 与代码后置共用；改图标只改这里） -->
+    <x:String x:Key="GlyphModules">&#xE8FD;</x:String>
+    <x:String x:Key="GlyphInteraction">&#xE90F;</x:String>
+    <x:String x:Key="GlyphTopology">&#xE774;</x:String>
+    <x:String x:Key="GlyphIssue">&#xE7BA;</x:String>
+    <x:String x:Key="GlyphSettings">&#xE713;</x:String>
+    <x:String x:Key="GlyphHelp">&#xE897;</x:String>
+    <x:String x:Key="GlyphRun">&#xE768;</x:String>
+    <x:String x:Key="GlyphStop">&#xE71A;</x:String>
+    <x:String x:Key="GlyphLock">&#xE72E;</x:String>
+    <x:String x:Key="GlyphUnlock">&#xE785;</x:String>
+    <x:String x:Key="GlyphHide">&#xE890;</x:String>
+    <x:String x:Key="GlyphClose">&#xE8BB;</x:String>
+    <x:String x:Key="GlyphReset">&#xE72C;</x:String>
 </ResourceDictionary>

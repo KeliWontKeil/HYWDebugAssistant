@@ -22,8 +22,14 @@ public sealed class PortMarkerPanel : Panel
     /// <summary>预留带厚度（px）——内容区需加同宽内边距，否则标记会压住内容。</summary>
     public const double BandThickness = 20;
 
-    /// <summary>标记与窗口外沿的间距（px）——**【ADR-0039 D3】0 = 标记与外边框完全重合**。</summary>
-    private const double EdgeInset = 0;
+    /// <summary>
+    /// 标记与窗口外沿的间距（px）——**【ADR-0039 D3】-1 = 标记外沿与窗口外框完全重合**。
+    /// </summary>
+    /// <remarks>
+    /// 本面板位于 1 px 边框**之内**，故取 −1 让标记压到窗口外框上：两个相邻模块的标记带因此**严丝合缝**
+    /// （否则中间会留 2 px 边框缝，看起来像"没对齐" —— 用户第六轮反馈）。
+    /// </remarks>
+    private const double EdgeInset = -1;
 
     /// <inheritdoc />
     protected override Size MeasureOverride(Size availableSize)

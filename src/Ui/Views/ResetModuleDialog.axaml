@@ -1,0 +1,33 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="HYWDebugAssistant.Ui.Views.ResetModuleDialog"
+        Title="还原模块"
+        Width="420"
+        SizeToContent="Height"
+        CanResize="False"
+        MinWidth="360"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgModule}"
+        FontSize="12">
+
+    <!--
+      **还原确认弹窗**【用户第十一轮反馈】：三选一 —— 只还原尺寸 / 尺寸与配置都还原 / 取消。
+      · 用普通窗口（带标题栏）而不是无边框窗：确认框需要明确的关闭与"取消"语义；
+      · 文案与按钮从左到右按"影响从小到大"排列，取消在最后（Windows 习惯）。
+    -->
+    <StackPanel Margin="14" Spacing="10">
+        <TextBlock x:Name="Message"
+                   TextWrapping="Wrap"
+                   Foreground="{DynamicResource TextPrimary}"
+                   Text="要还原该模块吗？" />
+
+        <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"
+                   Text="「默认尺寸」= 模块声明的首选尺寸（用户拖过的尺寸会被覆盖）；「配置」= 模块自己的默认参数值。" />
+
+        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+            <Button Content="只还原默认尺寸" Click="OnSizeOnly" />
+            <Button Content="尺寸和配置都还原" Click="OnSizeAndConfiguration" />
+            <Button Content="取消" Click="OnCancel" />
+        </StackPanel>
+    </StackPanel>
+</Window>

@@ -36,6 +36,10 @@ public partial class MainWindow : Window
         Opened += (_, _) =>
         {
             Shell?.LoadSettings();
+
+            // **尺寸默认值在 XAML**；设置只在"用户显式改过比例"时覆盖
+            ApplyShellSizeFromSettings();
+
             Shell?.Refresh();
             _refreshTimer.Start();
 
@@ -62,6 +66,29 @@ public partial class MainWindow : Window
     public ModuleWindowManager? WindowManager { get; set; }
 
     private ShellViewModel? Shell => DataContext as ShellViewModel;
+
+    /// <summary>
+    /// 按设置里的「主窗口比例」覆盖窗口尺寸（**默认值在 XAML**，此处只在设置与默认不一致时才改）。
+    /// </summary>
+    /// <remarks>
+    /// 【用户第九轮反馈 · UI 开发方式】外层容器尺寸**必须固定**：默认值写在 `MainWindow.axaml`；
+    /// 设置只承载"用户显式选择的比例档"；**不存在任何按内容计算尺寸的逻辑**。
+    /// </remarks>
+    private void ApplyShellSizeFromSettings()
+    {
+        if (Shell is not { } shell)
+        {
+            return;
+        }
+
+        var (width, height) = Ui.Theming.ShellLayout.Measure(shell.ShellAspect);
+
+        if (Math.Abs(Width - width) > 0.5 || Math.Abs(Height - height) > 0.5)
+        {
+            Width = width;
+            Height = height;
+        }
+    }
 
     /// <summary>外壳内任意按下 → 清除模块选中（"点别处取消选中"）。</summary>
     private void OnShellPressed(object? sender, PointerPressedEventArgs e) => Shell?.Windows.ClearSelection();

@@ -71,6 +71,46 @@ public class SettingsServiceTests
     }
 
     [Fact]
+    public void 更新_吸附距离应落盘并往返()
+    {
+        using var scope = new SettingsScope();
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load();
+
+        service.Current.SnapDistance.ShouldBe(4, "默认 4（ADR-0042 D6）");
+
+        var updated = service.Current.Clone();
+        updated.SnapDistance = 6;
+        service.Update(updated).Succeeded.ShouldBeTrue();
+
+        var text = File.ReadAllText(scope.SettingsPath);
+        text.ShouldContain("\"snapDistance\": 6");
+
+        var reloaded = new SettingsService(runtime, scope.SettingsPath);
+        reloaded.Load();
+        reloaded.Current.SnapDistance.ShouldBe(6, "重新加载应保留用户设置");
+    }
+
+    [Fact]
+    public void 更新_吸附距离超出范围应被拒绝()
+    {
+        using var scope = new SettingsScope();
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load();
+
+        var invalid = service.Current.Clone();
+        invalid.SnapDistance = 20;
+
+        var result = service.Update(invalid);
+
+        result.Succeeded.ShouldBeFalse();
+        result.Failures[0].ShouldContain("吸附距离");
+        service.Current.SnapDistance.ShouldBe(4, "被拒绝的更新不得改变当前值");
+    }
+
+    [Fact]
     public void 更新_非法值应被拒绝且不改变当前设置()
     {
         using var scope = new SettingsScope();

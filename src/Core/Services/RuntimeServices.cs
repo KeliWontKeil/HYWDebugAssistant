@@ -420,6 +420,14 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         return Map(_runtime.Apply(ChangeSet.OfOne(new UpdateConfigurationsOperation(instanceId, pending))));
     }
 
+    /// <inheritdoc />
+    public CommandResult ResetModuleConfiguration(string instanceId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
+
+        return Map(_runtime.Apply(ChangeSet.OfOne(new ResetModuleConfigurationOperation(instanceId))));
+    }
+
     // ---------------------------------------------------------------- 查询面
 
     /// <inheritdoc />
@@ -488,7 +496,8 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             d.Description,
             d.Capabilities.ToString(),
             _modulePackages.TryGetValue(d.Id.ToString(), out var package) ? package.Root : null,
-            package?.NeedsRestart ?? false))];
+            package?.NeedsRestart ?? false,
+            d.Tags))];
 
     /// <summary>
     /// 模块包的来源信息（**NeedsRestart 在扫描时算一次并缓存**）：

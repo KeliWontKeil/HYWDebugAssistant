@@ -27,12 +27,96 @@
         <Setter Property="MinHeight" Value="{DynamicResource ControlHeight}" />
         <Setter Property="FontSize" Value="{DynamicResource ControlFontSize}" />
         <Setter Property="Padding" Value="10,0" />
+        <!-- 【用户第七轮反馈】按钮文本**一律居中**（此前个别按钮继承左对齐，观感不齐） -->
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
 
     <Style Selector="ToggleButton">
         <Setter Property="MinHeight" Value="{DynamicResource ControlHeight}" />
         <Setter Property="FontSize" Value="{DynamicResource ControlFontSize}" />
         <Setter Property="Padding" Value="10,0" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <!--
+      **帮助按钮**（用户第十轮反馈）：**弹窗式帮助**，不再在控件旁展开文本（展开会改变布局）。
+      · 16×16、**有边框**（此前是无边框的问号，几乎看不见）、靠右/右下摆放、各页面同一 X 对齐；
+      · 用法：`<Button Classes="helpIcon"><Button.Flyout><Flyout>…文本…</Flyout></Button.Flyout></Button>`
+        —— 点击弹窗、点外部关闭，**不占用版面**。
+    -->
+    <Style Selector="Button.helpIcon">
+        <Setter Property="Width" Value="16" />
+        <Setter Property="Height" Value="16" />
+        <Setter Property="MinHeight" Value="16" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="Content" Value="?" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="Button.helpIcon:pointerover">
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+        <Setter Property="Foreground" Value="{DynamicResource AccentPrimary}" />
+        <Setter Property="Background" Value="{DynamicResource OverlayHighlight}" />
+    </Style>
+
+    <!--
+      **区域边框**（用户第十轮反馈："各控件没有边框、区域边界不明显"）：
+      列表/输入等控件给 1 px 边框与统一圆角，页面的分区容器用 `Border.pane`。
+    -->
+    <Style Selector="ListBox">
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="3" />
+    </Style>
+
+    <Style Selector="Border.pane">
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="3" />
+        <Setter Property="Background" Value="{DynamicResource BgChrome}" />
+    </Style>
+
+    <!-- 分区标题（小号半粗；与区域边框配套） -->
+    <Style Selector="TextBlock.paneTitle">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+    </Style>
+
+    <!--
+      **分类标签**（模块清单顶部横向标签；用户第十轮反馈）：
+      **固定宽度**（由使用处给 Width）→ 切换分类**不会推动其它控件**；选中态用边框 + 底色 + 主色文字。
+    -->
+    <Style Selector="Button.tab">
+        <Setter Property="Height" Value="28" />
+        <Setter Property="MinHeight" Value="28" />
+        <Setter Property="Padding" Value="6,0" />
+        <Setter Property="CornerRadius" Value="3" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+    </Style>
+
+    <Style Selector="Button.tab:pointerover">
+        <Setter Property="Background" Value="{DynamicResource OverlayHighlight}" />
+    </Style>
+
+    <Style Selector="Button.tab.active">
+        <Setter Property="Background" Value="{DynamicResource OverlaySelection}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+    </Style>
+
+    <Style Selector="Button.tab.active TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource AccentPrimary}" />
     </Style>
 
     <Style Selector="CheckBox">
@@ -55,13 +139,21 @@
         <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
 
-    <Style Selector="Button.icon PathIcon">
-        <Setter Property="Width" Value="12" />
-        <Setter Property="Height" Value="12" />
+    <!-- 图标字形（**系统图标字体**，见 Tokens 的 FontIcons；字号 13 与 20×20 按钮相称） -->
+    <Style Selector="TextBlock.icon">
+        <Setter Property="FontFamily" Value="{DynamicResource FontIcons}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
     </Style>
 
-    <Style Selector="Button.icon:pointerover PathIcon">
+    <!-- 活动栏按钮里的图标：大一号，颜色随选中态 -->
+    <Style Selector="Button.rail TextBlock.icon">
+        <Setter Property="FontSize" Value="16" />
+    </Style>
+
+    <Style Selector="Button.rail.active TextBlock.icon">
         <Setter Property="Foreground" Value="{DynamicResource AccentPrimary}" />
     </Style>
 

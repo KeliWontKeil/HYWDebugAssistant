@@ -143,7 +143,12 @@ public sealed class ManualSenderModule : IModule, IActivitySource
             ],
             [
                 new ViewCommand(SendCommand, "发送", icon: "play", description: "按当前值发送一个数据单元"),
-            ]));
+            ])
+        {
+            // 【用户第十一轮反馈】模块**声明**自己合适的默认窗口尺寸（框架照用，不按元素类型猜）
+            PreferredWidth = 330,
+            PreferredHeight = 330,
+        });
     }
 
     /// <inheritdoc />

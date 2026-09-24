@@ -154,6 +154,37 @@ public sealed class ModuleContext : IModuleContext
     }
 
     /// <summary>
+    /// **把该实例已保存的配置重置为默认值**（框架内部：模块「还原」时调用）。
+    /// </summary>
+    /// <remarks>
+    /// 实现要点：**不是清空**，而是把每条配置替换为**同类型的新实例**（默认值）。
+    /// 清空会让"配置 Schema 表单"失去字段来源（表单按登记对象生成）——用户会看到空表单；
+    /// 替换新实例则同时满足：① 模块下次读取即拿到默认值；② 表单仍可生成并显示默认值。
+    /// 反射只作用于**模块自有配置类型**（沿用 `ConfigurationJson` 的既有取舍：组合件信封零反射、模块配置反射式）。
+    /// </remarks>
+    /// <returns>是否确实重置了内容（false = 原本没有配置）。</returns>
+    public bool ResetConfiguration()
+    {
+        lock (_configurationGate)
+        {
+            if (_configuration.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (var key in _configuration.Keys.ToList())
+            {
+                if (Activator.CreateInstance(_configuration[key].GetType()) is { } defaults)
+                {
+                    _configuration[key] = defaults;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>
     /// 请求停止本实例的模块活动（由数据面的停止协议调用，M1-5）。
     /// </summary>
     /// <remarks>模块侧通过 <see cref="StopSignal"/> 只读查询，不能自行置位。</remarks>

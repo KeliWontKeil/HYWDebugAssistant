@@ -80,6 +80,13 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         Issues = new IssuesPanelViewModel(query);
         Settings = new SettingsPanelViewModel(query, command);
         Topology = new TopologyViewModel(query);
+
+        // 占位实例属**诊断**（用户第六轮反馈）→ 其列表与"指定替代"命令由模块清单视图模型提供，在拓扑诊断弹窗里呈现
+        Topology.Catalog = Catalog;
+
+        // 【用户第十一轮反馈】开关类设置（叠加信息层 / 应用置顶）**以本视图模型为唯一事实源**，
+        // 设置页与交互页因此完全联动（此前设置页各持一份副本 → 两边可不一致）。
+        Settings.Owner = this;
     }
 
     /// <summary>应用内快捷键服务（挂到本应用每一个窗口上；ADR-0036 D7）。</summary>
@@ -377,7 +384,12 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     /// <summary>保存当前全部内容为一个组合件文件（"保存全部内容"，§9.2）。</summary>
     /// <param name="filePath">目标文件路径。</param>
     /// <returns>命令结果。</returns>
-    public CommandResult SaveAll(string filePath) => _command.SaveComposite(filePath);
+    public CommandResult SaveAll(string filePath)
+    {
+        // 【用户第十二轮第四轮】先把"整体平移"的待提交位置落盘，否则刚移动完外壳就保存会丢掉最后一段位移
+        _ = Windows.CommitSceneTranslation();
+        return _command.SaveComposite(filePath);
+    }
 
     /// <summary>加载一个组合件文件（降级式）。</summary>
     /// <param name="filePath">文件路径。</param>

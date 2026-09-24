@@ -3,18 +3,21 @@
         xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
         xmlns:views="using:HYWDebugAssistant.FrameworkUi.Views"
         x:Class="HYWDebugAssistant.FrameworkUi.Views.DialogWindow"
-        MinWidth="420" MinHeight="300"
+        Width="780" Height="620"
+        MinWidth="560" MinHeight="320"
         MaxWidth="1080" MaxHeight="880"
-        SizeToContent="WidthAndHeight"
+        SizeToContent="Manual"
+        CanResize="True"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource BgModule}"
         FontSize="12">
 
     <!--
-      通用弹窗宿主（R-3）：外壳的四个功能一律**弹窗**而非常驻侧栏。
-      非模态：可以一边看着桌面上的模块窗口一边操作（`11` §3「非模态优先」）。
-      **尺寸自适应【M1-16 / ADR-0038 D3】**：由内容决定（`SizeToContent=WidthAndHeight`），
-      上限 MaxWidth/MaxHeight（超限时内容区自身滚动）—— 修掉"弹窗大小与内容不匹配"。
+      通用弹窗宿主（R-3）：外壳的四个功能一律**弹窗**而非常驻侧栏；非模态（`11` §3「非模态优先」）。
+
+      【用户第九轮反馈 · UI 开发方式】**外层容器尺寸固定**：`Width=780 Height=620` 写在本文件，
+      子内容排不下时**由内容区的 ScrollViewer 滚动**（每个弹窗的根都有 ScrollViewer），
+      **不再** `SizeToContent` 按内容撑高——那样等于让"信息量"决定外层尺寸，用户无法预期也无法在 XAML 里调。
     -->
     <ContentControl Name="Body" />
 </Window>

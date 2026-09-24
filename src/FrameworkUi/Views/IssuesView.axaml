@@ -3,6 +3,10 @@
              xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
              x:Class="HYWDebugAssistant.FrameworkUi.Views.IssuesView"
              x:DataType="vm:IssuesPanelViewModel"
+             xmlns:design="using:HYWDebugAssistant.FrameworkUi.Design"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             d:DataContext="{x:Static design:ShellDesignData.Issues}"
+             d:DesignWidth="780" d:DesignHeight="620"
              FontSize="12">
 
     <!-- Issue 弹窗（R-3）：四维过滤 + 汇总 + 明细（只读）。 -->

@@ -61,6 +61,27 @@ public sealed record ModuleSourceRowViewModel
     /// <summary>根目录路径。</summary>
     public string Directory { get; }
 
+    /// <summary>
+    /// **紧凑显示路径**（用户第十轮反馈："一行一个目录，由于空间限制只显示几级，不显示的用省略号"）。
+    /// </summary>
+    /// <remarks>
+    /// 规则：层级 ≤ 3 → 原样；否则 `…\<倒数第二级>\<末级>`（形如 `…\model\modelA`），
+    /// 完整路径仍在悬停提示里可见。
+    /// </remarks>
+    public string Display
+    {
+        get
+        {
+            var parts = Directory.TrimEnd('\\', '/').Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length <= 3)
+            {
+                return Directory;
+            }
+
+            return $"…\\{parts[^2]}\\{parts[^1]}";
+        }
+    }
+
     /// <summary>一行摘要。</summary>
     public string Summary { get; }
 
@@ -129,9 +150,94 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     [ObservableProperty]
     public partial int UiRefreshRateHz { get; set; } = 60;
 
-    /// <summary>是否显示**叠加信息层**（窗内连接线 + 流向 + 对端信息；ADR-0039 D5）。</summary>
+    /// <summary>
+    /// **吸附距离**（px，2–8，默认 4）——【ADR-0042 D6 / 用户裁决】拖动时的"磁吸半径"：
+    /// 越小越跟手（最多滞后一个容差就松手），越大越容易吸上；贴合（相邻边接触）用它的 2 倍。
+    /// </summary>
     [ObservableProperty]
-    public partial bool ShowInfoOverlay { get; set; } = true;
+    public partial double SnapDistance { get; set; } = 4;
+
+    /// <summary>
+    /// **外壳视图模型**（这些"开关类"设置的**唯一事实源**）——【用户第十一轮反馈】
+    /// 交互页与设置页必须**完全联动**（此前设置页各自持有一份副本，两边可以不一致 = "冲突"）。
+    /// </summary>
+    public ShellViewModel? Owner { get; set; }
+
+    private bool _showInfoOverlayFallback = true;
+    private bool _appTopmostFallback;
+
+    /// <summary>
+    /// 是否显示**叠加信息层**（ADR-0039 D5）——**与交互页同一个开关**：有 <see cref="Owner"/> 时以它为准。
+    /// </summary>
+    public bool ShowInfoOverlay
+    {
+        get => Owner?.ShowInfoOverlay ?? _showInfoOverlayFallback;
+        set
+        {
+            if (Owner is { } owner)
+            {
+                if (owner.ShowInfoOverlay == value)
+                {
+                    return;
+                }
+
+                owner.ShowInfoOverlay = value;
+            }
+            else
+            {
+                if (_showInfoOverlayFallback == value)
+                {
+                    return;
+                }
+
+                _showInfoOverlayFallback = value;
+            }
+
+            OnPropertyChanged();
+            PersistLiveSwitches();
+        }
+    }
+
+    /// <summary>应用整体置顶（ADR-0036 D5）——**与交互页同一个开关**。</summary>
+    public bool AppTopmost
+    {
+        get => Owner?.AppTopmost ?? _appTopmostFallback;
+        set
+        {
+            if (Owner is { } owner)
+            {
+                if (owner.AppTopmost == value)
+                {
+                    return;
+                }
+
+                owner.AppTopmost = value;
+            }
+            else
+            {
+                if (_appTopmostFallback == value)
+                {
+                    return;
+                }
+
+                _appTopmostFallback = value;
+            }
+
+            OnPropertyChanged();
+            PersistLiveSwitches();
+        }
+    }
+
+    /// <summary>把"即时生效的开关"写回设置文件（点击即落盘，不需要按「应用」）。</summary>
+    private void PersistLiveSwitches()
+    {
+        var settings = _lastLoaded?.Clone() ?? _query.GetSettings();
+        settings.ShowInfoOverlay = ShowInfoOverlay;
+        settings.AppTopmost = AppTopmost;
+
+        _lastLoaded = settings;
+        _ = _command.UpdateSettings(settings);
+    }
 
     /// <summary>主题（Light / Dark / System）——改动**即时生效**（ADR-0038 D4）。</summary>
     [ObservableProperty]
@@ -170,6 +276,18 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     /// <summary>预设主题色（名称 + 十六进制，供"一键选色"）。</summary>
     public IReadOnlyList<ThemeApplier.AccentPreset> AccentPresetList { get; } = ThemeApplier.Presets;
 
+    /// <summary>当前主题色画刷（设置页的"色块"按钮显示它；用户在弹窗里改色）。</summary>
+    public Avalonia.Media.IBrush AccentBrush =>
+        ThemeApplier.Parse(AccentColor) is { } color
+            ? new Avalonia.Media.SolidColorBrush(color)
+            : Avalonia.Media.Brushes.Transparent;
+
+    /// <summary>当前自定义背景色画刷（同上）。</summary>
+    public Avalonia.Media.IBrush BackgroundBrush =>
+        ThemeApplier.Parse(BackgroundColor) is { } color
+            ? new Avalonia.Media.SolidColorBrush(color)
+            : Avalonia.Media.Brushes.Transparent;
+
     /// <summary>一键选主题色（设置界面按钮用）。</summary>
     /// <param name="preset">预设档。</param>
     [RelayCommand]
@@ -184,11 +302,19 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     // 外观改动**即时生效**（ADR-0038 D4：主题/主题色/背景在线生效，与 §7.1 全在线变更一致）
     partial void OnThemeChanged(string value) => ApplyAppearance();
 
-    partial void OnAccentColorChanged(string value) => ApplyAppearance();
+    partial void OnAccentColorChanged(string value)
+    {
+        OnPropertyChanged(nameof(AccentBrush));
+        ApplyAppearance();
+    }
 
     partial void OnBackgroundModeChanged(string value) => ApplyAppearance();
 
-    partial void OnBackgroundColorChanged(string value) => ApplyAppearance();
+    partial void OnBackgroundColorChanged(string value)
+    {
+        OnPropertyChanged(nameof(BackgroundBrush));
+        ApplyAppearance();
+    }
 
     /// <summary>把当前外观设置应用到界面（未装载设置时不做事，避免初始化期覆盖默认）。</summary>
     private void ApplyAppearance()
@@ -229,10 +355,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     public ObservableCollection<ModuleSourceRowViewModel> ModuleSources { get; } = [];
 
     // ---- 窗口与交互 ----
-
-    /// <summary>**应用整体置顶**（全体窗口一起；ADR-0036 D5）。</summary>
-    [ObservableProperty]
-    public partial bool AppTopmost { get; set; }
+    // 注：「应用整体置顶」与「叠加信息层」定义为**联动属性**（见文件上方），此处不再声明本地字段。
 
     // ---- 快捷键（ADR-0036 D7） ----
 
@@ -269,6 +392,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         AlignAutoNetworkEnabled = settings.AlignAutoNetworkEnabled;
         DiagnosticHintThreshold = settings.DiagnosticHintThreshold;
         UiRefreshRateHz = settings.UiRefreshRateHz;
+        SnapDistance = settings.SnapDistance;
         ShowInfoOverlay = settings.ShowInfoOverlay;
         Theme = settings.Theme;
         AccentColor = settings.AccentColor;
@@ -479,6 +603,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         settings.AlignAutoNetworkEnabled = AlignAutoNetworkEnabled;
         settings.DiagnosticHintThreshold = DiagnosticHintThreshold;
         settings.UiRefreshRateHz = UiRefreshRateHz;
+        settings.SnapDistance = Math.Clamp(SnapDistance, 2, 8);
         settings.ShowInfoOverlay = ShowInfoOverlay;
         settings.Theme = Theme;
         settings.AccentColor = AccentColor;

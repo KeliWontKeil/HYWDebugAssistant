@@ -89,3 +89,13 @@ public sealed record SendCommandOperation(string InstanceId, string CommandName)
 /// <param name="Source">输入元素绑定的数据源名。</param>
 /// <param name="Text">用户输入文本。</param>
 public sealed record SubmitInputOperation(string InstanceId, string Source, string Text) : ChangeOperation;
+
+/// <summary>
+/// **还原模块配置**到模块默认值【用户第十一轮反馈 · 模块窗口的「还原」按钮】。
+/// </summary>
+/// <remarks>
+/// 语义：**丢弃该实例已保存的配置对象**，模块下次读取时按"读即登记"重新登记默认值；
+/// 随后照常走配置变更通知路径（模块在自己的线程上收到 <c>OnConfigurationChanged</c>）。
+/// </remarks>
+/// <param name="InstanceId">实例 ID。</param>
+public sealed record ResetModuleConfigurationOperation(string InstanceId) : ChangeOperation;

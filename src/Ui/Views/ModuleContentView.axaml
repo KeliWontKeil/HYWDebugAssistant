@@ -5,6 +5,10 @@
              xmlns:views="using:HYWDebugAssistant.Ui.Views"
              x:Class="HYWDebugAssistant.Ui.Views.ModuleContentView"
              x:DataType="vm:ModuleViewViewModel"
+             xmlns:design="using:HYWDebugAssistant.Ui.Design"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             d:DataContext="{x:Static design:DesignData.ModuleWindow}"
+             d:DesignWidth="320" d:DesignHeight="200"
              Background="Transparent">
 
     <!--
@@ -151,10 +155,8 @@
             </ItemsControl>
         </ScrollViewer>
 
-        <!-- 窗内叠加层：虚线对齐参考线 + 缩放边缘高亮（不跨窗口绘制） -->
+        <!-- 窗内叠加层：虚线对齐参考线 + 缩放边缘高亮（坐标换算由控件内部按客户区原点 + 缩放完成） -->
         <ctrl:GuideOverlay Guides="{Binding Guides}"
-                           OriginX="{Binding X}"
-                           OriginY="{Binding Y}"
                            ResizeEdges="{Binding ResizeEdges}"
                            LineBrush="{DynamicResource AccentPrimary}"
                            IsHitTestVisible="False" />

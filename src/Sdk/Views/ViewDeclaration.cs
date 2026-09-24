@@ -255,4 +255,20 @@ public sealed record ViewDeclaration
 
     /// <summary>命令声明【M1-16 / ADR-0040】。</summary>
     public IReadOnlyList<ViewCommand> Commands { get; }
+
+    /// <summary>
+    /// **首选窗口宽度**（DIP；0 = 框架默认）【新增 · 用户第十一轮反馈】：
+    /// 模块作者**声明**自己界面合适的默认尺寸，框架照用——**不按元素类型猜**（那等于把布局写死在框架里）。
+    /// 用户拖过/缩过之后以用户布局为准；模块窗口的「还原」回到这个尺寸。
+    /// </summary>
+    /// <remarks>
+    /// **用 init 属性而不是构造器参数**：给 SDK 构造器加可选参数会**改变方法签名**，
+    /// 已编译的第三方模块会在加载时抛 <c>MissingMethodException</c>（实测踩过）——
+    /// 新增"可选声明"一律用 <c>init</c> 属性（二进制兼容）。
+    /// 用法：<c>new ViewDeclaration(elements, dataSources) { PreferredWidth = 330, PreferredHeight = 330 }</c>
+    /// </remarks>
+    public double PreferredWidth { get; init; }
+
+    /// <summary>首选窗口高度（DIP；0 = 框架默认；同上用 <c>init</c> 属性）。</summary>
+    public double PreferredHeight { get; init; }
 }

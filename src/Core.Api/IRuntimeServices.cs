@@ -191,6 +191,16 @@ public interface IRuntimeCommand
     CommandResult SubmitInput(string instanceId, string source, string text);
 
     /// <summary>
+    /// **还原模块配置**到模块默认值【用户第十一轮反馈 · 模块窗口的「还原」按钮】。
+    /// </summary>
+    /// <remarks>
+    /// 丢弃该实例已保存的配置对象（模块下次读取时按"读即登记"重新登记默认值），并触发一次配置变更通知，
+    /// 使模块在自己的线程上按默认配置继续工作。
+    /// </remarks>
+    /// <param name="instanceId">实例 ID。</param>
+    CommandResult ResetModuleConfiguration(string instanceId);
+
+    /// <summary>
     /// 保存组合件：把选中范围（<paramref name="instanceIds"/> 为空 = **当前全部**，即"保存全部内容"）
     /// 物化为 1 个文件（1 文件 = 1 组合件，§9.2）。
     /// </summary>

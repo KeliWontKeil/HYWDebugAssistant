@@ -3,6 +3,7 @@ using HYWDebugAssistant.Core.Composition;
 using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Services;
 using HYWDebugAssistant.Ui.ViewModels;
+using HYWDebugAssistant.Ui.Views;
 using Shouldly;
 using Xunit;
 
@@ -38,7 +39,7 @@ public class ModuleWindowUsabilityTests
     }
 
     [Fact]
-    public void 模块窗口_首次摆放应按内容估算尺寸而不是固定最小高()
+    public void 模块窗口_尺寸不由内容决定_内容排不下时由滚动条处理()
     {
         using var harness = new Harness();
         harness.Register("enum-config", typeof(EnumConfigModule));
@@ -47,9 +48,11 @@ public class ModuleWindowUsabilityTests
         harness.Windows.Refresh();
         var module = harness.Windows.Modules.ShouldHaveSingleItem();
 
-        // 配置表单（3 个字段）+ 身份行 + 预留带 → 必须明显高于旧的固定 140 DIP 默认值
-        module.Height.ShouldBeGreaterThan(ModuleViewViewModel.DefaultHeight, "否则用户必须先手动拉大窗口才能看全内容");
-        module.Width.ShouldBeGreaterThanOrEqualTo(ModuleViewViewModel.DefaultWidth, "表单需要更宽的窗口");
+        // 【用户第九轮反馈 · UI 开发方式】外层容器尺寸**固定**：
+        // 尺寸 = XAML 默认值（与常量同步），**不随元素多少变化**；内容排不下由内容区 ScrollViewer 滚动。
+        module.Width.ShouldBe(ModuleViewViewModel.DefaultWidth, "尺寸默认值 = ModuleWindow.axaml（不由内容估算）");
+        module.Height.ShouldBe(ModuleViewViewModel.DefaultHeight, "同上：不再按元素类型累计高度");
+        module.Elements.OfType<ConfigurationEditorElementViewModel>().ShouldHaveSingleItem();
     }
 
     [Fact]
@@ -172,8 +175,113 @@ public class ModuleWindowUsabilityTests
 
         harness.Services.GetNetworks().ShouldBeEmpty("只有发送端命名时还不成网");
         marker.Label.ShouldBe("bus-x");
-        marker.NetworkText.ShouldBe("bus-x（未连）", "标签已生效就必须看得见——显示\"无网络\"会让用户以为改标签没生效");
+        marker.NetworkText.ShouldBe("bus-x", "标签已生效就必须看得见——显示\"无网络\"会让用户以为改标签没生效");
         marker.Tooltip.ShouldContain("bus-x");
+    }
+
+    [Fact]
+    public void 端口标记_显示文本不得再出现连接状态或数据包类型()
+    {
+        // 【用户第十三轮反馈】标记上的显示文本**只有网络名**：
+        //   · 连接状态由**指示灯**表达（不再追"（未连）"后缀，"没连上时灯会灭，文字多余"）；
+        //   · 数据包类型由**窄色条**表达（类型文本只在悬停提示里）；标签名通常很长，塞不下。
+        using var harness = new Harness();
+        harness.Register("sender", typeof(SenderModule));
+        harness.Services.AddModule("s1", "test/sender/1.0.0").Succeeded.ShouldBeTrue();
+        harness.Windows.Refresh();
+
+        var marker = harness.Windows.Modules.ShouldHaveSingleItem().Ports.ShouldHaveSingleItem();
+
+        // ① 未连、无标签
+        marker.NetworkText.ShouldBe("无网络");
+        marker.NetworkText.ShouldNotContain("未连");
+        marker.NetworkText.ShouldNotContain("已连接");
+
+        // ② 有标签但未连（此前会追"（未连）"）
+        marker.EditText = "bus-x";
+        marker.IsEditing = true;
+        _ = harness.Windows.CommitPortLabel(harness.Windows.Modules.Single(), marker);
+
+        marker.IsConnected.ShouldBeFalse("只有发送端命名时还不成网");
+        marker.NetworkText.ShouldBe("bus-x");
+        marker.NetworkText.ShouldNotContain("未连");
+        marker.NetworkText.ShouldNotContain("已连接");
+
+        // ③ 类型文本不再出现在标记显示文本里（改由窄色条 + 悬停提示承担）
+        marker.TypeText.ShouldNotBeNullOrEmpty("类型文本本身仍然存在（悬停里要显示）");
+        marker.NetworkText.ShouldNotContain(marker.TypeText);
+
+        // ④ 窄色条：颜色来自可替换的调色板（映射待用户给出，当前是占位色）
+        marker.TypeBrush.ShouldBeSameAs(PacketTypePalette.Placeholder, "类型→颜色映射未给出前必须走占位色（改映射只改 PacketTypePalette）");
+    }
+
+    [Fact]
+    public void 端口标记_悬停提示应给出类型但不携带上次操作()
+    {
+        // 【用户第十三轮反馈】① 类型**允许**在悬停里显式给出；② 悬停**不得**显示"上次操作"，该字段也不再保存。
+        using var harness = new Harness();
+        harness.Register("sender", typeof(SenderModule));
+        harness.Services.AddModule("s1", "test/sender/1.0.0").Succeeded.ShouldBeTrue();
+        harness.Windows.Refresh();
+
+        var marker = harness.Windows.Modules.ShouldHaveSingleItem().Ports.ShouldHaveSingleItem();
+        marker.EditText = "bus-x";
+        marker.IsEditing = true;
+        _ = harness.Windows.CommitPortLabel(harness.Windows.Modules.Single(), marker);
+
+        marker.Tooltip.ShouldContain("类型：");
+        marker.Tooltip.Contains(marker.TypeText, StringComparison.Ordinal)
+            .ShouldBeTrue("类型只在悬停里给出 → 悬停必须真的带上它");
+        marker.Tooltip.ShouldContain("bus-x");
+        marker.Tooltip.Contains("上次", StringComparison.Ordinal)
+            .ShouldBeFalse("悬停提示不得携带\"上次操作\"（且该数据不再保存）");
+
+        // 该数据已从视图模型上删除：标记上不应再有承载"上次操作"的成员
+        typeof(PortMarkerViewModel).GetProperty("EditResult")
+            .ShouldBeNull("「上次操作」字段必须整体删除（模板/绑定随之失效）");
+    }
+
+    [Fact]
+    public void 还原_选择尺寸和配置时应同时还原配置到默认值()
+    {
+        using var harness = new Harness();
+        harness.Register("enum-config", typeof(EnumConfigModule));
+        harness.Services.AddModule("c1", "test/enum-config/1.0.0").Succeeded.ShouldBeTrue();
+        harness.Windows.Refresh();
+
+        // 先把 Count 改成 42（默认 10）
+        harness.Services.UpdateConfigurationField("c1", nameof(EnumConfig.Count), "42").Succeeded.ShouldBeTrue();
+        ConfigValue(harness, "c1", nameof(EnumConfig.Count)).ShouldBe("42");
+
+        var module = harness.Windows.Modules.ShouldHaveSingleItem();
+        harness.Windows.ApplyReset(module, ModuleResetScope.SizeAndConfiguration);
+
+        ConfigValue(harness, "c1", nameof(EnumConfig.Count))
+            .ShouldBe("10", "「尺寸和配置都还原」应把配置回到模块默认值（丢弃已保存的配置对象）");
+    }
+
+    [Fact]
+    public void 还原_只还原尺寸时不应动配置()
+    {
+        using var harness = new Harness();
+        harness.Register("enum-config", typeof(EnumConfigModule));
+        harness.Services.AddModule("c1", "test/enum-config/1.0.0").Succeeded.ShouldBeTrue();
+        harness.Windows.Refresh();
+
+        harness.Services.UpdateConfigurationField("c1", nameof(EnumConfig.Count), "42").Succeeded.ShouldBeTrue();
+
+        harness.Windows.ApplyReset(harness.Windows.Modules.ShouldHaveSingleItem(), ModuleResetScope.SizeOnly);
+
+        ConfigValue(harness, "c1", nameof(EnumConfig.Count))
+            .ShouldBe("42", "只还原尺寸时配置必须保持不变");
+    }
+
+    /// <summary>读某实例某配置字段的当前值（断言配置是否被还原用）。</summary>
+    private static string ConfigValue(Harness harness, string instanceId, string fieldName)
+    {
+        harness.Services.TryGetConfigurationSchema(instanceId, out var schema).ShouldBeTrue();
+        schema.ShouldNotBeNull();
+        return schema!.Fields.Single(f => f.Name == fieldName).Value;
     }
 
     private sealed class Harness : IDisposable

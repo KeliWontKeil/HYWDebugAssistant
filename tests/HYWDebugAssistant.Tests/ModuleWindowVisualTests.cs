@@ -154,12 +154,21 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
             window.IsVisible.ShouldBeTrue();
             window.Bounds.Width.ShouldBeGreaterThan(0, "外壳必须完成布局（XAML/资源异常会在此前抛出）");
 
-            // 侧边栏形态【ADR-0038 D1】：活动栏 6 个图标入口；默认显示**模块清单页**（B 区常驻页面）
-            var rail = window.GetVisualDescendants().OfType<Button>().Where(b => b.Classes.Contains("rail")).ToList();
-            rail.Count.ShouldBe(6, "活动栏应有 6 个入口（模块清单 / 交互 / 拓扑 / Issue / 设置 / 帮助）");
+            // 侧边栏形态【ADR-0038 D1】：**活动栏** 6 个图标入口（按 Name 定位，避免把页面里的同类按钮算进来）
+            var rail = window.GetVisualDescendants()
+                .OfType<StackPanel>()
+                .FirstOrDefault(p => string.Equals(p.Name, "RailButtons", StringComparison.Ordinal));
+
+            rail.ShouldNotBeNull("活动栏容器必须存在（Name=RailButtons）");
+            rail!.GetVisualDescendants().OfType<Button>().Count()
+                .ShouldBe(6, "活动栏应有 6 个入口（模块清单 / 交互 / 拓扑 / Issue / 设置 / 帮助）");
 
             shell.IsCatalogPage.ShouldBeTrue("默认停在模块清单页");
             window.GetVisualDescendants().OfType<ModuleCatalogView>().ShouldNotBeEmpty("模块清单是 B 区常驻页面");
+
+            // 【用户第七轮反馈】模块清单顶部：**分类栏**（图标无文字）+ 搜索框
+            shell.Catalog.Categories.Count.ShouldBe(5, "分类 = 全部 / 数据源 / 显示与接收 / 记录与断言 / 其他");
+            shell.Catalog.SelectedCategory.ShouldBe(ModuleCategories.All);
 
             // 切到交互页：页面切换必须真的换视图（滑块高亮状态由 Classes.active 表达）
             shell.ShowPageCommand.Execute(ShellPages.Interaction);
@@ -294,6 +303,56 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
         });
     }
 
+    [Fact]
+    public void 端口标记_类型色条与指示灯应贴在标记两端()
+    {
+        // 【用户第十三轮反馈】标记内容重排：窄颜色条（数据包类型）· 网络名 · 放大箭头 · 加大且贴边的指示灯。
+        // 本测试把**几何**钉住（尺寸 / 贴边 / 槽位顺序），避免"文本一变排版就抖"与"灯又缩回中间"。
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.Place("s1");
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            var window = harness.OpenWindow(module);
+
+            var marker = FindMarker(window).ShouldNotBeNull();
+            var markerBox = ScreenRect(marker, window);
+
+            var strip = FindVisibleByClass<Border>(window, "typeStrip").ShouldNotBeNull("标记上必须有类型窄色条（颜色 = PacketTypePalette 占位色，映射待定）");
+            var lamp = FindVisibleByClass<StateIndicator>(window, "markerLamp").ShouldNotBeNull("标记上必须有连接指示灯");
+
+            // ① 色条 = **窄条**：沿标记长边 6 px（token PortMarkerStripWidth）、跨满标记内宽 18 px
+            //    （标记 20 宽 − 1 px 边框 ×2 = 18）
+            var stripBox = ScreenRect(strip, window);
+            stripBox.Height.ShouldBe(6, 1.0, "竖排（旋转后）色条沿标记长边必须是 6 px 窄条");
+            stripBox.Width.ShouldBe(18, 1.0, "竖排色条应跨满标记内宽（20 − 边框 1×2）");
+
+            // ② 指示灯 6×6 → **8×8**（半径 +1），且**贴到端部**（此前有 3 px 边距）
+            var lampBox = ScreenRect(lamp, window);
+            lampBox.Width.ShouldBe(8, 1.0, "指示灯 6×6 → 8×8（StateIndicator 半径 = 边长/2 − 1 ⇒ 2 → 3）");
+            lampBox.Height.ShouldBe(8, 1.0);
+            lamp.Margin.ShouldBe(new Thickness(0), "指示灯不得再留外边距（用户：\"移到最边缘\"）");
+
+            // ③ 两端贴齐：色条贴标记一端、灯贴另一端（各留 1 px 边框）
+            stripBox.Top.ShouldBeGreaterThan(markerBox.Top, "色条与灯必须分居标记两端");
+            lampBox.Top.ShouldBeLessThan(stripBox.Top, "槽位顺序 = 读数顺序：内容旋转 −90° ⇒ 色条在下端、指示灯在上端");
+            lampBox.Top.ShouldBe(markerBox.Top + 1, 1.5, "指示灯必须贴到标记端部（原来缩在里面 3 px）");
+            stripBox.Bottom.ShouldBe(markerBox.Bottom - 1, 1.5, "色条必须贴到标记另一端部");
+
+            // ④ 标记上不再有"数据包类型文本"与行内提示文本（类型只进悬停；提示进 `?` 帮助弹窗）
+            var markerVm = marker.DataContext.ShouldBeOfType<PortMarkerViewModel>();
+            var texts = window.GetVisualDescendants().OfType<TextBlock>()
+                .Where(t => t.IsEffectivelyVisible)
+                .Select(t => t.Text)
+                .ToList();
+
+            texts.ShouldNotContain(markerVm.TypeText, "类型文本已从标记上移除（标签名通常很长，塞不下；类型只在悬停里给出）");
+            texts.ShouldNotContain(markerVm.Hint, "编辑提示文本必须收进 `?` 帮助弹窗（不再行内展开、不吃版面）");
+            texts.ShouldContain(markerVm.NetworkText, "标记上的显示文本 = 网络名（无\"未连\"后缀）");
+        });
+    }
+
     // ---------------------------------------------------------------- 辅助
 
     private static Border? FindMarker(Visual root) =>
@@ -320,6 +379,33 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
     private static T? FindByName<T>(Visual root, string name)
         where T : Control =>
         root.GetVisualDescendants().OfType<T>().FirstOrDefault(c => c.Name == name);
+
+    /// <summary>
+    /// 按 `Classes` 找**真正可见**的控件（标记模板里竖排/横排两套分支同时存在，只有一套可见；
+    /// 两套分支**同名会撞命名域**，故模板内元素用 Classes 标识）。
+    /// </summary>
+    private static T? FindVisibleByClass<T>(Visual root, string className)
+        where T : Control =>
+        root.GetVisualDescendants().OfType<T>()
+            .FirstOrDefault(c => c.Classes.Contains(className) && c.IsEffectivelyVisible);
+
+    /// <summary>控件在给定根坐标系里的**变换后**外框（竖排标记内容带 −90° 旋转变换，Bounds 是变换前的）。</summary>
+    private static Rect ScreenRect(Visual visual, Visual root)
+    {
+        var corners = new[]
+        {
+            new Point(0, 0),
+            new Point(visual.Bounds.Width, 0),
+            new Point(0, visual.Bounds.Height),
+            new Point(visual.Bounds.Width, visual.Bounds.Height),
+        }
+        .Select(p => visual.TranslatePoint(p, root) ?? default)
+        .ToList();
+
+        var left = corners.Min(p => p.X);
+        var top = corners.Min(p => p.Y);
+        return new Rect(left, top, corners.Max(p => p.X) - left, corners.Max(p => p.Y) - top);
+    }
 
     /// <summary>命中元素的诊断描述（断言失败时能一眼看出"被谁挡住了"）。</summary>
     private static string Describe(IInputElement? hit) =>

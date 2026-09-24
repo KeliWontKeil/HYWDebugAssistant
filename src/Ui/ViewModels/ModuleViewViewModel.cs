@@ -21,17 +21,39 @@ namespace HYWDebugAssistant.Ui.ViewModels;
 /// </remarks>
 public sealed partial class ModuleViewViewModel : ViewModelBase
 {
-    /// <summary>新模块默认宽（DIP；09 §5 内置模块尺寸族的最小档）。</summary>
-    public const double DefaultWidth = 260;
+    /// <summary>
+    /// 新模块窗口的默认尺寸（DIP）——**与 `ModuleWindow.axaml` 的 `Width`/`Height` 保持一致**。
+    /// </summary>
+    /// <remarks>
+    /// 【用户第九轮反馈 · UI 开发方式修正】**尺寸的默认值由 XAML 拥有**，这里只是"与 XAML 同步的常量"，
+    /// 用于：① 未摆放模块的摆放阶梯计算；② 测试里造确定几何。
+    /// **不再有任何"按内容估算尺寸"的逻辑**（内容排不下由内容区滚动条处理）。
+    /// </remarks>
+    public const double DefaultWidth = 320;
 
-    /// <summary>新模块默认高（DIP）。</summary>
-    public const double DefaultHeight = 140;
+    /// <summary>新模块窗口的默认高（DIP；与 `ModuleWindow.axaml` 一致）。</summary>
+    public const double DefaultHeight = 220;
 
-    /// <summary>最小宽（DIP；缩放下限）。</summary>
-    public const double MinWidth = 150;
+    /// <summary>最小宽（DIP；缩放下限，与 `ModuleWindow.axaml` 的 `MinWidth` 一致）。</summary>
+    public const double MinWidth = 180;
 
-    /// <summary>最小高（DIP）。</summary>
-    public const double MinHeight = 70;
+    /// <summary>最小高（DIP；与 `ModuleWindow.axaml` 的 `MinHeight` 一致）。</summary>
+    public const double MinHeight = 120;
+
+    /// <summary>
+    /// 本模块声明（或框架兜底）的**首选窗口尺寸**（DIP）——「还原」回到这个尺寸。
+    /// </summary>
+    /// <remarks>
+    /// 【用户第十一轮反馈】尺寸**由模块声明**（`ViewDeclaration.PreferredWidth/Height`），不按元素类型猜；
+    /// 模块没声明就用框架默认（与 `ModuleWindow.axaml` 的 `Width/Height` 一致）。
+    /// </remarks>
+    public double PreferredWidth { get; }
+
+    /// <summary>首选窗口高度（DIP）。</summary>
+    public double PreferredHeight { get; }
+
+    /// <summary>模块是否**声明了**首选尺寸（用于判断"未摆放的新窗口要不要按声明尺寸开"）。</summary>
+    public bool HasPreferredSize { get; }
 
     private readonly IRuntimeQuery _query;
     private readonly IRuntimeCommand _command;
@@ -62,15 +84,21 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         _command = command;
         _scale = scale <= 0 ? 1.0 : scale;
 
+        // 尺寸来源优先级：① 组合件里的布局（用户拖过）② **模块声明的首选尺寸** ③ 框架默认（= XAML 默认）
+        HasPreferredSize = view.View is { PreferredWidth: > 0, PreferredHeight: > 0 };
+        PreferredWidth = HasPreferredSize ? view.View!.PreferredWidth : DefaultWidth;
+        PreferredHeight = HasPreferredSize ? view.View!.PreferredHeight : DefaultHeight;
+
         InstanceId = view.InstanceId;
         Title = view.DisplayName;
         IsPlaceholder = view.IsPlaceholder;
         HasLayout = layout is not null;
 
-        X = layout?.X ?? fallbackX;
-        Y = layout?.Y ?? fallbackY;
-        Width = layout is { Width: > 0 } sized ? sized.Width : DefaultWidth * _scale;
-        Height = layout is { Height: > 0 } sizedHeight ? sizedHeight.Height : DefaultHeight * _scale;
+        // 尺寸与位置一律**整数物理像素**（唯一量化口径，见 `ScreenPixels`；用户第十二轮反馈）
+        X = ScreenPixels.Round(layout?.X ?? fallbackX);
+        Y = ScreenPixels.Round(layout?.Y ?? fallbackY);
+        Width = ScreenPixels.Round(layout is { Width: > 0 } sized ? sized.Width : PreferredWidth * _scale);
+        Height = ScreenPixels.Round(layout is { Height: > 0 } sizedHeight ? sizedHeight.Height : PreferredHeight * _scale);
         IsViewVisible = layout?.IsViewVisible ?? true;
 
         ApplyState(view.State);
@@ -175,10 +203,10 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(layout);
 
-        X = layout.X;
-        Y = layout.Y;
-        Width = layout.Width > 0 ? layout.Width : DefaultWidth * _scale;
-        Height = layout.Height > 0 ? layout.Height : DefaultHeight * _scale;
+        X = ScreenPixels.Round(layout.X);
+        Y = ScreenPixels.Round(layout.Y);
+        Width = ScreenPixels.Round(layout.Width > 0 ? layout.Width : DefaultWidth * _scale);
+        Height = ScreenPixels.Round(layout.Height > 0 ? layout.Height : DefaultHeight * _scale);
         IsViewVisible = layout.IsViewVisible;
         HasLayout = true;
     }
@@ -266,11 +294,10 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
         ReloadConfigurationForms();
 
-        // 首次摆放（用户还没摆过/缩过）：**按内容估算合适的窗口尺寸**，避免"打开就得手动拉大"
-        if (!HasLayout)
-        {
-            ApplyContentDrivenSize();
-        }
+        // **窗口尺寸不由内容计算**【用户第九轮反馈 · UI 开发方式修正】：
+        // 未摆放的新窗口用 **XAML 里声明的默认尺寸**（`ModuleWindow.axaml` 的 Width/Height），
+        // 内容排不下时由内容区的 ScrollViewer 滚动 —— 不再在代码里按"元素类型 → 高度表"估算尺寸
+        // （那样等于把布局写死在代码里，用户无法在设计器/XAML 里调整）。
     }
 
     /// <summary>同步口标记（口集合在实例生命周期内稳定；每次刷新顺带更新连接状态与标签）。</summary>
@@ -351,72 +378,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         return editor;
     }
 
-    /// <summary>
-    /// **按内容估算合适的窗口尺寸**（首次摆放用；用户拖过/缩过之后以布局为准，不再覆盖用户选择）。
-    /// </summary>
-    /// <remarks>
-    /// 用户反馈"窗口太小，得手动拉大才能看全内容"——根因是 M1-15 重写时把"按元素数估算尺寸"的逻辑弄丢了，
-    /// 默认尺寸写死 140 DIP。这里按元素类型给出经验尺寸（曲线/日志/表单各有实测高度），
-    /// 并钳制在屏幕工作区的合理范围内。
-    /// </remarks>
-    private void ApplyContentDrivenSize()
-    {
-        // 身份行 + 预留带（上下各 20）+ 内容内边距
-        var height = 26 + (ModuleContentBands * 2) + 8;
-        var width = DefaultWidth;
-
-        foreach (var element in Elements)
-        {
-            switch (element)
-            {
-                case ValueElementViewModel:
-                    height += 22;
-                    break;
-
-                case CurveElementViewModel:
-                    height += 70;
-                    width = Math.Max(width, 300);
-                    break;
-
-                case TextLogElementViewModel:
-                    height += 104;
-                    width = Math.Max(width, 320);
-                    break;
-
-                case ConfigurationEditorElementViewModel editor:
-                    // 表单：标题 + 每个字段一行 + 按钮行
-                    height += 30 + (editor.Fields.Count * 28) + 34;
-                    width = Math.Max(width, 320);
-                    break;
-
-                case UnsupportedElementViewModel:
-                    height += 30;
-                    break;
-
-                // 【M1-16 / ADR-0040】人机操作三通道的实测高度（输入框 27 + 间距；按钮/开关行同高）
-                case TextInputElementViewModel:
-                    height += 31;
-                    break;
-
-                case CommandElementViewModel:
-                    height += 31;
-                    break;
-
-                case ToggleElementViewModel:
-                    height += 29;
-                    break;
-
-                default:
-                    height += 24;
-                    break;
-            }
-        }
-
-        Width = Math.Clamp(width * _scale, MinWidth * _scale, 900 * _scale);
-        Height = Math.Clamp(height * _scale, MinHeight * _scale, 900 * _scale);
-    }
-
-    /// <summary>预留带厚度（与 <c>PortMarkerPanel.BandThickness</c> 一致，用于尺寸估算与内边距）。</summary>
+    /// <summary>预留带厚度（与 <c>PortMarkerPanel.BandThickness</c> 一致；内容区内边距用它）。</summary>
     public const double ModuleContentBands = 20;
 
     /// <summary>

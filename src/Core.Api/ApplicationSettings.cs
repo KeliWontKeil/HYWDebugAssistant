@@ -41,6 +41,19 @@ public sealed class ApplicationSettings
     public bool AlignAutoNetworkEnabled { get; set; } = true;
 
     /// <summary>
+    /// **吸附距离**（px，默认 4，范围 2–8）——【ADR-0042 D6 / 用户裁决】拖动时的"磁吸半径"。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>**对齐类**候选（模块中心线 / 端口锚点 / 边缘对齐）的容差 = 本值；</item>
+    ///   <item>**贴合类**候选（相邻边接触）的容差 = 本值 × 2 —— 拼接是主用途，值得给宽容差；</item>
+    ///   <item>值越小越"跟手"（最多滞后一个容差就松手）；值越大越容易吸上；**没有额外释放带**；</item>
+    ///   <item>JSON 键 <c>snapDistance</c>。</item>
+    /// </list>
+    /// </remarks>
+    public double SnapDistance { get; set; } = 4;
+
+    /// <summary>
     /// 是否显示**叠加信息层**【ADR-0039 D5】（原 `showPortMarkers`）。
     /// </summary>
     /// <remarks>
@@ -114,6 +127,7 @@ public sealed class ApplicationSettings
         UiRefreshRateHz = UiRefreshRateHz,
         DiagnosticHintThreshold = DiagnosticHintThreshold,
         AlignAutoNetworkEnabled = AlignAutoNetworkEnabled,
+        SnapDistance = SnapDistance,
         ShowInfoOverlay = ShowInfoOverlay,
         Theme = Theme,
         AccentColor = AccentColor,

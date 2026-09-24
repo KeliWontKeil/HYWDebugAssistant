@@ -39,6 +39,9 @@ public partial class App : Application
                 windowManager.Dispose();
                 _provider?.Dispose();
             };
+
+            // 【临时自检】HYW_DRAG_SELFTEST=1 时脚本化拖动，用于定位"靠近时抖动"（定位后删除）
+            DragSelfTest.RunIfRequested(desktop, provider, shell);
         }
 
         base.OnFrameworkInitializationCompleted();

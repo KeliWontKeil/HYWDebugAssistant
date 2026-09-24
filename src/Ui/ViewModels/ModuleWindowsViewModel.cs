@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.Runtime;
+using HYWDebugAssistant.Ui.Views;
 
 namespace HYWDebugAssistant.Ui.ViewModels;
 
@@ -50,7 +51,17 @@ public enum ResizeHandle
 public sealed partial class ModuleWindowsViewModel : ViewModelBase
 {
     /// <summary>吸附容差（px；Gate C 定稿前用 8，C5-1 约束 4）。</summary>
+    /// <summary>对齐类吸附容差（px）——**默认值**；实际值取设置里的「吸附距离」（见 <see cref="SnapDistance"/>）。</summary>
     public const double SnapTolerance = SnapEngine.DefaultTolerance;
+
+    /// <summary>贴合（接触拼接）容差（px）——**宽**：拼接是主用途，值得给宽容差；同时它也是"是否算一组"的口径。</summary>
+    public const double GroupTolerance = SnapEngine.FlushTolerance;
+
+    /// <summary>
+    /// **当前生效的吸附距离**（px）——【ADR-0042 D6 / 用户裁决】设置项 `snapDistance`（默认 4，2–8），
+    /// 由 `Refresh` 从设置同步；**对齐类容差 = 本值**，**贴合类容差 = 本值 × 2**。
+    /// </summary>
+    public double SnapDistance { get; private set; } = SnapEngine.DefaultTolerance;
 
     /// <summary>新模块默认摆放的起始偏移与步长（物理像素）。</summary>
     private const double PlaceOrigin = 48;
@@ -76,6 +87,29 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     private IReadOnlyList<string> _dragGroup = [];
     private double _dragPointerOffsetX;
     private double _dragPointerOffsetY;
+
+    /// <summary>【临时诊断】当前拖动组的成员数。</summary>
+    internal int DragGroupSize => _dragGroup.Count;
+
+    /// <summary>【临时诊断】参与吸附的其他模块数（最近一帧）。</summary>
+    internal int SnapNeighbourCount { get; private set; }
+
+    /// <summary>整体平移造成的位置变化、**尚未落盘**的实例（合并提交用，见 <see cref="CommitSceneTranslation"/>）。</summary>
+    private readonly HashSet<string> _pendingSceneCommits = new(StringComparer.Ordinal);
+
+    /// <summary>本次拖动已施加到外壳上的累计位移（用于取消拖动时还原，以及终结时落盘）。</summary>
+    private double _shellDragDx;
+    private double _shellDragDy;
+
+    /// <summary>
+    /// **请求把外壳窗口平移 (dx, dy)**：拖动组包含外壳时（模块单侧吸附在外壳上）触发，
+    /// 由 `ModuleWindowManager` 落到真实窗口上。
+    /// </summary>
+    /// <remarks>
+    /// 【用户第十二轮第四轮反馈】"主窗口与模块形成一个视觉整体后，移动谁都是整体动"——
+    /// 外壳不是"应用的框架"，而是**拼图里的一个节点**；因此拖模块与拖外壳走的是同一套成组逻辑。
+    /// </remarks>
+    public event EventHandler<(double Dx, double Dy)>? ShellTranslationRequested;
 
     private string? _resizingId;
     private ResizeHandle _resizeHandle;
@@ -381,13 +415,131 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _draggingId = instanceId;
         module.IsInteracting = true;
 
+        // 【用户第十一轮反馈】**锁定成员不随组移动**：编组时就把锁定的成员排除，
+        // 于是拖动整组时它们留在原地（组自然"解开"）—— 这比"拖完再纠正"更直观。
+        // 【用户第十二轮第四轮反馈】**外壳也在这个组里**（单侧吸附完成即同组）：
+        // 拖动一个贴在外壳上的模块时，外壳窗口要跟着一起走（"视觉整体"）；见 _shellDragDx/Dy 与 ShellTranslationRequested。
         _dragGroup = independent
             ? [instanceId]
-            : SnapEngine.GroupOf(instanceId, ModuleRects(), SnapTolerance);
+            : [.. GroupOfNode(instanceId).Where(id => Find(id) is not { IsLocked: true })];
 
+        _shellDragDx = 0;
+        _shellDragDy = 0;
+
+        // 【用户第十二轮反馈 · `architecture/15` §3.1】组内成员**也由指针驱动**：
+        // 否则 `ModuleWindowManager.OnWindowMoved` 会把窗口取整后的位置回写到它们的模型上
+        // （被拖的那个模块被跳过、其余成员被逐个取整）⇒ 组内相对位置在拖动中被破坏、落盘带 0.5px 误差。
+        foreach (var memberId in _dragGroup)
+        {
+            if (Find(memberId) is { } member)
+            {
+                member.IsInteracting = true;
+            }
+        }
         _dragPointerOffsetX = pointerX - module.X;
         _dragPointerOffsetY = pointerY - module.Y;
         Select(instanceId);
+        return true;
+    }
+
+    /// <summary>
+    /// 把位移施加到**外壳**上（仅当本次拖动组包含外壳）：乐观更新模型里的外壳矩形，并请求窗口管理器移动真实窗口。
+    /// </summary>
+    /// <remarks>
+    /// 这是"主窗口与模块形成视觉整体后，移动谁都是整体动"的落点（用户第十二轮第四轮反馈）。
+    /// 真实窗口由 `ModuleWindowManager` 移动；它移动时会回推一次 `ShellRect`（交互期间只刷新参照、不再联动平移）。
+    /// </remarks>
+    private void ApplyShellDelta(double dx, double dy)
+    {
+        if (!_dragGroup.Contains(ShellNodeId) || ShellRect is not { IsValid: true } shell)
+        {
+            return;
+        }
+
+        ShellRect = shell.OffsetBy(dx, dy);
+        _shellDragDx += dx;
+        _shellDragDy += dy;
+        ShellTranslationRequested?.Invoke(this, (dx, dy));
+    }
+
+    /// <summary>
+    /// **外壳移动 = 平移"与外壳拼成一体的那一组"**（用户第十二轮第四轮反馈）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>外壳是拼图里的一个节点</b>（不是"应用的框架"）：它与模块之间只有**单侧吸附**（只提供右边缘 —— ADR-0038 D5）；
+    ///     模块贴着它就算拼上，于是它们同属一个**接触连通分量**；</item>
+    ///   <item><b>只有吸附完成后才整体运动</b>：移动外壳 → 只平移与它相连的那一组（**没拼上的模块留在原处**）；
+    ///     与"拖动一个模块会带走整组"是**同一套成组逻辑**，只是把外壳也纳入进来；</item>
+    ///   <item>之所以不再用"所有模块无条件跟随"：那会让与外壳毫无关系的模块也被拖走，不符合"拼装"的直觉；</item>
+    ///   <item><b>锁定</b> = 钉在桌面上：既不在组内被带走，也不随外壳移动（沿用第十一轮裁决）；</item>
+    ///   <item><b>不逐帧落盘</b>：只改内存并记录待提交，由调用方在移动停下后调
+    ///     <see cref="CommitSceneTranslation"/> 合并成一次变更（逐帧提交会触发建网重算并让外壳拖动卡顿）；</item>
+    ///   <item>位置仍存**绝对屏幕坐标**（组合件格式不变）。</item>
+    /// </list>
+    /// </remarks>
+    /// <param name="dx">外壳位移 X（物理像素）。</param>
+    /// <param name="dy">外壳位移 Y（物理像素）。</param>
+    /// <param name="preMoveShell">
+    /// **移动前**的外壳矩形：分组必须用它判定"谁与外壳拼在一起"。
+    /// </param>
+    /// <remarks>
+    /// <b>为什么必须传"移动前"的矩形</b>：调用方通常已把 `ShellRect` 刷新成移动后的位置，
+    /// 而此时模块还在旧位置上 —— 若用新矩形判分组，"贴上"会被判成"没贴上"，于是**模块不跟随**
+    /// （与 `implementation/02` P33 是同一类错误：**任何"谁和谁相连"的判定都必须用同一时刻的几何**）。
+    /// </remarks>
+    public void TranslateShellGroup(double dx, double dy, CanvasRect preMoveShell)
+    {
+        if ((Math.Abs(dx) < 0.5 && Math.Abs(dy) < 0.5) || !preMoveShell.IsValid)
+        {
+            return;
+        }
+
+        var group = GroupOfNode(ShellNodeId, preMoveShell);
+
+        foreach (var module in Modules)
+        {
+            if (!group.Contains(module.InstanceId) || module.IsLocked || !module.Rect.IsValid)
+            {
+                continue;
+            }
+
+            module.X = ScreenPixels.Round(module.X + dx);
+            module.Y = ScreenPixels.Round(module.Y + dy);
+            RaiseGeometry(module);
+            _ = _pendingSceneCommits.Add(module.InstanceId);
+        }
+    }
+
+    /// <summary>
+    /// 把"整体平移"造成的位置变化**合并落盘**（一次 ChangeSet）。
+    /// </summary>
+    /// <remarks>
+    /// 由调用方在外壳停止移动后调用（见 `ModuleWindowManager` 的防抖计时器），避免逐帧提交；
+    /// 保存组合件前也应调用一次（否则最后一次移动可能还没落盘）。
+    /// </remarks>
+    /// <returns>是否真的提交了（false = 没有待提交的平移变化）。</returns>
+    public bool CommitSceneTranslation()
+    {
+        if (_pendingSceneCommits.Count == 0)
+        {
+            return false;
+        }
+
+        var layouts = _pendingSceneCommits
+            .Select(Find)
+            .Where(m => m is not null)
+            .Select(m => m!.ToLayout())
+            .ToList();
+
+        _pendingSceneCommits.Clear();
+
+        if (layouts.Count == 0)
+        {
+            return false;
+        }
+
+        _ = _command.UpdateModuleLayouts(layouts);
         return true;
     }
 
@@ -395,6 +547,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <param name="pointerX">指针 X（屏幕坐标）。</param>
     /// <param name="pointerY">指针 Y（屏幕坐标）。</param>
     /// <param name="snapEnabled">本次是否吸附（null = 用开关值；按住 Alt 传 false）。</param>
+    /// <remarks>
+    /// 【用户第十二轮第二轮反馈 · **保持拖动中实时吸附**】曾试过"松手才吸附"，被用户否决（操作不友好）；
+    /// 目标手感 = **Visio 式**：吸附半径小（几像素）、离开即松、靠参考线给反馈（详见 ADR-0042）。
+    /// 另：位置在写入模型前**统一取整到整数物理像素**（<see cref="ScreenPixels.Round"/>），修"缝/错位"。
+    /// </remarks>
     public void DragTo(double pointerX, double pointerY, bool? snapEnabled = null)
     {
         if (_draggingId is not { Length: > 0 } draggingId || Find(draggingId) is not { } module)
@@ -402,29 +559,46 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             return;
         }
 
+        // 原始位置（指针推出来的，未被吸附修正）——吸附是它的**纯函数**，不累加上一帧的结果
         var targetX = pointerX - _dragPointerOffsetX;
         var targetY = pointerY - _dragPointerOffsetY;
 
-        var dx = targetX - module.X;
-        var dy = targetY - module.Y;
         IReadOnlyList<GuideLine> guides = [];
+        var neighbourCount = 0;
 
         if (snapEnabled ?? SnapEnabled)
         {
-            var others = CollectSnapTargets(draggingId);
+            var lines = CollectLines(draggingId);
+            neighbourCount = lines.Count;
 
-            // 端口对齐优先：**无网络标签**时按口对齐（有标签时标签承担对齐职责，C5-2）
             var snapped = SnapEngine.Snap(
                 module.Rect.At(targetX, targetY),
-                others,
-                SnapTolerance,
-                ShowInfoOverlay ? null : BuildPortAlignment(draggingId),
-                CollectReferenceLines());
+                lines,
+                SnapDistance,                 // 对齐类容差 = 设置里的「吸附距离」
+                BuildPortAnchors(draggingId),
+                SnapDistance * 2);            // 贴合类容差 = 2×（拼接是主用途，值得给宽容差）
 
-            dx = snapped.X - module.X;
-            dy = snapped.Y - module.Y;
+            targetX = snapped.X;
+            targetY = snapped.Y;
             guides = snapped.Guides;
         }
+
+        // 统一取整：模型几何一律是整数物理像素（唯一量化点）
+        var dx = ScreenPixels.Round(targetX) - module.X;
+        var dy = ScreenPixels.Round(targetY) - module.Y;
+
+        // 【临时诊断】控制器侧一帧（原始目标 → 吸附后、实际施加的位移、组与邻居数）
+        Diagnostics.DragDiagnostics.Record(Diagnostics.DragDiagnostics.FormatSnap(
+            raw: (X: pointerX - _dragPointerOffsetX, Y: pointerY - _dragPointerOffsetY),
+            finalX: targetX,
+            finalY: targetY,
+            appliedDx: dx,
+            appliedDy: dy,
+            sticky: $"group={_dragGroup.Count}",
+            groupSize: _dragGroup.Count,
+            neighbourCount: neighbourCount));
+
+        SnapNeighbourCount = neighbourCount;
 
         foreach (var memberId in _dragGroup)
         {
@@ -435,6 +609,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 RaiseGeometry(member);
             }
         }
+
+        // 组内含外壳（模块单侧吸附在外壳上）→ 外壳窗口也一起走（"视觉整体"）
+        ApplyShellDelta(dx, dy);
 
         Guides = guides;
 
@@ -512,13 +689,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             if (Find(memberId) is { } member)
             {
                 member.IsInteracting = false;
-            }
-        }
-
-        foreach (var memberId in _dragGroup)
-        {
-            if (Find(memberId) is { } member)
-            {
                 member.Guides = [];
             }
         }
@@ -571,6 +741,17 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _draggingId = null;
         _dragGroup = [];
         Guides = [];
+
+        // 组内含外壳时，外壳窗口也被拖走了 → 还原时把它移回去（累计位移取反）
+        if ((Math.Abs(_shellDragDx) > 0.5 || Math.Abs(_shellDragDy) > 0.5)
+            && ShellRect is { IsValid: true } shell)
+        {
+            ShellRect = shell.OffsetBy(-_shellDragDx, -_shellDragDy);
+            ShellTranslationRequested?.Invoke(this, (-_shellDragDx, -_shellDragDy));
+        }
+
+        _shellDragDx = 0;
+        _shellDragDy = 0;
 
         var layoutById = _query.GetLayout().ToDictionary(l => l.InstanceId, StringComparer.Ordinal);
         foreach (var memberId in group)
@@ -660,7 +841,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         {
             foreach (var other in Modules.Where(m => m.IsViewVisible && !string.Equals(m.InstanceId, resizingId, StringComparison.Ordinal)))
             {
-                if (right > left && Math.Abs((right - left) - other.Width) <= SnapTolerance && MovesHorizontally(_resizeHandle))
+                if (right > left && Math.Abs((right - left) - other.Width) <= GroupTolerance && MovesHorizontally(_resizeHandle))
                 {
                     if (_resizeHandle is ResizeHandle.Left or ResizeHandle.TopLeft or ResizeHandle.BottomLeft)
                     {
@@ -672,7 +853,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                     }
                 }
 
-                if (bottom > top && Math.Abs((bottom - top) - other.Height) <= SnapTolerance && MovesVertically(_resizeHandle))
+                if (bottom > top && Math.Abs((bottom - top) - other.Height) <= GroupTolerance && MovesVertically(_resizeHandle))
                 {
                     if (_resizeHandle is ResizeHandle.Top or ResizeHandle.TopLeft or ResizeHandle.TopRight)
                     {
@@ -686,10 +867,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             }
         }
 
-        module.X = left;
-        module.Y = top;
-        module.Width = right - left;
-        module.Height = bottom - top;
+        module.X = ScreenPixels.Round(left);
+        module.Y = ScreenPixels.Round(top);
+        module.Width = ScreenPixels.Round(right - left);
+        module.Height = ScreenPixels.Round(bottom - top);
         RaiseGeometry(module);
     }
 
@@ -749,7 +930,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             marker.EditError = string.Join("；", result.Failures);
         }
 
-        marker.EditResult = message;
+        // 【用户第十三轮反馈】原 `marker.EditResult = message`（悬停里显示"上次操作"）**已删除**：
+        //   ① 悬停提示不该携带"最近一次操作结果"这类**瞬时状态**；② 该数据本身也不再保存（见 `PortMarkerViewModel`）。
+        //   结果文本仍然**返回并送到状态栏**（`RaiseNotice`）—— 反馈闭环不丢，只是不再挂在标记上。
 
         // **反馈闭环**：提示送到状态栏（此前返回值被调用方丢弃 → 用户完全看不到结果）
         RaiseNotice(message, isError: !result.Succeeded);
@@ -763,6 +946,61 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(marker);
         marker.EditText = marker.Label ?? string.Empty;
         marker.IsEditing = false;
+    }
+
+    /// <summary>
+    /// **还原模块**【用户第十一轮反馈 · 替代原「暂停」】：回到默认尺寸，可选连配置一起还原。
+    /// </summary>
+    /// <remarks>
+    /// 默认尺寸 = **模块声明的首选尺寸**（`ViewDeclaration.PreferredWidth/Height`；未声明则框架默认），
+    /// **不是**按元素类型估算的结果；位置不变（只还原尺寸与配置，不动用户摆放的位置）。
+    /// </remarks>
+    /// <param name="module">模块视图。</param>
+    /// <param name="scope">还原范围（只尺寸 / 尺寸与配置）。</param>
+    public void ApplyReset(ModuleViewViewModel module, ModuleResetScope scope)
+    {
+        ArgumentNullException.ThrowIfNull(module);
+
+        // ① 尺寸回到模块声明的首选尺寸（× 屏幕缩放，**取整到整数物理像素**），并写回布局
+        module.Width = ScreenPixels.Round(module.PreferredWidth * module.Scale);
+        module.Height = ScreenPixels.Round(module.PreferredHeight * module.Scale);
+        module.X = ScreenPixels.Round(module.X);
+        module.Y = ScreenPixels.Round(module.Y);
+        module.HasLayout = true;
+
+        _ = _command.UpdateModuleLayout(module.ToLayout());
+        RaiseGeometry(module);
+
+        // ② 配置（可选）：清掉该实例已保存的配置，模块重新读到默认值并刷新表单
+        if (scope == ModuleResetScope.SizeAndConfiguration)
+        {
+            var result = _command.ResetModuleConfiguration(module.InstanceId);
+            module.ReloadConfigurationForms();
+
+            RaiseNotice(
+                result.Succeeded
+                    ? $"{module.Title}：已还原默认尺寸与配置"
+                    : $"{module.Title}：尺寸已还原，但配置还原失败 —— {string.Join("；", result.Failures)}",
+                isError: !result.Succeeded);
+        }
+        else
+        {
+            RaiseNotice($"{module.Title}：已还原默认尺寸", isError: false);
+        }
+    }
+
+    /// <summary>
+    /// 窗口**打开后**把实际尺寸落盘（未摆放过的模块由此获得第一条布局记录）。
+    /// </summary>
+    /// <remarks>
+    /// 【用户第九轮反馈 · UI 开发方式】尺寸默认值归 XAML：这里只把窗口的**实际尺寸**写进模型与布局，
+    /// 不做任何"按内容估算"。之后用户的拖动/缩放照常覆盖。
+    /// </remarks>
+    /// <param name="module">模块视图。</param>
+    public void CommitInitialLayout(ModuleViewViewModel module)
+    {
+        ArgumentNullException.ThrowIfNull(module);
+        _ = _command.UpdateModuleLayout(module.ToLayout());
     }
 
     /// <summary>
@@ -804,7 +1042,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 continue;
             }
 
-            // 新模块：错位摆放（不叠在一起），随即把默认位写回布局（否则用户不拖就不进组合件）
+            // 新模块：**只分配错位摆放的位置**；尺寸由窗口的 **XAML 默认值**决定。
+            // 窗口打开后（ModuleWindowManager.PublishActualSize）把**实际尺寸**读回并经 CommitInitialLayout 落盘。
+            // 【用户第九轮反馈】此前这里就写回"模型算出来的默认尺寸"，等于让代码决定外层容器尺寸。
             var created = new ModuleViewViewModel(
                 instance,
                 layout: null,
@@ -815,7 +1055,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 PlaceOrigin + (Modules.Count % 8 * PlaceStepY));
 
             Modules.Add(created);
-            _ = _command.UpdateModuleLayout(created.ToLayout());
 
             GeometryChanged?.Invoke(
                 this,
@@ -854,9 +1093,27 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 continue;
             }
 
+            // 【用户第十二轮第四轮反馈 · 关键】**整体平移尚未落盘**的模块同样不能被回写：
+            // 刷新是 60Hz 的，若这里用"已落盘的旧布局"覆盖内存位置，模块会被一帧帧拉回原位 ——
+            // 表现就是"移动主窗口时模块跟不动"（甚至来回抖）。落盘由防抖合并提交负责。
+            if (_pendingSceneCommits.Contains(module.InstanceId))
+            {
+                continue;
+            }
+
             if (layoutById.TryGetValue(module.InstanceId, out var layout))
             {
+                // 【临时诊断】拖动期间"其他模块被回写"会让贴着它的模块跟着抖 —— 必须记下来
+                var beforeX = module.X;
+                var beforeY = module.Y;
                 module.ApplyLayout(layout);
+
+                if (_draggingId is { Length: > 0 }
+                    && (Math.Abs(module.X - beforeX) > 0.5 || Math.Abs(module.Y - beforeY) > 0.5))
+                {
+                    Diagnostics.DragDiagnostics.RecordNeighbourWriteBack(module.InstanceId, beforeX, beforeY, module.X, module.Y);
+                }
+
                 RaiseGeometry(module);
             }
         }
@@ -868,6 +1125,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     {
         _frameCounter++;
         RefreshRateHz = _query.GetSettings().UiRefreshRateHz;
+
+        // 吸附距离（设置项，默认 4，2–8）：在线即时生效 —— 每次刷新同步一次，拖动时按它取容差
+        SnapDistance = Math.Clamp(_query.GetSettings().SnapDistance, 2, 8);
 
         _sources.Clear();
         foreach (var source in _query.GetSubscriptionSources())
@@ -1118,57 +1378,151 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _textReadCounts[key] = source.Written;
     }
 
-    private List<CanvasRect> CollectSnapTargets(string draggingId)
-    {
-        var rects = Modules
-            .Where(m => m.IsViewVisible
-                && m.Rect.IsValid
-                && !_dragGroup.Contains(m.InstanceId, StringComparer.Ordinal)
-                && !string.Equals(m.InstanceId, draggingId, StringComparison.Ordinal))
-            .Select(m => m.Rect)
-            .ToList();
-
-        // 外壳（拼图起始点）**只提供其右边缘**一条参照【M1-16 / ADR-0038 D5 · 用户裁决 D-2】。
-        // 参照线是**线不是矩形**（线的宽度为 0），故走 SnapEngine 的 referenceLines 通道；
-        // **屏幕工作区退出吸附候选**（仍用于默认摆放与不出屏钳制）。
-        return rects;
-    }
-
-    /// <summary>吸附**参照线**（当前只有一条：外壳的右边缘）。</summary>
-    private List<(bool IsVertical, double Position)> CollectReferenceLines() =>
-        ShellRect is { IsValid: true } shell ? [(true, shell.X + shell.Width)] : [];
-
     private IReadOnlyList<(string Id, CanvasRect Rect)> ModuleRects() =>
         [.. Modules.Where(m => m.IsViewVisible).Select(m => (m.InstanceId, m.Rect))];
 
-    /// <summary>端口对齐候选（C5-2）：被拖模块的发送口 ↔ 其他模块的接收口（及反向）。</summary>
-    private List<(double MovingY, double OtherY)> BuildPortAlignment(string draggingId)
+    /// <summary>外壳在**拼图图**里的节点 id（与实例 id 不会冲突）。</summary>
+    public const string ShellNodeId = "#shell";
+
+    /// <summary>拼图图的全部节点：外壳（若可用）+ 可见模块（ADR-0042 之后的"成组"输入）。</summary>
+    /// <param name="shellOverride">用指定的外壳矩形代替模型里的当前值（**分组判定要用移动前的几何**）。</param>
+    private List<(string Id, CanvasRect Rect)> TilingNodes(CanvasRect? shellOverride = null)
+    {
+        var nodes = ModuleRects().ToList();
+        var shell = shellOverride ?? ShellRect;
+
+        if (shell is { IsValid: true } validShell)
+        {
+            nodes.Add((ShellNodeId, validShell));
+        }
+
+        return nodes;
+    }
+
+    /// <summary>
+    /// 两节点是否"拼在一起"（成组谓词）。
+    /// </summary>
+    /// <remarks>
+    /// 模块 ↔ 模块：沿用 <see cref="SnapEngine.AreJoined"/>（相邻边贴合 + 交叉轴有重叠）。
+    /// **模块 ↔ 外壳：只有"模块左边缘贴外壳右边缘"算**（外壳只提供右边缘 —— ADR-0038 D5 / 用户裁决 D-2），
+    /// 不允许贴它的左/上/下边缘。
+    /// </remarks>
+    private static bool AreNodesJoined(
+        (string Id, CanvasRect Rect) a,
+        (string Id, CanvasRect Rect) b,
+        double tolerance)
+    {
+        if (string.Equals(a.Id, ShellNodeId, StringComparison.Ordinal) || string.Equals(b.Id, ShellNodeId, StringComparison.Ordinal))
+        {
+            var (shell, module) = string.Equals(a.Id, ShellNodeId, StringComparison.Ordinal) ? (a.Rect, b.Rect) : (b.Rect, a.Rect);
+            var overlap = Math.Min(module.Bottom, shell.Bottom) - Math.Max(module.Top, shell.Top);
+            return Math.Abs(module.Left - shell.Right) <= tolerance && overlap > tolerance;
+        }
+
+        return SnapEngine.AreJoined(a.Rect, b.Rect, tolerance);
+    }
+
+    /// <summary>某节点所在的**拼图组**（接触连通分量，含自身；外壳也参与）。</summary>
+    /// <param name="nodeId">起始节点 id（外壳用 <see cref="ShellNodeId"/>）。</param>
+    /// <param name="shellOverride">用指定的外壳矩形参与分组（**移动前的几何**）。</param>
+    private HashSet<string> GroupOfNode(string nodeId, CanvasRect? shellOverride = null)
+    {
+        var nodes = TilingNodes(shellOverride);
+        var group = new HashSet<string>(StringComparer.Ordinal) { nodeId };
+        var queue = new Queue<string>();
+        queue.Enqueue(nodeId);
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            var currentIndex = nodes.FindIndex(n => string.Equals(n.Id, current, StringComparison.Ordinal));
+            if (currentIndex < 0)
+            {
+                continue;
+            }
+
+            for (var i = 0; i < nodes.Count; i++)
+            {
+                if (i == currentIndex || group.Contains(nodes[i].Id))
+                {
+                    continue;
+                }
+
+                if (AreNodesJoined(nodes[currentIndex], nodes[i], GroupTolerance))
+                {
+                    _ = group.Add(nodes[i].Id);
+                    queue.Enqueue(nodes[i].Id);
+                }
+            }
+        }
+
+        return group;
+    }
+
+    /// <summary>
+    /// **参照线**集合（ADR-0042 D2）：其他模块的外框（4 边 + 中心线）+ 外壳边。
+    /// </summary>
+    /// <remarks>
+    /// 外壳只是"**只暴露一条边的对象**"，与模块进同一张线表 —— 不再是特殊通道（ADR-0042 D2）。
+    /// 同组成员与自身不提供外框线（自己不能吸自己）。
+    /// </remarks>
+    private List<SnapLine> CollectLines(string draggingId)
+    {
+        var lines = new List<SnapLine>();
+
+        foreach (var module in Modules.Where(m => m.IsViewVisible
+            && !_dragGroup.Contains(m.InstanceId, StringComparer.Ordinal)
+            && !string.Equals(m.InstanceId, draggingId, StringComparison.Ordinal)))
+        {
+            lines.AddRange(SnapEngine.LinesOf(module.Rect));
+        }
+
+        if (ShellRect is { IsValid: true } shell)
+        {
+            lines.Add(SnapEngine.LineOf(new SnapReferenceLine(true, shell.X + shell.Width, shell.Y, shell.Y + shell.Height)));
+        }
+
+        return lines;
+    }
+
+    /// <summary>
+    /// 端口锚点对（ADR-0042 D2/D4）：被拖模块的发送口 ↔ 其他模块的接收口（及反向）。
+    /// </summary>
+    /// <remarks>
+    /// **对齐轴由端口所在的边决定**：当前模型里口只在左/右边（`PortMarkerViewModel.Side`），
+    /// 因此端口锚点恒为 **Y 对齐**（左右相邻时"插上"要看高度对齐）。
+    /// 接近范围由引擎按两模块的交叉轴间隙判定（不再"按缝隙大小猜邻接方向" —— ADR-0042 D4）。
+    /// 同组成员与自身不参与；此通道**恒开**（不依赖"叠加信息层"开关）。
+    /// </remarks>
+    private List<PortAnchorPair> BuildPortAnchors(string draggingId)
     {
         if (Find(draggingId) is not { } moving)
         {
             return [];
         }
 
-        var pairs = new List<(double MovingY, double OtherY)>();
+        var pairs = new List<PortAnchorPair>();
 
-        foreach (var mine in moving.Ports.Where(p => p.IsSend))
+        foreach (var other in Modules.Where(m => m.IsViewVisible
+            && !_dragGroup.Contains(m.InstanceId, StringComparer.Ordinal)
+            && !string.Equals(m.InstanceId, draggingId, StringComparison.Ordinal)))
         {
-            foreach (var other in Modules.Where(m => !string.Equals(m.InstanceId, draggingId, StringComparison.Ordinal) && m.IsViewVisible))
+            foreach (var mine in moving.Ports)
             {
-                foreach (var theirs in other.Ports.Where(p => !p.IsSend))
+                foreach (var theirs in other.Ports)
                 {
-                    pairs.Add((moving.Y + (moving.Height * mine.Offset), other.Y + (other.Height * theirs.Offset)));
-                }
-            }
-        }
+                    if (mine.IsSend == theirs.IsSend)
+                    {
+                        continue;   // 只考虑"发送 ↔ 接收"
+                    }
 
-        foreach (var mine in moving.Ports.Where(p => !p.IsSend))
-        {
-            foreach (var other in Modules.Where(m => !string.Equals(m.InstanceId, draggingId, StringComparison.Ordinal) && m.IsViewVisible))
-            {
-                foreach (var theirs in other.Ports.Where(p => p.IsSend))
-                {
-                    pairs.Add((moving.Y + (moving.Height * mine.Offset), other.Y + (other.Height * theirs.Offset)));
+                    // 端口的对齐轴 = 它所在的边：左/右边 → 约束 Y（横向参照线）；上/下边 → 约束 X
+                    var alignsX = !mine.IsVertical;
+                    var otherCoordinate = alignsX
+                        ? other.X + (other.Width * theirs.Offset)
+                        : other.Y + (other.Height * theirs.Offset);
+
+                    pairs.Add(new PortAnchorPair(alignsX, otherCoordinate, other.Rect, mine.Offset));
                 }
             }
         }

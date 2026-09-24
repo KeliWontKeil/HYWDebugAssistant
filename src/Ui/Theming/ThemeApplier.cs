@@ -42,7 +42,11 @@ public static class ThemeApplier
     /// <summary>预设主题色档（名称 + 十六进制，供设置界面"一键选色"）。</summary>
     /// <param name="Name">显示名。</param>
     /// <param name="Hex">颜色文本。</param>
-    public sealed record AccentPreset(string Name, string Hex);
+    public sealed record AccentPreset(string Name, string Hex)
+    {
+        /// <summary>色块画刷（界面绑定用；无法解析时为透明）。</summary>
+        public IBrush Brush => Parse(Hex) is { } color ? new SolidColorBrush(color) : Brushes.Transparent;
+    }
 
     /// <summary>预设主题色（8 档）。</summary>
     public static readonly IReadOnlyList<AccentPreset> Presets =

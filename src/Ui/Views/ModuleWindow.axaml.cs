@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.VisualTree;
+using HYWDebugAssistant.Ui.Diagnostics;
 using HYWDebugAssistant.Ui.ViewModels;
 
 namespace HYWDebugAssistant.Ui.Views;
@@ -30,6 +31,10 @@ public partial class ModuleWindow : Window
     private bool _dragging;
     private bool _resizing;
     private ModuleViewViewModel? _hooked;
+
+    /// <summary>【临时诊断】上一帧指针位置（算指针位移用）。</summary>
+    private double _lastPointerX;
+    private double _lastPointerY;
 
     /// <summary>创建窗口。</summary>
     public ModuleWindow()
@@ -63,6 +68,9 @@ public partial class ModuleWindow : Window
         if (controller.BeginDrag(module.InstanceId, x, y, independent))
         {
             _dragging = true;
+            _lastPointerX = x;
+            _lastPointerY = y;
+            DragDiagnostics.Reset();
             e.Pointer.Capture(sender as IInputElement ?? this);
             e.Handled = true;
         }
@@ -102,8 +110,45 @@ public partial class ModuleWindow : Window
 
         if (_dragging)
         {
+            var before = Module is { } m0 ? (X: m0.X, Y: m0.Y, W: m0.Width, H: m0.Height) : default;
+
             // 按住 Alt = 本次移动临时停用吸附（Q5-1）
             controller.DragTo(x, y, snapEnabled: e.KeyModifiers.HasFlag(KeyModifiers.Alt) ? false : null);
+
+            // 【临时诊断】记录该帧的指针与几何事实（拖动结束时整段落盘）
+            if (Module is { } dragged)
+            {
+                var deltaX = x - _lastPointerX;
+                var deltaY = y - _lastPointerY;
+                var derived = LastWindowDerivedPoint;
+                var scaling = RenderScaling <= 0 ? 1.0 : RenderScaling;
+
+                DragDiagnostics.Record(DragDiagnostics.Format(
+                    cursor: (X: x, Y: y),
+                    derived: derived,
+                    pointerDelta: (X: deltaX, Y: deltaY),
+                    modelBefore: before,
+                    module: (X: dragged.X, Y: dragged.Y, W: dragged.Width, H: dragged.Height),
+                    windowPosition: (X: Position.X, Y: Position.Y),
+                    windowSize: (W: ClientSize.Width * scaling, H: ClientSize.Height * scaling),
+                    sticky: $"group={controller.DragGroupSize}"));
+
+                var errorX = Math.Abs(derived.X - x);
+                var errorY = Math.Abs(derived.Y - y);
+                var movedX = dragged.X - before.X;
+                var movedY = dragged.Y - before.Y;
+
+                // 异常帧就在日志里打标记（不打断拖动，也不再只写一次）
+                if (errorX > 1.5 || errorY > 1.5
+                    || (movedX * deltaX < 0 && Math.Abs(movedX) > 2)
+                    || (movedY * deltaY < 0 && Math.Abs(movedY) > 2))
+                {
+                    DragDiagnostics.Record($"!!异常帧 指针换算差=({errorX:0.#},{errorY:0.#}) 模块位移=({movedX:0.#},{movedY:0.#})");
+                }
+            }
+
+            _lastPointerX = x;
+            _lastPointerY = y;
             e.Handled = true;
         }
     }
@@ -125,8 +170,16 @@ public partial class ModuleWindow : Window
         if (_dragging)
         {
             _dragging = false;
+            var groupSize = controller.DragGroupSize;
+            var instanceId = Module?.InstanceId ?? "-";
             controller.EndDrag();
             e.Pointer.Capture(null);
+
+            // 【临时诊断】整段拖动落盘（每次拖动都会追加一段）
+            if (DragDiagnostics.Flush($"实例={instanceId} 组={groupSize}") is { } path)
+            {
+                controller.RaiseNotice($"拖动诊断日志已写入：{path}", isError: false);
+            }
         }
     }
 
@@ -279,11 +332,24 @@ public partial class ModuleWindow : Window
         }
     }
 
-    private void OnToggleEnabled(object? sender, RoutedEventArgs e)
+    /// <summary>
+    /// **还原**（用户第十一轮反馈 · 替代原「暂停」按钮）：弹确认框选择还原范围，再交给控制器执行。
+    /// </summary>
+    /// <remarks>
+    /// 暂停对用户没有意义（不想用就关窗或断连），而"还原默认尺寸/配置"是常用动作；
+    /// 破坏性操作（覆盖用户拖过的尺寸、丢掉改过的配置）**必须先确认**。
+    /// </remarks>
+    private async void OnReset(object? sender, RoutedEventArgs e)
     {
-        if (Module is { } module && Controller is { } controller)
+        if (Module is not { } module || Controller is not { } controller)
         {
-            controller.ToggleEnabled(module.InstanceId);
+            return;
+        }
+
+        var scope = await new ResetModuleDialog(module.Title).ShowDialog<ModuleResetScope?>(this);
+        if (scope is { } selected)
+        {
+            controller.ApplyReset(module, selected);
         }
     }
 
@@ -327,7 +393,6 @@ public partial class ModuleWindow : Window
 
         ApplySelection(module);
         ApplyLock(module);
-        ApplyRunState(module);
     }
 
     private void OnModulePropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -345,10 +410,6 @@ public partial class ModuleWindow : Window
 
             case nameof(ModuleViewViewModel.IsLocked):
                 ApplyLock(module);
-                break;
-
-            case nameof(ModuleViewViewModel.StateText):
-                ApplyRunState(module);
                 break;
 
             default:
@@ -369,19 +430,14 @@ public partial class ModuleWindow : Window
 
     /// <summary>锁定图标 = **动作**（未锁 → 显示"上锁"；已锁 → 显示"解锁"）。</summary>
     private void ApplyLock(ModuleViewViewModel module) =>
-        SetIcon(LockIcon, module.IsLocked ? "IconUnlock" : "IconLock");
+        SetGlyph(LockIcon, module.IsLocked ? "GlyphUnlock" : "GlyphLock");
 
-    /// <summary>运行图标 = **动作**（运行中 → 显示"停止"；已停用 → 显示"播放"）。</summary>
-    private void ApplyRunState(ModuleViewViewModel module) =>
-        SetIcon(RunStopIcon, module.IsEnabled ? "IconStop" : "IconPlay");
-
-    /// <summary>从主题 token 取图标几何（ADR-0039 D7：换成图标包时只改 token）。</summary>
-    private void SetIcon(PathIcon icon, string resourceKey)
+    /// <summary>从主题 token 取**图标字形**（系统图标字体；改图标只改 Tokens）。</summary>
+    private void SetGlyph(TextBlock icon, string resourceKey)
     {
-        // 注意：本工程内 `Geometry` 是**命名空间**（Ui.Geometry 的吸附/画布几何），故此处写全名
-        if (this.TryFindResource(resourceKey, out var value) && value is Avalonia.Media.Geometry geometry)
+        if (this.TryFindResource(resourceKey, out var value) && value is string glyph)
         {
-            icon.Data = geometry;
+            icon.Text = glyph;
         }
     }
 
@@ -415,12 +471,33 @@ public partial class ModuleWindow : Window
         _ => ResizeHandle.Right,
     };
 
-    /// <summary>把指针位置换算为**屏幕物理像素**（拖动中窗口随指针移动也不会回授）。</summary>
+    /// <summary>
+    /// 把指针位置换算为**屏幕物理像素**。
+    /// </summary>
+    /// <remarks>
+    /// 【用户第十二轮第二轮反馈 · `architecture/15` §6.4】**优先取系统光标**：
+    /// 原来只用 <c>Position + 局部坐标 × 缩放</c>，两个来源不是同一次采样（窗口位置是我们刚设的、
+    /// 局部坐标来自系统消息生成时刻），拖动中窗口每帧都在动（吸附命中还会跳几像素）⇒
+    /// 指针读数带上"等于窗口位移量"的误差 ⇒ 回授振荡。系统光标与本窗口自己的位置无关，能断掉这条回授。
+    /// 非 Windows / 非鼠标（触摸、笔）或调用失败时回退到原换算。
+    /// </remarks>
     private (double X, double Y) ScreenPoint(PointerEventArgs e)
     {
         var local = e.GetPosition(this);
         var scaling = RenderScaling <= 0 ? 1.0 : RenderScaling;
+        var derived = (X: Position.X + (local.X * scaling), Y: Position.Y + (local.Y * scaling));
 
-        return (Position.X + (local.X * scaling), Position.Y + (local.Y * scaling));
+        // 诊断用：把"窗口换算值"留存，便于与系统光标比对（见 DragDiagnostics）
+        LastWindowDerivedPoint = derived;
+
+        if (e.Pointer.Type == PointerType.Mouse && NativeCursor.TryGetScreenPosition(out var systemX, out var systemY))
+        {
+            return (systemX, systemY);
+        }
+
+        return derived;
     }
+
+    /// <summary>【临时诊断】最近一次"窗口换算"得到的指针位置（拖动诊断用，见 `DragDiagnostics`）。</summary>
+    internal (double X, double Y) LastWindowDerivedPoint { get; private set; }
 }

@@ -150,7 +150,12 @@ public sealed class MonitorModule : IModule
                 new ViewDataSource(MaxSource, unit: null, format: "F3", kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.F32),
                 new ViewDataSource(SeriesSource, unit: null, format: null, kind: ViewDataSourceKind.Sequence, valueType: ContractPrimitive.F32),
                 new ViewDataSource(LogSource, unit: null, format: null, kind: ViewDataSourceKind.Text),
-            ]));
+            ])
+        {
+            // 【用户第十一轮反馈】声明默认窗口尺寸：四段数值 + 曲线 + 日志 + 配置表单
+            PreferredWidth = 360,
+            PreferredHeight = 460,
+        });
     }
 
     /// <inheritdoc />

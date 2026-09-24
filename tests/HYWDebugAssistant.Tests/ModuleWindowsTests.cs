@@ -11,6 +11,7 @@ using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Views;
 using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.ViewModels;
+using HYWDebugAssistant.Ui.Views;
 using Shouldly;
 using Xunit;
 
@@ -29,7 +30,7 @@ public class ModuleWindowsTests
     // ------------------------------------------------------------ 模块窗口与声明渲染
 
     [Fact]
-    public void 模块窗口_应显示模块并立即写入默认布局()
+    public void 模块窗口_未摆放时只分配位置_尺寸留给XAML默认()
     {
         using var harness = new UiHarness();
         harness.Services.AddModule("s1", "test/ui-source/1.0.0").Succeeded.ShouldBeTrue();
@@ -38,14 +39,22 @@ public class ModuleWindowsTests
 
         var module = harness.Windows.Modules.ShouldHaveSingleItem();
         module.InstanceId.ShouldBe("s1");
-        module.Width.ShouldBeGreaterThanOrEqualTo(ModuleViewViewModel.DefaultWidth, "首次摆放**按内容估算尺寸**");
-        module.Height.ShouldBeGreaterThanOrEqualTo(ModuleViewViewModel.DefaultHeight, "首次摆放按内容估算高度（不再写死最小高）");
 
-        // 未摆放过的实例：UI 取默认位并**立即写回布局**（否则用户不拖就不进组合件）
+        // 【用户第九轮反馈 · UI 开发方式】窗口尺寸**不由内容/代码计算**：
+        // 未摆放的新模块只有"位置"（错位摆放避免叠在一起），尺寸 = XAML 默认值（常量与 XAML 同步）
+        module.HasLayout.ShouldBeFalse("未摆放的模块不应有布局记录（尺寸由窗口的 XAML 默认值决定）");
+        module.Width.ShouldBe(ModuleViewViewModel.DefaultWidth, "尺寸默认值 = ModuleWindow.axaml 的 Width");
+        module.Height.ShouldBe(ModuleViewViewModel.DefaultHeight, "尺寸默认值 = ModuleWindow.axaml 的 Height");
+        harness.Services.GetLayout().ShouldBeEmpty("打开窗口之前不写盘（由窗口把**实际尺寸**读回后再落盘）");
+
+        // 窗口打开后由管理器把实际尺寸读回落盘（此处直接调用等价入口）
+        harness.Windows.CommitInitialLayout(module);
+
         var layout = harness.Services.GetLayout().ShouldHaveSingleItem();
         layout.InstanceId.ShouldBe("s1");
         layout.X.ShouldBe(module.X);
         layout.Y.ShouldBe(module.Y);
+        layout.Width.ShouldBe(module.Width);
 
         // 按声明渲染：数值 + 曲线 + 未渲染元素 + **框架补的配置表单**（声明里没有 B1 元素时补一个）
         module.Elements.Count.ShouldBe(4);
@@ -98,9 +107,13 @@ public class ModuleWindowsTests
                 harness.Windows.Refresh();
                 return curve.Points.Count > 2;
             },
-            TimeSpan.FromSeconds(5));
+            TimeSpan.FromSeconds(10));
 
-        ready.ShouldBeTrue("曲线元素应按刷新节拍取到环形缓冲里的样本");
+        // 说明：这是**时间相关**断言（等订阅缓冲攒够样本）。机器忙时（满量程跑测试 + 应用在跑）
+        // 曾出现一次偶发失败，故把预算放宽到 10 s 并带上现场信息，便于再出现时定位。
+        ready.ShouldBeTrue(
+            $"曲线元素应按刷新节拍取到环形缓冲里的样本（当前 {curve.Points.Count} 个点；"
+            + $"模块状态 {module.StateText}；数值显示 {value.Display}）");
 
         value.Value.ShouldNotBeNull();
         value.Display.ShouldNotBe("—", "数值元素应显示最新值");
@@ -252,6 +265,89 @@ public class ModuleWindowsTests
     // ------------------------------------------------------------ 拖动与几何吸附（屏幕坐标）
 
     [Fact]
+    public void 锁定_不随拼接组整体移动()
+    {
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 0, 0);
+        harness.Place("b", "test/ui-sink/1.0.0", ModuleViewViewModel.DefaultWidth, 0);   // 与 a 贴合 → 同组
+        harness.Windows.Refresh();
+
+        var b = harness.Windows.Modules.Single(m => m.InstanceId == "b");
+        harness.Windows.ToggleLock("b");
+        b.IsLocked.ShouldBeTrue();
+
+        harness.Windows.BeginDrag("a", 10, 10, independent: false).ShouldBeTrue();
+        harness.Windows.DragTo(110, 60);
+        harness.Windows.EndDrag();
+
+        harness.Windows.Modules.Single(m => m.InstanceId == "a").X.ShouldBe(100, "被拖的模块照常移动");
+        b.X.ShouldBe(ModuleViewViewModel.DefaultWidth, "**锁定的模块不随拼接组移动**（用户第十一轮反馈：这很反直觉）");
+        b.Y.ShouldBe(0);
+    }
+
+    [Fact]
+    public void 外壳移动_贴靠其上的模块应跟随()
+    {
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 600, 100);
+
+        // 外壳：右边缘 = 600（模块 a 的左边缘贴在上面）
+        harness.Windows.ShellRect = new CanvasRect(200, 100, 400, 160);
+        harness.Windows.Refresh();
+
+        // 外壳右移 120、下移 40：ShellRect 已由管理器刷新为**移动后**的矩形，
+        // 而 FollowShellMove 内部用"移动前"的几何做锚定判定（用户第十二轮修"拉脱"）
+        harness.Windows.ShellRect = new CanvasRect(320, 140, 400, 160);
+        harness.Windows.TranslateShellGroup(120, 40, new CanvasRect(200, 100, 400, 160));
+
+        var a = harness.Windows.Modules.ShouldHaveSingleItem();
+        a.X.ShouldBe(720, "拼接在主窗口上的模块应**跟随主窗口移动**（用户第十一轮反馈）");
+        a.Y.ShouldBe(140);
+
+        // 落盘现在由调用方防抖后合并提交（用户第十二轮：不逐帧提交）
+        harness.Windows.CommitSceneTranslation().ShouldBeTrue();
+        harness.Services.GetLayout().Single(l => l.InstanceId == "a").X.ShouldBe(720, "跟随后的位置要落盘");
+    }
+
+    [Fact]
+    public void 外壳移动_未贴靠的模块不应被带走()
+    {
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 1200, 600);   // 离外壳很远
+
+        harness.Windows.ShellRect = new CanvasRect(200, 100, 400, 160);
+        harness.Windows.Refresh();
+
+        harness.Windows.ShellRect = new CanvasRect(320, 140, 400, 160);
+        harness.Windows.TranslateShellGroup(120, 40, new CanvasRect(200, 100, 400, 160));
+
+        var a = harness.Windows.Modules.ShouldHaveSingleItem();
+        a.X.ShouldBe(1200);
+        a.Y.ShouldBe(600);
+    }
+
+    [Fact]
+    public void 还原_尺寸应回到模块首选尺寸()
+    {
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 0, 0);
+        harness.Windows.Refresh();
+
+        var module = harness.Windows.Modules.ShouldHaveSingleItem();
+
+        // 用户把它拉大好一会儿
+        module.Width = 900;
+        module.Height = 700;
+        module.HasLayout = true;
+
+        harness.Windows.ApplyReset(module, ModuleResetScope.SizeOnly);
+
+        module.Width.ShouldBe(module.PreferredWidth, "还原 = 回到**模块声明的首选尺寸**（不是框架按元素猜的）");
+        module.Height.ShouldBe(module.PreferredHeight);
+        harness.Services.GetLayout().Single(l => l.InstanceId == "a").Width.ShouldBe(module.PreferredWidth, "还原后要落盘");
+    }
+
+    [Fact]
     public void 吸附_模块应能贴到外壳的右边缘()
     {
         using var harness = new UiHarness();
@@ -295,14 +391,14 @@ public class ModuleWindowsTests
     {
         using var harness = new UiHarness();
         harness.Place("a", "test/ui-source/1.0.0", 0, 0);
-        harness.Place("b", "test/ui-sink/1.0.0", 260, 0);   // 与 a 右边缘贴合 → 同组
+        harness.Place("b", "test/ui-sink/1.0.0", ModuleViewViewModel.DefaultWidth, 0);   // 与 a 右边缘贴合 → 同组
         harness.Windows.Refresh();
 
         harness.Windows.BeginDrag("a", 10, 10, independent: false).ShouldBeTrue();
         harness.Windows.DragTo(110, 60);
 
         harness.Windows.Modules.Single(m => m.InstanceId == "a").X.ShouldBe(100);
-        harness.Windows.Modules.Single(m => m.InstanceId == "b").X.ShouldBe(360, "整组一起移动");
+        harness.Windows.Modules.Single(m => m.InstanceId == "b").X.ShouldBe(ModuleViewViewModel.DefaultWidth + 100, "整组一起移动");
         harness.Windows.Modules.Single(m => m.InstanceId == "b").Y.ShouldBe(50);
 
         harness.Windows.EndDrag();
@@ -310,7 +406,7 @@ public class ModuleWindowsTests
 
         var layout = harness.Services.GetLayout().ToDictionary(l => l.InstanceId);
         layout["a"].X.ShouldBe(100);
-        layout["b"].X.ShouldBe(360);
+        layout["b"].X.ShouldBe(ModuleViewViewModel.DefaultWidth + 100);
     }
 
     [Fact]
@@ -318,14 +414,14 @@ public class ModuleWindowsTests
     {
         using var harness = new UiHarness();
         harness.Place("a", "test/ui-source/1.0.0", 0, 0);
-        harness.Place("b", "test/ui-sink/1.0.0", 260, 0);
+        harness.Place("b", "test/ui-sink/1.0.0", ModuleViewViewModel.DefaultWidth, 0);
         harness.Windows.Refresh();
 
         harness.Windows.BeginDrag("a", 10, 10, independent: true).ShouldBeTrue();
         harness.Windows.DragTo(110, 60);
 
         harness.Windows.Modules.Single(m => m.InstanceId == "a").X.ShouldBe(100);
-        harness.Windows.Modules.Single(m => m.InstanceId == "b").X.ShouldBe(260, "Ctrl 独立拖动（C5-1 约束 3）");
+        harness.Windows.Modules.Single(m => m.InstanceId == "b").X.ShouldBe(ModuleViewViewModel.DefaultWidth, "Ctrl 独立拖动（C5-1 约束 3）");
     }
 
     [Fact]
@@ -338,10 +434,10 @@ public class ModuleWindowsTests
 
         // 把 b 拖到"左边缘离 a 右边缘 3 px"的位置 → 应被吸附成贴合
         harness.Windows.BeginDrag("b", 610, 410, independent: false).ShouldBeTrue();
-        harness.Windows.DragTo(260 + 3 + 10, 410);
+        harness.Windows.DragTo(ModuleViewViewModel.DefaultWidth + 3 + 10, 410);
 
         var b = harness.Windows.Modules.Single(m => m.InstanceId == "b");
-        b.X.ShouldBe(260, "3 px 落在容差 8 px 内 → 贴合到 a 的右边缘");
+        b.X.ShouldBe(ModuleViewViewModel.DefaultWidth, "3 px 落在容差 8 px 内 → 贴合到 a 的右边缘");
         harness.Windows.Guides.ShouldNotBeEmpty("吸附命中时显示对齐辅助线");
         harness.Windows.Guides.ShouldContain(g => g.IsVertical);
     }
@@ -355,9 +451,9 @@ public class ModuleWindowsTests
         harness.Windows.Refresh();
 
         harness.Windows.BeginDrag("b", 610, 410, independent: false).ShouldBeTrue();
-        harness.Windows.DragTo(260 + 3 + 10, 410, snapEnabled: false);   // 按住 Alt
+        harness.Windows.DragTo(ModuleViewViewModel.DefaultWidth + 3 + 10, 410, snapEnabled: false);   // 按住 Alt
 
-        harness.Windows.Modules.Single(m => m.InstanceId == "b").X.ShouldBe(263, "停用吸附 → 精确摆放");
+        harness.Windows.Modules.Single(m => m.InstanceId == "b").X.ShouldBe(ModuleViewViewModel.DefaultWidth + 3, "停用吸附 → 精确摆放");
         harness.Windows.Guides.ShouldBeEmpty();
     }
 
@@ -392,6 +488,256 @@ public class ModuleWindowsTests
         module.X.ShouldBe(100);
         module.Y.ShouldBe(100);
         harness.Services.GetLayout().ShouldHaveSingleItem().X.ShouldBe(100, "取消不提交");
+    }
+
+    [Fact]
+    public void 拖动_几何一律落在整数物理像素上()
+    {
+        using var harness = new UiHarness();
+        harness.Services.AddModule("a", "test/ui-source/1.0.0").Succeeded.ShouldBeTrue();
+        harness.Windows.Refresh();
+
+        // 布局里存着小数（历史数据 / 125% 缩放下的旧值）→ 读入时必须量化到整数物理像素
+        harness.Services.UpdateModuleLayout(new ModuleLayoutView("a", 100.5, 200.25, 412.5, 275.5)).Succeeded.ShouldBeTrue();
+        harness.Windows.Refresh();
+
+        var module = harness.Windows.Modules.ShouldHaveSingleItem();
+        module.X.ShouldBe(101, "0.5 向上取整（AwayFromZero），避免两条边各自取整后差 1px");
+        module.Y.ShouldBe(200);
+        module.Width.ShouldBe(413, "125% 缩放下的 412.5px 必须量化（否则窗口落位与模型不一致）");
+        module.Height.ShouldBe(276);
+
+        // 指针本身带小数时，写回模型的位置同样必须是整数
+        harness.Windows.BeginDrag("a", 110.4, 210.7, independent: true).ShouldBeTrue();
+        harness.Windows.DragTo(150.6, 260.2);
+
+        (module.X % 1).ShouldBe(0.0, "拖动中的自由位置也必须是整数物理像素");
+        (module.Y % 1).ShouldBe(0.0);
+        harness.Windows.EndDrag();
+        (module.X % 1).ShouldBe(0.0, "落盘前的几何也必须是整数");
+        (module.Y % 1).ShouldBe(0.0);
+    }
+
+    [Fact]
+    public void 拖动_整组平移时组内相对偏移保持不变()
+    {
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 0, 0);
+        harness.Place("b", "test/ui-sink/1.0.0", ModuleViewViewModel.DefaultWidth, 0);   // 严丝合缝贴在 a 的右边
+        harness.Windows.Refresh();
+
+        var a = harness.Windows.Modules.Single(m => m.InstanceId == "a");
+        var b = harness.Windows.Modules.Single(m => m.InstanceId == "b");
+        var offsetX = b.X - a.X;
+        var offsetY = b.Y - a.Y;
+
+        harness.Windows.BeginDrag("a", 10.3, 10.7, independent: false).ShouldBeTrue();
+        harness.Windows.DragTo(210.8, 160.4);   // 目标带小数
+        harness.Windows.EndDrag();
+
+        (b.X - a.X).ShouldBe(offsetX, "组内相对偏移不得因取整而漂移（缝/错位的直接来源）");
+        (b.Y - a.Y).ShouldBe(offsetY);
+        foreach (var module in new[] { a, b })
+        {
+            (module.X % 1).ShouldBe(0.0);
+            (module.Y % 1).ShouldBe(0.0);
+        }
+    }
+
+    [Fact]
+    public void 整体平移_只平移与外壳拼成一体的那一组()
+    {
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 400, 0);          // 左边缘 400 = 外壳右边缘 → 拼上了
+        harness.Place("b", "test/ui-sink/1.0.0", 1200, 700);         // 离外壳很远 → 没拼上
+        harness.Windows.ShellRect = new CanvasRect(0, 0, 400, 300);
+        harness.Windows.Refresh();
+
+        harness.Windows.ShellRect = new CanvasRect(40, 0, 400, 300);
+        harness.Windows.TranslateShellGroup(40, 0, new CanvasRect(0, 0, 400, 300));
+
+        harness.Windows.Modules.Single(m => m.InstanceId == "a").X.ShouldBe(
+            440,
+            "单侧吸附完成后，外壳与模块是一个整体：移动外壳 = 整组一起动（用户第十二轮第四轮反馈）");
+        harness.Windows.Modules.Single(m => m.InstanceId == "b").X.ShouldBe(
+            1200,
+            "**没吸附上的模块留在原处** —— 只有形成整体后才整体运动");
+    }
+
+    [Fact]
+    public void 整体平移_经由中间模块与外壳相连的模块也跟着走()
+    {
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 400, 0);          // 贴外壳
+        harness.Place("b", "test/ui-sink/1.0.0", 720, 0);            // 贴 a（a 宽 320 → a.Right = 720 = b.Left）
+        harness.Place("c", "test/ui-logger/1.0.0", 1040, 0);         // 贴 b
+        harness.Windows.ShellRect = new CanvasRect(0, 0, 400, 300);
+        harness.Windows.Refresh();
+
+        harness.Windows.ShellRect = new CanvasRect(40, 0, 400, 300);
+        harness.Windows.TranslateShellGroup(40, 0, new CanvasRect(0, 0, 400, 300));
+
+        foreach (var id in new[] { "a", "b", "c" })
+        {
+            harness.Windows.Modules.Single(m => m.InstanceId == id).X.ShouldBe(
+                (id switch { "a" => 400, "b" => 720, _ => 1040 }) + 40,
+                $"{id} 与外壳同属一个接触连通分量 → 一起走");
+        }
+    }
+
+    [Fact]
+    public void 拖动_贴在外壳上的模块会带着外壳一起走()
+    {
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 400, 0);          // 贴外壳右边缘
+        harness.Windows.ShellRect = new CanvasRect(0, 0, 400, 300);
+        harness.Windows.Refresh();
+
+        var shell = harness.Windows.ShellRect!.Value;
+        (double Dx, double Dy) requested = default;
+        harness.Windows.ShellTranslationRequested += (_, delta) => requested = delta;
+
+        harness.Windows.BeginDrag("a", 410, 10, independent: false).ShouldBeTrue();
+        harness.Windows.DragTo(470, 10);   // +60
+        harness.Windows.EndDrag();
+
+        requested.Dx.ShouldBe(60, "拖动组包含外壳 → 外壳窗口也要一起走（视觉整体）");
+        harness.Windows.Modules.Single().X.ShouldBe(460);
+        harness.Windows.ShellRect!.Value.X.ShouldBe(shell.X + 60, "模型里的外壳矩形同步乐观更新");
+    }
+
+    [Fact]
+    public void 拖动_独立拖动贴壳模块时不带动外壳()
+    {
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 400, 0);
+        harness.Windows.ShellRect = new CanvasRect(0, 0, 400, 300);
+        harness.Windows.Refresh();
+
+        var requested = false;
+        harness.Windows.ShellTranslationRequested += (_, _) => requested = true;
+
+        harness.Windows.BeginDrag("a", 410, 10, independent: true).ShouldBeTrue();   // Ctrl 独立拖动
+        harness.Windows.DragTo(470, 10);
+        harness.Windows.EndDrag();
+
+        requested.ShouldBeFalse("独立拖动（Ctrl）只动自己，不带动组、也不带动外壳");
+        harness.Windows.Modules.Single().X.ShouldBe(460);
+    }
+
+    [Fact]
+    public void 整体平移_锁定的模块留在原地()
+    {
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 400, 0);
+        harness.Place("b", "test/ui-sink/1.0.0", 900, 0);
+        harness.Windows.ShellRect = new CanvasRect(0, 0, 400, 300);
+        harness.Windows.Refresh();
+
+        harness.Windows.ToggleLock("b");
+
+        harness.Windows.ShellRect = new CanvasRect(40, 0, 400, 300);
+        harness.Windows.TranslateShellGroup(40, 0, new CanvasRect(0, 0, 400, 300));
+
+        harness.Windows.Modules.Single(m => m.InstanceId == "a").X.ShouldBe(440, "未锁定的跟着走");
+        harness.Windows.Modules.Single(m => m.InstanceId == "b").X.ShouldBe(
+            900,
+            "锁定 = 钉在桌面上（用户第十一轮口径：不参与拖动组，也不随整体移动）");
+    }
+
+    [Fact]
+    public void 整体平移_未落盘期间刷新不得把模块拉回原位()
+    {
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 400, 0);
+        harness.Windows.ShellRect = new CanvasRect(0, 0, 400, 300);
+        harness.Windows.Refresh();
+
+        harness.Windows.ShellRect = new CanvasRect(40, 0, 400, 300);
+        harness.Windows.TranslateShellGroup(40, 0, new CanvasRect(0, 0, 400, 300));
+        harness.Windows.Modules.Single().X.ShouldBe(440);
+
+        // 刷新是 60Hz 的：若它用"已落盘的旧布局"覆盖内存位置，模块会被一帧帧拉回去 ——
+        // 表现就是"移动主窗口时模块跟不动"（用户第十二轮第四轮实测现象）
+        for (var i = 0; i < 5; i++)
+        {
+            harness.Windows.Refresh();
+            harness.Windows.Modules.Single().X.ShouldBe(440, $"未落盘期间刷新第 {i + 1} 次仍不得回写");
+        }
+
+        harness.Windows.CommitSceneTranslation().ShouldBeTrue();
+        harness.Windows.Refresh();
+        harness.Windows.Modules.Single().X.ShouldBe(440, "落盘之后刷新当然也不回退");
+    }
+
+    [Fact]
+    public void 整体平移_移动中不落盘_停止后才合并提交()
+    {
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 400, 0);
+        harness.Windows.ShellRect = new CanvasRect(0, 0, 400, 300);
+        harness.Windows.Refresh();
+
+        // 移动中（连续两次位移）：内存已动，但**不落盘**（逐帧提交会触发建网重算并让拖动卡顿）
+        harness.Windows.ShellRect = new CanvasRect(10, 0, 400, 300);
+        harness.Windows.TranslateShellGroup(10, 0, new CanvasRect(0, 0, 400, 300));
+        harness.Windows.ShellRect = new CanvasRect(40, 0, 400, 300);
+        harness.Windows.TranslateShellGroup(30, 0, new CanvasRect(10, 0, 400, 300));
+
+        harness.Windows.Modules.Single().X.ShouldBe(440, "内存里已经跟着走");
+        harness.Services.GetLayout().Single(l => l.InstanceId == "a").X.ShouldBe(
+            400,
+            "整体平移过程中的**未落盘**状态：由调用方防抖后合并提交（见 ModuleWindowManager.OnShellMoved）");
+
+        harness.Windows.CommitSceneTranslation().ShouldBeTrue();
+        harness.Services.GetLayout().Single(l => l.InstanceId == "a").X.ShouldBe(440, "停止移动后合并落盘一次");
+
+        harness.Windows.CommitSceneTranslation().ShouldBeFalse("没有待提交的平移变化 → 不产生空变更");
+    }
+
+    [Fact]
+    public void 吸附距离_设置越小越不吸()
+    {
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 0, 0);
+        harness.Place("b", "test/ui-sink/1.0.0", 600, 400);   // 与 a 竖直不重叠 → 只可能是"边缘对齐"类
+
+        // 把 b 拖到"左边缘离 a 右边缘 6px"的位置：对齐类容差 = 吸附距离
+        void DragToGap6()
+        {
+            _ = harness.Windows.BeginDrag("b", 610, 410, independent: false);
+            harness.Windows.DragTo(ModuleViewViewModel.DefaultWidth + 6 + 10, 410);
+            harness.Windows.EndDrag();
+        }
+
+        // 默认 4：6px 的偏移**不吸**
+        harness.Windows.Refresh();
+        harness.Windows.SnapDistance.ShouldBe(4, "默认吸附距离 4（ADR-0042 D6）");
+        DragToGap6();
+        harness.Windows.Modules.Single(m => m.InstanceId == "b").X.ShouldBe(
+            ModuleViewViewModel.DefaultWidth + 6,
+            "6px > 吸附距离 4 → 不吸，保持自由位置");
+
+        // 调到 8：同一个 6px 偏移现在**吸上**
+        var settings = harness.Services.GetSettings().Clone();
+        settings.SnapDistance = 8;
+        harness.Services.UpdateSettings(settings).Succeeded.ShouldBeTrue();
+        harness.Windows.Refresh();
+        harness.Windows.SnapDistance.ShouldBe(8, "设置在线即时生效");
+
+        _ = harness.Services.UpdateModuleLayout(new ModuleLayoutView(
+            "b",
+            600,
+            400,
+            ModuleViewViewModel.DefaultWidth,
+            ModuleViewViewModel.DefaultHeight));
+        harness.Windows.Refresh();
+
+        DragToGap6();
+
+        harness.Windows.Modules.Single(m => m.InstanceId == "b").X.ShouldBe(
+            ModuleViewViewModel.DefaultWidth,
+            "吸附距离调到 8 后，6px 的偏移被吸到对齐位置（用户可自行调手感）");
     }
 
     // ------------------------------------------------------------ 缩放（边中点/角点热区）
@@ -431,8 +777,8 @@ public class ModuleWindowsTests
         var module = harness.Windows.Modules.ShouldHaveSingleItem();
         module.X.ShouldBe(260);
         module.Y.ShouldBe(260);
-        module.Width.ShouldBe(300, "右边缘不动 → 宽度增加 40");
-        module.Height.ShouldBe(180);
+        module.Width.ShouldBe(ModuleViewViewModel.DefaultWidth + 40, "右边缘不动 → 宽度增加 40");
+        module.Height.ShouldBe(ModuleViewViewModel.DefaultHeight + 40, "下边缘不动 → 高度增加 40");
     }
 
     [Fact]

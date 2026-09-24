@@ -49,6 +49,12 @@ public sealed partial class TopologyViewModel : ViewModelBase
     /// <summary>拓扑行（按网络分组，源在前、宿在后）。</summary>
     public ObservableCollection<TopologyRowViewModel> Rows { get; } = [];
 
+    /// <summary>
+    /// **模块清单视图模型**（占位实例属**诊断**，其列表与"指定替代"命令由它提供）。
+    /// </summary>
+    /// <remarks>【修正 · 用户第六轮反馈】占位实例从"模块清单"页移到本弹窗，故这里引用它而不复制数据。</remarks>
+    public ModuleCatalogViewModel? Catalog { get; set; }
+
     /// <summary>摘要（网络数 / 成员数 / 停流数）。</summary>
     [ObservableProperty]
     public partial string Summary { get; set; } = "网络 0";

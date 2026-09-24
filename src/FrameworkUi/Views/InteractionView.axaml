@@ -2,50 +2,87 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
              x:Class="HYWDebugAssistant.FrameworkUi.Views.InteractionView"
-             x:DataType="vm:ShellViewModel">
+             x:DataType="vm:ShellViewModel"
+             xmlns:design="using:HYWDebugAssistant.FrameworkUi.Design"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             d:DataContext="{x:Static design:ShellDesignData.Shell}"
+             d:DesignWidth="420" d:DesignHeight="760">
 
     <!--
-      交互页（B 区侧边界面之一）【M1-16 / ADR-0038 D1】：三组开关（显示 / 交互 / 窗口）+ 操作提示。
-      · 显示：叠加信息层（端口标记始终显示）；
-      · 交互：几何吸附（拖动中按住 Alt 临时停用）；
-      · 窗口：全部锁定 / 全部置前 / 应用置顶 / 显示全部窗口。
+      交互页（B 区常驻）——【用户第十轮反馈后重排】
+        · 每个分区：左标题、**右侧小问号**（同一 X 对齐）；
+        · 帮助一律**弹窗**（Flyout，点外部关闭）——**不在页面里展开文本、不改变布局**；
+        · 行距 6、内边距 8，紧凑。
     -->
     <ScrollViewer>
-        <StackPanel Margin="12" Spacing="10">
+        <StackPanel Margin="8" Spacing="6">
 
-            <TextBlock Text="显示" FontSize="11" FontWeight="SemiBold"
-                       Foreground="{DynamicResource TextPrimary}" />
-            <CheckBox Content="叠加信息层（窗内连接线与数据流向）"
-                      IsChecked="{Binding ShowInfoOverlay, Mode=TwoWay}" />
-            <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"
-                       Text="端口标记（网络标签）始终显示 —— 它是唯一的建网入口：双击标记填网络名。" />
+            <!-- 分区：显示 -->
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="显示" />
+                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="显示相关说明">
+                    <Button.Flyout>
+                        <Flyout Placement="TopEdgeAlignedRight">
+                            <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
+                                       Text="「叠加信息层」在模块窗口内绘制连接线与数据流向；端口标记（网络标签）始终显示——双击标记即可填网络名建网。" />
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+            </Grid>
+            <CheckBox Content="叠加信息层" IsChecked="{Binding ShowInfoOverlay, Mode=TwoWay}" />
 
-            <Rectangle Height="1" Fill="{DynamicResource BorderDefault}" />
+            <Rectangle Height="1" Margin="0,2" Fill="{DynamicResource BorderDefault}" />
 
-            <TextBlock Text="交互" FontSize="11" FontWeight="SemiBold"
-                       Foreground="{DynamicResource TextPrimary}" />
-            <CheckBox Content="几何吸附（拖动中按住 Alt 临时停用）"
-                      IsChecked="{Binding SnapEnabled, Mode=TwoWay}" />
-            <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"
-                       Text="吸附参照：其他模块窗口 + 外壳右边缘（拼图向右展开）。建造网络请用端口标签或「接触且对齐」。" />
+            <!-- 分区：交互 -->
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="交互" />
+                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="吸附说明">
+                    <Button.Flyout>
+                        <Flyout Placement="TopEdgeAlignedRight">
+                            <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
+                                       Text="吸附参照 = 其他模块窗口 + 外壳右边缘（拼图向右展开）；拖动中按住 Alt 可临时停用。建网请用端口标签，或让两个模块「接触且标记对齐」自动连上。" />
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+            </Grid>
+            <CheckBox Content="几何吸附" IsChecked="{Binding SnapEnabled, Mode=TwoWay}" />
 
-            <Rectangle Height="1" Fill="{DynamicResource BorderDefault}" />
+            <Rectangle Height="1" Margin="0,2" Fill="{DynamicResource BorderDefault}" />
 
-            <TextBlock Text="窗口" FontSize="11" FontWeight="SemiBold"
-                       Foreground="{DynamicResource TextPrimary}" />
-            <CheckBox Content="全部锁定（不可拖动/缩放/选中）" IsChecked="{Binding AllLocked, Mode=TwoWay}" />
-            <CheckBox Content="应用置顶（本应用全部窗口一起）" IsChecked="{Binding AppTopmost, Mode=TwoWay}" />
+            <!-- 分区：窗口 -->
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="窗口" />
+                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="窗口与层级说明">
+                    <Button.Flyout>
+                        <Flyout Placement="TopEdgeAlignedRight">
+                            <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
+                                       Text="应用内层级：弹窗 &gt; 模块窗口 &gt; 外壳；相对其他应用只有两种统一状态（普通 / 全体置顶），不提供单窗口置顶。「全部锁定」后模块不可拖动/缩放/选中但仍刷新数据。" />
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+            </Grid>
+            <CheckBox Content="全部锁定" IsChecked="{Binding AllLocked, Mode=TwoWay}" />
+            <CheckBox Content="应用置顶" IsChecked="{Binding AppTopmost, Mode=TwoWay}" />
             <StackPanel Orientation="Horizontal" Spacing="4">
                 <Button Content="全部置前" Command="{Binding RaiseAllWindowsCommand}" />
                 <Button Content="显示全部" Command="{Binding ShowAllWindowsCommand}" />
             </StackPanel>
 
-            <Rectangle Height="1" Fill="{DynamicResource BorderDefault}" />
+            <Rectangle Height="1" Margin="0,2" Fill="{DynamicResource BorderDefault}" />
 
-            <TextBlock Text="快捷键" FontSize="11" FontWeight="SemiBold"
-                       Foreground="{DynamicResource TextPrimary}" />
-            <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"
-                       Text="M 模块清单 · I Issue · S 设置 · T 拓扑诊断 · L 叠加信息层 · G 吸附 · Ctrl+L 全部锁定（可在设置里改）" />
+            <!-- 分区：快捷键 -->
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="快捷键" />
+                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="默认快捷键">
+                    <Button.Flyout>
+                        <Flyout Placement="TopEdgeAlignedRight">
+                            <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
+                                       Text="M 模块清单 · I Issue · S 设置 · T 拓扑诊断 · L 叠加信息层 · G 吸附 · Ctrl+L 全部锁定。作用域 = 应用内（任一本应用窗口聚焦即生效）；可在「设置 → 快捷键」里修改。" />
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+            </Grid>
+            <TextBlock FontSize="10" Foreground="{DynamicResource TextMuted}" Text="M / I / S / T / L / G / Ctrl+L" />
         </StackPanel>
     </ScrollViewer>
 </UserControl>

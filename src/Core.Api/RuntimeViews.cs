@@ -170,13 +170,18 @@ public sealed record IssueView(
 /// 是否"在本次进程启动后被重新构建过"（ADR-0036 D4）：为 <see langword="true"/> 时该包**必须重启应用**才生效
 /// （程序集已载入且不可卸载；框架**不实现**热重载）。
 /// </param>
+/// <param name="Tags">
+/// 模块声明的**标签**（`ModuleDefinitionAttribute.Tags`）【新增 · M1-16 后】——界面据它做**分类**与搜索；
+/// 不声明标签的模块归入"其他"。空/未知为 <see langword="null"/>。
+/// </param>
 public sealed record ModuleCatalogEntryView(
     string ModuleId,
     string DisplayName,
     string Description,
     string Capabilities,
     string? SourceDirectory = null,
-    bool NeedsRestart = false);
+    bool NeedsRestart = false,
+    IReadOnlyList<string>? Tags = null);
 
 /// <summary>
 /// **建网候选**（ADR-0037）：发送端 → 接收端，**即将**因"接触且对齐"而连上。
