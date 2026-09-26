@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Media.Immutable;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using HYWDebugAssistant.Core.Api;
@@ -20,6 +21,10 @@ namespace HYWDebugAssistant.Ui.Theming;
 ///     内置值盖住（实测：覆盖了也读不到）。故本类**直接改写主题字典中的键值**，并在每次应用前
 ///     **把上一次的覆盖恢复**（快照 → 还原），从而不污染内置 token；</item>
 ///   <item><b>不引入图片背景</b>（D-6 裁决）：背景只支持"跟随主题 / 浅灰 / 深灰 / 自定义纯色"。</item>
+///   <item><b>方向语义色独立于主题色</b>【ADR-0044 · 用户第十四轮 D1a】：<c>DirectionSend</c>/<c>DirectionReceive</c>
+///     由 <c>directionSendColor</c>/<c>directionReceiveColor</c> 单独驱动，**不再从主题色派生**，且
+///     **默认值为空 = 跟随主题默认**（深浅两套各自的内置方向色因此都有效）；主题色只表达"选中/聚焦/活动"
+///     等**框架性交互**语义。</item>
 /// </list>
 /// </remarks>
 public static class ThemeApplier
@@ -179,25 +184,43 @@ public static class ThemeApplier
     }
 
     /// <summary>构造覆盖项（空 = 全部跟随主题）。</summary>
+    /// <remarks>
+    /// **一律使用不可变画刷**（<see cref="ImmutableSolidColorBrush"/>，见文件顶部的线程纪律说明）：
+    /// 这些画刷会进入应用级资源字典，被**渲染线程**读取；用有线程亲和性的 <c>SolidColorBrush</c> 时，
+    /// 只要覆盖是在非 UI 线程上算出来的（测试、后台刷新），渲染读它就会抛
+    /// <c>The calling thread cannot access this object because a different thread owns it</c>。
+    /// </remarks>
     private static Dictionary<string, object> BuildOverrides(ApplicationSettings settings)
     {
         var overrides = new Dictionary<string, object>(StringComparer.Ordinal);
 
         if (Parse(settings.AccentColor) is { } accent)
         {
-            overrides["AccentPrimary"] = new SolidColorBrush(accent);
-            overrides["AccentSecondary"] = new SolidColorBrush(Secondary(accent));
+            overrides["AccentPrimary"] = new ImmutableSolidColorBrush(accent);
+            overrides["AccentSecondary"] = new ImmutableSolidColorBrush(Secondary(accent));
 
             // 选中/高亮覆盖色跟随主题色（透明度在 09 §2.2 已定）
-            overrides["OverlaySelection"] = new SolidColorBrush(accent, 0.20);
-            overrides["OverlayHighlight"] = new SolidColorBrush(accent, 0.12);
+            overrides["OverlaySelection"] = new ImmutableSolidColorBrush(accent, 0.20);
+            overrides["OverlayHighlight"] = new ImmutableSolidColorBrush(accent, 0.12);
         }
 
         if (BackgroundPalette(settings) is { } palette)
         {
-            overrides["BgWorkspace"] = new SolidColorBrush(palette.Workspace);
-            overrides["BgModule"] = new SolidColorBrush(palette.Module);
-            overrides["BgChrome"] = new SolidColorBrush(palette.Chrome);
+            overrides["BgWorkspace"] = new ImmutableSolidColorBrush(palette.Workspace);
+            overrides["BgModule"] = new ImmutableSolidColorBrush(palette.Module);
+            overrides["BgChrome"] = new ImmutableSolidColorBrush(palette.Chrome);
+        }
+
+        // 方向语义色【ADR-0044】：**独立于主题色**，只在用户显式填色时覆盖
+        // （空 = 跟随主题默认值 ⇒ 深浅两套主题各自的内置方向色都保住，不会被"默认值"盖死）
+        if (Parse(settings.DirectionSendColor) is { } sendDirection)
+        {
+            overrides["DirectionSend"] = new ImmutableSolidColorBrush(sendDirection);
+        }
+
+        if (Parse(settings.DirectionReceiveColor) is { } receiveDirection)
+        {
+            overrides["DirectionReceive"] = new ImmutableSolidColorBrush(receiveDirection);
         }
 
         return overrides;
@@ -215,6 +238,11 @@ public static class ThemeApplier
         };
 
     /// <summary>次色 = 主题色的邻近色（避免"一片蓝"，又不引入第二个用户输入）。</summary>
+    /// <remarks>
+    /// 【ADR-0044】方向语义（发送/接收）**已不再使用本派生色**（改用独立的 `DirectionSend`/`DirectionReceive`）。
+    /// 当前消费者只剩：叠加信息层**连线**（D4 保留，待"叠加层专项"重设计）与模块内容曲线（D7：应改为模块自定色，
+    /// 待"数据-颜色专项"）。因此本派生色**不再代表任何"方向"语义**。
+    /// </remarks>
     private static Color Secondary(Color accent) => Color.FromRgb(
         (byte)Math.Clamp((accent.R * 0.35) + (accent.B * 0.65), 0, 255),
         (byte)Math.Clamp((accent.G * 0.8) + (accent.B * 0.2), 0, 255),

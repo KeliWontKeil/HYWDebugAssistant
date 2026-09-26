@@ -23,7 +23,7 @@ public class NetworkAndResourceRulesTests
 {
     // ------------------------------------------------------------ T2 · 契约兼容矩阵
 
-    /// <summary>契约兼容判定：接收 ⊇ 发送（形状子集 + 语义一致）。</summary>
+    /// <summary>契约兼容判定：**形状完全一致**（ADR-0051：不再有"接收 ⊇ 发送"的子集判定）。</summary>
     public static TheoryData<string, ContractShape, ContractShape, TransferSemantics, TransferSemantics, bool> CompatibilityCases => new()
     {
         // 单原语：类型与尺寸必须一致
@@ -35,11 +35,16 @@ public class NetworkAndResourceRulesTests
         { "f32[4] → f32[4]", ContractShape.OfArray(ContractPrimitive.F32, 4), ContractShape.OfArray(ContractPrimitive.F32, 4), TransferSemantics.Stream, TransferSemantics.Stream, true },
         { "f32[4] → f32[2]", ContractShape.OfArray(ContractPrimitive.F32, 4), ContractShape.OfArray(ContractPrimitive.F32, 2), TransferSemantics.Stream, TransferSemantics.Stream, false },
 
-        // 结构：接收方须覆盖发送方的每个字段（按名 + 形状）
+        // 结构：**字段名 + 类型 + 顺序 + 数量全同**才兼容（子集判定已作废）
         { "{seq,value} → {seq,value}", Struct, Struct, TransferSemantics.Stream, TransferSemantics.Stream, true },
-        { "{seq,value} → {seq,value,extra}", Struct, StructWithExtra, TransferSemantics.Stream, TransferSemantics.Stream, true },
+        { "{seq,value} → {seq,value,extra}", Struct, StructWithExtra, TransferSemantics.Stream, TransferSemantics.Stream, false },
         { "{seq,value} → {value}", Struct, ValueOnly, TransferSemantics.Stream, TransferSemantics.Stream, false },
         { "{seq,value} → {seq:f64,value:f32}", Struct, StructWithWideSeq, TransferSemantics.Stream, TransferSemantics.Stream, false },
+        { "{seq,value} → {value,seq}（顺序不同）", Struct, StructReordered, TransferSemantics.Stream, TransferSemantics.Stream, false },
+        { "{seq,value} → {a:u64,b:f32}（同名尺寸不同名）", Struct, StructRenamed, TransferSemantics.Stream, TransferSemantics.Stream, false },
+
+        // **各自构造、结构相同**也必须判兼容（record 的 `==` 对集合成员是引用比较，不能拿来判形状）
+        { "独立构造的同形状", Struct, StructAgain, TransferSemantics.Stream, TransferSemantics.Stream, true },
 
         // 传递语义：跨语义不判兼容（模块内部组帧或插入转换模块）
         { "语义不一致", F32, F32, TransferSemantics.Stream, TransferSemantics.Message, false },
@@ -155,6 +160,20 @@ public class NetworkAndResourceRulesTests
 
     private static readonly ContractShape StructWithWideSeq =
         ContractShape.OfStruct(("seq", F64), ("value", F32));
+
+    /// <summary>字段顺序调换（尺寸相同但顺序不同 ⇒ 不兼容）。</summary>
+    private static readonly ContractShape StructReordered =
+        ContractShape.OfStruct(("value", F32), ("seq", U64));
+
+    /// <summary>尺寸与类型都相同、**字段名不同** ⇒ 不兼容（框架不猜"是不是同一个量"）。</summary>
+    private static readonly ContractShape StructRenamed =
+        ContractShape.OfStruct(("a", U64), ("b", F32));
+
+    /// <summary>与 <see cref="Struct"/> **结构相同但独立构造**（验证形状比较是结构比较，不是引用比较）。</summary>
+    private static readonly ContractShape StructAgain =
+        ContractShape.OfStruct(
+            ("seq", ContractShape.OfPrimitive(ContractPrimitive.U64)),
+            ("value", ContractShape.OfPrimitive(ContractPrimitive.F32)));
 
     /// <summary>期望的宿成员字面量（避免重复构造常量数组）。</summary>
     private static readonly string[] ReceiverInMember = ["r1.in"];

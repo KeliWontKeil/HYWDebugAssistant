@@ -112,6 +112,13 @@ public partial class ModuleWindow : Window
         {
             var before = Module is { } m0 ? (X: m0.X, Y: m0.Y, W: m0.Width, H: m0.Height) : default;
 
+            // 【用户第十七轮反馈】拖动**期间**按下 Ctrl = **立刻拆分**（只拖自己、其余成员回原位），
+            // 不再要求"必须拖动前按住"。幂等：已独立拖动时不做事；松手后不会重新合组。
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
+            {
+                controller.DetachDrag();
+            }
+
             // 按住 Alt = 本次移动临时停用吸附（Q5-1）
             controller.DragTo(x, y, snapEnabled: e.KeyModifiers.HasFlag(KeyModifiers.Alt) ? false : null);
 

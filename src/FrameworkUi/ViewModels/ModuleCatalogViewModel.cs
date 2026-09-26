@@ -285,21 +285,32 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
     [RelayCommand]
     private void PickPackageDirectory() => PickPackageDirectoryRequested?.Invoke(this, EventArgs.Empty);
 
-    /// <summary>把选中的模块加入现场。</summary>
-    [RelayCommand]
-    private void Add()
+    /// <summary>
+    /// 把选中的模块加入现场（**按钮与"双击列表项"共用这一条路径**）。
+    /// </summary>
+    /// <returns>是否成功加入。</returns>
+    /// <remarks>
+    /// 【用户第十六轮反馈】原交互只有"单击选中 → 再点「加入现场」"；双击列表项直接加入更符合直觉
+    /// （列表项的常见惯例），故把动作抽成公开方法，两个入口共用同一实现（不复制逻辑）。
+    /// </remarks>
+    public bool AddSelected()
     {
         if (SelectedCatalogEntry is not { } entry)
         {
             SetStatus(false, "请先在可用模块中选择一个模块");
-            return;
+            return false;
         }
 
         var instanceId = NextInstanceId(entry.ModuleId);
         var result = _command.AddModule(instanceId, entry.ModuleId);
         SetStatus(result.Succeeded, result.Succeeded ? $"已加入：{entry.DisplayName}" : $"失败：{string.Join("；", result.Failures)}");
         Refresh();
+        return result.Succeeded;
     }
+
+    /// <summary>把选中的模块加入现场（按钮）。</summary>
+    [RelayCommand]
+    private void Add() => AddSelected();
 
     /// <summary>为占位实例指定替代模块（用可用模块中选中的那一项）。</summary>
     [RelayCommand]

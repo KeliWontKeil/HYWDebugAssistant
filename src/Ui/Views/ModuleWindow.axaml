@@ -70,6 +70,27 @@
             <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
             <Setter Property="BorderThickness" Value="2" />
         </Style>
+
+        <!--
+          **方向语义色**落在端口标记上【ADR-0044 · 用户第十四轮 D2c】：
+          · 标记**边框**按方向着色（发送口 = 发送色、接收口 = 接收色）⇒ 一眼看出这条边上的口是哪种方向；
+          · **建网预览描边**（"即将自动建网"）用**同一个方向色**、仅以**线宽 2** 与常态 1px 区分
+            （用户 D3b：建网时也在表达"这是接收/发送端"，与"即将建网"提示并不冲突）；
+          · 默认值用**接收色**（未加 `.send` 类即接收口），避免再引入一个布尔到画刷的转换器；
+            这些属性**不能**再在元素上写内联值（Avalonia 里本地值优先于样式）。
+        -->
+        <Style Selector="Border.portMarker">
+            <Setter Property="BorderBrush" Value="{DynamicResource DirectionReceive}" />
+        </Style>
+        <Style Selector="Border.portMarker.send">
+            <Setter Property="BorderBrush" Value="{DynamicResource DirectionSend}" />
+        </Style>
+        <Style Selector="Border.dockHighlight">
+            <Setter Property="BorderBrush" Value="{DynamicResource DirectionReceive}" />
+        </Style>
+        <Style Selector="Border.dockHighlight.send">
+            <Setter Property="BorderBrush" Value="{DynamicResource DirectionSend}" />
+        </Style>
     </Window.Styles>
 
     <Border Name="Frame"
@@ -134,9 +155,24 @@
             </Grid>
 
             <!--
+              **叠加信息层：遮罩（"灰玻璃"）**【ADR-0045 · 用户第十五轮】。
+              最简实现 = 一层半透明深色 + 其上的浅色信息（同"弹窗时主窗口变暗"的常见做法；不做背景模糊）。
+              目的（用户原话）："压暗模块自身内容，以突出叠加层的信息，减少凌乱程度"。
+              · 浓度 = `OverlayScrim` token（改这里就改观感）；**不进设置项**（用户裁决 D2：无需可调）；
+              · `IsHitTestVisible=False` ⇒ 双击改网络名、拖动、缩放照常；
+              · **层级**：在端口标记**之下**（标记不被压暗、保持清晰可点）；叠加层的**连线**则在标记**之上**。
+            -->
+            <Border Name="OverlayScrim"
+                    IsVisible="{Binding ShowInfoOverlay}"
+                    Background="{DynamicResource OverlayScrim}"
+                    IsHitTestVisible="False" />
+
+            <!--
               口标记层（**唯一建网入口**）：左边缘 = 接收口、右边缘 = 发送口。
               压在交互带之上 → 双击标记不会被拖动带/缩放手柄抢走。
               **本层自身不设背景**（不参与命中测试）：只有标记块命中，其余位置照常落到下面的交互带。
+              层级：**遮罩之下、叠加层连线之上**（ADR-0045 + 用户第十七轮）—— 标记不被压暗、可双击，
+              但叠加层的连线**跨过标记**（否则拼接处两个标记会遮掉 40px 连线，连接看起来没有意义）。
             -->
             <ItemsControl Name="PortMarkers"
                           ItemsSource="{Binding Ports}"
@@ -153,7 +189,8 @@
                           【用户第十三轮反馈重排】内容 = 窄颜色条（数据包类型）+ 网络名 + 方向箭头 + 连接指示灯：
                             · **不再显示数据包类型文本**（标签名通常很长，放不下）→ 类型只在**悬停提示**里给出；
                             · **不再显示"未连"**（没连上时指示灯会灭，文字多余）；
-                            · 箭头**放大**（标记字号 11 → 箭头字号 16）；指示灯 **半径 +1（6→8）并贴到标记端部**；
+                            · 箭头**放大**（标记字号 11 → 箭头字号 16）；指示灯 **半径 +1（6→8）**、**离端部留 5 px**（"贴到端部"经复验改为留间距）；
+                            · **箭头/灯的位置微调规则见各自注释**：竖排分支旋转 −90° ⇒ 内容 y = 屏幕 x（跨轴）、内容 x = 屏幕"向上"；
                             · 窄颜色条 = 数据包类型占位色，**映射待定**（见 `PacketTypePalette` / `PortMarkerViewModel.TypeBrush`）。
                           "即将自动建网"时整块以主色描边高亮（拖动中的预览，松手后由网络行为落地）。
                           槽位宽度固定 ⇒ 文本长度变化不引起排版抖动，名称超出用省略号截断。
@@ -162,18 +199,19 @@
                           "Control with the name 'X' already registered"（2026-09 实测踩过）。
                         -->
                         <Border Classes="portMarker"
+                                Classes.send="{Binding IsSend}"
                                 Width="{Binding MarkerWidth}"
                                 Height="{Binding MarkerHeight}"
                                 Background="{DynamicResource BgChrome}"
-                                BorderBrush="{DynamicResource BorderStrong}"
                                 BorderThickness="1"
                                 CornerRadius="0"
                                 Cursor="Hand"
                                 ToolTip.Tip="{Binding Tooltip}">
                             <Grid>
-                                <!-- 即将建网：主色描边（覆盖在标记之上，不改变布局） -->
-                                <Border IsVisible="{Binding IsDockCandidate}"
-                                        BorderBrush="{DynamicResource AccentPrimary}"
+                                <!-- 即将建网：**同一方向色**的 2px 描边（覆盖在标记之上，不改变布局） -->
+                                <Border Classes="dockHighlight"
+                                        Classes.send="{Binding IsSend}"
+                                        IsVisible="{Binding IsDockCandidate}"
                                         BorderThickness="2"
                                         CornerRadius="0" />
 
@@ -206,30 +244,44 @@
                                                    TextTrimming="CharacterEllipsis"
                                                    Text="{Binding NetworkText}" />
 
-                                        <!-- ③ 方向箭头：发送=向外（主色）/ 接收=向内（次色） -->
+                                        <!--
+                                          ③ 方向箭头：**颜色 = 方向语义色**（`DirectionSend` 发送 / `DirectionReceive` 接收；
+                                             可在 **设置 → 外观 → 发送色/接收色** 里改，ADR-0044）。
+                                          **位置微调**（字形墨迹在行盒里天然偏下，故需用 Margin 拉回中线）：
+                                             · 屏幕位移 = (**上边距 − 下边距**) ÷ 2（居中定位下是减半的）；
+                                             · 本支旋转 −90° ⇒ **内容 y 增大 = 屏幕向右**，故 上/下 边距控制**屏幕左右**；
+                                             · 当前 `0,0,0,2` ⇒ (0 − 2) ÷ 2 = −1 ⇒ 屏幕**向左 1px**；还差 1px 就把 2 改成 4（再左 1px）或 0（回中 1px）。
+                                        -->
                                         <TextBlock Grid.Column="2"
+                                                   Margin="0,0,0,4"
                                                    HorizontalAlignment="Center"
                                                    VerticalAlignment="Center"
                                                    FontSize="{DynamicResource PortMarkerArrowFontSize}"
                                                    FontWeight="Bold"
-                                                   Foreground="{DynamicResource AccentPrimary}"
+                                                   Foreground="{DynamicResource DirectionSend}"
                                                    IsVisible="{Binding IsSend}"
                                                    Text="{Binding Arrow}" />
                                         <TextBlock Grid.Column="2"
+                                                   Margin="0,0,0,4"
                                                    HorizontalAlignment="Center"
                                                    VerticalAlignment="Center"
                                                    FontSize="{DynamicResource PortMarkerArrowFontSize}"
                                                    FontWeight="Bold"
-                                                   Foreground="{DynamicResource AccentSecondary}"
+                                                   Foreground="{DynamicResource DirectionReceive}"
                                                    IsVisible="{Binding !IsSend}"
                                                    Text="{Binding Arrow}" />
 
-                                        <!-- ④ 连接指示灯：贴到标记端部（无外边距） -->
+                                        <!--
+                                          ④ 连接指示灯：**离标记端部留 5px**（原来是 0 = 贴到边上，复验反馈"过于靠边"）。
+                                          调间距 = 改下面 `Margin` 的**第 3 个数**（内容坐标右边距，右对齐 ⇒ 1:1）：
+                                          本支旋转 −90° ⇒ **内容"右" = 屏幕"下"**，故 5 = 屏幕上端往下 5px；写 0 = 又贴到边上。
+                                          跨轴居中由 `VerticalAlignment="Center"` 保证（内容 y = 屏幕 x），无需额外边距。
+                                        -->
                                         <ctrl:StateIndicator Classes="markerLamp"
                                                              Grid.Column="3"
                                                              Width="{DynamicResource PortMarkerLampSize}"
                                                              Height="{DynamicResource PortMarkerLampSize}"
-                                                             Margin="0"
+                                                             Margin="0,0,5,0"
                                                              HorizontalAlignment="Right"
                                                              VerticalAlignment="Center"
                                                              State="{Binding State}"
@@ -258,28 +310,40 @@
                                                TextTrimming="CharacterEllipsis"
                                                Text="{Binding NetworkText}" />
 
+                                    <!--
+                                      ③ 方向箭头：**颜色 = 方向语义色**（`DirectionSend` / `DirectionReceive`，ADR-0044）。
+                                      **位置微调**：屏幕位移 = (**上边距 − 下边距**) ÷ 2；
+                                      本支**无旋转** ⇒ 内容 y 增大 = **屏幕向下**，故 上/下 边距控制**屏幕上下**；
+                                      当前 `0,0,0,2` = 屏幕**向上 1px**（把字形墨迹拉回中线）。
+                                    -->
                                     <TextBlock Grid.Column="2"
+                                               Margin="0,0,0,2"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"
                                                FontSize="{DynamicResource PortMarkerArrowFontSize}"
                                                FontWeight="Bold"
-                                               Foreground="{DynamicResource AccentPrimary}"
+                                               Foreground="{DynamicResource DirectionSend}"
                                                IsVisible="{Binding IsSend}"
                                                Text="{Binding Arrow}" />
                                     <TextBlock Grid.Column="2"
+                                               Margin="0,0,0,2"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"
                                                FontSize="{DynamicResource PortMarkerArrowFontSize}"
                                                FontWeight="Bold"
-                                               Foreground="{DynamicResource AccentSecondary}"
+                                               Foreground="{DynamicResource DirectionReceive}"
                                                IsVisible="{Binding !IsSend}"
                                                Text="{Binding Arrow}" />
 
+                                    <!--
+                                      ④ 连接指示灯：**离标记端部留 5px**（原为 0 = 贴边）。
+                                      调间距 = 改 `Margin` 的**第 3 个数**（右对齐 ⇒ 1:1，本支无旋转 ⇒ 直接就是"离右端 5px"）。
+                                    -->
                                     <ctrl:StateIndicator Classes="markerLamp"
                                                          Grid.Column="3"
                                                          Width="{DynamicResource PortMarkerLampSize}"
                                                          Height="{DynamicResource PortMarkerLampSize}"
-                                                         Margin="0"
+                                                         Margin="0,0,5,0"
                                                          HorizontalAlignment="Right"
                                                          VerticalAlignment="Center"
                                                          State="{Binding State}"
@@ -350,15 +414,25 @@
             </ItemsControl>
 
             <!--
-              **叠加信息层**【ADR-0039 D5】：窗内连接线 + 流向 + 对端信息。
-              拼接（接触）后，发送端的线画到右边缘、接收端的线从左边缘画进来 → **在公共边自然相连**。
-              不参与命中（IsHitTestVisible=False）。
+              **叠加信息层：图形与信息**【ADR-0039 D5 → ADR-0045 重设计】：
+              中心类型方块 + 连线 + 流向箭头 + 信息；**画在端口标记之上**。
+              · 连线**从中心方块出发、穿过标记、到窗口边界**（旧实现从"标记中心"出发 ⇒ 线只有 10px，像坏掉）；
+              · **必须压在标记之上**（用户第十七轮反馈）：标记是不透明块（20px 宽），连线若在其下，
+                两个模块拼接处会被**两个标记遮住 40px**，整条连接看起来"从标签连到中心"、失去意义；
+                压在标记之上后，连线**跨过网络标签、直接连向对端**（跨过公共边与对端的半段相接）。
+              · 线色 = 本端方向色 → **两端方向色的中点色**渐变 ⇒ 两个窗口各画一半，在公共边颜色**自然相接**；
+              · 粗虚线 + 共享 20Hz 时钟推进虚线相位 ⇒ "看起来在流动"，方向跟数据流一致；
+              · 拼接（接触）时不标对端，未拼接时末端淡出 + 标对端（对端标签已避开 20px 标记带）。
             -->
-            <ctrl:ConnectionOverlay Ports="{Binding Ports}"
+            <ctrl:ConnectionOverlay Name="Overlay"
+                                    Ports="{Binding Ports}"
                                     IsVisible="{Binding ShowInfoOverlay}"
-                                    LineBrush="{DynamicResource AccentSecondary}"
-                                    ArrowBrush="{DynamicResource AccentPrimary}"
-                                    LabelBrush="{DynamicResource TextSecondary}"
+                                    InstanceId="{Binding InstanceId}"
+                                    ModuleTitle="{Binding Title}"
+                                    SendArrowBrush="{DynamicResource DirectionSend}"
+                                    ReceiveArrowBrush="{DynamicResource DirectionReceive}"
+                                    InkBrush="{DynamicResource OverlayInk}"
+                                    InkMutedBrush="{DynamicResource OverlayInkMuted}"
                                     IsHitTestVisible="False" />
 
             <!-- 运行指示：**左下角**（状态点 + 状态文本；模块名不显示） -->

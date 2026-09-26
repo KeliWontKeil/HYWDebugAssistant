@@ -64,7 +64,7 @@
 
 ---
 
-## 3. 你提过的问题分别改在哪（第七 / 第八 / 第十 / 第十一 / 第十二 / 第十三轮；**第九轮是开发方式，见 §0**）
+## 3. 你提过的问题分别改在哪（第七 / 第八 / 第十 / 第十一 / 第十二 / 第十三 / 第十四 / 第十五 / 第十六 / 第十七轮；**第九轮是开发方式，见 §0**）
 
 ### 第七轮（像素偏移 / 图标 / 字号 / 排布）
 
@@ -132,6 +132,50 @@
 | 悬停里**不该有"上次操作"** | `PortMarkerViewModel.Tooltip` + `ModuleWindowsViewModel.CommitPortLabel` | `EditResult` **字段整体删除**（数据不再保存），悬停不再有那一行；提交结果仍 `RaiseNotice` **送状态栏**（反馈闭环不丢） |
 | 编辑弹窗**太大**、提示占版面 | `ModuleWindow.axaml` 的标记 `Popup` | 宽度 **268 → 188**；行内多句提示**移除** → 标题右侧 **`?` 帮助按钮 + `Flyout`**（`{Binding Hint}`，与外壳各页同规则，见 §4）；失败原因仍**就地**显示且**保持打开** |
 | （实施期踩坑）标记里给元素起**同名** | 模板内元素标识 | 竖排/横排**两套分支在同一命名域**，同名 `Name` 会在**首次布局时**抛 `Control with the name 'X' already registered.`（T0 编译看不到）⇒ 模板内元素用 **`Classes`**（`typeStrip`/`markerLamp`），见 `LESSONS.md` 25 / `implementation/02` P38 |
+
+### 第十四轮（**方向语义色与主题色解耦**；ADR-0044）
+
+| 问题 | 改动位置 | 现在的做法 |
+|---|---|---|
+| 发送/接收的颜色绑在**主题色**上（改主题色 = 改语义色） | `src/Ui/Styles/Tokens.axaml`（新增 `DirectionSend`/`DirectionReceive`，深浅各一套） | 「方向」是**稳定语义**、`accent` 是**交互强调**，两者**完全解耦**：浅色 发送 `#EA580C` / 接收 `#0891B2`，深色 `#F59E0B` / `#22D3EE`（**刻意避开红/绿对**） |
+| **想改方向色** | **设置 → 外观 → 发送色 / 接收色** | 色片 + 弹窗（预设 + 十六进制）；**清空 = 跟随主题默认值**（右侧显示 `跟随主题`）；**不校验、不提示**（两色设成一样也随你，裁决 D6）；下方有 `↑发送`/`↓接收` 实时预览 |
+| 标记**箭头**颜色 | `src/Ui/Views/ModuleWindow.axaml`（箭头 4 处 `Foreground`） | `{DynamicResource DirectionSend}` / `DirectionReceive`（两条分支各 2 处） |
+| 标记**边框**颜色 | 同上（`Border.portMarker` + `Window.Styles`） | 边框色**从元素上移进样式**（Avalonia 里本地值优先于样式）：`Border.portMarker` = 接收色、`Border.portMarker.send` = 发送色；元素上只写 `Classes.send="{Binding IsSend}"`。**改了别再在元素上写内联 `BorderBrush`**，否则样式失效 |
+| **建网预览**描边颜色 | 同上（`Border.dockHighlight` / `.send`） | 用**同一个方向色**，仅以**线宽 2（常态 1）**区分（D3b）；同样别再写内联 `BorderBrush` |
+| 叠加层**流向箭头**颜色 | `src/Ui/Controls/ConnectionOverlay.cs` + `ModuleWindow.axaml` 的 `SendArrowBrush`/`ReceiveArrowBrush` | 按**口的方向**取色。⚠️ 顺带修掉两个既有缺陷：箭头**从来没画出来**（`DrawArrow` 建了几何却没 `DrawGeometry`）、`ArrowBrush` 是**死属性**；并补了 `AffectsRender`（改画刷不重绘）。**连线**仍是单色（是否按方向分色归"叠加层专项"） |
+| 边界（**别越界**） | — | ① 状态色（`SemanticOk/Warn/Error/Idle`）与交互强调（`AccentPrimary`）**不参与**方向色；② **主题色只影响模块共有/框架性颜色**，模块内部特有绘图与文本颜色**由模块自己决定**（D7）；数据-颜色绑定归后续协议专项，**当前只做预留** |
+
+### 第十五轮（**叠加信息层重设计**；ADR-0045）
+
+| 问题 | 改动位置 | 现在的做法 |
+|---|---|---|
+| 叠加层**不清晰、像出了 bug** | `src/Ui/Views/ModuleWindow.axaml`（层级 + 遮罩）+ `src/Ui/Controls/ConnectionOverlay.cs`（重写） | **根因**：线只从"端口标记中心"画到窗口边缘（= **10px 残段**）+ 叠加层排在**端口标记之后**（压在标记上）。**现在**：遮罩 → 图形层 → **端口标记**（标记在最上、常显可双击） |
+| **想开关叠加层** | **快捷键 `L`**（`HotkeyCatalog.ToggleMarkers`）或 交互页/设置页的「叠加信息层」 | **默认关闭**（它是调试/观测层）；**旧配置里显式设过 true 的仍然开** |
+| **"灰玻璃"浓度** | `src/Ui/Styles/Tokens.axaml` 的 `OverlayScrim`（浅 `#0F172A`@55% / 深 `#000000`@45%） | 一层半透明深色（**同"弹窗变暗"的最简做法**，不做模糊）；叠层文字固定用浅色墨水 `OverlayInk`/`OverlayInkMuted`。**故意压暗模块内容**是设计意图 |
+| 线的**粗细 / 虚线 / 流动** | `ConnectionOverlay` 顶部常量：`LineThickness`(2.5) · `DashLength`(6) · `DashGap`(4) · `ArrowSize`(6) | 相位由 **`OverlayAnimationClock`（共享 20Hz）** 推进：发送口向外、接收口向内（`DashOffsets` 互为相反数） |
+| 线的**颜色与渐变** | `ConnectionOverlay.LineOf` / `MidColor` + `ModuleWindow.axaml` 的 `SendArrowBrush`/`ReceiveArrowBrush` | 本端方向色 → **中点色**（发送色与接收色的 50% 混合）渐变；**两个窗口各画一半，靠同一条中点色规则在公共边颜色相接**（拼接时**不淡出**，未拼接时末端 14px 淡出 + 标对端） |
+| **中心方块**（每个数据类型一个） | `ConnectionOverlay.TypeBoxesOf`（纯函数）+ `TypeBoxSize`(14) / `TypeBoxGap`(10) | 颜色 = `PacketTypePalette.For(type)`（**仍是占位色，等你给映射**）；方块下 11px 类型文本；整组在模块中心、超宽换行 |
+| 线的**起点** | `ConnectionOverlay.LineOf` | 起点 = **该口类型对应的方块中心**（不是模块中心一个点、更不是标记中心）；终点 = **窗口边界** |
+| **未连接的口** | 同上（`UnconnectedStubLength` = 26） | 短虚线残段（40% 透明）+ `未连` |
+| 拼接与未拼接的**收尾** | `PortMarkerViewModel.PeerAdjacent`（`ModuleWindowsViewModel.ResolvePeerAdjacent` 用既有 `AreNodesJoined` 算） | 拼接 ⇒ 不淡出、不标对端；未拼接 ⇒ 淡出 + 标对端 |
+| 后续（未做） | — | 正交折线路由 · "静止虚线"开关 · 类型色映射 · 叠加层开启时隐去标记名称文本（**等你复验后定**） |
+
+### 第十六轮（**叠加层细节修正 · 颜色对比度 · 崩溃修复 · 双击加入**）
+
+| 问题 | 改动位置 | 现在的做法 |
+|---|---|---|
+| 未连接时 **"未连"标签压住中心方块** | `ConnectionOverlay.UnconnectedLabelOrigin`（新增纯函数）+ `UnconnectedStubLength`(26) | 文字按**口所在边**朝**窗口外**一侧摆（左边缘 → 文字在残段左侧；右边缘 → 右侧），并钳制在窗口内；文字改用**不透明**方向色（原来 60% 太暗）。**改位置就改这个函数**（测试：`叠加信息层_未连标签必须朝窗口外且不压住中心方块`） |
+| **叠加层里颜色太暗、分辨不清** | `src/Ui/Styles/Tokens.axaml` 的 `OverlayScrim` | **实测根因**：浅色主题下 55% 遮罩把底子压成中灰（亮度≈0.21），方向色与它对比度只有 **1.1 : 1**（等于看不见）。**遮罩浓度 0.55 → 0.85**（浅 `#0B1220`、深 `#05070D`）⇒ 方向色对叠层底 **3.3–3.4 : 1**（旧 1.1），深色主题 9–10 : 1；底部内容仍隐约可见。叠层文字色 `OverlayInk`/`OverlayInkMuted` 不变 |
+| 出现**第二条自动建网链路就崩** | `ModuleWindowsViewModel.RefreshMarkerStatus` + `TopologyViewModel.Refresh` + `Core.Api` 的 `NetworkView.Key`/`BindingDiagnosticView.Key` | **根因不是异常处理**：诊断/网络视图只给"网络名"，而**匿名网络名为空串** ⇒ 两条匿名网络撞同一个键。**框架补身份键**（= 内部既有的"源 → 宿集合"），两处视图一律按 `Key` 配对、字典用 `TryAdd`（宁可少显示也不崩）。见 `LESSONS.md` 38 / `implementation/02` **P40** |
+| **双击列表项直接加入现场** | `ModuleCatalogView.axaml`（`DoubleTapped`）+ `.axaml.cs` + `ModuleCatalogViewModel.AddSelected()` | 双击"可用模块"里的某一项 = 等同"选中 → 加入现场"；**只双击到项上才生效**（空白处不动作、不报错）；按钮与双击**共用同一条实现**。`SelectedCatalogEntry` 仍可单击选中 |
+
+### 第十七轮（**连线跨过标记 · 新模块摆放 · 拖动中 Ctrl 拆分**）
+
+| 问题 | 改动位置 | 现在的做法 |
+|---|---|---|
+| 连线**从网络标签连到中心点**、缺少意义 | `src/Ui/Views/ModuleWindow.axaml`（层级）+ `ConnectionOverlay.DrawPeer`（对端标签内收） | **根因**：连线本来就从中心画到窗口边界（几何是对的），但标记是**不透明块（20px 宽）**且压在连线之上 ⇒ 拼接处**两个标记遮掉 40px**，看起来就是"从标签连到中心"。**层级改为**：内容 → 遮罩 → **端口标记** → **连线层** → 运行指示/按钮簇 ⇒ 连线**跨过网络标签直达对端**（跨过公共边与对端半段相接）。对端标签内收到**标记带以内**，避免又被标记压住。测试：`叠加信息层_遮罩在标记之下而连线在标记之上` |
+| 新模块都落在**左上角、压住主窗口、互相堆叠** | `ModuleWindowsViewModel.NextPlacement()`（新增） | 起点 = **外壳右边缘 + 12px**；与**已有模块逐个做相交检查**，冲突就往下挪"模块高 + 12"；一列到底（超出工作区下沿）→ **换右边一列**（工作区不可用时不换列，仍保证不堆叠）。有 256 次循环上限兜底（宁可重叠也不死循环）。测试：`新模块摆放_应在外壳右侧排开且互不堆叠` |
+| 拼接后单独拖动**必须拖动前按 Ctrl** | `ModuleWindow.axaml.cs`（拖动中每帧判定）+ `ModuleWindowsViewModel.DetachDrag()`（新增） | 拖动**期间**按下 Ctrl ⇒ **立刻拆分**：等价于"一开始就按住 Ctrl" —— **其余成员/外壳回到本次拖动起点**（外壳经 `ShellTranslationRequested` 反向位移还回真实窗口），被拖模块继续跟指针；**单向**（松开 Ctrl 不会重新合组）；**幂等**（每帧调用无害）。测试 2 项（成员回原位 · 外壳回原位） |
 
 ---
 

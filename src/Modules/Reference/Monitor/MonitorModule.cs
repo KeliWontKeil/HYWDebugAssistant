@@ -77,10 +77,7 @@ public sealed class MonitorModule : IModule
     public const string LogSource = "log";
 
     /// <summary>输入数据单元形状（与发生器/手动发送器一致）。</summary>
-    public static readonly ContractShape InputShape =
-        ContractShape.OfStruct(
-            ("seq", ContractShape.OfPrimitive(ContractPrimitive.U64)),
-            ("value", ContractShape.OfPrimitive(ContractPrimitive.F32)));
+    public static readonly ContractShape InputShape = CommonDataTypes.AnalogSampleShape;
 
     /// <summary>输入布局。</summary>
     public static readonly ContractLayout InputLayout = ContractLayout.FromShape(InputShape);
@@ -91,6 +88,7 @@ public sealed class MonitorModule : IModule
     private MonitorConfig _configuration = new();
     private volatile bool _configurationDirty = true;
     private ulong _received;
+    private long _shortUnits;
     private double _last;
     private double _min = double.PositiveInfinity;
     private double _max = double.NegativeInfinity;
@@ -130,7 +128,16 @@ public sealed class MonitorModule : IModule
         _configuration = context.Configuration.Read<MonitorConfig>();
         _configurationDirty = false;
 
-        context.Declaration.DeclarePort(new PortDeclaration(InputPort, PortDirection.Receive, InputShape));
+        // 【ADR-0046 D2/D6】声明本模块使用的数据类型（与源端**同标识同版本** ⇒ 兼容走第一层）
+        context.Declaration.DeclareDataType(CommonDataTypes.AnalogSampleV1);
+        context.Declaration.DeclareDataType(CommonDataTypes.F32V1);
+        context.Declaration.DeclareDataType(CommonDataTypes.U64V1);
+
+        context.Declaration.DeclarePort(new PortDeclaration(InputPort, PortDirection.Receive, InputShape)
+        {
+            Type = CommonDataTypes.AnalogSampleRef,
+        });
+
         context.Ports.SetReceiveHandler(InputPort, OnUnitReceived);
 
         context.Declaration.DeclareView(new ViewDeclaration(
@@ -144,11 +151,27 @@ public sealed class MonitorModule : IModule
                 new ViewElement(ViewElementKind.ConfigurationEditor, title: "显示设置"),
             ],
             [
-                new ViewDataSource(LastSource, unit: null, format: "F3", kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.F32),
-                new ViewDataSource(CountSource, unit: null, format: null, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64),
-                new ViewDataSource(MinSource, unit: null, format: "F3", kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.F32),
-                new ViewDataSource(MaxSource, unit: null, format: "F3", kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.F32),
-                new ViewDataSource(SeriesSource, unit: null, format: null, kind: ViewDataSourceKind.Sequence, valueType: ContractPrimitive.F32),
+                // 数值/曲线数据源**引用类型** ⇒ 解码器由本模块提供（框架只回调）
+                new ViewDataSource(LastSource, unit: null, format: "F3", kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.F32)
+                {
+                    Type = CommonDataTypes.F32Ref,
+                },
+                new ViewDataSource(CountSource, unit: null, format: null, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64)
+                {
+                    Type = CommonDataTypes.U64Ref,
+                },
+                new ViewDataSource(MinSource, unit: null, format: "F3", kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.F32)
+                {
+                    Type = CommonDataTypes.F32Ref,
+                },
+                new ViewDataSource(MaxSource, unit: null, format: "F3", kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.F32)
+                {
+                    Type = CommonDataTypes.F32Ref,
+                },
+                new ViewDataSource(SeriesSource, unit: null, format: null, kind: ViewDataSourceKind.Sequence, valueType: ContractPrimitive.F32)
+                {
+                    Type = CommonDataTypes.F32Ref,
+                },
                 new ViewDataSource(LogSource, unit: null, format: null, kind: ViewDataSourceKind.Text),
             ])
         {
@@ -192,7 +215,16 @@ public sealed class MonitorModule : IModule
             return;
         }
 
-        var reader = new PayloadReader(payload, InputLayout);
+        // 【读取纪律 · ADR-0046 D6】**先判长度**：兼容只保证"本口的字段集覆盖发送方"，
+        // **不保证能按自己的契约整块读** —— 版本升级（尾部追加）或多源里混入旧版本发布者时，
+        // 到达的数据报可能短于本口契约；硬构造 `PayloadReader` 会抛异常，而异常会让本实例的
+        // **投递循环整体退出**（实测：模块从此不再收数）。这里丢弃 + 计数 + **只报一次**，不静默、也不崩。
+        if (!PayloadReader.TryCreate(payload, InputLayout, out var reader))
+        {
+            ReportShortUnit(context, payload.Length);
+            return;
+        }
+
         var sequence = reader.ReadU64("seq");
         var value = reader.ReadF32("value");
 
@@ -247,6 +279,24 @@ public sealed class MonitorModule : IModule
         PublishLogLine(context, sequence, value);
     }
 
+    /// <summary>
+    /// 上报"数据报短于本口契约"（**只报一次**，不刷屏）：这是版本不一致的**可见信号**，不是故障。
+    /// </summary>
+    private void ReportShortUnit(IModuleContext context, int length)
+    {
+        if (Interlocked.Increment(ref _shortUnits) != 1)
+        {
+            return;
+        }
+
+        context.Issues.Report(new Sdk.Reporting.IssueReport(
+            Sdk.Reporting.IssueCategory.InterfaceError,
+            Sdk.Reporting.IssueSeverity.Warning,
+            $"收到 {length} 字节的数据报，小于本口契约 {InputLayout.SizeInBytes} 字节 —— **已丢弃**"
+            + "（通常是发布方版本比本口旧：尾部追加升级时尾部字段不存在；接收方必须按到达长度读，"
+            + "`PayloadReader.TryCreate`）。此提示只报一次，后续同类丢弃只计数。"));
+    }
+
     private static void PublishLogLine(IModuleContext context, ulong sequence, double value)
     {
         var line = string.Create(
@@ -258,8 +308,16 @@ public sealed class MonitorModule : IModule
         const int width = 48;
         line = line.Length > width ? line[..width] : line.PadRight(width);
 
-        Span<byte> bytes = stackalloc byte[width];
-        var written = Encoding.UTF8.GetBytes(line, bytes);
-        context.Ports.Publish(LogSource, bytes[..written]);
+        // **按字符数截断 ≠ 按字节数放得下**：UTF-8 里非 ASCII 字符占多字节，
+        // 48 个字符可能超过 48 字节 ⇒ `GetBytes(line, bytes)` 会抛 ArgumentException
+        // （本行目前是纯 ASCII，但把格式改成中文就会炸）。⇒ 给足缓冲再按字节上限发布。
+        Span<byte> buffer = stackalloc byte[width * 3];
+        var written = Encoding.UTF8.GetBytes(line, buffer);
+        if (written > width)
+        {
+            written = width;   // 极端情况下按字节截断（可能截断多字节字符，UI 显示为替换符，但不抛）
+        }
+
+        context.Ports.Publish(LogSource, buffer[..written]);
     }
 }

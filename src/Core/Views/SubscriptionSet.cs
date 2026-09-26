@@ -1,3 +1,4 @@
+using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Core.Views;
@@ -48,8 +49,15 @@ public sealed class SubscriptionSet
     /// <summary>按视图声明建立集合。</summary>
     /// <param name="instanceId">实例 ID。</param>
     /// <param name="view">视图声明（可为空 = 无 UI 模块）。</param>
+    /// <param name="dataTypes">
+    /// 该实例**声明的数据类型**（用于把数据源的 <c>Type</c> 引用解析成**解码器**）【ADR-0046 D2/D1 ③】。
+    /// </param>
     /// <param name="ringCapacity">环形缓冲容量（样本数）。</param>
-    public SubscriptionSet(string instanceId, ViewDeclaration? view, int ringCapacity = SubscriptionBuffer.DefaultRingCapacity)
+    public SubscriptionSet(
+        string instanceId,
+        ViewDeclaration? view,
+        IReadOnlyList<DataTypeDeclaration>? dataTypes = null,
+        int ringCapacity = SubscriptionBuffer.DefaultRingCapacity)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
         ArgumentOutOfRangeException.ThrowIfLessThan(ringCapacity, 1);
@@ -69,14 +77,42 @@ public sealed class SubscriptionSet
             // 或该数据源被序列类元素引用（04 §4.3 的交接形态表以元素类型为准）
             var isSeries = source.Kind != ViewDataSourceKind.Value || seriesNames.Contains(source.Name);
 
-            _buffers[source.Name] = new SubscriptionBuffer(
+            var buffer = new SubscriptionBuffer(
                 instanceId,
                 source.Name,
                 isSeries ? SubscriptionBufferForm.Ring : SubscriptionBufferForm.LatestSlot,
                 isSeries ? ringCapacity : 1,
                 source.ValueType,
-                source.Kind);
+                source.Kind)
+            {
+                // **解码器来自模块声明的类型**（框架不内建解码）：引用查得到才给句柄
+                Decoder = ResolveDecoder(source, dataTypes),
+                DataType = source.Type,
+            };
+
+            _buffers[source.Name] = buffer;
         }
+    }
+
+    /// <summary>把数据源的类型引用解析为**模块提供的解码器**（引用缺失/未声明 ⇒ <see langword="null"/>）。</summary>
+    private static SampleDecoder? ResolveDecoder(
+        ViewDataSource source,
+        IReadOnlyList<DataTypeDeclaration>? dataTypes)
+    {
+        if (source.Type is not { } reference || dataTypes is null)
+        {
+            return null;
+        }
+
+        foreach (var type in dataTypes)
+        {
+            if (type.Reference == reference)
+            {
+                return type.Decoder;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>所属实例 ID。</summary>

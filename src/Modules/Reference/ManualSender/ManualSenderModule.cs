@@ -74,10 +74,7 @@ public sealed class ManualSenderModule : IModule, IActivitySource
     public const string DroppedSource = "dropped";
 
     /// <summary>输出数据单元形状：与数据发生器一致，便于任意接收端互通。</summary>
-    public static readonly ContractShape OutputShape =
-        ContractShape.OfStruct(
-            ("seq", ContractShape.OfPrimitive(ContractPrimitive.U64)),
-            ("value", ContractShape.OfPrimitive(ContractPrimitive.F32)));
+    public static readonly ContractShape OutputShape = CommonDataTypes.AnalogSampleShape;
 
     /// <summary>输出布局（字段偏移表）。</summary>
     public static readonly ContractLayout OutputLayout = ContractLayout.FromShape(OutputShape);
@@ -122,7 +119,15 @@ public sealed class ManualSenderModule : IModule, IActivitySource
         _configuration = context.Configuration.Read<ManualSenderConfig>();
         _configurationDirty = false;
 
-        context.Declaration.DeclarePort(new PortDeclaration(OutputPort, PortDirection.Send, OutputShape));
+        // 【ADR-0046 D2/D6】声明本模块使用的数据类型（与接受端**同标识同版本** ⇒ 兼容走第一层）
+        context.Declaration.DeclareDataType(CommonDataTypes.AnalogSampleV1);
+        context.Declaration.DeclareDataType(CommonDataTypes.F32V1);
+        context.Declaration.DeclareDataType(CommonDataTypes.U64V1);
+
+        context.Declaration.DeclarePort(new PortDeclaration(OutputPort, PortDirection.Send, OutputShape)
+        {
+            Type = CommonDataTypes.AnalogSampleRef,
+        });
 
         // 【ADR-0040 D5】视图自上而下：必要信息（紧凑）→ 输入 + 发送 → 自动发送（开关 + 周期）→ 配置
         context.Declaration.DeclareView(new ViewDeclaration(
@@ -137,9 +142,18 @@ public sealed class ManualSenderModule : IModule, IActivitySource
                 new ViewElement(ViewElementKind.ConfigurationEditor, title: "显示"),
             ],
             [
-                new ViewDataSource(ValueSource, format: "F3", kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.F32),
-                new ViewDataSource(SentSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64),
-                new ViewDataSource(DroppedSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64),
+                new ViewDataSource(ValueSource, format: "F3", kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.F32)
+                {
+                    Type = CommonDataTypes.F32Ref,
+                },
+                new ViewDataSource(SentSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64)
+                {
+                    Type = CommonDataTypes.U64Ref,
+                },
+                new ViewDataSource(DroppedSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64)
+                {
+                    Type = CommonDataTypes.U64Ref,
+                },
             ],
             [
                 new ViewCommand(SendCommand, "发送", icon: "play", description: "按当前值发送一个数据单元"),

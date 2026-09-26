@@ -18,12 +18,44 @@ public enum CarrierStopResult
 }
 
 /// <summary>
-/// 模块承载者：**一个 Active 实例一个专属线程 + 一个有界输入队列**（ADR-0029 Q4-1）。
+/// 入队结果（**分离"满队丢弃"与"无承载"**——两者性质不同，不得混成一个 false）。
+/// </summary>
+public enum CarrierEnqueueResult
+{
+    /// <summary>已入队（可能同时按策略丢弃了某个旧单元）。</summary>
+    Accepted = 0,
+
+    /// <summary>目标口的队列**满**（best-effort 丢弃，ADR-0050 D1）。</summary>
+    QueueFull = 1,
+
+    /// <summary>**目标口不存在**（未声明/已移除）⇒ 该口没有队列承载。</summary>
+    NoCarrier = 2,
+
+    /// <summary>承载已停止/已释放（实例正在拆除）。</summary>
+    Stopped = 3,
+
+    /// <summary>
+    /// 已入队，但**挤掉了一个更旧的单元**（丢旧策略下队满）。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="Accepted"/> 分开表达是**记账诚实**的要求：新单元确实进了队列（该次投递成立），
+    /// 但**被挤掉的那个旧单元实际没有到达消费方** ⇒ 调用方应把它计入"队列满丢弃"，
+    /// 否则"投递数"会把从未被消费的单元也算成成功（ADR-0046 D8：丢弃不得混算、也不得漏算）。
+    /// </remarks>
+    QueueFullEvicted = 4,
+}
+
+/// <summary>
+/// 模块承载者：**一个 Active 实例一个专属线程 + 每 (实例, 口) 一条有界输入队列**（ADR-0029 Q4-1 · ADR-0050 Q2）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>承载模式</b>：模块实现自发活动（<see cref="ICarrierTarget.HasActivity"/>）时运行其活动体（可阻塞）；
 ///         否则由框架运行投递循环（出队 → 调用接收处理）。</item>
+///   <item><b>队列粒度 = 每 (实例, 口)</b>【ADR-0050 Q2】：每个接收口**各有一条**有界 FIFO 队列，
+///         容量按**口**计（<see cref="CarrierOptions.QueueCapacity"/>）。⇒ 某个口满载/慢速**不会堵住同实例的其它口**
+///         （消除跨口队头阻塞）；同口内仍是严格 FIFO（M4b"同 (源,宿) 对 FIFO 强保证"由此保证）。</item>
+///   <item><b>公平调度</b>：投递循环按**轮转**在非空口之间取单元（每轮每口至多一个），保证任一口都不会被饿死。</item>
 ///   <item><b>不阻塞发送方</b>：队列满即丢弃（丢旧/丢新）并计数。</item>
 ///   <item><b>异常边界</b>：活动体异常经 <see cref="ICarrierTarget.ReportActivityFailure"/> 上报，不逸出。</item>
 ///   <item><b>停止协议</b>：置停止信号 → 有界等待 → 超时则标记孤儿并**放弃队列缓冲（不归还池）**。
@@ -32,11 +64,27 @@ public enum CarrierStopResult
 /// </remarks>
 public sealed class ModuleCarrier : IDisposable
 {
+    /// <summary>位图提示可覆盖的最大口数（超过则退化为逐口探测）。</summary>
+    private const int MaxMaskedPorts = 64;
+
     private readonly ICarrierTarget _target;
     private readonly PooledPayloadBufferPool _pool;
     private readonly CarrierOptions _options;
     private readonly SemaphoreSlim _dataAvailable = new(0);
     private readonly Thread _thread;
+
+    /// <summary>接收口名 → 队列下标（构造后**不变**：口集合在实例激活时已定）。</summary>
+    private readonly Dictionary<string, int> _portIndex;
+
+    /// <summary>**每口一条**队列（下标与 <see cref="PortNames"/> 一致）。</summary>
+    private readonly InboundBuffer[] _queues;
+
+    /// <summary>"该口有数据"的**提示位图**（仅优化：跳过空口探测；正确性由信号量保证，见 <see cref="TryDequeueAny"/>）。</summary>
+    private readonly bool _useReadyMask;
+    private long _readyMask;
+
+    /// <summary>轮转游标（公平调度的起点）。</summary>
+    private int _cursor;
 
     private volatile bool _stopRequested;
     private volatile bool _stopped;
@@ -52,7 +100,20 @@ public sealed class ModuleCarrier : IDisposable
         _target = target;
         _pool = pool;
         _options = options ?? new CarrierOptions();
-        Queue = new InboundBuffer(_options.QueueCapacity, _options.DropPolicy);
+
+        PortNames = [.. target.ReceivePortNames];
+        _portIndex = new Dictionary<string, int>(PortNames.Count, StringComparer.Ordinal);
+        _queues = new InboundBuffer[PortNames.Count];
+
+        for (var index = 0; index < PortNames.Count; index++)
+        {
+            _portIndex[PortNames[index]] = index;
+            _queues[index] = new InboundBuffer(_options.QueueCapacity, _options.DropPolicy);
+        }
+
+        // 口数 ≤ 64 才用位图提示；更多口退化为逐口探测（正确性不变，只是多几次空探测）
+        _useReadyMask = PortNames.Count <= MaxMaskedPorts;
+
         Diagnostics = new CarrierDiagnostics();
         _thread = new Thread(Run)
         {
@@ -64,8 +125,11 @@ public sealed class ModuleCarrier : IDisposable
     /// <summary>实例 ID。</summary>
     public string InstanceId => _target.InstanceId;
 
-    /// <summary>输入队列（每实例一个）。</summary>
-    public InboundBuffer Queue { get; }
+    /// <summary>接收口名（顺序 = 队列下标顺序；**实例激活后不变**）。</summary>
+    public IReadOnlyList<string> PortNames { get; }
+
+    /// <summary>**每 (实例, 口) 一条**入站队列（只读快照，下标与 <see cref="PortNames"/> 一致）。</summary>
+    public IReadOnlyList<InboundBuffer> Queues => _queues;
 
     /// <summary>L4 诊断计数。</summary>
     public CarrierDiagnostics Diagnostics { get; }
@@ -89,9 +153,39 @@ public sealed class ModuleCarrier : IDisposable
         _thread.Start();
     }
 
+    /// <summary>取某个接收口的队列（口不存在时返回 <see langword="false"/>）。</summary>
+    /// <param name="targetPort">口名。</param>
+    /// <param name="queue">该口的队列。</param>
+    public bool TryGetQueue(string targetPort, out InboundBuffer? queue)
+    {
+        queue = null;
+
+        if (targetPort is not null && _portIndex.TryGetValue(targetPort, out var index))
+        {
+            queue = _queues[index];
+            return true;
+        }
+
+        return false;
+    }
+
     /// <summary>投递一个数据单元到目标口（生产者线程调用；**不阻塞**）。</summary>
-    /// <returns>是否入队成功（丢新策略下满队时返回 <see langword="false"/>）。</returns>
-    public bool TryEnqueue(string targetPort, PayloadBuffer buffer)
+    /// <param name="targetPort">目标接收口名。</param>
+    /// <param name="buffer">数据单元缓冲（所有权随入队移交）。</param>
+    /// <returns>入队结果（**满队**与**无承载**分开表达）。</returns>
+    public CarrierEnqueueResult TryEnqueue(string targetPort, PayloadBuffer buffer) =>
+        TryEnqueue(targetPort, buffer, header: null);
+
+    /// <summary>
+    /// 投递一个数据单元到目标口，并可选携带**薄旁路头**【ADR-0050 Q6(c)】。
+    /// </summary>
+    /// <param name="targetPort">目标接收口名。</param>
+    /// <param name="buffer">数据单元缓冲（所有权随入队移交）。</param>
+    /// <param name="header">
+    /// 薄旁路头（**仅多源网络**非空；单源网络传 <see langword="null"/> ⇒ 零附加）。**不进 payload 字节流**。
+    /// </param>
+    /// <returns>入队结果（**满队**与**无承载**分开表达）。</returns>
+    public CarrierEnqueueResult TryEnqueue(string targetPort, PayloadBuffer buffer, DatagramHeader? header)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetPort);
         ArgumentNullException.ThrowIfNull(buffer);
@@ -100,10 +194,18 @@ public sealed class ModuleCarrier : IDisposable
         {
             _pool.Return(buffer);
             Diagnostics.RecordDropped();
-            return false;
+            return CarrierEnqueueResult.Stopped;
         }
 
-        var accepted = Queue.TryEnqueue(new InboundUnit(buffer, targetPort), out var dropped);
+        if (!_portIndex.TryGetValue(targetPort, out var index))
+        {
+            // 口不存在 ⇒ **无承载**：不入队、立即归还并计数（与"满队丢弃"分开）
+            _pool.Return(buffer);
+            Diagnostics.RecordDropped();
+            return CarrierEnqueueResult.NoCarrier;
+        }
+
+        var accepted = _queues[index].TryEnqueue(new InboundUnit(buffer, targetPort, header), out var dropped);
         if (dropped is not null)
         {
             _pool.Return(dropped);
@@ -112,12 +214,57 @@ public sealed class ModuleCarrier : IDisposable
 
         Diagnostics.RecordEnqueued();
 
-        if (accepted)
+        if (!accepted)
         {
-            SignalDataAvailable();
+            return CarrierEnqueueResult.QueueFull;
         }
 
-        return accepted;
+        MarkReady(index);
+        SignalDataAvailable();
+
+        // 丢旧策略下队满会挤掉一个旧单元：**如实告知调用方**（那个单元没有到达消费方）
+        return dropped is null ? CarrierEnqueueResult.Accepted : CarrierEnqueueResult.QueueFullEvicted;
+    }
+
+    /// <summary>
+    /// 从**任一非空口**取一个单元（**轮转公平**：连续调用会在非空口之间轮换）。
+    /// </summary>
+    /// <remarks>
+    /// 主动接收路径（<c>IPortAccess.TryReceive</c>）与框架投递循环**共用**本方法：
+    /// 二者互斥（有活动体 ⇒ 不跑投递循环），故游标与提示位图无并发写。
+    /// </remarks>
+    /// <param name="unit">取到的单元（含目标口名）。</param>
+    /// <returns>是否取到。</returns>
+    public bool TryDequeueAny(out InboundUnit unit)
+    {
+        var count = _queues.Length;
+
+        for (var step = 0; step < count; step++)
+        {
+            var index = _cursor + step;
+            if (index >= count)
+            {
+                index -= count;
+            }
+
+            if (_useReadyMask && (_readyMask & (1L << index)) == 0)
+            {
+                continue;
+            }
+
+            if (!_queues[index].TryDequeue(out unit))
+            {
+                // 位图只是**提示**：探测落空即清位（不依赖它保证正确性）
+                ClearReady(index);
+                continue;
+            }
+
+            _cursor = index + 1 == count ? 0 : index + 1;
+            return true;
+        }
+
+        unit = default;
+        return false;
     }
 
     /// <summary>
@@ -141,12 +288,12 @@ public sealed class ModuleCarrier : IDisposable
         if (_thread.Join(timeout))
         {
             _stopped = true;
-            DrainQueue(returnToPool: true);
+            DrainQueues(returnToPool: true);
             return CarrierStopResult.Stopped;
         }
 
         _orphaned = true;
-        DrainQueue(returnToPool: false);
+        DrainQueues(returnToPool: false);
         return CarrierStopResult.TimedOut;
     }
 
@@ -197,7 +344,7 @@ public sealed class ModuleCarrier : IDisposable
     {
         while (!_stopRequested)
         {
-            if (Queue.TryDequeue(out var unit))
+            if (TryDequeueAny(out var unit))
             {
                 Deliver(unit);
                 continue;
@@ -215,11 +362,13 @@ public sealed class ModuleCarrier : IDisposable
             if (_target.TryGetReceiveHandler(unit.TargetPort, out var handler))
             {
                 handler(unit.Buffer.Span);
-                Diagnostics.RecordDelivered();
+
+                // 薄旁路头的**消费者**（观测面）：记录最近序号/接收时刻 ⇒ 多源归属可精确观测（Q6(c)）
+                Diagnostics.RecordDelivered(unit.Header);
             }
             else
             {
-                // 目标口没有接收处理（口未声明/未注册）→ 丢弃并计数
+                // 目标口没有接收处理（口已声明但模块未注册处理）→ 丢弃并计数
                 Diagnostics.RecordDropped();
             }
         }
@@ -230,19 +379,40 @@ public sealed class ModuleCarrier : IDisposable
         }
     }
 
-    private void DrainQueue(bool returnToPool)
+    private void DrainQueues(bool returnToPool)
     {
-        Queue.Drain(buffer =>
+        foreach (var queue in _queues)
         {
-            if (returnToPool)
+            queue.Drain(buffer =>
             {
-                _pool.Return(buffer);
-            }
-            else
-            {
-                _pool.Abandon(buffer);
-            }
-        });
+                if (returnToPool)
+                {
+                    _pool.Return(buffer);
+                }
+                else
+                {
+                    _pool.Abandon(buffer);
+                }
+            });
+        }
+
+        _readyMask = 0;
+    }
+
+    private void MarkReady(int index)
+    {
+        if (_useReadyMask)
+        {
+            _ = Interlocked.Or(ref _readyMask, 1L << index);
+        }
+    }
+
+    private void ClearReady(int index)
+    {
+        if (_useReadyMask)
+        {
+            _ = Interlocked.And(ref _readyMask, ~(1L << index));
+        }
     }
 
     private void SignalDataAvailable()

@@ -1,4 +1,5 @@
 using HYWDebugAssistant.Hosting.Registry;
+using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Views;
 
@@ -16,11 +17,14 @@ namespace HYWDebugAssistant.Hosting.Instances;
 /// </remarks>
 public sealed class ModuleInstance
 {
+    private readonly Dictionary<DataTypeRef, DataTypeDeclaration> _dataTypes;
+
     internal ModuleInstance(
         string instanceId,
         ModuleDefinition definition,
         IModule module,
         IReadOnlyList<PortInstance> ports,
+        IReadOnlyList<DataTypeDeclaration> dataTypes,
         ViewDeclaration? view,
         Context.ModuleContext context)
     {
@@ -28,8 +32,17 @@ public sealed class ModuleInstance
         Definition = definition;
         Module = module;
         Ports = ports;
+        DataTypes = dataTypes;
         View = view;
         Context = context;
+
+        // 机械镜像：按（标识, 版本）索引，供口/数据源的引用解析（同键重复时以**先声明者**为准，重复已由工厂报 Issue）
+        _dataTypes = new Dictionary<DataTypeRef, DataTypeDeclaration>(dataTypes.Count);
+
+        foreach (var type in dataTypes)
+        {
+            _ = _dataTypes.TryAdd(type.Reference, type);
+        }
     }
 
     /// <summary>实例 ID（工作现场内唯一、稳定）。</summary>
@@ -43,6 +56,11 @@ public sealed class ModuleInstance
 
     /// <summary>口实例表（成员实例表的一部分）。</summary>
     public IReadOnlyList<PortInstance> Ports { get; }
+
+    /// <summary>
+    /// 该实例**声明的数据类型**（按声明顺序）【ADR-0046 D2】：框架只持**机械镜像**，不理解语义。
+    /// </summary>
+    public IReadOnlyList<DataTypeDeclaration> DataTypes { get; }
 
     /// <summary>视图声明（<see langword="null"/> = **无 UI 模块**，合法）。</summary>
     public ViewDeclaration? View { get; }
@@ -62,6 +80,11 @@ public sealed class ModuleInstance
     /// <summary>按名字查找口实例。</summary>
     public PortInstance? FindPort(string name) =>
         Ports.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.Ordinal));
+
+    /// <summary>按（标识, 版本）查找已声明的数据类型（未声明 = <see langword="null"/> ⇒ 兼容判定回退结构比较）。</summary>
+    /// <param name="reference">类型引用。</param>
+    public DataTypeDeclaration? FindDataType(DataTypeRef reference) =>
+        _dataTypes.TryGetValue(reference, out var type) ? type : null;
 
     /// <inheritdoc />
     public override string ToString() => $"{InstanceId}@{Definition.Id}";

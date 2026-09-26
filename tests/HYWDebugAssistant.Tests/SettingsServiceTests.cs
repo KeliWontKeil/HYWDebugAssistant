@@ -93,6 +93,55 @@ public class SettingsServiceTests
     }
 
     [Fact]
+    public void 更新_方向语义色应落盘并往返()
+    {
+        using var scope = new SettingsScope();
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load();
+
+        // 【ADR-0044】默认空串 = **跟随主题默认值**（深浅两套内置方向色因此都有效）
+        service.Current.DirectionSendColor.ShouldBeEmpty("默认应为空（跟随主题），不是某个具体色值");
+        service.Current.DirectionReceiveColor.ShouldBeEmpty();
+
+        var updated = service.Current.Clone();
+        updated.DirectionSendColor = "#EA580C";
+        updated.DirectionReceiveColor = "#0891B2";
+        service.Update(updated).Succeeded.ShouldBeTrue();
+
+        var text = File.ReadAllText(scope.SettingsPath);
+        text.ShouldContain("\"directionSendColor\": \"#EA580C\"");
+        text.ShouldContain("\"directionReceiveColor\": \"#0891B2\"");
+
+        var reloaded = new SettingsService(runtime, scope.SettingsPath);
+        reloaded.Load();
+        reloaded.Current.DirectionSendColor.ShouldBe("#EA580C", "重新加载应保留用户设置");
+        reloaded.Current.DirectionReceiveColor.ShouldBe("#0891B2");
+    }
+
+    [Fact]
+    public void 更新_方向语义色清空应回到跟随主题()
+    {
+        using var scope = new SettingsScope();
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load();
+
+        var custom = service.Current.Clone();
+        custom.DirectionSendColor = "#123456";
+        service.Update(custom).Succeeded.ShouldBeTrue();
+
+        // 清空 = 跟随主题（**不做任何合法性/对比度校验**，裁决 D6：完全尊重用户选择）
+        var cleared = service.Current.Clone();
+        cleared.DirectionSendColor = string.Empty;
+        service.Update(cleared).Succeeded.ShouldBeTrue();
+
+        var reloaded = new SettingsService(runtime, scope.SettingsPath);
+        reloaded.Load();
+        reloaded.Current.DirectionSendColor.ShouldBeEmpty();
+    }
+
+    [Fact]
     public void 更新_吸附距离超出范围应被拒绝()
     {
         using var scope = new SettingsScope();

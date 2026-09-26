@@ -14,6 +14,7 @@ namespace HYWDebugAssistant.Sdk.Testing;
 public sealed record ContractProbeResult(
     Type EntryType,
     IReadOnlyList<PortDeclaration> Ports,
+    IReadOnlyList<DataTypeDeclaration> DataTypes,
     ViewDeclaration? View,
     IReadOnlyList<string> Problems)
 {
@@ -41,7 +42,7 @@ public static class ModuleContract
 
         if (!typeof(IModule).IsAssignableFrom(entryType))
         {
-            return new ContractProbeResult(entryType, [], null, [$"入口类型未实现 IModule：{entryType.FullName}"]);
+            return new ContractProbeResult(entryType, [], [], null, [$"入口类型未实现 IModule：{entryType.FullName}"]);
         }
 
         if (entryType.GetConstructor(Type.EmptyTypes) is null)
@@ -51,7 +52,7 @@ public static class ModuleContract
 
         if (entryType.IsAbstract || entryType.IsInterface)
         {
-            return new ContractProbeResult(entryType, [], null, [$"入口类型不可实例化：{entryType.FullName}"]);
+            return new ContractProbeResult(entryType, [], [], null, [$"入口类型不可实例化：{entryType.FullName}"]);
         }
 
         TestModuleContext probeContext;
@@ -64,14 +65,20 @@ public static class ModuleContract
         catch (Exception ex)
         {
             problems.Add($"OnRegistered 抛出异常：{ex.GetType().Name} — {ex.Message}");
-            return new ContractProbeResult(entryType, [], null, problems);
+            return new ContractProbeResult(entryType, [], [], null, problems);
         }
 
         CheckPorts(probeContext.DeclaredPorts, problems);
+        CheckDataTypes(probeContext.DeclaredDataTypes, probeContext.DeclaredPorts, probeContext.DeclaredView, problems);
         CheckView(probeContext.DeclaredView, problems);
         CheckConfiguration(entryType, problems);
 
-        return new ContractProbeResult(entryType, probeContext.DeclaredPorts, probeContext.DeclaredView, problems);
+        return new ContractProbeResult(
+            entryType,
+            probeContext.DeclaredPorts,
+            probeContext.DeclaredDataTypes,
+            probeContext.DeclaredView,
+            problems);
     }
 
     /// <summary>多个模块类型一次探测（返回全部问题）。</summary>
@@ -113,8 +120,7 @@ public static class ModuleContract
         }
     }
 
-    private static void CheckShape(ContractShape shape, string owner, List<string> problems)
-    {
+    private static void CheckShape(ContractShape shape, string owner, List<string> problems)    {
         if (shape.Depth > 4)
         {
             problems.Add($"{owner} 的形状嵌套深度 {shape.Depth} 超过上限 4");
@@ -167,6 +173,76 @@ public static class ModuleContract
         }
     }
 
+    /// <summary>
+    /// 校验**数据类型声明**【ADR-0046 D2】：标识/版本合法、同（标识,版本）不重复、引用都能在本模块解析、
+    /// 计量块自洽（否则兼容判定会退化成结构比较，作者应当**现在**就知道）。
+    /// </summary>
+    private static void CheckDataTypes(
+        IReadOnlyList<DataTypeDeclaration> types,
+        IReadOnlyList<PortDeclaration> ports,
+        ViewDeclaration? view,
+        List<string> problems)
+    {
+        var known = new HashSet<DataTypeRef>();
+
+        foreach (var type in types)
+        {
+            if (string.IsNullOrWhiteSpace(type.TypeId))
+            {
+                problems.Add("数据类型标识为空（标识是类型的身份，跨模块同名即同一类型）");
+                continue;
+            }
+
+            if (!char.IsLetter(type.TypeId[0]) || type.TypeId.Contains(' ', StringComparison.Ordinal))
+            {
+                problems.Add($"数据类型标识不规范：'{type.TypeId}'（建议 <作者/名字> 形式，不含空格）");
+            }
+
+            if (!known.Add(type.Reference))
+            {
+                problems.Add($"数据类型重复声明：{type.Reference}（同一（标识, 版本）只能声明一次）");
+                continue;
+            }
+
+            CheckShape(type.Shape, $"数据类型 {type.Reference}", problems);
+
+            if (type.Metering.SamplesPerUnit <= 0)
+            {
+                problems.Add($"数据类型 {type.Reference} 的计量块 SamplesPerUnit 必须 > 0（当前 {type.Metering.SamplesPerUnit}）");
+            }
+
+            if (type.Metering.ChannelCount <= 0)
+            {
+                problems.Add($"数据类型 {type.Reference} 的计量块 ChannelCount 必须 > 0（当前 {type.Metering.ChannelCount}）");
+            }
+
+            if (type.Metering.PayloadSizeInBytes is { } payload
+                && (payload <= 0 || payload > type.SizeInBytes))
+            {
+                problems.Add(
+                    $"数据类型 {type.Reference} 的 PayloadSizeInBytes = {payload} 不合理（应 > 0 且 ≤ 契约尺寸 {type.SizeInBytes}）");
+            }
+        }
+
+        // 引用必须能在**本模块**解析：解析不了 ⇒ 框架只能回退结构比较（不是错误，但作者必须知道）
+        foreach (var port in ports)
+        {
+            if (port.Type is { } reference && !known.Contains(reference))
+            {
+                problems.Add($"口 '{port.Name}' 引用了本模块未声明的数据类型 {reference}——该口将回退为**结构**兼容判定");
+            }
+        }
+
+        foreach (var source in view?.DataSources ?? [])
+        {
+            if (source.Type is { } reference && !known.Contains(reference))
+            {
+                problems.Add(
+                    $"数据源 '{source.Name}' 引用了本模块未声明的数据类型 {reference}——呈现层将拿不到模块解码器");
+            }
+        }
+    }
+
     private static void CheckView(ViewDeclaration? view, List<string> problems)
     {
         if (view is null)
@@ -188,7 +264,8 @@ public static class ModuleContract
                 problems.Add($"数据源名重复：'{source.Name}'（模块内唯一）");
             }
 
-            if (source.Kind != ViewDataSourceKind.Value && source.ValueType is null)
+            // 只有**数值类**数据源（值 / 序列）才要求给出原语：文本 / 字节块 / 行集 / 帧本来就按字节呈现
+            if (source.Kind is ViewDataSourceKind.Value or ViewDataSourceKind.Sequence && source.ValueType is null)
             {
                 problems.Add($"数据源 '{source.Name}' 声明为 {source.Kind} 但未给出 ValueType——UI 无法解码其数值");
             }
@@ -196,12 +273,28 @@ public static class ModuleContract
 
         foreach (var element in Flatten(view.Elements))
         {
+            // **交互控制类元素**（B 类）绑定的是**命令 / 输入源名**，不是数据源（ADR-0040 D1）：
+            // 它们的名字由 ViewCommand / 输入源声明承担，不能拿数据源表去校验
+            if (IsInteractive(element.Kind))
+            {
+                continue;
+            }
+
             if (element.DataSource is { Length: > 0 } name && !sources.Contains(name))
             {
                 problems.Add($"元素 {element.Kind} 绑定了未声明的数据源：'{name}'");
             }
         }
     }
+
+    /// <summary>是否为**交互控制类元素**（B 类：绑定命令/输入，而非数据源）。</summary>
+    private static bool IsInteractive(ViewElementKind kind) => kind is
+        ViewElementKind.ConfigurationEditor
+        or ViewElementKind.CommandButton
+        or ViewElementKind.ToggleSlider
+        or ViewElementKind.EnumSelector
+        or ViewElementKind.TextInput
+        or ViewElementKind.FileSelector;
 
     private static IEnumerable<ViewElement> Flatten(IReadOnlyList<ViewElement> elements)
     {

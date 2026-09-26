@@ -242,6 +242,56 @@ public class ModuleWindowUsabilityTests
     }
 
     [Fact]
+    public void 两条独立自动建网链路_刷新不得崩溃且各显示各自的投递量()
+    {
+        // 【P40 回归 · 用户实测崩溃】第二条自动建网链路建立瞬间，`RefreshMarkerStatus` 抛
+        // `ArgumentException: An item with the same key has already been added. Key: `（**空键**）。
+        // 根因：诊断字典**按网络名索引**，而匿名网络名为空串 ⇒ 两条匿名网络撞键。
+        using var harness = new Harness();
+        harness.Register("sender", typeof(SenderModule));
+        harness.Register("receiver", typeof(ReceiverModule));
+
+        foreach (var id in new[] { "s1", "r1", "s2", "r2" })
+        {
+            harness.Services.AddModule(id, id.StartsWith('s') ? "test/sender/1.0.0" : "test/receiver/1.0.0")
+                .Succeeded.ShouldBeTrue();
+        }
+
+        // 两组互不相邻的**接触对**（各自自动建网：右边缘贴左边缘 + 端口标记都在 0.5）
+        Place(harness, "s1", 0, 0);
+        Place(harness, "r1", 300, 0);
+        Place(harness, "s2", 0, 400);
+        Place(harness, "r2", 300, 400);
+
+        harness.Services.GetNetworks().Count.ShouldBe(2, "两条独立链路");
+
+        // 刷新（旧实现在这里抛异常）；顺带把"每条链路显示自己的数字"钉住
+        harness.SendOneUnit();
+        var ok = Harness.WaitUntil(
+            () =>
+            {
+                harness.Windows.Refresh();
+                return harness.Windows.Modules.Single(m => m.InstanceId == "s1").Ports.Single().Delivered > 0;
+            },
+            TimeSpan.FromSeconds(5));
+
+        ok.ShouldBeTrue("刷新技术上必须不抛异常并且能读到投递量");
+
+        var first = harness.Windows.Modules.Single(m => m.InstanceId == "s1").Ports.Single();
+        var second = harness.Windows.Modules.Single(m => m.InstanceId == "s2").Ports.Single();
+
+        first.Delivered.ShouldBeGreaterThan(0, "第一条链路有数据");
+        second.Delivered.ShouldBe(0, "第二条链路**不得**显示第一条链路的数字（旧实现按名撞键会张冠李戴）");
+        first.NetworkName.ShouldBeNull("匿名网络 ⇒ 网络名为 null（界面上显示「（直连）」）");
+        second.NetworkName.ShouldBeNull();
+    }
+
+    /// <summary>摆放模块（对齐建网需要几何：接触 + 端口标记都对在边缘中点）。</summary>
+    private static void Place(Harness harness, string instanceId, double x, double y) =>
+        harness.Services.UpdateModuleLayout(new ModuleLayoutView(instanceId, x, y, 300, 200))
+            .Succeeded.ShouldBeTrue();
+
+    [Fact]
     public void 还原_选择尺寸和配置时应同时还原配置到默认值()
     {
         using var harness = new Harness();

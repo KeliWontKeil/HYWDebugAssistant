@@ -63,10 +63,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// </summary>
     public double SnapDistance { get; private set; } = SnapEngine.DefaultTolerance;
 
-    /// <summary>新模块默认摆放的起始偏移与步长（物理像素）。</summary>
+    /// <summary>新模块默认摆放的起始偏移与步长（物理像素；外壳有效时以**外壳右侧**为起点）。</summary>
     private const double PlaceOrigin = 48;
-    private const double PlaceStepX = 40;
-    private const double PlaceStepY = 40;
+
+    /// <summary>新模块与外壳/同列模块之间的间距（物理像素）。</summary>
+    private const double PlaceGap = 12;
 
     private readonly IRuntimeQuery _query;
     private readonly IRuntimeCommand _command;
@@ -75,8 +76,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
     private int _frameCounter;
 
-    /// <summary>速率的上一采样（字节数 + 时刻）：按 (实例, 口) 记录，用于算"每秒多少"。</summary>
-    private readonly Dictionary<(string InstanceId, string PortName), (long Bytes, DateTime Time)> _rateSamples = [];
+    /// <summary>本次拖动**起点**的各成员几何（拖动中按 Ctrl 拆分时用来"放回原位"）。</summary>
+    private readonly Dictionary<string, CanvasRect> _dragStartRects = new(StringComparer.Ordinal);
 
     private readonly byte[] _sampleScratch = new byte[1024];
     private readonly byte[] _seriesScratch = new byte[CurveElementViewModel.MaxPoints * 8];
@@ -143,10 +144,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     public partial CanvasRect? ShellRect { get; set; }
 
     /// <summary>
-    /// 是否显示**叠加信息层**【M1-16 / ADR-0039 D5】（原 `ShowPortMarkers`：**端口标记改为常显**，开关改为控制叠加层）。
+    /// 是否显示**叠加信息层**（原 `ShowPortMarkers`：**端口标记改为常显**，开关改为控制叠加层）。
+    /// **默认关闭**【ADR-0045 D1：它是调试/观测层，不进常驻界面】。
     /// </summary>
     [ObservableProperty]
-    public partial bool ShowInfoOverlay { get; set; } = true;
+    public partial bool ShowInfoOverlay { get; set; }
 
     /// <summary>吸附是否启用（交互组开关；按住 Alt 可临时停用）。</summary>
     [ObservableProperty]
@@ -261,20 +263,44 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 {
                     marker.PeerText = null;
                     marker.PeerSide = null;
+                    marker.PeerAdjacent = false;
                     continue;
                 }
 
                 marker.PeerText = peer;
                 marker.PeerSide = ResolvePeerSide(module, marker, peer);
+                marker.PeerAdjacent = ResolvePeerAdjacent(module, peer);
             }
         }
+    }
+
+    /// <summary>
+    /// 对端是否与本模块**拼接贴合**（接触）【ADR-0045】：叠加层据此决定"线到边界直接接过去"还是"末端淡出 + 标对端"。
+    /// </summary>
+    /// <param name="module">本模块。</param>
+    /// <param name="peerLiteral">对端口标记字面量（`实例.口名`）。</param>
+    /// <returns>是否贴合。</returns>
+    private bool ResolvePeerAdjacent(ModuleViewViewModel module, string peerLiteral)
+    {
+        var peerId = PeerIdOf(peerLiteral);
+
+        return Find(peerId) is { } peer
+            && peer.Rect.IsValid
+            && module.Rect.IsValid
+            && AreNodesJoined((module.InstanceId, module.Rect), (peer.InstanceId, peer.Rect), GroupTolerance);
+    }
+
+    /// <summary>从 `实例.口名` 取出实例名（口名自身可能含点，故从**最后一个**点切）。</summary>
+    private static string PeerIdOf(string peerLiteral)
+    {
+        var separator = peerLiteral.LastIndexOf('.');
+        return separator > 0 ? peerLiteral[..separator] : peerLiteral;
     }
 
     /// <summary>对端相对本模块的方位（对端在现场按矩形中心判方位；不在现场按端口所在边）。</summary>
     private PortSide ResolvePeerSide(ModuleViewViewModel module, PortMarkerViewModel marker, string peerLiteral)
     {
-        var separator = peerLiteral.LastIndexOf('.');
-        var peerId = separator > 0 ? peerLiteral[..separator] : peerLiteral;
+        var peerId = PeerIdOf(peerLiteral);
 
         if (Find(peerId) is { } peer && peer.Rect.IsValid && module.Rect.IsValid)
         {
@@ -423,6 +449,16 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             ? [instanceId]
             : [.. GroupOfNode(instanceId).Where(id => Find(id) is not { IsLocked: true })];
 
+        // 拖动**起点**的几何（拖动中按 Ctrl 拆分时，把已经被带走的其他成员**放回原位** —— 见 DetachDrag）
+        _dragStartRects.Clear();
+        foreach (var memberId in _dragGroup)
+        {
+            if (Find(memberId) is { } member)
+            {
+                _dragStartRects[memberId] = member.Rect;
+            }
+        }
+
         _shellDragDx = 0;
         _shellDragDy = 0;
 
@@ -440,6 +476,66 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _dragPointerOffsetY = pointerY - module.Y;
         Select(instanceId);
         return true;
+    }
+
+    /// <summary>拖动中**按下 Ctrl 立刻拆分**：只拖被按下的那个模块，其余成员回到拖动起点。</summary>
+    /// <remarks>
+    /// 【用户第十七轮反馈】原交互要求"**拖动前**按住 Ctrl 才独立拖动"，拖动开始后按 Ctrl 无效 ——
+    /// 用户："建议拖动期间按下后立刻断开，更符合常见类似功能的操作习惯"。
+    /// <list type="bullet">
+    ///   <item>**语义等价于"从一开始就按住 Ctrl"**：其余成员（含外壳）**回到本次拖动的起点**，被拖模块继续跟着指针；</item>
+    ///   <item>**单向**：拆分后即使松开 Ctrl 也不再重新合组（组在拖动开始时冻结 —— C5-1 约束 1）；</item>
+    ///   <item>幂等：已经独立拖动时不做任何事（拖动中每帧都会调用）。</item>
+    /// </list>
+    /// </remarks>
+    public void DetachDrag()
+    {
+        if (_draggingId is not { Length: > 0 } draggingId || Find(draggingId) is not { } dragged)
+        {
+            return;
+        }
+
+        if (_dragGroup.Count <= 1 && _dragGroup.Contains(draggingId))
+        {
+            return;   // 已经是独立拖动
+        }
+
+        // ① 外壳已经跟着走了 → 按累计位移**还回去**（模型 + 真实窗口）
+        if ((Math.Abs(_shellDragDx) > 0.5 || Math.Abs(_shellDragDy) > 0.5)
+            && ShellRect is { IsValid: true } shell)
+        {
+            var (backX, backY) = (-_shellDragDx, -_shellDragDy);
+            ShellRect = shell.OffsetBy(backX, backY);
+            ShellTranslationRequested?.Invoke(this, (backX, backY));
+        }
+
+        _shellDragDx = 0;
+        _shellDragDy = 0;
+
+        // ② 其余成员回到拖动起点（被拖的那个不动：它由指针驱动，下一帧 DragTo 会继续带着它）
+        foreach (var memberId in _dragGroup)
+        {
+            if (string.Equals(memberId, draggingId, StringComparison.Ordinal) || Find(memberId) is not { } member)
+            {
+                continue;
+            }
+
+            member.IsInteracting = false;
+            member.Guides = [];
+
+            if (_dragStartRects.TryGetValue(memberId, out var start))
+            {
+                member.X = start.X;
+                member.Y = start.Y;
+                RaiseGeometry(member);
+            }
+        }
+
+        // ③ 组收缩为"只有被拖的那个"
+        _dragGroup = [draggingId];
+        dragged.IsInteracting = true;
+        _dragStartRects.Clear();
+        _dragStartRects[draggingId] = dragged.Rect;
     }
 
     /// <summary>
@@ -1025,6 +1121,88 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             this,
             new ModuleWindowGeometryChange(module.InstanceId, module.X, module.Y, module.Width, module.Height));
 
+    /// <summary>
+    /// 新模块的摆放位置（物理像素）：**从外壳右侧开始、竖着一列排开，互不堆叠**。
+    /// </summary>
+    /// <remarks>
+    /// 【用户第十七轮反馈】原先新模块都落在左上角（`48,48` 起、每 40px 斜叠）⇒ **压在主窗口上、彼此重叠**。
+    /// 现规则（纯几何、可单测）：
+    /// <list type="number">
+    ///   <item>起点 X = **外壳右边缘 + 间距**（外壳不可用时回退到 <see cref="PlaceOrigin"/>），起点 Y = 外壳上边缘（同回退）；</item>
+    ///   <item>**已有的模块**逐个检查：与候选矩形相交就让位（向下挪一个"模块高 + 间距"）；</item>
+    ///   <item>一列到底（超出工作区下沿）就**换到右面一列**（X 挪"模块宽 + 间距"，Y 回到起点）；
+    ///     工作区不可用时不换列（无限向下，仍保证不堆叠）。</item>
+    /// </list>
+    /// 尺寸用**模块的声明默认尺寸 × 缩放**估算（真实尺寸要等窗口打开才知道 —— 布局归 XAML）。有循环上限兜底，
+    /// 极端情况下宁可重叠也不死循环。
+    /// </remarks>
+    /// <returns>摆放位置（物理像素）。</returns>
+    private (double X, double Y) NextPlacement()
+    {
+        var width = Math.Max(1, ModuleViewViewModel.DefaultWidth * Scale);
+        var height = Math.Max(1, ModuleViewViewModel.DefaultHeight * Scale);
+
+        var shell = ShellRect is { IsValid: true } rect ? rect : (CanvasRect?)null;
+        var baseX = shell is { } s ? s.Right + PlaceGap : PlaceOrigin;
+        var baseY = shell is { } s2 ? s2.Y : PlaceOrigin;
+
+        var work = WorkArea is { IsValid: true } area ? area : (CanvasRect?)null;
+
+        var x = baseX;
+        var y = baseY;
+
+        for (var guard = 0; guard < 256; guard++)
+        {
+            if (work is { } area2 && y + height > area2.Bottom)
+            {
+                // 一列到底 → 换右边一列
+                x += width + PlaceGap;
+                y = baseY;
+            }
+
+            if (!OverlapsAnyModule(x, y, width, height))
+            {
+                return (ScreenPixels.Round(x), ScreenPixels.Round(y));
+            }
+
+            y += height + PlaceGap;
+        }
+
+        return (ScreenPixels.Round(x), ScreenPixels.Round(y));
+    }
+
+    /// <summary>候选矩形是否与**已有模块**相交（留 <see cref="PlaceGap"/> 的呼吸间距）。</summary>
+    private bool OverlapsAnyModule(double x, double y, double width, double height)
+    {
+        var right = x + width;
+        var bottom = y + height;
+
+        foreach (var module in Modules)
+        {
+            if (module.Width <= 0 || module.Height <= 0)
+            {
+                // 尺寸还没读回来（窗口未打开）→ 用声明默认尺寸估
+                var w = ModuleViewViewModel.DefaultWidth * Scale;
+                var h = ModuleViewViewModel.DefaultHeight * Scale;
+                if (x < module.X + w + PlaceGap && right + PlaceGap > module.X
+                    && y < module.Y + h + PlaceGap && bottom + PlaceGap > module.Y)
+                {
+                    return true;
+                }
+
+                continue;
+            }
+
+            if (x < module.Rect.Right + PlaceGap && right + PlaceGap > module.Rect.Left
+                && y < module.Rect.Bottom + PlaceGap && bottom + PlaceGap > module.Rect.Top)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void SyncModules()
     {
         var instances = _query.GetInstances();
@@ -1045,14 +1223,17 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             // 新模块：**只分配错位摆放的位置**；尺寸由窗口的 **XAML 默认值**决定。
             // 窗口打开后（ModuleWindowManager.PublishActualSize）把**实际尺寸**读回并经 CommitInitialLayout 落盘。
             // 【用户第九轮反馈】此前这里就写回"模型算出来的默认尺寸"，等于让代码决定外层容器尺寸。
+            // 【用户第十七轮反馈】原先是"左上角起、每 40px 斜着叠" ⇒ 新模块压在主窗口上且互相堆叠；
+            // 现改为**在右侧排开、互不堆叠**（见 NextPlacement）。
+            var placement = NextPlacement();
             var created = new ModuleViewViewModel(
                 instance,
                 layout: null,
                 _query,
                 _command,
                 Scale,
-                PlaceOrigin + (Modules.Count % 8 * PlaceStepX),
-                PlaceOrigin + (Modules.Count % 8 * PlaceStepY));
+                placement.X,
+                placement.Y);
 
             Modules.Add(created);
 
@@ -1179,11 +1360,16 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 刷新某模块**口标记的网络信息**：连接状态、网络名、累计投递/丢弃、估算字节数。
+    /// 刷新某模块**口标记的网络信息**：连接状态、网络名、累计投递/丢弃、字节数与速率。
     /// </summary>
     /// <remarks>
-    /// 诊断是**按网络**统计的（框架粒度）：同一网络的所有成员显示同一组数字；
-    /// 字节数 = 投递单元数 × 发送方契约尺寸（估算，界面以工具提示注明）。
+    /// <list type="bullet">
+    ///   <item>诊断按**连接**（逐源绑定）统计：单源网络下同一网络的所有成员显示同一组数字；
+    ///     **多源网络按源归属**取（键 = `源 → 宿子集`）；</item>
+    ///   <item>字节数 = 投递单元数 × 发送方契约尺寸（**累计量**，可由此反推）；</item>
+    ///   <item>**速率一律取框架口径**【ADR-0046 D8】：接收侧用**每 (实例,口) 队列**的搬运字节速率
+    ///     （按宿计，ADR-0050 Q2），发送侧用本条连接的搬运字节速率——**UI 不再自行差分估算**。</item>
+    /// </list>
     /// </remarks>
     private void RefreshMarkerStatus(ModuleViewViewModel module)
     {
@@ -1192,7 +1378,30 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             return;
         }
 
-        var diagnostics = _query.GetDiagnostics().ToDictionary(d => d.NetworkName, StringComparer.Ordinal);
+        // 【P40】诊断按**网络身份键**索引，**不能按网络名**：匿名网络（自动建网）名为空串，
+        // 现场出现第二条匿名网络时，`ToDictionary(d => d.NetworkName)` 会抛"同一键已存在（键为空串）"（实测崩溃）。
+        var diagnostics = new Dictionary<string, BindingDiagnosticView>(StringComparer.Ordinal);
+        var diagnosticsBySource = new Dictionary<string, BindingDiagnosticView>(StringComparer.Ordinal);
+
+        foreach (var diagnostic in _query.GetDiagnostics())
+        {
+            _ = diagnostics.TryAdd(diagnostic.Key, diagnostic);   // 键重复也不抛：宁可少显示，不让界面崩
+
+            // 【ADR-0050 M2/M7】逐源键 = `源 → 宿子集`：多源网络下**按源归属**取到本条连接的诊断
+            var separator = diagnostic.Key.IndexOf('→', StringComparison.Ordinal);
+            if (separator > 0)
+            {
+                _ = diagnosticsBySource.TryAdd(diagnostic.Key[..separator], diagnostic);
+            }
+        }
+
+        // 【ADR-0050 Q2 / ADR-0046 D8】**每 (实例, 口) 队列**：水位与"按宿计"的搬运字节速率（框架口径）
+        var queueDepths = new Dictionary<string, PortQueueDepthView>(StringComparer.Ordinal);
+        foreach (var depth in _query.GetQueueDepths())
+        {
+            _ = queueDepths.TryAdd($"{depth.InstanceId}.{depth.PortName}", depth);
+        }
+
         var networks = _query.GetNetworks();
 
         // 端口契约尺寸（字节数估算用）：一次取实例视图即可
@@ -1229,7 +1438,13 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             marker.NetworkName = network.IsAnonymous ? null : network.Name;
             marker.IsStalled = network.IsStalled;
 
-            if (!diagnostics.TryGetValue(network.Name, out var diagnostic))
+            // 【ADR-0050 M2/M7】单源网络用网络键即可；多源网络下**按源归属**取（键 = `源 → 宿子集`）
+            if (!diagnostics.TryGetValue(network.Key, out var diagnostic))
+            {
+                _ = diagnosticsBySource.TryGetValue(literal, out diagnostic);
+            }
+
+            if (diagnostic is null)
             {
                 continue;
             }
@@ -1241,21 +1456,13 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             var totalBytes = diagnostic.Delivered * size;
             marker.BytesText = size > 0 ? FormatBytes(totalBytes) : null;
 
-            // 速率：两次采样之间的增量 / 时间（无流量显示 ---）
-            var key = (module.InstanceId, marker.PortName);
-            var now = DateTime.UtcNow;
+            // 【ADR-0046 D8 / R4】**速率由框架给出**（不再由 UI 差分估算）：
+            // 接收侧取**按宿计**的口径（每口一条队列，ADR-0050 Q2）；发送侧取本条连接的搬运字节速率。
+            var busRate = queueDepths.TryGetValue(literal, out var depth)
+                ? depth.BusByteRate
+                : diagnostic.BusByteRate;
 
-            if (size > 0 && _rateSamples.TryGetValue(key, out var previous))
-            {
-                var elapsed = (now - previous.Time).TotalSeconds;
-                var delta = totalBytes - previous.Bytes;
-
-                marker.RateText = elapsed > 0.05 && delta > 0
-                    ? $"{FormatBytes((long)(delta / elapsed))}/s"
-                    : "---";
-            }
-
-            _rateSamples[key] = (totalBytes, now);
+            marker.RateText = busRate > 0.5 ? $"{FormatBytes((long)busRate)}/s" : "---";
         }
     }
 
@@ -1281,9 +1488,29 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         return _query.TryReadLatest(source.InstanceId, source.DataSourceName, _sampleScratch, out var length)
             && length == sampleSize
-            && SampleCodec.TryDecode(source.ValueType, _sampleScratch.AsSpan(0, length), out var decoded)
+            && DecodeSample(source, _sampleScratch.AsSpan(0, length), out var decoded)
                 ? decoded
                 : null;
+    }
+
+    /// <summary>
+    /// 解码一个样本：**模块注册的解码器优先**（框架只回调）【ADR-0046 D1 ③】；
+    /// 未提供时按**参考实现**回退（旧模块形态，登记为历史兼容路径——不猜类型，原语未声明即失败）。
+    /// </summary>
+    private static bool DecodeSample(SubscriptionSourceView source, ReadOnlySpan<byte> sample, out double value)
+    {
+        if (source.Decoder is { } decoder)
+        {
+            return decoder(sample, out value);
+        }
+
+        if (source.ValueType is { } primitive)
+        {
+            return SampleCodec.TryDecode(primitive, sample, out value);
+        }
+
+        value = 0;
+        return false;
     }
 
     private IReadOnlyList<double> ReadSeries(SubscriptionSourceView source)
@@ -1308,7 +1535,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         var points = new List<double>(count);
         for (var i = 0; i < count; i++)
         {
-            if (!SampleCodec.TryDecode(source.ValueType, _seriesScratch.AsSpan(i * sampleSize, sampleSize), out var value))
+            if (!DecodeSample(source, _seriesScratch.AsSpan(i * sampleSize, sampleSize), out var value))
             {
                 break;
             }

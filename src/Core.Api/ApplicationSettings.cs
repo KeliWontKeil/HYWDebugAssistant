@@ -54,14 +54,19 @@ public sealed class ApplicationSettings
     public double SnapDistance { get; set; } = 4;
 
     /// <summary>
-    /// 是否显示**叠加信息层**【ADR-0039 D5】（原 `showPortMarkers`）。
+    /// **叠加信息层开关**【ADR-0039 D5 · **默认值改为关闭 = ADR-0045 D1（用户裁决）**】。
     /// </summary>
     /// <remarks>
-    /// 语义变更原因：**端口标记改为常显**（它是模块的标准件，也是唯一建网入口），
-    /// 开关改为控制**叠加信息层**（窗内连接线 + 流向 + 对端信息）。
-    /// 旧键 `showPortMarkers` 与更旧的 `showLinkLines` 均**兼容读取**。
+    /// 用户口径："叠加层**默认关闭** —— 从用户理解上这不是某种应该常驻的层，这也是为何要设计快捷键的原因；
+    /// 叠加层是一种**附加的信息显示层**，属于**调试/信息观测**用。"
+    /// <list type="bullet">
+    ///   <item>**旧配置兼容**：文件里显式写过 <c>showInfoOverlay</c>（或更旧的 <c>showPortMarkers</c>/<c>showLinkLines</c>）
+    ///     的，仍按文件里的值生效 —— 只有**没写过**的（含全新安装）才落到"关闭"；</item>
+    ///   <item>端口标记**常显**（它是模块标准件，也是唯一建网入口），不受本开关影响；</item>
+    ///   <item>默认键：**L**（`HotkeyCatalog.ToggleMarkers`「切换叠加信息层」）。</item>
+    /// </list>
     /// </remarks>
-    public bool ShowInfoOverlay { get; set; } = true;
+    public bool ShowInfoOverlay { get; set; }
 
     /// <summary>
     /// **主题**【M1-16 / ADR-0038 D4】：<c>Light</c>（默认）/ <c>Dark</c> / <c>System</c>（跟随系统）。
@@ -78,6 +83,20 @@ public sealed class ApplicationSettings
 
     /// <summary>**自定义背景色**（十六进制；仅 <see cref="BackgroundMode"/> = <c>Custom</c> 时生效）。</summary>
     public string BackgroundColor { get; set; } = "#F3F4F6";
+
+    /// <summary>
+    /// **发送方向色**（十六进制，如 <c>#EA580C</c>；**空 = 跟随主题默认值**）【ADR-0044 · 用户第十四轮裁决 D1a】。
+    /// </summary>
+    /// <remarks>
+    /// 「方向」= **稳定语义**（发送 / 接收），与「主题色」解耦：主题色只表达选中/聚焦/活动等**框架性交互**语义。
+    /// **空串是默认值**（跟随 <c>Tokens.axaml</c> 里深浅两套各自的内置方向色）——这样深色主题的默认值不会被
+    /// 浅色默认值"覆盖成死值"（`accentColor` 的默认非空，故其伴生色 `AccentSecondary` 实际从不生效，
+    /// 属已知历史问题，见 ADR-0044 §4）。用户一旦填色，则**深浅两套主题都用它**（完全尊重用户选择，不做提示）。
+    /// </remarks>
+    public string DirectionSendColor { get; set; } = string.Empty;
+
+    /// <summary>**接收方向色**（语义同 <see cref="DirectionSendColor"/>；空 = 跟随主题默认值）。</summary>
+    public string DirectionReceiveColor { get; set; } = string.Empty;
 
     /// <summary>
     /// **外壳窗口比例**【M1-16 / ADR-0038 D2】：<c>9:19.5</c>（默认，手机竖屏常用比例）/ <c>9:16</c> / <c>16:9</c>。
@@ -133,6 +152,8 @@ public sealed class ApplicationSettings
         AccentColor = AccentColor,
         BackgroundMode = BackgroundMode,
         BackgroundColor = BackgroundColor,
+        DirectionSendColor = DirectionSendColor,
+        DirectionReceiveColor = DirectionReceiveColor,
         ShellAspect = ShellAspect,
         ShellFixedSize = ShellFixedSize,
         ModuleSourceDirectories = [.. ModuleSourceDirectories],

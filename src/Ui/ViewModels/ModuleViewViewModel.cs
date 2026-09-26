@@ -168,9 +168,12 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     [ObservableProperty]
     public partial bool IsInteracting { get; set; }
 
-    /// <summary>是否显示**叠加信息层**（窗内连接线；由控制器按应用级设置同步写入 —— ADR-0039 D5）。</summary>
+    /// <summary>
+    /// 是否显示**叠加信息层**（窗内连线 + 中心类型方块 + 信息；由控制器按应用级设置同步写入）。
+    /// **默认关闭**【ADR-0045 D1：它是调试/观测层，不进常驻界面】。
+    /// </summary>
     [ObservableProperty]
-    public partial bool ShowInfoOverlay { get; set; } = true;
+    public partial bool ShowInfoOverlay { get; set; }
 
     /// <summary>口上的标记块（边缘小块 = 口名/网络名 + 信息类型 + 方向 + 连接状态）。</summary>
     public ObservableCollection<PortMarkerViewModel> Ports { get; } = [];

@@ -34,6 +34,8 @@
     <!-- M1-15：手工验收用的两个测试模块也纳入自动化（发送器 → 信息显示 的端到端） -->
     <ProjectReference Include="..\..\src\Modules\Reference\ManualSender\HYWDebugAssistant.Modules.Reference.ManualSender.csproj" />
     <ProjectReference Include="..\..\src\Modules\Reference\Monitor\HYWDebugAssistant.Modules.Reference.Monitor.csproj" />
+    <!-- M1-18：**多源参考模块**（ADR-0050 落地示例：双源融合/仲裁） -->
+    <ProjectReference Include="..\..\src\Modules\Reference\Fuser\HYWDebugAssistant.Modules.Reference.Fuser.csproj" />
   </ItemGroup>
 
 </Project>

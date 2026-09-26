@@ -65,7 +65,13 @@ public sealed partial class TopologyViewModel : ViewModelBase
     /// <remarks>用增量同步（见 <see cref="CollectionSync"/>）：每帧重建列表会让悬停等瞬时视觉状态反复重置（闪烁）。</remarks>
     public void Refresh()
     {
-        var diagnostics = _query.GetDiagnostics().ToDictionary(d => d.NetworkName, StringComparer.Ordinal);
+        // 【P40】按**网络身份键**索引（网络名不唯一：匿名网络名为空串 ⇒ 两条匿名网络会撞键并抛异常）
+        var diagnostics = new Dictionary<string, BindingDiagnosticView>(StringComparer.Ordinal);
+        foreach (var diagnostic in _query.GetDiagnostics())
+        {
+            _ = diagnostics.TryAdd(diagnostic.Key, diagnostic);
+        }
+
         var networks = _query.GetNetworks();
 
         var rows = new List<TopologyRowViewModel>();
@@ -81,7 +87,7 @@ public sealed partial class TopologyViewModel : ViewModelBase
                 ? "停流"
                 : (network.UnresolvedMembers?.Count ?? 0) > 0 ? "悬空" : "正常";
 
-            _ = diagnostics.TryGetValue(network.Name, out var diagnostic);
+            _ = diagnostics.TryGetValue(network.Key, out var diagnostic);
 
             rows.Add(new TopologyRowViewModel(
                 name,

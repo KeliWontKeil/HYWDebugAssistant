@@ -102,6 +102,30 @@ public class FrameworkUiTests
     }
 
     [Fact]
+    public void 模块清单_双击列表项走同一条加入路径()
+    {
+        // 【用户第十六轮反馈】列表项双击 = 直接加入现场（更符合直觉），且与按钮**共用同一实现**。
+        using var harness = new ShellHarness();
+        var catalog = harness.Shell.Catalog;
+
+        catalog.PackageDirectory = DataGeneratorPackage;
+        catalog.InstallCommand.Execute(null);
+
+        catalog.SelectedCatalogEntry = catalog.Catalog.Single(c => c.ModuleId == "hyw/reference-data-generator/1.0.0");
+
+        // 视图里的 DoubleTapped 直接调这个方法（不再经过按钮）
+        catalog.AddSelected().ShouldBeTrue(catalog.StatusMessage);
+        harness.Services.GetInstances().ShouldHaveSingleItem();
+
+        // 未选中任何项时：不静默、给提示，但不加入
+        catalog.SelectedCatalogEntry = null;
+        catalog.AddSelected().ShouldBeFalse();
+        catalog.StatusIsOk.ShouldBeFalse();
+        catalog.StatusMessage.ShouldNotBeNull().ShouldContain("可用模块");
+        harness.Services.GetInstances().ShouldHaveSingleItem("失败时不得多出实例");
+    }
+
+    [Fact]
     public void 模块清单_未选择模块时加入现场应失败并提示()
     {
         using var harness = new ShellHarness();
@@ -293,11 +317,13 @@ public class FrameworkUiTests
         using var harness = new ShellHarness();
         var shell = harness.Shell;
 
-        // 显示组：**叠加信息层**默认开（端口标记本身常显，不再有开关 —— ADR-0039 D5）
+        // 显示组：**叠加信息层默认关**（调试/观测层，快捷键 L 切换 —— ADR-0045 D1）；端口标记常显
+        shell.ShowInfoOverlay.ShouldBeFalse();
+        shell.ToggleMarkersCommand.Execute(null);
         shell.ShowInfoOverlay.ShouldBeTrue();
+        shell.Windows.ShowInfoOverlay.ShouldBeTrue("开关的真实状态由模块窗口集持有");
         shell.ToggleMarkersCommand.Execute(null);
         shell.ShowInfoOverlay.ShouldBeFalse();
-        shell.Windows.ShowInfoOverlay.ShouldBeFalse("开关的真实状态由模块窗口集持有");
 
         // 交互组：吸附默认开，可关
         shell.SnapEnabled.ShouldBeTrue();
@@ -353,14 +379,15 @@ public class FrameworkUiTests
                 shell.Catalog.Refresh();
 
                 // **内置模块开箱可用**：启动即扫描内置包目录，用户无需去找路径
-                shell.Catalog.Catalog.Count.ShouldBe(5);
+                shell.Catalog.Catalog.Count.ShouldBe(6, "六个参考模块包：发生器/记录器/断言器/手动发送器/信息显示/**多源融合器**");
                 shell.Catalog.Catalog.Select(c => c.ModuleId).ShouldContain("hyw/reference-manual-sender/1.0.0");
                 shell.Catalog.Catalog.Select(c => c.ModuleId).ShouldContain("hyw/reference-monitor/1.0.0");
+                shell.Catalog.Catalog.Select(c => c.ModuleId).ShouldContain("hyw/reference-fuser/1.0.0");
 
                 // 来源根诊断：内置根在首位且可见（"到底扫了哪里"必须可查）
                 var source = shell.Catalog.Sources.First();
                 source.Directory.ShouldBe(builtIn);
-                source.Summary.ShouldContain("包 5 个");
+                source.Summary.ShouldContain("包 6 个");
             }
             finally
             {

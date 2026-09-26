@@ -96,8 +96,10 @@ public class PortNetworkLabelTests
     }
 
     [Fact]
-    public void 多个发送端同名_应不建网并给出原因()
+    public void 多个发送端同名_应建成一条多源网络()
     {
+        // 【ADR-0050 M1/M2 · 用户裁定：多源是一等设计】旧规则"网络只能有一个源、否则整条不建网"
+        // **已作废**；现在同名标签的多个发送端同属**一条多源网络**，并**逐源**建立绑定。
         using var harness = new LabelHarness();
         harness.Add("s1", "sender");
         harness.Add("s2", "sender");
@@ -107,8 +109,13 @@ public class PortNetworkLabelTests
         harness.Services.UpdatePortNetwork("s2", "out", "bus").Succeeded.ShouldBeTrue();
         harness.Services.UpdatePortNetwork("r", "in", "bus").Succeeded.ShouldBeTrue();
 
-        harness.Services.GetNetworks().ShouldBeEmpty("网络严格单向，只能有一个源 → 不猜、不建网");
-        harness.Runtime.Issues.Recent(20).ShouldContain(e => e.Issue.Message.Contains("多个发送端", StringComparison.Ordinal));
+        var network = harness.Services.GetNetworks().ShouldHaveSingleItem();
+        network.Name.ShouldBe("bus");
+        network.Sources.Count.ShouldBe(2, "**多源 = 合法的一等组合**（同名标签的多个发送端同属一条网络）");
+        network.Targets.ShouldBe(ReceiverIn);
+        harness.Runtime.Issues.Recent(20)
+            .ShouldNotContain(e => e.Issue.Severity == HYWDebugAssistant.Sdk.Reporting.IssueSeverity.Error,
+                "多源**不再是错误**（旧行为是报 CompositionError 并整条拒绝）");
     }
 
     [Fact]
@@ -125,7 +132,7 @@ public class PortNetworkLabelTests
 
         var network = harness.Services.GetNetworks().ShouldHaveSingleItem();
         network.Targets.ShouldBe(ReceiverIn, "不兼容成员被排除（不自动转换）");
-        harness.Runtime.Issues.Recent(20).ShouldContain(e => e.Issue.Message.Contains("契约不兼容", StringComparison.Ordinal));
+        harness.Runtime.Issues.Recent(20).ShouldContain(e => e.Issue.Message.Contains("不兼容", StringComparison.Ordinal));
     }
 
     // 【ADR-0037】原"命名口自动从匿名直连中摘出"的用例随"加入即连"整体移除：

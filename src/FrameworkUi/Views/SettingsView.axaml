@@ -278,6 +278,117 @@
                         </Button>
                     </Grid>
 
+                    <!--
+                      **方向语义色**【ADR-0044 · 用户第十四轮裁决】：
+                      「发送 / 接收」是**稳定语义**，与「主题色」（选中/聚焦/活动等框架性交互）**完全解耦**；
+                      留空 = 跟随主题默认值（深浅各自不同），填了则深浅两套主题都用用户值。
+                      消费者：网络标签箭头 · 网络标签边框 · 建网预览描边 · 叠加层流向箭头。
+                      **不做任何合法性/对比度提示**（裁决 D6：完全尊重用户选择）。
+                    -->
+                    <Grid ColumnDefinitions="140,Auto,*">
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                   ToolTip.Tip="网络标签的箭头与边框、建网预览描边、叠加层流向箭头（发送口）"
+                                   Foreground="{DynamicResource TextSecondary}" Text="发送色" />
+                        <Button Grid.Column="1" Padding="0" Width="28" Height="24" MinHeight="24"
+                                ToolTip.Tip="选择发送方向色（留空 = 跟随主题默认值）">
+                            <Button.Flyout>
+                                <Flyout Placement="BottomEdgeAlignedLeft">
+                                    <StackPanel Spacing="6" Width="228">
+                                        <TextBlock Classes="note" Text="预设" />
+                                        <ItemsControl ItemsSource="{Binding AccentPresetList}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Button Width="24" Height="24" MinHeight="24" Padding="0" Margin="2"
+                                                            Background="{Binding Brush}"
+                                                            BorderBrush="{DynamicResource BorderStrong}"
+                                                            BorderThickness="1"
+                                                            ToolTip.Tip="{Binding Name}"
+                                                            Command="{Binding $parent[ItemsControl].((vm:SettingsPanelViewModel)DataContext).SelectDirectionSendCommand}"
+                                                            CommandParameter="{Binding}" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock Classes="note" Text="自定义（十六进制；清空 = 跟随主题默认值）" />
+                                        <TextBox FontFamily="{DynamicResource FontData}"
+                                                 PlaceholderText="留空 = 跟随主题默认值"
+                                                 Text="{Binding DirectionSendColor, Mode=TwoWay}" />
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                            <Border Width="24" Height="20" CornerRadius="3"
+                                    Background="{Binding DirectionSendBrush}"
+                                    BorderBrush="{DynamicResource BorderStrong}"
+                                    BorderThickness="1" />
+                        </Button>
+                        <TextBlock Grid.Column="2" Margin="6,0,0,0" VerticalAlignment="Center"
+                                   FontFamily="{DynamicResource FontData}" FontSize="11"
+                                   Foreground="{DynamicResource TextMuted}" Text="{Binding DirectionSendText}" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="140,Auto,*">
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                   ToolTip.Tip="网络标签的箭头与边框、建网预览描边、叠加层流向箭头（接收口）"
+                                   Foreground="{DynamicResource TextSecondary}" Text="接收色" />
+                        <Button Grid.Column="1" Padding="0" Width="28" Height="24" MinHeight="24"
+                                ToolTip.Tip="选择接收方向色（留空 = 跟随主题默认值）">
+                            <Button.Flyout>
+                                <Flyout Placement="BottomEdgeAlignedLeft">
+                                    <StackPanel Spacing="6" Width="228">
+                                        <TextBlock Classes="note" Text="预设" />
+                                        <ItemsControl ItemsSource="{Binding AccentPresetList}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Button Width="24" Height="24" MinHeight="24" Padding="0" Margin="2"
+                                                            Background="{Binding Brush}"
+                                                            BorderBrush="{DynamicResource BorderStrong}"
+                                                            BorderThickness="1"
+                                                            ToolTip.Tip="{Binding Name}"
+                                                            Command="{Binding $parent[ItemsControl].((vm:SettingsPanelViewModel)DataContext).SelectDirectionReceiveCommand}"
+                                                            CommandParameter="{Binding}" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock Classes="note" Text="自定义（十六进制；清空 = 跟随主题默认值）" />
+                                        <TextBox FontFamily="{DynamicResource FontData}"
+                                                 PlaceholderText="留空 = 跟随主题默认值"
+                                                 Text="{Binding DirectionReceiveColor, Mode=TwoWay}" />
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                            <Border Width="24" Height="20" CornerRadius="3"
+                                    Background="{Binding DirectionReceiveBrush}"
+                                    BorderBrush="{DynamicResource BorderStrong}"
+                                    BorderThickness="1" />
+                        </Button>
+                        <TextBlock Grid.Column="2" Margin="6,0,0,0" VerticalAlignment="Center"
+                                   FontFamily="{DynamicResource FontData}" FontSize="11"
+                                   Foreground="{DynamicResource TextMuted}" Text="{Binding DirectionReceiveText}" />
+                    </Grid>
+
+                    <!-- 实时预览：两个色块 + 语义文字（改色即刻可见，不必来回看模块窗口） -->
+                    <StackPanel Orientation="Horizontal" Spacing="14" Margin="140,0,0,0">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="↑" FontSize="16" FontWeight="Bold" VerticalAlignment="Center"
+                                       Foreground="{Binding DirectionSendBrush}" />
+                            <TextBlock Classes="note" VerticalAlignment="Center" Text="发送" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="↓" FontSize="16" FontWeight="Bold" VerticalAlignment="Center"
+                                       Foreground="{Binding DirectionReceiveBrush}" />
+                            <TextBlock Classes="note" VerticalAlignment="Center" Text="接收" />
+                        </StackPanel>
+                    </StackPanel>
+
                     <Grid ColumnDefinitions="140,140,Auto">
                         <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                    ToolTip.Tip="默认 9:19.5（手机竖屏常用比例）；取消「尺寸固定」后可自由缩放，比例仅作初值"

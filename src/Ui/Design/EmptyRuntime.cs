@@ -51,6 +51,30 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     ];
 
     /// <inheritdoc />
+    public IReadOnlyList<PortQueueDepthView> GetQueueDepths() =>
+    [
+        new("monitor-1", "in", Depth: 0, Capacity: 1024, Enqueued: 1234, Dropped: 2),
+    ];
+
+    /// <inheritdoc />
+    public IReadOnlyList<DataRoleView> GetDataRoles(string instanceId) => instanceId switch
+    {
+        "sender-1" => [new("send:hyw/analog-sample@1", true, "hyw/analog-sample@1",
+            "{seq:u64, value:f32}", ["out"], ConnectionCount: 1)],
+        "monitor-1" => [new("recv:hyw/analog-sample@1", false, "hyw/analog-sample@1",
+            "{seq:u64, value:f32}", ["in"], ConnectionCount: 1)],
+        _ => [],
+    };
+
+    /// <inheritdoc />
+    public IReadOnlyList<DataRolePairView> GetRolePairs(string instanceId) => instanceId switch
+    {
+        "sender-1" => [new("send:hyw/analog-sample@1", "monitor-1", "recv:hyw/analog-sample@1", 1, ["bus1"])],
+        "monitor-1" => [new("recv:hyw/analog-sample@1", "sender-1", "send:hyw/analog-sample@1", 1, ["bus1"])],
+        _ => [],
+    };
+
+    /// <inheritdoc />
     public IReadOnlyList<IssueView> GetIssues(int maxCount) =>
     [
         new(1, "module:sender-1", "ModuleError", "Warning", "发送值无法解析为数值：\"abc\"", DateTimeOffset.Now, "Module"),
@@ -64,12 +88,13 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
         new("hyw/reference-monitor/1.0.0", "信息显示模块", "最后值 / 计数 / 曲线 / 日志", "None", "modules\\monitor", false, ["reference", "monitor", "test"]),
         new("hyw/reference-recorder/1.0.0", "记录器", "记录数据并可导出", "File", "modules\\recorder", true, ["reference", "recorder"]),
         new("hyw/reference-asserter/1.0.0", "断言器", "契约与形状断言", "None", "modules\\asserter", false, ["reference", "asserter"]),
+        new("hyw/reference-fuser/1.0.0", "多源融合器", "把多路同类型数据融合为一路", "None", "modules\\fuser", false, ["reference", "fuser", "multi-source"]),
     ];
 
     /// <inheritdoc />
     public IReadOnlyList<ModuleSourceView> GetModuleSources() =>
     [
-        new(AppContext.BaseDirectory + "modules", Exists: true, PackagesFound: 5, SkippedDirectories: 0, FailedPackages: 0, Messages: []),
+        new(AppContext.BaseDirectory + "modules", Exists: true, PackagesFound: 6, SkippedDirectories: 0, FailedPackages: 0, Messages: []),
     ];
 
     /// <inheritdoc />
@@ -133,7 +158,11 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     public CommandResult SetModuleEnabled(string instanceId, bool enabled) => CommandResult.Ok();
 
     /// <inheritdoc />
-    public CommandResult Connect(PortRef source, IReadOnlyList<PortRef> targets, string? name = null) => CommandResult.Ok();
+    public CommandResult Connect(
+        PortRef source,
+        IReadOnlyList<PortRef> targets,
+        string? name = null,
+        bool allowUnverifiedTypeMatch = false) => CommandResult.Ok();
 
     /// <inheritdoc />
     public CommandResult Disconnect(string networkName) => CommandResult.Ok();

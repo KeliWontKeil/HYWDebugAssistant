@@ -47,7 +47,75 @@ public class CoreRuntimeTests
 
         runtime.Bindings.TryGet("link-1", out var binding).ShouldBeTrue();
         binding!.Diagnostics.Delivered.ShouldBe(1);
+        binding.Diagnostics.Published.ShouldBe(1, "**发布计数 = 每个数据报一次**（按源）");
         binding.Diagnostics.LastDataTime.ShouldNotBeNull();
+
+        // 【ADR-0050 Q6(c）】**单源网络零附加**：不带薄旁路头（也不构造）
+        runtime.Carriers.TryGet("r1", out var carrier).ShouldBeTrue();
+        carrier!.Diagnostics.Headered.ShouldBe(0, "单源网络**不带**薄旁路头");
+        carrier.Diagnostics.LastHeaderSequence.ShouldBe(0);
+    }
+
+    [Fact]
+    public void 多源网络_应带薄旁路头且序号按源递增_单源网络零附加()
+    {
+        // 【ADR-0050 Q6(c)】薄旁路头**只在多源网络**上带：源标识 + **按源序号** + 接收时刻；
+        // **旁路元数据、不进 payload**（字节守恒不变），由**观测面**消费（承载诊断记录最近序号/时刻）。
+        using var runtime = new ModuleRuntime();
+        var services = new RuntimeServices(runtime);
+
+        AddModule(runtime, "s1", "sender", typeof(SenderModule));
+        AddModule(runtime, "s2", "sender", typeof(SenderModule));
+        AddModule(runtime, "r1", "dual-receiver", typeof(DualReceiverModule));
+
+        SetLabel(runtime, "s1", SenderModule.OutPort, "bus");
+        SetLabel(runtime, "s2", SenderModule.OutPort, "bus");
+        SetLabel(runtime, "r1", "in1", "bus");
+        SetLabel(runtime, "r1", "in2", "bus");
+
+        runtime.Content.TryGetInstance("s1", out var sender1).ShouldBeTrue();
+        runtime.Content.TryGetInstance("s2", out var sender2).ShouldBeTrue();
+
+        var payload = new byte[sizeof(float)];
+        _ = BitConverter.TryWriteBytes(payload, 1f);
+
+        // s1 发 3 个、s2 发 1 个：**序号按源各自递增**（互不干扰）
+        for (var i = 0; i < 3; i++)
+        {
+            _ = sender1!.Context.Ports.TrySend(SenderModule.OutPort, payload);
+        }
+
+        _ = sender2!.Context.Ports.TrySend(SenderModule.OutPort, payload);
+
+        var bindings = runtime.Bindings.Bindings.Where(b => b.Network.Name == "bus").ToList();
+        bindings.Count.ShouldBe(2);
+        bindings.ShouldContain(b => b.Source.InstanceId == "s1" && b.Diagnostics.Published == 3);
+        bindings.ShouldContain(b => b.Source.InstanceId == "s2" && b.Diagnostics.Published == 1);
+
+        // 每个源 1 个数据报投到 2 个宿 ⇒ Delivered 按宿计（被多播放大），Published **不被放大**
+        bindings.ShouldAllBe(b => b.Diagnostics.Delivered == b.Diagnostics.Published * 2);
+
+        WaitForHeadered(runtime, "r1", 8).ShouldBeTrue("多源网络的数据报应带薄旁路头投递（观测面记录到）");
+    }
+
+    private static bool WaitForHeadered(ModuleRuntime runtime, string instanceId, long expected)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (runtime.Carriers.TryGet(instanceId, out var carrier)
+                && carrier is not null
+                && carrier.Diagnostics.Headered >= expected)
+            {
+                carrier.Diagnostics.LastHeaderSequence.ShouldBeGreaterThan(0, "旁路头序号应按源递增（1 起）");
+                carrier.Diagnostics.LastHeaderTimestamp.ShouldBeGreaterThan(0, "旁路头应带接收时刻（单调计数）");
+                return true;
+            }
+
+            Thread.Sleep(5);
+        }
+
+        return false;
     }
 
     [Fact]
@@ -249,6 +317,42 @@ public class CoreRuntimeTests
     }
 
     [Fact]
+    public void 对齐建网_两条独立匿名网络的身份键必须互不相同()
+    {
+        // 【P40 回归】用户实测崩溃：出现**第二条**自动建网链路时抛
+        // "An item with the same key has already been added. Key: "（**空键**）——
+        // 根因是**用网络名当唯一键**，而匿名网络的名字就是空串。
+        // 本用例把不变量钉住：**每条网络都有非空且互不相同的身份键**，且诊断键与网络键一一对应。
+        using var runtime = new ModuleRuntime();
+        var services = new RuntimeServices(runtime);
+
+        AddModule(runtime, "s1", "sender", typeof(SenderModule));
+        AddModule(runtime, "r1", "receiver", typeof(ReceiverModule));
+        AddModule(runtime, "s2", "sender", typeof(SenderModule));
+        AddModule(runtime, "r2", "receiver", typeof(ReceiverModule));
+
+        // 两组**互不相邻**的接触对（各自的自动建网链路）
+        Place(runtime, "s1", 0, 0, 300, 200);
+        Place(runtime, "r1", 300, 0, 300, 200);
+        Place(runtime, "s2", 0, 400, 300, 200);
+        Place(runtime, "r2", 300, 400, 300, 200);
+
+        var networks = services.GetNetworks();
+        networks.Count.ShouldBe(2, "两条独立链路应各成一条匿名网络");
+        networks.ShouldAllBe(n => n.IsAnonymous && n.Name.Length == 0, "自动建网是匿名网络（名字为空串）");
+
+        var keys = networks.Select(n => n.Key).ToList();
+        keys.ShouldAllBe(k => k.Length > 0, "身份键不得为空（旧的崩溃正是空键撞键）");
+        keys.Distinct(StringComparer.Ordinal).Count().ShouldBe(2, "两条网络的身份键必须互不相同");
+
+        var diagnostics = services.GetDiagnostics();
+        diagnostics.Count.ShouldBe(2);
+        diagnostics.Select(d => d.Key).ShouldAllBe(k => keys.Contains(k, StringComparer.Ordinal),
+            "诊断键必须能与网络键配对（视图层就是靠它取数的）");
+        diagnostics.Select(d => d.Key).Distinct(StringComparer.Ordinal).Count().ShouldBe(2);
+    }
+
+    [Fact]
     public void 对齐建网_未接触或未对齐时不得建网()
     {
         using var runtime = new ModuleRuntime();
@@ -369,6 +473,196 @@ public class CoreRuntimeTests
         var diagnostics = services.GetDiagnostics();
         diagnostics.Count.ShouldBe(1);
         diagnostics[0].Delivered.ShouldBe(0);
+    }
+
+    [Fact]
+    public void 诊断_丢弃应按原因分类且停流不计入传输丢弃()
+    {
+        // 【ADR-0046 D8 / ADR-0050 Q5】丢弃必须分类：**停流未投递 ≠ 传输丢弃**（前者是合法状态）。
+        using var runtime = new ModuleRuntime();
+        var services = new RuntimeServices(runtime);
+
+        AddModule(runtime, "s1", "sender", typeof(SenderModule));
+        AddModule(runtime, "r1", "receiver", typeof(ReceiverModule));
+        runtime.Content.TryGetInstance("s1", out var sender).ShouldBeTrue();
+
+        var payload = new byte[sizeof(float)];
+        _ = BitConverter.TryWriteBytes(payload, 1f);
+
+        // ① **无网络**时发送：没有任何绑定 ⇒ 不计入任何绑定（不算"丢弃"）
+        _ = sender!.Context.Ports.TrySend(SenderModule.OutPort, payload);
+
+        Connect(runtime, "s1", SenderModule.OutPort, "r1", ReceiverModule.InPort, "link-1").ShouldBeTrue();
+        var diagnostics = services.GetDiagnostics().ShouldHaveSingleItem();
+
+        // ② **载荷非法**（长度小于契约尺寸）⇒ InvalidPayload
+        _ = sender.Context.Ports.TrySend(SenderModule.OutPort, ReadOnlySpan<byte>.Empty);
+        diagnostics = services.GetDiagnostics().ShouldHaveSingleItem();
+        diagnostics.DropInvalidPayload.ShouldBe(1);
+        diagnostics.DropStalled.ShouldBe(0);
+        diagnostics.Dropped.ShouldBe(1, "总数 = 各原因之和");
+
+        // ③ 正常投递 ⇒ Delivered（不产生任何丢弃）
+        _ = sender.Context.Ports.TrySend(SenderModule.OutPort, payload);
+        diagnostics = services.GetDiagnostics().ShouldHaveSingleItem();
+        diagnostics.Delivered.ShouldBe(1);
+        diagnostics.Dropped.ShouldBe(1);
+
+        // ④ **停流未投递**（网络停流）：单独归类，**不计入传输丢弃**
+        runtime.Apply(ChangeSet.OfOne(new HYWDebugAssistant.Core.Changes.SetModuleEnabledOperation("s1", false)));
+        _ = sender.Context.Ports.TrySend(SenderModule.OutPort, payload);
+        _ = sender.Context.Ports.TrySend(SenderModule.OutPort, payload);
+
+        diagnostics = services.GetDiagnostics().ShouldHaveSingleItem();
+        diagnostics.DropStalled.ShouldBe(2, "停流期间的发送记为**停流未投递**（合法状态）");
+
+        var transportDrops = diagnostics.DropQueueFull + diagnostics.DropNoCarrier + diagnostics.DropInvalidPayload;
+        transportDrops.ShouldBe(1, "**传输丢弃**只能是载荷非法那 1 次（停流的 2 次不得混入）");
+        diagnostics.Dropped.ShouldBe(3, "总数 = 1（传输）+ 2（停流）");
+    }
+
+    // ------------------------------------------------------------ 多源网络（ADR-0050 M1/M2/M5/M6/M7）
+
+    /// <summary>多源测试用接收模块（两个接收口，同契约）。</summary>
+    [ModuleDefinition("test", "dual-receiver", "1.0.0")]
+    public sealed class DualReceiverModule : IModule
+    {
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context)
+        {
+            foreach (var name in new[] { "in1", "in2" })
+            {
+                context.Declaration.DeclarePort(new PortDeclaration(
+                    name, PortDirection.Receive, ContractShape.OfPrimitive(ContractPrimitive.F32)));
+                context.Ports.SetReceiveHandler(name, _ => { });
+            }
+        }
+    }
+
+    [Fact]
+    public void 多源网络_同名标签多个发送端应建成一条网络且逐源投递()
+    {
+        // 【ADR-0050 M1/M2/M7】多源 = **合法的一等组合**（旧"整条拒绝"已作废）；
+        // 每个源各一条绑定 ⇒ 各源数据都能到达宿，且**计数按源归属**。
+        using var runtime = new ModuleRuntime();
+        var services = new RuntimeServices(runtime);
+
+        AddModule(runtime, "s1", "sender", typeof(SenderModule));
+        AddModule(runtime, "s2", "sender", typeof(SenderModule));
+        AddModule(runtime, "r1", "dual-receiver", typeof(DualReceiverModule));
+
+        SetLabel(runtime, "s1", SenderModule.OutPort, "bus");
+        SetLabel(runtime, "s2", SenderModule.OutPort, "bus");
+        SetLabel(runtime, "r1", "in1", "bus");
+        SetLabel(runtime, "r1", "in2", "bus");
+
+        var network = services.GetNetworks().ShouldHaveSingleItem();
+        network.Name.ShouldBe("bus");
+        network.Sources.Count.ShouldBe(2, "**同名标签的多个发送端同属一条多源网络**（旧行为是整条拒绝）");
+        network.Sources.ShouldContain("s1.out");
+        network.Sources.ShouldContain("s2.out");
+        network.Targets.Count.ShouldBe(2);
+
+        // 每个源一条绑定 ⇒ 两条诊断（**按源归属**）
+        var diagnostics = services.GetDiagnostics();
+        diagnostics.Count.ShouldBe(2, "多源网络 = **逐源一条绑定**（各自的契约布局与计数）");
+        diagnostics.Select(d => d.Key).Distinct(StringComparer.Ordinal).Count().ShouldBe(2);
+
+        // 两个源各发一次 ⇒ 每个源的诊断各 +1（互不混淆）
+        runtime.Content.TryGetInstance("s1", out var sender1).ShouldBeTrue();
+        runtime.Content.TryGetInstance("s2", out var sender2).ShouldBeTrue();
+        var payload = new byte[sizeof(float)];
+        _ = BitConverter.TryWriteBytes(payload, 3.5f);
+
+        _ = sender1!.Context.Ports.TrySend(SenderModule.OutPort, payload);
+        _ = sender2!.Context.Ports.TrySend(SenderModule.OutPort, payload);
+
+        services.GetDiagnostics().ShouldAllBe(d => d.Delivered == 2, "每个源各投递到 2 个宿 ⇒ 各自的 Delivered = 2");
+
+        var keys = services.GetDiagnostics().Select(d => d.Key).ToList();
+        keys.ShouldContain("s1.out→r1.in1,r1.in2");
+        keys.ShouldContain("s2.out→r1.in1,r1.in2");
+    }
+
+    [Fact]
+    public void 多源网络_逐对契约兼容_每个源只投递到自己兼容的宿()
+    {
+        // 【ADR-0050 M6/M7】兼容判定**逐 (源,宿) 对**：一个源**只**投向契约兼容的宿；
+        // 多源网络里每个源各一条绑定 ⇒ **诊断按源归属**（键 = `单源 → 它的宿子集`）。
+        using var runtime = new ModuleRuntime();
+        var services = new RuntimeServices(runtime);
+
+        AddModule(runtime, "s1", "sender", typeof(SenderModule));            // f32 发送口
+        AddModule(runtime, "su", "u64-sender", typeof(U64SenderModule));      // u64 发送口
+        AddModule(runtime, "r1", "receiver", typeof(ReceiverModule));         // f32 接收口
+        AddModule(runtime, "ru", "u64-receiver", typeof(U64ReceiverModule));  // u64 接收口
+
+        foreach (var (instance, port) in new[]
+                 {
+                     ("s1", SenderModule.OutPort), ("su", U64SenderModule.OutPort),
+                     ("r1", ReceiverModule.InPort), ("ru", U64ReceiverModule.InPort),
+                 })
+        {
+            SetLabel(runtime, instance, port, "bus");
+        }
+
+        var network = services.GetNetworks().ShouldHaveSingleItem();
+        network.Sources.Count.ShouldBe(2, "两个发送端同名 ⇒ 一条多源网络");
+        network.Targets.Count.ShouldBe(2, "两个接收口都是宿成员（与**任一源**兼容即入网）");
+
+        var diagnostics = services.GetDiagnostics();
+        diagnostics.Count.ShouldBe(2, "**每个源一条绑定**（各自的宿子集与计数）");
+
+        // 逐对过滤：s1(f32) 只投 r1；su(u64) 只投 ru
+        diagnostics.Select(d => d.Key).ShouldContain("s1.out→r1.in");
+        diagnostics.Select(d => d.Key).ShouldContain("su.out→ru.in");
+
+        var keys = diagnostics.Select(d => d.Key).ToList();
+        keys.ShouldNotContain(k => k.Contains("r1.in,ru.in", StringComparison.Ordinal),
+            "**不得跨契约投递**：f32 的源不得投向 u64 的宿");
+
+        // 各源投一次：各自 Delivered = 1（按源归属）
+        runtime.Content.TryGetInstance("s1", out var f32Sender).ShouldBeTrue();
+        runtime.Content.TryGetInstance("su", out var u64Sender).ShouldBeTrue();
+
+        var f32Payload = new byte[sizeof(float)];
+        _ = BitConverter.TryWriteBytes(f32Payload, 1f);
+        _ = f32Sender!.Context.Ports.TrySend(SenderModule.OutPort, f32Payload);
+
+        var u64Payload = new byte[sizeof(ulong)];
+        _ = BitConverter.TryWriteBytes(u64Payload, 7UL);
+        _ = u64Sender!.Context.Ports.TrySend(U64SenderModule.OutPort, u64Payload);
+
+        services.GetDiagnostics().ShouldAllBe(d => d.Delivered == 1, "每个源各投递 1 次（只有 1 个兼容宿）");
+    }
+
+    /// <summary>u64 发送模块（逐对兼容测试用）。</summary>
+    [ModuleDefinition("test", "u64-sender", "1.0.0")]
+    public sealed class U64SenderModule : IModule
+    {
+        /// <summary>发送口名。</summary>
+        public const string OutPort = "out";
+
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context) =>
+            context.Declaration.DeclarePort(new PortDeclaration(
+                OutPort, PortDirection.Send, ContractShape.OfPrimitive(ContractPrimitive.U64)));
+    }
+
+    /// <summary>u64 接收模块（逐对兼容测试用）。</summary>
+    [ModuleDefinition("test", "u64-receiver", "1.0.0")]
+    public sealed class U64ReceiverModule : IModule
+    {
+        /// <summary>接收口名。</summary>
+        public const string InPort = "in";
+
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context)
+        {
+            context.Declaration.DeclarePort(new PortDeclaration(
+                InPort, PortDirection.Receive, ContractShape.OfPrimitive(ContractPrimitive.U64)));
+            context.Ports.SetReceiveHandler(InPort, _ => { });
+        }
     }
 
     // ------------------------------------------------------------ 建网测试辅助

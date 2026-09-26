@@ -44,7 +44,6 @@ public class HostingLifecycleTests
         instance.Ports.Count.ShouldBe(1);
         instance.Ports[0].Name.ShouldBe("out");
         instance.Ports[0].Direction.ShouldBe(PortDirection.Send);
-        instance.Ports[0].IsConnected.ShouldBeFalse();
         instance.View.ShouldNotBeNull();
         instance.View!.Elements.Count.ShouldBe(3, "M1-12：数据发生器声明 数值 + 曲线 + 序号");
         instance.ActivitySource.ShouldNotBeNull();

@@ -36,8 +36,15 @@ public interface IRuntimeQuery
     /// <summary>当前全部网络（含匿名与停流的）。</summary>
     IReadOnlyList<NetworkView> GetNetworks();
 
-    /// <summary>绑定诊断（L4）。</summary>
+    /// <summary>
+    /// 绑定诊断（L4）：计数 + **三类丢弃** + **四档速率**（框架口径；UI 不得自行差分估算）。
+    /// </summary>
     IReadOnlyList<BindingDiagnosticView> GetDiagnostics();
+
+    /// <summary>
+    /// **每 (实例, 口) 队列**的深度与吞吐（水位 + 按宿计的搬运字节速率）【ADR-0050 Q2 / ADR-0046 D8】。
+    /// </summary>
+    IReadOnlyList<PortQueueDepthView> GetQueueDepths();
 
     /// <summary>最近的问题（最新在前）。</summary>
     IReadOnlyList<IssueView> GetIssues(int maxCount);
@@ -69,6 +76,23 @@ public interface IRuntimeQuery
 
     /// <summary>订阅数据源清单（UI 交接面：按声明数据源读缓冲，§5.8）。</summary>
     IReadOnlyList<SubscriptionSourceView> GetSubscriptionSources();
+
+    /// <summary>
+    /// 某实例的**数据角色**清单【ADR-0048 R1/R10】：角色 = （方向 × 类型身份），模块内聚合。
+    /// </summary>
+    /// <remarks>
+    /// <b>只读、只用于呈现</b>：不参与建网、兼容、停流、投递与计量（ADR-0046 §4/D3 · ADR-0048 R9）。
+    /// **零口模块 ⇒ 空列表**（不产生任何角色，R4）。返回值按（发送在前、类型键字典序）稳定排序。
+    /// </remarks>
+    /// <param name="instanceId">实例 ID（不存在 / 占位实例 ⇒ 空列表）。</param>
+    IReadOnlyList<DataRoleView> GetDataRoles(string instanceId);
+
+    /// <summary>
+    /// 某实例参与的**角色对**清单【ADR-0048 R6】：已按（本端角色, 对端实例, 对端角色）**聚合**并带条数。
+    /// </summary>
+    /// <remarks>只读、只用于呈现；线的几何由 UI 决定（ADR-0045）。</remarks>
+    /// <param name="instanceId">实例 ID（不存在 / 占位实例 ⇒ 空列表）。</param>
+    IReadOnlyList<DataRolePairView> GetRolePairs(string instanceId);
 
     /// <summary>
     /// 读**最新样本**（A1 数值 / A2 状态灯 / A7 仪表）。
@@ -138,7 +162,17 @@ public interface IRuntimeCommand
     CommandResult SetModuleEnabled(string instanceId, bool enabled);
 
     /// <summary>建立网络（<paramref name="name"/> 为空 = 匿名直连）。</summary>
-    CommandResult Connect(PortRef source, IReadOnlyList<PortRef> targets, string? name = null);
+    /// <param name="source">源端口。</param>
+    /// <param name="targets">宿端口（1:N）。</param>
+    /// <param name="name">网络名（空 = 匿名）。</param>
+    /// <param name="allowUnverifiedTypeMatch">
+    /// 用户是否已**显式确认**允许"**数据类型标识不同**"的强连【ADR-0046 D6】（默认 <see langword="false"/> = 拒绝）。
+    /// </param>
+    CommandResult Connect(
+        PortRef source,
+        IReadOnlyList<PortRef> targets,
+        string? name = null,
+        bool allowUnverifiedTypeMatch = false);
 
     /// <summary>断开命名网络（匿名网络随实例移除级联清理）。</summary>
     CommandResult Disconnect(string networkName);

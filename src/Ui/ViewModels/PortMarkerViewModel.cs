@@ -132,6 +132,18 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     [ObservableProperty]
     public partial PortSide? PeerSide { get; set; }
 
+    /// <summary>
+    /// 对端是否**与本模块拼接贴合**（接触）【ADR-0045 · 用户第十五轮】。
+    /// </summary>
+    /// <remarks>
+    /// 叠加层用它决定连线末端怎么收尾：
+    /// · **贴合** ⇒ 渐变到"两端方向色的中点色"后**直接出窗**（对端那半段从同一个中点色继续 ⇒ 公共边颜色相接、视觉连续），
+    ///   且**不再标注对端**（线会延续到邻窗，标在缝上反而糊）；
+    /// · **未贴合** ⇒ 末端**淡出** + 标注对端 `实例.口名`（本窗内不装作"连上了"）。
+    /// </remarks>
+    [ObservableProperty]
+    public partial bool PeerAdjacent { get; set; }
+
     /// <summary>是否可画连接线（已连接且已知对端方位）。</summary>
     public bool HasLink => IsConnected && PeerSide is not null;
 

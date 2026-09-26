@@ -65,6 +65,45 @@ public class ModuleWindowsTests
     }
 
     [Fact]
+    public void 新模块摆放_应在外壳右侧排开且互不堆叠()
+    {
+        // 【用户第十七轮反馈】原先新模块都落在左上角（48,48 起、每 40px 斜叠）⇒ 压在主窗口上、彼此重叠。
+        using var harness = new UiHarness();
+        harness.Windows.ShellRect = new CanvasRect(0, 0, 400, 900);   // 外壳（模拟）
+        harness.Windows.WorkArea = new CanvasRect(0, 0, 2600, 1400);  // 工作区（模拟，够宽）
+
+        for (var i = 1; i <= 3; i++)
+        {
+            harness.Services.AddModule($"s{i}", "test/ui-source/1.0.0").Succeeded.ShouldBeTrue();
+        }
+
+        harness.Windows.Refresh();
+
+        var modules = harness.Windows.Modules.ToList();
+        modules.Count.ShouldBe(3);
+
+        modules.ShouldAllBe(m => m.X >= 400, "新模块必须排在外壳**右侧**（外壳右边缘 = 400），不得压在主窗口上");
+
+        // 两两不相交（真矩形相交判定，而不是"错位一点"）
+        for (var i = 0; i < modules.Count; i++)
+        {
+            for (var j = i + 1; j < modules.Count; j++)
+            {
+                Intersects(modules[i], modules[j]).ShouldBeFalse(
+                    $"新模块不得互相堆叠：{modules[i].InstanceId}({modules[i].Rect}) 与 {modules[j].InstanceId}({modules[j].Rect})");
+            }
+        }
+
+        // 同一列内是**竖向**排开（X 相同、Y 递增）
+        modules.Select(m => m.X).Distinct().Count().ShouldBe(1, "一列放得下时应竖着排开");
+        modules.Select(m => m.Y).ShouldBeInOrder(SortDirection.Ascending);
+    }
+
+    private static bool Intersects(ModuleViewViewModel a, ModuleViewViewModel b) =>
+        a.X < b.Rect.Right - 0.001 && b.X < a.Rect.Right - 0.001
+        && a.Y < b.Rect.Bottom - 0.001 && b.Y < a.Rect.Bottom - 0.001;
+
+    [Fact]
     public void 模块窗口_未声明视图的模块也应开窗并可改配置()
     {
         using var harness = new UiHarness();
@@ -425,6 +464,42 @@ public class ModuleWindowsTests
     }
 
     [Fact]
+    public void 拖动_拖动中按Ctrl应立刻拆分并把其余成员放回原位()
+    {
+        // 【用户第十七轮反馈】原交互要求"**拖动前**按住 Ctrl"；拖动开始后按 Ctrl 无效。
+        // 现语义：拖动期间按 Ctrl ⇒ **立刻断开**，等价于"从一开始就按住 Ctrl"：
+        // 其余成员（含外壳）**回到本次拖动的起点**，被拖模块继续跟着指针，且松手后不会重新合组。
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 0, 0);
+        harness.Place("b", "test/ui-sink/1.0.0", ModuleViewViewModel.DefaultWidth, 0);
+        harness.Windows.Refresh();
+
+        // 不带 Ctrl 开始拖动（整组一起走）
+        harness.Windows.BeginDrag("a", 10, 10, independent: false).ShouldBeTrue();
+        harness.Windows.DragTo(60, 10);
+
+        var a = harness.Windows.Modules.Single(m => m.InstanceId == "a");
+        var b = harness.Windows.Modules.Single(m => m.InstanceId == "b");
+        b.X.ShouldBe(ModuleViewViewModel.DefaultWidth + 50, "未按 Ctrl 时 b 跟着走（整组）");
+
+        // 拖动**期间**按 Ctrl ⇒ 立刻拆分
+        harness.Windows.DetachDrag();
+
+        b.X.ShouldBe(ModuleViewViewModel.DefaultWidth, "拆分后 b 回到**拖动起点**（等价于一开始就按住 Ctrl）");
+        b.Y.ShouldBe(0);
+        a.X.ShouldBe(50, "被拖的 a 不动（仍由指针主导）");
+
+        // 拆分后继续拖：只有 a 动，b 留在原地（且松开 Ctrl 也不重新合组）
+        harness.Windows.DragTo(160, 10);
+        a.X.ShouldBe(150);
+        b.X.ShouldBe(ModuleViewViewModel.DefaultWidth, "拆分是**单向**的：松开 Ctrl 不会重新合组");
+
+        // 幂等：重复调用不改变任何东西
+        harness.Windows.DetachDrag();
+        b.X.ShouldBe(ModuleViewViewModel.DefaultWidth);
+    }
+
+    [Fact]
     public void 拖动_应吸附到邻近窗口的边缘并给出辅助线()
     {
         using var harness = new UiHarness();
@@ -623,6 +698,33 @@ public class ModuleWindowsTests
 
         requested.ShouldBeFalse("独立拖动（Ctrl）只动自己，不带动组、也不带动外壳");
         harness.Windows.Modules.Single().X.ShouldBe(460);
+    }
+
+    [Fact]
+    public void 拖动_拖动中按Ctrl拆分时外壳也要回到原位()
+    {
+        // 【用户第十七轮】拆分 = "等价于一开始就按住 Ctrl" ⇒ 已经跟着走的外壳必须**还回去**
+        // （模型 ShellRect + 通过 ShellTranslationRequested 让真实窗口回去）。
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 400, 0);   // 贴住外壳右边缘（外壳宽 400）
+        harness.Windows.ShellRect = new CanvasRect(0, 0, 400, 300);
+        harness.Windows.Refresh();
+
+        var deltas = new List<(double Dx, double Dy)>();
+        harness.Windows.ShellTranslationRequested += (_, d) => deltas.Add(d);
+
+        harness.Windows.BeginDrag("a", 410, 10, independent: false).ShouldBeTrue();
+        harness.Windows.DragTo(470, 10);
+
+        deltas.ShouldNotBeEmpty("拖动贴壳模块（未按 Ctrl）时外壳应一起走");
+        harness.Windows.ShellRect!.Value.X.ShouldBe(60, "外壳已被带走 60");
+
+        deltas.Clear();
+        harness.Windows.DetachDrag();
+
+        deltas.ShouldHaveSingleItem().Dx.ShouldBe(-60, "拆分时外壳按累计位移**还回原位**");
+        harness.Windows.ShellRect!.Value.X.ShouldBe(0, "外壳回到拖动起点");
+        harness.Windows.Modules.Single().X.ShouldBe(460, "被拖的模块不动（仍由指针主导）");
     }
 
     [Fact]

@@ -1,11 +1,14 @@
 using System.Diagnostics;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 using HYWDebugAssistant.FrameworkUi.ViewModels;
 
 namespace HYWDebugAssistant.FrameworkUi.Views;
 
-/// <summary>模块清单弹窗视图的代码后置：**选择模块包目录**（唯一的窗口相关逻辑）。</summary>
+/// <summary>模块清单弹窗视图的代码后置：**选择模块包目录** + **双击列表项直接加入现场**。</summary>
 public partial class ModuleCatalogView : UserControl
 {
     /// <summary>创建视图。</summary>
@@ -13,6 +16,28 @@ public partial class ModuleCatalogView : UserControl
     {
         InitializeComponent();
         DataContextChanged += (_, _) => Hook();
+    }
+
+    /// <summary>
+    /// **双击列表项 = 直接加入现场**【用户第十六轮反馈】。
+    /// </summary>
+    /// <remarks>
+    /// 只在**确实双击到某一项**时生效（双击空白处不动作、也不报"请先选择"）。
+    /// 动作走视图模型上的同一条路径（<see cref="ModuleCatalogViewModel.AddSelected"/>），不复制业务逻辑。
+    /// </remarks>
+    /// <param name="sender">事件源。</param>
+    /// <param name="e">事件参数。</param>
+    private void OnCatalogDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (e.Source is not Visual source || source.FindAncestorOfType<ListBoxItem>() is null)
+        {
+            return;
+        }
+
+        if (DataContext is ModuleCatalogViewModel catalog)
+        {
+            _ = catalog.AddSelected();
+        }
     }
 
     private void Hook()

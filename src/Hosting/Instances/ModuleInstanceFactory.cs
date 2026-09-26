@@ -1,3 +1,5 @@
+using HYWDebugAssistant.Sdk.Contracts;
+
 namespace HYWDebugAssistant.Hosting.Instances;
 
 /// <summary>
@@ -37,16 +39,61 @@ public static class ModuleInstanceFactory
                 $"模块在 OnRegistered 中抛出异常：{ex.GetType().Name} — {ex.Message}"));
         }
 
-        // ② 成员实例化：口实例（含口名唯一性校验）
+        // ② 成员实例化：口实例（含口名唯一性校验）+ **数据类型镜像**（ADR-0046 D2）
         var ports = BuildPortInstances(context, objectPath, issues);
+        var dataTypes = BuildDataTypeMirror(context, objectPath, issues);
 
         // ③ 视图宿主（M1-9 由 UI 层按声明渲染；此处仅保留声明）
-        var instance = new ModuleInstance(instanceId, definition, module, ports, context.DeclaredView, context)
+        var instance = new ModuleInstance(instanceId, definition, module, ports, dataTypes, context.DeclaredView, context)
         {
             State = ModuleInstanceState.Registered,
         };
 
         return instance;
+    }
+
+    /// <summary>
+    /// 建立数据类型的**机械镜像**（标识/版本/尺寸/语义/计量/解码器句柄）：同（标识, 版本）重复即报 Issue 并跳过。
+    /// </summary>
+    /// <remarks>
+    /// 框架**不解释**类型语义——只登记"有什么类型、多大、怎么解"，供兼容判定与呈现期回调使用。
+    /// </remarks>
+    private static List<DataTypeDeclaration> BuildDataTypeMirror(
+        Context.ModuleContext context,
+        string objectPath,
+        Diagnostics.IIssueSink issues)
+    {
+        var types = new List<DataTypeDeclaration>(context.DeclaredDataTypes.Count);
+        var seen = new HashSet<DataTypeRef>();
+
+        foreach (var declaration in context.DeclaredDataTypes)
+        {
+            if (!seen.Add(declaration.Reference))
+            {
+                issues.Report(objectPath, new Sdk.Reporting.IssueReport(
+                    Sdk.Reporting.IssueCategory.InterfaceError,
+                    Sdk.Reporting.IssueSeverity.Error,
+                    $"数据类型重复声明：{declaration.Reference}（同一（标识, 版本）只能声明一次；重复声明已忽略）"));
+                continue;
+            }
+
+            types.Add(declaration);
+        }
+
+        // 口引用了未声明的类型 ⇒ 明确报 Issue（不静默当作"没声明"）
+        foreach (var port in context.DeclaredPorts)
+        {
+            if (port.Type is { } reference && !seen.Contains(reference))
+            {
+                issues.Report(objectPath, new Sdk.Reporting.IssueReport(
+                    Sdk.Reporting.IssueCategory.InterfaceError,
+                    Sdk.Reporting.IssueSeverity.Warning,
+                    $"口 '{port.Name}' 引用了未声明的数据类型 {reference}——该口按**结构**参与兼容判定",
+                    port.Name));
+            }
+        }
+
+        return types;
     }
 
     private static List<PortInstance> BuildPortInstances(Context.ModuleContext context, string objectPath, Diagnostics.IIssueSink issues)

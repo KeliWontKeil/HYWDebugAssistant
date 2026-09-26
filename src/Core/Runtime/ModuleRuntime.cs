@@ -4,8 +4,10 @@ using RuntimeBinding = HYWDebugAssistant.Core.Binding.Binding;
 using HYWDebugAssistant.Core.Changes;
 using HYWDebugAssistant.Core.Composition;
 using HYWDebugAssistant.Core.Issues;
+using HYWDebugAssistant.Core.Services;
 using HYWDebugAssistant.Core.Workspace;
 using HYWDebugAssistant.DataPlane.Carriers;
+using HYWDebugAssistant.DataPlane.Queues;
 using HYWDebugAssistant.Hosting.Context;
 using HYWDebugAssistant.Hosting.Instances;
 using HYWDebugAssistant.Hosting.Lifecycle;
@@ -14,6 +16,7 @@ using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
+using System.Diagnostics;
 
 namespace HYWDebugAssistant.Core.Runtime;
 
@@ -378,12 +381,11 @@ public sealed partial class ModuleRuntime : IDisposable
                 continue;
             }
 
-            // 兼容判定：接收契约 ⊇ 发送契约（不自动转换）
-            var compatibility = ContractCompatibility.Check(
-                sourcePort.Declaration.Shape,
-                sourcePort.Declaration.Semantics,
-                targetPort.Declaration.Shape,
-                targetPort.Declaration.Semantics);
+            // 兼容判定：**三层判据**（类型标识/版本 + 结构回退）；不自动转换
+            var compatibility = CheckCompatibility(
+                connect.Source.InstanceId, sourcePort,
+                target.InstanceId, targetPort,
+                connect.AllowUnverifiedTypeMatch);
 
             if (!compatibility.IsCompatible)
             {
@@ -408,7 +410,11 @@ public sealed partial class ModuleRuntime : IDisposable
 
         if (errors.Count == 0)
         {
-            network = new Network(connect.Name ?? string.Empty, connect.Source, targets);
+            network = new Network(
+                connect.Name ?? string.Empty,
+                [connect.Source],
+                targets,
+                allowUnverifiedTypeMatch: connect.AllowUnverifiedTypeMatch);
         }
 
         return errors;
@@ -421,7 +427,8 @@ public sealed partial class ModuleRuntime : IDisposable
         {
             Content.AddInstance(instance);
             _adapters[instance.InstanceId] = adapter;
-            _subscriptions[instance.InstanceId] = new Views.SubscriptionSet(instance.InstanceId, instance.View);
+            _subscriptions[instance.InstanceId] = new Views.SubscriptionSet(
+                instance.InstanceId, instance.View, instance.DataTypes);
             instance.Context.AttachDataPlane(new RuntimePortAccess(this, instance.InstanceId, instance.Context));
 
             if (!Carriers.TryActivate(adapter, out _, out var failure))
@@ -537,44 +544,242 @@ public sealed partial class ModuleRuntime : IDisposable
     // ---------------------------------------------------------------- 增量重建与自动建网
 
     /// <summary>加入网络并**原子替换绑定快照**（模块实例与状态不受影响——增量重建单位 = 绑定）。</summary>
+    /// <remarks>
+    /// 【ADR-0050 M2/M5/M7】**逐源建绑定**：多源网络为每个源各建一条绑定，绑定携带**它自己的源**、
+    /// **该源可用的宿子集**（逐 (源,宿) 对兼容过滤）与**该源的契约布局/诊断计数**。
+    /// **部分源不可用（口缺失/契约无法解析/无兼容宿）⇒ 其余源照常投递**（M5），只对该源报 Issue。
+    /// </remarks>
     private void AddNetworkCore(Network network)
     {
         Content.AddNetwork(network);
+        RebuildBindingsCore(network);
+    }
+
+    /// <summary>
+    /// **逐源重建绑定**（网络已在 Content 中；成员重锚时也走这里）【ADR-0050 M2/M5/M7】。
+    /// </summary>
+    /// <remarks>
+    /// 多源网络为每个源各建一条绑定，绑定携带它自己的源、**该源可用的宿子集**（逐 (源,宿) 对兼容过滤）
+    /// 与**该源的契约布局/诊断计数**；**部分源不可用 ⇒ 其余源照常投递**，只对该源报 Issue。
+    /// </remarks>
+    private void RebuildBindingsCore(Network network)
+    {
+        ArgumentNullException.ThrowIfNull(network);
 
         if (network.IsStalled)
         {
-            // 停流 = 源未锚定（加载产生的降级态）：**保留声明、不建绑定**，其余部分照常运行（§9.3）
-            Issues.Report($"network:{network}", new IssueReport(
-                IssueCategory.InterfaceError,
-                IssueSeverity.Warning,
-                $"网络停流：源成员未锚定（{network.Source}）——声明保留，补齐模块或口后自动重锚"));
+            // 停流 = **全部源未锚定**（加载产生的降级态）：**保留声明、不建绑定**，其余部分照常运行（§9.3）。
+            // 停流的事实、提示与 Issue 由**锚定路径**（`AnchorNetwork` + `ReportNetworkAnchoring`）负责，
+            // 这里静默返回——否则同一事实会被报两遍。
             return;
         }
 
-        var layout = ResolveLayout(network.Source);
-        if (layout is null)
+        // ① 先按**对象引用**清掉该网络已有绑定（成员重锚/重算时；按引用是因为匿名网络无唯一名）
+        BindingSet current, cleared;
+        do
+        {
+            current = Volatile.Read(ref _bindings);
+            cleared = current.Without(network);
+        }
+        while (!ReferenceEquals(Interlocked.CompareExchange(ref _bindings, cleared, current), current));
+
+        // ② 再**逐源**建绑定
+        var bound = 0;
+
+        foreach (var source in network.Sources)
+        {
+            var port = FindPort(source.InstanceId, source.PortName);
+            if (port is null || port.Declaration.Direction != PortDirection.Send)
+            {
+                // 【ADR-0050 M5】**未锚定的源**：声明保留、不建绑定；问题已在重锚/加载时**逐源**报过，
+                // 此处静默跳过（避免同一事实刷两条 Issue）
+                continue;
+            }
+
+            var layout = ResolveLayout(source);
+            if (layout is null)
+            {
+                Issues.Report($"network:{network}", new IssueReport(
+                    IssueCategory.InterfaceError, IssueSeverity.Error, $"无法解析源口契约（源 {source} 未建立绑定）"));
+                continue;
+            }
+
+            var targets = network.Targets.Where(target => IsPairCompatible(network, source, target)).ToList();
+            if (targets.Count == 0)
+            {
+                Issues.Report($"network:{network}", new IssueReport(
+                    IssueCategory.InterfaceError, IssueSeverity.Warning, $"源 {source} 没有契约兼容的宿（该源未建立绑定）"));
+                continue;
+            }
+
+            AddBinding(new RuntimeBinding(network, source, targets, layout, ResolveMetering(source)));
+            bound++;
+        }
+
+        if (bound == 0)
         {
             Issues.Report($"network:{network}", new IssueReport(
-                IssueCategory.InterfaceError, IssueSeverity.Error, "无法解析源口契约（绑定未建立）"));
-            return;
+                IssueCategory.InterfaceError, IssueSeverity.Error, "网络未建立任何绑定（全部源都不可用）"));
         }
-
-        ReplaceBinding(network, layout);
     }
 
-    /// <summary>按契约布局建立/替换绑定（成员重锚时同名网络换新对象）。</summary>
-    private void ReplaceBinding(Network network, ContractLayout layout)
+    /// <summary>把一个绑定加入快照（无锁原子替换）。</summary>
+    private void AddBinding(RuntimeBinding binding)
     {
-        var binding = new RuntimeBinding(network, layout);
-
         BindingSet current, updated;
         do
         {
             current = Volatile.Read(ref _bindings);
-            updated = current.Without(network).With(binding);
+            updated = current.With(binding);
         }
         while (!ReferenceEquals(Interlocked.CompareExchange(ref _bindings, updated, current), current));
     }
+
+    /// <summary>逐 **(源, 宿)** 对判定契约兼容（方向 + 契约；只排除不兼容的那一对 —— ADR-0050 M6）。</summary>
+    private bool IsPairCompatible(Network network, NetworkMember source, NetworkMember target)
+    {
+        var from = FindPort(source.InstanceId, source.PortName);
+        var to = FindPort(target.InstanceId, target.PortName);
+
+        return from is not null
+            && to is not null
+            && from.Declaration.Direction == PortDirection.Send
+            && to.Declaration.Direction == PortDirection.Receive
+            && CheckCompatibility(
+                source.InstanceId, from, target.InstanceId, to, network.AllowUnverifiedTypeMatch).IsCompatible;
+    }
+
+    /// <summary>
+    /// 一个口的**类型身份**：已声明类型 ⇒ `标识@v版本`；未声明/引用不可解析 ⇒ **结构描述**【ADR-0048 R2】。
+    /// </summary>
+    /// <remarks>
+    /// **只用于呈现**（角色键 / 色板映射 / 配对）：不参与任何判定（R9）。
+    /// 之所以不复用呈现文本：`f32` 无法区分"声明了 `hyw/f32@1`"与"声明了别的标识但形状相同"，
+    /// 而 ADR-0051 明确二者**不是同一种量** ⇒ 用文本会把两种角色错误合并。
+    /// </remarks>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="port">口实例。</param>
+    internal string DescribePortTypeKey(string instanceId, PortInstance port)
+    {
+        ArgumentNullException.ThrowIfNull(port);
+
+        if (ResolveTypeReference(instanceId, port) is { } reference)
+        {
+            return $"{reference.TypeId}@v{reference.Version}";
+        }
+
+        return DataRoleModel.StructuralTypeKey(port);
+    }
+
+    /// <summary>
+    /// 枚举**逐对兼容**的端口连接（源口 → 宿口）【ADR-0048 R6/R10】——**与绑定构建同一判定**。
+    /// </summary>
+    /// <remarks>
+    /// 用"网络声明 + 逐对兼容"而非"已建立的绑定"：这样**停流网络**的成员关系也能呈现
+    /// （停流是合法状态，用户仍需看到"本来连给谁"）；判定规则与 <see cref="RebuildBindingsCore"/> 一致
+    /// （同一 <see cref="CheckCompatibility"/> + 同一方向检查），故两者不会漂移。
+    /// </remarks>
+    internal List<(NetworkMember Source, NetworkMember Target, string NetworkKey)> DescribePortLinks()
+    {
+        var links = new List<(NetworkMember Source, NetworkMember Target, string NetworkKey)>();
+
+        foreach (var network in Content.Networks)
+        {
+            var networkKey = DescribeKey(network);
+
+            foreach (var source in network.Sources)
+            {
+                var from = FindPort(source.InstanceId, source.PortName);
+                if (from is null || from.Declaration.Direction != PortDirection.Send)
+                {
+                    continue;
+                }
+
+                foreach (var target in network.Targets)
+                {
+                    if (!IsPairCompatible(network, source, target))
+                    {
+                        continue;
+                    }
+
+                    links.Add((source, target, networkKey));
+                }
+            }
+        }
+
+        return links;
+    }
+
+    /// <summary>
+    /// **契约兼容判定的唯一入口**【ADR-0046 D6】：解析两侧的**数据类型引用**（本模块已声明的类型），
+    /// 交给 <see cref="ContractCompatibility.Check(ContractShape, TransferSemantics, DataTypeRef?, ContractShape, TransferSemantics, DataTypeRef?, bool)"/>
+    /// 走**类型身份 + 形状完全一致**的判据（ADR-0051）；任一方未声明类型 ⇒ 只比形状。
+    /// </summary>
+    /// <param name="sourceInstanceId">源的实例 ID（用于解析该实例声明的类型）。</param>
+    /// <param name="source">源口。</param>
+    /// <param name="targetInstanceId">宿的实例 ID。</param>
+    /// <param name="target">宿口。</param>
+    /// <param name="allowUnverified">用户是否已显式确认允许"不同标识"强连。</param>
+    private CompatibilityResult CheckCompatibility(
+        string sourceInstanceId,
+        PortInstance source,
+        string targetInstanceId,
+        PortInstance target,
+        bool allowUnverified = false) =>
+        ContractCompatibility.Check(
+            source.Declaration.Shape,
+            source.Declaration.Semantics,
+            ResolveTypeReference(sourceInstanceId, source),
+            target.Declaration.Shape,
+            target.Declaration.Semantics,
+            ResolveTypeReference(targetInstanceId, target),
+            allowUnverified);
+
+    /// <summary>
+    /// 解析口上的数据类型引用：**引用必须能在本实例声明的类型里找到**，否则视为"未声明"（回退结构判定）。
+    /// </summary>
+    /// <remarks>
+    /// 为什么必须"本模块声明"：框架要靠声明拿到**尺寸/解码器/计量块**才能替模块做机械判断；
+    /// 只写一个标识而本模块不声明该类型 = 框架不知道它的形状 ⇒ 只能回退结构比较（并已由实例化工位报 Issue）。
+    /// </remarks>
+    private DataTypeRef? ResolveTypeReference(string instanceId, PortInstance port)
+    {
+        if (port.Declaration.Type is not { } reference)
+        {
+            return null;
+        }
+
+        if (Content.TryGetInstance(instanceId, out var instance)
+            && instance is not null
+            && instance.FindDataType(reference) is not null)
+        {
+            return reference;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 解析源口的**计量块**（来自该实例声明的类型）【ADR-0046 D8】：未声明类型 ⇒ 返回缺省（不猜）。
+    /// </summary>
+    /// <param name="source">源成员。</param>
+    private MeteringBlock ResolveMetering(NetworkMember source)
+    {
+        if (FindPort(source.InstanceId, source.PortName) is not { } port
+            || ResolveTypeReference(source.InstanceId, port) is not { } reference
+            || !Content.TryGetInstance(source.InstanceId, out var instance)
+            || instance is null)
+        {
+            return MeteringBlock.Default;
+        }
+
+        return instance.FindDataType(reference)?.Metering ?? MeteringBlock.Default;
+    }
+
+    private PortInstance? FindPort(string instanceId, string portName) =>
+        Content.TryGetInstance(instanceId, out var instance) && instance is not null
+            ? instance.FindPort(portName)
+            : null;
 
     /// <summary>移除与某实例相关的全部网络（含其**悬空成员**引用）——占位实例移除时用。</summary>
     private void RemoveNetworksReferencing(string instanceId)
@@ -771,38 +976,75 @@ public sealed partial class ModuleRuntime : IDisposable
 
         foreach (var binding in bindings.Bindings)
         {
-            var source = binding.Network.Source;
+            // 【ADR-0050 M2】绑定的源 = **绑定自己携带的源**（多源网络下每个源一条绑定）
+            var source = binding.Source;
             if (!string.Equals(source.InstanceId, sourceInstanceId, StringComparison.Ordinal)
                 || !string.Equals(source.PortName, sourcePortName, StringComparison.Ordinal))
             {
                 continue;
             }
 
-            if (binding.IsSuspended || binding.Network.IsStalled || payload.Length < binding.Layout.SizeInBytes)
+            if (binding.IsSuspended || binding.Network.IsStalled)
             {
-                binding.Diagnostics.RecordDropped();
+                // 【ADR-0050 Q5】**停流未投递**是合法状态（不是故障）⇒ 单独归类，不并入"传输丢弃"
+                binding.Diagnostics.RecordDropped(DropReason.Stalled);
                 continue;
             }
 
-            foreach (var target in binding.Network.Targets)
+            if (payload.Length < binding.Layout.SizeInBytes)
+            {
+                binding.Diagnostics.RecordDropped(DropReason.InvalidPayload);
+                continue;
+            }
+
+            // 【ADR-0046 D8】**发布计数 = 每个数据报一次**（按源；不受多播放大），在宿循环之前记
+            binding.Diagnostics.RecordPublished();
+
+            // 【ADR-0050 Q6(c)】**薄旁路头只在多源网络**：单源网络**零附加**（不构造、不入队、不读）。
+            // 序号 = 按源递增（= 刚记下的发布计数，1 起）；接收时刻 = 框架投递该数据报的时刻（单调计数）。
+            // 头是**旁路元数据**：不进 payload 字节流（字节守恒不受影响）。
+            var header = binding.Network.Sources.Count > 1
+                ? new DatagramHeader(
+                    source.InstanceId,
+                    source.PortName,
+                    binding.Diagnostics.Published,
+                    Stopwatch.GetTimestamp())
+                : (DatagramHeader?)null;
+
+            foreach (var target in binding.Targets)
             {
                 if (!Carriers.TryGet(target.InstanceId, out var carrier) || carrier is null)
                 {
-                    binding.Diagnostics.RecordDropped();
+                    binding.Diagnostics.RecordDropped(DropReason.NoCarrier);
                     continue;
                 }
 
                 // 多播：每个目标一份独立缓冲（所有权随入队移交；批量/零拷贝优化属 R 项）
                 var buffer = Carriers.Buffers.RentCopy(binding.Layout, payload);
 
-                if (carrier.TryEnqueue(target.PortName, buffer))
+                switch (carrier.TryEnqueue(target.PortName, buffer, header))
                 {
-                    binding.Diagnostics.RecordDelivered();
-                    accepted = true;
-                }
-                else
-                {
-                    binding.Diagnostics.RecordDropped();
+                    case CarrierEnqueueResult.Accepted:
+                        binding.Diagnostics.RecordDelivered();
+                        accepted = true;
+                        break;
+
+                    // 已入队但**挤掉了一个旧单元**（丢旧策略）：本次投递成立，同时如实记一次"队列满丢弃"
+                    case CarrierEnqueueResult.QueueFullEvicted:
+                        binding.Diagnostics.RecordDelivered();
+                        binding.Diagnostics.RecordDropped(DropReason.QueueFull);
+                        accepted = true;
+                        break;
+
+                    // 目标队列满（**丢新**策略：本次被拒，best-effort 丢弃，ADR-0050 D1）
+                    case CarrierEnqueueResult.QueueFull:
+                        binding.Diagnostics.RecordDropped(DropReason.QueueFull);
+                        break;
+
+                    // 口不存在 / 承载已停止 ⇒ **无承载**（与"满队"分开计数：原因不同，处置也不同）
+                    default:
+                        binding.Diagnostics.RecordDropped(DropReason.NoCarrier);
+                        break;
                 }
             }
         }
@@ -810,11 +1052,13 @@ public sealed partial class ModuleRuntime : IDisposable
         return accepted;
     }
 
-    /// <summary>主动接收：从该实例的输入队列取一个待处理单元（含目标口名）。</summary>
+    /// <summary>
+    /// 主动接收：从该实例**任一非空输入口**取一个待处理单元（含目标口名；**轮转公平**，ADR-0050 Q2）。
+    /// </summary>
     public bool TryReceive(string instanceId, out PayloadBuffer? buffer, out string? sourcePort)
     {
         if (Carriers.TryGet(instanceId, out var carrier) && carrier is not null
-            && carrier.Queue.TryDequeue(out var unit))
+            && carrier.TryDequeueAny(out var unit))
         {
             buffer = unit.Buffer;
             sourcePort = unit.TargetPort;

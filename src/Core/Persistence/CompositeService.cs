@@ -139,9 +139,16 @@ public sealed class CompositeService
     }
 
     /// <summary>
-    /// Schema 迁移（v1 只有一个版本：低版本号视为当前版本的早期写法，尚无迁移规则）。
+    /// Schema 迁移（**逐级升版，不猜测字段语义**）。
     /// </summary>
-    /// <remarks>新增迁移时在此按 <paramref name="composite"/>.SchemaVersion 逐级升版，**不猜测字段语义**。</remarks>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>v1 → v2</b>【ADR-0050 M2/R3】：网络源成员由单数 <c>source</c> 改为数组 <c>sources</c>。
+    ///     字段形态的归一在**解析期**完成（<c>CompositeSerializer.ReadSources</c> 读旧字段即写进
+    ///     <c>record.Sources</c>）⇒ 此处只需升版号；写回时旧字段被移除、新字段写出。</item>
+    ///   <item>版本号**过新**由调用方拒绝（见 <see cref="LoadComposite"/>），不回退猜测。</item>
+    /// </list>
+    /// </remarks>
     private static void Migrate(Composite composite)
     {
         if (composite.SchemaVersion < Composite.CurrentSchemaVersion)

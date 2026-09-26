@@ -188,8 +188,11 @@ public class ManualChainTests
             + $"网络：{networks}；Issue：{issues}";
     }
 
-    /// <summary>测试现场：真实运行时 + 真实服务面 + 两个模块包（经真实包加载路径）。</summary>
-    private sealed class Composition : IDisposable
+    /// <summary>
+    /// 测试现场：真实运行时 + 真实服务面 + 参考模块包（经真实包加载路径）。
+    /// </summary>
+    /// <remarks>`internal` 以便同项目的其它链路测试（如多源链路）复用同一现场，避免两套夹具漂移。</remarks>
+    internal sealed class Composition : IDisposable
     {
         public Composition()
         {
@@ -201,10 +204,10 @@ public class ManualChainTests
 
         public RuntimeServices Services { get; }
 
-        /// <summary>装入五个参考桩模块包（走真实包加载路径）。</summary>
+        /// <summary>装入六个参考桩模块包（走真实包加载路径）。</summary>
         public void InstallReferencePackages()
         {
-            foreach (var module in new[] { "DataGenerator", "Recorder", "Asserter", "ManualSender", "Monitor" })
+            foreach (var module in new[] { "DataGenerator", "Recorder", "Asserter", "ManualSender", "Monitor", "Fuser" })
             {
                 var directory = PackagePath(module);
                 Directory.Exists(directory).ShouldBeTrue($"参考模块未构建：{directory}（请先 build）");
@@ -250,7 +253,10 @@ public class ManualChainTests
                 },
                 TimeSpan.FromSeconds(5));
 
-        /// <summary>不带断言的读值（等待循环里使用）。</summary>
+        /// <summary>
+        /// 读某数据源的最新样本：**优先走模块注册的解码器**【ADR-0046 D1 ③】，未提供时按原语走参考实现。
+        /// </summary>
+        /// <remarks>这样 T2 顺带覆盖"框架交出解码器句柄 → 呈现层回调"这条链路，而不只是原语回退路径。</remarks>
         private double ReadLatest(Core.Api.SubscriptionSourceView source)
         {
             var buffer = new byte[source.SampleSizeInBytes];
@@ -258,6 +264,11 @@ public class ManualChainTests
                 || length != source.SampleSizeInBytes)
             {
                 return double.NaN;
+            }
+
+            if (source.Decoder is { } decoder)
+            {
+                return decoder(buffer, out var decoded) ? decoded : double.NaN;
             }
 
             return source.ValueType switch

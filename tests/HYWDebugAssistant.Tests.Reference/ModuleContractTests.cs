@@ -35,9 +35,115 @@ public class ModuleContractTests
         var problems = ModuleContract.CheckAll(
             typeof(DataGeneratorModule),
             typeof(RecorderModule),
-            typeof(AsserterModule));
+            typeof(AsserterModule),
+            typeof(HYWDebugAssistant.Modules.Reference.ManualSender.ManualSenderModule),
+            typeof(HYWDebugAssistant.Modules.Reference.Monitor.MonitorModule),
+            typeof(HYWDebugAssistant.Modules.Reference.Fuser.FuserModule));
 
         problems.ShouldBeEmpty(string.Join("；", problems));
+    }
+
+    [Fact]
+    public void 参考模块_应声明同一个数据类型且形状一致()
+    {
+        // 【ADR-0046 D2/D6】六个参考模块都声明 `hyw/analog-sample@1` ⇒ 兼容判定走"**同标识同版本**"层；
+        // 若谁的形状写歪了，这里立刻暴露（否则现场表现为"莫名其妙连不上"）。
+        var expected = HYWDebugAssistant.Sdk.Contracts.CommonDataTypes.AnalogSampleShape;
+
+        foreach (var type in new[]
+                 {
+                     typeof(DataGeneratorModule),
+                     typeof(RecorderModule),
+                     typeof(AsserterModule),
+                     typeof(HYWDebugAssistant.Modules.Reference.ManualSender.ManualSenderModule),
+                     typeof(HYWDebugAssistant.Modules.Reference.Monitor.MonitorModule),
+                     typeof(HYWDebugAssistant.Modules.Reference.Fuser.FuserModule),
+                 })
+        {
+            var probe = ModuleContract.Probe(type);
+            var analog = probe.DataTypes.SingleOrDefault(t =>
+                t.TypeId == HYWDebugAssistant.Sdk.Contracts.CommonDataTypes.AnalogSampleTypeId && t.Version == 1);
+
+            analog.ShouldNotBeNull($"{type.Name} 应声明 hyw/analog-sample@1");
+            analog!.Shape.ShouldBe(expected, $"{type.Name} 的 hyw/analog-sample@1 形状必须与标准一致");
+        }
+    }
+
+    [Fact]
+    public void 多源融合器_三种策略应给出不同的合并结果()
+    {
+        // 【ADR-0050 M3/Q4】**合并由模块承担**：本模块是"两个发布者 → 一个结果"的参考实现
+        var module = new HYWDebugAssistant.Modules.Reference.Fuser.FuserModule();
+        var context = new TestModuleContext();
+        module.OnRegistered(context);
+
+        context.DeclaredPorts.Count.ShouldBe(3, "两个输入口 + 一个输出口");
+        context.DeclaredDataTypes.ShouldContain(t =>
+            t.TypeId == HYWDebugAssistant.Sdk.Contracts.CommonDataTypes.AnalogSampleTypeId);
+
+        // ① 按到达（默认）：后到的赢
+        context.SetConfiguration(new HYWDebugAssistant.Modules.Reference.Fuser.FuserConfig
+        {
+            Mode = HYWDebugAssistant.Modules.Reference.Fuser.FusionMode.Latest,
+        });
+        module.OnActivated();
+
+        module.Fuse(context, portIndex: 0, value: 10).ShouldBe(10);
+        module.Fuse(context, portIndex: 1, value: 20).ShouldBe(20, "Latest = 后到的覆盖先到的");
+        module.Winner.ShouldBe(HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.WinnerSecond);
+
+        // ② 固定优先级：1 路优先
+        context.SetConfiguration(new HYWDebugAssistant.Modules.Reference.Fuser.FuserConfig
+        {
+            Mode = HYWDebugAssistant.Modules.Reference.Fuser.FusionMode.Priority,
+        });
+        module.OnConfigurationChanged();
+
+        module.Fuse(context, portIndex: 1, value: 99).ShouldBe(10, "Priority = 1 路有数据就用 1 路");
+
+        // ③ 平均：两路都有数据则取算术平均
+        context.SetConfiguration(new HYWDebugAssistant.Modules.Reference.Fuser.FuserConfig
+        {
+            Mode = HYWDebugAssistant.Modules.Reference.Fuser.FusionMode.Average,
+        });
+        module.OnConfigurationChanged();
+
+        module.Fuse(context, portIndex: 1, value: 30).ShouldBe(20, "Average = (10 + 30) / 2");
+        module.Winner.ShouldBe(HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.WinnerAverage);
+
+        // 计数按**口**归属（这就是"多源用口区分来源"的落地方式）
+        module.Count1.ShouldBe(1UL);
+        module.Count2.ShouldBe(3UL);
+
+        // 转发开关：融合值从输出口发给下游（下游看到的是**模块自己产出的**单元）
+        module.Emitted.ShouldBe(4UL, "每次融合各转发一个单元（本用例调用了 4 次）");
+        context.Sent.Count.ShouldBe(4);
+        context.Sent[^1].PortName.ShouldBe(HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.OutputPort);
+
+        var reader = new PayloadReader(
+            context.Sent[^1].Payload,
+            HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.UnitLayout);
+        reader.ReadF32("value").ShouldBe(20f);
+        reader.ReadU64("seq").ShouldBe(4UL, "序号由模块自己维护（框架不代管）");    }
+
+    [Fact]
+    public void 多源融合器_转发关闭时不应产生输出单元()
+    {
+        var module = new HYWDebugAssistant.Modules.Reference.Fuser.FuserModule();
+        var context = new TestModuleContext();
+        module.OnRegistered(context);
+
+        context.SetConfiguration(new HYWDebugAssistant.Modules.Reference.Fuser.FuserConfig
+        {
+            ForwardMerged = false,
+        });
+        module.OnActivated();
+
+        module.Fuse(context, portIndex: 0, value: 1);
+
+        module.Emitted.ShouldBe(0UL);
+        context.Sent.ShouldBeEmpty("转发关闭 = 只在界面显示，不产生输出");
+        context.Published.ShouldContainKey(HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.FusedSource);
     }
 
     [Fact]

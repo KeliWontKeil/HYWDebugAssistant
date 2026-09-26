@@ -30,10 +30,15 @@ public sealed record SetModuleEnabledOperation(string InstanceId, bool Enabled) 
 /// <param name="Source">源成员（必须是发送口）。</param>
 /// <param name="Targets">宿成员（必须是接收口；1:N 多播）。</param>
 /// <param name="Name">网络名（为空 = 匿名网络）。</param>
+/// <param name="AllowUnverifiedTypeMatch">
+/// 用户是否已**显式确认**允许"**数据类型标识不同**"的强连【ADR-0046 D6】：默认 <see langword="false"/> = 拒绝
+/// （框架**无资格**判定不同标识是否同一种量，即使结构相同）；显式确认后放行，但**结构仍必须覆盖**，并留一条警示说明。
+/// </param>
 public sealed record ConnectNetworkOperation(
     NetworkMember Source,
     IReadOnlyList<NetworkMember> Targets,
-    string? Name = null) : ChangeOperation;
+    string? Name = null,
+    bool AllowUnverifiedTypeMatch = false) : ChangeOperation;
 
 /// <summary>断开网络（按名；匿名网络用 <see cref="NetworkMember"/> 定位的变体由运行时处理）。</summary>
 /// <param name="NetworkName">网络名。</param>

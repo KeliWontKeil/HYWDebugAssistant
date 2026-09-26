@@ -87,10 +87,7 @@ public sealed class DataGeneratorModule : IModule, IActivitySource
     public const string SequenceSource = "seq";
 
     /// <summary>输出数据单元形状：<c>{ seq: u64, value: f32 }</c>（定长 12 字节）。</summary>
-    public static readonly ContractShape OutputShape =
-        ContractShape.OfStruct(
-            ("seq", ContractShape.OfPrimitive(ContractPrimitive.U64)),
-            ("value", ContractShape.OfPrimitive(ContractPrimitive.F32)));
+    public static readonly ContractShape OutputShape = CommonDataTypes.AnalogSampleShape;
 
     /// <summary>输出布局（字段偏移表）。</summary>
     public static readonly ContractLayout OutputLayout = ContractLayout.FromShape(OutputShape);
@@ -109,7 +106,17 @@ public sealed class DataGeneratorModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        context.Declaration.DeclarePort(new PortDeclaration(OutputPort, PortDirection.Send, OutputShape));
+        // 【ADR-0046 D2/D6】声明本模块使用的**数据类型**（标识 + 版本 + 定长形状 + 计量 + 解码器）：
+        // 参考模块统一采用 SDK 的**参考类型库**（`hyw/*`）⇒ 五个参考模块声明同一个 `hyw/analog-sample@1`，
+        // 兼容判定因此走"**同标识同版本**"层（真实链路即回归）。
+        context.Declaration.DeclareDataType(CommonDataTypes.AnalogSampleV1);
+        context.Declaration.DeclareDataType(CommonDataTypes.F32V1);
+        context.Declaration.DeclareDataType(CommonDataTypes.U64V1);
+
+        context.Declaration.DeclarePort(new PortDeclaration(OutputPort, PortDirection.Send, OutputShape)
+        {
+            Type = CommonDataTypes.AnalogSampleRef,
+        });
 
         // 视图：预置元素组合（模块不提供 View 类型 —— C1-3 / Q3-7）
         context.Declaration.DeclareView(new ViewDeclaration(
@@ -119,18 +126,25 @@ public sealed class DataGeneratorModule : IModule, IActivitySource
                 new ViewElement(ViewElementKind.Numeric, SequenceSource, "序号"),
             ],
             [
+                // 数据源**引用类型** ⇒ 呈现期解码走模块注册的解码器（框架只回调，D1 ③）
                 new ViewDataSource(
                     ValueSource,
                     unit: "V",
                     format: "F3",
                     kind: ViewDataSourceKind.Value,
-                    valueType: ContractPrimitive.F32),
+                    valueType: ContractPrimitive.F32)
+                {
+                    Type = CommonDataTypes.F32Ref,
+                },
                 new ViewDataSource(
                     SequenceSource,
                     unit: null,
                     format: null,
                     kind: ViewDataSourceKind.Value,
-                    valueType: ContractPrimitive.U64),
+                    valueType: ContractPrimitive.U64)
+                {
+                    Type = CommonDataTypes.U64Ref,
+                },
             ]));
     }
 

@@ -21,12 +21,34 @@
             <SolidColorBrush x:Key="TextMuted" Color="#A1A1AA" />
             <SolidColorBrush x:Key="AccentPrimary" Color="#2563EB" />
             <SolidColorBrush x:Key="AccentSecondary" Color="#0891B2" />
+
+            <!--
+              **方向语义色**【ADR-0044 · 用户第十四轮裁决 D1a】：发送 / 接收是**稳定语义**，
+              必须与"主题色"解耦 —— 主题色只表达"选中/聚焦/活动"等**框架性交互**语义；
+              方向色可被用户在设置里覆盖（空 = 跟随这里的内置默认值）。
+              默认刻意避开"红/绿"对（色盲友好）：发送 = 暖橙、接收 = 冷青。
+            -->
+            <SolidColorBrush x:Key="DirectionSend" Color="#EA580C" />
+            <SolidColorBrush x:Key="DirectionReceive" Color="#0891B2" />
             <SolidColorBrush x:Key="SemanticOk" Color="#16A34A" />
             <SolidColorBrush x:Key="SemanticWarn" Color="#D97706" />
             <SolidColorBrush x:Key="SemanticError" Color="#DC2626" />
             <SolidColorBrush x:Key="SemanticIdle" Color="#9CA3AF" />
             <SolidColorBrush x:Key="OverlaySelection" Color="#2563EB" Opacity="0.20" />
             <SolidColorBrush x:Key="OverlayHighlight" Color="#2563EB" Opacity="0.12" />
+
+            <!--
+              **叠加信息层专用**（ADR-0045）：开启时"模块上盖一层灰玻璃"= 最常见的"变暗遮罩"做法 ——
+              一层半透明深色 + 其上的**浅色文字**（与主题无关：遮罩是深色，所以叠层信息一律用浅色墨水）。
+              · `OverlayScrim`：遮罩（不透明度即"玻璃浓度"，改这里就改观感）；不做背景模糊（跨平台代价高）。
+                **【用户第十六轮反馈】浓度 0.55 → 0.85**：浅色主题下 55% 的遮罩把底子压成中灰（亮度 ≈ 0.21），
+                而方向色（`#EA580C` 亮度 ≈ 0.25 / `#0891B2` ≈ 0.24）与它对比度只有 **1.1 : 1**（几乎看不见）。
+                压到 85% 后底子亮度 ≈ 0.03 ⇒ 同样的颜色对比度升到 **3.6 : 1** 以上，且底部内容仍隐约可见。
+              · `OverlayInk` / `OverlayInkMuted`：叠层上的主/次文字色。
+            -->
+            <SolidColorBrush x:Key="OverlayScrim" Color="#0B1220" Opacity="0.85" />
+            <SolidColorBrush x:Key="OverlayInk" Color="#F8FAFC" />
+            <SolidColorBrush x:Key="OverlayInkMuted" Color="#A5B4C8" />
         </ResourceDictionary>
 
         <ResourceDictionary x:Key="Dark">
@@ -40,12 +62,21 @@
             <SolidColorBrush x:Key="TextMuted" Color="#71717A" />
             <SolidColorBrush x:Key="AccentPrimary" Color="#3B82F6" />
             <SolidColorBrush x:Key="AccentSecondary" Color="#22D3EE" />
+
+            <!-- 方向语义色【ADR-0044】：深色主题下各提亮一档（同一语义、两套主题各自的内置默认值）。 -->
+            <SolidColorBrush x:Key="DirectionSend" Color="#F59E0B" />
+            <SolidColorBrush x:Key="DirectionReceive" Color="#22D3EE" />
             <SolidColorBrush x:Key="SemanticOk" Color="#22C55E" />
             <SolidColorBrush x:Key="SemanticWarn" Color="#F59E0B" />
             <SolidColorBrush x:Key="SemanticError" Color="#EF4444" />
             <SolidColorBrush x:Key="SemanticIdle" Color="#6B7280" />
             <SolidColorBrush x:Key="OverlaySelection" Color="#3B82F6" Opacity="0.20" />
             <SolidColorBrush x:Key="OverlayHighlight" Color="#3B82F6" Opacity="0.12" />
+
+            <!-- 叠加层遮罩【ADR-0045】：深色主题下底子本来就深；同样压到 0.85 保证方向色/类型色有足够对比。 -->
+            <SolidColorBrush x:Key="OverlayScrim" Color="#05070D" Opacity="0.85" />
+            <SolidColorBrush x:Key="OverlayInk" Color="#F8FAFC" />
+            <SolidColorBrush x:Key="OverlayInkMuted" Color="#A5B4C8" />
         </ResourceDictionary>
 
     </ResourceDictionary.ThemeDictionaries>

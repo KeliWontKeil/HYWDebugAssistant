@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
@@ -18,6 +19,18 @@ public delegate void ReceiveHandler(ReadOnlySpan<byte> payload);
 /// <remarks>对应成员统一路径的 ①声明 → ②实例化（主文档 §4.10.2）：框架据声明创建成员实例。</remarks>
 public interface IModuleDeclaration
 {
+    /// <summary>
+    /// 声明一个**数据类型**【ADR-0046 D2】：标识 + 版本 + 尺寸（由形状定）+ 传输语义 + 计量块 + **解码器**。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>类型是**契约的身份**：口用 <see cref="PortDeclaration.Type"/> 引用它，兼容判定据此走三层判据；</item>
+    ///   <item>解码器随类型注册：**呈现期解码由模块做，框架只回调**（D1 ③）；不提供则不显示数值，不猜；</item>
+    ///   <item>不声明类型的模块**照常工作**（回退结构判定）——本声明是兼容扩展，不是必填项。</item>
+    /// </list>
+    /// </remarks>
+    void DeclareDataType(DataTypeDeclaration type);
+
     /// <summary>声明一个口成员（方向两态；口名模块内唯一）。</summary>
     void DeclarePort(PortDeclaration port);
 

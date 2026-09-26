@@ -7,7 +7,12 @@ namespace HYWDebugAssistant.Hosting.Instances;
 /// </summary>
 /// <remarks>
 /// <para>连接锚定为 <c>实例ID.口名</c>（重锚依据，主文档 §9.3）。</para>
-/// <para>运行时的队列/缓冲/绑定归属在 M1-5（数据面）加入；本类型先承载声明与连接状态。</para>
+/// <para>运行时的队列/缓冲/绑定归属在 M1-5（数据面）加入；本类型只承载**声明 + 停流状态**。</para>
+/// <para>
+/// **【不再持有"是否已连接"】**：曾有一个 `IsConnected` 字段（既无写入方也无读取方，恒为 <c>false</c>）；
+/// "连接状态"的**唯一来源**是**网络成员关系**（`IRuntimeQuery.GetNetworks()` / `PortView.IsConnected`
+/// ——由 <c>RuntimeServices.IsPortConnected</c> 派生）。悬空的第二事实源已按用户裁定整体删除（ADR-0048 §8 · roadmap v1.59）。
+/// </para>
 /// </remarks>
 public sealed class PortInstance
 {
@@ -24,9 +29,6 @@ public sealed class PortInstance
 
     /// <summary>方向（两态）。</summary>
     public PortDirection Direction => Declaration.Direction;
-
-    /// <summary>是否已建立网络绑定（M1-6 由绑定流程置位）。</summary>
-    public bool IsConnected { get; internal set; }
 
     /// <summary>是否处于停流（上游无输入 / Disabled / 悬空）——**合法状态**，非错误。</summary>
     public bool IsStalled { get; internal set; }

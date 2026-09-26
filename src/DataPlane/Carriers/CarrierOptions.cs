@@ -7,7 +7,13 @@ namespace HYWDebugAssistant.DataPlane.Carriers;
 /// </summary>
 public sealed record CarrierOptions
 {
-    /// <summary>输入队列容量（单元数）。v1 默认 1024（M1-13 实测后回写最终值）。</summary>
+    /// <summary>
+    /// 输入队列容量（单元数）——**【ADR-0050 Q2】按 (实例, 口) 计**，不是按实例计。
+    /// </summary>
+    /// <remarks>
+    /// 每个接收口各有一条独立队列、各自享有本容量 ⇒ 一个口满载**不会**占用其它口的缓冲额度
+    /// （这是"消除跨口队头阻塞"的关键）。v1 默认 1024（M1-13 实测后回写最终值）。
+    /// </remarks>
     public int QueueCapacity { get; init; } = 1024;
 
     /// <summary>满时丢弃方式（默认丢最旧保最新）。</summary>

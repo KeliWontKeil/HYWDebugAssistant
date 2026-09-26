@@ -1,8 +1,11 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Core.Binding;
 using HYWDebugAssistant.Core.Changes;
 using HYWDebugAssistant.Core.Composition;
+using HYWDebugAssistant.Core.Diagnostics;
 using HYWDebugAssistant.Core.Persistence;
 using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Settings;
@@ -35,6 +38,32 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
     /// <summary>模块标识字面量 → 装入它的来源根与包目录（诊断用）。</summary>
     private readonly Dictionary<string, ModulePackageOrigin> _modulePackages = new(StringComparer.Ordinal);
+
+    /// <summary>绑定的速率计（键 = 绑定身份键）——**框架侧唯一的速率口径来源**（ADR-0046 D8）。</summary>
+    private readonly Dictionary<string, BindingRateMeters> _rateMeters = new(StringComparer.Ordinal);
+
+    /// <summary>每 (实例, 口) 队列的速率计（键 = `实例.口名`）。</summary>
+    private readonly Dictionary<string, BindingRateMeters> _portRateMeters = new(StringComparer.Ordinal);
+
+    /// <summary>一条连接 / 一个口用的四个速率计（单元 · 搬运字节 · 有效载荷字节；样本档由单元档乘系数）。</summary>
+    private sealed class BindingRateMeters
+    {
+        public RateMeter Unit { get; } = new();
+
+        public RateMeter Bus { get; } = new();
+
+        public RateMeter Payload { get; } = new();
+    }
+
+    private BindingRateMeters MetersOf(string key) =>
+        _rateMeters.TryGetValue(key, out var meters)
+            ? meters
+            : _rateMeters[key] = new BindingRateMeters();
+
+    private BindingRateMeters PortMetersOf(string key) =>
+        _portRateMeters.TryGetValue(key, out var meters)
+            ? meters
+            : _portRateMeters[key] = new BindingRateMeters();
 
     /// <summary>上次来源根扫描的结果（`GetModuleSources` 的数据源）。</summary>
     private IReadOnlyList<ModuleSourceView> _moduleSources = [];
@@ -249,7 +278,11 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         Map(_runtime.Apply(ChangeSet.OfOne(new SetModuleEnabledOperation(instanceId, enabled))));
 
     /// <inheritdoc />
-    public CommandResult Connect(PortRef source, IReadOnlyList<PortRef> targets, string? name = null)
+    public CommandResult Connect(
+        PortRef source,
+        IReadOnlyList<PortRef> targets,
+        string? name = null,
+        bool allowUnverifiedTypeMatch = false)
     {
         ArgumentNullException.ThrowIfNull(targets);
 
@@ -258,7 +291,8 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             .Select(t => new NetworkMember(t.InstanceId, t.PortName, PortDirection.Receive))
             .ToList();
 
-        return Map(_runtime.Apply(ChangeSet.OfOne(new ConnectNetworkOperation(sourceMember, targetMembers, name))));
+        return Map(_runtime.Apply(ChangeSet.OfOne(
+            new ConnectNetworkOperation(sourceMember, targetMembers, name, allowUnverifiedTypeMatch))));
     }
 
     /// <inheritdoc />
@@ -467,15 +501,127 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             n.IsStalled,
             n.Source.ToString(),
             [.. n.Targets.Select(t => t.ToString())],
-            [.. n.UnresolvedMembers.Select(m => m.ToString())]))];
+            [.. n.UnresolvedMembers.Select(m => m.ToString())])
+        {
+            // 【P40】**网络身份键**：视图层靠它配对（网络名不唯一：匿名网络名为空串）
+            Key = ModuleRuntime.DescribeKey(n),
+
+            // 【ADR-0050 M2/M5】多源是一等组合：暴露**全部声明的源**（在场的在前 + 悬空的声明在后，
+            // 各组内字典序稳定）；**在场与否**看 IsStalled 与逐源诊断（R6 呈现时再细分）
+            Sources = [.. n.Sources.Select(s => s.ToString()).OrderBy(s => s, StringComparer.Ordinal),
+                       .. n.UnresolvedSources.Select(s => s.ToString()).OrderBy(s => s, StringComparer.Ordinal)],
+        })];
 
     /// <inheritdoc />
-    public IReadOnlyList<BindingDiagnosticView> GetDiagnostics() =>
-        [.. _runtime.Bindings.Bindings.Select(b => new BindingDiagnosticView(
-            b.Network.Name,
-            b.Diagnostics.Delivered,
-            b.Diagnostics.Dropped,
-            b.Diagnostics.LastDataTime))];
+    public IReadOnlyList<BindingDiagnosticView> GetDiagnostics()
+    {
+        var now = Stopwatch.GetTimestamp();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var views = new List<BindingDiagnosticView>(_runtime.Bindings.Bindings.Count);
+
+        foreach (var b in _runtime.Bindings.Bindings)
+        {
+            // 【ADR-0050 M2/M7】诊断/绑定的键 = **单源 → 宿子集**（多源网络下**按源归属**）
+            var key = ModuleRuntime.DescribeSourceKey(b.Source, b.Targets);
+            _ = seen.Add(key);
+            var meters = MetersOf(key);
+
+            var payloadSize = b.Metering.PayloadSizeInBytes ?? b.Layout.SizeInBytes;
+
+            views.Add(new BindingDiagnosticView(
+                b.Network.Name,
+                b.Diagnostics.Delivered,
+                b.Diagnostics.Dropped,
+                b.Diagnostics.LastDataTime)
+            {
+                Key = key,
+
+                // 【ADR-0046 D8 / ADR-0050 Q5】丢弃按原因分类（停流未投递 ≠ 传输丢弃）
+                DropStalled = b.Diagnostics.DroppedByReason(DropReason.Stalled),
+                DropQueueFull = b.Diagnostics.DroppedByReason(DropReason.QueueFull),
+                DropNoCarrier = b.Diagnostics.DroppedByReason(DropReason.NoCarrier),
+                DropInvalidPayload = b.Diagnostics.DroppedByReason(DropReason.InvalidPayload),
+
+                // **三类之一：传输丢弃**（队列满 + 无承载 + 载荷非法；不含"停流未投递"）
+                DropTransport = b.Diagnostics.DroppedByReason(DropReason.QueueFull)
+                    + b.Diagnostics.DroppedByReason(DropReason.NoCarrier)
+                    + b.Diagnostics.DroppedByReason(DropReason.InvalidPayload),
+
+                // 【ADR-0046 D8】**四档速率由框架给出**（UI 不得自行差分估算）
+                Published = b.Diagnostics.Published,
+                NetworkKey = ModuleRuntime.DescribeKey(b.Network),
+                UnitRateHz = meters.Unit.Observe(b.Diagnostics.Published, now),
+                BusByteRate = meters.Bus.Observe(b.Diagnostics.Delivered * b.Layout.SizeInBytes, now),
+                PayloadByteRate = meters.Payload.Observe(b.Diagnostics.Published * payloadSize, now),
+                SampleRateHz = meters.Unit.Rate * b.Metering.SamplesPerUnit,
+                ChannelSampleRateHz = meters.Unit.Rate * b.Metering.SamplesPerUnit * b.Metering.ChannelCount,
+                NominalRateHz = b.Metering.NominalRateHz,
+            });
+        }
+
+        // 绑定被重建/删除后，旧键的速率计一并清掉（否则长期运行会积累无主状态）
+        foreach (var stale in _rateMeters.Keys.Where(k => !seen.Contains(k)).ToList())
+        {
+            _ = _rateMeters.Remove(stale);
+        }
+
+        return views;
+    }
+
+    /// <summary>
+    /// **每 (实例, 口) 队列**的深度与吞吐【ADR-0050 Q2 / ADR-0046 D8"水位"】。
+    /// </summary>
+    /// <remarks>搬运字节速率**按宿计**（第 2 档）：只有每口一条队列才能给出这个口径。</remarks>
+    public IReadOnlyList<PortQueueDepthView> GetQueueDepths()
+    {
+        var now = Stopwatch.GetTimestamp();
+        var views = new List<PortQueueDepthView>();
+
+        foreach (var carrier in _runtime.Carriers.Carriers)
+        {
+            for (var index = 0; index < carrier.PortNames.Count; index++)
+            {
+                var port = carrier.PortNames[index];
+                var queue = carrier.Queues[index];
+                var meters = PortMetersOf($"{carrier.InstanceId}.{port}");
+
+                // 契约尺寸：按该口所属网络的绑定反查（未建网 ⇒ 0 ⇒ 只给单元速率）
+                var size = ResolveBusByteSize(carrier.InstanceId, port);
+
+                views.Add(new PortQueueDepthView(
+                    carrier.InstanceId,
+                    port,
+                    queue.Count,
+                    queue.Capacity,
+                    queue.Enqueued,
+                    queue.Dropped)
+                {
+                    UnitRateHz = meters.Unit.Observe(queue.Enqueued, now),
+                    BusByteRate = meters.Bus.Observe(queue.Enqueued * size, now),
+                });
+            }
+        }
+
+        return views;
+    }
+
+    /// <summary>按接收口反查其所在绑定的契约尺寸（用于"按宿计"的搬运字节速率）。</summary>
+    private int ResolveBusByteSize(string instanceId, string portName)
+    {
+        foreach (var binding in _runtime.Bindings.Bindings)
+        {
+            foreach (var target in binding.Targets)
+            {
+                if (string.Equals(target.InstanceId, instanceId, StringComparison.Ordinal)
+                    && string.Equals(target.PortName, portName, StringComparison.Ordinal))
+                {
+                    return binding.Layout.SizeInBytes;
+                }
+            }
+        }
+
+        return 0;
+    }
 
     /// <inheritdoc />
     public IReadOnlyList<IssueView> GetIssues(int maxCount) =>
@@ -529,12 +675,137 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                     buffer.ValueType,
                     buffer.Written,
                     buffer.Overwritten,
-                    buffer.Dropped));
+                    buffer.Dropped)
+                {
+                    // 【ADR-0046 D1 ③】解码器句柄随视图交给呈现层（框架只回调，不内建解码）
+                    Decoder = buffer.Decoder,
+                    DataType = buffer.DataType,
+                });
             }
         }
 
         return sources;
     }
+
+    /// <inheritdoc />
+    public IReadOnlyList<DataRoleView> GetDataRoles(string instanceId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
+
+        if (!_runtime.Content.TryGetInstance(instanceId, out var instance) || instance is null)
+        {
+            return [];   // 不存在 / 占位实例（无口）⇒ **空角色集合**（ADR-0048 R4）
+        }
+
+        var roles = DataRoleModel.Collect(instance, port => _runtime.DescribePortTypeKey(instanceId, port));
+
+        // 口级连接数按角色归属（一个角色的多个口各自可能连着）
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (source, target, _) in _runtime.DescribePortLinks())
+        {
+            var local = source.InstanceId == instanceId ? source
+                : target.InstanceId == instanceId ? target
+                : default;
+
+            if (string.IsNullOrEmpty(local.InstanceId))
+            {
+                continue;
+            }
+
+            var key = DataRoleModel.RoleKey(
+                local.Direction == PortDirection.Send,
+                _runtime.DescribePortTypeKey(local.InstanceId, FindPortOrThrow(local)));
+
+            counts[key] = counts.GetValueOrDefault(key) + 1;
+        }
+
+        var views = new List<DataRoleView>(roles.Count);
+        foreach (var role in roles)
+        {
+            views.Add(new DataRoleView(
+                role.Key,
+                role.IsSend,
+                role.TypeKey,
+                role.TypeText,
+                role.Ports,
+                counts.GetValueOrDefault(role.Key)));
+        }
+
+        return views;
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<DataRolePairView> GetRolePairs(string instanceId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
+
+        if (!_runtime.Content.TryGetInstance(instanceId, out var instance) || instance is null)
+        {
+            return [];
+        }
+
+        // 聚合键 = （本端角色, 对端实例, 对端角色）——同键的多条连接只出一条线（ADR-0048 R6）
+        // 【陷阱】值元组存进字典后**取出的是副本**：计数必须**写回**，否则条数恒为 0（实测踩过）。
+        // `Networks` 是 List（引用类型）故其增改"看起来生效"，唯独计数会静默丢失——别被这一点骗过。
+        var pairs = new Dictionary<(string Local, string PeerInstance, string PeerRole), (int Count, List<string> Networks)>();
+
+        foreach (var (source, target, networkKey) in _runtime.DescribePortLinks())
+        {
+            NetworkMember local;
+            NetworkMember peer;
+
+            if (string.Equals(source.InstanceId, instanceId, StringComparison.Ordinal))
+            {
+                local = source;
+                peer = target;
+            }
+            else if (string.Equals(target.InstanceId, instanceId, StringComparison.Ordinal))
+            {
+                local = target;
+                peer = source;
+            }
+            else
+            {
+                continue;
+            }
+
+            var localKey = DataRoleModel.RoleKey(
+                local.Direction == PortDirection.Send, _runtime.DescribePortTypeKey(local.InstanceId, FindPortOrThrow(local)));
+            var peerKey = DataRoleModel.RoleKey(
+                peer.Direction == PortDirection.Send, _runtime.DescribePortTypeKey(peer.InstanceId, FindPortOrThrow(peer)));
+
+            var key = (localKey, peer.InstanceId, peerKey);
+            if (!pairs.TryGetValue(key, out var entry))
+            {
+                entry = (0, []);
+            }
+
+            entry.Count++;
+            if (!entry.Networks.Contains(networkKey, StringComparer.Ordinal))
+            {
+                entry.Networks.Add(networkKey);
+            }
+
+            pairs[key] = entry;   // **写回**：值元组语义（不写回 ⇒ 条数丢失）
+        }
+
+        return [.. pairs
+            .OrderBy(pair => pair.Key.Local, StringComparer.Ordinal)
+            .ThenBy(pair => pair.Key.PeerInstance, StringComparer.Ordinal)
+            .ThenBy(pair => pair.Key.PeerRole, StringComparer.Ordinal)
+            .Select(pair => new DataRolePairView(
+                pair.Key.Local,
+                pair.Key.PeerInstance,
+                pair.Key.PeerRole,
+                pair.Value.Count,
+                [.. pair.Value.Networks.OrderBy(k => k, StringComparer.Ordinal)]))];
+    }
+
+    /// <summary>取端口实例（角色/连接枚举专用；调用前已确认该口存在）。</summary>
+    private Hosting.Instances.PortInstance FindPortOrThrow(Composition.NetworkMember member) =>
+        _runtime.Content.TryGetInstance(member.InstanceId, out var instance) && instance is not null
+            ? instance.FindPort(member.PortName) ?? throw new InvalidOperationException($"口不存在：{member}")
+            : throw new InvalidOperationException($"实例不存在：{member.InstanceId}");
 
     /// <inheritdoc />
     public bool TryReadLatest(string instanceId, string dataSourceName, Span<byte> destination, out int length)

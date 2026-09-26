@@ -26,7 +26,7 @@
 
         <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
             <Button Content="只还原默认尺寸" Click="OnSizeOnly" />
-            <Button Content="尺寸和配置都还原" Click="OnSizeAndConfiguration" />
+            <Button Content="还原尺寸和配置" Click="OnSizeAndConfiguration" />
             <Button Content="取消" Click="OnCancel" />
         </StackPanel>
     </StackPanel>

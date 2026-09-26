@@ -66,10 +66,7 @@ public sealed class RecorderModule : IModule
     public const string SeriesSource = "series";
 
     /// <summary>输入数据单元形状（与发生器一致）。</summary>
-    public static readonly ContractShape InputShape =
-        ContractShape.OfStruct(
-            ("seq", ContractShape.OfPrimitive(ContractPrimitive.U64)),
-            ("value", ContractShape.OfPrimitive(ContractPrimitive.F32)));
+    public static readonly ContractShape InputShape = CommonDataTypes.AnalogSampleShape;
 
     /// <summary>输入布局。</summary>
     public static readonly ContractLayout InputLayout = ContractLayout.FromShape(InputShape);
@@ -80,6 +77,7 @@ public sealed class RecorderModule : IModule
     private RecorderConfig _configuration = new();
     private volatile bool _configurationDirty = true;
     private ulong _received;
+    private long _shortUnits;
     private ulong _lastSequence;
     private bool _hasSequence;
     private double _lastValue;
@@ -168,7 +166,15 @@ public sealed class RecorderModule : IModule
         // 上下文留存：生命周期钩子没有参数，配置热生效要在钩子里读（见 ReloadConfiguration）
         _context = context;
 
-        context.Declaration.DeclarePort(new PortDeclaration(InputPort, PortDirection.Receive, InputShape));
+        // 【ADR-0046 D2/D6】声明本模块使用的数据类型（与源端同标识同版本 ⇒ 兼容走第一层）
+        context.Declaration.DeclareDataType(CommonDataTypes.AnalogSampleV1);
+        context.Declaration.DeclareDataType(CommonDataTypes.F32V1);
+        context.Declaration.DeclareDataType(CommonDataTypes.U64V1);
+
+        context.Declaration.DeclarePort(new PortDeclaration(InputPort, PortDirection.Receive, InputShape)
+        {
+            Type = CommonDataTypes.AnalogSampleRef,
+        });
 
         // **被动接收**：框架投递循环在**数据到达时**于本实例线程上调用（入队即事件唤醒）。
         // 为何不用主动接收：`TryReceive` + `IStopSignal.Wait` 当轮询间隔会把延迟拉到 Windows 定时器粒度
@@ -188,22 +194,46 @@ public sealed class RecorderModule : IModule
                     unit: null,
                     format: null,
                     kind: ViewDataSourceKind.Value,
-                    valueType: ContractPrimitive.U64),
+                    valueType: ContractPrimitive.U64)
+                {
+                    Type = CommonDataTypes.U64Ref,
+                },
                 new ViewDataSource(
                     LastSource,
                     unit: null,
                     format: "F3",
                     kind: ViewDataSourceKind.Value,
-                    valueType: ContractPrimitive.F32),
+                    valueType: ContractPrimitive.F32)
+                {
+                    Type = CommonDataTypes.F32Ref,
+                },
                 new ViewDataSource(
                     SeriesSource,
                     unit: null,
                     format: null,
                     kind: ViewDataSourceKind.Sequence,
-                    valueType: ContractPrimitive.F32),
+                    valueType: ContractPrimitive.F32)
+                {
+                    Type = CommonDataTypes.F32Ref,
+                },
             ]));
     }
 
+    /// <summary>上报"数据报短于本口契约"（**只报一次**，不刷屏）：版本不一致的可见信号。</summary>
+    private void ReportShortUnit(IModuleContext context, int length)
+    {
+        if (Interlocked.Increment(ref _shortUnits) != 1)
+        {
+            return;
+        }
+
+        context.Issues.Report(new Sdk.Reporting.IssueReport(
+            Sdk.Reporting.IssueCategory.InterfaceError,
+            Sdk.Reporting.IssueSeverity.Warning,
+            $"收到 {length} 字节的数据报，小于本口契约 {InputLayout.SizeInBytes} 字节 —— **已丢弃**"
+            + "（通常是发布方版本比本口旧；接收方必须按到达长度读，`PayloadReader.TryCreate`）。"
+            + "此提示只报一次，后续同类丢弃只计数。"));
+    }
     /// <inheritdoc />
     public void OnActivated() => ReloadConfiguration();
 
@@ -237,14 +267,21 @@ public sealed class RecorderModule : IModule
             ReloadConfiguration();
         }
 
-        var reader = new PayloadReader(payload, InputLayout);
-        var sequence = reader.ReadU64("seq");
-        var value = reader.ReadF32("value");
-
         if (_context is not { } context)
         {
             return;
         }
+
+        // 【读取纪律 · ADR-0046 D6】先判长度：兼容不保证"能按自己的契约整块读"（版本升级/混版本多源时数据报可能更短）；
+        // 硬构造会抛异常，而异常会让本实例的投递循环整体退出（实测）。丢弃 + 计数，不静默、不崩。
+        if (!PayloadReader.TryCreate(payload, InputLayout, out var reader))
+        {
+            ReportShortUnit(context, payload.Length);
+            return;
+        }
+
+        var sequence = reader.ReadU64("seq");
+        var value = reader.ReadF32("value");
 
         Record(context, sequence, value);
 

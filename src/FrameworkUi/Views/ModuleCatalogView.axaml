@@ -56,6 +56,8 @@
                          Background="Transparent"
                          BorderThickness="0"
                          ItemsSource="{Binding Catalog}"
+                         DoubleTapped="OnCatalogDoubleTapped"
+                         ToolTip.Tip="双击一项即可直接加入现场（等同选中后点「加入现场」）"
                          SelectedItem="{Binding SelectedCatalogEntry, Mode=TwoWay}">
                     <ListBox.ItemTemplate>
                         <DataTemplate DataType="vm:ModuleCatalogRowViewModel">
@@ -91,7 +93,7 @@
                             HorizontalAlignment="Left"
                             Content="加入现场"
                             Command="{Binding AddCommand}"
-                            ToolTip.Tip="把选中模块的一个实例加入当前工作现场（每个实例都会开一个自己的窗口）" />
+                            ToolTip.Tip="把选中模块的一个实例加入当前工作现场（每个实例都会开一个自己的窗口）；**双击列表项**同样可直接加入" />
                     <Button Grid.Column="1" Classes="helpIcon" VerticalAlignment="Bottom" ToolTip.Tip="模块列表说明">
                         <Button.Flyout>
                             <Flyout Placement="TopEdgeAlignedRight">

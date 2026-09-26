@@ -65,4 +65,18 @@ public sealed record PortDeclaration
 
     /// <summary>是否参与快速建网（R0–R6）。</summary>
     public bool ParticipatesInAutoNetwork { get; }
+
+    /// <summary>
+    /// 本口承载的**数据类型引用**（指向模块已声明的类型）——ADR-0046 D2/D6。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>**可声明 ≠ 必须声明**：不声明 = 旧模块形态，兼容判定回退为**结构**比较（向后兼容）；</item>
+    ///   <item>声明后兼容走**三层判据**（同标识同版本 / 同标识版本规则 / **不同标识 = 默认不兼容 + 显式确认可强连**）；</item>
+    ///   <item>用 <c>init</c> 属性而非构造器参数：加可选构造参数会**改变方法签名**，已编译模块会抛
+    ///     <c>MissingMethodException</c>（实测踩过，见 <c>ViewDeclaration.PreferredWidth</c> 的同类说明）。</item>
+    /// </list>
+    /// 用法：<c>new PortDeclaration("in", PortDirection.Receive, shape) { Type = new("hyw/f32", 1) }</c>
+    /// </remarks>
+    public DataTypeRef? Type { get; init; }
 }

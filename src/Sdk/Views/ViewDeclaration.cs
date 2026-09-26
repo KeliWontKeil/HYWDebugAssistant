@@ -146,6 +146,20 @@ public sealed record ViewDataSource
 
     /// <summary>单样本的契约原语（数值类数据源用；null = 非数值）。</summary>
     public ContractPrimitive? ValueType { get; }
+
+    /// <summary>
+    /// 本数据源样本所属的**数据类型引用**【ADR-0046 D2】：框架据此取该类型的**解码器**与计量块。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>**推荐**：数据源引用一个已声明的类型 ⇒ 呈现期解码走**模块提供的解码器**（D1 ③，框架只回调）；</item>
+    ///   <item>**旧形态**：只声明 <see cref="ValueType"/>（不引用类型）⇒ 框架按**参考实现**解码
+    ///     （过渡回退，登记为历史兼容路径，不是机制）；</item>
+    ///   <item>两者都缺 ⇒ UI 显示"未声明类型 + 字节数"，**不猜**。</item>
+    /// </list>
+    /// 用法：<c>new ViewDataSource("value", valueType: F32) { Type = new("hyw/f32", 1) }</c>
+    /// </remarks>
+    public DataTypeRef? Type { get; init; }
 }
 
 /// <summary>

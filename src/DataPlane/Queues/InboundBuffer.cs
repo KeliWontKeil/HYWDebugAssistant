@@ -13,22 +13,27 @@ public enum DropPolicy
 }
 
 /// <summary>
-/// 入站数据单元：缓冲 + **目标口名**。
+/// 入站数据单元：缓冲 + **目标口名** + 可选**薄旁路头**。
 /// </summary>
 /// <remarks>
-/// 队列是**每模块实例一个**（ADR-0029 §4.2），因此元素必须携带目标口名以便路由到对应接收处理。
+/// 队列是**每 (实例, 口) 一条**（ADR-0050 Q2），元素仍携带目标口名——消费侧（投递循环/主动接收）
+/// 需要它来把缓冲交给正确的接收处理，日志与诊断也据此归属。
+/// **【ADR-0050 Q6(c)】** <see cref="Header"/> **只在多源网络上非空**（单源网络零附加）；
+/// 它是**旁路元数据**，不进 <see cref="PayloadBuffer"/> 的字节流。
 /// </remarks>
 /// <param name="Buffer">数据单元缓冲（所有权随入队移交给队列/消费方）。</param>
 /// <param name="TargetPort">目标接收口名。</param>
-public readonly record struct InboundUnit(PayloadBuffer Buffer, string TargetPort);
+/// <param name="Header">薄旁路头（**多源网络**才有；单源网络为 <see langword="null"/>）。</param>
+public readonly record struct InboundUnit(PayloadBuffer Buffer, string TargetPort, DatagramHeader? Header = null);
 
 /// <summary>
 /// 有界输入队列：**绝不阻塞发送方**，满时按策略丢弃并计数（ADR-0012/ADR-0029 §4.2）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item>生产者：任意线程（投递方）；消费者：该实例的专属线程。</item>
-///   <item>丢弃的缓冲**由调用方归还池**（本类不持有池，避免锁内调用外部代码）。</item>
+///   <item>**粒度 = 每 (实例, 口)**【ADR-0050 Q2】：容量按口计，跨口互不挤占（无跨口队头阻塞）；</item>
+///   <item>生产者：任意线程（投递方）；消费者：该实例的专属线程（投递循环或模块活动体，二者互斥）；</item>
+///   <item>丢弃的缓冲**由调用方归还池**（本类不持有池，避免锁内调用外部代码）；</item>
 ///   <item>v1 用锁保证正确性；无锁/批量优化属 R 项（ADR-0029 §4.9）。</item>
 /// </list>
 /// </remarks>

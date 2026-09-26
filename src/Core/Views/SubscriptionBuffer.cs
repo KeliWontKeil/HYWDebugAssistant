@@ -94,6 +94,16 @@ public sealed class SubscriptionBuffer
     /// <summary>数据源类型（模块声明值）。</summary>
     public ViewDataSourceKind Kind { get; }
 
+    /// <summary>
+    /// **样本解码器**（模块随数据类型注册；框架只回调）——<see langword="null"/> = 未提供，
+    /// 呈现层**不猜**（显示"未声明类型 + 字节数"；旧模块走参考实现回退，见 UI 侧说明）。
+    /// </summary>
+    /// <remarks>【ADR-0046 D1 ③】框架**不内建**解码；本属性是模块解码器的句柄。</remarks>
+    public SampleDecoder? Decoder { get; init; }
+
+    /// <summary>该数据源引用的**数据类型**（未引用 = <see langword="null"/>）——用于呈现"类型身份"。</summary>
+    public DataTypeRef? DataType { get; init; }
+
     /// <summary>样本字节数（尚未写入过时为 0）。</summary>
     public int SampleSizeInBytes => Volatile.Read(ref _slotSize);
 

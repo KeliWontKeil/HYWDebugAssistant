@@ -106,7 +106,8 @@ public class DataPlaneCarrierTests
         {
             var mainThreadId = Environment.CurrentManagedThreadId;
 
-            carrier!.TryEnqueue("in", BuildUnit(host.Buffers, seq: 42, value: 1.5f)).ShouldBeTrue();
+            carrier!.TryEnqueue("in", BuildUnit(host.Buffers, seq: 42, value: 1.5f))
+                .ShouldBe(CarrierEnqueueResult.Accepted);
 
             target.WaitForFirstDelivery(TimeSpan.FromSeconds(2)).ShouldBeTrue("目标实例应在超时前收到投递");
             target.Received.ShouldBe([1.5f]);
@@ -165,7 +166,8 @@ public class DataPlaneCarrierTests
             broken.WaitForFailure(TimeSpan.FromSeconds(2)).ShouldBeTrue("活动体异常应被边界捕获并上报");
 
             // 另一实例不受影响（AC-2 隔离性）
-            healthyCarrier!.TryEnqueue("in", BuildUnit(host.Buffers, 7, 7f)).ShouldBeTrue();
+            healthyCarrier!.TryEnqueue("in", BuildUnit(host.Buffers, 7, 7f))
+                .ShouldBe(CarrierEnqueueResult.Accepted);
             healthy.WaitForFirstDelivery(TimeSpan.FromSeconds(2)).ShouldBeTrue();
             healthy.Received.ShouldBe([7f]);
         }
@@ -211,8 +213,8 @@ public class DataPlaneCarrierTests
         };
         host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
 
-        carrier!.TryEnqueue("in", BuildUnit(host.Buffers, 1, 1f)).ShouldBeTrue();
-        carrier.TryEnqueue("in", BuildUnit(host.Buffers, 2, 2f)).ShouldBeTrue();
+        carrier!.TryEnqueue("in", BuildUnit(host.Buffers, 1, 1f)).ShouldBe(CarrierEnqueueResult.Accepted);
+        carrier.TryEnqueue("in", BuildUnit(host.Buffers, 2, 2f)).ShouldBe(CarrierEnqueueResult.Accepted);
 
         host.TryDeactivate("stuck", out var result).ShouldBeTrue();
 
@@ -222,22 +224,124 @@ public class DataPlaneCarrierTests
     }
 
     [Fact]
-    public void 无接收处理的口_应计入丢弃而不抛出()
+    public void 无承载的口_入队应被拒绝并立即计入丢弃()
     {
+        // 【ADR-0050 Q2】**每口一条队列** ⇒ 口不存在就**没有队列可入**："无承载"是**入队即失败**，
+        // 而不是"入队后在投递循环里丢掉"（后者会把两种性质不同的事混成一个数）。
         using var host = new CarrierHost();
         var target = new TestTarget("nohandler") { PortExists = false };
         host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
         try
         {
-            carrier!.TryEnqueue("ghost", BuildUnit(host.Buffers, 1, 1f)).ShouldBeTrue();
+            carrier!.TryEnqueue("ghost", BuildUnit(host.Buffers, 1, 1f))
+                .ShouldBe(CarrierEnqueueResult.NoCarrier, "口不在承载者的口集合里 ⇒ 无承载");
 
-            WaitUntil(() => carrier.Diagnostics.Dropped >= 1, TimeSpan.FromSeconds(2))
-                .ShouldBeTrue("目标口没有接收处理时应计入丢弃");
+            carrier.Diagnostics.Dropped.ShouldBe(1, "无承载应**立即**计入丢弃（不经过投递循环）");
             carrier.Diagnostics.Delivered.ShouldBe(0);
+            carrier.Diagnostics.Enqueued.ShouldBe(0, "无承载**不入队**");
         }
         finally
         {
             host.TryDeactivate("nohandler", out _);
+        }
+    }
+
+    [Fact]
+    public void 口存在但无接收处理_应入队并在投递时计入丢弃()
+    {
+        // 口**已声明**（有队列）但模块没注册处理 ⇒ 入队成功，投递循环里丢弃并计数（与"无承载"区分开）
+        using var host = new CarrierHost();
+        var target = new TestTarget("unhandled") { PortExists = false };
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+        try
+        {
+            carrier!.TryEnqueue("in", BuildUnit(host.Buffers, 1, 1f))
+                .ShouldBe(CarrierEnqueueResult.Accepted, "口存在 ⇒ 有队列承载");
+
+            WaitUntil(() => carrier.Diagnostics.Dropped >= 1, TimeSpan.FromSeconds(2))
+                .ShouldBeTrue("入队后投递时无处理 ⇒ 计入丢弃");
+            carrier.Diagnostics.Delivered.ShouldBe(0);
+        }
+        finally
+        {
+            host.TryDeactivate("unhandled", out _);
+        }
+    }
+
+    // ------------------------------------------------------------ 每 (实例, 口) 队列（ADR-0050 Q2）
+
+    [Fact]
+    public void 每口一条队列_满载的口不得挤占其它口的缓冲额度()
+    {
+        // 【ADR-0050 Q2 核心回归】容量**按口计**：一个口被塞满，不得让另一个口的入队被拒。
+        // 用**丢新**策略做判据：若两口共用一条容量 1 的队列，fast 的入队必然被拒（返回 QueueFull）；
+        // 每口一条队列时应为 Accepted，且**丢弃按口归属**（slow 有丢弃、fast 一个都不丢）。
+        using var host = new CarrierHost(options: new CarrierOptions
+        {
+            QueueCapacity = 1,
+            DropPolicy = DropPolicy.DropNewest,
+        });
+
+        var target = new TwoPortTarget("two") { SlowDelay = TimeSpan.FromMilliseconds(150) };
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+
+        try
+        {
+            // 塞满 slow（消费者 150ms/单元，远慢于入队速度）
+            for (var i = 0; i < 6; i++)
+            {
+                _ = carrier!.TryEnqueue("slow", BuildUnit(host.Buffers, (ulong)i, i));
+            }
+
+            WaitUntil(() => carrier!.TryGetQueue("slow", out var slow) && slow!.Dropped >= 1, TimeSpan.FromSeconds(2))
+                .ShouldBeTrue("slow 口应被自己的容量限制丢弃（丢新）");
+
+            // fast 口与 slow 无关：必须仍能入队，且不被计入 slow 的丢弃
+            var result = carrier!.TryEnqueue("fast", BuildUnit(host.Buffers, 99, 99f));
+            result.ShouldBe(CarrierEnqueueResult.Accepted, "**其它口的队列空着** ⇒ 不得因 slow 满而被拒");
+
+            carrier.TryGetQueue("fast", out var fastQueue).ShouldBeTrue();
+            fastQueue!.Dropped.ShouldBe(0, "fast 口一个都不该丢");
+
+            WaitUntil(() => target.FastReceived.Count >= 1, TimeSpan.FromSeconds(3))
+                .ShouldBeTrue("fast 的数据应在 slow 仍有积压时就送达（不被堵在后面）");
+            target.FastReceived.ShouldBe([99f]);
+
+            // 停止：**全部口**的队列都要清空归还（多队列 drain）
+            host.TryDeactivate("two", out var stopResult).ShouldBeTrue();
+            stopResult.ShouldBe(CarrierStopResult.Stopped);
+            host.Buffers.Rented.ShouldBe(host.Buffers.Returned, "多口队列下缓冲借还仍应平衡");
+        }
+        finally
+        {
+            host.StopAll();
+        }
+    }
+
+    [Fact]
+    public void 每口一条队列_应按口名分别入队与出队()
+    {
+        using var host = new CarrierHost();
+        var target = new TwoPortTarget("ports") { SlowDelay = TimeSpan.Zero };
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+
+        try
+        {
+            carrier!.PortNames.ShouldBe(["slow", "fast"], "口集合 = 声明顺序（队列下标同序）");
+            carrier.Queues.Count.ShouldBe(2, "每 (实例, 口) 一条队列");
+
+            carrier.TryGetQueue("slow", out var slow).ShouldBeTrue();
+            carrier.TryGetQueue("fast", out var fast).ShouldBeTrue();
+            slow.ShouldNotBeSameAs(fast, "两个口各有独立队列实例");
+            carrier.TryGetQueue("nope", out _).ShouldBeFalse("未声明的口没有队列");
+
+            _ = carrier.TryEnqueue("slow", BuildUnit(host.Buffers, 1, 1f));
+            WaitUntil(() => target.SlowReceived.Count >= 1, TimeSpan.FromSeconds(2)).ShouldBeTrue();
+            WaitUntil(() => carrier.Diagnostics.Delivered >= 1, TimeSpan.FromSeconds(2)).ShouldBeTrue();
+        }
+        finally
+        {
+            host.TryDeactivate("ports", out _);
         }
     }
 
@@ -250,7 +354,8 @@ public class DataPlaneCarrierTests
 
         for (var i = 0; i < 10; i++)
         {
-            carrier!.TryEnqueue("in", BuildUnit(host.Buffers, (ulong)i, i)).ShouldBeTrue();
+            carrier!.TryEnqueue("in", BuildUnit(host.Buffers, (ulong)i, i))
+                .ShouldBe(CarrierEnqueueResult.Accepted);
         }
 
         WaitUntil(() => target.DeliveredCount >= 10, TimeSpan.FromSeconds(3)).ShouldBeTrue("10 个单元应全部投递");
@@ -258,6 +363,44 @@ public class DataPlaneCarrierTests
         host.TryDeactivate("balance", out var result);
         result.ShouldBe(CarrierStopResult.Stopped);
         host.Buffers.Rented.ShouldBe(host.Buffers.Returned, "全部缓冲应已归还池（无泄漏）");
+    }
+
+    // ------------------------------------------------------------ 薄旁路头（ADR-0050 Q6(c)）
+
+    [Fact]
+    public void 薄旁路头_应随数据单元送达并由观测面记录_不带头的单元不留痕()
+    {
+        // 【ADR-0050 Q6(c)】头是**旁路元数据**：随单元走（不必进 payload），由**观测面**消费
+        // （承载诊断记录最近序号/接收时刻）。**单源网络传 null ⇒ 零附加、不留任何痕迹**。
+        using var host = new CarrierHost();
+        var target = new TestTarget("hdr");
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+
+        try
+        {
+            var header = new DatagramHeader("s1", "out", Sequence: 7, ReceivedTimestamp: 12345);
+
+            carrier!.TryEnqueue("in", BuildUnit(host.Buffers, 1, 1f), header)
+                .ShouldBe(CarrierEnqueueResult.Accepted);
+
+            WaitUntil(() => carrier.Diagnostics.Delivered >= 1, TimeSpan.FromSeconds(2)).ShouldBeTrue();
+
+            carrier.Diagnostics.Headered.ShouldBe(1, "带头的投递应被观测面计数");
+            carrier.Diagnostics.LastHeaderSequence.ShouldBe(7, "序号原样送达（按源递增由生产侧保证）");
+            carrier.Diagnostics.LastHeaderTimestamp.ShouldBe(12345);
+
+            // 再来一个**不带头**的单元：头相关的计数**保持不变**（零附加不留痕）
+            carrier.TryEnqueue("in", BuildUnit(host.Buffers, 2, 2f)).ShouldBe(CarrierEnqueueResult.Accepted);
+            WaitUntil(() => carrier.Diagnostics.Delivered >= 2, TimeSpan.FromSeconds(2)).ShouldBeTrue();
+
+            carrier.Diagnostics.Headered.ShouldBe(1, "不带头的单元不得计入带头投递");
+            carrier.Diagnostics.LastHeaderSequence.ShouldBe(7, "不带头不得覆盖上次的头信息");
+            target.Received.ShouldBe([1f, 2f], "payload 字节不受头影响（字节守恒）");
+        }
+        finally
+        {
+            host.TryDeactivate("hdr", out _);
+        }
     }
 
     // ------------------------------------------------------------ 测试辅助
@@ -375,5 +518,67 @@ public class DataPlaneCarrierTests
         public bool Wait(TimeSpan timeout) => WaitUntil(() => _requested, timeout);
 
         public void Request() => _requested = true;
+    }
+
+    /// <summary>
+    /// **两个接收口**的夹具（`slow` 口慢、`fast` 口快）——用于验证"每 (实例, 口) 一条队列"。
+    /// </summary>
+    private sealed class TwoPortTarget(string instanceId) : ICarrierTarget
+    {
+        private readonly ConcurrentQueue<float> _slow = new();
+        private readonly ConcurrentQueue<float> _fast = new();
+        private readonly SimpleStopSignal _stop = new();
+
+        public string InstanceId { get; } = instanceId;
+
+        public IReadOnlyList<string> ReceivePortNames => ["slow", "fast"];
+
+        /// <summary>`slow` 口每个单元的处理耗时。</summary>
+        public TimeSpan SlowDelay { get; set; }
+
+        public IReadOnlyList<float> SlowReceived => [.. _slow];
+
+        public IReadOnlyList<float> FastReceived => [.. _fast];
+
+        public bool HasActivity => false;
+
+        public IStopSignal StopSignal => _stop;
+
+        public void RequestStop() => _stop.Request();
+
+        public bool TryGetReceiveHandler(string portName, out ReceiveHandler handler)
+        {
+            if (string.Equals(portName, "slow", StringComparison.Ordinal))
+            {
+                handler = OnSlow;
+                return true;
+            }
+
+            if (string.Equals(portName, "fast", StringComparison.Ordinal))
+            {
+                handler = OnFast;
+                return true;
+            }
+
+            handler = null!;
+            return false;
+        }
+
+        public void RunActivity() => throw new NotSupportedException("本夹具不实现自发活动");
+
+        public void ReportActivityFailure(Exception exception) => throw new NotSupportedException(exception.Message);
+
+        private void OnSlow(ReadOnlySpan<byte> payload)
+        {
+            if (SlowDelay > TimeSpan.Zero)
+            {
+                Thread.Sleep(SlowDelay);
+            }
+
+            _slow.Enqueue(new PayloadReader(payload, Layout).ReadF32("value"));
+        }
+
+        private void OnFast(ReadOnlySpan<byte> payload) =>
+            _fast.Enqueue(new PayloadReader(payload, Layout).ReadF32("value"));
     }
 }

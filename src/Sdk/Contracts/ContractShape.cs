@@ -56,6 +56,63 @@ public abstract record ContractShape
         };
     }
 
+    /// <summary>
+    /// **结构相等**判定（逐字段比较：名称 + 原语/长度 + **顺序** + 数量）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>为什么不能直接用 <c>==</c></b>：这些形状是 record，但 <see cref="StructShape.Fields"/> 是集合成员，
+      ///     record 的默认相等对集合做的是**引用比较** ⇒ 两个模块**各自构造**出的同一形状会被判"不相等"
+      ///     （隐形陷阱：只有引用同一个静态实例才连得上）。本方法做真正的结构比较；</item>
+    ///   <item><b>用途</b>：兼容判定（ADR-0051：直连要求**形状完全一致**）与模块契约自检。</item>
+    /// </list>
+    /// </remarks>
+    /// <param name="left">形状（可为 <see langword="null"/>）。</param>
+    /// <param name="right">形状（可为 <see langword="null"/>）。</param>
+    /// <returns>是否结构完全相同。</returns>
+    public static bool AreSame(ContractShape? left, ContractShape? right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left is null || right is null)
+        {
+            return false;
+        }
+
+        return (left, right) switch
+        {
+            (PrimitiveShape l, PrimitiveShape r) => l.Primitive == r.Primitive,
+            (BytesShape l, BytesShape r) => l.Length == r.Length,
+            (ArrayShape l, ArrayShape r) => l.Element == r.Element && l.Length == r.Length,
+            (StructShape l, StructShape r) => AreSameStruct(l, r),
+            _ => false,
+        };
+    }
+
+    private static bool AreSameStruct(StructShape left, StructShape right)
+    {
+        if (left.Fields.Count != right.Fields.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < left.Fields.Count; index++)
+        {
+            var (leftName, leftShape) = left.Fields[index];
+            var (rightName, rightShape) = right.Fields[index];
+
+            if (!string.Equals(leftName, rightName, StringComparison.Ordinal) || !AreSame(leftShape, rightShape))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>原语的紧凑字面量（小写，与 SDK 文档一致）。</summary>
     /// <param name="primitive">原语。</param>
     public static string DescribePrimitive(ContractPrimitive primitive) => primitive switch

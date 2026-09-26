@@ -118,11 +118,14 @@ public class SdkSurfaceTests
     /// </summary>
     private sealed class DeclarationRecorder : IModuleContext
     {
-        public DeclarationRecorder() => Declaration = new DeclarationSink(DeclaredPorts, DeclaredViews);
+        public DeclarationRecorder() => Declaration = new DeclarationSink(DeclaredPorts, DeclaredViews, DeclaredDataTypes);
 
         public List<PortDeclaration> DeclaredPorts { get; } = [];
 
         public List<ViewDeclaration> DeclaredViews { get; } = [];
+
+        /// <summary>已声明的数据类型【ADR-0046 D2】。</summary>
+        public List<HYWDebugAssistant.Sdk.Contracts.DataTypeDeclaration> DeclaredDataTypes { get; } = [];
 
         public ModuleId ModuleId => ModuleId.Create("hyw", "test-host", "1.0.0");
 
@@ -142,9 +145,14 @@ public class SdkSurfaceTests
 
         public HYWDebugAssistant.Sdk.Context.IModuleInbox Inbox => null!;
 
-        private sealed class DeclarationSink(List<PortDeclaration> ports, List<ViewDeclaration> views)
+        private sealed class DeclarationSink(
+            List<PortDeclaration> ports,
+            List<ViewDeclaration> views,
+            List<HYWDebugAssistant.Sdk.Contracts.DataTypeDeclaration> types)
             : IModuleDeclaration
         {
+            public void DeclareDataType(HYWDebugAssistant.Sdk.Contracts.DataTypeDeclaration type) => types.Add(type);
+
             public void DeclarePort(PortDeclaration port) => ports.Add(port);
 
             public void DeclareView(ViewDeclaration view) => views.Add(view);

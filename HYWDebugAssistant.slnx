@@ -17,6 +17,7 @@
     <Project Path="src/Modules/Reference/Asserter/HYWDebugAssistant.Modules.Reference.Asserter.csproj" />
     <Project Path="src/Modules/Reference/ManualSender/HYWDebugAssistant.Modules.Reference.ManualSender.csproj" />
     <Project Path="src/Modules/Reference/Monitor/HYWDebugAssistant.Modules.Reference.Monitor.csproj" />
+    <Project Path="src/Modules/Reference/Fuser/HYWDebugAssistant.Modules.Reference.Fuser.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/HYWDebugAssistant.Tests/HYWDebugAssistant.Tests.csproj" />

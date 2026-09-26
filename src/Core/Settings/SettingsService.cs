@@ -214,6 +214,10 @@ public sealed class SettingsService
         settings.AccentColor = ReadString(root, "accentColor") ?? settings.AccentColor;
         settings.BackgroundMode = ReadString(root, "backgroundMode") ?? settings.BackgroundMode;
         settings.BackgroundColor = ReadString(root, "backgroundColor") ?? settings.BackgroundColor;
+
+        // 方向语义色【ADR-0044】：空串 = 跟随主题默认值（不校验色值：完全尊重用户输入，见裁决 D6）
+        settings.DirectionSendColor = ReadString(root, "directionSendColor") ?? settings.DirectionSendColor;
+        settings.DirectionReceiveColor = ReadString(root, "directionReceiveColor") ?? settings.DirectionReceiveColor;
         settings.ShellAspect = ReadString(root, "shellAspect") ?? settings.ShellAspect;
         settings.ShellFixedSize = ReadBool(root, "shellFixedSize", settings.ShellFixedSize);
 
@@ -238,6 +242,8 @@ public sealed class SettingsService
         root["accentColor"] = settings.AccentColor;
         root["backgroundMode"] = settings.BackgroundMode;
         root["backgroundColor"] = settings.BackgroundColor;
+        root["directionSendColor"] = settings.DirectionSendColor;
+        root["directionReceiveColor"] = settings.DirectionReceiveColor;
         root["shellAspect"] = settings.ShellAspect;
         root["shellFixedSize"] = settings.ShellFixedSize;
         root["snapDistance"] = settings.SnapDistance;

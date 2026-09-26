@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using HYWDebugAssistant.Hosting.Diagnostics;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Context;
+using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Views;
@@ -26,6 +27,7 @@ public sealed class ModuleContext : IModuleContext
 {
     private readonly List<PortDeclaration> _ports = [];
     private readonly List<ViewDeclaration> _views = [];
+    private readonly List<DataTypeDeclaration> _dataTypes = [];
     private readonly Dictionary<string, ReceiveHandler> _receiveHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, object> _configuration = new(StringComparer.Ordinal);
     private readonly Lock _configurationGate = new();
@@ -44,7 +46,7 @@ public sealed class ModuleContext : IModuleContext
         InstanceId = instanceId;
         ModuleId = moduleId;
 
-        Declaration = new DeclarationCollector(_ports, _views);
+        Declaration = new DeclarationCollector(_ports, _views, _dataTypes);
         Issues = new IssueReporter(issues, _objectPath);
         Log = new NullModuleLogger();
         State = new NullBusinessStateReporter();
@@ -86,6 +88,9 @@ public sealed class ModuleContext : IModuleContext
 
     /// <summary>已声明的口（按声明顺序）。</summary>
     public IReadOnlyList<PortDeclaration> DeclaredPorts => _ports;
+
+    /// <summary>已声明的**数据类型**（按声明顺序）【ADR-0046 D2】。</summary>
+    public IReadOnlyList<DataTypeDeclaration> DeclaredDataTypes => _dataTypes;
 
     /// <summary>已声明的视图（取首个）。</summary>
     public ViewDeclaration? DeclaredView => _views.Count > 0 ? _views[0] : null;
@@ -201,8 +206,17 @@ public sealed class ModuleContext : IModuleContext
 
     // ---------------------------------------------------------------- 内部实现
 
-    private sealed class DeclarationCollector(List<PortDeclaration> ports, List<ViewDeclaration> views) : IModuleDeclaration
+    private sealed class DeclarationCollector(
+        List<PortDeclaration> ports,
+        List<ViewDeclaration> views,
+        List<DataTypeDeclaration> types) : IModuleDeclaration
     {
+        public void DeclareDataType(DataTypeDeclaration type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            types.Add(type);
+        }
+
         public void DeclarePort(PortDeclaration port)
         {
             ArgumentNullException.ThrowIfNull(port);

@@ -163,7 +163,8 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     /// </summary>
     public ShellViewModel? Owner { get; set; }
 
-    private bool _showInfoOverlayFallback = true;
+    /// <summary>无 <see cref="Owner"/> 时的回退值（**默认关闭** —— ADR-0045 D1）。</summary>
+    private bool _showInfoOverlayFallback;
     private bool _appTopmostFallback;
 
     /// <summary>
@@ -288,6 +289,70 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
             ? new Avalonia.Media.SolidColorBrush(color)
             : Avalonia.Media.Brushes.Transparent;
 
+    // ---- 方向语义色【ADR-0044】----
+
+    /// <summary>
+    /// **发送方向色**（十六进制；**空 = 跟随主题默认值**）。
+    /// </summary>
+    /// <remarks>
+    /// 语义 = 「发送」这一**稳定方向**，消费者：网络标签箭头 / 网络标签边框 / 建网预览描边 / 叠加层流向箭头。
+    /// 与「主题色」**完全解耦**（用户第十四轮 D1a）：主题色只管选中/聚焦/活动等框架性交互。
+    /// </remarks>
+    [ObservableProperty]
+    public partial string DirectionSendColor { get; set; } = string.Empty;
+
+    /// <summary>**接收方向色**（十六进制；**空 = 跟随主题默认值**）。</summary>
+    [ObservableProperty]
+    public partial string DirectionReceiveColor { get; set; } = string.Empty;
+
+    /// <summary>发送色片显示用的画刷（未自定义时取**当前主题的有效方向色**，故切主题会跟着变）。</summary>
+    public Avalonia.Media.IBrush DirectionSendBrush => EffectiveDirectionBrush("DirectionSend", DirectionSendColor);
+
+    /// <summary>接收色片显示用的画刷（同上）。</summary>
+    public Avalonia.Media.IBrush DirectionReceiveBrush => EffectiveDirectionBrush("DirectionReceive", DirectionReceiveColor);
+
+    /// <summary>发送色文本（空 → 显示"跟随主题"，避免"色块有色、框里却空着"的困惑）。</summary>
+    public string DirectionSendText => string.IsNullOrWhiteSpace(DirectionSendColor) ? "跟随主题" : DirectionSendColor;
+
+    /// <summary>接收色文本（同上）。</summary>
+    public string DirectionReceiveText => string.IsNullOrWhiteSpace(DirectionReceiveColor) ? "跟随主题" : DirectionReceiveColor;
+
+    /// <summary>一键选发送色。</summary>
+    /// <param name="preset">预设档。</param>
+    [RelayCommand]
+    private void SelectDirectionSend(ThemeApplier.AccentPreset? preset)
+    {
+        if (preset is not null)
+        {
+            DirectionSendColor = preset.Hex;
+        }
+    }
+
+    /// <summary>一键选接收色。</summary>
+    /// <param name="preset">预设档。</param>
+    [RelayCommand]
+    private void SelectDirectionReceive(ThemeApplier.AccentPreset? preset)
+    {
+        if (preset is not null)
+        {
+            DirectionReceiveColor = preset.Hex;
+        }
+    }
+
+    /// <summary>取"用户填了就用用户的，没填就用当前主题的内置值"的画刷。</summary>
+    private static Avalonia.Media.IBrush EffectiveDirectionBrush(string resourceKey, string hex)
+    {
+        if (ThemeApplier.Parse(hex) is { } configured)
+        {
+            return new Avalonia.Media.SolidColorBrush(configured);
+        }
+
+        return Avalonia.Application.Current?.TryGetResource(resourceKey, null, out var resource) == true
+            && resource is Avalonia.Media.IBrush brush
+            ? brush
+            : Avalonia.Media.Brushes.Transparent;
+    }
+
     /// <summary>一键选主题色（设置界面按钮用）。</summary>
     /// <param name="preset">预设档。</param>
     [RelayCommand]
@@ -300,7 +365,13 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     }
 
     // 外观改动**即时生效**（ADR-0038 D4：主题/主题色/背景在线生效，与 §7.1 全在线变更一致）
-    partial void OnThemeChanged(string value) => ApplyAppearance();
+    // 注意：主题切换后**方向色片要重读资源**（未自定义时取的是"当前主题的有效值"）⇒ 通知放到 Apply 之后
+    partial void OnThemeChanged(string value)
+    {
+        ApplyAppearance();
+        OnPropertyChanged(nameof(DirectionSendBrush));
+        OnPropertyChanged(nameof(DirectionReceiveBrush));
+    }
 
     partial void OnAccentColorChanged(string value)
     {
@@ -313,6 +384,21 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     partial void OnBackgroundColorChanged(string value)
     {
         OnPropertyChanged(nameof(BackgroundBrush));
+        ApplyAppearance();
+    }
+
+    // 方向色【ADR-0044】：改动即时生效；**不做任何合法性/对比度提示**（裁决 D6：完全尊重用户选择）
+    partial void OnDirectionSendColorChanged(string value)
+    {
+        OnPropertyChanged(nameof(DirectionSendBrush));
+        OnPropertyChanged(nameof(DirectionSendText));
+        ApplyAppearance();
+    }
+
+    partial void OnDirectionReceiveColorChanged(string value)
+    {
+        OnPropertyChanged(nameof(DirectionReceiveBrush));
+        OnPropertyChanged(nameof(DirectionReceiveText));
         ApplyAppearance();
     }
 
@@ -333,6 +419,8 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         settings.AccentColor = AccentColor;
         settings.BackgroundMode = BackgroundMode;
         settings.BackgroundColor = BackgroundColor;
+        settings.DirectionSendColor = DirectionSendColor;
+        settings.DirectionReceiveColor = DirectionReceiveColor;
         return settings;
     }
 
@@ -398,6 +486,8 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         AccentColor = settings.AccentColor;
         BackgroundMode = settings.BackgroundMode;
         BackgroundColor = settings.BackgroundColor;
+        DirectionSendColor = settings.DirectionSendColor;
+        DirectionReceiveColor = settings.DirectionReceiveColor;
         ShellAspect = settings.ShellAspect;
         ShellFixedSize = settings.ShellFixedSize;
         LogLevel = settings.LogLevel;
@@ -609,6 +699,8 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         settings.AccentColor = AccentColor;
         settings.BackgroundMode = BackgroundMode;
         settings.BackgroundColor = BackgroundColor;
+        settings.DirectionSendColor = DirectionSendColor;
+        settings.DirectionReceiveColor = DirectionReceiveColor;
         settings.ShellAspect = ShellAspect;
         settings.ShellFixedSize = ShellFixedSize;
         settings.ModuleSourceDirectories = [.. ModuleSourceDirectories];
@@ -644,6 +736,8 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
             AccentColor = current.AccentColor;
             BackgroundMode = current.BackgroundMode;
             BackgroundColor = current.BackgroundColor;
+            DirectionSendColor = current.DirectionSendColor;
+            DirectionReceiveColor = current.DirectionReceiveColor;
             ShellAspect = current.ShellAspect;
             ShellFixedSize = current.ShellFixedSize;
             _lastLoaded = current;
