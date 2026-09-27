@@ -688,54 +688,101 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<DataRoleView> GetDataRoles(string instanceId)
+    /// <inheritdoc />
+    public IReadOnlyList<RoleView> GetRoles(string instanceId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
 
         if (!_runtime.Content.TryGetInstance(instanceId, out var instance) || instance is null)
         {
-            return [];   // 不存在 / 占位实例（无口）⇒ **空角色集合**（ADR-0048 R4）
+            return [];   // 不存在 / 占位实例 ⇒ 无角色（叠加层不画方块）
         }
 
-        var roles = DataRoleModel.Collect(instance, port => _runtime.DescribePortTypeKey(instanceId, port));
+        var networks = _runtime.Content.Networks.ToList();
 
-        // 口级连接数按角色归属（一个角色的多个口各自可能连着）
-        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var (source, target, _) in _runtime.DescribePortLinks())
+        // **按网络聚合的通路诊断**（键 = `NetworkKey`）——角色维度的速率/投递/丢弃由它聚合而来（ADR-0053）。
+        // 【实测踩坑】`BindingDiagnosticView.Key` 是**逐源键**（`源 → 宿子集`，多源下按源归属），
+        // 与 **`NetworkKey`**（= `DescribeKey(网络)`）**不是同一个键**：早先按 `Key` 建表、用网络键查 ⇒ 永远查不到
+        // ⇒ 角色的速率恒为 0（界面上恒显示占位符）。⇒ 这里一律用 `NetworkKey` 建表（一个网络把所有源加起来）。
+        var byNetwork = new Dictionary<string, (double Rate, long Delivered, long Dropped)>(StringComparer.Ordinal);
+
+        foreach (var diagnostic in GetDiagnostics())
         {
-            var local = source.InstanceId == instanceId ? source
-                : target.InstanceId == instanceId ? target
-                : default;
-
-            if (string.IsNullOrEmpty(local.InstanceId))
+            if (diagnostic.NetworkKey is not { Length: > 0 } networkKey)
             {
                 continue;
             }
 
-            var key = DataRoleModel.RoleKey(
-                local.Direction == PortDirection.Send,
-                _runtime.DescribePortTypeKey(local.InstanceId, FindPortOrThrow(local)));
-
-            counts[key] = counts.GetValueOrDefault(key) + 1;
+            byNetwork.TryGetValue(networkKey, out var sum);
+            byNetwork[networkKey] = (
+                sum.Rate + diagnostic.BusByteRate,
+                sum.Delivered + diagnostic.Delivered,
+                sum.Dropped + diagnostic.DropTransport);
         }
 
-        var views = new List<DataRoleView>(roles.Count);
-        foreach (var role in roles)
+        string PeerRoleKeyOf(string peerInstanceId, string peerPortName)
         {
-            views.Add(new DataRoleView(
-                role.Key,
-                role.IsSend,
-                role.TypeKey,
-                role.TypeText,
-                role.Ports,
-                counts.GetValueOrDefault(role.Key)));
+            _ = _runtime.Content.TryGetInstance(peerInstanceId, out var peer);
+            var key = RoleModel.RoleKeyOf(peer, peerPortName);
+            return key.Length > 0 ? key : $"{peerInstanceId}/?";
+        }
+
+        var views = new List<RoleView>(instance.Roles.Count);
+
+        foreach (var role in instance.Roles)
+        {
+            var inbound = role.Inputs.Count == 0
+                ? (int?)null
+                : RoleModel.PeersOf(instance, role.Inputs, networks, PeerRoleKeyOf).Count;
+
+            var outbound = role.Outputs.Count == 0
+                ? (int?)null
+                : RoleModel.PeersOf(instance, role.Outputs, networks, PeerRoleKeyOf).Count;
+
+            var key = RoleModel.RoleKey(instanceId, role.Id);
+            var typeKey = $"{role.Type.TypeId}@v{role.Type.Version}";
+            var declaration = instance.FindDataType(role.Type);
+
+            // **角色自身的量**：产出侧优先（有输出口 ⇒ 看它发出去多少；纯汇分块 ⇒ 看它收进来多少）。
+            // **不把入/出两侧相加**：那是多条不同通路的和，会被读成"这块功能的总吞吐"（口径不清、无意义）。
+            var metricPorts = role.Outputs.Count > 0 ? role.Outputs : role.Inputs;
+
+            var rate = 0.0;
+            long delivered = 0;
+            long dropped = 0;
+
+            foreach (var networkKey in RoleModel.NetworksOf(instance, metricPorts, networks, ModuleRuntime.DescribeKey))
+            {
+                if (byNetwork.TryGetValue(networkKey, out var sum))
+                {
+                    rate += sum.Rate;
+                    delivered += sum.Delivered;
+                    dropped += sum.Dropped;
+                }
+            }
+
+            views.Add(new RoleView(
+                key,
+                role.Id,
+                role.DisplayName ?? string.Empty,
+                typeKey,
+                RoleModel.TypeTextOf(role, instance),
+                role.Inputs,
+                role.Outputs,
+                inbound,
+                outbound,
+                declaration is null ? string.Empty : string.Join(" / ", declaration.SemanticTags),
+                declaration?.Metering.NominalRateHz,
+                rate,
+                delivered,
+                dropped));
         }
 
         return views;
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<DataRolePairView> GetRolePairs(string instanceId)
+    public IReadOnlyList<RoleFlowView> GetRoleFlows(string instanceId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
 
@@ -744,64 +791,44 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             return [];
         }
 
-        // 聚合键 = （本端角色, 对端实例, 对端角色）——同键的多条连接只出一条线（ADR-0048 R6）
-        // 【陷阱】值元组存进字典后**取出的是副本**：计数必须**写回**，否则条数恒为 0（实测踩过）。
-        // `Networks` 是 List（引用类型）故其增改"看起来生效"，唯独计数会静默丢失——别被这一点骗过。
-        var pairs = new Dictionary<(string Local, string PeerInstance, string PeerRole), (int Count, List<string> Networks)>();
-
-        foreach (var (source, target, networkKey) in _runtime.DescribePortLinks())
+        string RoleKeyOf(string otherInstanceId, string portName)
         {
-            NetworkMember local;
-            NetworkMember peer;
-
-            if (string.Equals(source.InstanceId, instanceId, StringComparison.Ordinal))
-            {
-                local = source;
-                peer = target;
-            }
-            else if (string.Equals(target.InstanceId, instanceId, StringComparison.Ordinal))
-            {
-                local = target;
-                peer = source;
-            }
-            else
-            {
-                continue;
-            }
-
-            var localKey = DataRoleModel.RoleKey(
-                local.Direction == PortDirection.Send, _runtime.DescribePortTypeKey(local.InstanceId, FindPortOrThrow(local)));
-            var peerKey = DataRoleModel.RoleKey(
-                peer.Direction == PortDirection.Send, _runtime.DescribePortTypeKey(peer.InstanceId, FindPortOrThrow(peer)));
-
-            var key = (localKey, peer.InstanceId, peerKey);
-            if (!pairs.TryGetValue(key, out var entry))
-            {
-                entry = (0, []);
-            }
-
-            entry.Count++;
-            if (!entry.Networks.Contains(networkKey, StringComparer.Ordinal))
-            {
-                entry.Networks.Add(networkKey);
-            }
-
-            pairs[key] = entry;   // **写回**：值元组语义（不写回 ⇒ 条数丢失）
+            _ = _runtime.Content.TryGetInstance(otherInstanceId, out var other);
+            return RoleModel.RoleKeyOf(other, portName);
         }
 
-        return [.. pairs
-            .OrderBy(pair => pair.Key.Local, StringComparer.Ordinal)
-            .ThenBy(pair => pair.Key.PeerInstance, StringComparer.Ordinal)
-            .ThenBy(pair => pair.Key.PeerRole, StringComparer.Ordinal)
-            .Select(pair => new DataRolePairView(
-                pair.Key.Local,
-                pair.Key.PeerInstance,
-                pair.Key.PeerRole,
-                pair.Value.Count,
-                [.. pair.Value.Networks.OrderBy(k => k, StringComparer.Ordinal)]))];
+        var flows = RoleModel.FlowsOf(instance, _runtime.DescribePortLinks(), RoleKeyOf);
+
+        return [.. flows
+            .OrderBy(f => f.Key.Local, StringComparer.Ordinal)
+            .ThenBy(f => f.Key.PeerInstance, StringComparer.Ordinal)
+            .ThenBy(f => f.Key.PeerRole, StringComparer.Ordinal)
+            .Select(f => new RoleFlowView(
+                f.Key.Local,
+                f.Key.LocalIsSend,
+                f.Key.PeerInstance,
+                f.Key.PeerRole,
+                f.Value.Count,
+                [.. f.Value.Networks.OrderBy(k => k, StringComparer.Ordinal)]))];
     }
 
-    /// <summary>取端口实例（角色/连接枚举专用；调用前已确认该口存在）。</summary>
+    /// <inheritdoc />
+    public IReadOnlyList<RoleOrderView> GetRoleOrder(string instanceId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
+
+        if (!_runtime.Content.TryGetInstance(instanceId, out var instance) || instance is null)
+        {
+            return [];
+        }
+
+        return [.. instance.Flows.Select(f => new RoleOrderView(
+            RoleModel.RoleKey(instanceId, f.FromRoleId),
+            RoleModel.RoleKey(instanceId, f.ToRoleId),
+            f.Label))];
+    }
+
+    /// <summary>取端口实例（连接枚举专用；调用前已确认该口存在）。</summary>
     private Hosting.Instances.PortInstance FindPortOrThrow(Composition.NetworkMember member) =>
         _runtime.Content.TryGetInstance(member.InstanceId, out var instance) && instance is not null
             ? instance.FindPort(member.PortName) ?? throw new InvalidOperationException($"口不存在：{member}")
@@ -903,17 +930,23 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         foreach (var port in instance.Ports)
         {
             var connected = IsPortConnected(instance.InstanceId, port.Name);
+            var stalled = IsPortStalled(instance.InstanceId, port.Name);
             var geometry = _runtime.Content.Layout.GetPort(instance.InstanceId, port.Name);
             ports.Add(new PortView(
                 port.Name,
                 port.Direction.ToString(),
                 port.Declaration.Shape.SizeInBytes,
                 connected,
-                port.IsStalled,
+                stalled,
                 geometry.Offset,
                 geometry.IsLocked,
                 geometry.Label,
-                port.Declaration.Shape.Describe()));
+                port.Declaration.Shape.Describe())
+            {
+                // 【ADR-0048 R2 / ADR-0049 D6】**类型身份**（色板键）：已声明 ⇒ `标识@v版本`；未声明 ⇒ 结构描述。
+                // 与角色键**同一来源**（`DescribePortTypeKey`）⇒ 端口标记的窄色条与角色方块填充色永远一致。
+                TypeKey = _runtime.DescribePortTypeKey(instance.InstanceId, port),
+            });
         }
 
         return new ModuleInstanceView(
@@ -937,21 +970,48 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             Ports: [],
             IsPlaceholder: true);
 
-    private bool IsPortConnected(string instanceId, string portName)
+    /// <summary>
+    /// 口是否**已加入网络**（ADR-0048/0049 的**唯一来源** = 网络成员关系）。
+    /// </summary>
+    /// <remarks>
+    /// **为什么不用绑定**：停流网络（全部源未锚定）**不建立绑定**，但它在**声明上仍然是"连着"的**
+    /// —— 用户需要看到"本来连给谁"（ADR-0050 M5）。用绑定判会出现"停流 ⇒ 显示未连"，与 UI
+    /// （按 `GetNetworks()` 判定）**两处口径不一致**；用户裁定"**所有数据指标必须保证来源唯一**"
+    /// ⇒ 统一到**网络成员关系**这一处。
+    /// </remarks>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="portName">口名。</param>
+    private bool IsPortConnected(string instanceId, string portName) =>
+        FindPortNetwork(instanceId, portName) is not null;
+
+    /// <summary>口是否**停流**（唯一来源 = 所在网络的 <c>Network.IsStalled</c>，其本身是 `Sources.Count == 0` 的派生量）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="portName">口名。</param>
+    private bool IsPortStalled(string instanceId, string portName) =>
+        FindPortNetwork(instanceId, portName)?.IsStalled ?? false;
+
+    /// <summary>取口所在的网络（**声明成员关系**，含停流网络）；未入网 ⇒ <see langword="null"/>。</summary>
+    /// <remarks>
+    /// 一个口在**合法**情形下只属于一条网络（同名标签唯一 / 对齐建网唯一），但多源网络的宿成员可同时出现在
+    /// 多条网络里 ⇒ 命中多条时取**第一条命中**（呈现口径与 `ModuleWindowsViewModel` 的标记刷新一致）。
+    /// </remarks>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="portName">口名。</param>
+    private Composition.Network? FindPortNetwork(string instanceId, string portName)
     {
-        foreach (var binding in _runtime.Bindings.Bindings)
+        foreach (var network in _runtime.Content.Networks)
         {
-            foreach (var member in binding.Network.Members)
+            foreach (var member in network.Members)
             {
                 if (string.Equals(member.InstanceId, instanceId, StringComparison.Ordinal)
                     && string.Equals(member.PortName, portName, StringComparison.Ordinal))
                 {
-                    return true;
+                    return network;
                 }
             }
         }
 
-        return false;
+        return null;
     }
 
     private static CommandResult Map(ChangeSetResult result) =>

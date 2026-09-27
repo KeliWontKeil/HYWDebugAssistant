@@ -14,7 +14,8 @@ namespace HYWDebugAssistant.Ui.Controls;
 ///     内容区由视图侧加同宽内边距 —— 因此标记与内容**永不重叠**（用户反馈：标记"像覆盖了正常内容"）；</item>
 ///   <item><b>形态随边缘变化</b>（简单规则，不做过度设计）：左右边缘 = **竖排**（块窄而高、文字旋转 90°）；
 ///     上下边缘 = **横排**（块宽而扁、文字横排）。当前框架把发送口放右、接收口放左，上下分支为将来留口；</item>
-///   <item>位置只依赖边缘与偏移，窗口拉伸时按比例重排（与 <c>PortAnchorCalculator</c> 的等分规则一致）。</item>
+///   <item>位置只依赖边缘与偏移，窗口拉伸时按比例重排 —— **等分规则只在本面板里有一份实现**
+///     （曾另有一份 `PortAnchorCalculator`，只被测试使用、生产不用 ⇒ 同一规则两个来源，已删除）。</item>
 /// </list>
 /// </remarks>
 public sealed class PortMarkerPanel : Panel

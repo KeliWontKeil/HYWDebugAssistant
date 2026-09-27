@@ -119,6 +119,10 @@ public sealed class DataGeneratorModule : IModule, IActivitySource
         });
 
         // 视图：预置元素组合（模块不提供 View 类型 —— C1-3 / Q3-7）
+        // 【ADR-0052】角色 = 模块的功能分块：本模块是"产生数据"这一块（一种类型 + 一个输出口）
+        context.Declaration.DeclareRole(RoleDeclaration.Output(
+            "generate", CommonDataTypes.AnalogSampleRef, OutputPort, "数据发生"));
+
         context.Declaration.DeclareView(new ViewDeclaration(
             [
                 new ViewElement(ViewElementKind.Numeric, ValueSource, "当前值"),

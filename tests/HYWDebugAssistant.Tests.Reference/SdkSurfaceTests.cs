@@ -155,6 +155,16 @@ public class SdkSurfaceTests
 
             public void DeclarePort(PortDeclaration port) => ports.Add(port);
 
+            public void DeclareRole(HYWDebugAssistant.Sdk.Contracts.RoleDeclaration role)
+            {
+                // 测试替身：角色只用于呈现（ADR-0052），本替身不记录
+            }
+
+            public void DeclareFlow(FlowDeclaration flow)
+            {
+                // 测试替身：内部处理关系只用于呈现（ADR-0049 D13），本替身不记录
+            }
+
             public void DeclareView(ViewDeclaration view) => views.Add(view);
         }
     }

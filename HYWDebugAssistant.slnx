@@ -23,6 +23,7 @@
     <Project Path="tests/HYWDebugAssistant.Tests/HYWDebugAssistant.Tests.csproj" />
     <Project Path="tests/HYWDebugAssistant.Tests.Reference/HYWDebugAssistant.Tests.Reference.csproj" />
     <Project Path="tests/HYWDebugAssistant.ArchitectureTests/HYWDebugAssistant.ArchitectureTests.csproj" />
+    <Project Path="tests/HYWDebugAssistant.VisualSnapshots/HYWDebugAssistant.VisualSnapshots.csproj" />
     <Project Path="tests/HYWDebugAssistant.Benchmarks/HYWDebugAssistant.Benchmarks.csproj" />
   </Folder>
 </Solution>

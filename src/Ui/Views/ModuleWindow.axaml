@@ -85,6 +85,25 @@
         <Style Selector="Border.portMarker.send">
             <Setter Property="BorderBrush" Value="{DynamicResource DirectionSend}" />
         </Style>
+
+        <!--
+          **网络标签（端口标记）在叠加层里的待遇 = 做减法**【ADR-0053 · 用户第三十四轮】：
+          用户原话："网络标签不高亮**指的不是在上面覆盖一层**，我的意思是**做减法**，将网络标签也埋入灰色玻璃下方"。
+          ⇒ 实现方式是**层级**：`PortMarkers` 排在 `OverlayScrim` **之前**（见下方 Grid 子元素顺序）⇒ 遮罩自然把它压暗；
+          ⇒ **不再**给标记加"降权样式"（那是做加法，已被本裁定取代）。
+          下方只保留"名称/速率"的字色与字号（两者都**不依赖**叠加层开关）。
+        -->
+        <Style Selector="TextBlock.markerName">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        </Style>
+        <!--
+          **通路速率**（**通路维度**）【ADR-0053】：**常驻**在标记上（用户："速率显示常驻于网络标签上，**它不属于叠加层**"），
+          字号比名称小一号 ⇒ 层级清楚；未入网/无流量显示占位符（三个短横线）。
+        -->
+        <Style Selector="TextBlock.markerRate">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        </Style>
+
         <Style Selector="Border.dockHighlight">
             <Setter Property="BorderBrush" Value="{DynamicResource DirectionReceive}" />
         </Style>
@@ -155,24 +174,13 @@
             </Grid>
 
             <!--
-              **叠加信息层：遮罩（"灰玻璃"）**【ADR-0045 · 用户第十五轮】。
-              最简实现 = 一层半透明深色 + 其上的浅色信息（同"弹窗时主窗口变暗"的常见做法；不做背景模糊）。
-              目的（用户原话）："压暗模块自身内容，以突出叠加层的信息，减少凌乱程度"。
-              · 浓度 = `OverlayScrim` token（改这里就改观感）；**不进设置项**（用户裁决 D2：无需可调）；
-              · `IsHitTestVisible=False` ⇒ 双击改网络名、拖动、缩放照常；
-              · **层级**：在端口标记**之下**（标记不被压暗、保持清晰可点）；叠加层的**连线**则在标记**之上**。
-            -->
-            <Border Name="OverlayScrim"
-                    IsVisible="{Binding ShowInfoOverlay}"
-                    Background="{DynamicResource OverlayScrim}"
-                    IsHitTestVisible="False" />
-
-            <!--
               口标记层（**唯一建网入口**）：左边缘 = 接收口、右边缘 = 发送口。
               压在交互带之上 → 双击标记不会被拖动带/缩放手柄抢走。
               **本层自身不设背景**（不参与命中测试）：只有标记块命中，其余位置照常落到下面的交互带。
-              层级：**遮罩之下、叠加层连线之上**（ADR-0045 + 用户第十七轮）—— 标记不被压暗、可双击，
-              但叠加层的连线**跨过标记**（否则拼接处两个标记会遮掉 40px 连线，连接看起来没有意义）。
+              **层级（用户第三十四轮裁定：做减法）**：标记在**遮罩之下** ⇒ 叠加层开启时它跟着**沉下去**
+              （"网络标签不高亮" = 把它埋进灰色玻璃下方，而不是给它再上一层样式）；
+              标记仍在**交互带之上** ⇒ 叠加层开着时**照样双击可改网络名**（遮罩与图形层都不参与命中）。
+              叠加层的**连线仍跨过标记**（否则拼接处两个标记会遮掉 40px 连线，连接看起来没有意义）。
             -->
             <ItemsControl Name="PortMarkers"
                           ItemsSource="{Binding Ports}"
@@ -221,12 +229,13 @@
                                         <RotateTransform Angle="-90" />
                                     </LayoutTransformControl.LayoutTransform>
                                     <!--
-                                      槽位**固定**（内容变化不引起排版抖动）：色条(Auto=6) | 网络名(*) | 箭头(20) | 指示灯(Auto=8)。
+                                      槽位**固定**（内容变化不引起排版抖动）：
+                                        色条(Auto=6) | 网络名(*) | **通路速率(Auto，仅叠加层)** | 箭头(20) | 指示灯(Auto=8)。
                                       **槽位顺序 = 读数顺序**：内容整体旋转 −90°（把 (x,y) 映射为 (y,−x)）后，
                                       内容 x 小的一端落到屏幕**下方**（文字自下而上读），故"色条在最前、灯在最末"
                                       在屏幕上表现为 **灯在上端（贴端部）、色条在下端** —— 与用户草图的读数顺序一致。
                                     -->
-                                    <Grid ColumnDefinitions="Auto,*,20,Auto">
+                                    <Grid ColumnDefinitions="Auto,*,Auto,20,Auto">
                                         <!-- ① 窄颜色条：数据包类型（颜色映射待定 → Colors/PacketTypePalette） -->
                                         <Border Classes="typeStrip"
                                                 Grid.Column="0"
@@ -234,15 +243,29 @@
                                                 Background="{Binding TypeBrush}"
                                                 Margin="0" />
 
-                                        <!-- ② 网络名：吃剩余宽度，超长省略 -->
+                                        <!-- ② 网络名：吃剩余宽度，超长省略（前景色走样式 ⇒ 叠加层模式下可换次要色） -->
                                         <TextBlock Grid.Column="1"
+                                                   Classes="markerName"
                                                    Margin="4,0,2,0"
                                                    VerticalAlignment="Center"
                                                    FontSize="{DynamicResource PortMarkerFontSize}"
                                                    FontFamily="{DynamicResource FontData}"
-                                                   Foreground="{DynamicResource TextPrimary}"
                                                    TextTrimming="CharacterEllipsis"
                                                    Text="{Binding NetworkText}" />
+
+                                        <!--
+                                          ②b **通路速率**（**通路维度** · **常驻**）【ADR-0053 · 用户第三十四轮】：
+                                          用户："**网络标签上缺少速率显示，这才是'数据通路速率'**" + "速率显示**常驻**于网络标签上，
+                                          **它不属于叠加层**" ⇒ **始终显示**（不随叠加层开关）；比名称小一号、次要色；
+                                          未入网/无流量显示占位符。
+                                        -->
+                                        <TextBlock Grid.Column="2"
+                                                   Classes="markerRate"
+                                                   Margin="0,0,4,0"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="{DynamicResource PortMarkerRateFontSize}"
+                                                   FontFamily="{DynamicResource FontData}"
+                                                   Text="{Binding RateText}" />
 
                                         <!--
                                           ③ 方向箭头：**颜色 = 方向语义色**（`DirectionSend` 发送 / `DirectionReceive` 接收；
@@ -252,7 +275,8 @@
                                              · 本支旋转 −90° ⇒ **内容 y 增大 = 屏幕向右**，故 上/下 边距控制**屏幕左右**；
                                              · 当前 `0,0,0,2` ⇒ (0 − 2) ÷ 2 = −1 ⇒ 屏幕**向左 1px**；还差 1px 就把 2 改成 4（再左 1px）或 0（回中 1px）。
                                         -->
-                                        <TextBlock Grid.Column="2"
+                                        <TextBlock Grid.Column="3"
+                                                   Classes="markerArrow"
                                                    Margin="0,0,0,4"
                                                    HorizontalAlignment="Center"
                                                    VerticalAlignment="Center"
@@ -261,7 +285,8 @@
                                                    Foreground="{DynamicResource DirectionSend}"
                                                    IsVisible="{Binding IsSend}"
                                                    Text="{Binding Arrow}" />
-                                        <TextBlock Grid.Column="2"
+                                        <TextBlock Grid.Column="3"
+                                                   Classes="markerArrow"
                                                    Margin="0,0,0,4"
                                                    HorizontalAlignment="Center"
                                                    VerticalAlignment="Center"
@@ -278,7 +303,7 @@
                                           跨轴居中由 `VerticalAlignment="Center"` 保证（内容 y = 屏幕 x），无需额外边距。
                                         -->
                                         <ctrl:StateIndicator Classes="markerLamp"
-                                                             Grid.Column="3"
+                                                             Grid.Column="4"
                                                              Width="{DynamicResource PortMarkerLampSize}"
                                                              Height="{DynamicResource PortMarkerLampSize}"
                                                              Margin="0,0,5,0"
@@ -293,7 +318,7 @@
                                 </LayoutTransformControl>
 
                                 <!-- 横排（上下边缘）：正常方向（当前框架把口只放在左右，本支为将来留口）；同样槽位固定 -->
-                                <Grid ColumnDefinitions="Auto,*,20,Auto"
+                                <Grid ColumnDefinitions="Auto,*,Auto,20,Auto"
                                       IsVisible="{Binding !IsVertical}">
                                     <Border Classes="typeStrip"
                                             Grid.Column="0"
@@ -302,13 +327,22 @@
                                             Margin="0" />
 
                                     <TextBlock Grid.Column="1"
+                                               Classes="markerName"
                                                Margin="4,0,2,0"
                                                VerticalAlignment="Center"
                                                FontSize="{DynamicResource PortMarkerFontSize}"
                                                FontFamily="{DynamicResource FontData}"
-                                               Foreground="{DynamicResource TextPrimary}"
                                                TextTrimming="CharacterEllipsis"
                                                Text="{Binding NetworkText}" />
+
+                                    <!-- ②b 通路速率（**常驻**，见竖排分支的同一说明） -->
+                                    <TextBlock Grid.Column="2"
+                                               Classes="markerRate"
+                                               Margin="0,0,4,0"
+                                               VerticalAlignment="Center"
+                                               FontSize="{DynamicResource PortMarkerRateFontSize}"
+                                               FontFamily="{DynamicResource FontData}"
+                                               Text="{Binding RateText}" />
 
                                     <!--
                                       ③ 方向箭头：**颜色 = 方向语义色**（`DirectionSend` / `DirectionReceive`，ADR-0044）。
@@ -316,7 +350,8 @@
                                       本支**无旋转** ⇒ 内容 y 增大 = **屏幕向下**，故 上/下 边距控制**屏幕上下**；
                                       当前 `0,0,0,2` = 屏幕**向上 1px**（把字形墨迹拉回中线）。
                                     -->
-                                    <TextBlock Grid.Column="2"
+                                    <TextBlock Grid.Column="3"
+                                               Classes="markerArrow"
                                                Margin="0,0,0,2"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"
@@ -325,7 +360,8 @@
                                                Foreground="{DynamicResource DirectionSend}"
                                                IsVisible="{Binding IsSend}"
                                                Text="{Binding Arrow}" />
-                                    <TextBlock Grid.Column="2"
+                                    <TextBlock Grid.Column="3"
+                                               Classes="markerArrow"
                                                Margin="0,0,0,2"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"
@@ -340,7 +376,7 @@
                                       调间距 = 改 `Margin` 的**第 3 个数**（右对齐 ⇒ 1:1，本支无旋转 ⇒ 直接就是"离右端 5px"）。
                                     -->
                                     <ctrl:StateIndicator Classes="markerLamp"
-                                                         Grid.Column="3"
+                                                         Grid.Column="4"
                                                          Width="{DynamicResource PortMarkerLampSize}"
                                                          Height="{DynamicResource PortMarkerLampSize}"
                                                          Margin="0,0,5,0"
@@ -414,23 +450,51 @@
             </ItemsControl>
 
             <!--
-              **叠加信息层：图形与信息**【ADR-0039 D5 → ADR-0045 重设计】：
-              中心类型方块 + 连线 + 流向箭头 + 信息；**画在端口标记之上**。
-              · 连线**从中心方块出发、穿过标记、到窗口边界**（旧实现从"标记中心"出发 ⇒ 线只有 10px，像坏掉）；
-              · **必须压在标记之上**（用户第十七轮反馈）：标记是不透明块（20px 宽），连线若在其下，
-                两个模块拼接处会被**两个标记遮住 40px**，整条连接看起来"从标签连到中心"、失去意义；
-                压在标记之上后，连线**跨过网络标签、直接连向对端**（跨过公共边与对端的半段相接）。
-              · 线色 = 本端方向色 → **两端方向色的中点色**渐变 ⇒ 两个窗口各画一半，在公共边颜色**自然相接**；
-              · 粗虚线 + 共享 20Hz 时钟推进虚线相位 ⇒ "看起来在流动"，方向跟数据流一致；
-              · 拼接（接触）时不标对端，未拼接时末端淡出 + 标对端（对端标签已避开 20px 标记带）。
+              **叠加信息层：遮罩（"灰玻璃"）**【ADR-0045 立 · **层级由 ADR-0053 修订**】。
+              最简实现 = 一层半透明深色 + 其上的浅色信息（同"弹窗时主窗口变暗"的常见做法；不做背景模糊）。
+              目的（用户原话）："压暗模块自身内容，以突出叠加层的信息，减少凌乱程度"。
+              · 浓度 = `OverlayScrim` token（改这里就改观感）；**不进设置项**（用户裁决 D2：无需可调）；
+              · `IsHitTestVisible=False` ⇒ 双击改网络名、拖动、缩放照常（命中穿透到下面的端口标记）；
+              · **层级（用户第三十四轮："做减法"）**：遮罩**在端口标记之上**（标记随之沉下去，不再"高亮"——
+                用户原话："网络标签不高亮**指的不是在上面覆盖一层**……我的意思是**做减法**，将网络标签也埋入灰色玻璃下方"），
+                但在**叠加层图形之下**（角色方块与连线保持明亮）⇒ 视觉上"接口层沉下去、角色层浮上来"。
+                ⇒ 端口标记**不再需要任何降权样式**（给它加样式是在做加法，已被本裁定取代）。
+            -->
+            <Border Name="OverlayScrim"
+                    IsVisible="{Binding ShowInfoOverlay}"
+                    Background="{DynamicResource OverlayScrim}"
+                    IsHitTestVisible="False" />
+
+            <!--
+              **叠加信息层：图形与信息**【ADR-0039 D5 → ADR-0045 → ADR-0049 → **ADR-0052/0053**】：
+              **角色功能块**（= 模块声明的功能分块）+ **角色间数据线** + **角色自身的信息文字** + 模块内部顺序线。
+              · 方块：**单列居中、宽度随文本自适应** · 填充 = 类型色（按类型**身份**）· 左/右接口边 = 接收/发送方向色；
+              · 角色信息：**方块上方的纯文字**（速率 / 投递·丢弃 / 类型语义），**不画文本框**；
+              · 对外线：端点 = **两个角色方块中心**，各窗自裁 + 裁掉方块内部；颜色渐变到"中点色"（两窗公共边颜色相接）；
+                虚线**沿数据流方向**流动（发送向外、接收向内）；**线上不写任何文字**；
+              · 内部线（`RoleOrder` = 模块声明的处理顺序）：**细实线 + 中性色 + 不流动** —— 它是**结构**，不是流量；
+              · **必须压在端口标记与遮罩之上**（用户第十七轮 + 第三十四轮）：标记是不透明块（20px 宽），连线若在其下，
+                两个模块拼接处会被**两个标记遮住 40px**，整条连接看起来"从标签连到中心"、失去意义。
+              · **`Margin="-1"` 抵消 `Frame` 的 1px 边框**：让叠加层的画布**正好等于窗口客户区**
+                （否则 `Bounds` 比窗口小 2 DIP ⇒ 与"对端算出的本窗方块位置"不一致 ⇒ 连线错位；
+                顺带让连线**画到窗口真正的外沿**，两窗拼接处的两段能严丝合缝相接）。
+              · **单位**：`CanvasWidth/CanvasHeight` 由视图模型给出**DIP**（模型几何是物理像素，只在那两处换算）。
             -->
             <ctrl:ConnectionOverlay Name="Overlay"
-                                    Ports="{Binding Ports}"
+                                    Roles="{Binding Roles}"
+                                    RoleLinks="{Binding RoleLinks}"
+                                    RoleOrder="{Binding RoleOrder}"
+                                    IdentityText="{Binding OverlayInfo.Identity}"
+                                    NoticeText="{Binding OverlayInfo.Notice}"
                                     IsVisible="{Binding ShowInfoOverlay}"
                                     InstanceId="{Binding InstanceId}"
                                     ModuleTitle="{Binding Title}"
+                                    CanvasWidth="{Binding CanvasWidth}"
+                                    CanvasHeight="{Binding CanvasHeight}"
+                                    Margin="-1"
                                     SendArrowBrush="{DynamicResource DirectionSend}"
                                     ReceiveArrowBrush="{DynamicResource DirectionReceive}"
+                                    FlowLineBrush="{DynamicResource OverlayFlow}"
                                     InkBrush="{DynamicResource OverlayInk}"
                                     InkMutedBrush="{DynamicResource OverlayInkMuted}"
                                     IsHitTestVisible="False" />

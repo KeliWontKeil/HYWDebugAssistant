@@ -28,6 +28,8 @@ public sealed class ModuleContext : IModuleContext
     private readonly List<PortDeclaration> _ports = [];
     private readonly List<ViewDeclaration> _views = [];
     private readonly List<DataTypeDeclaration> _dataTypes = [];
+    private readonly List<FlowDeclaration> _flows = [];
+    private readonly List<RoleDeclaration> _roles = [];
     private readonly Dictionary<string, ReceiveHandler> _receiveHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, object> _configuration = new(StringComparer.Ordinal);
     private readonly Lock _configurationGate = new();
@@ -46,7 +48,7 @@ public sealed class ModuleContext : IModuleContext
         InstanceId = instanceId;
         ModuleId = moduleId;
 
-        Declaration = new DeclarationCollector(_ports, _views, _dataTypes);
+        Declaration = new DeclarationCollector(_ports, _views, _dataTypes, _flows, _roles);
         Issues = new IssueReporter(issues, _objectPath);
         Log = new NullModuleLogger();
         State = new NullBusinessStateReporter();
@@ -91,6 +93,12 @@ public sealed class ModuleContext : IModuleContext
 
     /// <summary>已声明的**数据类型**（按声明顺序）【ADR-0046 D2】。</summary>
     public IReadOnlyList<DataTypeDeclaration> DeclaredDataTypes => _dataTypes;
+
+    /// <summary>已声明的**内部处理关系**（按声明顺序）【ADR-0052】——合法性由工厂在成员实例化后统一校验。</summary>
+    public IReadOnlyList<FlowDeclaration> DeclaredFlows => _flows;
+
+    /// <summary>已声明的**角色**（按声明顺序）【ADR-0052】——合法性由工厂在成员实例化后统一校验。</summary>
+    public IReadOnlyList<RoleDeclaration> DeclaredRoles => _roles;
 
     /// <summary>已声明的视图（取首个）。</summary>
     public ViewDeclaration? DeclaredView => _views.Count > 0 ? _views[0] : null;
@@ -209,7 +217,9 @@ public sealed class ModuleContext : IModuleContext
     private sealed class DeclarationCollector(
         List<PortDeclaration> ports,
         List<ViewDeclaration> views,
-        List<DataTypeDeclaration> types) : IModuleDeclaration
+        List<DataTypeDeclaration> types,
+        List<FlowDeclaration> flows,
+        List<RoleDeclaration> roles) : IModuleDeclaration
     {
         public void DeclareDataType(DataTypeDeclaration type)
         {
@@ -221,6 +231,18 @@ public sealed class ModuleContext : IModuleContext
         {
             ArgumentNullException.ThrowIfNull(port);
             ports.Add(port);
+        }
+
+        public void DeclareRole(RoleDeclaration role)
+        {
+            ArgumentNullException.ThrowIfNull(role);
+            roles.Add(role);
+        }
+
+        public void DeclareFlow(FlowDeclaration flow)
+        {
+            ArgumentNullException.ThrowIfNull(flow);
+            flows.Add(flow);
         }
 
         public void DeclareView(ViewDeclaration view)

@@ -34,6 +34,29 @@ public interface IModuleDeclaration
     /// <summary>声明一个口成员（方向两态；口名模块内唯一）。</summary>
     void DeclarePort(PortDeclaration port);
 
+    /// <summary>
+    /// 声明一个**角色**（模块的功能分块：一种数据类型 + 其输入口/输出口）【ADR-0052】。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>角色 = 模块内部数据处理功能的抽象</b>（"我有哪几块处理功能"），与**网络标签/端口标记**
+    ///     （数据接口的抽象）**不是同一层级** —— 叠加层只画角色，接口仍由端口标记表达；</item>
+    ///   <item>一个角色**只有一种类型**；**口通常各 1 个**（多源融合器 = 2 入 1 出，允许）；一个口**最多属于一个角色**；</item>
+    ///   <item>**只呈现**：不参与建网 / 契约兼容 / 停流 / 投递 / 计量，也不进组合件（ADR-0048 R9）；</item>
+    ///   <item>声明即契约：有数据口的模块**应当**声明角色；未声明 ⇒ 叠加层不画方块（自检与运行期会提示）。</item>
+    /// </list>
+    /// </remarks>
+    /// <param name="role">角色声明。</param>
+    void DeclareRole(RoleDeclaration role);
+
+    /// <summary>
+    /// 声明一条**模块内部的处理顺序**（`角色 → 角色`）【ADR-0052 · 修订 ADR-0049 D13】——
+    /// 表达"分块之间的先后"（如"融合 → 限幅"）。单分块模块**零声明**。
+    /// </summary>
+    /// <remarks>只呈现：不参与建网/兼容/停流/投递/计量，也不进组合件；两端角色必须已声明（否则报 Issue 并忽略该条）。</remarks>
+    /// <param name="flow">内部处理关系（角色 → 角色）。</param>
+    void DeclareFlow(FlowDeclaration flow);
+
     /// <summary>声明视图（预置元素组合；不声明 = 无 UI 模块，合法）。</summary>
     void DeclareView(ViewDeclaration view);
 }

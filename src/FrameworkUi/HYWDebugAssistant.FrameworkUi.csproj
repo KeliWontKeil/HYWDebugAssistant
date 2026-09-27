@@ -12,6 +12,8 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia" />
+    <!-- 调色板窗口的 ColorView【ADR-0054 · 用户：内置一个可被所有颜色选择处复用的调色板窗口】 -->
+    <PackageReference Include="Avalonia.Controls.ColorPicker" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
   </ItemGroup>
 

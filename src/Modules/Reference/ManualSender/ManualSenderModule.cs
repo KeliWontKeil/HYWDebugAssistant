@@ -130,6 +130,10 @@ public sealed class ManualSenderModule : IModule, IActivitySource
         });
 
         // 【ADR-0040 D5】视图自上而下：必要信息（紧凑）→ 输入 + 发送 → 自动发送（开关 + 周期）→ 配置
+        // 【ADR-0052】角色 = 功能分块：手动发送
+        context.Declaration.DeclareRole(RoleDeclaration.Output(
+            "manual-send", CommonDataTypes.AnalogSampleRef, OutputPort, "手动发送"));
+
         context.Declaration.DeclareView(new ViewDeclaration(
             [
                 new ViewElement(ViewElementKind.Numeric, ValueSource, "待发送值"),

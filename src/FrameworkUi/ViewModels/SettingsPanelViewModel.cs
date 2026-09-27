@@ -274,9 +274,6 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     public IReadOnlyList<string> BackgroundOptions { get; } =
         [ThemeApplier.BackgroundTheme, ThemeApplier.BackgroundLightGray, ThemeApplier.BackgroundDarkGray, ThemeApplier.BackgroundCustom];
 
-    /// <summary>预设主题色（名称 + 十六进制，供"一键选色"）。</summary>
-    public IReadOnlyList<ThemeApplier.AccentPreset> AccentPresetList { get; } = ThemeApplier.Presets;
-
     /// <summary>当前主题色画刷（设置页的"色块"按钮显示它；用户在弹窗里改色）。</summary>
     public Avalonia.Media.IBrush AccentBrush =>
         ThemeApplier.Parse(AccentColor) is { } color
@@ -317,28 +314,6 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     /// <summary>接收色文本（同上）。</summary>
     public string DirectionReceiveText => string.IsNullOrWhiteSpace(DirectionReceiveColor) ? "跟随主题" : DirectionReceiveColor;
 
-    /// <summary>一键选发送色。</summary>
-    /// <param name="preset">预设档。</param>
-    [RelayCommand]
-    private void SelectDirectionSend(ThemeApplier.AccentPreset? preset)
-    {
-        if (preset is not null)
-        {
-            DirectionSendColor = preset.Hex;
-        }
-    }
-
-    /// <summary>一键选接收色。</summary>
-    /// <param name="preset">预设档。</param>
-    [RelayCommand]
-    private void SelectDirectionReceive(ThemeApplier.AccentPreset? preset)
-    {
-        if (preset is not null)
-        {
-            DirectionReceiveColor = preset.Hex;
-        }
-    }
-
     /// <summary>取"用户填了就用用户的，没填就用当前主题的内置值"的画刷。</summary>
     private static Avalonia.Media.IBrush EffectiveDirectionBrush(string resourceKey, string hex)
     {
@@ -351,17 +326,6 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
             && resource is Avalonia.Media.IBrush brush
             ? brush
             : Avalonia.Media.Brushes.Transparent;
-    }
-
-    /// <summary>一键选主题色（设置界面按钮用）。</summary>
-    /// <param name="preset">预设档。</param>
-    [RelayCommand]
-    private void SelectAccent(ThemeApplier.AccentPreset? preset)
-    {
-        if (preset is not null)
-        {
-            AccentColor = preset.Hex;
-        }
     }
 
     // 外观改动**即时生效**（ADR-0038 D4：主题/主题色/背景在线生效，与 §7.1 全在线变更一致）
@@ -524,6 +488,42 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     public event EventHandler? Applied;
 
     /// <summary>当前生效的快捷键绑定（供外壳重建绑定；空绑定 = 不绑定，值为空串）。</summary>
+    /// <summary>
+    /// 当前设置里的**数据结构 → 颜色**映射（键 = 类型身份，值 = `#RRGGBB`）【ADR-0054】。
+    /// </summary>
+    /// <returns>用户覆盖过的条目（缺省的类型走自动配色，不在此表里）。</returns>
+    public IReadOnlyDictionary<string, string> TypeColorOverrides() =>
+        new Dictionary<string, string>(_query.GetSettings().TypeColors, StringComparer.Ordinal);
+
+    /// <summary>
+    /// 写入/移除一条**数据结构 → 颜色**（**唯一落盘入口**；`hex = null` ⇒ 移除该条并回落到自动配色）。
+    /// </summary>
+    /// <param name="typeKey">类型身份。</param>
+    /// <param name="hex">`#RRGGBB`；null/空 ⇒ 移除覆盖。</param>
+    /// <remarks>只动 <c>TypeColors</c> 一项，其余字段从**当前设置**克隆后原样写回（不覆盖别的页面刚改的值）。</remarks>
+    public void SetTypeColor(string typeKey, string? hex)
+    {
+        if (string.IsNullOrWhiteSpace(typeKey))
+        {
+            return;
+        }
+
+        var settings = _query.GetSettings().Clone();
+
+        if (string.IsNullOrWhiteSpace(hex))
+        {
+            _ = settings.TypeColors.Remove(typeKey);
+        }
+        else
+        {
+            settings.TypeColors[typeKey] = hex;
+        }
+
+        _ = _command.UpdateSettings(settings);
+    }
+
+    /// <summary>取当前生效的快捷键绑定（动作标识 → 绑定文本）。</summary>
+    /// <returns>绑定表。</returns>
     public IReadOnlyDictionary<string, string> HotkeyBindings() =>
         Hotkeys.ToDictionary(row => row.ActionId, row => row.Binding, StringComparer.Ordinal);
 

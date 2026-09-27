@@ -366,6 +366,48 @@ public class ModuleWindowsTests
     }
 
     [Fact]
+    public void 外壳移动_拖动途中经过的模块不应被吸收进来()
+    {
+        // 【用户第三十四轮裁定："单独拖动主窗口时不进行吸附行为，更符合直觉"】
+        // 旧实现**逐帧**重算"谁与外壳接触" ⇒ 拖着外壳**经过**某个模块时，那一帧它被判成"已拼上"并跟着走
+        // ⇒ 现象："经过模块时导致模块**错位粘贴**在主窗口上（没有产生吸附行为却拼上去了）"。
+        // ⇒ 现在分组在**一次拖动开始时冻结**：拖动途中接触到的模块**不被吸收**（也不会被移动）。
+        using var harness = new UiHarness();
+        harness.Place("a", "test/ui-source/1.0.0", 600, 100);    // 一开始就贴在外壳右边缘（会跟随）
+        harness.Place("b", "test/ui-source/1.0.0", 1400, 100);   // 一开始离得很远（不该跟随）
+
+        harness.Windows.ShellRect = new CanvasRect(200, 100, 400, 160);
+        harness.Windows.Refresh();
+
+        // ① 拖动开始：外壳右移 120（a 跟随）
+        harness.Windows.ShellRect = new CanvasRect(320, 100, 400, 160);
+        harness.Windows.TranslateShellGroup(120, 0, new CanvasRect(200, 100, 400, 160));
+
+        harness.Windows.Modules.Single(m => m.InstanceId == "a").X.ShouldBe(720, "拖动开始时已拼上的模块照旧跟随");
+        harness.Windows.Modules.Single(m => m.InstanceId == "b").X.ShouldBe(1400, "没拼上的模块留在原处");
+
+        // ② 拖动**途中**：把 b 挪到"此刻的外壳右边缘"（模拟外壳扫过 b）
+        var b = harness.Windows.Modules.Single(m => m.InstanceId == "b");
+        b.X = 720;
+        b.Y = 100;
+
+        // 继续拖动：b 已被扫到，但**本次拖动**不得吸收它
+        harness.Windows.ShellRect = new CanvasRect(440, 100, 400, 160);
+        harness.Windows.TranslateShellGroup(120, 0, new CanvasRect(320, 100, 400, 160));
+
+        harness.Windows.Modules.Single(m => m.InstanceId == "a").X.ShouldBe(840);
+        harness.Windows.Modules.Single(m => m.InstanceId == "b").X.ShouldBe(720, "拖动途中接触 ≠ 拼上（不吸收新成员）");
+
+        // ③ 拖动结束（静默到期）后，让它**真的**贴到外壳右边缘，再拖一次：这时才进组
+        harness.Windows.EndShellDragGesture();
+        b.X = 840;   // = 此刻外壳的右边缘（440+400）
+        harness.Windows.ShellRect = new CanvasRect(560, 100, 400, 160);
+        harness.Windows.TranslateShellGroup(120, 0, new CanvasRect(440, 100, 400, 160));
+
+        harness.Windows.Modules.Single(m => m.InstanceId == "b").X.ShouldBe(960, "下一次拖动才按当时的拼合情况重新取组");
+    }
+
+    [Fact]
     public void 还原_尺寸应回到模块首选尺寸()
     {
         using var harness = new UiHarness();
@@ -1006,40 +1048,6 @@ public class ModuleWindowsTests
 
         SnapEngine.GroupOf("b", modules).Count.ShouldBe(3);
         SnapEngine.GroupOf("d", modules).ShouldBe(["d"], "孤立模块自成一组（不产生组记录）");
-    }
-
-    [Fact]
-    public void 端口锚点_按方向分边并按数量等分_用户调整后以几何为准()
-    {
-        var ports = new List<PortView>
-        {
-            new("rx", "Receive", 4, false, false),
-            new("tx", "Send", 4, false, false),
-        };
-
-        var anchors = PortAnchorCalculator.Compute(new CanvasRect(0, 0, 240, 120), ports);
-
-        anchors.Count.ShouldBe(2);
-        var rx = anchors.Single(a => a.PortName == "rx");
-        rx.Side.ShouldBe(PortSide.Left);
-        rx.X.ShouldBe(0);
-        rx.Y.ShouldBe(60, "单个端口位于边缘中点（等分）");
-
-        var tx = anchors.Single(a => a.PortName == "tx");
-        tx.Side.ShouldBe(PortSide.Right);
-        tx.X.ShouldBe(240);
-
-        var adjusted = PortAnchorCalculator.Compute(
-            new CanvasRect(0, 0, 240, 120),
-            ports,
-            name => name == "tx" ? new PortGeometryView("tx", 0.25, true) : new PortGeometryView(name));
-
-        adjusted.Single(a => a.PortName == "tx").Y.ShouldBe(30);
-        adjusted.Single(a => a.PortName == "rx").Y.ShouldBe(60);
-
-        PortAnchorCalculator.EvenOffset(0, 1).ShouldBe(0.5);
-        PortAnchorCalculator.EvenOffset(0, 2).ShouldBe(1d / 3);
-        PortAnchorCalculator.EvenOffset(1, 2).ShouldBe(2d / 3);
     }
 
     // ------------------------------------------------------------ 测试辅助

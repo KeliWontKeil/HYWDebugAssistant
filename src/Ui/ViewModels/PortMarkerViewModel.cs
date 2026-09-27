@@ -24,18 +24,24 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     /// <param name="isSend">是否为发送口。</param>
     /// <param name="label">网络标签（空 = 未命名，不参与命名网络）。</param>
     /// <param name="offset">在所属边缘上的归一化位置（0–1）。</param>
-    /// <param name="isConnected">是否已加入网络。</param>
-    /// <param name="isStalled">是否停流（合法状态，不是错误）。</param>
-    /// <param name="contractText">端口的**信息类型**描述（如 <c>f32</c>；null = 未知 → 显示占位符）。</param>
+    /// <param name="typeText">端口的**信息类型**描述（如 <c>f32</c>；null = 未知 → 显示占位符）。</param>
+    /// <param name="typeKey">
+    /// 端口的**类型身份**（`标识@v版本`；未声明类型 ⇒ 结构描述）——**色板键**【ADR-0049 D6】：
+    /// 颜色按身份映射，才能与角色方块同色、且不把"不同标识同形状"混为一色。
+    /// </param>
+    /// <remarks>
+    /// **不接收连接状态/停流状态**（用户裁定"数据指标来源唯一"）：二者由
+    /// <c>ModuleWindowsViewModel.RefreshMarkerStatus</c> 按网络成员关系**唯一生产**，
+    /// 构造时一律为初始值（未连、非停流）。
+    /// </remarks>
     public PortMarkerViewModel(
         string instanceId,
         string portName,
         bool isSend,
         string? label,
         double offset,
-        bool isConnected,
-        bool isStalled,
-        string? contractText = null)
+        string? typeText = null,
+        string? typeKey = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
         ArgumentException.ThrowIfNullOrWhiteSpace(portName);
@@ -45,9 +51,8 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
         IsSend = isSend;
         Label = string.IsNullOrWhiteSpace(label) ? null : label;
         Offset = Math.Clamp(offset, 0, 1);
-        IsConnected = isConnected;
-        IsStalled = isStalled;
-        TypeText = string.IsNullOrWhiteSpace(contractText) ? "—" : contractText;
+        TypeText = string.IsNullOrWhiteSpace(typeText) ? "—" : typeText;
+        TypeKey = string.IsNullOrWhiteSpace(typeKey) ? null : typeKey;
         EditText = Label ?? string.Empty;
     }
 
@@ -104,7 +109,14 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     [ObservableProperty]
     public partial bool IsDockCandidate { get; set; }
 
-    /// <summary>数据速率文本（如 <c>2.0 KB/s</c>；无流量为 <c>---</c>）。</summary>
+    /// <summary>
+    /// **通路速率**（**通路维度**）【ADR-0053 · 用户第三十四轮】：文本**常驻**显示在标记上
+    /// （用户："速率显示**常驻**于网络标签上，**它不属于叠加层**"）；未入网/无流量 = 占位符。
+    /// </summary>
+    /// <remarks>
+    /// 与角色方块上的"角色自身速率"是**两个维度**（读同一份框架诊断，表达对象不同）——
+    /// 详情见 ADR-0053 §2 D5。这里只存文本，数值由 <c>ModuleWindowsViewModel.RefreshMarkerStatus</c> 填。
+    /// </remarks>
     [ObservableProperty]
     public partial string RateText { get; set; } = "---";
 
@@ -123,37 +135,23 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     public partial string TypeText { get; set; } = "—";
 
     /// <summary>
-    /// **叠加信息层**用的对端信息（`实例.口名`；空 = 无对端或对端未装入）【M1-16 / ADR-0039 D5】。
+    /// 端口**类型身份**（色板键）【ADR-0049 D6】：已声明类型 ⇒ `标识@v版本`；未声明 ⇒ 结构描述；未知 ⇒ null。
     /// </summary>
+    /// <remarks>颜色**按身份**映射（不是按呈现文本）：与角色方块同色，且不会把"不同标识同形状"混为一色（ADR-0051）。</remarks>
+    public string? TypeKey { get; }
+
+    /// <summary>
+    /// **工具提示**用的对端信息（`实例.口名`；空 = 无对端或对端未装入）【M1-16 / ADR-0039 D5】。
+    /// </summary>
+    /// <remarks>
+    /// 【来源唯一】叠加层的**连线**不再读标记的对端方位（改由**角色对**驱动，ADR-0049 D4）——
+    /// 这里只服务**悬停提示**这一个消费者。曾经的 `PeerSide` / `PeerAdjacent` / `HasLink` 三个字段
+    /// 已随叠加层改造**删除**（它们与角色对是同一事实的第二个来源）。
+    /// </remarks>
     [ObservableProperty]
     public partial string? PeerText { get; set; }
 
-    /// <summary>对端所在的方位（决定连线画向哪条边；null = 不画线）。</summary>
-    [ObservableProperty]
-    public partial PortSide? PeerSide { get; set; }
-
-    /// <summary>
-    /// 对端是否**与本模块拼接贴合**（接触）【ADR-0045 · 用户第十五轮】。
-    /// </summary>
-    /// <remarks>
-    /// 叠加层用它决定连线末端怎么收尾：
-    /// · **贴合** ⇒ 渐变到"两端方向色的中点色"后**直接出窗**（对端那半段从同一个中点色继续 ⇒ 公共边颜色相接、视觉连续），
-    ///   且**不再标注对端**（线会延续到邻窗，标在缝上反而糊）；
-    /// · **未贴合** ⇒ 末端**淡出** + 标注对端 `实例.口名`（本窗内不装作"连上了"）。
-    /// </remarks>
-    [ObservableProperty]
-    public partial bool PeerAdjacent { get; set; }
-
-    /// <summary>是否可画连接线（已连接且已知对端方位）。</summary>
-    public bool HasLink => IsConnected && PeerSide is not null;
-
-    partial void OnPeerSideChanged(PortSide? value) => OnPropertyChanged(nameof(HasLink));
-
-    partial void OnPeerTextChanged(string? value)
-    {
-        OnPropertyChanged(nameof(HasLink));
-        OnPropertyChanged(nameof(Tooltip));
-    }
+    partial void OnPeerTextChanged(string? value) => OnPropertyChanged(nameof(Tooltip));
 
     /// <summary>编辑失败原因（**弹窗内就地显示**；空 = 无错误）。</summary>
     [ObservableProperty]
@@ -208,10 +206,17 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
 
     /// <summary>
     /// **窄颜色条 = 数据包类型**（用户第十三轮反馈）：
-    /// 标记上只留一条窄色条表明类型，**具体映射（类型 → 颜色）待定**；
-    /// 现在返回<a href="../../Styles/Tokens.axaml">占位色</a>，将来在此按 <see cref="TypeText"/> 查表即可（XAML 不用改）。
+    /// 颜色按**类型身份**（<see cref="TypeKey"/>）查 <see cref="PacketTypePalette"/>【ADR-0049 D6】——
+    /// 与叠加层的**角色方块填充色同源**（同一键 ⇒ 同一色，两处永远一致）；
+    /// 身份未知时回落类型文本（旧路径），再未知则占位色。
     /// </summary>
-    public Avalonia.Media.IBrush TypeBrush => PacketTypePalette.For(TypeText);
+    public Avalonia.Media.IBrush TypeBrush => PacketTypePalette.For(TypeKey ?? TypeText);
+
+    /// <summary>
+    /// **类型颜色改了 ⇒ 让绑定的 <see cref="TypeBrush"/> 重新求值**（色板是静态单例，不经过本视图模型）。
+    /// </summary>
+    /// <remarks>由"数据结构 → 颜色"映射表在改色后统一调用（用户第三十四轮新增该表）。</remarks>
+    public void RefreshTypeBrush() => OnPropertyChanged(nameof(TypeBrush));
 
     /// <summary>编辑框的帮助文本（**收进问号按钮的弹窗**，用户第十三轮反馈："提示信息收入帮助按钮"）。</summary>
     public string Hint => IsSend
@@ -273,7 +278,6 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
         OnPropertyChanged(nameof(NetworkText));
         OnPropertyChanged(nameof(State));
         OnPropertyChanged(nameof(Tooltip));
-        OnPropertyChanged(nameof(HasLink));
     }
 
     partial void OnIsStalledChanged(bool value)

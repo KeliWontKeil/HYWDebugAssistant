@@ -11,7 +11,10 @@
     <PackageVersion Include="Avalonia.Desktop" Version="12.1.2" />
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.2" />
     <PackageVersion Include="Avalonia.Controls.DataGrid" Version="12.1.2" />
+    <!-- 调色板窗口【ADR-0054】：Avalonia 官方 ColorView（MIT，与 Avalonia 同版本同源） -->
+    <PackageVersion Include="Avalonia.Controls.ColorPicker" Version="12.1.2" />
     <PackageVersion Include="Avalonia.Headless" Version="12.1.2" />
+    <PackageVersion Include="Avalonia.Skia" Version="12.1.2" />
     <!--
       注：**不引 Avalonia.Headless.XUnit**——它在 12.1.2 依赖 xunit **v3**，与本工程 xunit v2 冲突
       （CS0433：FactAttribute 同时存在于 xunit.core 与 xunit.v3.core）。

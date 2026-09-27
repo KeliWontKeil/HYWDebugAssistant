@@ -211,39 +211,13 @@
                         <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextSecondary}" Text="主题色" />
                         <!--
-                          【用户第十一轮反馈】颜色选择改为**弹出式窗口**：此处只显示一个当前色块，
-                          点开弹窗里选预设或填自定义色值 —— 不再把 8 个色块 + 输入框挤在行内。
+                          【调色板窗口】颜色选择统一走 **复用的调色板窗口**（ColorPickerDialog）：
+                          行内只留一个当前色块，点开窗口里取推荐色 / 光谱取色 / 十六进制 / RGB / 基本色。
+                          不再在行内挤 8 个色块 + 输入框 —— 全应用只有一种选色交互。
                         -->
                         <Button Grid.Column="1" Padding="0" Width="28" Height="24" MinHeight="24"
-                                ToolTip.Tip="选择主题色">
-                            <Button.Flyout>
-                                <Flyout Placement="BottomEdgeAlignedLeft">
-                                    <StackPanel Spacing="6" Width="228">
-                                        <TextBlock Classes="note" Text="预设" />
-                                        <ItemsControl ItemsSource="{Binding AccentPresetList}">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <WrapPanel />
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Button Width="24" Height="24" MinHeight="24" Padding="0" Margin="2"
-                                                            Background="{Binding Brush}"
-                                                            BorderBrush="{DynamicResource BorderStrong}"
-                                                            BorderThickness="1"
-                                                            ToolTip.Tip="{Binding Name}"
-                                                            Command="{Binding $parent[ItemsControl].((vm:SettingsPanelViewModel)DataContext).SelectAccentCommand}"
-                                                            CommandParameter="{Binding}" />
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                        <TextBlock Classes="note" Text="自定义（十六进制）" />
-                                        <TextBox FontFamily="{DynamicResource FontData}"
-                                                 Text="{Binding AccentColor, Mode=TwoWay}" />
-                                    </StackPanel>
-                                </Flyout>
-                            </Button.Flyout>
+                                ToolTip.Tip="选择主题色（调色板窗口）"
+                                Click="OnPickAccentColor">
                             <Border Width="24" Height="20" CornerRadius="3"
                                     Background="{Binding AccentBrush}"
                                     BorderBrush="{DynamicResource BorderStrong}"
@@ -261,16 +235,8 @@
                         <ComboBox Grid.Column="1" Width="140" ItemsSource="{Binding BackgroundOptions}"
                                   SelectedItem="{Binding BackgroundMode, Mode=TwoWay}" />
                         <Button Grid.Column="2" Margin="6,0,0,0" Padding="0" Width="28" Height="24" MinHeight="24"
-                                ToolTip.Tip="自定义背景色（背景档位选 Custom 时生效）">
-                            <Button.Flyout>
-                                <Flyout Placement="BottomEdgeAlignedLeft">
-                                    <StackPanel Spacing="6" Width="228">
-                                        <TextBlock Classes="note" Text="自定义背景色（十六进制）" />
-                                        <TextBox FontFamily="{DynamicResource FontData}"
-                                                 Text="{Binding BackgroundColor, Mode=TwoWay}" />
-                                    </StackPanel>
-                                </Flyout>
-                            </Button.Flyout>
+                                ToolTip.Tip="自定义背景色（背景档位选 Custom 时生效）"
+                                Click="OnPickBackgroundColor">
                             <Border Width="24" Height="20" CornerRadius="3"
                                     Background="{Binding BackgroundBrush}"
                                     BorderBrush="{DynamicResource BorderStrong}"
@@ -290,36 +256,8 @@
                                    ToolTip.Tip="网络标签的箭头与边框、建网预览描边、叠加层流向箭头（发送口）"
                                    Foreground="{DynamicResource TextSecondary}" Text="发送色" />
                         <Button Grid.Column="1" Padding="0" Width="28" Height="24" MinHeight="24"
-                                ToolTip.Tip="选择发送方向色（留空 = 跟随主题默认值）">
-                            <Button.Flyout>
-                                <Flyout Placement="BottomEdgeAlignedLeft">
-                                    <StackPanel Spacing="6" Width="228">
-                                        <TextBlock Classes="note" Text="预设" />
-                                        <ItemsControl ItemsSource="{Binding AccentPresetList}">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <WrapPanel />
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Button Width="24" Height="24" MinHeight="24" Padding="0" Margin="2"
-                                                            Background="{Binding Brush}"
-                                                            BorderBrush="{DynamicResource BorderStrong}"
-                                                            BorderThickness="1"
-                                                            ToolTip.Tip="{Binding Name}"
-                                                            Command="{Binding $parent[ItemsControl].((vm:SettingsPanelViewModel)DataContext).SelectDirectionSendCommand}"
-                                                            CommandParameter="{Binding}" />
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                        <TextBlock Classes="note" Text="自定义（十六进制；清空 = 跟随主题默认值）" />
-                                        <TextBox FontFamily="{DynamicResource FontData}"
-                                                 PlaceholderText="留空 = 跟随主题默认值"
-                                                 Text="{Binding DirectionSendColor, Mode=TwoWay}" />
-                                    </StackPanel>
-                                </Flyout>
-                            </Button.Flyout>
+                                ToolTip.Tip="选择发送方向色（调色板窗口；窗口内「恢复自动」= 跟随主题默认值）"
+                                Click="OnPickSendColor">
                             <Border Width="24" Height="20" CornerRadius="3"
                                     Background="{Binding DirectionSendBrush}"
                                     BorderBrush="{DynamicResource BorderStrong}"
@@ -335,36 +273,8 @@
                                    ToolTip.Tip="网络标签的箭头与边框、建网预览描边、叠加层流向箭头（接收口）"
                                    Foreground="{DynamicResource TextSecondary}" Text="接收色" />
                         <Button Grid.Column="1" Padding="0" Width="28" Height="24" MinHeight="24"
-                                ToolTip.Tip="选择接收方向色（留空 = 跟随主题默认值）">
-                            <Button.Flyout>
-                                <Flyout Placement="BottomEdgeAlignedLeft">
-                                    <StackPanel Spacing="6" Width="228">
-                                        <TextBlock Classes="note" Text="预设" />
-                                        <ItemsControl ItemsSource="{Binding AccentPresetList}">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <WrapPanel />
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Button Width="24" Height="24" MinHeight="24" Padding="0" Margin="2"
-                                                            Background="{Binding Brush}"
-                                                            BorderBrush="{DynamicResource BorderStrong}"
-                                                            BorderThickness="1"
-                                                            ToolTip.Tip="{Binding Name}"
-                                                            Command="{Binding $parent[ItemsControl].((vm:SettingsPanelViewModel)DataContext).SelectDirectionReceiveCommand}"
-                                                            CommandParameter="{Binding}" />
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                        <TextBlock Classes="note" Text="自定义（十六进制；清空 = 跟随主题默认值）" />
-                                        <TextBox FontFamily="{DynamicResource FontData}"
-                                                 PlaceholderText="留空 = 跟随主题默认值"
-                                                 Text="{Binding DirectionReceiveColor, Mode=TwoWay}" />
-                                    </StackPanel>
-                                </Flyout>
-                            </Button.Flyout>
+                                ToolTip.Tip="选择接收方向色（调色板窗口；窗口内「恢复自动」= 跟随主题默认值）"
+                                Click="OnPickReceiveColor">
                             <Border Width="24" Height="20" CornerRadius="3"
                                     Background="{Binding DirectionReceiveBrush}"
                                     BorderBrush="{DynamicResource BorderStrong}"

@@ -44,11 +44,19 @@
                 **【用户第十六轮反馈】浓度 0.55 → 0.85**：浅色主题下 55% 的遮罩把底子压成中灰（亮度 ≈ 0.21），
                 而方向色（`#EA580C` 亮度 ≈ 0.25 / `#0891B2` ≈ 0.24）与它对比度只有 **1.1 : 1**（几乎看不见）。
                 压到 85% 后底子亮度 ≈ 0.03 ⇒ 同样的颜色对比度升到 **3.6 : 1** 以上，且底部内容仍隐约可见。
+                **【用户第三十四轮二次修正】0.85 → 0.60**：用户裁定"**遮罩浓度降到 0.6 我同意**" ——
+                网络标签已改为**沉到遮罩之下**（做减法），0.85 会把它压得几乎读不出通路速率；0.6 既保留"灰玻璃"的层级感，
+                又能看见下面的标签与速率（对比度按 3 : 1 量级，够读）。
               · `OverlayInk` / `OverlayInkMuted`：叠层上的主/次文字色。
             -->
-            <SolidColorBrush x:Key="OverlayScrim" Color="#0B1220" Opacity="0.85" />
+            <SolidColorBrush x:Key="OverlayScrim" Color="#0B1220" Opacity="0.6" />
             <SolidColorBrush x:Key="OverlayInk" Color="#F8FAFC" />
             <SolidColorBrush x:Key="OverlayInkMuted" Color="#A5B4C8" />
+            <!--
+              **内部处理关系线**（ADR-0049 D13/Q11）：模块**自己的**结构（角色 → 角色），与数据面连接无关。
+              刻意用**中性低对比**色 ⇒ 用户一眼能分清"哪条是网络连接（方向色 + 流动虚线）、哪条只是模块内部结构"。
+            -->
+            <SolidColorBrush x:Key="OverlayFlow" Color="#8FA3BF" Opacity="0.85" />
         </ResourceDictionary>
 
         <ResourceDictionary x:Key="Dark">
@@ -74,9 +82,12 @@
             <SolidColorBrush x:Key="OverlayHighlight" Color="#3B82F6" Opacity="0.12" />
 
             <!-- 叠加层遮罩【ADR-0045】：深色主题下底子本来就深；同样压到 0.85 保证方向色/类型色有足够对比。 -->
-            <SolidColorBrush x:Key="OverlayScrim" Color="#05070D" Opacity="0.85" />
+            <!-- 【用户第三十四轮二次修正】浓度与浅色主题一致改为 0.60（理由见浅色分支的注释）。 -->
+            <SolidColorBrush x:Key="OverlayScrim" Color="#05070D" Opacity="0.6" />
             <SolidColorBrush x:Key="OverlayInk" Color="#F8FAFC" />
             <SolidColorBrush x:Key="OverlayInkMuted" Color="#A5B4C8" />
+            <!-- 内部处理关系线【ADR-0049 D13/Q11】：深色主题下略提亮，仍是**中性低对比**（不与方向色争）。 -->
+            <SolidColorBrush x:Key="OverlayFlow" Color="#9FB2CC" Opacity="0.85" />
         </ResourceDictionary>
 
     </ResourceDictionary.ThemeDictionaries>
@@ -118,6 +129,15 @@
     <x:Double x:Key="PortMarkerArrowFontSize">18</x:Double>
     <x:Double x:Key="PortMarkerLampSize">8</x:Double>
     <x:Double x:Key="PortMarkerStripWidth">6</x:Double>
+
+    <!--
+      **叠加层模式下的端口标记**（网络标签）【ADR-0053 · 用户第三十四轮】：用户裁定
+      "网络标签上缺少速率显示，这才是'数据通路速率'" + "叠加视图里网络标签不该被高亮"。
+      · PortMarkerRateFontSize —— 通路速率字号 **10**（比名称小一号 ⇒ 层级清楚，且与名称同排不挤）；
+      · 降权（不高亮）由 `ModuleWindow.axaml` 里的 `Border.portMarker.overlay` 样式组实现
+        （边框改中性、整体透明度降低；箭头/灯进一步降透明度）—— 与角色方块形成"两个维度"的视觉分工。
+    -->
+    <x:Double x:Key="PortMarkerRateFontSize">10</x:Double>
 
     <!--
       图标【M1-16 / ADR-0039 D7 · 用户第六轮反馈后改用系统图标字体】

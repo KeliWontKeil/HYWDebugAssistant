@@ -6,20 +6,39 @@ using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Testing;
 
-/// <summary>契约探针结果：声明面 + 问题清单。</summary>
+/// <summary>契约探针结果：声明面 + 问题清单 + 建议清单。</summary>
 /// <param name="EntryType">模块入口类型。</param>
 /// <param name="Ports">已声明的口。</param>
 /// <param name="View">已声明的视图（无 UI 模块为 <see langword="null"/>）。</param>
 /// <param name="Problems">契约问题（空 = 合法）；面向作者的**具体、可定位**描述。</param>
+/// <param name="Flows">已声明的**内部处理顺序**（角色 → 角色）。</param>
+/// <param name="Roles">已声明的**角色**（模块的功能分块）。</param>
+/// <param name="Advice">
+/// **建议**（不是错误）【ADR-0052 Q3】：与 <paramref name="Problems"/> **分通道**——
+/// `Problems` 的语义是"空 = 合法"（`IsValid`/`CheckAll`/门禁用例都按它写），
+/// 建议放进去会把"能跑但有话说"变成"不合法"。运行期**不产生**这类提示（不能在自家正确模块的 Issue 中心里报警）。
+/// </param>
 public sealed record ContractProbeResult(
     Type EntryType,
     IReadOnlyList<PortDeclaration> Ports,
     IReadOnlyList<DataTypeDeclaration> DataTypes,
     ViewDeclaration? View,
-    IReadOnlyList<string> Problems)
+    IReadOnlyList<string> Problems,
+    IReadOnlyList<FlowDeclaration>? Flows = null,
+    IReadOnlyList<RoleDeclaration>? Roles = null,
+    IReadOnlyList<string>? Advice = null)
 {
     /// <summary>契约是否合法。</summary>
     public bool IsValid => Problems.Count == 0;
+
+    /// <summary>已声明的**内部处理顺序**（`角色 → 角色`）【ADR-0052】。</summary>
+    public IReadOnlyList<FlowDeclaration> DeclaredFlows => Flows ?? [];
+
+    /// <summary>已声明的**角色**（功能分块；叠加层画出来的方块就是它们）【ADR-0052】。</summary>
+    public IReadOnlyList<RoleDeclaration> DeclaredRoles => Roles ?? [];
+
+    /// <summary>**建议**（空 = 没有可说的）；**不影响 <see cref="IsValid"/>**。</summary>
+    public IReadOnlyList<string> Advisories => Advice ?? [];
 }
 
 /// <summary>
@@ -39,6 +58,7 @@ public static class ModuleContract
         ArgumentNullException.ThrowIfNull(entryType);
 
         var problems = new List<string>();
+        var advice = new List<string>();
 
         if (!typeof(IModule).IsAssignableFrom(entryType))
         {
@@ -70,6 +90,8 @@ public static class ModuleContract
 
         CheckPorts(probeContext.DeclaredPorts, problems);
         CheckDataTypes(probeContext.DeclaredDataTypes, probeContext.DeclaredPorts, probeContext.DeclaredView, problems);
+        CheckRoles(probeContext.DeclaredRoles, probeContext.DeclaredPorts, probeContext.DeclaredDataTypes, problems, advice);
+        CheckFlows(probeContext.DeclaredFlows, probeContext.DeclaredRoles, problems);
         CheckView(probeContext.DeclaredView, problems);
         CheckConfiguration(entryType, problems);
 
@@ -78,11 +100,18 @@ public static class ModuleContract
             probeContext.DeclaredPorts,
             probeContext.DeclaredDataTypes,
             probeContext.DeclaredView,
-            problems);
+            problems,
+            probeContext.DeclaredFlows,
+            probeContext.DeclaredRoles,
+            advice);
     }
 
-    /// <summary>多个模块类型一次探测（返回全部问题）。</summary>
+    /// <summary>多个模块类型一次探测（返回全部**问题**）。</summary>
     /// <param name="entryTypes">模块入口类型集合。</param>
+    /// <remarks>
+    /// **只汇总问题、不含建议**：调用方（门禁用例、模块作者的"声明面应无问题"断言）按"空 = 合法"使用它；
+    /// 建议经 <see cref="Probe"/> 的 <see cref="ContractProbeResult.Advisories"/> 单独取用（ADR-0052 Q3）。
+    /// </remarks>
     public static IReadOnlyList<string> CheckAll(params Type[] entryTypes)
     {
         ArgumentNullException.ThrowIfNull(entryTypes);
@@ -239,6 +268,131 @@ public static class ModuleContract
             {
                 problems.Add(
                     $"数据源 '{source.Name}' 引用了本模块未声明的数据类型 {reference}——呈现层将拿不到模块解码器");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 校验**角色声明**（功能分块）【ADR-0052】：Id 唯一 · 类型可在本模块解析 · 口存在且方向相符 ·
+    /// **一个口最多属于一个角色** · 至少一个口；**口数 &gt; 2 时给建议**（进 <paramref name="advice"/>，**不是问题**）。
+    /// </summary>
+    /// <remarks>
+    /// 角色**只用于呈现**（叠加层画功能块与 `m/n`），不参与建网/兼容/投递 —— 因此这里的校验只回答
+    /// "画得出来吗、说得清吗"；**校验不了语义**（作者可以声明"融合"而代码里走别的路径：声明 ≠ 证明）。
+    /// **口数不设上限**（2 入 1 出的融合块是合法且最常见的多口形态）；该建议只提醒作者"多数分块只有一入一出"，
+    /// 并明说"多入一出/一入多出不必拆"，避免把一件功能硬拆成两块。
+    /// </remarks>
+    private static void CheckRoles(
+        IReadOnlyList<RoleDeclaration> roles,
+        IReadOnlyList<PortDeclaration> ports,
+        IReadOnlyList<DataTypeDeclaration> types,
+        List<string> problems,
+        List<string> advice)
+    {
+        var knownTypes = new HashSet<DataTypeRef>(types.Select(t => t.Reference));
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var claimed = new Dictionary<string, string>(StringComparer.Ordinal);
+        var withRoles = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var role in roles)
+        {
+            if (string.IsNullOrWhiteSpace(role.Id))
+            {
+                problems.Add("角色的标识为空（标识是角色的身份，模块内唯一）");
+                continue;
+            }
+
+            if (!ids.Add(role.Id))
+            {
+                problems.Add($"角色标识重复：'{role.Id}'（模块内唯一）");
+                continue;
+            }
+
+            if (!knownTypes.Contains(role.Type))
+            {
+                problems.Add($"角色 '{role.Id}' 引用了本模块未声明的数据类型 {role.Type}（先把类型声明出来）");
+                continue;
+            }
+
+            if (role.Inputs.Count == 0 && role.Outputs.Count == 0)
+            {
+                problems.Add($"角色 '{role.Id}' 既没有输入口也没有输出口（一个分块至少要有一个口）");
+                continue;
+            }
+
+            // **口数不设上限**（2 入 1 出的融合块是合法形态）⇒ 只给**建议**，且明说"多入一出/一入多出不必拆"
+            if (role.PortCount > 2)
+            {
+                advice.Add(
+                    $"建议：角色 '{role.Id}' 有 {role.PortCount} 个口（{role.Inputs.Count} 入 / {role.Outputs.Count} 出）——" +
+                    "多数分块只有 1 入 1 出；若这其实是两件事，可拆成两个角色（若是一件事，例如多路合成一路，则不必拆）");
+            }
+
+            foreach (var (name, expected) in role.Inputs.Select(n => (n, PortDirection.Receive))
+                         .Concat(role.Outputs.Select(n => (n, PortDirection.Send))))
+            {
+                var port = ports.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.Ordinal));
+
+                if (port is null)
+                {
+                    problems.Add($"角色 '{role.Id}' 引用了未声明的口 '{name}'");
+                    continue;
+                }
+
+                if (port.Direction != expected)
+                {
+                    problems.Add(
+                        $"角色 '{role.Id}' 的{(expected == PortDirection.Receive ? "输入" : "输出")}口 '{name}' " +
+                        $"方向应为 {expected}（口自己声明的是 {port.Direction}）");
+                    continue;
+                }
+
+                if (claimed.TryGetValue(name, out var owner))
+                {
+                    problems.Add($"口 '{name}' 同时属于角色 '{owner}' 与 '{role.Id}'（一个口最多属于一个角色）");
+                    continue;
+                }
+
+                claimed[name] = role.Id;
+                _ = withRoles.Add(name);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 校验**内部处理顺序声明**（`角色 → 角色`）【ADR-0052】：两端角色必须已声明、不得自环、同（起点, 终点）不重复。
+    /// </summary>
+    private static void CheckFlows(
+        IReadOnlyList<FlowDeclaration> flows,
+        IReadOnlyList<RoleDeclaration> roles,
+        List<string> problems)
+    {
+        var known = new HashSet<string>(roles.Select(r => r.Id), StringComparer.Ordinal);
+        var seen = new HashSet<(string From, string To)>();
+
+        foreach (var flow in flows)
+        {
+            if (string.IsNullOrWhiteSpace(flow.FromRoleId) || string.IsNullOrWhiteSpace(flow.ToRoleId))
+            {
+                problems.Add($"内部处理顺序的角色标识不能为空：{flow}");
+                continue;
+            }
+
+            if (string.Equals(flow.FromRoleId, flow.ToRoleId, StringComparison.Ordinal))
+            {
+                problems.Add($"内部处理顺序不得自环：{flow}");
+                continue;
+            }
+
+            if (!known.Contains(flow.FromRoleId) || !known.Contains(flow.ToRoleId))
+            {
+                problems.Add($"内部处理顺序引用了未声明的角色：{flow}");
+                continue;
+            }
+
+            if (!seen.Add((flow.FromRoleId, flow.ToRoleId)))
+            {
+                problems.Add($"内部处理顺序重复声明：{flow}");
             }
         }
     }

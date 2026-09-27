@@ -61,6 +61,12 @@ public sealed class AvaloniaUiGroup
 [Collection(AvaloniaUiGroup.Name)]
 public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
 {
+    /// <summary>视觉测试模块的数据类型身份（角色必须挂在一个**已声明**的类型上，否则声明被拒 ⇒ 叠层无线可画）。</summary>
+    private const string VisualTypeId = "test/visual-sample";
+
+    /// <summary>视觉测试模块的数据形状。</summary>
+    private static readonly ContractShape VisualShape = ContractShape.OfPrimitive(ContractPrimitive.F32);
+
     private readonly HeadlessUiFixture _ui;
 
     /// <summary>创建测试。</summary>
@@ -219,10 +225,12 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
     [Fact]
     public void 叠加信息层_遮罩在标记之下而连线在标记之上()
     {
-        // 【ADR-0045 + 用户第十七轮】层级（自下而上）：内容 → **遮罩** → **端口标记** → **连线层** → 运行指示/按钮簇。
-        // · 遮罩在标记之下 ⇒ 标记不被压暗、可双击建网；
-        // · 连线层在标记**之上** ⇒ 连线**跨过网络标签**直达窗口边界：标记是不透明块（20px 宽），
-        //   连线若在其下，拼接处会被**两个标记遮掉 40px**，整条连接看起来"从标签连到中心"、失去意义。
+        // 【用户第三十四轮："网络标签不高亮**指的不是在上面覆盖一层**……我的意思是**做减法**，将网络标签也埋入灰色玻璃下方"】
+        // 层级（自下而上）：内容 → **端口标记** → **遮罩** → **连线/角色层** → 运行指示/按钮簇。
+        // · 遮罩在标记**之上** ⇒ 叠加层开启时标记跟着**沉下去**（不再"高亮"）；
+        // · 连线层仍在一切之上 ⇒ 连线**跨过网络标签**直达窗口边界：标记是不透明块（20px 宽），
+        //   连线若在其下，拼接处会被**两个标记遮掉 40px**，整条连接看起来"从标签连到中心"、失去意义；
+        // · 两层都 `IsHitTestVisible=false` ⇒ 标记**照样可双击建网**（命中穿透）。
         _ui.Run(() =>
         {
             using var harness = new VisualHarness();
@@ -250,41 +258,26 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
             var markerIndex = root.Children.IndexOf(markers!);
             var overlayIndex = root.Children.IndexOf(overlay!);
 
-            scrimIndex.ShouldBeLessThan(markerIndex, "遮罩必须在端口标记之下（标记不被压暗）");
+            markerIndex.ShouldBeLessThan(scrimIndex, "端口标记必须在**遮罩之下**（做减法：埋进灰色玻璃里，不再单独调色）");
+            scrimIndex.ShouldBeLessThan(overlayIndex, "连线/角色层必须在遮罩之上（角色层才是叠加层的主体）");
             markerIndex.ShouldBeLessThan(overlayIndex, "连线层必须在端口标记之上（连线要跨过网络标签）");
             overlay!.IsHitTestVisible.ShouldBeFalse("叠加层不得参与命中（双击改网络名/拖动/缩放照常）");
-            scrim!.IsHitTestVisible.ShouldBeFalse("遮罩同样不得参与命中");
+            scrim!.IsHitTestVisible.ShouldBeFalse("遮罩同样不得参与命中（命中穿透到标记）");
         });
     }
 
-    [Fact]
-    public void 叠加信息层_未连标签必须朝窗口外且不压住中心方块()
-    {
-        // 【用户第十六轮反馈】截图里"未连"压在中心方块上：原实现**固定**写在残段右侧 4px，
-        // 左边缘的口因此把文字推向模块中心（与方块重叠）。现按"口所在边"朝外摆并做窗口内钳制。
-        const double textWidth = 24;
-        var stub = new Point(100, 110);
-
-        // 左边缘的口 ⇒ 文字在残段**左侧**（整段都在残段左边，不会碰到位于模块中心的方块）
-        var left = ConnectionOverlay.UnconnectedLabelOrigin(PortSide.Left, stub, textWidth, 320, 220);
-        (left.X + textWidth).ShouldBeLessThanOrEqualTo(stub.X, "文字右边缘不得越过残段外端（否则会压到中心方块）");
-        left.X.ShouldBeGreaterThanOrEqualTo(0, "不得跑出窗口左侧");
-        left.Y.ShouldBeLessThan(stub.Y, "文字画在连线上方");
-
-        // 右边缘的口 ⇒ 文字在残段**右侧**
-        var right = ConnectionOverlay.UnconnectedLabelOrigin(PortSide.Right, stub, textWidth, 320, 220);
-        right.X.ShouldBeGreaterThanOrEqualTo(stub.X, "文字左边缘不得越过残段外端");
-
-        // 贴近窗口边缘时被钳制在窗口内
-        var clamped = ConnectionOverlay.UnconnectedLabelOrigin(PortSide.Right, new Point(310, 110), textWidth, 320, 220);
-        (clamped.X + textWidth).ShouldBeLessThanOrEqualTo(320, "文字不得跑出窗口右侧");
-    }
+    // 【已删除：叠加信息层_未连标签必须朝窗口外且不压住角色方块】
+    // 「未连」文字随用户第三十三轮口径一并删除（没连上时指示灯会灭，文字多余，且会压住 20px 端口标记带）；
+    // 该断言随被删功能一起带走，不留双轨（ADR-0049 Q8/Q9）。叠加层的**文字纪律**改由
+    // `RoleProjectionTests.判据7b`（信息区只放身份 + 必要事实）与下方"叠加信息层_信息区只画身份与必要事实"守卫。
 
     [Fact]
-    public void 叠加信息层_连线应从中心类型方块出发到窗口边界()
+    public void 叠加信息层_角色方块单列居中且线从本端接口侧锚点裁到窗口边界()
     {
-        // 【ADR-0045】几何：起点 = **该口类型对应的中心方块**，终点 = **窗口边界**。
-        // 旧实现从"标记中心"（= 边带中心，离边界仅 10px）出发 ⇒ 线短得像坏掉。
+        // 【ADR-0052 §5 + ADR-0049 D14】**整体替换**后的几何：
+        // 方块 = **模块声明的功能分块**（左入右出的处理块）；**单列竖直堆叠、居中**（不分左右侧）；
+        // 线 = 「本端接口侧锚点 → 对端接口侧锚点」这一条线段**裁到本窗内**的那一段。
+        // 旧断言（发送靠右/接收靠左 + 方位分类 + 10px 残段）已随实现整体替换（不留双轨）。
         _ui.Run(() =>
         {
             using var harness = new VisualHarness();
@@ -294,38 +287,77 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
             var window = harness.OpenWindow(module);
             VisualHarness.Settle();
 
-            var marker = module.Ports.ShouldHaveSingleItem();
             var width = window.Bounds.Width;
             var height = window.Bounds.Height;
 
-            var boxes = ConnectionOverlay.TypeBoxesOf(module.Ports, width, height);
-            boxes.Count.ShouldBe(
-                module.Ports.Select(p => p.TypeText).Distinct(StringComparer.Ordinal).Count(),
-                "**有几种数据类型就有几个中心方块**（用户草案）");
-            boxes[0].TypeText.ShouldBe(marker.TypeText);
-            boxes[0].Box.Center.X.ShouldBe(width / 2, 0.001, "单个方块时水平正好落在模块中心");
-            boxes[0].Box.Center.Y.ShouldBe(
-                height / 2,
-                ConnectionOverlay.TypeBoxSize,
-                "方块**连同其下的类型文本作为一块**整体居中 ⇒ 方块中心与模块中心最多差半个方块");
+            // 手工构造一个"两个角色"的投影（视觉测试不依赖真实拓扑即可断言几何）
+            var roles = new List<RoleBoxViewModel>
+            {
+                new("s1/source", "source", "发送", "hyw/analog-sample@v1", "{seq:u64, value:f32}", [], ["out"], null, 1),
+                new("s1/sink", "sink", "显示", "hyw/analog-sample@v1", "{seq:u64, value:f32}", ["in"], [], 1, null),
+            };
 
-            var (start, end) = ConnectionOverlay.LineOf(marker, boxes, width, height);
+            var layout = ConnectionOverlay.LayoutRoles(roles, width, height);
 
-            start.ShouldBe(boxes[0].Box.Center, "线从**中心方块**出发（不是从标记中心）");
-            end.X.ShouldBe(width, 0.001, "线的终点在**窗口边界**上（拼接后与对端那半段相接）");
-            start.X.ShouldBeLessThan(end.X, "发送口在右边缘 ⇒ 线向右走");
+            layout.Boxes.Count.ShouldBe(2, "**声明的角色数 = 方块数**（不发明角色）");
+            layout.Hidden.ShouldBe(0);
 
-            (end.X - start.X).ShouldBeGreaterThan(
+            // 单列：两块同一个 X，整组竖直居中（"分侧摆放"已废弃 ⇒ 不再有左右分区）
+            layout.Boxes.Select(b => Math.Round(b.Box.Center.X, 3)).Distinct().Count().ShouldBe(1, "单列 ⇒ 同一个 X");
+            layout.Boxes.Average(b => b.Box.Center.Y).ShouldBe(height / 2, 0.001, "整组竖直居中");
+            layout.Boxes[0].Box.Bottom.ShouldBeLessThanOrEqualTo(layout.Boxes[1].Box.Y + 0.001, "按声明顺序自上而下");
+            layout.Boxes[0].Box.Y.ShouldBeGreaterThanOrEqualTo(ConnectionOverlay.RoleBoxMargin - 0.001);
+            layout.Boxes[1].Box.Bottom.ShouldBeLessThanOrEqualTo(height - ConnectionOverlay.RoleBoxMargin + 0.001);
+
+            var source = layout.Boxes[0];
+            var sink = layout.Boxes[1];
+
+            source.HasOutput.ShouldBeTrue("纯源分块 ⇒ 有输出侧");
+            source.HasInput.ShouldBeFalse("纯源分块 ⇒ 没有输入侧（左边不画方向边）");
+            sink.HasInput.ShouldBeTrue();
+            sink.HasOutput.ShouldBeFalse();
+
+            // 【ADR-0053】端点 = **两个角色方块中心**；绘制段裁到本窗内、并裁掉本端方块内部
+            var overlayWindow = new Avalonia.Rect(0, 0, width, height);
+            var target = new Avalonia.Point(width * 2, sink.Box.Center.Y);
+            var (near, far) = ConnectionOverlay.ClipSegment(overlayWindow, source.Center, target);
+
+            near.X.ShouldBe(source.Center.X, 0.001, "端点 = **本端方块中心**（用户第三十四轮：连线从角色方块中心出发）");
+            near.Y.ShouldBe(source.Center.Y, 0.001);
+            far.X.ShouldBe(width, 0.001, "本窗那段止于**窗口边界**（拼接后与对端那半段相接）");
+            (far.X - near.X).ShouldBeGreaterThan(
                 PortMarkerPanel.BandThickness * 2,
                 "线长必须显著大于旧实现的 10px 残段（否则又'像 bug'）");
+
+            // 接收侧：同一套算法，方向自然反过来（无需方位分类）
+            var inbound = ConnectionOverlay.LinkSegment(
+                overlayWindow,
+                sink.Box,
+                new Avalonia.Point(-width, source.Box.Center.Y),
+                localIsSend: false);
+
+            inbound.End.X.ShouldBe(sink.Box.Left, 0.001, "接收侧：终点落在**方块边界**（不压进方块）");
+            inbound.Start.X.ShouldBe(0, 0.001, "对端在左 ⇒ 本窗那段从左边界开始");
+            Math.Abs(inbound.End.X - sink.Box.Center.X).ShouldBeLessThan(
+                Math.Abs(inbound.Start.X - sink.Box.Center.X),
+                "接收侧的绘制方向 = **朝本端方块**（向内）");
+
+            // **角色方块边界交点**：朝方块外一点射出 ⇒ 交点落在方块上（内部处理顺序线的端部）
+            var edge = ConnectionOverlay.EdgePoint(source.Box, new Avalonia.Point(-width, source.Box.Center.Y));
+            edge.X.ShouldBe(source.Box.Left, 0.001, "交点落在方块边界（线不压进方块里）");
+            edge.Y.ShouldBe(source.Box.Center.Y, 0.001);
+
+            // 未被声明的端口 ⇒ 不画（叠加层只表达角色；口 → 网络那层是端口标记的职责）
+            ConnectionOverlay.LayoutRoles([], width, height).Boxes.ShouldBeEmpty("没有角色 ⇒ 空叠加层（不发明方块）");
         });
     }
 
     [Fact]
     public void 叠加信息层_中点色与虚线相位应是两端一致的纯函数()
     {
-        // 【ADR-0045 D4】两个窗口各画自己那半段，靠"**同一条中点色规则**"在公共边颜色相接；
-        // 虚线相位则是"发送/接收互为相反数"——这些必须是**纯函数**，否则两端会各算各的。
+        // 【ADR-0045 D4 · ADR-0053 修正】两个窗口各画自己那半段，靠"**同一条中点色规则**"在公共边颜色相接；
+        // 虚线**两侧用同一个偏移量**（因为线的几何恒按数据流方向绘制 ⇒ 看起来一外一内），
+        // 这些必须是**纯函数**，否则两端会各算各的。
         var send = Color.Parse("#EA580C");
         var receive = Color.Parse("#0891B2");
 
@@ -335,16 +367,22 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
         mid.G.ShouldBe((byte)((send.G + receive.G) / 2));
         mid.B.ShouldBe((byte)((send.B + receive.B) / 2));
 
-        var (sendOffset, receiveOffset) = OverlayAnimationClock.DashOffsets(3);
-        sendOffset.ShouldBe(-receiveOffset, "发送与接收的虚线方向必须相反（流动方向 = 数据流方向）");
+        OverlayAnimationClock.DashOffsetAt(0).ShouldBe(0, "相位 0 ⇒ 偏移 0");
+        OverlayAnimationClock.DashOffsetAt(1).ShouldBeLessThan(0, "取负 ⇒ 图案沿绘制方向前进");
+        OverlayAnimationClock.DashOffsetAt(3).ShouldBe(
+            -3 / ConnectionOverlay.LineThickness,
+            1e-9,
+            "偏移 = 负相位 ÷ 线宽（`DashStyle.Offset` 的单位是**笔宽倍数**，由渲染实测确认）");
 
-        for (var tick = 0; tick < 200; tick++)
+        for (var second = 0; second < 200; second++)
         {
-            var phase = OverlayAnimationClock.DashPhase(tick);
-            phase.ShouldBeInRange(0, OverlayAnimationClock.Period, $"相位必须落在 [0, 周期)（tick={tick}）");
+            var phase = OverlayAnimationClock.PhaseAt(second * 0.031);
+            phase.ShouldBeInRange(0, OverlayAnimationClock.Period, "相位必须落在 [0, 周期)");
         }
 
-        OverlayAnimationClock.DashPhase(0).ShouldBe(0, "起始相位为 0（两端同相启动）");
+        OverlayAnimationClock.PhaseAt(0).ShouldBe(0, "相位零点 ⇒ 0（两端同相启动）");
+        OverlayAnimationClock.PhaseAt(OverlayAnimationClock.Period / OverlayAnimationClock.SpeedDipsPerSecond)
+            .ShouldBe(0, 1e-9, "一个周期后回到同一相位");
     }
 
     [Fact]
@@ -383,30 +421,143 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
     }
 
     [Fact]
-    public void 叠加信息层_已连接时应指向对端方位()
+    public void 叠加信息层_连线应对准对端窗口中心()
     {
+        // 【用户第三十三轮口径 · ADR-0049 D4 简化】线是**两点一线**：起点 = 本端角色方块中心、
+        // 瞄准点 = **对端窗口中心**（本窗局部坐标）—— 长度与角度由此自然得出，不再有"方位分类"。
         _ui.Run(() =>
         {
             using var harness = new VisualHarness();
             harness.PlaceAt("s1", 0);
-            harness.PlaceSinkAt("r1", 400);   // 接收端在 s1 右侧 → s1 的发送口对端在"右"
+            harness.PlaceSinkAt("r1", 400);   // 接收端在 s1 右侧
 
             harness.Services.UpdatePortNetwork("s1", "out", "bus").Succeeded.ShouldBeTrue();
             harness.Services.UpdatePortNetwork("r1", "in", "bus").Succeeded.ShouldBeTrue();
+
+            // 叠加层开启（用户第三十四轮：标记在叠加层里显示**通路速率**并降权）
+            harness.Windows.ShowInfoOverlay = true;
             harness.Windows.Refresh();
             VisualHarness.Settle();
 
-            var marker = harness.Windows.Modules
-                .Single(m => m.InstanceId == "s1")
-                .Ports.ShouldHaveSingleItem();
+            var sender = harness.Windows.Modules.Single(m => m.InstanceId == "s1");
+            var marker = sender.Ports.ShouldHaveSingleItem();
 
             marker.IsConnected.ShouldBeTrue();
-            marker.HasLink.ShouldBeTrue("已连接且已装配对端方位 → 叠加层应画线");
-            marker.PeerSide.ShouldBe(PortSide.Right, "对端在右侧 → 线画向右边（拼接后与对端窗口的线自然相连）");
-            marker.PeerText.ShouldBe("r1.in");
+            marker.PeerText.ShouldBe("r1.in", "标记只保留**悬停提示**用的对端文本（连线改由角色对驱动）");
 
-            // 相隔 400px（未拼接）⇒ 线末端淡出并标注对端（ADR-0045 D4）
-            marker.PeerAdjacent.ShouldBeFalse("两窗相隔很远 ⇒ 不是拼接状态");
+            var link = sender.RoleLinks.ShouldHaveSingleItem();
+            link.Target.X.ShouldBeGreaterThan(
+                sender.Width / 2,
+                "对端在右侧 ⇒ 瞄准点（对端方块中心）在**本窗局部坐标的右半边**（线自然朝右走，无需方位分类）");
+            link.PeerAdjacent.ShouldBeFalse("两窗相隔 400px ⇒ 未拼接 ⇒ 线末端画断口并标注对端");
+            link.PeerText.ShouldBe("r1");
+            link.PortPairCount.ShouldBe(1, "这一对角色之间只有一条口对投递（线上不标条数）");
+
+            // 【ADR-0053 · 用户第三十四轮】**角色自身的指标画在角色方块上**（线不承载文字）：
+            // 速率/类型标签取框架的**角色维度聚合**（Core 算、UI 只格式化）
+            var role = sender.Roles.ShouldHaveSingleItem();
+            role.RateText.ShouldNotBeNull();
+            role.InfoLines.Count.ShouldBeGreaterThanOrEqualTo(2, "①速率 ②`输入 m / 输出 n`（口数）");
+            role.InfoLines[1].Text.ShouldBe("输入 0 / 输出 1", "纯源分块的**口数**（与方块上的连接数 `m/n` 不同）");
+            role.InfoLines[0].FontSize.ShouldBeGreaterThan(
+                role.InfoLines[1].FontSize,
+                "速率用大字（用户：字体更大一些）");
+
+            // 通路速率（**通路维度**）常驻在端口标记上
+            marker.RateText.ShouldNotBeNull();
+        });
+    }
+
+    [Fact]
+    public void 叠加信息层_端口标记应常驻显示通路速率()
+    {
+        // 【ADR-0053 · 用户第三十四轮】用户裁定两件事：
+        // ① "网络标签上缺少速率显示，这才是'**数据通路速率**'" + "速率显示**常驻**于网络标签上，**它不属于叠加层**"
+        //    ⇒ 速率与叠加层开关**无关**，始终显示；
+        // ② "网络标签不高亮 = **做减法**（埋进灰色玻璃下方）" ⇒ 由**层级**实现（见"层级与遮罩"用例），
+        //    **不再**给标记加降权样式（那是做加法）。
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceAt("s1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            // 叠加层**关闭**时：速率照样在（常驻）
+            FindMarker(window).ShouldNotBeNull();
+            var rateOff = FindVisibleByClass<TextBlock>(window, "markerRate").ShouldNotBeNull();
+            rateOff!.Text.ShouldNotBeNullOrEmpty("速率**常驻**（与叠加层开关无关）");
+
+            var name = FindVisibleByClass<TextBlock>(window, "markerName").ShouldNotBeNull();
+            name!.Text.ShouldBe("无网络", "名称仍然在（速率是**增加**，不是取代）");
+            rateOff.FontSize.ShouldBeLessThan(name.FontSize, "速率字号比名称小一号（层级清楚）");
+
+            // 叠加层**开启**后：速率依然在（不被叠加层"接管"）
+            harness.Windows.ShowInfoOverlay = true;
+            harness.Windows.Refresh();
+            VisualHarness.Settle();
+
+            FindVisibleByClass<TextBlock>(window, "markerRate").ShouldNotBeNull("叠加层开启后速率依然常驻");
+        });
+    }
+
+    [Fact]
+    public void 叠加信息层_对端方块中心的坐标系必须与本窗一致()
+    {
+        // 【用户第三十四轮："角色方块间的连线仍然没有对齐……我怀疑是当前代码中**多套坐标系相互冲突**，请确定唯一事实源"】
+        // 对齐的**唯一事实源**（本用例把它钉住）：
+        //   ① **一个模块的"画布尺寸"只有一个**：`ModuleViewViewModel.Width/Height`，叠加层以 `CanvasWidth/Height` 接收它
+        //      （叠加层控件自身在 `Frame` 边框**之内** ⇒ `Bounds` 比窗口小 2 DIP；若一端按 `Bounds`、另一端按 VM 尺寸布局，
+        //       两端算出的方块位置就不同 ⇒ 线错位。实测：`Bounds.Width = 318` vs `Width = 320`）；
+        //   ② **世界坐标只在换算时出现**：本窗局部 ↔ 对端局部经 `Rect.X/Y` 之差换算，其余一律本地坐标。
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceAt("s1", 0);
+            harness.PlaceSinkAt("r1", 400);
+
+            harness.Services.UpdatePortNetwork("s1", "out", "bus").Succeeded.ShouldBeTrue();
+            harness.Services.UpdatePortNetwork("r1", "in", "bus").Succeeded.ShouldBeTrue();
+            harness.Windows.ShowInfoOverlay = true;
+            harness.Windows.Refresh();
+            VisualHarness.Settle();
+
+            var sender = harness.Windows.Modules.Single(m => m.InstanceId == "s1");
+            var sink = harness.Windows.Modules.Single(m => m.InstanceId == "r1");
+
+            var senderWindow = harness.OpenWindow(sender);
+            var sinkWindow = harness.OpenWindow(sink);
+            VisualHarness.Settle();
+
+            var senderOverlay = FindByName<ConnectionOverlay>(senderWindow, "Overlay").ShouldNotBeNull();
+            var sinkOverlay = FindByName<ConnectionOverlay>(sinkWindow, "Overlay").ShouldNotBeNull();
+
+            // ① 画布尺寸唯一：叠加层的 `CanvasWidth/Height` 必须 = 视图模型的**DIP** 画布尺寸
+            //    （= 模型物理像素 ÷ 缩放；对端算方块位置时用的是同一对数字）
+            senderOverlay!.CanvasWidth.ShouldBe(sender.CanvasWidth, 0.001, "叠加层画布宽必须 = 视图模型的 CanvasWidth（唯一事实源）");
+            senderOverlay.CanvasHeight.ShouldBe(sender.CanvasHeight, 0.001, "叠加层画布高必须 = 视图模型的 CanvasHeight");
+            sinkOverlay!.CanvasWidth.ShouldBe(sink.CanvasWidth, 0.001);
+            sinkOverlay.CanvasHeight.ShouldBe(sink.CanvasHeight, 0.001);
+            sender.CanvasWidth.ShouldBe(sender.Width / sender.Scale, 0.001, "DIP 画布 = 物理像素 ÷ 缩放");
+
+            // 叠加层的**实际画布**必须等于窗口客户区（`Margin="-1"` 抵消 `Frame` 的 1px 边框）——
+            // 否则连线会停在离窗口外沿 1px 处，两窗拼接时接不上（缩放 1 时 DIP 与绘制度量一致）
+            senderOverlay.Bounds.Width.ShouldBe(sender.CanvasWidth, 0.5, "画布必须铺满窗口客户区（负边距抵消边框）");
+            senderOverlay.Bounds.Height.ShouldBe(sender.CanvasHeight, 0.5);
+
+            // ② 本窗算出的"对端方块中心"必须 = 对端自己画的那个方块中心（换算到本窗局部坐标）
+            var link = sender.RoleLinks.ShouldHaveSingleItem();
+
+            var peerLayout = ConnectionOverlay.LayoutRoles(sink.Roles, sinkOverlay.CanvasWidth, sinkOverlay.CanvasHeight);
+            var peerBox = peerLayout.Boxes.ShouldHaveSingleItem();
+            var peerCenterAsDrawn = new Point(
+                peerBox.Center.X + sender.ToDip(sink.Rect.X - sender.Rect.X),
+                peerBox.Center.Y + sender.ToDip(sink.Rect.Y - sender.Rect.Y));
+
+            link.Target.X.ShouldBe(peerCenterAsDrawn.X, 0.5, "瞄准点必须落在对端**实际画出来**的方块中心（否则线端错位）");
+            link.Target.Y.ShouldBe(peerCenterAsDrawn.Y, 0.5, "瞄准点必须落在对端**实际画出来**的方块中心（否则线端错位）");
         });
     }
 
@@ -425,11 +576,11 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
             harness.Windows.Refresh();
             VisualHarness.Settle();
 
-            var marker = harness.Windows.Modules
-                .Single(m => m.InstanceId == "s1")
-                .Ports.ShouldHaveSingleItem();
+            var sender = harness.Windows.Modules.Single(m => m.InstanceId == "s1");
+            var link = sender.RoleLinks.ShouldHaveSingleItem();
 
-            marker.PeerAdjacent.ShouldBeTrue("两窗接触 ⇒ 已拼接 ⇒ 连线在公共边直接接过去（不淡出、不标对端）");
+            link.PeerAdjacent.ShouldBeTrue("两窗接触 ⇒ 已拼接 ⇒ 连线在公共边直接接过去（不淡出、不标对端）");
+            link.PeerText.ShouldBeNull("已拼接 ⇒ 不标注对端");
         });
     }
 
@@ -521,7 +672,7 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
             var marker = FindMarker(window).ShouldNotBeNull();
             var markerBox = ScreenRect(marker, window);
 
-            var strip = FindVisibleByClass<Border>(window, "typeStrip").ShouldNotBeNull("标记上必须有类型窄色条（颜色 = PacketTypePalette 占位色，映射待定）");
+            var strip = FindVisibleByClass<Border>(window, "typeStrip").ShouldNotBeNull("标记上必须有类型窄色条（颜色 = PacketTypePalette 按类型身份取值，ADR-0049 D6）");
             var lamp = FindVisibleByClass<StateIndicator>(window, "markerLamp").ShouldNotBeNull("标记上必须有连接指示灯");
 
             // ① 色条 = **窄条**：沿标记长边 6 px（token PortMarkerStripWidth）、跨满标记内宽 18 px
@@ -793,31 +944,47 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
         }
     }
 
-    /// <summary>视觉测试用发送模块（一个发送口，右边缘）。</summary>
+    /// <summary>视觉测试用发送模块（一个发送口，右边缘；**声明一个纯源角色**——叠加层的线以角色为端）。</summary>
     [ModuleDefinition("test", "visual-sender", "1.0.0")]
     public sealed class VisualSenderModule : IModule
     {
         /// <inheritdoc />
-        public void OnRegistered(IModuleContext context) =>
+        public void OnRegistered(IModuleContext context)
+        {
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(VisualTypeId, 1, VisualShape));
             context.Declaration.DeclarePort(new PortDeclaration(
                 "out",
                 PortDirection.Send,
-                ContractShape.OfPrimitive(ContractPrimitive.F32)));
+                VisualShape)
+            {
+                Type = new DataTypeRef(VisualTypeId, 1),
+            });
+
+            context.Declaration.DeclareRole(RoleDeclaration.Output(
+                "visual-send", new DataTypeRef(VisualTypeId, 1), "out", "发送"));
+        }
     }
 
-    /// <summary>视觉测试用接收模块（一个接收口，左边缘；建网测试用）。</summary>
+    /// <summary>视觉测试用接收模块（一个接收口，左边缘；**声明一个纯汇角色**）。</summary>
     [ModuleDefinition("test", "visual-sink", "1.0.0")]
     public sealed class VisualSinkModule : IModule
     {
         /// <inheritdoc />
         public void OnRegistered(IModuleContext context)
         {
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(VisualTypeId, 1, VisualShape));
             context.Declaration.DeclarePort(new PortDeclaration(
                 "in",
                 PortDirection.Receive,
-                ContractShape.OfPrimitive(ContractPrimitive.F32)));
+                VisualShape)
+            {
+                Type = new DataTypeRef(VisualTypeId, 1),
+            });
 
             context.Ports.SetReceiveHandler("in", _ => { });
+
+            context.Declaration.DeclareRole(RoleDeclaration.Input(
+                "visual-receive", new DataTypeRef(VisualTypeId, 1), "in", "接收"));
         }
     }
 

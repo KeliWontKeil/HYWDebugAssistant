@@ -137,6 +137,18 @@ public sealed class ApplicationSettings
     /// </remarks>
     public IDictionary<string, string> Hotkeys { get; set; } = new Dictionary<string, string>(StringComparer.Ordinal);
 
+    /// <summary>
+    /// **数据结构（类型身份）→ 颜色** 的用户映射【ADR-0054 · 用户第三十四轮"添加数据结构-颜色映射表"】。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>键 = **类型身份**（`标识@v版本`；未声明类型的旧模块用结构描述），值 = `#RRGGBB`；</item>
+    ///   <item>**缺省 = 不配置** ⇒ 该类型走**稳定哈希自动配色**（同一身份跨模块/跨重启同色 ⇒ 不配置也能分辨类型）；</item>
+    ///   <item>**只影响呈现**：它不参与建网/兼容/判定，也不进组合件；改色只改"画出来的颜色"。</item>
+    /// </list>
+    /// </remarks>
+    public IDictionary<string, string> TypeColors { get; set; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
     /// <summary>复制一份（避免外部持有共享实例）。</summary>
     public ApplicationSettings Clone() => new()
     {
@@ -160,5 +172,6 @@ public sealed class ApplicationSettings
         LogLevel = LogLevel,
         AppTopmost = AppTopmost,
         Hotkeys = new Dictionary<string, string>(Hotkeys, StringComparer.Ordinal),
+        TypeColors = new Dictionary<string, string>(TypeColors, StringComparer.Ordinal),
     };
 }

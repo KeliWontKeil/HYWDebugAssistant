@@ -532,6 +532,73 @@ public class FrameworkUiTests
         }
     }
 
+    [Fact]
+    public void 数据结构颜色表_应列出现场类型_改色即改色板并落盘_可恢复自动()
+    {
+        // 【ADR-0054 · 用户第三十四轮："添加数据结构-颜色映射表"】
+        // 表 = 现场出现过的**类型身份**；改色 ⇒ ① 色板（唯一色彩来源，端口标记与角色方块共用）
+        // ② 落盘（重启仍生效）③ 恢复自动 ⇒ 回到稳定哈希配色。
+        using var harness = new ShellHarness();
+        harness.Register("typed", typeof(TypedModule));
+        harness.Services.AddModule("m1", "test/typed/1.0.0").Succeeded.ShouldBeTrue();
+
+        HYWDebugAssistant.Ui.ViewModels.PacketTypePalette.ClearOverrides();
+
+        try
+        {
+            harness.Shell.Refresh();
+
+            var row = harness.Shell.DataTypeColors.Rows.ShouldHaveSingleItem();
+            row.TypeKey.ShouldBe($"{TypedModule.TypeId}@v1", "表里的行 = 类型身份（`标识@v版本`）");
+            row.ShapeText.ShouldBe("f32", "第二行给出形状（给人看）");
+            row.HasOverride.ShouldBeFalse("缺省 = 自动配色");
+            row.UsageText.ShouldContain("口", Case.Sensitive, "用量提示（这个类型在现场被几个口/角色用）");
+
+            var auto = DataTypeColorRowViewModel.ToHex(row.Brush);
+            auto.ShouldBe(DataTypeColorRowViewModel.ToHex(HYWDebugAssistant.Ui.ViewModels.PacketTypePalette.For(row.TypeKey)));
+
+            // ① 改色
+            harness.Shell.ApplyDataTypeColor(row.TypeKey, "#123456");
+
+            DataTypeColorRowViewModel.ToHex(HYWDebugAssistant.Ui.ViewModels.PacketTypePalette.For(row.TypeKey))
+                .ShouldBe("#123456", "色板是唯一色彩来源 ⇒ 端口标记与角色方块同步变色");
+            harness.Shell.DataTypeColors.Rows.ShouldHaveSingleItem().HasOverride.ShouldBeTrue();
+            harness.Services.GetSettings().TypeColors[row.TypeKey].ShouldBe("#123456", "改色必须落盘（重启仍生效）");
+
+            // ② 恢复自动
+            harness.Shell.ApplyDataTypeColor(row.TypeKey, null);
+
+            DataTypeColorRowViewModel.ToHex(HYWDebugAssistant.Ui.ViewModels.PacketTypePalette.For(row.TypeKey))
+                .ShouldBe(auto, "恢复自动 ⇒ 回到稳定哈希配色（同一身份跨重启同色）");
+            harness.Services.GetSettings().TypeColors.ShouldNotContainKey(row.TypeKey, "移除覆盖后设置里不留死条目");
+            harness.Shell.DataTypeColors.Rows.ShouldHaveSingleItem().HasOverride.ShouldBeFalse();
+        }
+        finally
+        {
+            HYWDebugAssistant.Ui.ViewModels.PacketTypePalette.ClearOverrides();
+        }
+    }
+
+    /// <summary>声明了一个数据类型 + 一个口（"数据结构颜色表"用）。</summary>
+    [ModuleDefinition("test", "typed", "1.0.0")]
+    public sealed class TypedModule : IModule
+    {
+        /// <summary>数据类型标识。</summary>
+        public const string TypeId = "test/typed-sample";
+
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context)
+        {
+            var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
+
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, 1, shape));
+            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape)
+            {
+                Type = new DataTypeRef(TypeId, 1),
+            });
+        }
+    }
+
     // ------------------------------------------------------------ 测试模块
 
     /// <summary>模块配置（**模块自有类型**：持久化/表单都走反射式映射）。</summary>

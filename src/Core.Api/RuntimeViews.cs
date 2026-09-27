@@ -43,47 +43,94 @@ public sealed record PortView(
     public string? TypeKey { get; init; }
 }
 
-/// <summary>
-/// **模块数据角色视图**【ADR-0048 R1】：角色 = （方向 × 类型身份），**在模块内聚合**（一个角色可有多个口）。
-/// </summary>
-/// <remarks>
-/// <b>只用于呈现</b>：不参与建网、兼容判定、停流、投递与计量（ADR-0046 §4/D3 · ADR-0048 R9）。
-/// </remarks>
-/// <param name="Key">**角色身份键**（`send:{TypeKey}` / `recv:{TypeKey}`；配对与聚合都用它）。</param>
-/// <param name="IsSend">是否为**发送角色**（false = 接收角色）。</param>
-/// <param name="TypeKey">类型身份（`标识@版本`；未声明类型 ⇒ 结构描述）。</param>
-/// <param name="TypeText">类型呈现文本（`{seq:u64, value:f32}` 之类，给人看）。</param>
-/// <param name="Ports">该角色下的**口名**（按声明顺序；一个角色可以有多个口）。</param>
-/// <param name="ConnectionCount">该角色下**已建立的口级连接数**（0 = 还没连）。</param>
-public sealed record DataRoleView(
-    string Key,
-    bool IsSend,
-    string TypeKey,
-    string TypeText,
-    IReadOnlyList<string> Ports,
-    int ConnectionCount);
 
 /// <summary>
-/// **角色对视图**【ADR-0048 R6】：一条记录 = **一条数据流线**（同一角色对下的多条网络/多个口**已聚合**）。
+/// **角色视图**（模块的一个**功能分块**）【ADR-0052】。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>聚合键</b> = （本端角色, 对端实例, 对端角色）⇒ 同键的连接只出一条线，条数见 <see cref="Count"/>；</item>
-///   <item><b>多源网络</b>（ADR-0050）：不同模块的源是**不同的对端角色** ⇒ **各自一条线**；同一模块的多个同类型口 ⇒ 一条 + `Count &gt; 1`；</item>
-///   <item><b>只用于呈现</b>：线的几何仍由 UI 决定（本窗只画到自己那侧的边界，ADR-0034/0045）。</item>
+///   <item><b>角色 = 模块声明的功能分块</b>：一种数据类型 + 它的输入口/输出口（通常各 1）；
+///     与**网络标签/端口标记**（数据接口的抽象）**不同层级** —— 本视图不表达网络；</item>
+///   <item><b>`m/n` 是框架派生量</b>（不是模块自报）：<see cref="InboundRoleCount"/> = **输入侧连接的对端角色数**、
+///     <see cref="OutboundRoleCount"/> = **输出侧连接的对端角色数**；去重键 =（对端实例, 对端角色）；
+///     **没有该方向的口 ⇒ <see langword="null"/>**（呈现层写 `--`）；**有口但没连 ⇒ 0**（两者含义不同）；</item>
+///   <item><b>只用于呈现</b>：不参与建网、兼容、停流、投递与计量，也不进组合件（ADR-0048 R9）。</item>
 /// </list>
 /// </remarks>
-/// <param name="LocalRoleKey">本端角色键（= <see cref="DataRoleView.Key"/>）。</param>
+/// <param name="Key">角色键（= `实例ID/角色Id`，稳定、可供 UI 配对）。</param>
+/// <param name="RoleId">角色标识（模块内唯一）。</param>
+/// <param name="DisplayName">功能名（空 ⇒ 呈现层回退为类型短名）。</param>
+/// <param name="TypeKey">类型身份（`标识@v版本`；色板键，跨模块一致）。</param>
+/// <param name="TypeText">类型呈现文本（`{seq:u64, value:f32}` 之类，给人看）。</param>
+/// <param name="Inputs">输入口名（可为空 = 纯源分块）。</param>
+/// <param name="Outputs">输出口名（可为空 = 纯汇分块）。</param>
+/// <param name="InboundRoleCount">输入侧连接的**对端角色数**（`m`；无输入口 ⇒ null）。</param>
+/// <param name="OutboundRoleCount">输出侧连接的**对端角色数**（`n`；无输出口 ⇒ null）。</param>
+/// <param name="SemanticText">
+/// 该类型的**语义标签**（模块声明的可读注记，多个用 ` / ` 连接；未声明 ⇒ 空串）。
+/// **只呈现**：框架不解释语义，只把它交给界面显示。
+/// </param>
+/// <param name="NominalRateHz">该类型的**标称速率**（Hz；未声明 ⇒ null）——有了它才能看"掉速"。</param>
+/// <param name="RateBytesPerSecond">
+/// **该角色自身的搬运字节速率**（B/s）【ADR-0053 · 用户第三十四轮】：取该角色**产出侧**所承载网络的
+/// `BusByteRate` 之和（有输出口 ⇒ 输出网络；纯汇分块 ⇒ 输入网络）。这是**角色维度**的量
+/// （"这块功能自己在跑多快"），与端口标记上的**通路速率**（"这条网络在跑多快"）是两个维度——
+/// 两者读**同一份**框架诊断，但表达的对象不同（用户裁定：不能因为底层同源就当成一个维度）。
+/// </param>
+/// <param name="Delivered">该角色产出侧承载网络的**投递单元数**合计。</param>
+/// <param name="Dropped">该角色产出侧承载网络的**传输丢弃**合计（不含停流未投递）。</param>
+public sealed record RoleView(
+    string Key,
+    string RoleId,
+    string DisplayName,
+    string TypeKey,
+    string TypeText,
+    IReadOnlyList<string> Inputs,
+    IReadOnlyList<string> Outputs,
+    int? InboundRoleCount,
+    int? OutboundRoleCount,
+    string SemanticText = "",
+    double? NominalRateHz = null,
+    double RateBytesPerSecond = 0,
+    long Delivered = 0,
+    long Dropped = 0);
+
+/// <summary>
+/// **角色间数据流视图**（一条线 = 一次"角色 → 角色"的流动）【ADR-0052】。
+/// </summary>
+/// <remarks>
+/// <list type="bullet">
+///   <item>由**网络成员关系**派生：本角色某个输出口与对端某个输入口之间存在投递 ⇒ 一条流；
+///     **多源网络**下每个源是独立对端 ⇒ 各自一条；同（本端角色, 对端实例, 对端角色）**聚合**为一条
+///     并给出口对数 <see cref="PortPairCount"/>（`>1` 时呈现层可标注，但**不再画网络名** —— 接口层信息不进叠加层）；</item>
+///   <item>只读、只用于呈现；线的几何由 UI 决定（两端锚点 = 各自角色方块的输出/输入侧边）。</item>
+/// </list>
+/// </remarks>
+/// <param name="LocalRoleKey">本端角色键。</param>
+/// <param name="LocalIsSend">本端是**发送侧**（数据从本角色的输出侧流出）。</param>
 /// <param name="PeerInstanceId">对端实例 ID。</param>
-/// <param name="PeerRoleKey">对端角色键（按**对端自己的声明**计算）。</param>
-/// <param name="Count">聚合的连接数（口对个数；1 = 不显示条数）。</param>
-/// <param name="NetworkKeys">承载这些连接的**网络身份键**（去重、有序；供信息区显示"几条网络"）。</param>
-public sealed record DataRolePairView(
+/// <param name="PeerRoleKey">对端角色键。</param>
+/// <param name="PortPairCount">聚合的口对数（该角色对之间实际建立投递的口对个数）。</param>
+/// <param name="NetworkKeys">
+/// 承载这些连接的网络身份键（去重、有序）。**只用于取指标**（速率/投递/丢弃按网络查诊断）——
+/// **不要在界面上显示网络名**：网络标签是**接口层**概念，与角色不是同一层级（ADR-0052）。
+/// </param>
+public sealed record RoleFlowView(
     string LocalRoleKey,
+    bool LocalIsSend,
     string PeerInstanceId,
     string PeerRoleKey,
-    int Count,
+    int PortPairCount,
     IReadOnlyList<string> NetworkKeys);
+
+/// <summary>
+/// **模块内部处理顺序视图**（`角色 → 角色`）【ADR-0052】。
+/// </summary>
+/// <remarks>来源 = 模块**声明**（`DeclareFlow`）；**零声明 ⇒ 空**（框架不猜）。只呈现，不参与任何判定，不进组合件。</remarks>
+/// <param name="FromRoleKey">起点角色键。</param>
+/// <param name="ToRoleKey">终点角色键。</param>
+/// <param name="Label">可选注记（v1 不绘制）。</param>
+public sealed record RoleOrderView(string FromRoleKey, string ToRoleKey, string? Label);
 
 /// <summary>框架状态名（公开面字面量，供 UI 比对而不必硬编码字符串）。</summary>
 public static class RuntimeStateNames

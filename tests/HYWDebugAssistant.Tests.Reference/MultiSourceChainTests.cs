@@ -40,6 +40,41 @@ public class MultiSourceChainTests
 
         composition.Services.GetNetworks().Count.ShouldBe(3, "两条入网 + 一条出网");
 
+        // 【ADR-0052】真实组合里，角色与"角色间数据流"应经公开查询面暴露：
+        // 融合器**自己声明**一块"两入一出"的功能分块（框架不派生角色）；`m/n` 由网络成员关系算出。
+        var fuse = composition.Services.GetRoles("fuser").ShouldHaveSingleItem();
+        fuse.RoleId.ShouldBe("fuse");
+        fuse.Inputs.Count.ShouldBe(2, "两路输入属于**同一块**功能（合成一路是一件事）");
+        fuse.Outputs.ShouldBe([FuserModule.OutputPort]);
+        fuse.InboundRoleCount.ShouldBe(2, "两路输入分别来自 s1、s2 的角色 ⇒ 2 个对端角色");
+        fuse.OutboundRoleCount.ShouldBe(1, "输出去往 monitor 的角色 ⇒ 1");
+
+        var flows = composition.Services.GetRoleFlows("fuser");
+        flows.Count.ShouldBe(3, "两条入流 + 一条出流（按「本端角色, 方向, 对端实例, 对端角色」聚合）");
+        flows.ShouldAllBe(f => f.LocalRoleKey == "fuser/fuse");
+
+        var outFlow = flows.Where(f => f.LocalIsSend).ShouldHaveSingleItem();
+        outFlow.PeerInstanceId.ShouldBe("monitor");
+        outFlow.PeerRoleKey.ShouldBe("monitor/show");
+        outFlow.PortPairCount.ShouldBe(1, "一个口对 ⇒ 1");
+        outFlow.NetworkKeys.ShouldHaveSingleItem(
+            "网络身份（框架派生的连接身份）只用于取指标——**不在界面上显示网络名**");
+
+        var inFlows = flows.Where(f => !f.LocalIsSend).ToList();
+        inFlows.Count.ShouldBe(2, "**多源**：两个发布者各自一条（来源用实例/角色区分，不靠网络名）");
+        inFlows.Select(f => f.PeerInstanceId).OrderBy(x => x, StringComparer.Ordinal).ShouldBe(["s1", "s2"]);
+
+        // 内部处理顺序是另一回事：参考模块都是单块 ⇒ **零声明零线**（框架不猜）
+        composition.Services.GetRoleOrder("fuser").ShouldBeEmpty();
+
+        // 纯源/纯汇模块：各一个角色、没有内部顺序
+        composition.Services.GetRoles("s1").ShouldHaveSingleItem()
+            .OutboundRoleCount.ShouldBe(1, "手动发送只有一个输出口、连到一个对端角色");
+        composition.Services.GetRoles("s1").ShouldHaveSingleItem()
+            .InboundRoleCount.ShouldBeNull("没有输入口 ⇒ null（界面写 `--`）");
+        composition.Services.GetRoleOrder("s1").ShouldBeEmpty();
+        composition.Services.GetRoleOrder("monitor").ShouldBeEmpty();
+
         // ① 第 1 路发 5.0
         Send(composition, "s1", "5.0");
 
@@ -74,6 +109,16 @@ public class MultiSourceChainTests
             .ShouldBeTrue("下游应收到**融合后**的数据单元（转发开关默认开）");
         composition.WaitUntilLatest("monitor", MonitorModule.LastSource, 4.25)
             .ShouldBeTrue("下游看到的最后值 = 融合值");
+
+        // ⑤ **角色维度的速率/投递必须真的取到框架诊断**【ADR-0053】：曾经按"逐源键"建表、用**网络键**查
+        //    ⇒ 永远查不到 ⇒ 界面上角色的速率**恒显示占位符**（用户实测："角色本身速率无法显示，一直是---"）。
+        var fuserRole = composition.Services.GetRoles("fuser").ShouldHaveSingleItem();
+        fuserRole.RateBytesPerSecond.ShouldBeGreaterThan(
+            0, "融合器角色的速率 = 它产出侧网络的搬运字节速率之和（必须 > 0，否则说明键空间又对不上了）");
+        fuserRole.Delivered.ShouldBeGreaterThan(0, "投递数同样来自框架诊断（按网络聚合）");
+
+        composition.Services.GetRoles("monitor").ShouldHaveSingleItem()
+            .RateBytesPerSecond.ShouldBeGreaterThan(0, "纯汇角色取**输入侧**网络 ⇒ 同样必须 > 0");
     }
 
     [Fact]

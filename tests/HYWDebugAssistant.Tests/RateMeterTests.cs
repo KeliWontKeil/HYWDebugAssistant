@@ -67,4 +67,26 @@ public class RateMeterTests
         meter.Rate.ShouldBe(0);
         meter.Observe(total: 90_000, timestamp: 500, frequency: 100).ShouldBe(0, "重置后首个观察只建基准");
     }
+
+    [Fact]
+    public void 同一次刷新里的重复读取_必须给出同一个数()
+    {
+        // 【ADR-0053 实测补】一次 UI 刷新会对**每个模块**各读一遍诊断（标记 / 角色信息 / 角色连线…）：
+        // 若每次都重算"自上次观察以来"的增量，第一遍之后增量恒为 0 ⇒ 除第一个消费者外全都读到 0
+        // （现场表现：角色的速率**恒显示占位符** —— 用户实测："角色本身速率无法显示，一直是---"）。
+        var meter = new RateMeter();
+
+        _ = meter.Observe(total: 0, timestamp: 0, frequency: 1000);
+        var first = meter.Observe(total: 500, timestamp: 1000, frequency: 1000);   // 1 秒走了 500 ⇒ 500/s
+
+        first.ShouldBe(500);
+
+        // 同一毫秒内的后续读取（不同消费者）⇒ 必须与第一次相同，而不是 0
+        meter.Observe(total: 500, timestamp: 1000, frequency: 1000).ShouldBe(500, "重复读取不得把速率打成 0");
+        meter.Observe(total: 500, timestamp: 1050, frequency: 1000).ShouldBe(500, "间隔过短 ⇒ 仍返回上次速率");
+        meter.Rate.ShouldBe(500);
+
+        // 过了最小间隔后：按**累计区间**重算（基准仍是上一次真正重算的时刻）
+        meter.Observe(total: 1000, timestamp: 2000, frequency: 1000).ShouldBe(500, "1 秒又走了 500 ⇒ 仍是 500/s");
+    }
 }

@@ -9,31 +9,33 @@ using HYWDebugAssistant.Ui.ViewModels;
 namespace HYWDebugAssistant.Ui.Controls;
 
 /// <summary>
-/// **叠加信息层**【ADR-0039 D5 → **ADR-0045 重设计**】：调试 / 观测用的附加信息层，**默认关闭**
-/// （快捷键 <c>L</c> 切换；用户裁决："从用户理解上这不是某种应该常驻的层"）。
+/// **叠加信息层**：模块的**功能分块**（角色）+ 角色间的数据流 + **角色自身的信息文字**【ADR-0052 · ADR-0053】。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>玻璃</b>：由 XAML 的 <c>OverlayScrim</c>（半透明深色 Border）提供 —— 即"模块上盖一层灰玻璃"的
-///     最简实现（同"弹窗时主窗口变暗"的常见做法，不做背景模糊）。本控件只画**图形与文字**，
-///     故"玻璃浓度"仍是 XAML/token 里的一行；</item>
-///   <item><b>层级</b>：本控件排在**端口标记之下**（ADR-0045 修订 ADR-0039 的层级）：标记是唯一建网入口，
-///     必须保持清晰、可双击；连线从中心穿过标记带、在**窗口边界**与对端相接；</item>
-///   <item><b>几何</b>：起点 = 该口**数据类型对应的中心方块**中心，终点 = **窗口边界**上端口带中心线
-///     （旧实现从"标记中心"画到边界 ⇒ 线只有 <c>Band/2 = 10px</c>，看起来像坏掉 —— 本轮修掉）；</item>
-///   <item><b>颜色</b>：线色由**数据流方向**决定（发送 = 发送色、接收 = 接收色），并沿"中心 → 边界"渐变到
-///     **两端方向色的中点色**（<see cref="MidColor"/>）—— 两个窗口各自画自己那半段，却因为**同一条中点色规则**
-///     在公共边颜色**恰好相接**（ADR-0045 D4）；</item>
-///   <item><b>流动</b>：粗虚线 + <see cref="OverlayAnimationClock"/> 的共享 20Hz 时钟推进
-///     <c>DashStyle.Offset</c> ⇒ "看起来在流动"，方向与数据流一致（发送向外、接收向内）；</item>
-///   <item>本层 <c>IsHitTestVisible=false</c>：不参与命中（双击改网络名、拖动、缩放照常）。</item>
+///   <item><b>画什么</b>：**角色方块** = 模块声明的功能分块（左入右出，**宽度随文本自适应**）·
+///     **角色间数据流线**（两个角色方块**中心**之间的线段，各窗自裁）·
+///     **角色自身的信息文字**（速率 / 投递·丢弃 / 类型语义，画在方块**上方**，**不画文本框**）· 左上身份；</item>
+///   <item><b>不画什么</b>：**网络标签**（那是**接口层**的概念，由**端口标记**表达 —— 两者不是同一层级，ADR-0052）·
+///     类型长文本 · "几个口/几条连接"的文字（图上可见）· 模块级汇总（同一事实不两处表达）·
+///     **线上一律不写文字**（用户第三十四轮：线上的字会被读成"这条通路的信息"，与"角色自身的信息"混淆）；</item>
+///   <item><b>两个信息维度</b>（用户第三十四轮裁定）：**角色维度**（这块功能自己在跑多快）画在方块上；
+///     **通路维度**（这条网络在跑多快）画在**端口标记**上 —— 读同一份框架诊断，但表达对象不同，
+///     因此在界面上**各有一处**出处，且接口层在叠加层里**降权不高亮**；</item>
+///   <item><b>线的几何</b>：一条线 = **本端角色方块中心 ↔ 对端角色方块中心**（两个点，两端用**同一套**布局算，
+///     故两个窗口各画自己窗内那段时**严格共线**）；绘制时裁掉落在**本端方块内部**的那一段
+///     （从方块边界出发）⇒ 视觉上"从方块中心出发"，且不会在方块里留一道淡线；
+///     虚线的绘制方向**恒为数据流方向**（发送：方块 → 窗外；接收：窗外 → 方块），故两侧虚线看起来**一个向外、一个向内**；</item>
+///   <item><b>未拼接的末端</b>：**不淡出**，改为在边界处画**断口竖杠** + 对端名 —— 表达"线被窗口裁断，另一端在窗外"；</item>
+///   <item><b>层级与开关</b>：默认关闭（快捷键 `L`）、灰玻璃遮罩、排在端口标记**之下**、**不参与命中**、
+///     共享 20Hz 时钟（关闭即停表）。</item>
 /// </list>
 /// </remarks>
 public sealed class ConnectionOverlay : Control
 {
     // ------------------------------------------------------------------ 调参常量（改观感只改这里）
 
-    /// <summary>连线粗细（DIP）：1 px 在 125% 缩放下太细，视觉上"像断了"。</summary>
+    /// <summary>角色间数据流线粗细（DIP）。</summary>
     public const double LineThickness = 2.5;
 
     /// <summary>虚线段长（DIP）。</summary>
@@ -45,95 +47,172 @@ public sealed class ConnectionOverlay : Control
     /// <summary>端部流向箭头大小（DIP）。</summary>
     public const double ArrowSize = 6;
 
-    /// <summary>中心类型方块边长（DIP）。</summary>
-    public const double TypeBoxSize = 14;
+    /// <summary>角色方块高度（DIP）——**两行文本 + 内边距**（宽度随文本自适应，见 <see cref="RoleTextMetrics"/>）。</summary>
+    public const double RoleBoxHeight = 34;
 
-    /// <summary>类型方块之间的水平间距（DIP）。</summary>
-    public const double TypeBoxGap = 10;
+    /// <summary>同列内角色方块间距（DIP）。</summary>
+    public const double RoleBoxGap = 14;
 
-    /// <summary>类型文本与方块底边的间距（DIP）。</summary>
-    public const double TypeLabelGap = 2;
+    /// <summary>多列时的列间距（DIP）。</summary>
+    public const double RoleBoxColumnGap = 16;
 
-    /// <summary>多行类型方块之间的行距（DIP）。</summary>
-    public const double TypeRowGap = 12;
+    /// <summary>角色组与窗口上下边缘的留白（DIP）。</summary>
+    public const double RoleBoxMargin = 16;
+
+    /// <summary>角色方块圆角（DIP）。</summary>
+    public const double RoleBoxRadius = 3;
+
+    /// <summary>接口边的宽（DIP）——左=输入、右=输出，用**方向色**画粗边。</summary>
+    public const double RoleSideThickness = 3;
+
+    /// <summary>接口边上的**口数刻痕**长（DIP；每口一条，&gt;1 口时画）。</summary>
+    public const double RolePortTickLength = 5;
+
+    /// <summary>角色方块填充的不透明度（留出底下的玻璃）。</summary>
+    public const double RoleFillAlpha = 0.85;
+
+    /// <summary>角色信息文字与方块之间的间隙（DIP）。</summary>
+    public const double RoleInfoGap = 5;
+
+    /// <summary>角色信息行距（DIP）。</summary>
+    public const double RoleInfoLineGap = 2;
+
+    /// <summary>**内部处理顺序**线的粗细（DIP）——比对外线细：它是**结构**，不是流量。</summary>
+    public const double OrderLineThickness = 1.2;
+
+    /// <summary>未拼接时末端**断口竖杠**的高（DIP）。</summary>
+    public const double BreakMarkLength = 9;
 
     /// <summary>文字与窗口边缘的安全距离（DIP）——避开 20 px 的端口标记带。</summary>
     public const double Gutter = 24;
 
-    /// <summary>未连接的口：短虚线残段长度（DIP）。</summary>
-    public const double UnconnectedStubLength = 26;
-
-    /// <summary>未连接残段的透明度。</summary>
-    public const double UnconnectedAlpha = 0.4;
-
-    /// <summary>未拼接时末端淡出长度（DIP）。</summary>
-    public const double FadeLength = 14;
-
     /// <summary>标题（`实例 · 模块名`）字号。</summary>
     public const double CaptionFontSize = 12;
 
-    /// <summary>网络名 / 类型文本字号。</summary>
-    public const double LabelFontSize = 11;
+    /// <summary>方块标题 / 角色速率字号。</summary>
+    public const double LabelFontSize = RoleTextMetrics.TitleFontSize;
 
-    /// <summary>速率 / 对端 / 汇总字号。</summary>
-    public const double SmallFontSize = 10;
-
-    /// <summary>线标签沿线位置（0 = 中心方块，1 = 窗口边界）。</summary>
-    public const double LabelLerp = 0.45;
+    /// <summary>`m/n` / 角色次要信息字号。</summary>
+    public const double SmallFontSize = RoleTextMetrics.DetailFontSize;
 
     // ------------------------------------------------------------------ 属性
 
-    /// <summary>端口标记集合（类型方块、连线端点与信息都由它派生）。</summary>
-    public static readonly StyledProperty<IReadOnlyList<PortMarkerViewModel>?> PortsProperty =
-        AvaloniaProperty.Register<ConnectionOverlay, IReadOnlyList<PortMarkerViewModel>?>(nameof(Ports));
+    /// <summary>**角色方块**清单（功能分块；位置与线的锚点都由它派生）。</summary>
+    public static readonly StyledProperty<IReadOnlyList<RoleBoxViewModel>?> RolesProperty =
+        AvaloniaProperty.Register<ConnectionOverlay, IReadOnlyList<RoleBoxViewModel>?>(nameof(Roles));
 
-    /// <summary>是否绘制文字信息（图形始终绘制）。</summary>
+    /// <summary>**角色间数据流**清单（一条 = 一条线；已按角色对聚合）。</summary>
+    public static readonly StyledProperty<IReadOnlyList<RoleLinkViewModel>?> RoleLinksProperty =
+        AvaloniaProperty.Register<ConnectionOverlay, IReadOnlyList<RoleLinkViewModel>?>(nameof(RoleLinks));
+
+    /// <summary>**内部处理顺序**清单（`角色 → 角色`；零声明 ⇒ 空）。</summary>
+    public static readonly StyledProperty<IReadOnlyList<RoleOrderViewModel>?> RoleOrderProperty =
+        AvaloniaProperty.Register<ConnectionOverlay, IReadOnlyList<RoleOrderViewModel>?>(nameof(RoleOrder));
+
+    /// <summary>合称（左上第一行；由视图模型算好）。</summary>
+    public static readonly StyledProperty<string?> IdentityTextProperty =
+        AvaloniaProperty.Register<ConnectionOverlay, string?>(nameof(IdentityText));
+
+    /// <summary>左上第二行的**说明**（零口 ⇒ `无数据口`；有口未声明角色 ⇒ 提示补声明；否则为空）。</summary>
+    public static readonly StyledProperty<string?> NoticeTextProperty =
+        AvaloniaProperty.Register<ConnectionOverlay, string?>(nameof(NoticeText));
+
+    /// <summary>是否绘制文字（图形始终绘制）。</summary>
     public static readonly StyledProperty<bool> ShowLabelsProperty =
         AvaloniaProperty.Register<ConnectionOverlay, bool>(nameof(ShowLabels), defaultValue: true);
 
-    /// <summary>**发送**方向色（线色渐变起点 + 该侧箭头色）——ADR-0044/0045。</summary>
+    /// <summary>**发送**方向色（输出侧接口边 / 发送段线色 / 箭头）。</summary>
     public static readonly StyledProperty<IBrush?> SendArrowBrushProperty =
         AvaloniaProperty.Register<ConnectionOverlay, IBrush?>(nameof(SendArrowBrush));
 
-    /// <summary>**接收**方向色（同上）。</summary>
+    /// <summary>**接收**方向色（输入侧接口边 / 接收段线色）。</summary>
     public static readonly StyledProperty<IBrush?> ReceiveArrowBrushProperty =
         AvaloniaProperty.Register<ConnectionOverlay, IBrush?>(nameof(ReceiveArrowBrush));
 
-    /// <summary>叠层主文字色（标题 / 网络名 / 类型文本）。</summary>
+    /// <summary>**内部处理顺序**线色（中性低对比；与对外线明确区分）。</summary>
+    public static readonly StyledProperty<IBrush?> FlowLineBrushProperty =
+        AvaloniaProperty.Register<ConnectionOverlay, IBrush?>(nameof(FlowLineBrush));
+
+    /// <summary>叠层主文字色。</summary>
     public static readonly StyledProperty<IBrush?> InkBrushProperty =
         AvaloniaProperty.Register<ConnectionOverlay, IBrush?>(nameof(InkBrush));
 
-    /// <summary>叠层次文字色（速率 / 对端 / 汇总 / "未连"）。</summary>
+    /// <summary>叠层次文字色。</summary>
     public static readonly StyledProperty<IBrush?> InkMutedBrushProperty =
         AvaloniaProperty.Register<ConnectionOverlay, IBrush?>(nameof(InkMutedBrush));
 
-    /// <summary>模块实例名（标题左半）。</summary>
+    /// <summary>模块实例名（左上；也可由 <see cref="IdentityText"/> 直接给整行）。</summary>
     public static readonly StyledProperty<string?> InstanceIdProperty =
         AvaloniaProperty.Register<ConnectionOverlay, string?>(nameof(InstanceId));
 
-    /// <summary>模块标题（标题右半）。</summary>
+    /// <summary>模块标题。</summary>
     public static readonly StyledProperty<string?> ModuleTitleProperty =
         AvaloniaProperty.Register<ConnectionOverlay, string?>(nameof(ModuleTitle));
 
+    /// <summary>
+    /// **画布宽**（DIP）—— **必须 = `ModuleViewViewModel.Width`**（几何的唯一事实源，见 <see cref="CanvasWidthProperty"/> 说明）。
+    /// </summary>
+    public static readonly StyledProperty<double> CanvasWidthProperty =
+        AvaloniaProperty.Register<ConnectionOverlay, double>(nameof(CanvasWidth));
+
+    /// <summary>**画布高**（DIP）—— 必须 = `ModuleViewViewModel.Height`。</summary>
+    public static readonly StyledProperty<double> CanvasHeightProperty =
+        AvaloniaProperty.Register<ConnectionOverlay, double>(nameof(CanvasHeight));
+
     /// <summary>任一绘制属性变化即重绘（缺它会"改了颜色不刷新" —— P39）。</summary>
     static ConnectionOverlay() => AffectsRender<ConnectionOverlay>(
-        PortsProperty,
+        RolesProperty,
+        RoleLinksProperty,
+        RoleOrderProperty,
+        IdentityTextProperty,
+        NoticeTextProperty,
         ShowLabelsProperty,
         SendArrowBrushProperty,
         ReceiveArrowBrushProperty,
+        FlowLineBrushProperty,
         InkBrushProperty,
         InkMutedBrushProperty,
         InstanceIdProperty,
-        ModuleTitleProperty);
+        ModuleTitleProperty,
+        CanvasWidthProperty,
+        CanvasHeightProperty);
 
-    /// <summary>端口标记集合。</summary>
-    public IReadOnlyList<PortMarkerViewModel>? Ports
+    /// <summary>角色方块清单。</summary>
+    public IReadOnlyList<RoleBoxViewModel>? Roles
     {
-        get => GetValue(PortsProperty);
-        set => SetValue(PortsProperty, value);
+        get => GetValue(RolesProperty);
+        set => SetValue(RolesProperty, value);
     }
 
-    /// <summary>是否绘制文字信息。</summary>
+    /// <summary>角色间数据流清单。</summary>
+    public IReadOnlyList<RoleLinkViewModel>? RoleLinks
+    {
+        get => GetValue(RoleLinksProperty);
+        set => SetValue(RoleLinksProperty, value);
+    }
+
+    /// <summary>内部处理顺序清单。</summary>
+    public IReadOnlyList<RoleOrderViewModel>? RoleOrder
+    {
+        get => GetValue(RoleOrderProperty);
+        set => SetValue(RoleOrderProperty, value);
+    }
+
+    /// <summary>左上第一行（`实例 · 模块名`）。</summary>
+    public string? IdentityText
+    {
+        get => GetValue(IdentityTextProperty);
+        set => SetValue(IdentityTextProperty, value);
+    }
+
+    /// <summary>左上第二行说明（可空）。</summary>
+    public string? NoticeText
+    {
+        get => GetValue(NoticeTextProperty);
+        set => SetValue(NoticeTextProperty, value);
+    }
+
+    /// <summary>是否绘制文字。</summary>
     public bool ShowLabels
     {
         get => GetValue(ShowLabelsProperty);
@@ -154,18 +233,52 @@ public sealed class ConnectionOverlay : Control
         set => SetValue(ReceiveArrowBrushProperty, value);
     }
 
-    /// <summary>叠层主文字色。</summary>
+    /// <summary>内部顺序线色。</summary>
+    public IBrush? FlowLineBrush
+    {
+        get => GetValue(FlowLineBrushProperty);
+        set => SetValue(FlowLineBrushProperty, value);
+    }
+
+    /// <summary>主文字色。</summary>
     public IBrush? InkBrush
     {
         get => GetValue(InkBrushProperty);
         set => SetValue(InkBrushProperty, value);
     }
 
-    /// <summary>叠层次文字色。</summary>
+    /// <summary>次文字色。</summary>
     public IBrush? InkMutedBrush
     {
         get => GetValue(InkMutedBrushProperty);
         set => SetValue(InkMutedBrushProperty, value);
+    }
+
+    /// <summary>
+    /// **画布宽**（**DIP**）—— **必须 = `ModuleViewViewModel.CanvasWidth`**（= 模型物理像素 ÷ 缩放）。
+    /// </summary>
+    /// <remarks>
+    /// <b>为什么需要它（用户第三十四轮："连线仍然没有对齐……多套坐标系相互冲突，请确定唯一事实源"）</b>：
+    /// <list type="number">
+    ///   <item>叠加层控件挂在 `Frame` 边框**之内** ⇒ `Bounds` 比窗口小 **2 DIP**；而对端方块的位置是**另一侧**用
+    ///     `LayoutRoles(peer.Roles, peer.Canvas…)` 算的 ⇒ 若一端用 `Bounds`、另一端用视图模型尺寸，两端**布局尺寸不同** ⇒ 线错位；</item>
+    ///   <item>更隐蔽的是**单位**：模型几何（`ModuleViewViewModel.X/Y/Width/Height`）是**物理像素**
+    ///     （窗口位置本身就是 `PixelPoint`），而控件绘制是 **DIP** ⇒ 缩放 ≠ 100% 时两者差一个缩放因子，
+    ///     "完全水平/垂直的线"也会错位。⇒ **叠加层几何一律 DIP**，px 只在视图模型的两处换算。</item>
+    /// </list>
+    /// ⇒ 本属性由视图模型绑定提供；`Bounds` 只在**未绑定**时兜底。
+    /// </remarks>
+    public double CanvasWidth
+    {
+        get => GetValue(CanvasWidthProperty);
+        set => SetValue(CanvasWidthProperty, value);
+    }
+
+    /// <summary>**画布高**（DIP）—— 必须 = `ModuleViewViewModel.CanvasHeight`。</summary>
+    public double CanvasHeight
+    {
+        get => GetValue(CanvasHeightProperty);
+        set => SetValue(CanvasHeightProperty, value);
     }
 
     /// <summary>模块实例名。</summary>
@@ -182,133 +295,286 @@ public sealed class ConnectionOverlay : Control
         set => SetValue(ModuleTitleProperty, value);
     }
 
+    // ------------------------------------------------------------------ 几何类型
+
+    /// <summary>一个**角色方块**（窗口局部坐标）：左边缘 = 输入侧、右边缘 = 输出侧。</summary>
+    /// <param name="RoleKey">角色键（回查视图模型用）。</param>
+    /// <param name="InputCount">输入口数（0 = 该侧没有接口）。</param>
+    /// <param name="OutputCount">输出口数（0 = 该侧没有接口）。</param>
+    /// <param name="Box">方块矩形。</param>
+    public readonly record struct RoleBox(string RoleKey, int InputCount, int OutputCount, Rect Box)
+    {
+        /// <summary>是否有输入侧（有才画左侧接口边与刻痕）。</summary>
+        public bool HasInput => InputCount > 0;
+
+        /// <summary>是否有输出侧。</summary>
+        public bool HasOutput => OutputCount > 0;
+
+        /// <summary>方块中心——**连线的端点**（用户第三十四轮裁定："连线从角色方块中心出发"）。</summary>
+        public Point Center => Box.Center;
+    }
+
+    /// <summary>角色布局结果。</summary>
+    /// <param name="Boxes">已摆放的方块（按声明顺序，单列或多列）。</param>
+    /// <param name="Hidden">放不下、未画出的角色数（供 `+K` 徽标）。</param>
+    /// <param name="BoxHeight">方块高（各块一致；**宽度随文本自适应**，逐块不同）。</param>
+    public readonly record struct RoleLayout(
+        IReadOnlyList<RoleBox> Boxes,
+        int Hidden,
+        double BoxHeight);
+
     // ------------------------------------------------------------------ 内部状态
 
-    /// <summary>端口标记带厚度（与 <see cref="PortMarkerPanel.BandThickness"/> 一致：太小不画）。</summary>
+    /// <summary>端口标记带厚度（与 <see cref="PortMarkerPanel.BandThickness"/> 一致）。</summary>
     private const double Band = PortMarkerPanel.BandThickness;
 
     /// <summary>方向色取不到纯色时的兜底线色。</summary>
     private static readonly Color FallbackDirection = Color.Parse("#94A3B8");
 
-    /// <summary>发送方向的虚线（所有同向线条共用，只改 <c>Offset</c>，不重建画刷）。</summary>
+    /// <summary>发送方向的虚线（同向线条共用，只改 <c>Offset</c>）。</summary>
     private readonly DashStyle _sendDash = new([DashLength, DashGap], 0);
 
     /// <summary>接收方向的虚线。</summary>
     private readonly DashStyle _receiveDash = new([DashLength, DashGap], 0);
 
-    /// <summary>文本缓存（`(文本, 字号, 画刷)` → 已排版文本）：动画每帧只改偏移，文本不该每帧重排。</summary>
+    /// <summary>文本缓存（`(文本, 字号, 画刷)` → 已排版文本）：动画每帧只改相位，文本不该每帧重排。</summary>
     private readonly Dictionary<(string Text, double Size, IBrush Brush), FormattedText> _textCache = [];
-
-    /// <summary>一个**类型方块**（模块中心处，每个数据类型一个）。</summary>
-    /// <param name="TypeText">类型文本（如 <c>f32</c>）。</param>
-    /// <param name="Box">方块矩形（窗口局部坐标）。</param>
-    public readonly record struct TypeBox(string TypeText, Rect Box);
 
     // ------------------------------------------------------------------ 纯几何（可单独断言）
 
     /// <summary>
-    /// **类型方块组**：模块中心处每个数据类型一个方块，水平居中；放不下时自动换行。
+    /// **角色方块布局**：**单列竖直堆叠、居中**（每块左入右出，**宽度随文本自适应**）；放不下 ⇒ 加列 → 报未画出的数量。
     /// </summary>
-    /// <param name="ports">模块的所有口。</param>
+    /// <remarks>
+    /// 【ADR-0053 · 用户第三十四轮】① 宽度不再是固定 128，而由 <see cref="RoleBoxViewModel.BoxWidth"/>
+    /// （<see cref="RoleTextMetrics"/> 的确定性估算）给出 ⇒ "块跟着文字走"；
+    /// ② 去掉"先缩小方块再隐藏"的中间档（文字自适应后已无意义）——放不下就**如实报出** `+K`，不静默丢弃；
+    /// ③ 块高统一，故多列的容量计算仍按"每列几个"来算。
+    /// </remarks>
+    /// <param name="roles">角色清单（声明顺序）。</param>
     /// <param name="width">窗口宽（DIP）。</param>
     /// <param name="height">窗口高（DIP）。</param>
-    /// <returns>方块列表（顺序 = 类型首次出现顺序）。</returns>
-    public static IReadOnlyList<TypeBox> TypeBoxesOf(IReadOnlyList<PortMarkerViewModel> ports, double width, double height)
+    /// <returns>布局结果。</returns>
+    public static RoleLayout LayoutRoles(IReadOnlyList<RoleBoxViewModel> roles, double width, double height)
     {
-        ArgumentNullException.ThrowIfNull(ports);
+        ArgumentNullException.ThrowIfNull(roles);
 
-        var types = new List<string>();
-        foreach (var port in ports)
+        if (roles.Count == 0)
         {
-            if (!types.Contains(port.TypeText, StringComparer.Ordinal))
+            return new RoleLayout([], 0, RoleBoxHeight);
+        }
+
+        const double boxHeight = RoleBoxHeight;
+
+        var availableHeight = Math.Max(boxHeight, height - (RoleBoxMargin * 2));
+        var availableWidth = Math.Max(RoleTextMetrics.MinBoxWidth, width - (Gutter * 2));
+
+        var perColumn = Math.Max(1, (int)Math.Floor((availableHeight + RoleBoxGap) / (boxHeight + RoleBoxGap)));
+        var hidden = Math.Max(0, roles.Count - perColumn);
+        var shown = Math.Min(roles.Count, perColumn);
+
+        // 一列放得下就一列；放不下才按"每列能放几个"分列（列宽 = 该列最宽的块）
+        var columns = Math.Max(1, (int)Math.Ceiling(roles.Count / (double)perColumn));
+        var columnWidths = new double[columns];
+
+        for (var index = 0; index < shown; index++)
+        {
+            var column = index / perColumn;
+            columnWidths[column] = Math.Max(columnWidths[column], roles[index].BoxWidth);
+        }
+
+        // 列数受可用宽度限制：超出 ⇒ 少画几列（未画出的角色计入 `+K`）
+        var fittingColumns = 0;
+        var used = 0.0;
+
+        foreach (var columnWidth in columnWidths)
+        {
+            var next = fittingColumns == 0 ? columnWidth : used + RoleBoxColumnGap + columnWidth;
+            if (next > availableWidth)
             {
-                types.Add(port.TypeText);
+                break;
             }
+
+            used = next;
+            fittingColumns++;
         }
 
-        if (types.Count == 0)
+        if (fittingColumns == 0)
         {
-            return [];
+            // 连一列都放不下（窗口极窄）：只画第一个块，其余如实报出
+            fittingColumns = 1;
+            columnWidths[0] = Math.Min(columnWidths[0], availableWidth);
+            shown = Math.Min(shown, perColumn);
+            hidden = roles.Count - shown;
+        }
+        else
+        {
+            var capacity = fittingColumns * perColumn;
+            shown = Math.Min(shown, capacity);
+            hidden = roles.Count - shown;
         }
 
-        var available = Math.Max(TypeBoxSize, width - (Gutter * 2));
-        var perRow = Math.Max(1, (int)Math.Floor((available + TypeBoxGap) / (TypeBoxSize + TypeBoxGap)));
-        var rows = (int)Math.Ceiling(types.Count / (double)perRow);
-        var rowHeight = TypeBoxSize + TypeLabelGap + LabelFontSize + 2;
-        var totalHeight = (rows * rowHeight) + ((rows - 1) * TypeRowGap);
+        var groupWidth = columnWidths.Take(fittingColumns).Sum() + (RoleBoxColumnGap * (fittingColumns - 1));
+        var groupLeft = Math.Max(0, (width - groupWidth) / 2);
+        var boxes = new List<RoleBox>(shown);
 
-        var boxes = new List<TypeBox>(types.Count);
-        var top = (height - totalHeight) / 2;
-
-        for (var index = 0; index < types.Count; index++)
+        for (var index = 0; index < shown; index++)
         {
-            var row = index / perRow;
-            var column = index % perRow;
-            var inRow = Math.Min(perRow, types.Count - (row * perRow));
-            var rowWidth = (inRow * TypeBoxSize) + ((inRow - 1) * TypeBoxGap);
-            var left = ((width - rowWidth) / 2) + (column * (TypeBoxSize + TypeBoxGap));
-            var boxTop = top + (row * (rowHeight + TypeRowGap));
+            var column = index / perColumn;
+            var row = index % perColumn;
+            var inColumn = Math.Min(perColumn, shown - (column * perColumn));
+            var columnHeight = (inColumn * boxHeight) + ((inColumn - 1) * RoleBoxGap);
+            var top = (height - columnHeight) / 2;
 
-            boxes.Add(new TypeBox(types[index], new Rect(left, boxTop, TypeBoxSize, TypeBoxSize)));
-        }
-
-        return boxes;
-    }
-
-    /// <summary>取某个类型方块的**中心**（找不到时回退到模块中心）。</summary>
-    /// <param name="boxes">方块组。</param>
-    /// <param name="typeText">类型文本。</param>
-    /// <param name="width">窗口宽。</param>
-    /// <param name="height">窗口高。</param>
-    /// <returns>方块中心。</returns>
-    public static Point BoxCenter(IReadOnlyList<TypeBox> boxes, string typeText, double width, double height)
-    {
-        ArgumentNullException.ThrowIfNull(boxes);
-
-        foreach (var box in boxes)
-        {
-            if (string.Equals(box.TypeText, typeText, StringComparison.Ordinal))
+            var colLeft = groupLeft;
+            for (var c = 0; c < column; c++)
             {
-                return box.Box.Center;
+                colLeft += columnWidths[c] + RoleBoxColumnGap;
             }
+
+            var role = roles[index];
+            var boxWidth = columnWidths[column];
+
+            boxes.Add(new RoleBox(
+                role.Key,
+                role.Inputs.Count,
+                role.Outputs.Count,
+                new Rect(colLeft, top + (row * (boxHeight + RoleBoxGap)), boxWidth, boxHeight)));
         }
 
-        return new Point(width / 2, height / 2);
+        return new RoleLayout(boxes, Math.Max(0, hidden), boxHeight);
     }
 
     /// <summary>
-    /// 某个口连线的**起点（中心方块）与终点（窗口边界）**。
+    /// **一条线在本窗内的那一段**（按**数据流方向**给出起点与终点）【ADR-0053 · 用户第三十四轮】。
     /// </summary>
-    /// <param name="port">口。</param>
-    /// <param name="boxes">类型方块组。</param>
-    /// <param name="width">窗口宽。</param>
-    /// <param name="height">窗口高。</param>
-    /// <returns>起点 / 终点（窗口局部坐标）。</returns>
-    public static (Point Start, Point End) LineOf(
-        PortMarkerViewModel port,
-        IReadOnlyList<TypeBox> boxes,
-        double width,
-        double height)
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>两个端点</b>：本端**角色方块中心** ↔ 对端**角色方块中心**（用户裁定"连线从角色方块中心出发"）；</item>
+    ///   <item><b>绘制时裁掉方块内部</b>：起点/终点落在**本端方块边界**（朝对端的那一点）⇒
+    ///     线看起来从方块中心方向出发，又不会在方块里留一道淡线、更不会横穿方块；</item>
+    ///   <item><b>方向恒为数据流方向</b>：**发送** ⇒ 方块边界 → 窗外；**接收** ⇒ 窗外 → 方块边界。
+    ///     虚线相位因此只需一个值（<see cref="OverlayAnimationClock.DashOffset"/>），
+    ///     两侧看起来自然"一个向外、一个向内"（这正是用户第三十四轮指出的方向问题）；</item>
+    ///   <item><b>共线</b>：两端用同一个函数、同一套布局算 ⇒ 两窗各画的那段落在同一条直线上。</item>
+    /// </list>
+    /// </remarks>
+    /// <param name="window">本窗矩形（**局部坐标**，原点恒为 0,0）。</param>
+    /// <param name="box">本端角色方块（局部坐标）。</param>
+    /// <param name="peerCenter">对端角色方块中心（已换算到本窗局部坐标）。</param>
+    /// <param name="localIsSend">本端是否为发送侧。</param>
+    /// <returns>按数据流方向排列的（起点, 终点）；整段不可见时两点相同。</returns>
+    public static (Point Start, Point End) LinkSegment(Rect window, Rect box, Point peerCenter, bool localIsSend)
     {
-        ArgumentNullException.ThrowIfNull(port);
+        var (near, far) = ClipSegment(window, box.Center, peerCenter);
 
-        var offset = Math.Clamp(port.Offset, 0, 1);
-        var start = BoxCenter(boxes, port.TypeText, width, height);
-
-        var end = port.Side switch
+        if (Math.Abs(near.X - far.X) < 0.01 && Math.Abs(near.Y - far.Y) < 0.01)
         {
-            PortSide.Right => new Point(width, height * offset),
-            PortSide.Left => new Point(0, height * offset),
-            PortSide.Bottom => new Point(width * offset, height),
-            _ => new Point(width * offset, 0),
-        };
+            return (near, far);   // 整段都在窗外（防御：调用方跳过绘制）
+        }
 
-        return (start, end);
+        // 本端方块边界上、朝对端的那一点；对端落进方块里时退回中心（避免出现反向的线段）
+        var edge = box.Contains(far) ? box.Center : EdgePoint(box, far);
+
+        return localIsSend ? (edge, far) : (far, edge);
     }
 
     /// <summary>
-    /// 两端方向色的**中点色**（拼接处两侧都用它 ⇒ 颜色必然连续）。
+    /// **线段裁剪**：取线段"本端锚点 → 对端锚点"落在**本窗矩形内**的那一段。
     /// </summary>
+    /// <remarks>
+    /// 【ADR-0049 D14 + ADR-0052】两端用**同一套**布局算出**同一条线段**，各窗只画自己窗内的部分 ⇒
+    /// 两段**严格共线**：相邻时无缝接上，未拼接时只在两窗之间缺一段（而不是两根错位的线）。
+    /// </remarks>
+    /// <param name="window">本窗矩形（局部坐标，通常 0,0,W,H）。</param>
+    /// <param name="from">线段起点（本端锚点，通常在本窗内）。</param>
+    /// <param name="to">线段终点（对端锚点，通常在本窗外）。</param>
+    /// <returns>落在窗内的那一段（完全在窗外 ⇒ 两端点相同，调用方跳过绘制）。</returns>
+    public static (Point Near, Point Far) ClipSegment(Rect window, Point from, Point to)
+    {
+        var dx = to.X - from.X;
+        var dy = to.Y - from.Y;
+
+        if (Math.Abs(dx) < double.Epsilon && Math.Abs(dy) < double.Epsilon)
+        {
+            return (from, from);
+        }
+
+        double t0 = 0, t1 = 1;
+
+        if (!Clip(-dx, from.X - window.Left, ref t0, ref t1)
+            || !Clip(dx, window.Right - from.X, ref t0, ref t1)
+            || !Clip(-dy, from.Y - window.Top, ref t0, ref t1)
+            || !Clip(dy, window.Bottom - from.Y, ref t0, ref t1))
+        {
+            return (from, from);
+        }
+
+        return (
+            new Point(from.X + (dx * t0), from.Y + (dy * t0)),
+            new Point(from.X + (dx * t1), from.Y + (dy * t1)));
+
+        static bool Clip(double p, double q, ref double t0, ref double t1)
+        {
+            if (Math.Abs(p) < double.Epsilon)
+            {
+                return q >= 0;   // 平行于该边界：在界内才保留
+            }
+
+            var r = q / p;
+
+            if (p < 0)
+            {
+                if (r > t1)
+                {
+                    return false;
+                }
+
+                if (r > t0)
+                {
+                    t0 = r;
+                }
+            }
+            else
+            {
+                if (r < t0)
+                {
+                    return false;
+                }
+
+                if (r < t1)
+                {
+                    t1 = r;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>从矩形中心朝 <paramref name="target"/> 射出，与矩形边界的交点。</summary>
+    /// <param name="box">矩形。</param>
+    /// <param name="target">目标点。</param>
+    /// <returns>边界交点（重合时返回中心）。</returns>
+    public static Point EdgePoint(Rect box, Point target)
+    {
+        var center = box.Center;
+        var dx = target.X - center.X;
+        var dy = target.Y - center.Y;
+
+        if (Math.Abs(dx) < double.Epsilon && Math.Abs(dy) < double.Epsilon)
+        {
+            return center;
+        }
+
+        var scaleX = Math.Abs(dx) < double.Epsilon ? double.PositiveInfinity : (box.Width / 2) / Math.Abs(dx);
+        var scaleY = Math.Abs(dy) < double.Epsilon ? double.PositiveInfinity : (box.Height / 2) / Math.Abs(dy);
+        var scale = Math.Min(scaleX, scaleY);
+
+        return new Point(center.X + (dx * scale), center.Y + (dy * scale));
+    }
+
+    /// <summary>两端方向色的**中点色**（拼接处两侧都用它 ⇒ 颜色必然连续）。</summary>
     /// <param name="send">发送方向色。</param>
     /// <param name="receive">接收方向色。</param>
     /// <returns>50% 混合色。</returns>
@@ -318,7 +584,7 @@ public sealed class ConnectionOverlay : Control
         (byte)((send.G + receive.G) / 2),
         (byte)((send.B + receive.B) / 2));
 
-    // ------------------------------------------------------------------ 动画订阅（只在"可见 + 已挂到视觉树"时订阅）
+    // ------------------------------------------------------------------ 动画订阅
 
     /// <inheritdoc />
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -345,7 +611,7 @@ public sealed class ConnectionOverlay : Control
         }
     }
 
-    /// <summary>时钟每 tick 回调：只在**真正可见**时重绘（隐藏的窗口不烧 CPU）。</summary>
+    /// <summary>时钟每 tick 回调：只在**真正可见**时重绘。</summary>
     internal void OnAnimationTick()
     {
         if (IsEffectivelyVisible)
@@ -373,24 +639,30 @@ public sealed class ConnectionOverlay : Control
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        if (Ports is not { Count: > 0 } ports)
-        {
-            return;
-        }
+        // **画布尺寸的唯一事实源 = 视图模型声明的 Width/Height**（见 CanvasWidth 说明）：
+        // 对端方块的位置也是用同一对数字算的 ⇒ 两端才不会错位。未绑定时退回控件自身尺寸（兜底）。
+        var width = CanvasWidth > 0 ? CanvasWidth : Bounds.Width;
+        var height = CanvasHeight > 0 ? CanvasHeight : Bounds.Height;
 
-        var width = Bounds.Width;
-        var height = Bounds.Height;
         if (width < Band * 3 || height < Band * 3)
         {
             return;
         }
 
-        var boxes = TypeBoxesOf(ports, width, height);
+        var roles = Roles ?? [];
+        var layout = LayoutRoles(roles, width, height);
+        var byKey = new Dictionary<string, RoleBox>(StringComparer.Ordinal);
 
-        // 虚线相位：发送向外、接收向内（两个方向互为相反数）
-        var (sendOffset, receiveOffset) = OverlayAnimationClock.DashOffsets(OverlayAnimationClock.TickCount);
-        _sendDash.Offset = sendOffset;
-        _receiveDash.Offset = receiveOffset;
+        foreach (var box in layout.Boxes)
+        {
+            _ = byKey.TryAdd(box.RoleKey, box);
+        }
+
+        // 虚线的绘制方向**恒为数据流方向**（发送：方块 → 窗外；接收：窗外 → 方块）⇒ 两侧同相、看起来一外一内；
+        // 相位由**真实时间**给出（60Hz 重绘 + 时间相位 ⇒ 不再"一卡一卡"）
+        var dashOffset = OverlayAnimationClock.DashOffset;
+        _sendDash.Offset = dashOffset;
+        _receiveDash.Offset = dashOffset;
 
         var sendColor = ColorOf(SendArrowBrush) ?? FallbackDirection;
         var receiveColor = ColorOf(ReceiveArrowBrush) ?? FallbackDirection;
@@ -398,250 +670,352 @@ public sealed class ConnectionOverlay : Control
         var ink = InkBrush ?? Brushes.White;
         var inkColor = ColorOf(ink) ?? Colors.White;
         var muted = InkMutedBrush ?? ink;
+        var orderColor = ColorOf(FlowLineBrush) ?? Color.FromArgb(150, inkColor.R, inkColor.G, inkColor.B);
+        var window = new Rect(0, 0, width, height);
 
-        // ① 连线（从中心方块到窗口边界；未连接的画短残段）
-        foreach (var port in ports)
-        {
-            var (start, end) = LineOf(port, boxes, width, height);
-            var own = port.IsSend ? sendColor : receiveColor;
-            var dash = port.IsSend ? _sendDash : _receiveDash;
+        // ① 内部处理顺序（模块结构，画在最底层；细实线 + 中性色 + 不参与流动）
+        DrawRoleOrder(context, byKey, orderColor, muted);
 
-            if (!port.HasLink || port.PeerSide is not { } peerSide)
-            {
-                // 未连接：短虚线残段 + "未连"（D7：没连上本身就是调试信息）
-                var stub = Shorten(start, end, UnconnectedStubLength);
-                var stubPen = new Pen(Alpha(own, UnconnectedAlpha), LineThickness)
-                {
-                    DashStyle = dash,
-                    LineCap = PenLineCap.Flat,
-                };
+        // ② 角色间数据流线（各窗只画自己窗内那段 ⇒ 两端严格共线）
+        DrawRoleLinks(context, byKey, window, width, height, sendColor, receiveColor, mid, ink, muted);
 
-                context.DrawLine(stubPen, start, stub);
-
-                if (ShowLabels)
-                {
-                    // 【用户第十六轮反馈】原写法固定往右 4px ⇒ 左边缘的口会把"未连"压在中心方块上（截图可见）。
-                    // 现在按**端口所在边**朝**窗口外**一侧摆，并做窗口内钳制；文字用**不透明**方向色（原来 60% 太暗）。
-                    var label = Format("未连", SmallFontSize, Alpha(own, 1));
-                    var origin = UnconnectedLabelOrigin(port.Side, stub, label.Width, width, height);
-                    context.DrawText(label, origin);
-                }
-
-                continue;
-            }
-
-            var flow = port.IsSend ? peerSide : Opposite(peerSide);
-
-            if (port.PeerAdjacent)
-            {
-                // 已拼接：直接渐变到中点色（对端那半段从同一个中点色继续 ⇒ 公共边颜色相接）
-                var pen = new Pen(Gradient(start, end, own, mid), LineThickness)
-                {
-                    DashStyle = dash,
-                    LineCap = PenLineCap.Flat,
-                };
-
-                context.DrawLine(pen, start, end);
-            }
-            else
-            {
-                // 未拼接：末端淡出（本窗内线条"出窗即止"，不装作连上了）
-                var pen = new Pen(Gradient(start, end, own, mid, transparentTail: true), LineThickness)
-                {
-                    DashStyle = dash,
-                    LineCap = PenLineCap.Flat,
-                };
-
-                context.DrawLine(pen, start, end);
-            }
-
-            DrawArrow(context, end, flow, new SolidColorBrush(own));
-
-            if (!ShowLabels)
-            {
-                continue;
-            }
-
-            // 网络名 + 速率：沿线 45% 处（多口时自然散开）
-            var anchor = Lerp(start, end, LabelLerp);
-            var name = Format(port.NetworkText, LabelFontSize, ink);
-            var nameX = Math.Clamp(anchor.X - (name.Width / 2), Gutter / 2, Math.Max(Gutter / 2, width - name.Width - (Gutter / 2)));
-            context.DrawText(name, new Point(nameX, anchor.Y - (LabelFontSize + 6)));
-
-            var rate = Format(port.RateText, SmallFontSize, muted);
-            var rateX = Math.Clamp(anchor.X - (rate.Width / 2), Gutter / 2, Math.Max(Gutter / 2, width - rate.Width - (Gutter / 2)));
-            context.DrawText(rate, new Point(rateX, anchor.Y - (SmallFontSize + 1)));
-
-            // 对端：只在**未拼接**时标注（拼接后线会延续到邻窗，再标一次会压在缝上）
-            if (!port.PeerAdjacent && port.PeerText is { Length: > 0 } peer)
-            {
-                DrawPeer(context, peer, end, peerSide, width, muted);
-            }
-        }
-
-        // ② 类型方块（画在连线之上，方块本身表达"这个模块有哪几种数据类型"）
-        foreach (var box in boxes)
-        {
-            // 方块填充 = 该类型的语义色 @85%（类型色映射待用户给出；未映射时是中性占位色）
-            var typeColor = ColorOf(PacketTypePalette.For(box.TypeText)) ?? FallbackDirection;
-            var outline = new Pen(Alpha(inkColor, 0.65), 1);
-            context.DrawRectangle(Alpha(typeColor, 0.85), outline, box.Box, 2, 2);
-
-            if (ShowLabels)
-            {
-                var text = Format(box.TypeText, LabelFontSize, ink);
-                context.DrawText(text, new Point(box.Box.Center.X - (text.Width / 2), box.Box.Bottom + TypeLabelGap));
-            }
-        }
+        // ③ 角色方块（画在线之上：方块是"这个模块有哪几块功能"的主体）
+        DrawRoleBoxes(context, roles, byKey, width, height, sendColor, receiveColor, ink, muted);
 
         if (!ShowLabels)
         {
             return;
         }
 
-        // ③ 标题（左上）与汇总（右下）
-        var caption = $"{InstanceId} · {ModuleTitle}";
-        if (!string.IsNullOrWhiteSpace(caption.Trim(' ', '·')))
+        // ④ 信息区：左上身份（12px）+（必要时）第二行说明（10px）
+        var identity = IdentityText is { Length: > 0 } text
+            ? text
+            : $"{InstanceId} · {ModuleTitle}".Trim(' ', '·');
+
+        if (identity.Length > 0)
         {
-            context.DrawText(Format(caption, CaptionFontSize, ink), new Point(Gutter, 8));
+            context.DrawText(Format(identity, CaptionFontSize, ink), new Point(Gutter, 8));
         }
 
-        var summary = Format(Summary(ports), SmallFontSize, muted);
-        context.DrawText(summary, new Point(Math.Max(Gutter, width - summary.Width - Gutter), height - SmallFontSize - 10));
+        if (NoticeText is { Length: > 0 } notice)
+        {
+            context.DrawText(Format(notice, SmallFontSize, muted), new Point(Gutter, 8 + CaptionFontSize + 5));
+        }
+
+        // ⑤ 放不下的角色数（`+K` 徽标）
+        if (layout.Hidden > 0)
+        {
+            var badge = Format($"+{layout.Hidden}", SmallFontSize, muted);
+            context.DrawText(badge, new Point(
+                (width - badge.Width) / 2,
+                Math.Max(2, height - SmallFontSize - 6)));
+        }
     }
 
-    /// <summary>汇总文本（投递 / 丢弃；**按网络去重**，避免同一网络在多口上重复计数）。</summary>
-    private static string Summary(IReadOnlyList<PortMarkerViewModel> ports)
+    /// <summary>画**内部处理顺序**（角色 → 角色；细实线 + 中性色 + 不流动）。</summary>
+    private void DrawRoleOrder(
+        DrawingContext context,
+        Dictionary<string, RoleBox> byKey,
+        Color orderColor,
+        IBrush muted)
     {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        long delivered = 0;
-        long dropped = 0;
-
-        foreach (var port in ports)
+        if (RoleOrder is not { Count: > 0 } order)
         {
-            if (!port.HasLink)
+            return;
+        }
+
+        var pen = new Pen(Alpha(orderColor, 0.9), OrderLineThickness) { LineCap = PenLineCap.Round };
+
+        foreach (var step in order)
+        {
+            if (!byKey.TryGetValue(step.FromRoleKey, out var from) || !byKey.TryGetValue(step.ToRoleKey, out var to))
+            {
+                continue;   // 任一端没画出来（被降级隐藏）⇒ 不画（线以已画的方块为准）
+            }
+
+            var start = EdgePoint(from.Box, to.Box.Center);
+            var end = EdgePoint(to.Box, from.Box.Center);
+            context.DrawLine(pen, start, end);
+            DrawArrow(context, end, DirectionOf(start, end), Alpha(orderColor, 0.95), ArrowSize * 0.75);
+        }
+
+        _ = muted;
+    }
+
+    /// <summary>
+    /// **渐变的两端**（按**颜色语义**排，不按绘制顺序）：**本端方块端**（用本端方向色）→ **窗口边界端**（用中点色）。
+    /// </summary>
+    /// <remarks>
+    /// 【用户第三十四轮实测反馈："虚线的衔接反了，但是流动方向是对的……只简单地反转了方向，却没有考虑颜色的衔接"】
+    /// 线的绘制方向**恒为数据流方向**（<see cref="LinkSegment"/>：发送 = 方块→窗外；接收 = 窗外→方块），
+    /// 但**颜色**必须永远"方块端是本端色、边界端是中点色"，否则接收侧的渐变会反过来
+    /// ⇒ 公共边两侧一个本端橙、一个本端青，**颜色接不上**（正是截图里的现象）。
+    /// </remarks>
+    /// <param name="start">绘制起点（数据流方向）。</param>
+    /// <param name="end">绘制终点。</param>
+    /// <param name="localIsSend">本端是否为发送侧。</param>
+    /// <returns>（本端方块端, 窗口边界端）。</returns>
+    public static (Point OwnEnd, Point MidEnd) GradientEnds(Point start, Point end, bool localIsSend) =>
+        localIsSend ? (start, end) : (end, start);
+
+    /// <summary>
+    /// 画**角色间数据流线**：各窗只画"两个角色方块中心之间"那条线段在**本窗内**、**且在本端方块之外**的那一段。
+    /// </summary>
+    /// <remarks>
+    /// 【ADR-0053】线**不承载任何文字**（用户第三十四轮：线上的字会被读成"这条通路的信息"，
+    /// 与"角色自身的信息"混淆）；指标分别画在**角色方块**（角色维度）与**端口标记**（通路维度）上。
+    /// </remarks>
+    private void DrawRoleLinks(
+        DrawingContext context,
+        Dictionary<string, RoleBox> byKey,
+        Rect window,
+        double width,
+        double height,
+        Color sendColor,
+        Color receiveColor,
+        Color mid,
+        IBrush ink,
+        IBrush muted)
+    {
+        if (RoleLinks is not { Count: > 0 } links)
+        {
+            return;
+        }
+
+        foreach (var link in links)
+        {
+            if (!byKey.TryGetValue(link.LocalRoleKey, out var box))
+            {
+                continue;   // 本端角色被裁掉（放不下）⇒ 线也不画（避免线头指向空处）
+            }
+
+            var (start, end) = LinkSegment(window, box.Box, link.Target, link.LocalIsSend);
+
+            if (Math.Abs(start.X - end.X) < 0.01 && Math.Abs(start.Y - end.Y) < 0.01)
+            {
+                continue;   // 整段都在窗外（不该发生，防御）
+            }
+
+            // **颜色渐变按"语义"取端，不按绘制顺序**（用户第三十四轮实测："虚线的衔接反了……只简单反转了方向，
+            // 却没有考虑颜色的衔接"）：**本端方块端 = 本端方向色**、**窗口边界端 = 中点色** ——
+            // 于是两窗在公共边都是"中点色" ⇒ 颜色相接；绘制方向仍按数据流方向（相位/箭头不受影响）。
+            var own = link.LocalIsSend ? sendColor : receiveColor;
+            var (ownEnd, midEnd) = GradientEnds(start, end, link.LocalIsSend);
+
+            var pen = new Pen(Gradient(ownEnd, midEnd, own, mid, transparentTail: false), LineThickness)
+            {
+                DashStyle = link.LocalIsSend ? _sendDash : _receiveDash,
+                LineCap = PenLineCap.Flat,
+            };
+
+            context.DrawLine(pen, start, end);
+
+            // 箭头画在**指向本模块的那一端**：发送 ⇒ 朝窗外；接收 ⇒ 朝本端方块
+            DrawArrow(context, end, DirectionOf(start, end), new SolidColorBrush(own), ArrowSize);
+
+            // **未拼接** ⇒ 在**窗口边界那一端**画断口竖杠 + 对端名（表达"线被窗口裁断，另一端在窗外"）
+            var boundary = link.LocalIsSend ? end : start;
+
+            if (!link.PeerAdjacent)
+            {
+                DrawBreakMark(context, boundary, DirectionOf(boundary, link.Target), new SolidColorBrush(own));
+
+                if (ShowLabels && link.PeerText is { Length: > 0 } peer)
+                {
+                    var peerText = Format(peer, SmallFontSize, muted);
+                    var peerX = Math.Clamp(boundary.X - (peerText.Width / 2) + 12, Gutter, Math.Max(Gutter, width - peerText.Width - Gutter));
+                    var peerY = Math.Clamp(
+                        boundary.Y > (height / 2) ? boundary.Y - (SmallFontSize + 10) : boundary.Y + 10,
+                        TopInfoBottom,
+                        Math.Max(TopInfoBottom, height - SmallFontSize - 4));
+
+                    context.DrawText(peerText, new Point(peerX, peerY));
+                }
+            }
+
+            _ = ink;
+        }
+    }
+
+    /// <summary>左上信息区（身份 + 说明）的下边界：角色信息文字/对端名不得压上去。</summary>
+    private static double TopInfoBottom => 8 + CaptionFontSize + 5 + SmallFontSize + 4;
+
+    /// <summary>
+    /// 画**角色自身的信息文字**（速率 / 投递·丢弃 / 类型语义）——**不画文本框**，贴在方块**上方**（放不下则下方）。
+    /// </summary>
+    /// <remarks>
+    /// 【ADR-0053 · 用户第三十四轮】用户原话："**不显式绘制文本框**，其大致位置位于角色方块周围/上方，
+    /// 这些信息表达的不是'数据通路信息'，而是'**角色本身速率信息**'，也就是说每一个角色块显示其自身的信息。"
+    /// ⇒ 文字随方块走（方块移，文字跟着移），方块与文字之间由**间距**而非边框表达归属。
+    /// </remarks>
+    private void DrawRoleInfo(
+        DrawingContext context,
+        RoleBoxViewModel role,
+        RoleBox box,
+        double width,
+        double height,
+        IBrush ink,
+        IBrush muted)
+    {
+        var lines = role.InfoLines.Where(l => l.Text.Length > 0).ToList();
+
+        if (lines.Count == 0)
+        {
+            return;
+        }
+
+        var formatted = lines
+            .Select(l => (Text: Format(l.Text, l.FontSize, l.Primary ? ink : muted), l.FontSize))
+            .ToList();
+
+        var blockHeight = formatted.Sum(f => f.FontSize + RoleInfoLineGap) - RoleInfoLineGap;
+        var widest = formatted.Max(f => f.Text.Width);
+
+        // 默认放**上方**；上方空间不够（会压到左上信息区或出窗）⇒ 改放**下方**
+        var above = box.Box.Top - RoleInfoGap - blockHeight;
+        var below = box.Box.Bottom + RoleInfoGap;
+        var useAbove = above >= TopInfoBottom;
+        var top = useAbove
+            ? above
+            : Math.Min(below, Math.Max(TopInfoBottom, height - blockHeight - 4));
+
+        // **左对齐**（用户第三十四轮裁定）：三行**起点同一个 X**——从方块左边缘起（越界时钳进安全区）
+        var left = Math.Clamp(
+            box.Box.Left,
+            Gutter,
+            Math.Max(Gutter, width - widest - Gutter));
+
+        var y = top;
+
+        foreach (var (text, fontSize) in formatted)
+        {
+            context.DrawText(text, new Point(left, y));
+            y += fontSize + RoleInfoLineGap;
+        }
+    }
+
+    /// <summary>画**角色方块**：填充 = 类型色；左边缘 = 输入（接收色，有口才画）、右边缘 = 输出（发送色）。</summary>
+    private void DrawRoleBoxes(
+        DrawingContext context,
+        IReadOnlyList<RoleBoxViewModel> roles,
+        Dictionary<string, RoleBox> byKey,
+        double width,
+        double height,
+        Color sendColor,
+        Color receiveColor,
+        IBrush ink,
+        IBrush muted)
+    {
+        foreach (var role in roles)
+        {
+            if (!byKey.TryGetValue(role.Key, out var box))
             {
                 continue;
             }
 
-            var key = port.NetworkName is { Length: > 0 } name ? name : "（直连）";
-            if (seen.Add(key))
+            var fill = ColorOf(PacketTypePalette.For(role.TypeKey)) ?? FallbackDirection;
+            context.DrawRectangle(Alpha(fill, RoleFillAlpha), null, box.Box, RoleBoxRadius, RoleBoxRadius);
+
+            // 上/下边框：细中性线（把方块"框起来"，但不与方向色争）
+            var neutral = new Pen(Alpha(Colors.White, 0.28), 1);
+            context.DrawLine(neutral, box.Box.TopLeft, box.Box.TopRight);
+            context.DrawLine(neutral, box.Box.BottomLeft, box.Box.BottomRight);
+
+            // 左/右接口边：有该侧就画**方向色粗边**（无该侧 ⇒ 中性细边）
+            var leftPen = box.HasInput ? new Pen(new SolidColorBrush(receiveColor), RoleSideThickness) : neutral;
+            var rightPen = box.HasOutput ? new Pen(new SolidColorBrush(sendColor), RoleSideThickness) : neutral;
+            context.DrawLine(leftPen, box.Box.TopLeft, box.Box.BottomLeft);
+            context.DrawLine(rightPen, box.Box.TopRight, box.Box.BottomRight);
+
+            // 口数刻痕（>1 口才画：一眼看出"这块有 2 个输入"）
+            DrawPortTicks(context, box);
+
+            if (!ShowLabels)
             {
-                delivered += port.Delivered;
-                dropped += port.Dropped;
-            }
-        }
-
-        return seen.Count == 0 ? "无连接" : $"投递 {delivered:N0} · 丢弃 {dropped:N0}";
-    }
-
-    /// <summary>
-    /// **"未连"标签的原点**：摆在该口所在边的**外端**（远离模块中心/类型方块），并钳制在窗口内。
-    /// </summary>
-    /// <remarks>
-    /// 【用户第十六轮反馈】原实现固定写在残段右侧 4px，左边缘的口因此把文字压到中心方块上（截图可见）。
-    /// 规则：右边缘的口 → 文字在残段**右侧**；左边缘 → 文字在残段**左侧**（右对齐到残段）；
-    /// 上/下边缘（当前框架未使用，为将来留口）同理朝外。文字始终画在连线上方（下边缘除外）。
-    /// </remarks>
-    /// <param name="side">口所在边。</param>
-    /// <param name="stub">残段外端。</param>
-    /// <param name="textWidth">文字宽度。</param>
-    /// <param name="width">窗口宽。</param>
-    /// <param name="height">窗口高。</param>
-    /// <returns>文字绘制原点（左上角）。</returns>
-    public static Point UnconnectedLabelOrigin(PortSide side, Point stub, double textWidth, double width, double height)
-    {
-        const double Gap = 4;
-
-        var x = side switch
-        {
-            PortSide.Right => stub.X + Gap,
-            PortSide.Left => stub.X - Gap - textWidth,
-            _ => stub.X - (textWidth / 2),
-        };
-
-        var y = side switch
-        {
-            PortSide.Bottom => stub.Y + Gap,
-            _ => stub.Y - (SmallFontSize + Gap),
-        };
-
-        return new Point(
-            Math.Clamp(x, 2, Math.Max(2, width - textWidth - 2)),
-            Math.Clamp(y, 2, Math.Max(2, height - SmallFontSize - 2)));
-    }
-
-    /// <summary>在连线的窗口侧端部标注对端 `实例.口名`（仅未拼接时；**避开 20px 标记带**）。</summary>
-    private void DrawPeer(DrawingContext context, string text, Point end, PortSide side, double width, IBrush brush)
-    {
-        var formatted = Format(text, SmallFontSize, brush);
-
-        // 【用户第十六轮/第十七轮】贴在窗口边缘会被标记（20px 带）压住/遮挡 ⇒ 内收到**标记带以内**
-        var x = side switch
-        {
-            PortSide.Right => end.X - Band - formatted.Width - 6,
-            PortSide.Left => end.X + Band + 6,
-            _ => end.X + 4,
-        };
-
-        x = Math.Clamp(x, 2, Math.Max(2, width - formatted.Width - 2));
-
-        var y = side switch
-        {
-            PortSide.Top => end.Y + Band + 4,
-            PortSide.Bottom => end.Y - Band - formatted.Height - 4,
-            _ => end.Y + 3,
-        };
-
-        y = Math.Clamp(y, 2, double.MaxValue);
-
-        context.DrawText(formatted, new Point(x, y));
-    }
-
-    /// <summary>在端部画一个流向箭头（按口方向取色）。</summary>
-    private static void DrawArrow(DrawingContext context, Point tip, PortSide flow, IBrush brush)
-    {
-        var size = ArrowSize;
-        var geometry = new StreamGeometry();
-
-        using (var sink = geometry.Open())
-        {
-            switch (flow)
-            {
-                case PortSide.Right:
-                    sink.BeginFigure(new Point(tip.X, tip.Y), isFilled: true);
-                    sink.LineTo(new Point(tip.X - size, tip.Y - (size / 1.6)));
-                    sink.LineTo(new Point(tip.X - size, tip.Y + (size / 1.6)));
-                    break;
-
-                case PortSide.Left:
-                    sink.BeginFigure(new Point(tip.X, tip.Y), isFilled: true);
-                    sink.LineTo(new Point(tip.X + size, tip.Y - (size / 1.6)));
-                    sink.LineTo(new Point(tip.X + size, tip.Y + (size / 1.6)));
-                    break;
-
-                case PortSide.Bottom:
-                    sink.BeginFigure(new Point(tip.X, tip.Y), isFilled: true);
-                    sink.LineTo(new Point(tip.X - (size / 1.6), tip.Y - size));
-                    sink.LineTo(new Point(tip.X + (size / 1.6), tip.Y - size));
-                    break;
-
-                default:
-                    sink.BeginFigure(new Point(tip.X, tip.Y), isFilled: true);
-                    sink.LineTo(new Point(tip.X - (size / 1.6), tip.Y + size));
-                    sink.LineTo(new Point(tip.X + (size / 1.6), tip.Y + size));
-                    break;
+                continue;
             }
 
-            sink.EndFigure(true);
-        }
+            var maxWidth = Math.Max(8, box.Box.Width - 10);
+            var titleHeight = LabelFontSize + 2;
+            var subHeight = SmallFontSize + 2;
+            var top = box.Box.Y + ((box.Box.Height - (titleHeight + subHeight)) / 2);
 
-        context.DrawGeometry(brush, null, geometry);
+            var title = Format(Ellipsize(role.Title, LabelFontSize, ink, maxWidth), LabelFontSize, ink);
+            context.DrawText(title, new Point(box.Box.Center.X - (title.Width / 2), top));
+
+            var counts = Format(role.RoleCountText, SmallFontSize, muted);
+            context.DrawText(counts, new Point(box.Box.Center.X - (counts.Width / 2), top + titleHeight));
+
+            // 角色**自身的信息**（速率 / 口数 / 类型）——纯文字、左对齐，贴在方块上方（不画文本框）
+            DrawRoleInfo(context, role, box, width, height, ink, muted);
+        }
+    }
+
+    /// <summary>接口边上的**口数刻痕**：每口一条短横线（&gt;1 口才画；最多画 6 条 + 一个点）——"几个口"用图形表达。</summary>
+    private static void DrawPortTicks(DrawingContext context, RoleBox box)
+    {
+        Draw(box.InputCount, box.Box.Left, inward: 1);
+        Draw(box.OutputCount, box.Box.Right, inward: -1);
+
+        void Draw(int count, double x, int inward)
+        {
+            if (count <= 1)
+            {
+                return;   // 1 个口是常态，不画刻痕（不加噪）
+            }
+
+            const int MaxTicks = 6;
+            const double Inset = 5;
+            var shown = Math.Min(count, MaxTicks);
+            var usable = box.Box.Height - (Inset * 2);
+            var pen = new Pen(Alpha(Colors.White, 0.85), 1.6);
+
+            for (var i = 0; i < shown; i++)
+            {
+                var t = shown == 1 ? 0.5 : i / (double)(shown - 1);
+                var y = box.Box.Top + Inset + (usable * t);
+                context.DrawLine(pen, new Point(x, y), new Point(x + (RolePortTickLength * inward * -1), y));
+            }
+
+            if (count > MaxTicks)
+            {
+                // 超出可画数量 ⇒ 在中间补一个点，表示"还有更多"（精确值在悬停里）
+                context.DrawEllipse(pen.Brush, null, new Point(x + (RolePortTickLength * inward * -1), box.Box.Center.Y), 1.6, 1.6);
+            }
+        }
+    }
+
+    /// <summary>画**断口竖杠**（未拼接时，在窗口边界处表达"线被裁断"）。</summary>
+    private static void DrawBreakMark(DrawingContext context, Point at, PortSide direction, IBrush brush)
+    {
+        var (dx, dy) = direction switch
+        {
+            PortSide.Left or PortSide.Right => (1.0, 0.0),
+            _ => (0.0, 1.0),
+        };
+
+        // 断口 = 与线垂直的一小段
+        var normal = (X: -dy * (BreakMarkLength / 2), Y: dx * (BreakMarkLength / 2));
+        context.DrawLine(
+            new Pen(brush, 2),
+            new Point(at.X + normal.X, at.Y + normal.Y),
+            new Point(at.X - normal.X, at.Y - normal.Y));
     }
 
     // ------------------------------------------------------------------ 小工具
 
-    /// <summary>沿连线方向的渐变：本端方向色 → **中点色**（可选末端透明 = 未拼接时淡出）。</summary>
+    /// <summary>两点之间的方向（用于箭头与断口朝向）。</summary>
+    private static PortSide DirectionOf(Point start, Point end)
+    {
+        var dx = end.X - start.X;
+        var dy = end.Y - start.Y;
+
+        return Math.Abs(dx) >= Math.Abs(dy)
+            ? dx >= 0 ? PortSide.Right : PortSide.Left
+            : dy >= 0 ? PortSide.Bottom : PortSide.Top;
+    }
+
+    /// <summary>沿连线方向的渐变：本端方向色 → **中点色**。</summary>
     private static LinearGradientBrush Gradient(Point start, Point end, Color own, Color mid, bool transparentTail = false)
     {
         var brush = new LinearGradientBrush
@@ -661,7 +1035,7 @@ public sealed class ConnectionOverlay : Control
         return brush;
     }
 
-    /// <summary>同色但指定透明度的画刷（0 = 全透明、1 = 不透明）。</summary>
+    /// <summary>同色但指定透明度的画刷。</summary>
     private static SolidColorBrush Alpha(Color color, double alpha) =>
         new(Color.FromArgb((byte)Math.Clamp(255 * alpha, 0, 255), color.R, color.G, color.B));
 
@@ -672,22 +1046,35 @@ public sealed class ConnectionOverlay : Control
     private static Point Lerp(Point start, Point end, double t) =>
         new(start.X + ((end.X - start.X) * t), start.Y + ((end.Y - start.Y) * t));
 
-    /// <summary>从 <paramref name="start"/> 朝 <paramref name="end"/> 方向取固定长度（不足则取到终点）。</summary>
-    private static Point Shorten(Point start, Point end, double length)
+    /// <summary>端部流向箭头（沿数据流方向）。</summary>
+    private static void DrawArrow(DrawingContext context, Point tip, PortSide flow, IBrush brush, double size)
     {
-        var dx = end.X - start.X;
-        var dy = end.Y - start.Y;
-        var distance = Math.Sqrt((dx * dx) + (dy * dy));
-
-        if (distance <= length || distance <= 0)
+        var (dx, dy) = flow switch
         {
-            return end;
+            PortSide.Right => (X: 1.0, Y: 0.0),
+            PortSide.Left => (X: -1.0, Y: 0.0),
+            PortSide.Bottom => (X: 0.0, Y: 1.0),
+            _ => (X: 0.0, Y: -1.0),
+        };
+
+        var normal = (X: -dy, Y: dx);
+        var baseX = tip.X - (dx * size);
+        var baseY = tip.Y - (dy * size);
+        var half = size / 2;
+
+        var geometry = new StreamGeometry();
+        using (var sink = geometry.Open())
+        {
+            sink.BeginFigure(tip, isFilled: true);
+            sink.LineTo(new Point(baseX + (normal.X * half), baseY + (normal.Y * half)));
+            sink.LineTo(new Point(baseX - (normal.X * half), baseY - (normal.Y * half)));
+            sink.EndFigure(isClosed: true);
         }
 
-        return new Point(start.X + (dx * length / distance), start.Y + (dy * length / distance));
+        context.DrawGeometry(brush, null, geometry);
     }
 
-    /// <summary>排版文本（按 `(文本, 字号, 画刷)` 缓存：动画每帧只改虚线相位，文本不必重排）。</summary>
+    /// <summary>排版文本（按 `(文本, 字号, 画刷)` 缓存）。</summary>
     private FormattedText Format(string text, double size, IBrush brush)
     {
         if (_textCache.TryGetValue((text, size, brush), out var cached))
@@ -712,15 +1099,23 @@ public sealed class ConnectionOverlay : Control
         return formatted;
     }
 
-    private void DrawText(DrawingContext context, string text, Point origin, double size, IBrush brush) =>
-        context.DrawText(Format(text, size, brush), origin);
-
-    /// <summary>两方向相反侧。</summary>
-    private static PortSide Opposite(PortSide side) => side switch
+    /// <summary>超宽文本**居中省略**。</summary>
+    private string Ellipsize(string text, double size, IBrush brush, double maxWidth)
     {
-        PortSide.Left => PortSide.Right,
-        PortSide.Right => PortSide.Left,
-        PortSide.Top => PortSide.Bottom,
-        _ => PortSide.Top,
-    };
+        if (text.Length == 0 || Format(text, size, brush).Width <= maxWidth)
+        {
+            return text;
+        }
+
+        for (var length = text.Length - 1; length > 0; length--)
+        {
+            var candidate = string.Concat(text.AsSpan(0, length), "…");
+            if (Format(candidate, size, brush).Width <= maxWidth)
+            {
+                return candidate;
+            }
+        }
+
+        return "…";
+    }
 }

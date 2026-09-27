@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Ui.Controls;
 using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.Runtime;
 using HYWDebugAssistant.Ui.Views;
@@ -75,6 +76,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     private readonly Dictionary<(string InstanceId, string Source), long> _textReadCounts = [];
 
     private int _frameCounter;
+
+    /// <summary>上一次看到的**拓扑结构签名**（网络成员 + 口标签）——变了就立刻刷新连接状态与角色投影。</summary>
+    private string _structureSignature = string.Empty;
 
     /// <summary>本次拖动**起点**的各成员几何（拖动中按 Ctrl 拆分时用来"放回原位"）。</summary>
     private readonly Dictionary<string, CanvasRect> _dragStartRects = new(StringComparer.Ordinal);
@@ -222,13 +226,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 计算**叠加信息层**所需的"对端方位与名称"【M1-16 / ADR-0039 D5】。
+    /// 刷新**叠加层开关**与口标记的**对端文本**（仅服务**悬停提示**）。
     /// </summary>
     /// <remarks>
-    /// 数据来源 = 公开查询面 <c>GetNetworks()</c>（网络 → 成员字面量），**不外扩公开面**；
-    /// 对端在现场 → 按其窗口矩形的相对方位决定线的走向（拼接后两条线在公共边自然相连）；
-    /// 对端不在现场（未装入/隐藏） → 按端口自身所在边（发送朝外、接收朝内）画到本窗口边缘，
-    /// 并在端部标出对端名（D-4 裁决：不做跨窗口覆盖窗）。
+    /// 【来源唯一 · ADR-0049 D4】叠加层的**连线**已完全改由**角色对**（`GetRolePairs`）驱动，
+    /// 不再读标记上的"对端方位/是否贴合" ⇒ 那三个字段（`PeerSide`/`PeerAdjacent`/`HasLink`）已删除。
+    /// 本方法现在只做两件事：① 把叠加层开关下发到每个模块；② 给悬停提示填一句"对端是谁"。
     /// </remarks>
     private void RefreshOverlayPeers()
     {
@@ -258,61 +261,32 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
             foreach (var marker in module.Ports)
             {
-                var literal = $"{marker.InstanceId}.{marker.PortName}";
-                if (!peers.TryGetValue(literal, out var peer))
-                {
-                    marker.PeerText = null;
-                    marker.PeerSide = null;
-                    marker.PeerAdjacent = false;
-                    continue;
-                }
-
+                _ = peers.TryGetValue($"{marker.InstanceId}.{marker.PortName}", out var peer);
                 marker.PeerText = peer;
-                marker.PeerSide = ResolvePeerSide(module, marker, peer);
-                marker.PeerAdjacent = ResolvePeerAdjacent(module, peer);
             }
         }
     }
 
     /// <summary>
-    /// 对端是否与本模块**拼接贴合**（接触）【ADR-0045】：叠加层据此决定"线到边界直接接过去"还是"末端淡出 + 标对端"。
+    /// **类型颜色改了** ⇒ 让所有端口标记重读类型画刷【ADR-0054：数据结构 → 颜色映射表】。
     /// </summary>
-    /// <param name="module">本模块。</param>
-    /// <param name="peerLiteral">对端口标记字面量（`实例.口名`）。</param>
-    /// <returns>是否贴合。</returns>
-    private bool ResolvePeerAdjacent(ModuleViewViewModel module, string peerLiteral)
+    /// <remarks>
+    /// 色板（<c>PacketTypePalette</c>）是**绘制期唯一色彩来源**：
+    /// <list type="bullet">
+    ///   <item>端口标记的窄色条走<b>绑定</b> ⇒ 必须显式通知（<c>RefreshTypeBrush</c>）；</item>
+    ///   <item>叠加层的角色方块在 <c>Render</c> 里**当场取色** ⇒ 只要重绘即可；叠加层可见时由共享时钟持续重绘，
+    ///     关闭时无需重绘（看不见）。</item>
+    /// </list>
+    /// </remarks>
+    public void RefreshTypeColors()
     {
-        var peerId = PeerIdOf(peerLiteral);
-
-        return Find(peerId) is { } peer
-            && peer.Rect.IsValid
-            && module.Rect.IsValid
-            && AreNodesJoined((module.InstanceId, module.Rect), (peer.InstanceId, peer.Rect), GroupTolerance);
-    }
-
-    /// <summary>从 `实例.口名` 取出实例名（口名自身可能含点，故从**最后一个**点切）。</summary>
-    private static string PeerIdOf(string peerLiteral)
-    {
-        var separator = peerLiteral.LastIndexOf('.');
-        return separator > 0 ? peerLiteral[..separator] : peerLiteral;
-    }
-
-    /// <summary>对端相对本模块的方位（对端在现场按矩形中心判方位；不在现场按端口所在边）。</summary>
-    private PortSide ResolvePeerSide(ModuleViewViewModel module, PortMarkerViewModel marker, string peerLiteral)
-    {
-        var peerId = PeerIdOf(peerLiteral);
-
-        if (Find(peerId) is { } peer && peer.Rect.IsValid && module.Rect.IsValid)
+        foreach (var module in Modules)
         {
-            var dx = peer.Rect.X + (peer.Rect.Width / 2) - (module.Rect.X + (module.Rect.Width / 2));
-            var dy = peer.Rect.Y + (peer.Rect.Height / 2) - (module.Rect.Y + (module.Rect.Height / 2));
-
-            return Math.Abs(dx) >= Math.Abs(dy)
-                ? dx >= 0 ? PortSide.Right : PortSide.Left
-                : dy >= 0 ? PortSide.Bottom : PortSide.Top;
+            foreach (var marker in module.Ports)
+            {
+                marker.RefreshTypeBrush();
+            }
         }
-
-        return marker.Side;
     }
 
     /// <summary>选中一个模块（点击边框带时调用；锁定或未选中都不影响数据）。</summary>
@@ -591,11 +565,16 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             return;
         }
 
-        var group = GroupOfNode(ShellNodeId, preMoveShell);
+        // **本次拖动开始时**就与外壳拼在一起的那些模块（冻结集合）：
+        // 【用户第三十四轮裁定："单独拖动主窗口时不进行吸附行为，更符合直觉"】
+        // 旧实现**逐帧**重算分组 ⇒ 拖着外壳**经过**某个模块时，那一帧它被判成"已拼上"并跟着走
+        // ⇒ 现象正是"经过模块时导致模块**错位粘连**（没有产生吸附行为却拼上去了）"。
+        // ⇒ 冻结集合只在**一次拖动开始时**算一次（用移动前的外壳矩形），拖动过程中**不再吸收新成员**。
+        _shellDragGroup ??= GroupOfNode(ShellNodeId, preMoveShell);
 
         foreach (var module in Modules)
         {
-            if (!group.Contains(module.InstanceId) || module.IsLocked || !module.Rect.IsValid)
+            if (!_shellDragGroup.Contains(module.InstanceId) || module.IsLocked || !module.Rect.IsValid)
             {
                 continue;
             }
@@ -606,6 +585,15 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             _ = _pendingSceneCommits.Add(module.InstanceId);
         }
     }
+
+    /// <summary>
+    /// **外壳拖动结束**：清掉冻结的分组（下一次拖动重新按"当前拼合情况"取组）。
+    /// </summary>
+    /// <remarks>由 `ModuleWindowManager` 在外壳停止移动后调用（静默 ~250ms 视为一次拖动结束）。</remarks>
+    public void EndShellDragGesture() => _shellDragGroup = null;
+
+    /// <summary>一次外壳拖动期间**冻结**的跟随成员（null = 本次拖动尚未取组）。</summary>
+    private HashSet<string>? _shellDragGroup;
 
     /// <summary>
     /// 把"整体平移"造成的位置变化**合并落盘**（一次 ChangeSet）。
@@ -1302,6 +1290,42 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         OnPropertyChanged(nameof(ModuleCount));
     }
 
+    /// <summary>
+    /// **拓扑结构签名**（网络成员 + 每条网络是否停流 + 各口标签）——**只含结构、不含计数**。
+    /// </summary>
+    /// <remarks>
+    /// 用途：判断"结构是否变了"。计数（投递/丢弃/速率）会随数据流动一直变，**不能进签名**
+    /// （否则每帧都会触发整套刷新）；它们仍走约 0.5 秒的节拍。
+    /// </remarks>
+    private string BuildStructureSignature()
+    {
+        var builder = new System.Text.StringBuilder(256);
+
+        foreach (var network in _query.GetNetworks())
+        {
+            builder.Append(network.Key).Append(network.IsStalled ? '!' : '+');
+            foreach (var target in network.Targets)
+            {
+                builder.Append(target).Append(',');
+            }
+
+            builder.Append(';');
+        }
+
+        foreach (var module in Modules)
+        {
+            builder.Append(module.InstanceId).Append('#');
+            foreach (var port in module.Ports)
+            {
+                builder.Append(port.PortName).Append('=').Append(port.Label).Append(',');
+            }
+
+            builder.Append(';');
+        }
+
+        return builder.ToString();
+    }
+
     private void RefreshSubscriptions()
     {
         _frameCounter++;
@@ -1316,6 +1340,13 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             _sources[(source.InstanceId, source.DataSourceName)] = source;
         }
 
+        // 【结构变了就立刻刷新】**连接状态/停流/角色投影**都以**网络成员关系**为唯一来源（用户裁定"指标来源唯一"）：
+        // 它们不再是"每 0.5 秒才追上"的滞后态 —— 建网/断网/改标签/增删模块的**当帧**就刷新，
+        // 否则用户刚连上却看不到连接灯与连线（"看得见"是功能的一部分）。
+        var structure = BuildStructureSignature();
+        var structureChanged = !string.Equals(structure, _structureSignature, StringComparison.Ordinal);
+        _structureSignature = structure;
+
         foreach (var module in Modules)
         {
             // 配置 Schema 读取要反射配置类型 → 不按帧重读：约每 2 秒一次，捕获外部（组合件加载/JSON 写回）变更
@@ -1324,10 +1355,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 module.ReloadConfigurationForms();
             }
 
-            // 口标记的网络信息（连接状态 + **投递量与估算字节**）：网络粒度诊断，约每 0.5 秒刷一次
-            if (_frameCounter % 30 == 0)
+            // 口标记的网络信息（连接状态 + **投递量与估算字节**）与**角色方块**：
+            // ① **结构变化时**立即刷一次；② 否则按约 0.5 秒的节拍刷（指标会随数据流动持续变化）
+            if (structureChanged || _frameCounter % 30 == 0)
             {
                 RefreshMarkerStatus(module);
+                RefreshRoleBoxes(module);
             }
 
             foreach (var element in module.Elements)
@@ -1355,6 +1388,15 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                     default:
                         break;
                 }
+            }
+        }
+
+        // **角色投影第二遍**：连线的对端锚点要用**对端方块的位置** ⇒ 必须等所有模块的方块都摆好
+        if (structureChanged || _frameCounter % 30 == 0)
+        {
+            foreach (var module in Modules)
+            {
+                RefreshRoleLinks(module);
             }
         }
     }
@@ -1431,6 +1473,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 marker.Delivered = 0;
                 marker.Dropped = 0;
                 marker.BytesText = null;
+                marker.RateText = "---";   // 未入网 ⇒ 通路速率无值（不显示上一段的旧数字）
                 continue;
             }
 
@@ -1438,35 +1481,199 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             marker.NetworkName = network.IsAnonymous ? null : network.Name;
             marker.IsStalled = network.IsStalled;
 
-            // 【ADR-0050 M2/M7】单源网络用网络键即可；多源网络下**按源归属**取（键 = `源 → 宿子集`）
+            // 【ADR-0050 M2/M7】**键空间要分清**（实测踩坑）：
+            //   · `BindingDiagnosticView.Key` = **逐源键**（`源 → 宿子集`，多源下按源归属）⇒ 用它取"这条连接"的投递/丢弃；
+            //   · `PortQueueDepthView` = **每 (实例, 口)** 一条队列 ⇒ 用它取"本口按宿计"的速率（源口/宿口都有）。
+            // 早先只按网络键查逐源表 ⇒ 宿口查不到 ⇒ 该口速率/投递**静默不更新**（一直显示占位符）。
             if (!diagnostics.TryGetValue(network.Key, out var diagnostic))
             {
                 _ = diagnosticsBySource.TryGetValue(literal, out diagnostic);
             }
 
-            if (diagnostic is null)
-            {
-                continue;
-            }
-
-            marker.Delivered = diagnostic.Delivered;
-            marker.Dropped = diagnostic.Dropped;
+            marker.Delivered = diagnostic?.Delivered ?? 0;
+            marker.Dropped = diagnostic?.Dropped ?? 0;
 
             var size = contractSizes.TryGetValue(marker.PortName, out var bytes) ? bytes : 0;
-            var totalBytes = diagnostic.Delivered * size;
+            var totalBytes = marker.Delivered * size;
             marker.BytesText = size > 0 ? FormatBytes(totalBytes) : null;
 
             // 【ADR-0046 D8 / R4】**速率由框架给出**（不再由 UI 差分估算）：
-            // 接收侧取**按宿计**的口径（每口一条队列，ADR-0050 Q2）；发送侧取本条连接的搬运字节速率。
+            // 接收侧取**按宿计**的口径（每口一条队列）；取不到队列指标时回退到本条连接的搬运字节速率。
             var busRate = queueDepths.TryGetValue(literal, out var depth)
                 ? depth.BusByteRate
-                : diagnostic.BusByteRate;
+                : diagnostic?.BusByteRate ?? 0;
 
             marker.RateText = busRate > 0.5 ? $"{FormatBytes((long)busRate)}/s" : "---";
         }
     }
 
-    /// <summary>把字节数格式化为紧凑文本（B/KB/MB/GB）。</summary>
+    /// <summary>
+    /// **角色投影第一遍**：摆好本模块的**角色方块**（功能分块）与信息区【ADR-0052】。
+    /// </summary>
+    /// <remarks>
+    /// 数据来源 = 公开查询面 <c>GetRoles</c>（Core 算、UI 只画）；此处只做"查询面 → 视图模型"的搬运，
+    /// **不派生角色**（角色来自模块声明）。连线的对端锚点需要**所有模块的方块**都已就位 ⇒ 连线在第二遍算。
+    /// </remarks>
+    private void RefreshRoleBoxes(ModuleViewViewModel module)
+    {
+        var roles = _query.GetRoles(module.InstanceId);
+        var contractSizes = _query.TryGetInstance(module.InstanceId, out var instance) && instance is not null
+            ? instance.Ports.Count
+            : 0;
+
+        var boxes = new List<RoleBoxViewModel>(roles.Count);
+        foreach (var role in roles)
+        {
+            var box = new RoleBoxViewModel(
+                role.Key,
+                role.RoleId,
+                role.DisplayName,
+                role.TypeKey,
+                role.TypeText,
+                role.Inputs,
+                role.Outputs,
+                role.InboundRoleCount,
+                role.OutboundRoleCount,
+                role.SemanticText,
+                role.NominalRateHz);
+
+            // **角色自身的信息**（用户第三十四轮：画在角色方块上方、左对齐、大字速率、禁止过长描述）——
+            // 数值全部来自框架的**角色维度聚合**（`GetRoles` 已按角色汇总），UI 只做格式化。
+            box.RateText = role.RateBytesPerSecond > 0.5
+                ? $"{FormatBytes((long)role.RateBytesPerSecond)}/s"
+                : "---";
+            box.MetaText = RoleTextMetrics.TypeTagOf(role.SemanticText);
+
+            boxes.Add(box);
+        }
+
+        module.ApplyRoleBoxes(
+            boxes,
+            RoleOverlayInfoBuilder.Build($"{module.InstanceId} · {module.Title}", roles.Count, contractSizes));
+    }
+
+    /// <summary>
+    /// **角色投影第二遍**：算**角色间数据流**（线）与**内部处理顺序**。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>线的两点</b>：本端角色**方块中心**与**对端角色方块中心**【ADR-0053 · 用户第三十四轮：
+    ///     "连线从角色方块中心出发"】—— 对端那一点用**同一套** <c>ConnectionOverlay.LayoutRoles</c>
+    ///     从对端模块的方块算出并换算到本窗局部坐标 ⇒ 两端算出的**是同一条线段**
+    ///     （各窗只画自己窗内那段 ⇒ 严格共线，不会出现"两根错位的线"）；</item>
+    ///   <item>对端方块算不出（对端没有该角色 / 已被裁掉 / 不在现场）⇒ 回退为**对端窗口中心**；</item>
+    ///   <item><b>线不承载指标</b>（用户第三十四轮）：角色维度指标画在**角色方块**上（第一遍已备好），
+    ///     通路维度指标画在**端口标记**上；这里只算几何与对端信息，不重复算数字。</item>
+    /// </list>
+    /// </remarks>
+    private void RefreshRoleLinks(ModuleViewViewModel module)
+    {
+        var flows = _query.GetRoleFlows(module.InstanceId);
+        var links = new List<RoleLinkViewModel>(flows.Count);
+
+        foreach (var flow in flows)
+        {
+            var link = new RoleLinkViewModel(
+                flow.LocalRoleKey,
+                flow.LocalIsSend,
+                flow.PeerInstanceId,
+                flow.PeerRoleKey,
+                flow.PortPairCount);
+
+            // 对端角色方块中心（本窗局部坐标）；算不出 ⇒ 对端窗口中心
+            link.Target = ResolvePeerAnchor(module, flow) ?? ResolvePeerCenter(module, flow.PeerInstanceId);
+            link.PeerAdjacent = IsPeerAdjacent(module, flow.PeerInstanceId);
+            link.PeerText = link.PeerAdjacent ? null : flow.PeerInstanceId;
+
+            links.Add(link);
+        }
+
+        var order = new List<RoleOrderViewModel>();
+        foreach (var step in _query.GetRoleOrder(module.InstanceId))
+        {
+            order.Add(new RoleOrderViewModel(step.FromRoleKey, step.ToRoleKey, step.Label));
+        }
+
+        module.ApplyRoleLinks(links, order);
+    }
+
+    /// <summary>类型语义 · 标称速率（无声明 ⇒ 空串，不占位）。</summary>
+    /// <summary>类型语义 · 标称速率（无声明 ⇒ 空串，不占位）。</summary>
+    /// <param name="semanticText">类型的语义标签（可空）。</param>
+    /// <param name="nominalRateHz">类型的标称速率（可空）。</param>
+    /// <returns>`语义 · 标称 100 Hz` 形式（无声明 ⇒ 空串）。</returns>
+    private static string DescribeMeta(string semanticText, double? nominalRateHz)
+    {
+        var parts = new List<string>(2);
+
+        if (semanticText.Length > 0)
+        {
+            parts.Add(semanticText);
+        }
+
+        if (nominalRateHz is { } nominal)
+        {
+            parts.Add($"标称 {nominal:0.#} Hz");
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    /// <summary>
+    /// **对端角色方块中心**（本窗局部坐标，**DIP**）【ADR-0053：线以两个角色方块中心为端点】。
+    /// </summary>
+    /// <remarks>
+    /// <b>单位口径（唯一事实源，用户第三十四轮："多套坐标系相互冲突，请确定唯一事实源"）</b>：
+    /// <list type="number">
+    ///   <item><b>叠加层几何 = DIP</b>：画布尺寸用 <see cref="ModuleViewViewModel.CanvasWidth"/>/<c>CanvasHeight</c>
+    ///     （= 模型 px ÷ 缩放），方块布局也用它；</item>
+    ///   <item><b>模型几何 = 物理像素</b>（窗口位置是 `PixelPoint`）：世界增量因此必须**除以缩放**才是 DIP；
+    ///     这就是"完全水平/垂直的线也错位"的根因 —— 旧代码把 px 增量直接当 DIP 用（缩放 ≠100% 时整体放大/缩小）；</item>
+    ///   <item>换算只发生在**本方法与 `CanvasWidth/CanvasHeight`** 两处，其余位置一律不许再乘除缩放。</item>
+    /// </list>
+    /// </remarks>
+    private Avalonia.Point? ResolvePeerAnchor(ModuleViewViewModel module, RoleFlowView flow)
+    {
+        if (Find(flow.PeerInstanceId) is not { } peer || !module.Rect.IsValid || !peer.Rect.IsValid)
+        {
+            return null;
+        }
+
+        // 对端方块布局：用**对端自己的 DIP 画布**（与对端绘制时是同一对数字）
+        var layout = ConnectionOverlay.LayoutRoles(peer.Roles, peer.CanvasWidth, peer.CanvasHeight);
+        var box = layout.Boxes.FirstOrDefault(b => string.Equals(b.RoleKey, flow.PeerRoleKey, StringComparison.Ordinal));
+
+        if (box.Box.Width <= 0)
+        {
+            return null;   // 该角色没被画出来（放不下被裁掉）⇒ 交给回退
+        }
+
+        // 世界增量：px → DIP（**必须除缩放**，否则缩放 ≠100% 时两端算出的位置不同 ⇒ 线错位）
+        var dx = module.ToDip(peer.Rect.X - module.Rect.X);
+        var dy = module.ToDip(peer.Rect.Y - module.Rect.Y);
+
+        return new Avalonia.Point(box.Center.X + dx, box.Center.Y + dy);
+    }
+
+    /// <summary>回退：对端**窗口中心**（本窗局部坐标，**DIP**；px → DIP 同样必须除以缩放）。</summary>
+    private Avalonia.Point ResolvePeerCenter(ModuleViewViewModel module, string peerInstanceId)
+    {
+        if (Find(peerInstanceId) is { } peer && peer.Rect.IsValid && module.Rect.IsValid)
+        {
+            return new Avalonia.Point(
+                module.ToDip(peer.Rect.X + (peer.Rect.Width / 2) - module.Rect.X),
+                module.ToDip(peer.Rect.Y + (peer.Rect.Height / 2) - module.Rect.Y));
+        }
+
+        return new Avalonia.Point(module.CanvasWidth / 2, module.CanvasHeight / 2);
+    }
+
+    /// <summary>对端是否与本模块**拼接贴合**（按实例 ID 判；对端不在现场 ⇒ false ⇒ 末端画断口 + 标对端）。</summary>
+    private bool IsPeerAdjacent(ModuleViewViewModel module, string peerInstanceId) =>
+        Find(peerInstanceId) is { } peer
+        && peer.Rect.IsValid
+        && module.Rect.IsValid
+        && AreNodesJoined((module.InstanceId, module.Rect), (peer.InstanceId, peer.Rect), GroupTolerance);
     private static string FormatBytes(long bytes) => bytes switch
     {
         < 1024 => $"{bytes} B",

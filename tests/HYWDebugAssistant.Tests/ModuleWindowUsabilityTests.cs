@@ -211,8 +211,14 @@ public class ModuleWindowUsabilityTests
         marker.TypeText.ShouldNotBeNullOrEmpty("类型文本本身仍然存在（悬停里要显示）");
         marker.NetworkText.ShouldNotContain(marker.TypeText);
 
-        // ④ 窄色条：颜色来自可替换的调色板（映射待用户给出，当前是占位色）
-        marker.TypeBrush.ShouldBeSameAs(PacketTypePalette.Placeholder, "类型→颜色映射未给出前必须走占位色（改映射只改 PacketTypePalette）");
+        // ④ 窄色条：颜色来自**唯一入口** PacketTypePalette，且按**类型身份**取值【ADR-0049 D6/Q4】
+        //    （不再是"一律占位色"：自动配色保证同一类型恒同色 ⇒ 端口标记与角色方块颜色一致）
+        marker.TypeBrush.ShouldBeSameAs(
+            PacketTypePalette.For(marker.TypeKey),
+            "色条颜色必须经 PacketTypePalette（改映射只改那一处）");
+        PacketTypePalette.For(marker.TypeKey).ShouldBeSameAs(
+            PacketTypePalette.For(marker.TypeKey),
+            "同一类型身份 ⇒ 恒取同一画刷（哈希配色是纯函数）");
     }
 
     [Fact]

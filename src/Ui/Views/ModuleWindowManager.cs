@@ -102,7 +102,9 @@ public sealed class ModuleWindowManager : IDisposable
         _controller.VisibilityChanged -= OnVisibilityChanged;
         _controller.ShellTranslationRequested -= OnShellTranslationRequested;
 
-        // 关窗/退出前把"跟随外壳"造成的位移合并落盘（否则最后一次移动会丢）
+        // 退出前把"整体平移"造成的位移合并落盘（拖动模块带走外壳时会产生）
+        _shellDragEndTimer?.Stop();
+        _shellDragEndTimer = null;
         _followCommitTimer?.Stop();
         _followCommitTimer = null;
         _ = _controller.CommitSceneTranslation();
@@ -277,24 +279,19 @@ public sealed class ModuleWindowManager : IDisposable
     }
 
     /// <summary>
-    /// 外壳**位置**变化：**整个现场一起平移**（用户第十二轮第四轮反馈）。
+    /// 外壳**位置**变化：平移"**本次拖动开始时**已与外壳拼在一起"的那一组（**拖动过程中不再吸收新成员**）。
     /// </summary>
     /// <remarks>
-    /// 【用户第十二轮第四轮反馈】外壳与模块**是同一套成组逻辑**：单侧吸附（外壳只提供右边缘）完成后，
-    /// 外壳与贴在其上的模块属于同一个**接触连通分量**；移动外壳 = 平移该组（**没拼上的模块留在原处**）；
-    /// 反过来拖动组内的模块时，外壳窗口也会一起走（见 <see cref="ModuleWindowsViewModel.ShellTranslationRequested"/>）。
-    /// <para>
-    /// **交互期间只刷新参照**：拖动组内的模块会带动外壳窗口，那次移动也会触发本方法 —— 此时不能再平移一次
-    /// （否则双重位移/自激），只更新吸附参照矩形即可。
-    /// </para>
-    /// <para>
-    /// **落盘防抖**：移动中只改内存，停下约 180ms 后合并成一次变更 —— 逐帧提交会触发建网重算并让拖动卡顿。
-    /// </para>
+    /// 【用户第三十四轮裁定："**单独拖动主窗口时不进行吸附行为**，更符合直觉"】
+    /// 旧实现**逐帧**重算"谁与外壳接触" ⇒ 拖着外壳**经过**某个模块时，那一帧它被判成"已拼上"并跟着走
+    /// ⇒ 现象正是用户说的"**经过模块时导致模块错位的粘在主窗口上，且错位粘连（没有产生吸附行为却拼上去了）**"。
+    /// ⇒ 现在：分组在**一次拖动开始时冻结**（<see cref="ModuleWindowsViewModel.TranslateShellGroup"/> 内部实现），
+    /// 停下 ~250ms 视为这次拖动结束（<see cref="ModuleWindowsViewModel.EndShellDragGesture"/>）——
+    /// **已经拼在一起的模块照旧一起走，但拖动过程中绝不"吸收"新模块**。
     /// </remarks>
     private void OnShellMoved()
     {
-        // **移动前**的参照矩形：模块此刻还在旧位置上，分组判定必须用它
-        // （否则"贴上了"会被判成"没贴上" → 模块不跟随；与 implementation/02 P33 同类）
+        // **移动前**的参照矩形：分组判定必须用它（模块此刻还在旧位置上；与 implementation/02 P33 同类）
         var before = _controller.ShellRect;
 
         PublishShellRect();
@@ -305,7 +302,7 @@ public sealed class ModuleWindowManager : IDisposable
             return;
         }
 
-        // 拖动/缩放进行中：外壳是"被拖动组带着走"的 → 只刷新参照，不再联动平移
+        // 拖动组内的模块会带着外壳走，那次移动也会触发本方法 ⇒ 此时不能再平移一次（否则双重位移）
         if (_controller.IsInteracting)
         {
             return;
@@ -313,11 +310,26 @@ public sealed class ModuleWindowManager : IDisposable
 
         _controller.TranslateShellGroup(current.X - previous.X, current.Y - previous.Y, previous);
 
+        // 静默 250ms ⇒ 这次拖动结束：解除分组冻结（下次拖动重新取组）
+        _shellDragEndTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _shellDragEndTimer.Stop();
+        _shellDragEndTimer.Tick -= OnShellDragEndTick;
+        _shellDragEndTimer.Tick += OnShellDragEndTick;
+        _shellDragEndTimer.Start();
+
+        // 拖动中不逐帧落盘：停下后合并提交（逐帧提交会触发建网重算而卡顿）
         _followCommitTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
         _followCommitTimer.Stop();
         _followCommitTimer.Tick -= OnFollowCommitTick;
         _followCommitTimer.Tick += OnFollowCommitTick;
         _followCommitTimer.Start();
+    }
+
+    /// <summary>拖动结束（静默到期）：解除分组冻结。</summary>
+    private void OnShellDragEndTick(object? sender, EventArgs e)
+    {
+        _shellDragEndTimer?.Stop();
+        _controller.EndShellDragGesture();
     }
 
     /// <summary>防抖到期：把整体平移合并落盘。</summary>
@@ -327,7 +339,10 @@ public sealed class ModuleWindowManager : IDisposable
         _ = _controller.CommitSceneTranslation();
     }
 
-    /// <summary>跟随落盘的防抖计时器（<see cref="OnShellMoved"/> 里懒创建）。</summary>
+    /// <summary>"这次拖动结束"的静默计时器。</summary>
+    private DispatcherTimer? _shellDragEndTimer;
+
+    /// <summary>跟随落盘的防抖计时器。</summary>
     private DispatcherTimer? _followCommitTimer;
 
     /// <summary>把"拖动组带动外壳"的请求落到真实窗口上（见 <see cref="ModuleWindowsViewModel.ShellTranslationRequested"/>）。</summary>

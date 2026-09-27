@@ -107,6 +107,141 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     /// <summary>拓扑诊断弹窗视图模型（只读）。</summary>
     public TopologyViewModel Topology { get; }
 
+    /// <summary>
+    /// **数据结构 → 颜色** 映射表（交互页）【ADR-0054 · 用户第三十四轮】。
+    /// </summary>
+    /// <remarks>
+    /// 行 = 当前现场出现过的**类型身份**（`标识@v版本`）；点色块可改色、可"恢复自动"。
+    /// 改色只影响呈现（端口标记的窄色条 + 叠加层角色方块的填充同源）。
+    /// </remarks>
+    public DataTypeColorTableViewModel DataTypeColors { get; } = new();
+
+    /// <summary>
+    /// 刷新**数据结构 → 颜色**表（现场的类型集合 + 各自的覆盖色）。
+    /// </summary>
+    /// <remarks>
+    /// 类型来源 = **端口视图的类型身份**（`PortView.TypeKey`，与色板/角色键同源）——只列**现场真出现过的**类型，
+    /// 不列"声明了但没用上"的（那张表要与用户看到的东西对得上）。按类型身份排序，保证刷新后顺序稳定。
+    /// </remarks>
+    public void RefreshDataTypeColors()
+    {
+        var usage = new Dictionary<string, (string Shape, int Ports, int Roles)>(StringComparer.Ordinal);
+
+        foreach (var instance in _query.GetInstances())
+        {
+            foreach (var port in instance.Ports)
+            {
+                if (port.TypeKey is not { Length: > 0 } key)
+                {
+                    continue;
+                }
+
+                usage.TryGetValue(key, out var current);
+                usage[key] = (
+                    current.Shape is { Length: > 0 } ? current.Shape : port.ContractText ?? string.Empty,
+                    current.Ports + 1,
+                    current.Roles);
+            }
+
+            foreach (var role in _query.GetRoles(instance.InstanceId))
+            {
+                if (role.TypeKey is not { Length: > 0 } key)
+                {
+                    continue;
+                }
+
+                usage.TryGetValue(key, out var current);
+                usage[key] = (current.Shape, current.Ports, current.Roles + 1);
+            }
+        }
+
+        var overrides = Settings.TypeColorOverrides();
+
+        // **就地更新**（用户第三十四轮实测："鼠标指到色块上时不停的闪烁"）：
+        // 旧实现每次刷新都 `Clear()` + 重建整张表 ⇒ 半个刷新周期换一批控件，正在打开的取色弹窗
+        // 目标被销毁 ⇒ 反复开关 = 闪烁（也让人以为"改不了色"）。
+        // ⇒ 行对象**只在类型集合变化时**增删；其余情况就地改值（集合稳定 ⇒ 弹窗不会被拆掉）。
+        var existing = DataTypeColors.Rows.ToDictionary(row => row.TypeKey, StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var (key, info) in usage.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            _ = overrides.TryGetValue(key, out var hex);
+            _ = seen.Add(key);
+
+            var text = info.Roles > 0 ? $"{info.Ports} 个口 · {info.Roles} 个角色" : $"{info.Ports} 个口";
+
+            if (existing.TryGetValue(key, out var row))
+            {
+                row.Update(info.Shape, text, hex);
+                continue;
+            }
+
+            var added = new DataTypeColorRowViewModel(key, info.Shape, text, hex, ApplyDataTypeColor);
+            DataTypeColors.Rows.Insert(IndexOf(key), added);
+        }
+
+        for (var index = DataTypeColors.Rows.Count - 1; index >= 0; index--)
+        {
+            if (!seen.Contains(DataTypeColors.Rows[index].TypeKey))
+            {
+                DataTypeColors.Rows.RemoveAt(index);
+            }
+        }
+
+        DataTypeColors.IsEmpty = DataTypeColors.Rows.Count == 0;
+        DataTypeColors.EmptyText = "现场还没有数据类型";
+
+        // 按类型身份排序插入（新类型插到正确位置，不打断既有行的实例）
+        int IndexOf(string typeKey)
+        {
+            for (var index = 0; index < DataTypeColors.Rows.Count; index++)
+            {
+                if (string.CompareOrdinal(DataTypeColors.Rows[index].TypeKey, typeKey) > 0)
+                {
+                    return index;
+                }
+            }
+
+            return DataTypeColors.Rows.Count;
+        }
+    }
+
+    /// <summary>
+    /// 应用一行的颜色（`hex = null` ⇒ 恢复自动配色）：**唯一入口** —— 同时更新色板、落盘、并让界面重画。
+    /// </summary>
+    /// <param name="typeKey">类型身份。</param>
+    /// <param name="hex">`#RRGGBB`；null/空 ⇒ 移除覆盖。</param>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>色板是唯一色彩来源</b>：端口标记的窄色条与叠加层角色方块都经 `PacketTypePalette` 取色
+    ///     ⇒ 这里只改色板，两处自然同步；</item>
+    ///   <item><b>落盘</b>：写进应用设置（`typeColors`）⇒ 重启仍生效；</item>
+    ///   <item><b>重画</b>：让模块窗口重新读一次类型画刷（标记）并重设角色列表（叠加层触发重绘）。</item>
+    /// </list>
+    /// </remarks>
+    public void ApplyDataTypeColor(string typeKey, string? hex)
+    {
+        if (string.IsNullOrWhiteSpace(typeKey))
+        {
+            return;
+        }
+
+        if (ThemeApplier.Parse(hex) is { } color)
+        {
+            PacketTypePalette.SetOverride(typeKey, color);
+            Settings.SetTypeColor(typeKey, DataTypeColorRowViewModel.ToHex(color));
+        }
+        else
+        {
+            _ = PacketTypePalette.RemoveOverride(typeKey);
+            Settings.SetTypeColor(typeKey, null);
+        }
+
+        Windows.RefreshTypeColors();
+        RefreshDataTypeColors();
+    }
+
     /// <summary>请求打开某个弹窗（由视图创建/显示窗口）。</summary>
     public event EventHandler<DialogKind>? DialogRequested;
 
@@ -276,6 +411,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         Windows.Refresh();
         Catalog.Refresh();
         Issues.Refresh();
+        RefreshDataTypeColors();
 
         IssueCount = Issues.TotalCount;
         ErrorIssueCount = Issues.ErrorCount;
@@ -293,6 +429,18 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     {
         Settings.Load();
         Windows.ShowInfoOverlay = Settings.ShowInfoOverlay;
+
+        // **数据结构 → 颜色**：把设置里的映射灌进色板（启动即生效；色板是唯一色彩来源）【ADR-0054】
+        PacketTypePalette.ClearOverrides();
+        foreach (var (typeKey, hex) in Settings.TypeColorOverrides())
+        {
+            if (ThemeApplier.Parse(hex) is { } color)
+            {
+                PacketTypePalette.SetOverride(typeKey, color);
+            }
+        }
+
+        RefreshDataTypeColors();
 
         // 外观与外壳尺寸随设置刷新（ADR-0038 D2/D4）
         OnPropertyChanged(nameof(ShellAspect));

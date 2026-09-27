@@ -20,6 +20,12 @@
 
     <Application.Styles>
         <FluentTheme />
+        <!--
+          **调色板控件的 Fluent 主题**：`Avalonia.Controls.ColorPicker` 里的 `ColorView`/`ColorPicker`
+          **自带模板但要显式挂载**（`FluentTheme` 不含它的样式）—— 不挂的后果不是报错，而是
+          **控件没有模板 ⇒ 什么都不画**。第三十四轮实测：调色板窗口只剩标题+提示+按钮，看起来像个"复位提示"。
+        -->
+        <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml" />
         <!-- 统一控件尺寸与图标按钮样式（M1-16 / ADR-0040 D4） -->
         <StyleInclude Source="avares://HYWDebugAssistant.Ui/Styles/Controls.axaml" />
     </Application.Styles>

@@ -83,6 +83,68 @@
                 </Button>
             </Grid>
             <TextBlock FontSize="10" Foreground="{DynamicResource TextMuted}" Text="M / I / S / T / L / G / Ctrl+L" />
+
+            <Rectangle Height="1" Margin="0,2" Fill="{DynamicResource BorderDefault}" />
+
+            <!--
+              分区：**数据结构 · 颜色映射表**【ADR-0054 · 用户第三十四轮："添加数据结构-颜色映射表……放在右侧边栏的'交互'下"】
+                · 一行 = 一种**数据类型身份**（`标识@v版本`）；颜色是**唯一色彩来源**：端口标记的窄色条与
+                  叠加层角色方块的填充都取自它 ⇒ 改一处，两处同步；
+                · 点色块 = 取色弹窗（与设置页"主题色"同一套预设 + 十六进制）；"自动" = **稳定哈希配色**
+                  （同一身份跨模块/跨重启同色，不配置也能分辨类型）；
+                · 只呈现：改色不参与建网/兼容/判定，也不进组合件。
+            -->
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="数据结构 · 颜色" />
+                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="颜色映射说明">
+                    <Button.Flyout>
+                        <Flyout Placement="TopEdgeAlignedRight">
+                            <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
+                                       Text="颜色按**数据类型身份**（标识@版本）映射，因此同一类型在所有窗口里同色（不同标识即使形状相同也分开配色）。点色块可自定义；「自动」= 按身份哈希出的稳定色（重启后不变）。改色只影响呈现，不参与建网与判定。" />
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+            </Grid>
+
+            <TextBlock IsVisible="{Binding DataTypeColors.IsEmpty}"
+                       FontSize="10"
+                       Foreground="{DynamicResource TextMuted}"
+                       Text="{Binding DataTypeColors.EmptyText}" />
+
+            <ItemsControl ItemsSource="{Binding DataTypeColors.Rows}" IsVisible="{Binding !DataTypeColors.IsEmpty}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:DataTypeColorRowViewModel">
+                        <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,1">
+                            <!-- 色块：点开**调色板窗口**（可任选颜色 / 恢复自动色）【ADR-0054】 -->
+                            <Button Grid.Column="0" Padding="0" Width="26" Height="20" MinHeight="20"
+                                    Click="OnPickDataTypeColor"
+                                    ToolTip.Tip="更改该数据类型的颜色（调色板窗口）">
+                                <Border Width="22" Height="16" CornerRadius="3"
+                                        Background="{Binding Brush}"
+                                        BorderBrush="{DynamicResource BorderStrong}"
+                                        BorderThickness="1" />
+                            </Button>
+
+                            <!-- 类型身份（等宽）+ 形状与用量（次要、超长省略） -->
+                            <StackPanel Grid.Column="1" Margin="6,0,4,0" VerticalAlignment="Center">
+                                <TextBlock FontFamily="{DynamicResource FontData}" FontSize="11"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip.Tip="{Binding TypeKey}"
+                                           Text="{Binding TypeKey}" />
+                                <TextBlock FontSize="10" Foreground="{DynamicResource TextMuted}"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip.Tip="{Binding ShapeText}"
+                                           Text="{Binding ShapeText}" />
+                            </StackPanel>
+
+                            <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="10"
+                                       Foreground="{DynamicResource TextMuted}"
+                                       ToolTip.Tip="{Binding UsageText}"
+                                       Text="{Binding UsageText}" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

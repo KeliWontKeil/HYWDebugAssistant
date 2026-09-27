@@ -209,6 +209,9 @@ public sealed class SettingsService
         settings.LogLevel = ReadString(root, "logLevel") ?? settings.LogLevel;
         settings.Hotkeys = ReadStringMap(root, "hotkeys");
 
+        // 数据结构 → 颜色【ADR-0054】：键 = 类型身份，值 = `#RRGGBB`（缺失 = 全部走自动配色）
+        settings.TypeColors = ReadStringMap(root, "typeColors");
+
         // 外观【M1-16 / ADR-0038 D4】：主题 / 主题色 / 背景档位（非法值回退到默认，不让损坏的设置阻断启动）
         settings.Theme = ReadString(root, "theme") ?? settings.Theme;
         settings.AccentColor = ReadString(root, "accentColor") ?? settings.AccentColor;
@@ -269,6 +272,18 @@ public sealed class SettingsService
         }
 
         root["hotkeys"] = hotkeys;
+
+        // **数据结构 → 颜色**的用户映射【ADR-0054】：只写用户真正覆盖过的条目（缺省 = 自动配色）
+        var typeColors = new JsonObject();
+        foreach (var (typeKey, color) in settings.TypeColors)
+        {
+            if (!string.IsNullOrWhiteSpace(typeKey) && !string.IsNullOrWhiteSpace(color))
+            {
+                typeColors[typeKey] = color;
+            }
+        }
+
+        root["typeColors"] = typeColors;
     }
 
     /// <summary>读字符串映射（缺失/类型不符 = 空表）。</summary>

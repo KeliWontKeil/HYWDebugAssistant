@@ -248,9 +248,10 @@ public class DataTypeCompatibilityTests
         AddModule(runtime, "r1", "metered-receiver", typeof(MeteredReceiverModule));
         Connect(runtime, "s1", "out", "r1", "in", "bus").ShouldBeTrue();
 
-        // 第一次观察只建基准（速率 0），随后发一批数据，再观察一次得到速率
+        // 第一次观察只建基准（速率 0），随后发一批数据，再观察一次得到速率。
+        // 间隔要**大于速率计的最小重算间隔**（否则重复读取按设计返回上次速率 —— 见 `RateMeter.MinIntervalSeconds`）。
         _ = services.GetDiagnostics();
-        Thread.Sleep(30);
+        Thread.Sleep((int)(Core.Diagnostics.RateMeter.MinIntervalSeconds * 1000) + 60);
 
         for (var i = 0; i < 50; i++)
         {

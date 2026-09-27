@@ -1,45 +1,127 @@
+using System.Collections.Concurrent;
 using Avalonia.Media;
 using Avalonia.Media.Immutable;
 
 namespace HYWDebugAssistant.Ui.ViewModels;
 
 /// <summary>
-/// **数据包类型 → 颜色** 的调色板（端口标记上那条**窄颜色条**）。
+/// **数据包类型 → 颜色** 的调色板（端口标记上的窄颜色条 + 叠加层角色方块的填充）【ADR-0049 D6 / P4-Q4】。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item>【用户第十三轮反馈】标记上**不再显示类型文本**（网络标签名通常很长，放不下），改为**一条窄颜色条**表示数据包类型；
-///     "这个窄条的颜色先预留可修改，具体映射方式我之后做数据包类型相关修改的时候再告诉你" ——
-///     因此本类现在只有 <see cref="Placeholder"/>，**映射表在这里补**，XAML 与视图模型都不用改；</item>
-///   <item>颜色遵循视觉基线：取值应来自 `Tokens.axaml` 的角色色（`SemanticOk/Warn/Error/Idle` 等）或未来的类型色板，
-///     **不在这里写死任意色值**（当前占位色与"当前未映射"一致，刻意保持中性）；</item>
-///   <item>映射落地时建议：`PortMarkerViewModel.TypeBrush` 改为按契约形状（<c>ContractShape.Describe()</c> 的文本，
-///     或将来 SDK 暴露的类型枚举）查本表，未知类型回退 <see cref="Placeholder"/>。</item>
+///   <item><b>键 = 类型身份</b>（`DataRoleView.TypeKey` / `PortView.TypeKey`：`标识@v版本`；未声明类型 ⇒ 结构描述）。
+///     **不能用呈现文本** —— `{seq:u64, value:f32}` 会把"不同标识但形状相同"的两种类型涂成同一色，
+///     而 ADR-0051 明确二者**不是同一种量**（会与 ADR-0048 的角色合并规则自相矛盾）；</item>
+///   <item><b>默认 = 稳定哈希配色</b>：同一 `TypeKey` **恒得同一色**（跨模块、跨进程、跨重启一致），
+///     用户不必维护任何表就能分辨类型。哈希用 **FNV-1a**（<c>string.GetHashCode</c> **每个进程都变**
+///     ⇒ 每次启动颜色都不同，绝对不能用）；</item>
+///   <item><b>覆盖表（接口，本 ADR 只留口子）</b>：用户日后在侧边栏的"**数据包类型表**"里手动指定颜色时，
+///     经 <see cref="SetOverride"/> 填入即可覆盖哈希色。**映射入口只有本类**：端口标记与角色方块共用它，
+///     所以两处颜色**永远一致**（详见 ADR-0049 §8 的评估与后续计划）；</item>
 ///   <item><b>静态画刷必须是"不可变"画刷</b>：<see cref="SolidColorBrush"/> 是 <c>AvaloniaObject</c>，
 ///     **有线程亲和性**——若它在 A 线程被创建，渲染线程读它就会抛
-///     <c>The calling thread cannot access this object because a different thread owns it</c>。
-///     本类是静态单例、且会被**任意线程**（模块线程/测试线程/渲染线程）首次触碰，
-///     因此一律用 <see cref="ImmutableSolidColorBrush"/>（无亲和性、可跨线程共享）。</item>
+///     <c>The calling thread cannot access this object because a different thread owns it</c>
+///     （本类是静态单例、会被任意线程首次触碰，实测踩过：见 `LESSONS` 49 / `implementation/02` P47）；</item>
+///   <item><b>可读性</b>：叠加层是**深色玻璃**（`OverlayScrim`），故自动配色固定取"中等饱和 + 较高亮度"，
+///     保证浅色文字压在其上可读；浅/深主题各配一套是**产品决策**，留待"数据包类型表"那一轮（ADR-0049 §8）。</item>
 /// </list>
 /// </remarks>
 public static class PacketTypePalette
 {
     /// <summary>
-    /// **类型 → 颜色**映射表（**当前为空**：用户明确"映射方式之后再给"，故一律回退占位色）。
+    /// **用户覆盖表**（键 = 类型身份）：本 ADR 只提供接口，侧边栏"数据包类型表"落地时直接填这里。
     /// </summary>
-    /// <remarks>
-    /// 映射落地时**只在这里加条目**（键 = 类型文本，即 `PortMarkerViewModel.TypeText` / `ContractShape.Describe()`），
-    /// 未知类型自动回退 <see cref="Placeholder"/> —— **视图模型与 XAML 都不用改**。
-    /// 注意：条目也必须是**不可变画刷**（同上：静态单例会被多线程读）。
-    /// </remarks>
-    private static readonly Dictionary<string, IBrush> Map = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, IBrush> Overrides = new(StringComparer.Ordinal);
 
-    /// <summary>**未映射类型**的占位色（中性灰蓝；用户明确"先预留可修改"）。</summary>
+    /// <summary>自动配色的缓存（同一键复用同一画刷：颜色稳定 + 不做重复计算）。</summary>
+    private static readonly ConcurrentDictionary<string, IBrush> Auto = new(StringComparer.Ordinal);
+
+    /// <summary>**未映射类型**的占位色（空键 / 未知）：中性灰蓝，刻意保持中性。</summary>
     public static IBrush Placeholder { get; } = new ImmutableSolidColorBrush(Color.Parse("#9AA4B2"));
 
-    /// <summary>取某个数据包类型对应的颜色（**未映射 → <see cref="Placeholder"/>**）。</summary>
-    /// <param name="typeText">类型文本（如 <c>f32</c>；空/未知 → 占位色）。</param>
-    /// <returns>颜色条用的画刷。</returns>
-    public static IBrush For(string? typeText) =>
-        typeText is { Length: > 0 } key && Map.TryGetValue(key, out var brush) ? brush : Placeholder;
+    /// <summary>自动配色的饱和度（0–1）：中等饱和 —— 深色玻璃上不刺眼、彼此可分。</summary>
+    public const double AutoSaturation = 0.52;
+
+    /// <summary>自动配色的亮度（0–1）：偏高亮度 —— 保证深色玻璃上的浅色文字与方块边线都看得清。</summary>
+    public const double AutoLightness = 0.63;
+
+    /// <summary>
+    /// 取某个**数据类型**对应的颜色：① 用户覆盖 ⇒ 用它；② 否则**稳定哈希自动配色**；③ 空键 ⇒ 占位色。
+    /// </summary>
+    /// <param name="typeKey">
+    /// 类型身份（`标识@v版本`；未声明类型 ⇒ 结构描述；空/未知 ⇒ 占位色）。
+    /// </param>
+    /// <returns>颜色条 / 角色方块填充用的画刷。</returns>
+    public static IBrush For(string? typeKey) => typeKey is { Length: > 0 } key
+        ? Overrides.TryGetValue(key, out var overridden)
+            ? overridden
+            : Auto.GetOrAdd(key, static k => new ImmutableSolidColorBrush(AutoColor(k)))
+        : Placeholder;
+
+    /// <summary>设置一个**用户覆盖色**（"数据包类型表"用；同一键重复设置即覆盖）。</summary>
+    /// <param name="typeKey">类型身份。</param>
+    /// <param name="color">颜色。</param>
+    public static void SetOverride(string typeKey, Color color)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(typeKey);
+        Overrides[typeKey] = new ImmutableSolidColorBrush(color);
+    }
+
+    /// <summary>移除一个用户覆盖色（回落自动配色）。</summary>
+    /// <param name="typeKey">类型身份。</param>
+    /// <returns>是否确实移除了。</returns>
+    public static bool RemoveOverride(string typeKey) =>
+        !string.IsNullOrWhiteSpace(typeKey) && Overrides.TryRemove(typeKey, out _);
+
+    /// <summary>清空全部用户覆盖色（测试与"恢复默认"用）。</summary>
+    public static void ClearOverrides() => Overrides.Clear();
+
+    /// <summary>当前用户覆盖色的键（供"类型表"呈现；不暴露画刷实例本身）。</summary>
+    public static IReadOnlyCollection<string> OverriddenKeys => [.. Overrides.Keys];
+
+    /// <summary>
+    /// **稳定哈希配色**（纯函数）：同一键恒得同一色。哈希 = FNV-1a（不随进程变化）；
+    /// 色相由哈希决定，饱和度/亮度取固定值（见 <see cref="AutoSaturation"/> / <see cref="AutoLightness"/>）。
+    /// </summary>
+    /// <param name="typeKey">类型身份（非空）。</param>
+    /// <returns>该类型的自动配色。</returns>
+    public static Color AutoColor(string typeKey)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(typeKey);
+
+        // FNV-1a（32 位）：稳定、无分配、与运行时无关
+        var hash = 2166136261u;
+        foreach (var b in System.Text.Encoding.UTF8.GetBytes(typeKey))
+        {
+            hash ^= b;
+            hash *= 16777619u;
+        }
+
+        var hue = hash % 360u;
+        return FromHsl(hue, AutoSaturation, AutoLightness);
+    }
+
+    /// <summary>HSL → RGB（色相 0–360、饱和度/亮度 0–1）。</summary>
+    private static Color FromHsl(double hue, double saturation, double lightness)
+    {
+        var c = (1 - Math.Abs((2 * lightness) - 1)) * saturation;
+        var h = hue / 60.0;
+        var x = c * (1 - Math.Abs((h % 2) - 1));
+        var m = lightness - (c / 2);
+
+        var (r, g, b) = h switch
+        {
+            < 1 => (c, x, 0.0),
+            < 2 => (x, c, 0.0),
+            < 3 => (0.0, c, x),
+            < 4 => (0.0, x, c),
+            < 5 => (x, 0.0, c),
+            _ => (c, 0.0, x),
+        };
+
+        return Color.FromRgb(
+            (byte)Math.Round((r + m) * 255),
+            (byte)Math.Round((g + m) * 255),
+            (byte)Math.Round((b + m) * 255));
+    }
 }

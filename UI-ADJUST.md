@@ -108,11 +108,11 @@
 | 「停」语义不对，要的是「还原」 | `src/Ui/Views/ModuleWindow.axaml(.cs)` 的 `ResetButton`/`OnReset` + **`ResetModuleDialog`** + `src/Core/Changes/ChangeOperation.cs` 的 `ResetModuleConfigurationOperation` | 按钮簇 = **[还原][锁][隐][×]**；点还原弹**范围确认**（只还原默认尺寸 / 尺寸和配置都还原 / 取消）；配置还原 = **换成同类型新默认实例**（不是清空，否则表单会空） |
 | 模块尺寸总是一样 | `src/Sdk/Views/ViewDeclaration.cs` 的 **`PreferredWidth`/`PreferredHeight`**（`init` 属性）+ 各参考模块的 `DeclareView(...) { PreferredWidth = …, PreferredHeight = … }` | 想给模块定默认尺寸：**在模块代码里加两个 `init` 属性**（不要改构造器签名——那是二进制破坏，P30）；未声明的模块仍回退 320×220 |
 
-### 第十二轮（**吸附手感 · 像素对齐 · 外壳成组**；`architecture/15` + ADR-0042）
+### 第十二轮（**吸附手感 · 像素对齐 · 外壳成组**；`docs/architecture/07-overlay-and-visual-baseline` + `docs/decisions.md`）
 
 | 问题 | 改动位置 | 现在的做法 |
 |---|---|---|
-| 靠近对齐线时**吸附振荡** | `src/Ui/Geometry/SnapEngine.cs` | 候选统一为**参照线模型**（ADR-0042）：模块外框 4 边 + 中心线、端口锚点（轴由所在边决定）、外壳边（**与模块同一张线表**）；级别 = 贴合 > 端口锚点 > 模块中心 > 边缘；**同坐标去重**；**没有额外释放带**（离开容差带立刻跟手） |
+| 靠近对齐线时**吸附振荡** | `src/Ui/Geometry/SnapEngine.cs` | 候选统一为**参照线模型**（`docs/decisions.md`）：模块外框 4 边 + 中心线、端口锚点（轴由所在边决定）、外壳边（**与模块同一张线表**）；级别 = 贴合 > 端口锚点 > 模块中心 > 边缘；**同坐标去重**；**没有额外释放带**（离开容差带立刻跟手） |
 | **底部/右侧对齐时看不到参考线** | `src/Ui/Controls/GuideOverlay.cs` | 根因是**叠加层被窗口边框内缩 1 DIP**（`Frame` 是 `BorderThickness=1`），而下/右贴边的线在叠加层坐标里是"范围 + 2" ⇒ 被可见性判断否掉（上/左落在 0，所以看得见）。修复 = `IsDrawable`（容忍贴边超出、仍排除离得远的线）+ `InsetForDrawing`（贴边收进半个线宽，否则一半被裁剪）。线色/线宽 = 该控件的 `LineBrush`/`GuideThickness`；排除范围 = `EdgeTolerance` |
 | **想调吸附手感** | **设置 → 外观与显示 → 吸附距离（px）** | 默认 **4**（范围 2–8，落 `settings.json` 的 `snapDistance`）：**越小越跟手**（最多滞后一个容差就松手），**越大越容易吸上**；贴合（相邻边接触）永远用它的 **2 倍**。常量默认值在 `SnapEngine.DefaultTolerance` / `FlushTolerance`（改默认才动这里） |
 | 移动主窗口时**模块跟不动 / 拉脱** | `ModuleWindowsViewModel.TranslateShellGroup` + `ModuleWindowManager.OnShellMoved` | **外壳是拼图里的一个节点**：单侧吸附（只提供右边缘）完成后，外壳与贴其上的模块同属一个**接触连通分量**；移动外壳 → 只平移**该组**（没拼上的留在原处）；拖动组内模块 → 外壳窗口一起走；**分组判定必须用"移动前"的外壳矩形**（`preMoveShell`），否则"贴上了"会被判成"没贴上" |
@@ -120,7 +120,7 @@
 | 拖动中/移动后**像素级错位**、模块被"拉回" | `src/Ui/Geometry/ScreenPixels.cs`（新）+ `ModuleWindowsViewModel` | 几何一律**整数物理像素**（唯一量化点）；整体平移**只改内存 + 180ms 防抖合并落盘**，且**刷新（60Hz）跳过未落盘的成员**（否则会被旧布局一帧帧拉回） |
 | 端口/网络标签对齐不生效 | `ModuleWindowsViewModel.BuildPortAnchors` + `SnapEngine.PortAlignReach`(24px) | 端口锚点**恒开**、只在两模块 24px 内接近时参与；**对齐轴由端口所在的边决定**（当前口只在左/右边 ⇒ 恒为 Y），不再"按缝隙大小猜邻接方向" |
 
-### 第十三轮（**端口标记内容重排**；ADR-0043）
+### 第十三轮（**端口标记内容重排**；`docs/decisions.md`）
 
 | 问题 | 改动位置 | 现在的做法 |
 |---|---|---|
@@ -133,7 +133,7 @@
 | 编辑弹窗**太大**、提示占版面 | `ModuleWindow.axaml` 的标记 `Popup` | 宽度 **268 → 188**；行内多句提示**移除** → 标题右侧 **`?` 帮助按钮 + `Flyout`**（`{Binding Hint}`，与外壳各页同规则，见 §4）；失败原因仍**就地**显示且**保持打开** |
 | （实施期踩坑）标记里给元素起**同名** | 模板内元素标识 | 竖排/横排**两套分支在同一命名域**，同名 `Name` 会在**首次布局时**抛 `Control with the name 'X' already registered.`（T0 编译看不到）⇒ 模板内元素用 **`Classes`**（`typeStrip`/`markerLamp`），见 `LESSONS.md` 25 / `implementation/02` P38 |
 
-### 第十四轮（**方向语义色与主题色解耦**；ADR-0044）
+### 第十四轮（**方向语义色与主题色解耦**；`docs/decisions.md`）
 
 | 问题 | 改动位置 | 现在的做法 |
 |---|---|---|
@@ -145,7 +145,7 @@
 | 叠加层**流向箭头**颜色 | `src/Ui/Controls/ConnectionOverlay.cs` + `ModuleWindow.axaml` 的 `SendArrowBrush`/`ReceiveArrowBrush` | 按**口的方向**取色。⚠️ 顺带修掉两个既有缺陷：箭头**从来没画出来**（`DrawArrow` 建了几何却没 `DrawGeometry`）、`ArrowBrush` 是**死属性**；并补了 `AffectsRender`（改画刷不重绘）。**连线**仍是单色（是否按方向分色归"叠加层专项"） |
 | 边界（**别越界**） | — | ① 状态色（`SemanticOk/Warn/Error/Idle`）与交互强调（`AccentPrimary`）**不参与**方向色；② **主题色只影响模块共有/框架性颜色**，模块内部特有绘图与文本颜色**由模块自己决定**（D7）；数据-颜色绑定归后续协议专项，**当前只做预留** |
 
-### 第十五轮（**叠加信息层重设计**；ADR-0045）
+### 第十五轮（**叠加信息层重设计**；`docs/decisions.md`）
 
 | 问题 | 改动位置 | 现在的做法 |
 |---|---|---|
@@ -156,7 +156,7 @@
 | 线的**颜色与渐变** | `ConnectionOverlay.LineOf` / `MidColor` + `ModuleWindow.axaml` 的 `SendArrowBrush`/`ReceiveArrowBrush` | 本端方向色 → **中点色**（发送色与接收色的 50% 混合）渐变；**两个窗口各画一半，靠同一条中点色规则在公共边颜色相接**（拼接时**不淡出**，未拼接时末端 14px 淡出 + 标对端） |
 | **中心方块**（每个数据类型一个） | `ConnectionOverlay.TypeBoxesOf`（纯函数）+ `TypeBoxSize`(14) / `TypeBoxGap`(10) | 颜色 = `PacketTypePalette.For(type)`（**仍是占位色，等你给映射**）；方块下 11px 类型文本；整组在模块中心、超宽换行 |
 | 线的**起点** | `ConnectionOverlay.LineOf` | 起点 = **该口类型对应的方块中心**（不是模块中心一个点、更不是标记中心）；终点 = **窗口边界** |
-| **未连接的口** | 同上（`UnconnectedStubLength` = 26） | 短虚线残段（40% 透明）+ `未连` |
+| **未连接的口** | 同上（`UnconnectedStubLength` = 26） | 短虚线残段（40% 透明）+ `未连` 〔**第十五/十六轮的历史做法；已按 `docs/decisions.md` 的现行结论删除** —— 现在没有「未连」文字，见 §18〕 |
 | 拼接与未拼接的**收尾** | `PortMarkerViewModel.PeerAdjacent`（`ModuleWindowsViewModel.ResolvePeerAdjacent` 用既有 `AreNodesJoined` 算） | 拼接 ⇒ 不淡出、不标对端；未拼接 ⇒ 淡出 + 标对端 |
 | 后续（未做） | — | 正交折线路由 · "静止虚线"开关 · 类型色映射 · 叠加层开启时隐去标记名称文本（**等你复验后定**） |
 
@@ -176,6 +176,31 @@
 | 连线**从网络标签连到中心点**、缺少意义 | `src/Ui/Views/ModuleWindow.axaml`（层级）+ `ConnectionOverlay.DrawPeer`（对端标签内收） | **根因**：连线本来就从中心画到窗口边界（几何是对的），但标记是**不透明块（20px 宽）**且压在连线之上 ⇒ 拼接处**两个标记遮掉 40px**，看起来就是"从标签连到中心"。**层级改为**：内容 → 遮罩 → **端口标记** → **连线层** → 运行指示/按钮簇 ⇒ 连线**跨过网络标签直达对端**（跨过公共边与对端半段相接）。对端标签内收到**标记带以内**，避免又被标记压住。测试：`叠加信息层_遮罩在标记之下而连线在标记之上` |
 | 新模块都落在**左上角、压住主窗口、互相堆叠** | `ModuleWindowsViewModel.NextPlacement()`（新增） | 起点 = **外壳右边缘 + 12px**；与**已有模块逐个做相交检查**，冲突就往下挪"模块高 + 12"；一列到底（超出工作区下沿）→ **换右边一列**（工作区不可用时不换列，仍保证不堆叠）。有 256 次循环上限兜底（宁可重叠也不死循环）。测试：`新模块摆放_应在外壳右侧排开且互不堆叠` |
 | 拼接后单独拖动**必须拖动前按 Ctrl** | `ModuleWindow.axaml.cs`（拖动中每帧判定）+ `ModuleWindowsViewModel.DetachDrag()`（新增） | 拖动**期间**按下 Ctrl ⇒ **立刻拆分**：等价于"一开始就按住 Ctrl" —— **其余成员/外壳回到本次拖动起点**（外壳经 `ShellTranslationRequested` 反向位移还回真实窗口），被拖模块继续跟指针；**单向**（松开 Ctrl 不会重新合组）；**幂等**（每帧调用无害）。测试 2 项（成员回原位 · 外壳回原位） |
+
+### 第十八轮（**叠加层改成「角色投影」**）→ **第三十三轮：角色 = 模块声明的功能分块** → **第三十四轮 + 二次修正：两个信息维度** → **第三十四轮二次：颜色映射表 + 调色板窗口**（以上各轮的现行结论均见 `docs/decisions.md`）
+
+> **⚠️ 口径已换代**：下表做法一栏已按 **`docs/decisions.md` 的现行结论（含二次修正）** 写全；
+> 凡涉及**旧做法**的东西（分侧摆放 · `×N` · 残段 + `未连` · `RoleLineOf` · 结构文字 · **线上的信息卡与 `OverlayCard`** · **"缩方块"档** ·
+> **叠加层里给标记调色的降权样式**）**都已删除**，改后位置见各行。
+
+| 问题 | 改动位置 | 现在的做法 |
+|---|---|---|
+| 叠加层里的方块**代表什么** | `ConnectionOverlay.LayoutRoles`（纯函数）+ `RoleBoxViewModel` | 方块 = **模块声明的功能分块**（`SDK DeclareRole`：一个 `Id` + 一种数据类型 + 输入口/输出口）⇒ **声明几个就画几个**；**单列竖直堆叠、居中**，**宽度随文本自适应**（`RoleTextMetrics.BoxWidth`，夹 [64,176]；块高 34）⇒ 放不下就只画得下的 + 底部 `+K`。**框架不派生、不发明角色** |
+| 方块内容/配色 | `ConnectionOverlay.DrawRoleBoxes` + `PacketTypePalette` | 两行：**功能名**（无则类型短名，11px）+ **`m/n`** = 输入/输出侧**连接的对端角色数**（10px；无该侧口 ⇒ `--`、有口未连 ⇒ `0`）；**填充 = 类型色**（按 `TypeKey` 稳定哈希）、**左边缘 = 接收方向色（有输入口才画）· 右边缘 = 发送方向色（有输出口才画）**、**>1 口才画刻痕**；**不带状态色** |
+| **配色**想固定某类型的颜色 | `PacketTypePalette.SetOverride("hyw/analog-sample@v1", Color.Parse("#…"))`（或后续的侧边栏"数据包类型表"） | 默认 **FNV-1a 稳定哈希**（同一类型恒同色、跨进程一致）；覆盖表可注入。端口标记的窄色条与角色方块**共用同一入口** ⇒ 颜色天然一致 |
+| 线的**条数/聚合** | `ModuleWindowsViewModel.RefreshRoleLinks`（`GetRoleFlows`） | 同一（本端角色, 方向, 对端实例, 对端角色）⇒ **一条线**（`PortPairCount` 只作内部量，**线上不再标 `×N`、也不标网络名**——网络标签属接口层）；多源网络的**不同模块的源 = 各自一条线** |
+| 线的**几何与流向** | `ConnectionOverlay.LinkSegment`（纯函数）+ `OverlayAnimationClock.DashOffset` | 端点 = **两个角色方块的中心**；画出来的那段 = **本窗内 ∩ 本端方块之外**（视觉上"从方块中心出发"、不横穿方块）；**虚线沿数据流方向流动**：两侧共用 `-相位 ÷ 线宽`（`DashStyle.Offset` 单位是**笔宽倍数**）⇒ **发送向外、接收向内**。想改走向 ⇒ 改锚点，**不要加方位分类** |
+| **角色自身的信息**（**角色维度**） | `ConnectionOverlay.DrawRoleInfo` + `RoleBoxViewModel.InfoLines` | **纯文字、不画文本框**，贴在方块**上方、左对齐**：① **速率**（**大字** 15px，主行）· ② `输入 m / 输出 n`（**口数**，10px）· ③ `类型：<短标签>`（10px，只取第一个语义标签并截断 8 字 —— 用户："禁止 UI 外显过长描述"）。数字来自 `RoleView.RateBytesPerSecond`（**框架的角色维度聚合**，产出侧优先：有输出口取输出网络、纯汇取输入网络） |
+| **通路速率**（**通路维度**） | `PortMarkerViewModel.RateText` + `ModuleWindow.axaml` 的 `markerRate` 槽 | **常驻**在标记上（10px，比名称小一号；未入网 `---`）—— 用户："速率显示**常驻**于网络标签上，**它不属于叠加层**" ⇒ 与叠加层开关**无关** |
+| 接口层**沉下去**（"不高亮"） | `ModuleWindow.axaml` 的 **Grid 子元素顺序**（不是样式） | **做减法**：`内容 → 端口标记 → 遮罩 → 连线/角色层 → 运行指示/按钮簇` ⇒ 叠加层开启时标记被灰玻璃压暗（用户："网络标签不高亮**指的不是在上面覆盖一层**……是做减法，把它埋入灰色玻璃下方"）。**不要**再给标记加降权样式（那是做加法，已被否决）；标记仍在命中层之上 ⇒ 照样可双击建网 |
+| 信息**分区域 + 按字号分层** | `ConnectionOverlay.Render` + `RoleOverlayInfoBuilder.Build` | 左上**身份 12px**（`实例 · 模块名`）· 左上第二行 **10px 仅在需要说明时非空**（`无数据口` / `未声明角色（N 个数据口）`）· 方块上的角色信息（见上）。**字号常量**：`CaptionFontSize`（12）/ `RoleTextMetrics.TitleFontSize`（11）/ `DetailFontSize`（10） |
+| 模块**内部处理顺序**（原"内部关系线"） | SDK `DeclareFlow(FlowDeclaration(FromRoleId, ToRoleId))` + `ConnectionOverlay.DrawRoleOrder` | 声明的是**块与块之间**的顺序（角色已含 in/out ⇒ 块内部不必声明）；画成**细实线 + 中性色 `OverlayFlow` + 不流动**（结构 ≠ 流量）；**零声明 ⇒ 不画**（参考模块全是单块 ⇒ 本轮图上零内部线） |
+| 未连接 / 没声明角色 | `RoleOverlayInfoBuilder.Build` + `GetRoles` | **没有「未连」文字**（没连上时端口标记的指示灯会灭，文字多余且抢宽度）——未连的事实看方块第二行的 `m/n`（`0` vs `--`）；**没有声明角色 ⇒ 不画方块**（框架不发明角色），左上第二行给 `未声明角色（N 个数据口）` |
+| 开机就想看效果（**不必启动应用**） | 独立项目 `tests/HYWDebugAssistant.VisualSnapshots` | `dotnet test tests\HYWDebugAssistant.VisualSnapshots\...` ⇒ 在**真实渲染栈**下把带叠加层的窗口渲染成 PNG（`%TEMP%\hyw-overlay-snapshot\`）。**调叠加层观感时先跑它、直接看 PNG**；它同时是"自绘层真的出像素"的渲染冒烟，并含一条**虚线偏移语义**的实测用例（改流向/相位前先看它） |
+| **新模块要在叠加层里出现**（新增一节用法） | 模块 `OnRegistered` | `DeclareDataType(...)` + `DeclarePort(...)`（口要带 `Type = new DataTypeRef(id, ver)`）+ `DeclareRole(RoleDeclaration.Output/Input/Both(...))`。**注意**：角色引用的类型必须**在本模块已声明**，否则声明被拒（运行期报 Issue + SDK 自检也会报）⇒ 现场表现就是"叠加层里没有这个模块的方块" |
+| **数据结构 → 颜色映射表**（侧边栏 交互 页底部 · `docs/decisions.md`） | `ShellViewModel.ApplyDataTypeColor` + `PacketTypePalette` + `DataTypeColorTableViewModel` + `InteractionView.axaml` | 一行 = 一种**类型身份**（色块 / 身份 / 形状 / 用量）；点色块改色 = 打开**调色板窗口**（可任选颜色 / **恢复自动**）。**颜色只有一处来源**：色板 `PacketTypePalette`（端口标记的窄色条与叠加层角色方块的填充**共用**）⇒ 改一处两处同步；**颜色存在应用设置 `typeColors`**（缺省不写 = 自动哈希色，跨重启同色）；**改色入口唯一** —— 别在别处直接 `SetOverride`（那样不落盘、也不重画） |
+| **所有"选颜色"的地方**（表的色块 + 设置页 4 处 · `docs/decisions.md`） | `ColorPickerDialog.ShowAsync(...)`（`FrameworkUi/Views`） | **只有这一个取色窗口**：色板方块 + 色相条 + 分量滑块 + 十六进制 + 一排**推荐色**（= `ThemeApplier.Presets`），底部**确定/取消** + 可选**恢复**（`ColorPickerResult.Reset` 的语义由**调用方**解释：类型色 = 移除覆盖、方向色 = 置空跟随主题）。**新增取色需求就调它，不要再写 `Flyout` 内联色片**（那会立刻产生第二套行为）。**精简边界**：不做自定义色格、不带透明度 |
+| 颜色表的**刷新纪律**（`docs/decisions.md`） | `ShellViewModel.RefreshDataTypeColors` + `DataTypeColorRowViewModel.Update` | 表**就地改值**，行对象**只在类型集合增删时**变动 —— 每次刷新重建 `Rows` 会拆掉用户正在悬停/正在取色的控件（现场表现 = "鼠标指到色块上不停闪烁"） |
 
 ---
 
@@ -248,9 +273,12 @@
 | 改动范围 | 命令 | 说明 |
 |---|---|---|
 | **纯 UI**（XAML / 样式 / 文案 / 间距 / 颜色） | `.\tools\dev.ps1 -Mode Build -Project FrameworkUi`（或 `-Project Ui`）→ `.\tools\dev.ps1 -Mode Run` | **只编译 + 眼睛看**；**不跑测试、不跑门禁**（用户第十轮明确要求） |
+| **叠加层（自绘）观感** | `dotnet test tests\HYWDebugAssistant.VisualSnapshots\HYWDebugAssistant.VisualSnapshots.csproj` ⇒ 打开 `%TEMP%\hyw-overlay-snapshot\*.png` | **不必启动应用**：真实渲染栈把带叠加层的窗口画成 PNG（第三十三轮起）。自绘层的"叠字/画出界/根本没画"只有看图才发现 |
 | **连带改了逻辑**（视图模型 / 命令 / 数据结构） | `.\tools\dev.ps1 -Mode Test -Filter <该逻辑的测试类>`，例如 `-Filter FrameworkUiTests`、`-Filter ModuleWindowVisual` | **只跑受影响的那个测试类**（T1），不跑整套 |
 | 把东西交给用户手工验收之前 | `.\tools\dev.ps1 -Mode Gate` | T3 完整门禁（这类时点才跑） |
 | 改了 `Sdk` 公开面 / `Core.Api` 契约 / 设置或组合件文件格式 / 依赖清单 | `.\tools\dev.ps1 -Mode Gate` | 同上：影响面大，必须全量 |
 
 > **注意**：应用运行时 `src/App/bin` 下的 DLL 被占用 → 构建会失败（`MSB3026`）。用 `dev.ps1 -Mode Run` 前先关掉应用，或加 `-StopApp` 让脚本停掉它。
 > 纯 UI 改动若只编 `Ui`/`FrameworkUi` 而 App 正在跑，用 `-Mode Run` 会被文件锁挡住——**先关应用再运行**。
+> **改了 `src/Ui` 的代码后**：`-Mode Test -SkipAppRebuild` **只重编测试项目**，用的是 `src/Ui/bin` 里的**旧 DLL** ⇒ 必须先
+> `-Mode Build -Project Ui`（第三十三轮实测：忘了这一步会误判成"改了没生效"）。

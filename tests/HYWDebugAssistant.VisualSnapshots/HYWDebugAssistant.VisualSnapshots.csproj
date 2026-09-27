@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    **叠加层观感快照（独立测试项目 · 必须独立进程）**
+    · 用途：在**真实渲染栈（Skia）**下把带叠加层的模块窗口渲染成 PNG ⇒ ① 自绘层渲染冒烟；
+      ② 观感自检（PNG 落在 %TEMP%\hyw-overlay-snapshot\，调 UI 时直接打开看）。
+    · **为什么必须单独一个项目**：`AvaloniaHeadlessPlatform` 的配置是**进程级**的
+      （`UseHeadlessDrawing` 一旦初始化就不能换）。主测试项目用的是"空绘制"无头会话，
+      若在同一进程里再开"真实渲染"会话，会把主项目的无头会话一起弄坏
+      （实测：混合后 `ModuleWindowVisualTests` 13 项集体失败）。进程隔离是最省心的边界。
+  -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <NoWarn>$(NoWarn);CA1707;CA1859;CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="Avalonia.Headless" />
+    <!--
+      真实渲染栈：`RenderTargetBitmap` 需要 Skia（无头默认是"空绘制"，出不了像素）。
+      **刻意不引用 App 项目**：引用它就会在构建时重新拷贝 `src/App/bin` 的输出 ⇒ 应用一开着（文件被锁）快照工具就不可用，
+      而调 UI 恰恰发生在应用开着的时候。资源装载由本项目的 `SnapshotApp` 复刻（见其注释）。
+    -->
+    <PackageReference Include="Avalonia.Skia" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Ui\HYWDebugAssistant.Ui.csproj" />
+    <ProjectReference Include="..\..\src\FrameworkUi\HYWDebugAssistant.FrameworkUi.csproj" />
+    <ProjectReference Include="..\..\src\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\..\src\Hosting\HYWDebugAssistant.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\DataPlane\HYWDebugAssistant.DataPlane.csproj" />
+    <ProjectReference Include="..\..\src\Core\HYWDebugAssistant.Core.csproj" />
+    <ProjectReference Include="..\..\src\Core.Api\HYWDebugAssistant.Core.Api.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -78,21 +78,32 @@ public interface IRuntimeQuery
     IReadOnlyList<SubscriptionSourceView> GetSubscriptionSources();
 
     /// <summary>
-    /// 某实例的**数据角色**清单【ADR-0048 R1/R10】：角色 = （方向 × 类型身份），模块内聚合。
+    /// 某实例的**角色**（功能分块）清单【ADR-0052】：一种数据类型 + 其输入口/输出口 + **`m/n`**（连了几个角色）。
     /// </summary>
     /// <remarks>
-    /// <b>只读、只用于呈现</b>：不参与建网、兼容、停流、投递与计量（ADR-0046 §4/D3 · ADR-0048 R9）。
-    /// **零口模块 ⇒ 空列表**（不产生任何角色，R4）。返回值按（发送在前、类型键字典序）稳定排序。
+    /// <list type="bullet">
+    ///   <item><b>只读、只用于呈现</b>：不参与建网、兼容、停流、投递与计量（ADR-0048 R9）；</item>
+    ///   <item>顺序 = 模块**声明顺序**（稳定，便于 UI 逐块摆放）；</item>
+    ///   <item>**未声明角色 ⇒ 空列表**（叠加层不画方块；自检与运行期会提示作者补齐）；</item>
+    ///   <item>`m/n` 由框架从网络成员关系派生（**不是模块自报**）：无该方向的口 ⇒ null，有口未连 ⇒ 0。</item>
+    /// </list>
     /// </remarks>
     /// <param name="instanceId">实例 ID（不存在 / 占位实例 ⇒ 空列表）。</param>
-    IReadOnlyList<DataRoleView> GetDataRoles(string instanceId);
+    IReadOnlyList<RoleView> GetRoles(string instanceId);
 
     /// <summary>
-    /// 某实例参与的**角色对**清单【ADR-0048 R6】：已按（本端角色, 对端实例, 对端角色）**聚合**并带条数。
+    /// 某实例参与的**角色间数据流**清单【ADR-0052】：已按（本端角色, 对端实例, 对端角色）**聚合**并给出口对数。
     /// </summary>
-    /// <remarks>只读、只用于呈现；线的几何由 UI 决定（ADR-0045）。</remarks>
+    /// <remarks>只读、只用于呈现；线两端锚点（输出侧/输入侧）与几何由 UI 决定。</remarks>
     /// <param name="instanceId">实例 ID（不存在 / 占位实例 ⇒ 空列表）。</param>
-    IReadOnlyList<DataRolePairView> GetRolePairs(string instanceId);
+    IReadOnlyList<RoleFlowView> GetRoleFlows(string instanceId);
+
+    /// <summary>
+    /// 某实例**声明的内部处理顺序**（`角色 → 角色`）【ADR-0052】：**零声明 ⇒ 空**（框架不猜）。
+    /// </summary>
+    /// <remarks>只读、只用于呈现；不参与任何判定，也不进组合件。</remarks>
+    /// <param name="instanceId">实例 ID（不存在 / 占位实例 ⇒ 空列表）。</param>
+    IReadOnlyList<RoleOrderView> GetRoleOrder(string instanceId);
 
     /// <summary>
     /// 读**最新样本**（A1 数值 / A2 状态灯 / A7 仪表）。

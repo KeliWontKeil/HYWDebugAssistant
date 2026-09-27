@@ -181,11 +181,113 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <summary>元素视图模型（按声明生成）。</summary>
     public ObservableCollection<ViewElementViewModel> Elements { get; } = [];
 
+    /// <summary>
+    /// **角色方块**清单（叠加层画功能分块与 `m/n` 的依据）【ADR-0052】。
+    /// </summary>
+    /// <remarks>
+    /// **只读投影**：由 <c>IRuntimeQuery.GetRoles</c> 派生（Core 算、UI 只画），顺序 = 模块**声明顺序**。
+    /// 每次刷新**整体替换**；先刷新**所有模块的方块**，再算连线（连线的对端锚点要用到对端方块的位置）。
+    /// </remarks>
+    public IReadOnlyList<RoleBoxViewModel> Roles
+    {
+        get => _roles;
+        private set
+        {
+            _roles = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>**角色间数据流**清单（叠加层画线的依据）；已按（本端角色, 对端实例, 对端角色）聚合。</summary>
+    public IReadOnlyList<RoleLinkViewModel> RoleLinks
+    {
+        get => _roleLinks;
+        private set
+        {
+            _roleLinks = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>**内部处理顺序**清单（`角色 → 角色`；零声明 ⇒ 空）。</summary>
+    public IReadOnlyList<RoleOrderViewModel> RoleOrder
+    {
+        get => _roleOrder;
+        private set
+        {
+            _roleOrder = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 叠加层**信息区**（左上身份 + 必要时一行说明）【ADR-0049 D18 · ADR-0052】。
+    /// </summary>
+    /// <remarks>**由视图模型算**（它才知道声明了几个角色/几个口），叠加层只负责画。文字层次：身份 12px / 说明 10px。</remarks>
+    public RoleOverlayInfo OverlayInfo
+    {
+        get => _overlayInfo;
+        private set
+        {
+            _overlayInfo = value;
+            OnPropertyChanged();
+        }
+    }
+
+    private IReadOnlyList<RoleBoxViewModel> _roles = [];
+    private IReadOnlyList<RoleLinkViewModel> _roleLinks = [];
+    private IReadOnlyList<RoleOrderViewModel> _roleOrder = [];
+    private RoleOverlayInfo _overlayInfo;
+
+    /// <summary>
+    /// 接受**角色方块 + 信息区**（投影第一遍：所有模块先摆好方块，连线才拿得到对端锚点）。
+    /// </summary>
+    /// <param name="roles">角色方块。</param>
+    /// <param name="info">信息区内容。</param>
+    public void ApplyRoleBoxes(IReadOnlyList<RoleBoxViewModel> roles, RoleOverlayInfo info)
+    {
+        Roles = roles ?? [];
+        OverlayInfo = info;
+    }
+
+    /// <summary>
+    /// 接受**角色间数据流 + 内部顺序**（投影第二遍：此时所有模块的方块都已就位）。
+    /// </summary>
+    /// <param name="roleLinks">角色间数据流。</param>
+    /// <param name="order">内部处理顺序。</param>
+    public void ApplyRoleLinks(IReadOnlyList<RoleLinkViewModel> roleLinks, IReadOnlyList<RoleOrderViewModel> order)
+    {
+        RoleLinks = roleLinks ?? [];
+        RoleOrder = order ?? [];
+    }
+
     /// <summary>当前矩形（屏幕坐标；吸附与命中计算用）。</summary>
     public CanvasRect Rect => new(X, Y, Width, Height);
 
     /// <summary>屏幕缩放（默认尺寸换算与最小尺寸钳制用）。</summary>
     public double Scale => _scale;
+
+    /// <summary>
+    /// **叠加层画布宽（DIP）** = <see cref="Width"/> ÷ <see cref="Scale"/> —— 叠加层几何的**唯一尺寸来源**。
+    /// </summary>
+    /// <remarks>
+    /// <b>为什么必须有它</b>（用户第三十四轮："连线仍然没有对齐……多套坐标系相互冲突，请确定唯一事实源"）：
+    /// 模型几何（<see cref="X"/>/<see cref="Y"/>/<see cref="Width"/>/<see cref="Height"/>）的单位是**物理像素**
+    /// （窗口位置本身就是 <c>PixelPoint</c>，见 `ModuleWindowManager`），而叠加层是 Avalonia 控件、绘制单位是 **DIP**。
+    /// 在缩放 ≠ 100% 的屏幕上，两者相差一个 <see cref="Scale"/> 因子 ⇒ 若把 px 当 DIP 用，
+    /// "本窗画的方块"与"对端算出来的本窗方块"就会落在不同位置 ⇒ **连线错位**（完全水平/垂直时也看得出来）。
+    /// ⇒ 口径统一为：**叠加层几何一律用 DIP**；px 只在①本属性 ②`ModuleWindowsViewModel.ResolvePeerAnchor`
+    /// 这两处换算（换算只发生在这两处，别处不许再乘除缩放）。
+    /// </remarks>
+    public double CanvasWidth => Width / _scale;
+
+    /// <summary>**叠加层画布高（DIP）** = <see cref="Height"/> ÷ <see cref="Scale"/>（口径见 <see cref="CanvasWidth"/>）。</summary>
+    public double CanvasHeight => Height / _scale;
+
+    /// <summary>把**物理像素**长度换算成**绘制单位（DIP）**——叠加层几何一律经它换算。</summary>
+    /// <param name="pixels">物理像素长度（模型几何的单位）。</param>
+    /// <returns>DIP 长度。</returns>
+    public double ToDip(double pixels) => pixels / _scale;
 
     /// <summary>刷新实例状态（实例视图变化时调用；元素与数据源声明在实例生命周期内不变）。</summary>
     public void Apply(ModuleInstanceView view)
@@ -303,7 +405,14 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         // （那样等于把布局写死在代码里，用户无法在设计器/XAML 里调整）。
     }
 
-    /// <summary>同步口标记（口集合在实例生命周期内稳定；每次刷新顺带更新连接状态与标签）。</summary>
+    /// <summary>
+    /// 同步口标记的**身份与几何**（口名/方向/标签/锚点位置/类型）——**不写任何"当前状态"**。
+    /// </summary>
+    /// <remarks>
+    /// 连接状态 / 停流状态 / 投递量 / 速率都是**指标**，唯一生产者是
+    /// <see cref="ModuleWindowsViewModel"/> 的标记刷新（按 `GetNetworks()` 与框架诊断）。
+    /// 这里曾也写一遍 ⇒ "谁最后跑谁赢"，且口径不同（按绑定 vs 按网络）——已按"来源唯一"删除。
+    /// </remarks>
     private void SyncPorts(ModuleInstanceView view)
     {
         foreach (var port in view.Ports)
@@ -317,15 +426,12 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
                     string.Equals(port.Direction, "Send", StringComparison.Ordinal),
                     port.NetworkLabel,
                     port.AnchorOffset,
-                    port.IsConnected,
-                    port.IsStalled,
-                    port.ContractText));
+                    typeText: port.ContractText,
+                    typeKey: port.TypeKey));
                 continue;
             }
 
             existing.Offset = port.AnchorOffset;
-            existing.IsConnected = port.IsConnected;
-            existing.IsStalled = port.IsStalled;
 
             if (!existing.IsEditing && !string.Equals(existing.Label, port.NetworkLabel, StringComparison.Ordinal))
             {

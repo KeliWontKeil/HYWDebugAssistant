@@ -1,0 +1,86 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="using:Avalonia.Controls"
+        xmlns:theming="using:HYWDebugAssistant.Ui.Theming"
+        x:Class="HYWDebugAssistant.FrameworkUi.Views.ColorPickerDialog"
+        Title="编辑颜色"
+        SizeToContent="WidthAndHeight"
+        CanResize="False"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgModule}">
+
+    <!--
+      **调色板窗口**（可被所有"选颜色"的位置复用）【ADR-0054 · 用户第三十四轮】：
+      用户原话："我希望内置一个**调色板窗口**，可以从中选择**任意颜色**，而不是像现在这样只能输 RGB 值或是使用内置颜色，
+      调色板窗口将可以**被所有颜色选择相关位置复用**……建议做精简（可以减少内置颜色和用户自定义颜色的候选数量）。"
+      · 实现 = Avalonia 官方 `ColorView`（MIT）：**色板/饱和度方块 + 色相条 + 十六进制 + 分量滑块**；
+      · **精简**：只保留**一排推荐色**（= 与主题同一套的 `ThemeApplier.Presets`，8 档），不做"自定义颜色"格；
+      · **不带透明度**（本工程的取色都是不透明色）；
+      · 底部**确定 / 取消**，需要时多一个**恢复默认/自动**（由调用方决定文案）。
+
+      【布局纪律 · 第三十四轮实测修正】标题**只由窗口标题栏给**（原先窗口内又写一遍 ⇒ 重复、且看着像"提示框"）；
+      提示文字**整行独占并自动换行**、按钮**单独一行右对齐** —— 否则文字与三个按钮挤在一行会被窗口宽度裁掉。
+
+      【一屏全见 · 用户第三十四轮裁定】"改成一屏全见：**左取色器 + 右侧常驻推荐色**" ⇒
+      左侧 `ColorView`（光谱 / 分量 / 十六进制，**自带页签**是控件模板行为）；右侧**常驻**一排推荐色
+      （= `ThemeApplier.Presets`，与主题同一套），**不必切页签就能点**。`IsColorPaletteVisible=False`：
+      推荐色**只有一个来源**（右侧那一排），控件自带的"色板"页签不再重复出现。
+    -->
+    <StackPanel Margin="14" Spacing="10">
+
+        <Grid ColumnDefinitions="Auto,*">
+
+            <controls:ColorView x:Name="View"
+                                Grid.Column="0"
+                                IsAlphaEnabled="False"
+                                IsAlphaVisible="False"
+                                IsAccentColorsVisible="False"
+                                IsColorPaletteVisible="False"
+                                IsColorPreviewVisible="True"
+                                IsColorSpectrumVisible="True"
+                                IsColorSpectrumSliderVisible="True"
+                                IsColorComponentsVisible="True"
+                                IsComponentSliderVisible="True"
+                                IsComponentTextInputVisible="True"
+                                IsHexInputVisible="True"
+                                ColorSpectrumShape="Box"
+                                ColorSpectrumComponents="HueSaturation" />
+
+            <StackPanel Grid.Column="1" Margin="10,0,0,0" Spacing="6">
+                <TextBlock FontSize="10"
+                           Foreground="{DynamicResource TextSecondary}"
+                           Text="推荐色" />
+                <ItemsControl x:Name="RecommendedColors" Width="94">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="theming:ThemeApplier+AccentPreset">
+                            <Button Width="26" Height="26" MinHeight="26" Padding="0" Margin="1"
+                                    Background="{Binding Brush}"
+                                    BorderBrush="{DynamicResource BorderStrong}"
+                                    BorderThickness="1"
+                                    ToolTip.Tip="{Binding Name}"
+                                    Click="OnPickRecommended" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Grid>
+
+        <TextBlock x:Name="HintText"
+                   TextWrapping="Wrap"
+                   FontSize="10"
+                   Foreground="{DynamicResource TextMuted}"
+                   Text="推荐色与主题同一套；确定后立即生效。" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
+            <Button x:Name="ResetButton" IsVisible="False" />
+            <Button x:Name="ConfirmButton" Content="确定" MinWidth="72" />
+            <Button x:Name="CancelButton" Content="取消" MinWidth="72" />
+        </StackPanel>
+    </StackPanel>
+</Window>

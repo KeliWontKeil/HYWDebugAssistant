@@ -650,12 +650,12 @@ public sealed partial class ModuleRuntime : IDisposable
     }
 
     /// <summary>
-    /// 一个口的**类型身份**：已声明类型 ⇒ `标识@v版本`；未声明/引用不可解析 ⇒ **结构描述**【ADR-0048 R2】。
+    /// 一个口的**类型身份**：已声明类型 ⇒ `标识@v版本`；未声明/引用不可解析 ⇒ **结构描述**。
     /// </summary>
     /// <remarks>
-    /// **只用于呈现**（角色键 / 色板映射 / 配对）：不参与任何判定（R9）。
+    /// **只用于呈现**（端口标记的类型色条 / 色板映射）：不参与任何判定（ADR-0048 R9）。
     /// 之所以不复用呈现文本：`f32` 无法区分"声明了 `hyw/f32@1`"与"声明了别的标识但形状相同"，
-    /// 而 ADR-0051 明确二者**不是同一种量** ⇒ 用文本会把两种角色错误合并。
+    /// 而 ADR-0051 明确二者**不是同一种量** ⇒ 用文本会把两种类型混为一色。
     /// </remarks>
     /// <param name="instanceId">实例 ID。</param>
     /// <param name="port">口实例。</param>
@@ -668,7 +668,7 @@ public sealed partial class ModuleRuntime : IDisposable
             return $"{reference.TypeId}@v{reference.Version}";
         }
 
-        return DataRoleModel.StructuralTypeKey(port);
+        return port.Declaration.Shape.Describe();
     }
 
     /// <summary>

@@ -44,6 +44,82 @@ public class ModuleContractTests
     }
 
     [Fact]
+    public void 参考模块应各自声明角色_融合器一块两入一出_且都不声明内部顺序()
+    {
+        // 【ADR-0052】角色 = 模块声明的**功能分块**（一种数据类型 + 输入口/输出口），**框架不派生**。
+        // 六个参考模块都是"单块"：数据发生 / 手动发送 = 纯源，显示 / 记录 / 断言 = 纯汇，
+        // 融合 = **一块两入一出**（这正是"允许 >2 个口"的具体理由：合成一路是**一件事**）。
+        var fuser = ModuleContract.Probe(typeof(HYWDebugAssistant.Modules.Reference.Fuser.FuserModule));
+
+        fuser.Problems.ShouldBeEmpty(string.Join("；", fuser.Problems));
+
+        var fuse = fuser.DeclaredRoles.ShouldHaveSingleItem();
+        fuse.Id.ShouldBe("fuse");
+        fuse.Inputs.ShouldBe(
+            [HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.InputPort1,
+             HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.InputPort2]);
+        fuse.Outputs.ShouldBe([HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.OutputPort]);
+        fuse.Type.ShouldBe(
+            new DataTypeRef(HYWDebugAssistant.Sdk.Contracts.CommonDataTypes.AnalogSampleTypeId, 1),
+            "一个角色只有**一种**数据类型");
+
+        fuser.DeclaredFlows.ShouldBeEmpty("单块模块没有「角色 → 角色」的内部顺序 ⇒ 零声明零线");
+
+        // 【ADR-0052 Q3】多口块只得到**建议**（走 `Advisories`），**不是问题**：它可能在说
+        // "两件事挤成一块"（该拆），也可能就是"多路合成一路"（不必拆）——框架判不了，故只说、不判定。
+        fuser.Advisories.ShouldContain(
+            a => a.Contains("3 个口", StringComparison.Ordinal) && a.Contains("不必拆", StringComparison.Ordinal),
+            "融合器的 2 入 1 出应当只得到一条**建议**（含「不必拆」的口径），且不得进 Problems");
+
+        foreach (var type in new[]
+                 {
+                     typeof(DataGeneratorModule),
+                     typeof(RecorderModule),
+                     typeof(AsserterModule),
+                     typeof(HYWDebugAssistant.Modules.Reference.ManualSender.ManualSenderModule),
+                     typeof(HYWDebugAssistant.Modules.Reference.Monitor.MonitorModule),
+                 })
+        {
+            var probe = ModuleContract.Probe(type);
+
+            probe.DeclaredRoles.Count.ShouldBe(1, $"{type.Name} 是单块模块 ⇒ 一个角色");
+            probe.DeclaredFlows.ShouldBeEmpty($"{type.Name} 没有内部处理结构 ⇒ 不声明（框架不猜）");
+            probe.Advisories.ShouldBeEmpty($"{type.Name} 是一入一出/单口 ⇒ 连建议都没有（建议要精准，不能到处都是）");
+        }
+    }
+
+    [Fact]
+    public void 内部处理顺序写错_契约自检应当场报出来()
+    {
+        // 【ADR-0052】内部处理顺序 = 「**角色 → 角色**」：两端角色必须已声明、不得自环、同（起点, 终点）不得重复。
+        var problems = ModuleContract.CheckAll(typeof(BrokenFlowModule)).ToList();
+
+        problems.ShouldContain(p => p.Contains("不得自环", StringComparison.Ordinal));
+        problems.ShouldContain(p => p.Contains("未声明的角色", StringComparison.Ordinal));
+        problems.ShouldContain(p => p.Contains("重复声明", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void 角色声明写错_契约自检应当场报出来()
+    {
+        // 【ADR-0052 §3 R3′】SDK 侧自检与框架侧（运行期忽略 + Issue）**同一套规则**：
+        // Id 唯一 · 类型可在本模块解析 · 口存在且方向相符 · 一个口最多属于一个角色 · 至少一个口。
+        var problems = ModuleContract.CheckAll(typeof(BrokenRoleModule)).ToList();
+
+        problems.ShouldContain(p => p.Contains("角色标识重复", StringComparison.Ordinal));
+        problems.ShouldContain(p => p.Contains("未声明的数据类型", StringComparison.Ordinal));
+        problems.ShouldContain(p => p.Contains("引用了未声明的口", StringComparison.Ordinal));
+        problems.ShouldContain(p => p.Contains("方向应为", StringComparison.Ordinal));
+        problems.ShouldContain(p => p.Contains("一个口最多属于一个角色", StringComparison.Ordinal));
+
+        // **口数不设上限**（ADR-0052 Q3）：3 个输出的角色是合法形态（融合块就是 2 入 1 出）⇒ 只给**建议**，不进 Problems
+        var probe = ModuleContract.Probe(typeof(BrokenRoleModule));
+        probe.DeclaredRoles.ShouldContain(r => r.Id == "many" && r.Outputs.Count == 3, "多口角色照常成立");
+        probe.Advisories.ShouldContain(a => a.Contains("3 个口", StringComparison.Ordinal), "三输出应当得到一条建议");
+        problems.ShouldNotContain(p => p.Contains("3 个口", StringComparison.Ordinal), "建议**不是问题** ⇒ 不得进 Problems");
+    }
+
+    [Fact]
     public void 参考模块_应声明同一个数据类型且形状一致()
     {
         // 【ADR-0046 D2/D6】六个参考模块都声明 `hyw/analog-sample@1` ⇒ 兼容判定走"**同标识同版本**"层；
@@ -316,6 +392,60 @@ public class ModuleContractTests
             context.Declaration.DeclareView(new ViewDeclaration(
                 [new ViewElement(ViewElementKind.Numeric, "missing", "缺失的数据源")],
                 [new ViewDataSource("series", unit: null, format: null, kind: ViewDataSourceKind.Sequence, valueType: null)]));
+        }
+    }
+
+    /// <summary>内部处理顺序写错的模块（ADR-0052 §3 R4′）：自环 / 引用了未声明的角色 / 重复。</summary>
+    [ModuleDefinition("test", "broken-flow", "1.0.0")]
+    public sealed class BrokenFlowModule : IModule
+    {
+        public void OnRegistered(IModuleContext context)
+        {
+            var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
+            var type = new DataTypeRef("test/broken-flow", 1);
+
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/broken-flow", 1, shape));
+            context.Declaration.DeclarePort(new PortDeclaration("in1", PortDirection.Receive, shape) { Type = type });
+            context.Declaration.DeclarePort(new PortDeclaration("out1", PortDirection.Send, shape) { Type = type });
+            context.Declaration.DeclarePort(new PortDeclaration("in2", PortDirection.Receive, shape) { Type = type });
+
+            context.Declaration.DeclareRole(RoleDeclaration.Both("a", type, "in1", "out1", "甲"));
+            context.Declaration.DeclareRole(RoleDeclaration.Input("b", type, "in2", "乙"));
+
+            context.Declaration.DeclareFlow(new FlowDeclaration("a", "a"));          // 自环
+            context.Declaration.DeclareFlow(new FlowDeclaration("nope", "b"));      // 引用了未声明的角色
+            context.Declaration.DeclareFlow(new FlowDeclaration("a", "b"));         // 合法
+            context.Declaration.DeclareFlow(new FlowDeclaration("a", "b"));         // 重复
+        }
+    }
+
+    /// <summary>角色声明写错的模块（ADR-0052 §3 R3′）：重复 Id / 类型未声明 / 口不存在 / 方向不符 / 口被两个角色占 / 3 个口。</summary>
+    [ModuleDefinition("test", "broken-role", "1.0.0")]
+    public sealed class BrokenRoleModule : IModule
+    {
+        public void OnRegistered(IModuleContext context)
+        {
+            var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
+            var known = new DataTypeRef("test/broken-role", 1);
+
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/broken-role", 1, shape));
+            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { Type = known });
+            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { Type = known });
+
+            for (var i = 1; i <= 3; i++)
+            {
+                context.Declaration.DeclarePort(new PortDeclaration($"out{i}", PortDirection.Send, shape) { Type = known });
+            }
+
+            context.Declaration.DeclareRole(RoleDeclaration.Both("dup", known, "in", "out", "甲"));
+            context.Declaration.DeclareRole(RoleDeclaration.Both("dup", known, "in", "out", "甲（重复 Id）"));   // ① Id 重复
+            context.Declaration.DeclareRole(RoleDeclaration.Both(
+                "no-type", new DataTypeRef("test/missing", 1), "in", "out"));                                   // ② 类型未声明
+            context.Declaration.DeclareRole(RoleDeclaration.Both("no-port", known, "nope", "out"));            // ③ 口不存在
+            context.Declaration.DeclareRole(RoleDeclaration.Output("wrong-dir", known, "in"));                 // ④ 方向不符（拿接收口当输出）
+            context.Declaration.DeclareRole(RoleDeclaration.Input("steal", known, "in"));                      // ⑤ 口已被 dup 占用
+            context.Declaration.DeclareRole(new RoleDeclaration(
+                "many", known, [], ["out1", "out2", "out3"], "三输出"));                                        // ⑥ 口数 > 2：**合法**（不再提示）
         }
     }
 }

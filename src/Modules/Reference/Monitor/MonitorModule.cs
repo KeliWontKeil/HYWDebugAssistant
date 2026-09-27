@@ -140,6 +140,10 @@ public sealed class MonitorModule : IModule
 
         context.Ports.SetReceiveHandler(InputPort, OnUnitReceived);
 
+        // 【ADR-0052】角色 = 模块的功能分块：本模块是"显示"这一块（一种类型 + 一个输入口）
+        context.Declaration.DeclareRole(RoleDeclaration.Input(
+            "show", CommonDataTypes.AnalogSampleRef, InputPort, "显示"));
+
         context.Declaration.DeclareView(new ViewDeclaration(
             [
                 new ViewElement(ViewElementKind.Numeric, LastSource, "最后值"),

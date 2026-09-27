@@ -23,6 +23,8 @@ public sealed class TestModuleContext : IModuleContext
     private readonly List<PortDeclaration> _ports = [];
     private readonly List<ViewDeclaration> _views = [];
     private readonly List<DataTypeDeclaration> _dataTypes = [];
+    private readonly List<FlowDeclaration> _flows = [];
+    private readonly List<RoleDeclaration> _roles = [];
     private readonly Dictionary<string, ReceiveHandler> _receiveHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, object> _configuration = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<byte[]>> _published = new(StringComparer.Ordinal);
@@ -40,7 +42,7 @@ public sealed class TestModuleContext : IModuleContext
 
         InstanceId = instanceId;
         ModuleId = moduleId ?? HYWDebugAssistant.Sdk.ModuleId.Create("test", "under-test", "1.0.0");
-        Declaration = new DeclarationCollector(_ports, _views, _dataTypes);
+        Declaration = new DeclarationCollector(_ports, _views, _dataTypes, _flows, _roles);
         Issues = new IssueCollector(ReportedIssues);
         Configuration = new InMemoryConfigurationAccess(_configuration);
         StopSignal = _stopSignal;
@@ -139,6 +141,12 @@ public sealed class TestModuleContext : IModuleContext
     /// <summary>已声明的**数据类型**（按声明顺序；测试断言用）【ADR-0046 D2】。</summary>
     public IReadOnlyList<DataTypeDeclaration> DeclaredDataTypes => _dataTypes;
 
+    /// <summary>已声明的**内部处理关系**（按声明顺序；测试断言用）【ADR-0052】。</summary>
+    public IReadOnlyList<FlowDeclaration> DeclaredFlows => _flows;
+
+    /// <summary>已声明的**角色**（功能分块，按声明顺序；测试断言用）【ADR-0052】。</summary>
+    public IReadOnlyList<RoleDeclaration> DeclaredRoles => _roles;
+
     /// <summary>已声明的视图（首个；测试断言用）。</summary>
     public ViewDeclaration? DeclaredView => _views.Count > 0 ? _views[0] : null;
 
@@ -186,11 +194,17 @@ public sealed class TestModuleContext : IModuleContext
     private sealed class DeclarationCollector(
         List<PortDeclaration> ports,
         List<ViewDeclaration> views,
-        List<DataTypeDeclaration> types) : IModuleDeclaration
+        List<DataTypeDeclaration> types,
+        List<FlowDeclaration> flows,
+        List<RoleDeclaration> roles) : IModuleDeclaration
     {
         public void DeclareDataType(DataTypeDeclaration type) => types.Add(type);
 
         public void DeclarePort(PortDeclaration port) => ports.Add(port);
+
+        public void DeclareRole(RoleDeclaration role) => roles.Add(role);
+
+        public void DeclareFlow(FlowDeclaration flow) => flows.Add(flow);
 
         public void DeclareView(ViewDeclaration view) => views.Add(view);
     }

@@ -1,0 +1,109 @@
+# 开发流程技能（skills）
+
+> 状态：**现行**。这三份是从本项目开发过程中抽象出来的**可迁移流程/纪律**，特点是**不含本项目具体事实**（不依赖任何模块名、类名、文件名），因此可以直接搬到下一个项目或交给任何 AI 工具使用。
+> 用法：把某个 `SKILL.md` 全文粘给 AI（或把整个目录放到 AI 工具的技能目录）即可；`SKILL.md` 是正文，旁边附带的清单是配套检查表。
+> 本文件末尾的「支撑来源对照」是为了**核对技能不是凭空写的**，它属于本项目事实，**不属于技能正文**。
+
+| 技能 | 一句话 | 何时用 |
+|---|---|---|
+| `human-ai-collaborative-design-review` | 在"人类领域专家逐条裁决、AI 负责扩散与落地"的长周期设计或大改造中，用固定的推进节奏、裁决边界与文档治理把需求→设计→裁决→落地→验证推到底，并把返工压到方向性返工之前。… | ①从零设计或大改造一个平台/系统，且验收事实源是文档而非代码；②与"懂领域、不熟悉形式化建模"的专家逐条确认设计；③用户… |
+
+## 来源对照 · human-ai-collaborative-design-review
+
+> **不属于技能正文**，仅供核对（本项目事实）。
+
+## 支撑来源（核对用，不属于技能正文）
+
+| 要点 | 来源 |
+|---|---|
+| 两类不确定性、推进阈值、整版原理图先于 layout | `docs/methodology/top-down-design-with-human-expert-review.md` §0；`docs/roadmap.md` L13–17 |
+| 域内四步协议、支点信号、层级定位检查 | `methodology/…` §1；`roadmap.md` L38–52；`roadmap.md` L32–36（批次级原则） |
+| 类比三步协议、转写校验门 | `methodology/…` §2/§3；`docs/archive/superseded.md` §7（过程教训） |
+| 逐条裁决 / 全 ADR / 不代答 / 推翻走取代 | `methodology/…` §3；`roadmap.md` L24–28、L32–36 |
+| 单一事实源 / 状态唯一 / 失效信息搬家 | `docs/README.md` §6.1–§6.4；`implementation/01` §5（何时必须写决策记录）；`implementation/03` §2.4、§3.2 |
+| 残余 A 类回写、发现冲突即停止 | `implementation/03` §2.1 第 4 条；`implementation/00` C1–C3 |
+| 先证伪假设 / 数值实验 / 逐层证伪 / 并入既有规则 | `LESSONS.md` 33、34、35；`roadmap.md` v1.30–v1.33 的定位过程 |
+| 归因纪律 | `LESSONS.md` 32 |
+| "能跑"≠"正确"、分形态回答 | `LESSONS.md` 52、55（**该两条为逐字重复，收敛时应合并**） |
+| 裁决边界：确认存在哪个对象上 | `LESSONS.md` 47 |
+| 每个可交互控件必须有落点（死开关） | `LESSONS.md` 9、`implementation/02` P27 |
+| 用"段位"沟通、不过度解读原型 | `LESSONS.md` 6；`UI-ADJUST.md` §3 的各轮反馈对照 |
+| 文档先行、作废搬家不删除、漂移即修 | `LESSONS.md` 28 |
+| 验收清单形态与生命周期 | `implementation/04`（正例：§0 准备步骤、§4 结论表；反例：L1–L21 修订史、条目内夹带 ADR 与轮次号） |
+| 里程碑收尾复查例外登记 | `implementation/01` §8；`docs/decisions.md` |
+| "临时诊断用完即删" | `roadmap.md` v1.30/v1.31 的探针纪律；`implementation/00` C3（禁止把原型并入工程） |
+| 反复出现的"上一版被下一版取代/口径换代" | `roadmap.md` L208/L217/L221/L227/L234/L237/L251（≥8 处） |
+
+| `layered-verification-and-minimal-test-strategy` | 用"编译→单类测试→单测试项目→完整门禁"的分层验证，按改动范围选最小必要的一层，既不为一行改动跑全量、也不让真正有风险的改动溜过去；并让"通过"这句话在报告里始终有确定的含义。… | ①任何"改了就想跑全量，或者干脆不想跑"的仓库；②改动天然分成"纯表现层"与"连带逻辑"两类时；③要写"验证结论"或向人… |
+
+## 来源对照 · layered-verification-and-minimal-test-strategy
+
+> **不属于技能正文**，仅供核对（本项目事实）。
+
+## 支撑来源（核对用，不属于技能正文）
+
+| 要点 | 来源 |
+|---|---|
+| T0/T1/T2/T3 四级定义与耗时量级、入口脚本与模式 | 代码仓 `DEVELOPMENT.md` §1/§2/§5；`tools/dev.ps1` 头部注释（L8–12）与各 Mode 分支 |
+| "纯 UI 只编译 + 眼睛看，不跑测试不跑门禁"、"批量改完再编译"、"T3 不是收尾仪式" | `DEVELOPMENT.md` §1 纪律 1–4；`UI-ADJUST.md` §8；`LESSONS.md` 26 |
+| 何时**必须**跑 T3（三种时点）与例外裁决 | `DEVELOPMENT.md` §2；`roadmap.md` L247（门禁节奏裁决）；`implementation/04` 前置说明；`implementation/03` §2.3 |
+| 报告必须区分层级、不得把局部通过说成全量 | `LESSONS.md` 27；`DEVELOPMENT.md` §1 纪律 4 |
+| "过滤词没匹配到任何测试不是失败" | `tools/dev.ps1` L274–279 的显式分支 |
+| 环境摩擦（环境变量污染 / 输出被锁 / 快速失败 / 应急重编） | `tools/dev.ps1` L59–172；`DEVELOPMENT.md` §3；`implementation/02` P1/P2；`implementation/03` §6.2 |
+| "不要为了跑门禁擅自停掉用户实例" | `LESSONS.md` 31；`tools/dev.ps1` `-StopApp` 的提示文案 |
+| 跳过重编 = 用旧产物（易误判"改了没生效"） | `UI-ADJUST.md` §8 末尾（L283–284） |
+| 探针式实测 + 用完即删 + 转正为回归 | `LESSONS.md` 33、34；`roadmap.md` v1.30/v1.31（临时诊断落盘最近 60 帧、定位后删除） |
+| "扫描通过≠问题解决"、逐层证伪 | `LESSONS.md` 34；`roadmap.md` v1.30 |
+| 断言"来源/一致性"而非具体值 | `LESSONS.md` 57；`implementation/02` P50 |
+| "次数翻倍不新增分配"式断言（抵消一次性噪声） | `implementation/02` P12 |
+| 幂等/可重复读断言 | `LESSONS.md` 69；`implementation/02` P61 |
+| 唯一性/键断言（显示名当键） | `LESSONS.md` 38；`implementation/02` P40 |
+| 边界拒绝断言（版本过新/形状不符/越界） | `implementation/04` #72/#83/#84；`roadmap.md` v1.51/v1.52 |
+| "单独跑绿、一起跑红"先怀疑共享可变状态 | `LESSONS.md` 49；`implementation/02` P47 |
+| 进程级配置必须拆进程、专属资源用禁并行集合 | `LESSONS.md` 12、62、74；`implementation/02` P22/P54/P65 |
+| 不设覆盖率百分比、自动化只覆盖主要问题、基准不进常规门禁 | `implementation/01` §6；`implementation/03` §2.3 注与 §3.1；`docs/architecture/06`（AR 规则与 T1–T8 映射的唯一来源） |
+| 架构规则"缺失即失败"、误报走例外登记 | `implementation/01` §2、§8；`implementation/03` §6.3 第 4 条 |
+| 关键约束必须映射到可执行检查 | `implementation/03` §3.1 第 6 条 |
+| 不静默降级（未做即登记） | `implementation/03` §3.2 第 6 条；`roadmap.md` v1.15 的"未做（已登记，非静默降级）" |
+
+| `ui-rendering-and-third-party-control-discipline` | 自绘控件、模板化控件与第三方控件的排障顺序与"真的出像素"回归纪律，用于处理"控件不出现 / 点不到 / 改了没生效 / 位置差几像素 / 悬停时闪"这类只在界面上暴露、编译器和类… | ①自绘控件、叠加层、连线/图形、自定义面板的工作；②接入第三方控件或换控件版本；③用户报"看不到 / 点不到 / 不生效… |
+
+## 来源对照 · ui-rendering-and-third-party-control-discipline
+
+> **不属于技能正文**，仅供核对（本项目事实）。
+
+## 支撑来源（核对用，不属于技能正文）
+
+| 要点 | 来源（`implementation/02` 的 P 号 ↔ 代码仓 `LESSONS.md` 条目） |
+|---|---|
+| 三条主线（看不见/点不到/没生效）、死开关、看得见是功能的一部分 | LESSONS 8、9；P27、P28 |
+| 命中层级与手柄只在选中可命中 | LESSONS 7；P28 |
+| 物理像素 vs 逻辑单位、客户区原点、根容器裁剪 | LESSONS 13；P23 |
+| 外框 vs 客户区（两个矩形） | LESSONS 14；P24 |
+| 可见外框作参照（1px 缝） | P35；`roadmap.md` v1.33 |
+| 世界坐标 vs 画布坐标、显式换算函数 | LESSONS 63；P55 |
+| 唯一尺寸来源、布局结果 ≠ 意图尺寸 | LESSONS 71；P62 |
+| 唯一量化点、只驱动者写模型 | LESSONS 20；P32 |
+| 判定用"事件前的几何"、显式传参 | LESSONS 21；P33 |
+| 别拿"被自己移动的对象"当基准、单向抖动是线索 | LESSONS 22；P34 |
+| 贴边被裁剪 + "判断"与"绘制"两条一起改 | LESSONS 23；P37 |
+| 留白是几何参数、极窄尺寸退化策略 | LESSONS 58；P51 |
+| 两点一线 + 一裁、方位分类说明几何错了、语义锚点 | LESSONS 37、59；P52 |
+| 渲染引擎语义靠探针、量单调可测的量、单位实测 | LESSONS 67；P58 |
+| 第三方模板不自动生效、排查顺序、版本对齐 | LESSONS 16、74；P26、P65 |
+| 抽公共件并删旧路径、"精简"是批准删 | LESSONS 73；P64 |
+| 刷新不重建集合、对象身份排查、值语义行模型、增量同步、查询路径不做 IO | LESSONS 72；P17、P18、P19、P63 |
+| 内存领先于落盘则刷新让路 | LESSONS 24；P36 |
+| 死绘制路径 / 死属性 / 缺重绘声明 | LESSONS 36；P39 |
+| 降权：加法 vs 减法 | `roadmap.md` v1.65；`UI-ADJUST.md` §18 的两处修订说明 |
+| 观测幂等、两套键空间、身份由框架给、枚举结果、派生不另存 | LESSONS 38、39、40、43、69、70；P40、P41、P45、P60、P61 |
+| 指标来源唯一 / 单写入点 / 删第二来源要查刷新时机 | LESSONS 61；P53 |
+| 信息维度、信息按字号分层、叠字 | LESSONS 60、66；P59；`roadmap.md` v1.64 |
+| 真实资源 + 真实窗口的无头测试兜底 | LESSONS 29；P20、P38 的"只有测试/真机跑到布局才炸" |
+| 自绘必须"真出像素"、空绘制模式的盲区、会话按进程隔离 | LESSONS 62；P54 |
+| 几何/纯函数薄判据、渲染冒烟（数颜色种类） | LESSONS 67、74；`roadmap.md` v1.66 的 `ColorPickerDialogSnapshotTests` |
+| 文字三种写法、帮助入口位置、区域尺寸不随内容变 | LESSONS 3、4、5；`UI-ADJUST.md` §0/§4/§5 |
+| 模板命名域：分支用样式类而不是名字 | LESSONS 25；P38 |
+| 资源类型错误只在运行时炸、资源查找顺序 | LESSONS 10、11；P20、P21 |
+| 共享画刷线程亲和性、"单独跑绿一起跑红" | LESSONS 49；P47 |
+

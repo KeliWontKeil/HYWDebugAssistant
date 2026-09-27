@@ -135,6 +135,10 @@ public sealed class AsserterModule : IModule
         // 理由同记录器：主动接收 + `IStopSignal.Wait` 当轮询会把延迟拉到定时器粒度（实测 15.70 ms vs 893 ns）。
         context.Ports.SetReceiveHandler(InputPort, OnUnitReceived);
 
+        // 【ADR-0052】角色 = 模块的功能分块：本模块是"断言"这一块（一种类型 + 一个输入口）
+        context.Declaration.DeclareRole(RoleDeclaration.Input(
+            "assert", CommonDataTypes.AnalogSampleRef, InputPort, "断言"));
+
         context.Declaration.DeclareView(new ViewDeclaration(
             [
                 new ViewElement(ViewElementKind.Numeric, PassedSource, "通过"),

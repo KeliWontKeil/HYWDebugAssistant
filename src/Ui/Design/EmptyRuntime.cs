@@ -57,22 +57,29 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     ];
 
     /// <inheritdoc />
-    public IReadOnlyList<DataRoleView> GetDataRoles(string instanceId) => instanceId switch
+    public IReadOnlyList<RoleView> GetRoles(string instanceId) => instanceId switch
     {
-        "sender-1" => [new("send:hyw/analog-sample@1", true, "hyw/analog-sample@1",
-            "{seq:u64, value:f32}", ["out"], ConnectionCount: 1)],
-        "monitor-1" => [new("recv:hyw/analog-sample@1", false, "hyw/analog-sample@1",
-            "{seq:u64, value:f32}", ["in"], ConnectionCount: 1)],
+        // 设计时样例：发送器 = 一个纯源功能块；显示器 = 一个纯汇功能块（`m/n` 用 `--` 表示"没有那一侧"）。
+        // 速率/投递/丢弃 = **角色维度**的聚合值（ADR-0053，UI 只格式化）。
+        "sender-1" => [new("sender-1/send", "send", "手动发送", "hyw/analog-sample@1",
+            "{seq:u64, value:f32}", [], ["out"], null, 1, "样本含序号与值", null,
+            RateBytesPerSecond: 1234, Delivered: 1234, Dropped: 2)],
+        "monitor-1" => [new("monitor-1/show", "show", "显示", "hyw/analog-sample@1",
+            "{seq:u64, value:f32}", ["in"], [], 1, null, "样本含序号与值", null,
+            RateBytesPerSecond: 1234, Delivered: 1234, Dropped: 2)],
         _ => [],
     };
 
     /// <inheritdoc />
-    public IReadOnlyList<DataRolePairView> GetRolePairs(string instanceId) => instanceId switch
+    public IReadOnlyList<RoleFlowView> GetRoleFlows(string instanceId) => instanceId switch
     {
-        "sender-1" => [new("send:hyw/analog-sample@1", "monitor-1", "recv:hyw/analog-sample@1", 1, ["bus1"])],
-        "monitor-1" => [new("recv:hyw/analog-sample@1", "sender-1", "send:hyw/analog-sample@1", 1, ["bus1"])],
+        "sender-1" => [new("sender-1/send", true, "monitor-1", "monitor-1/show", 1, ["bus1"])],
+        "monitor-1" => [new("monitor-1/show", false, "sender-1", "sender-1/send", 1, ["bus1"])],
         _ => [],
     };
+
+    /// <inheritdoc />
+    public IReadOnlyList<RoleOrderView> GetRoleOrder(string instanceId) => [];
 
     /// <inheritdoc />
     public IReadOnlyList<IssueView> GetIssues(int maxCount) =>

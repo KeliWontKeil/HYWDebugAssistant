@@ -182,6 +182,10 @@ public sealed class RecorderModule : IModule
         // 该原语列入 M2 的 SDK 扩展（`04a` §5.2 发现一）。
         context.Ports.SetReceiveHandler(InputPort, OnUnitReceived);
 
+        // 【ADR-0052】角色 = 模块的功能分块：本模块是"记录"这一块（一种类型 + 一个输入口）
+        context.Declaration.DeclareRole(RoleDeclaration.Input(
+            "record", CommonDataTypes.AnalogSampleRef, InputPort, "记录"));
+
         context.Declaration.DeclareView(new ViewDeclaration(
             [
                 new ViewElement(ViewElementKind.Numeric, CountSource, "已接收"),

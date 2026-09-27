@@ -3,15 +3,20 @@ using HYWDebugAssistant.Sdk.Ports;
 namespace HYWDebugAssistant.Hosting.Instances;
 
 /// <summary>
-/// 口**实例**（成员统一路径的 ②实例化产物）：声明 + 运行时状态。
+/// 口**实例**（成员统一路径的 ②实例化产物）：**只有声明与身份**，不含任何运行期指标。
 /// </summary>
 /// <remarks>
 /// <para>连接锚定为 <c>实例ID.口名</c>（重锚依据，主文档 §9.3）。</para>
-/// <para>运行时的队列/缓冲/绑定归属在 M1-5（数据面）加入；本类型只承载**声明 + 停流状态**。</para>
 /// <para>
-/// **【不再持有"是否已连接"】**：曾有一个 `IsConnected` 字段（既无写入方也无读取方，恒为 <c>false</c>）；
-/// "连接状态"的**唯一来源**是**网络成员关系**（`IRuntimeQuery.GetNetworks()` / `PortView.IsConnected`
-/// ——由 <c>RuntimeServices.IsPortConnected</c> 派生）。悬空的第二事实源已按用户裁定整体删除（ADR-0048 §8 · roadmap v1.59）。
+/// <b>【纪律 · 数据指标来源唯一】**本类型**不持有**任何"当前状态"字段</b>（曾有过 `IsConnected` / `IsStalled` 两个
+/// 布尔量，二者都**没有任何写入方**、恒为 <c>false</c>，却被读进 `PortView` ⇒ 同一事实有第二个来源）。
+/// 按用户裁定（"所有数据指标必须保证来源唯一"）全部删除：
+/// <list type="bullet">
+///   <item><b>连接状态</b>：唯一来源 = **网络成员关系**（<c>Network.Members</c> ⇒ `PortView.IsConnected`）；</item>
+///   <item><b>停流状态</b>：唯一来源 = **该口所在网络是否停流**（<c>Network.IsStalled</c>，其本身又是
+///     `Sources.Count == 0` 的派生量 ⇒ 不存在"标志与成员不一致"）；</item>
+///   <item>口实例只回答"我是谁、什么方向、什么契约"——**"我现在怎么样"一律从网络/绑定派生**。</item>
+/// </list>
 /// </para>
 /// </remarks>
 public sealed class PortInstance
@@ -29,9 +34,6 @@ public sealed class PortInstance
 
     /// <summary>方向（两态）。</summary>
     public PortDirection Direction => Declaration.Direction;
-
-    /// <summary>是否处于停流（上游无输入 / Disabled / 悬空）——**合法状态**，非错误。</summary>
-    public bool IsStalled { get; internal set; }
 
     /// <inheritdoc />
     public override string ToString() => $"{Name}({Direction})";

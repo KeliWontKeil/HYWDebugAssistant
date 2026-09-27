@@ -25,6 +25,8 @@ public sealed class ModuleInstance
         IModule module,
         IReadOnlyList<PortInstance> ports,
         IReadOnlyList<DataTypeDeclaration> dataTypes,
+        IReadOnlyList<Sdk.Contracts.RoleDeclaration> roles,
+        IReadOnlyList<Sdk.Ports.FlowDeclaration> flows,
         ViewDeclaration? view,
         Context.ModuleContext context)
     {
@@ -33,6 +35,8 @@ public sealed class ModuleInstance
         Module = module;
         Ports = ports;
         DataTypes = dataTypes;
+        Roles = roles;
+        Flows = flows;
         View = view;
         Context = context;
 
@@ -61,6 +65,21 @@ public sealed class ModuleInstance
     /// 该实例**声明的数据类型**（按声明顺序）【ADR-0046 D2】：框架只持**机械镜像**，不理解语义。
     /// </summary>
     public IReadOnlyList<DataTypeDeclaration> DataTypes { get; }
+
+    /// <summary>
+    /// 该实例**声明的角色**（功能分块：一种数据类型 + 其输入口/输出口）【ADR-0052】。
+    /// </summary>
+    /// <remarks>
+    /// **只用于呈现**（叠加层画功能块与 `m/n`）：不参与建网/兼容/停流/投递/计量，**不进组合件**。
+    /// 已由工厂校验：口存在且方向相符、一个口最多属于一个角色、类型可在本模块解析、Id 唯一。
+    /// </remarks>
+    public IReadOnlyList<Sdk.Contracts.RoleDeclaration> Roles { get; }
+
+    /// <summary>
+    /// 该实例声明的**内部处理顺序**（`角色 → 角色`，已校验两端角色存在）【ADR-0052】。
+    /// </summary>
+    /// <remarks>**只用于呈现**（叠加层画模块内部的细实线）：不参与任何判定，**不进组合件**。零声明 ⇒ 不画。</remarks>
+    public IReadOnlyList<Sdk.Ports.FlowDeclaration> Flows { get; }
 
     /// <summary>视图声明（<see langword="null"/> = **无 UI 模块**，合法）。</summary>
     public ViewDeclaration? View { get; }

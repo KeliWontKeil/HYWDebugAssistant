@@ -205,6 +205,16 @@ public sealed class FuserModule : IModule
         context.Ports.SetReceiveHandler(InputPort1, payload => OnUnitReceived(portIndex: 0, payload));
         context.Ports.SetReceiveHandler(InputPort2, payload => OnUnitReceived(portIndex: 1, payload));
 
+        // 【ADR-0052】角色 = 模块的功能分块：**一块"融合"**（一种类型 + 2 个输入口 + 1 个输出口）。
+        // 这正是"功能分块"要表达的东西：两路进来、一路出去是**一件事**，不该被画成"一收一发两块"。
+        // **只呈现**：不参与建网/兼容/停流/投递/计量（声明顺序 = 呈现顺序）。
+        context.Declaration.DeclareRole(new RoleDeclaration(
+            "fuse",
+            CommonDataTypes.AnalogSampleRef,
+            [InputPort1, InputPort2],
+            [OutputPort],
+            "融合"));
+
         context.Declaration.DeclareView(new ViewDeclaration(
             [
                 new ViewElement(ViewElementKind.Numeric, FusedSource, "融合值"),

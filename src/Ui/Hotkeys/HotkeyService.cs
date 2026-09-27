@@ -1,6 +1,8 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 
 namespace HYWDebugAssistant.Ui.Hotkeys;
 
@@ -98,6 +100,14 @@ public sealed class HotkeyService
             return;
         }
 
+        // 【用户第三十四轮反馈："在输入网络标签名的时候，会触发快捷键"】**正在打字 ⇒ 不是快捷键**：
+        // 端口标记的编辑框、模块视图里的文本框、设置页的快捷键输入框…只要焦点在**文本输入类控件**上，
+        // 这一层就完全不介入（否则输入 `l` 会顺手把叠加层切掉、输入空格会触发别的动作）。
+        if (IsTextEntry(e.Source))
+        {
+            return;
+        }
+
         var binding = HotkeyBinding.From(e.Key, e.KeyModifiers);
         if (binding.IsEmpty || !_bindings.TryGetValue(binding, out var actionId))
         {
@@ -106,5 +116,20 @@ public sealed class HotkeyService
 
         e.Handled = true;
         _actions.Execute(actionId);
+    }
+
+    /// <summary>事件是否来自**文本输入类控件**（文本框 / 数值框 / 下拉可输入框及其内部元素）。</summary>
+    /// <param name="source">事件源（通常是获得焦点的控件）。</param>
+    /// <returns>是文本输入 ⇒ 快捷键层让路。</returns>
+    private static bool IsTextEntry(object? source)
+    {
+        if (source is TextBox or NumericUpDown or AutoCompleteBox)
+        {
+            return true;
+        }
+
+        // 事件源可能是输入控件模板内部的元素（如 TextPresenter / ScrollViewer）⇒ 向上找一层
+        return source is Visual visual
+            && visual.GetVisualAncestors().Any(a => a is TextBox or NumericUpDown or AutoCompleteBox);
     }
 }
