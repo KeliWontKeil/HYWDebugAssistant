@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
@@ -72,6 +73,291 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
     /// <summary>创建测试。</summary>
     /// <param name="ui">无头会话夹具。</param>
     public ModuleWindowVisualTests(HeadlessUiFixture ui) => _ui = ui;
+
+    [Fact]
+    public void 标签页_真实窗口应渲染出标签条与当前页内容()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceTabsAt("t1", 0);
+
+            var window = harness.OpenWindow(harness.Windows.Modules.ShouldHaveSingleItem());
+            VisualHarness.Settle();
+
+            // 【技能 §7.1】真实资源 + 真实窗口：**模板没挂上时不报错、只是什么都不画** ⇒
+            // 必须断言"标签条真的出现在可视树里、可见、且有非零尺寸"（VM 里有元素 ≠ 画面上有）。
+            var tabs = TabButtons(window);
+            tabs.Count.ShouldBe(3, "三页 ⇒ 三个页签（模板缺失时这里会是 0）");
+            tabs.ShouldAllBe(b => b.IsEffectivelyVisible);
+            tabs.ShouldAllBe(b => b.Bounds.Width > 0 && b.Bounds.Height > 0, "页签必须有非零尺寸（被裁/被压成 0 高＝看不见）");
+
+            tabs[0].Content.ShouldBe("第 1 页", "页签标题取自页节点 Title");
+            tabs[0].Classes.Contains("selected").ShouldBeTrue("首屏选中第 1 页");
+            tabs[1].Classes.Contains("selected").ShouldBeFalse();
+
+            // 只渲染当前页：窗内文本输入只剩 1 个，且绑定的是 page0
+            var inputs = window.GetVisualDescendants().OfType<TextBox>().ToList();
+            inputs.Count.ShouldBe(1, "只渲染**当前页**的子元素（此前 bug 是'永远只有第一页'，本次修复后切页才换）");
+        });
+    }
+
+    [Fact]
+    public void 标签条_点击第2个页签应真的切换内容()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceTabsAt("t1", 0);
+
+            var window = harness.OpenWindow(harness.Windows.Modules.ShouldHaveSingleItem());
+            VisualHarness.Settle();
+
+            var target = TabButtons(window)[1];
+            var center = target.TranslatePoint(new Point(target.Bounds.Width / 2, target.Bounds.Height / 2), window)
+                .ShouldNotBeNull("页签必须在窗口坐标系里可定位（否则点不到）");
+
+            // **真指针点击**（不是 `Command.Execute`）：这样同时覆盖"命中层级 / 是否被盖住"这类只在视觉树上暴露的缺陷。
+            window.MouseDown(center, MouseButton.Left);
+            window.MouseUp(center, MouseButton.Left);
+            VisualHarness.Settle();
+
+            var tabs = TabButtons(window);
+            tabs[1].Classes.Contains("selected").ShouldBeTrue("点击后第 2 页应为选中态");
+            tabs[0].Classes.Contains("selected").ShouldBeFalse();
+
+            // 内容真的换了：仍然是 1 个输入框，但它是第 2 页那个（可见文本输入对应 page1 的绑定）
+            window.GetVisualDescendants().OfType<TextBox>().Count()
+                .ShouldBe(1, "切页后仍只渲染当前页");
+            harness.Windows.Modules.ShouldHaveSingleItem().Elements
+                .OfType<TextInputElementViewModel>().ShouldHaveSingleItem()
+                .Source.ShouldBe("page1", "切页后渲染的必须是第 2 页的子元素");
+        });
+    }
+
+    [Fact]
+    public void 多行输入_真实窗口应按声明渲染多行框_且单行不受影响()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceMultilineAt("m1", 0);
+
+            var window = harness.OpenWindow(harness.Windows.Modules.ShouldHaveSingleItem());
+            VisualHarness.Settle();
+
+            var boxes = window.GetVisualDescendants().OfType<TextBox>().ToList();
+            boxes.Count.ShouldBe(2, "声明了两个输入元素 ⇒ 两个输入框");
+
+            var multiline = boxes.Single(b => b.DataContext is TextInputElementViewModel { IsMultiline: true });
+            var single = boxes.Single(b => b.DataContext is TextInputElementViewModel { IsMultiline: false });
+
+            // 【G2】多行框：`AcceptsReturn` 必须真的打开（否则回车换行/提交都无从谈起）+ 有最小高度
+            multiline.AcceptsReturn.ShouldBeTrue("多行输入框必须接受回车（否则永远只是一行）");
+            multiline.MinHeight.ShouldBe(
+                TextInputElementViewModel.MultilineEditorMinHeight,
+                "多行框要有最小高度（约三行），否则只有一个单行高度、看着不像多行框");
+
+            // 单行框行为**不变**（ADR-0040 D-5）
+            single.AcceptsReturn.ShouldBeFalse("单行输入不得接受回车（回车 = 提交）");
+            single.MinHeight.ShouldBe(0, "单行不设最小高度");
+        });
+    }
+
+    [Fact]
+    public void 多行输入_应用级提交键应下发到模块窗口并重建输入元素()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceMultilineAt("m1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            _ = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            Input(module).SubmitOnEnter.ShouldBeFalse("默认档位 `CtrlEnter` ⇒ 回车是换行");
+
+            // 走**用户的真实路径**改设置（设置页 → `UpdateSettings`）⇒ 刷新后必须下发并重建元素。
+            // 注意：不能在测试里直接改 `Windows.MultilineSubmitKey` —— 设置是唯一事实源，刷新会用真实设置覆盖它。
+            var settings = harness.Services.GetSettings();
+            settings.MultilineSubmitKey = "Enter";
+            harness.Services.UpdateSettings(settings).Succeeded.ShouldBeTrue();
+
+            harness.Windows.Refresh();
+            VisualHarness.Settle();
+
+            Input(module).SubmitOnEnter.ShouldBeTrue("`Enter` 档位 ⇒ 回车提交");
+            Input(module).SubmitOnCtrlEnter.ShouldBeFalse("`Enter` 档位 ⇒ Ctrl+回车不提交（换行键是 Shift+回车）");
+        });
+
+        static TextInputElementViewModel Input(ModuleViewViewModel module) =>
+            module.Elements.OfType<TextInputElementViewModel>().Single(e => e.IsMultiline);
+    }
+
+    [Fact]
+    public void 输入失败态_模块回报处理失败后_输入框应真的画出红边框()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceFeedbackAt("f1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var input = module.Elements.OfType<TextInputElementViewModel>().ShouldHaveSingleItem();
+            input.IsInvalid.ShouldBeFalse("**没有回报过就没有失败态**（零回归：不实现 G3 的模块完全不受影响）");
+
+            // 提交一个"非法"输入 ⇒ 模块在自己的活动体里消费并回报失败
+            harness.Services.SubmitInput("f1", VisualFeedbackModule.TextSource, "坏值").Succeeded.ShouldBeTrue();
+            WaitForInvalid(harness, module, expected: true);
+
+            var box = FindInputBox(window, VisualFeedbackModule.TextSource);
+            box.Classes.Contains("invalid").ShouldBeTrue("失败态必须落到**渲染**上（VM 有标志 ≠ 画面有红框）");
+
+            // 【"显著标红"的可执行判据】不看 VM 标志，直接看**负责画边框的那两个属性**：
+            // ① 边框必须从样式表拿到了更粗的框（样式选择器写错 ⇒ 这里仍是默认 1px）；
+            // ② 边框颜色必须**显著偏红**（未生效时它是默认中性色 / 透明）。
+            // 这样断言不依赖"能不能查到 token 资源"，测的仍是用户看得见的东西。
+            box.BorderThickness.ShouldBe(
+                new Avalonia.Thickness(2),
+                "失败态样式必须真的生效（`TextBox.invalid` 选择器没匹配上时边框仍是 1px）");
+
+            var borderColor = ColorOf(box.BorderBrush);
+            borderColor.R.ShouldBeGreaterThan(
+                (byte)0x80, $"失败态边框必须显著偏红，实际 R=0x{borderColor.R:X2}");
+            borderColor.R.ShouldBeGreaterThan(
+                (byte)(borderColor.G + 0x40), $"失败态边框必须显著偏红（G 太亮，实际 0x{borderColor.G:X2}）");
+            borderColor.R.ShouldBeGreaterThan(
+                (byte)(borderColor.B + 0x40), $"失败态边框必须显著偏红（B 太亮，实际 0x{borderColor.B:X2}）");
+        });
+    }
+
+    [Fact]
+    public void 输入失败态_下一次提交即刷新_不再回报就自动恢复()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceFeedbackAt("f1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            _ = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var input = module.Elements.OfType<TextInputElementViewModel>().ShouldHaveSingleItem();
+
+            harness.Services.SubmitInput("f1", VisualFeedbackModule.TextSource, "坏值").Succeeded.ShouldBeTrue();
+            WaitForInvalid(harness, module, expected: true);
+            input.LastResult.ShouldBe("非法输入：坏值", "模块给的原因要就地显示");
+
+            // 再提交一次（这次合法）⇒ 框架在**投递入队时**已清旧结果，模块回报成功 ⇒ 红框消失
+            harness.Services.SubmitInput("f1", VisualFeedbackModule.TextSource, "ok").Succeeded.ShouldBeTrue();
+            WaitForInvalid(harness, module, expected: false);
+        });
+    }
+
+    [Fact]
+    public void 文件选择器_真实窗口应渲染出标签与只读路径框与浏览按钮()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceFilePickerAt("p1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            // 【G4】此前 B6 落"未渲染"占位（只显示一行"未渲染"文字）⇒ 这里断言它**真的被画出来**
+            var pickers = module.Elements.OfType<FileSelectorElementViewModel>().ToList();
+            pickers.Count.ShouldBe(2, "声明了两个文件选择器 ⇒ 两个元素");
+            pickers[0].Mode.ShouldBe(FilePickerMode.Save, "第一个声明的是「保存」");
+            pickers[1].Mode.ShouldBe(FilePickerMode.Open, "第二个声明的是「打开」");
+            pickers[1].Filter.ShouldBe("文本文件 (*.txt)|*.txt", "过滤器原样带到视图模型（供弹窗用）");
+
+            var browseButtons = window.GetVisualDescendants()
+                .OfType<Button>()
+                .Where(b => b.DataContext is FileSelectorElementViewModel)
+                .ToList();
+
+            browseButtons.Count.ShouldBe(2, "每个选择器一个「浏览」按钮（没渲染时这里会是 0）");
+            browseButtons.ShouldAllBe(b => b.IsEffectivelyVisible);
+            browseButtons.ShouldAllBe(b => b.Bounds.Width > 0 && b.Bounds.Height > 0, "按钮必须有非零尺寸（被裁/压成 0 高＝看不见）");
+            browseButtons[0].Content.ShouldBe("浏览…");
+
+            // 路径框必须是**只读**的：路径由系统对话框给出，不允许手打（否则就不是"选择器"了）
+            var pathBoxes = window.GetVisualDescendants()
+                .OfType<TextBox>()
+                .Where(t => t.DataContext is FileSelectorElementViewModel)
+                .ToList();
+
+            pathBoxes.Count.ShouldBe(2, "每个选择器一个路径框");
+            pathBoxes.ShouldAllBe(t => t.IsReadOnly);
+        });
+    }
+
+    [Fact]
+    public void 文件选择器_提交路径应被框架接受_且就地给出结果()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceFilePickerAt("p1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            _ = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var picker = module.Elements.OfType<FileSelectorElementViewModel>().First();
+
+            // 等价于"用户在对话框里选好了文件" ⇒ `Submit` 走**既有输入通道**（与 B5 同一条路）
+            picker.Submit(@"C:\temp\out.txt");
+
+            picker.SelectedPath.ShouldBe(@"C:\temp\out.txt", "选中的路径要显示在只读框里");
+            picker.LastResult.ShouldNotBeNullOrEmpty();
+            picker.LastResult!.ShouldContain("已写入", Case.Insensitive, "框架必须接受该路径（该源名已在视图里声明）⇒ 投递入队成功");
+            picker.LastResult!.ShouldNotContain("未生效", Case.Insensitive);
+
+            // 未声明的源名 ⇒ 明确失败、不静默（与 B5 输入同一口径；走公开面直接验框架校验）
+            var rejected = harness.Services.SubmitInput("p1", "not-declared", @"C:\temp\x.txt");
+            rejected.Succeeded.ShouldBeFalse("未声明的输入必须被拒绝");
+            string.Join("；", rejected.Failures).ShouldContain("未声明该输入", Case.Insensitive);
+        });
+    }
+
+    /// <summary>轮询等待失败态变成期望值（模块的活动体在**自己的线程**上跑，需要给它时间）。</summary>
+    private static void WaitForInvalid(VisualHarness harness, ModuleViewViewModel module, bool expected)
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            Thread.Sleep(10);
+            harness.Windows.Refresh();
+
+            if (module.Elements.OfType<TextInputElementViewModel>().Single().IsInvalid == expected)
+            {
+                return;
+            }
+        }
+
+        throw new InvalidOperationException($"等待输入失败态 = {expected} 超时（1 秒）");
+    }
+
+    /// <summary>窗内绑定到指定输入源的输入框。</summary>
+    private static TextBox FindInputBox(Window window, string source) =>
+        window.GetVisualDescendants()
+            .OfType<TextBox>()
+            .Single(b => b.DataContext is TextInputElementViewModel input
+                         && string.Equals(input.Source, source, StringComparison.Ordinal));
+
+    /// <summary>窗内**标签条**上的页签按钮（按样式类定位；未渲染时返回空表）。</summary>
+    /// <param name="window">模块窗口。</param>
+    private static List<Button> TabButtons(Window window) =>
+        [.. window.GetVisualDescendants()
+            .OfType<Button>()
+            .Where(b => b.Classes.Contains("tabStripItem"))];
 
     [Fact]
     public void 模块窗口_应能装载真实XAML并显示端口标记()
@@ -776,6 +1062,301 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
         });
     }
 
+    // ---------------------------------------------------------------- G5 · C5-7 端口锚点（真指针）
+
+    [Fact]
+    public void 端口锚点_真指针拖动应改偏移并换边_且写进运行时()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceAnchorAt("a1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var marker = FindMarker(window).ShouldNotBeNull();
+            var vm = marker.DataContext.ShouldBeOfType<PortMarkerViewModel>();
+
+            vm.IsAnchorFixed.ShouldBeFalse("模块声明了 `AnchorDraggable = true` ⇒ 默认可拖");
+            vm.Edge.ShouldBe(PortEdge.Right, "发送口默认在右边缘（数据流惯例）");
+            vm.Offset.ShouldBe(0.5);
+
+            // 真指针：从标记中心**按下 → 移到窗口上方**（最近边 = 上边）→ 松手
+            var from = marker.TranslatePoint(new Point(marker.Bounds.Width / 2, marker.Bounds.Height / 2), window)
+                .ShouldNotBeNull();
+            var to = new Point(window.Bounds.Width / 2, 2);
+
+            window.MouseDown(from, MouseButton.Left);
+            window.MouseMove(to);
+            VisualHarness.Settle();
+            window.MouseUp(to, MouseButton.Left);
+            VisualHarness.Settle();
+
+            vm.Edge.ShouldBe(PortEdge.Top, "拖到上边附近 ⇒ 最近边 = 上边（换边后标记变横排）");
+            vm.IsVertical.ShouldBeFalse("换到上下边 ⇒ 形态必须跟着变横排");
+
+            // **屏幕上真的换过来了**（只断言视图模型会漏掉"排布没失效"这一类缺陷 —— 用户实测报过）
+            var moved = ScreenRect(FindMarker(window).ShouldNotBeNull(), window);
+            moved.Width.ShouldBe(114, 1e-6, "横排标记宽 114");
+            moved.Height.ShouldBe(20, 1e-6, "横排标记高 20");
+            moved.Y.ShouldBeLessThan(2, "拖到上边 ⇒ 标记必须真的贴到窗口上沿");
+
+            // **真的写进了运行时**（不只是改了个视图模型）：查询面与组合件几何都要跟上
+            var port = harness.Services.GetInstances().ShouldHaveSingleItem().Ports.ShouldHaveSingleItem();
+            port.Edge.ShouldBe(PortEdge.Top, "框架查询面必须拿到新边（否则刷新一次就跳回去）");
+            harness.Runtime.Content.Layout.GetPort("a1", port.Name).Edge.ShouldBe(
+                PortEdge.Top,
+                "组合件几何必须记下覆盖的边（否则重载后跳回默认边）");
+
+            // 并且**不再是拖动中**（松手必须解锁节拍同步，否则后续刷新全被挡住）
+            vm.IsDraggingAnchor.ShouldBeFalse();
+
+            // ② **沿同一条边再拖一次**（只改偏移、不换边）：这是"屏幕上真的动了吗"的关键场景 ——
+            //    换边会因宽高绑定变化而**看起来能动**，掩盖"排布没失效"这一类缺陷（用户实测报过"拖不动"）。
+            var alongEdge = marker.TranslatePoint(new Point(marker.Bounds.Width / 2, marker.Bounds.Height / 2), window)
+                .ShouldNotBeNull();
+            var target = new Point(alongEdge.X + 60, alongEdge.Y);
+
+            var hit = window.InputHitTest(alongEdge);
+            IsInsideMarker(hit).ShouldBeTrue(
+                $"同边拖动的按下点必须落在标记上（实际命中：{Describe(hit)}）");
+
+            window.MouseDown(alongEdge, MouseButton.Left);
+            window.MouseMove(target);
+            VisualHarness.Settle();
+
+            vm.IsDraggingAnchor.ShouldBeTrue("越过阈值后必须进入拖动（否则预览与提交都无从发生）");
+            vm.Offset.ShouldBeGreaterThan(0.5, "移动中预览就该已经变大（松手只是把它提交）");
+
+            window.MouseUp(target, MouseButton.Left);
+            VisualHarness.Settle();
+
+            vm.Edge.ShouldBe(PortEdge.Top, "仍是同一条边（本段就是要验同边拖动）");
+            vm.Offset.ShouldBeGreaterThan(0.5, "往右拖 ⇒ 偏移必须增大");
+
+            var slid = ScreenRect(FindMarker(window).ShouldNotBeNull(), window);
+            slid.X.ShouldBeGreaterThan(
+                moved.X + 10,
+                "同边拖动后标记必须**真的在屏幕上换了位置** —— 只改视图模型不算（实测漏过这一类）");
+        });
+    }
+
+    [Fact]
+    public void 端口锚点_默认为固定的模块_拖动不生效且提示如何解锁()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.Place("t1");   // `VisualSenderModule` 没声明 `AnchorDraggable` ⇒ 默认固定
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var vm = FindMarker(window).ShouldNotBeNull().DataContext.ShouldBeOfType<PortMarkerViewModel>();
+            vm.IsAnchorFixed.ShouldBeTrue("未声明 `AnchorDraggable` ⇒ 默认固定（保守默认）");
+
+            string? notice = null;
+            harness.Windows.NoticeRaised += (_, e) => notice = e.Message;
+
+            var from = FindMarker(window).ShouldNotBeNull()
+                .TranslatePoint(new Point(10, 57), window).ShouldNotBeNull();
+            var to = new Point(window.Bounds.Width / 2, 2);
+
+            window.MouseDown(from, MouseButton.Left);
+            window.MouseMove(to);
+            VisualHarness.Settle();
+            window.MouseUp(to, MouseButton.Left);
+            VisualHarness.Settle();
+
+            vm.Edge.ShouldBe(PortEdge.Right, "固定锚点**拖不动**：边不得改变");
+            vm.Offset.ShouldBe(0.5, "固定锚点**拖不动**：偏移不得改变");
+
+            notice.ShouldNotBeNull("拖不动必须**给出反馈**，否则用户以为程序卡了");
+            notice.ShouldContain("固定");
+        });
+    }
+
+    [Fact]
+    public void 端口锚点_按住不移动的点击不得提交几何_把双击留给改网名()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceAnchorAt("a1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var marker = FindMarker(window).ShouldNotBeNull();
+            var vm = marker.DataContext.ShouldBeOfType<PortMarkerViewModel>();
+            var center = marker.TranslatePoint(new Point(marker.Bounds.Width / 2, marker.Bounds.Height / 2), window)
+                .ShouldNotBeNull();
+
+            // ① 纯点击（不移动）
+            window.MouseDown(center, MouseButton.Left);
+            window.MouseUp(center, MouseButton.Left);
+            VisualHarness.Settle();
+
+            vm.IsDraggingAnchor.ShouldBeFalse("纯点击不进入拖动");
+            vm.Offset.ShouldBe(0.5, "纯点击**不得**改几何（否则双击改网名永远被拖动抢先）");
+
+            // ② 阈值内的小抖动（3px < 4px 阈值）同样不进入拖动
+            window.MouseDown(center, MouseButton.Left);
+            window.MouseMove(center + new Point(0, 3));
+            VisualHarness.Settle();
+            window.MouseUp(center + new Point(0, 3), MouseButton.Left);
+            VisualHarness.Settle();
+
+            vm.IsDraggingAnchor.ShouldBeFalse("阈值内的抖动仍算点击");
+            vm.Offset.ShouldBe(0.5, "阈值内的抖动**不得**改几何");
+        });
+    }
+
+    [Fact]
+    public void 端口锚点_全局固定与解锁_应一次切换全部模块的所有口()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceAnchorAt("a1", 0);
+            harness.PlaceAnchorAt("a2", 400);
+
+            var windows = harness.Windows.Modules.Select(m => harness.OpenWindow(m)).ToList();
+            VisualHarness.Settle();
+
+            var markers = windows
+                .Select(w => FindMarker(w).ShouldNotBeNull().DataContext.ShouldBeOfType<PortMarkerViewModel>())
+                .ToList();
+
+            markers.Count.ShouldBe(2);
+            markers.ShouldAllBe(m => !m.IsAnchorFixed);
+
+            // C5-7 的"可通过快捷键/操作锁定与解锁"= **全局**一次切换
+            harness.Windows.ToggleAllAnchorsFixed().ShouldContain("固定");
+            markers.ShouldAllBe(m => m.IsAnchorFixed, "全局操作后**所有模块的所有口**都固定");
+            harness.Runtime.Content.Layout.GetPort("a1", "out").IsAnchorFixed.ShouldBe(
+                true,
+                "固定态必须写进运行时（否则刷新一次就回到声明值）");
+
+            harness.Windows.ToggleAllAnchorsFixed().ShouldContain("解锁");
+            markers.ShouldAllBe(m => !m.IsAnchorFixed, "再按一次 ⇒ 全部解锁");
+            harness.Runtime.Content.Layout.GetPort("a2", "out").IsAnchorFixed.ShouldBe(
+                false,
+                "解锁（显式 false）同样要落进运行时几何 —— 不能只改视图模型");
+        });
+    }
+
+    [Fact]
+    public void 端口锚点_拖动期间刷新节拍不得把预览拽回原位()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceAnchorAt("a1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var vm = FindMarker(window).ShouldNotBeNull().DataContext.ShouldBeOfType<PortMarkerViewModel>();
+
+            // 模拟"拖动进行中"：本地已经改到上边 + 偏移 0.2（**尚未提交**）
+            vm.IsDraggingAnchor = true;
+            vm.Edge = PortEdge.Top;
+            vm.Offset = 0.2;
+
+            // 刷新节拍（框架权威值仍是"右边缘 0.5"）——**不得**覆盖拖动预览
+            harness.Windows.Refresh();
+            VisualHarness.Settle();
+
+            vm.Edge.ShouldBe(PortEdge.Top, "拖动期间不得被拽回原位");
+            vm.Offset.ShouldBe(0.2);
+
+            // 松手（解锁同步）后，框架权威值接管
+            vm.IsDraggingAnchor = false;
+            harness.Windows.Refresh();
+            VisualHarness.Settle();
+
+            vm.Edge.ShouldBe(PortEdge.Right, "松手后由框架权威值接管（未提交 ⇒ 回到已提交的边）");
+            vm.Offset.ShouldBe(0.5);
+        });
+    }
+
+    [Fact]
+    public void 端口锚点_真双击标记仍然打开网名编辑框()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceAnchorAt("a1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var marker = FindMarker(window).ShouldNotBeNull();
+            var vm = marker.DataContext.ShouldBeOfType<PortMarkerViewModel>();
+            var center = marker.TranslatePoint(new Point(marker.Bounds.Width / 2, marker.Bounds.Height / 2), window)
+                .ShouldNotBeNull();
+
+            // 真双击（两次短间隔点击）：**拖动阈值**就是为了不把它吃掉
+            window.MouseDown(center, MouseButton.Left);
+            window.MouseUp(center, MouseButton.Left);
+            window.MouseDown(center, MouseButton.Left);
+            window.MouseUp(center, MouseButton.Left);
+            VisualHarness.Settle();
+
+            vm.IsEditing.ShouldBeTrue("双击标记必须仍然打开网名编辑框（拖动不得抢走双击）");
+            vm.Offset.ShouldBe(0.5, "双击不是拖动 ⇒ 几何不得变");
+        });
+    }
+
+    [Fact]
+    public void 端口锚点_改偏移的预览必须在屏幕上真的重排()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceAnchorAt("a1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var marker = FindMarker(window).ShouldNotBeNull();
+            var vm = marker.DataContext.ShouldBeOfType<PortMarkerViewModel>();
+            vm.Edge.ShouldBe(PortEdge.Right);
+
+            var before = ScreenRect(marker, window);
+            before.Y.ShouldBeGreaterThan(0, "初始偏移 0.5 ⇒ 标记不在端部");
+
+            // ① **拖动进行中**的预览：只改偏移（同一条边内移动）。此时手势会把节拍同步冻住
+            //    （`IsDraggingAnchor`，见 `SyncPorts`）——**不设它就会被刷新节拍按框架权威值拽回 0.5**，
+            //    那正是"预览看不见"的另一种表现（本用例第一版就踩了这个）。
+            //    【2026-09 缺陷】`PortMarkerPanel` 直接读 VM 的值，若没人让排布失效，屏幕上**纹丝不动**
+            //    ⇒ 用户实测"解锁后指针变了但拖不动"。此前用例只断言视图模型 ⇒ 漏掉该缺陷。
+            vm.IsDraggingAnchor = true;
+            vm.Offset = 0.15;
+            VisualHarness.Settle();
+
+            var after = ScreenRect(marker, window);
+            vm.Offset.ShouldBe(0.15, "拖动期间节拍同步必须被冻住（否则 Offset 会被拽回 0.5）");
+            after.Y.ShouldBeLessThan(before.Y - 10, "偏移 0.5 → 0.15 ⇒ 标记必须真的往上移动（不只是视图模型改了）");
+
+            vm.Offset = 0.85;
+            VisualHarness.Settle();
+
+            var previewed = ScreenRect(marker, window);
+            previewed.Y.ShouldBeGreaterThan(after.Y + 10, "偏移调回下端 ⇒ 屏幕上必须跟着下来（反向也要成立）");
+
+            vm.IsDraggingAnchor = false;
+        });
+    }
+
     // ---------------------------------------------------------------- 辅助
 
     /// <summary>取画刷颜色（非纯色/为空时返回 <see cref="Colors.Transparent"/>，便于断言直接失败）。</summary>
@@ -856,6 +1437,11 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
             Register("visual-sender", typeof(VisualSenderModule));
             Register("visual-sink", typeof(VisualSinkModule));
             Register("visual-inputs", typeof(VisualInputsModule));
+            Register("visual-tabs", typeof(VisualTabsModule));
+            Register("visual-multiline", typeof(VisualMultilineModule));
+            Register("visual-feedback", typeof(VisualFeedbackModule));
+            Register("visual-file-picker", typeof(VisualFilePickerModule));
+            Register("visual-anchor", typeof(VisualAnchorModule));
             Windows = new ModuleWindowsViewModel(Services, Services);
         }
 
@@ -879,6 +1465,26 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
         /// <summary>加入一个"人机操作三通道"模块并摆放（命令/输入/开关渲染与投递测试用）。</summary>
         public void PlaceInputsAt(string instanceId, double x, double y = 0) =>
             PlaceModuleAt(instanceId, "test/visual-inputs/1.0.0", x, y);
+
+        /// <summary>加入一个"多行标签页"模块并摆放（G1：标签条渲染与切页测试用）。</summary>
+        public void PlaceTabsAt(string instanceId, double x, double y = 0) =>
+            PlaceModuleAt(instanceId, "test/visual-tabs/1.0.0", x, y);
+
+        /// <summary>加入一个"多行 + 单行输入"模块并摆放（G2：多行提交键测试用）。</summary>
+        public void PlaceMultilineAt(string instanceId, double x, double y = 0) =>
+            PlaceModuleAt(instanceId, "test/visual-multiline/1.0.0", x, y);
+
+        /// <summary>加入一个"会回报输入处理结果"的模块并摆放（G3：失败态测试用）。</summary>
+        public void PlaceFeedbackAt(string instanceId, double x, double y = 0) =>
+            PlaceModuleAt(instanceId, "test/visual-feedback/1.0.0", x, y);
+
+        /// <summary>加入一个"声明文件选择器"的模块并摆放（G4：B6 渲染与提交测试用）。</summary>
+        public void PlaceFilePickerAt(string instanceId, double x, double y = 0) =>
+            PlaceModuleAt(instanceId, "test/visual-file-picker/1.0.0", x, y);
+
+        /// <summary>加入一个"锚点可拖动"的模块并摆放（G5：锚点拖动/固定测试用）。</summary>
+        public void PlaceAnchorAt(string instanceId, double x, double y = 0) =>
+            PlaceModuleAt(instanceId, "test/visual-anchor/1.0.0", x, y);
 
         private void PlaceModuleAt(string instanceId, string moduleIdLiteral, double x, double y)
         {
@@ -1001,6 +1607,191 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
                     new ViewElement(ViewElementKind.ToggleSlider, "auto", "自动"),
                 ],
                 commands: [new ViewCommand("fire", "触发")]));
+    }
+
+    /// <summary>视觉测试用"多行 + 单行输入"模块（**G2**：多行提交键与多行框渲染）。</summary>
+    [ModuleDefinition("test", "visual-multiline", "1.0.0")]
+    public sealed class VisualMultilineModule : IModule
+    {
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context) =>
+            context.Declaration.DeclareView(new ViewDeclaration(
+                [
+                    new ViewElement(ViewElementKind.TextInput, "text", "多行") { Multiline = true },
+                    new ViewElement(ViewElementKind.TextInput, "single", "单行"),
+                ],
+                dataSources: [new ViewDataSource("text"), new ViewDataSource("single")]));
+    }
+
+    /// <summary>
+    /// 视觉测试用"会回报输入处理结果"的模块（**G3**）：收到输入后，文本不是 <c>ok</c> 就回报**失败**。
+    /// </summary>
+    /// <remarks>
+    /// 它同时是"模块如何用 G3 通道"的**可执行示例**：实现 <see cref="IActivitySource"/> 在活动体里消费收件箱，
+    /// 然后调 <c>context.InputFeedback.Report(source, false, 原因)</c> —— 模块**不碰 UI**。
+    /// </remarks>
+    [ModuleDefinition("test", "visual-feedback", "1.0.0")]
+    public sealed class VisualFeedbackModule : IModule, IActivitySource
+    {
+        /// <summary>输入元素的源名（与视图声明的 `DataSource` 一致）。</summary>
+        public const string TextSource = "text";
+
+        /// <inheritdoc />
+        public ActivityKind Kind => ActivityKind.Periodic;
+
+        /// <inheritdoc />
+        public TimeSpan Interval => TimeSpan.FromMilliseconds(10);
+
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context) =>
+            context.Declaration.DeclareView(new ViewDeclaration(
+                [new ViewElement(ViewElementKind.TextInput, TextSource, "输入")],
+                dataSources: [new ViewDataSource(TextSource)]));
+
+        /// <inheritdoc />
+        public void RunActivity(IModuleContext context)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+
+            while (!context.StopSignal.IsStopRequested)
+            {
+                while (context.Inbox.TryDequeueInput(out var source, out var text))
+                {
+                    var ok = string.Equals(text, "ok", StringComparison.Ordinal);
+
+                    // 【G3】回报处理结果 —— 框架据此把该输入元素渲染成失败态（红框）
+                    context.InputFeedback.Report(
+                        source,
+                        ok,
+                        ok ? null : $"非法输入：{text}");
+                }
+
+                _ = context.StopSignal.Wait(Interval);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 视觉测试用"声明文件选择器"的模块（**G4**）：一个"保存到"的文件选择器 + 一个"打开"的。
+    /// </summary>
+    /// <remarks>
+    /// 它同时是"模块如何用 B6"的**可执行示例**：模块只声明元素 + 在自己的活动体里 `TryDequeueInput` 收**路径字符串**，
+    /// **完全不接触文件对话框 API**（弹窗与 `StorageProvider` 都属 UI）。
+    /// </remarks>
+    [ModuleDefinition("test", "visual-file-picker", "1.0.0")]
+    public sealed class VisualFilePickerModule : IModule, IActivitySource
+    {
+        /// <summary>"保存到"选择器的数据源名。</summary>
+        public const string SaveSource = "savePath";
+
+        /// <summary>"打开"选择器的数据源名。</summary>
+        public const string OpenSource = "openPath";
+
+        /// <inheritdoc />
+        public ActivityKind Kind => ActivityKind.Periodic;
+
+        /// <inheritdoc />
+        public TimeSpan Interval => TimeSpan.FromMilliseconds(10);
+
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context) =>
+            context.Declaration.DeclareView(new ViewDeclaration(
+                [
+                    new ViewElement(ViewElementKind.FileSelector, SaveSource, "保存到")
+                    {
+                        FileMode = FilePickerMode.Save,
+                        FileFilter = "*.txt",
+                    },
+                    new ViewElement(ViewElementKind.FileSelector, OpenSource, "打开")
+                    {
+                        FileMode = FilePickerMode.Open,
+                        FileFilter = "文本文件 (*.txt)|*.txt",
+                    },
+                ],
+                dataSources: [new ViewDataSource(SaveSource), new ViewDataSource(OpenSource)]));
+
+        /// <inheritdoc />
+        public void RunActivity(IModuleContext context)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+
+            while (!context.StopSignal.IsStopRequested)
+            {
+                // 收路径（模块侧唯一要做的事）
+                while (context.Inbox.TryDequeueInput(out _, out _))
+                {
+                }
+
+                _ = context.StopSignal.Wait(Interval);
+            }
+        }
+    }
+
+    /// <summary>视觉测试用"多页标签页"模块（**G1**：3 页，每页一个文本输入）。</summary>
+    /// <remarks>
+    /// 声明结构 = `TabPages > [页节点 …]`，**每个页节点的子元素才是该页内容**（`ViewElement.children` 的语义）。
+    /// 页节点本身是内容元素的写法也被容忍（见 `ModuleViewViewModel.Expand` 的兜底）。
+    /// </remarks>
+    [ModuleDefinition("test", "visual-tabs", "1.0.0")]
+    public sealed class VisualTabsModule : IModule
+    {
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context) =>
+            context.Declaration.DeclareView(new ViewDeclaration(
+                [
+                    new ViewElement(
+                        ViewElementKind.TabPages,
+                        title: "消息",
+                        children:
+                        [
+                            new ViewElement(
+                                ViewElementKind.Group,
+                                title: "第 1 页",
+                                children: [new ViewElement(ViewElementKind.TextInput, "page0", "输入")]),
+                            new ViewElement(
+                                ViewElementKind.Group,
+                                title: "第 2 页",
+                                children: [new ViewElement(ViewElementKind.TextInput, "page1", "输入")]),
+                            new ViewElement(
+                                ViewElementKind.Group,
+                                title: "第 3 页",
+                                children: [new ViewElement(ViewElementKind.TextInput, "page2", "输入")]),
+                        ]),
+                ],
+                dataSources:
+                [
+                    new ViewDataSource("page0"),
+                    new ViewDataSource("page1"),
+                    new ViewDataSource("page2"),
+                ]));
+    }
+
+    /// <summary>
+    /// 视觉测试用"**锚点可拖动**"模块（**G5 · C5-7**）：一个发送口，声明 <c>AnchorDraggable = true</c>。
+    /// </summary>
+    /// <remarks>
+    /// **为什么单独一个模块**：`AnchorDraggable` 默认 <see langword="false"/>（= 固定）⇒ 用别的夹具口
+    /// 根本拖不动，会把"拖动没生效"误判成"拖动没实现"。这里显式声明可拖，与"默认固定"形成对照。
+    /// </remarks>
+    [ModuleDefinition("test", "visual-anchor", "1.0.0")]
+    public sealed class VisualAnchorModule : IModule
+    {
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context)
+        {
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(VisualTypeId, 1, VisualShape));
+            context.Declaration.DeclarePort(new PortDeclaration(
+                "out",
+                PortDirection.Send,
+                VisualShape)
+            {
+                Type = new DataTypeRef(VisualTypeId, 1),
+                AnchorDraggable = true,
+            });
+
+            context.Declaration.DeclareRole(RoleDeclaration.Output(
+                "visual-anchor-send", new DataTypeRef(VisualTypeId, 1), "out", "发送"));
+        }
     }
 }
 

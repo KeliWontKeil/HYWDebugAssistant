@@ -195,6 +195,14 @@
                               IsChecked="{Binding ShowInfoOverlay, Mode=TwoWay}"
                               ToolTip.Tip="模块窗口内绘制连接线与数据流向；端口标记（网络标签）始终显示" />
 
+                    <Grid ColumnDefinitions="140,140,*">
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                   ToolTip.Tip="只影响**多行**输入框（模块声明了多行的输入）；单行输入始终是“回车 / 失焦一次提交”。CtrlEnter = 回车换行、Ctrl+回车提交、失焦不提交；Enter = 回车提交、Shift+回车换行；None = 键盘都不提交，只用模块的按钮"
+                                   Foreground="{DynamicResource TextSecondary}" Text="多行输入提交键" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding MultilineSubmitKeyOptions}"
+                                  SelectedItem="{Binding MultilineSubmitKey, Mode=TwoWay}" />
+                    </Grid>
+
                     <Rectangle Height="1" Margin="0,2" Fill="{DynamicResource BorderDefault}" />
 
                     <TextBlock Classes="sec" Text="外观" />

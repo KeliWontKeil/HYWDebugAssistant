@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.VisualTree;
+using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Ui.Diagnostics;
 using HYWDebugAssistant.Ui.ViewModels;
 
@@ -35,6 +36,42 @@ public partial class ModuleWindow : Window
     /// <summary>【临时诊断】上一帧指针位置（算指针位移用）。</summary>
     private double _lastPointerX;
     private double _lastPointerY;
+
+    /// <summary>锚点拖动的**启动阈值**（逻辑 px）：小于它视为"点击"，把手势留给双击改网名。</summary>
+    private const double AnchorDragThreshold = 4;
+
+    /// <summary>锚点拖动候选（按下后、尚未越过阈值）。</summary>
+    private PortMarkerViewModel? _anchorCandidate;
+
+    /// <summary>是否已越过阈值（真在拖）。</summary>
+    private bool _anchorDragging;
+
+    /// <summary>按下点（窗口坐标，只用来算阈值）。</summary>
+    private Point _anchorOrigin;
+
+    /// <summary>拖动前的边缘（提交失败时回滚）。</summary>
+    private PortEdge _anchorFromEdge;
+
+    /// <summary>拖动前的偏移（提交失败时回滚）。</summary>
+    private double _anchorFromOffset;
+
+    /// <summary>
+    /// **抓取偏移** = 标记中心 − 指针（沿当前边的轴，单位 px）。
+    /// </summary>
+    /// <remarks>
+    /// 没有它，标记会在拖动第一帧"跳"到指针中心（抓端部时能跳半个标记长）；跨边后作废重算
+    /// （不同轴的归一化位置没有可比性）。
+    /// <para>
+    /// <b>必须用"按下时"的指针位置来算</b>（2026-09 缺陷）：曾用**当前这次移动**的指针位置 ⇒
+    /// <c>Δ = 偏移×长度 − 指针轴</c>，代回去得到 <c>新偏移 ≡ 旧偏移</c> ——
+    /// **同一条边内的拖动永远原地不动**；跨边时因换轴会把 Δ 清零，才"看起来能动"，把这个缺陷藏住了。
+    /// 用户实测报"解锁了但拖不动"，用例当时只跨边拖 ⇒ 漏掉。
+    /// </para>
+    /// </remarks>
+    private double _anchorDelta;
+
+    /// <summary>**按下点**在标记面板坐标系里的位置（算抓取偏移用；见 <see cref="_anchorDelta"/>）。</summary>
+    private Point _anchorPressLocal;
 
     /// <summary>创建窗口。</summary>
     public ModuleWindow()
@@ -100,6 +137,13 @@ public partial class ModuleWindow : Window
         }
 
         var (x, y) = ScreenPoint(e);
+
+        // 口标记锚点拖动（G5 · C5-7）：标记层压在拖动带与手柄之上，故必须先判它；
+        // 它与 `_dragging`/`_resizing` 互斥（后者只由边框带/手柄按下置位）。
+        if (OnAnchorDragMoved(e))
+        {
+            return;
+        }
 
         if (_resizing)
         {
@@ -167,6 +211,12 @@ public partial class ModuleWindow : Window
             return;
         }
 
+        // 口标记锚点拖动松手：真拖过才提交（未越阈值的释放留给双击改网名）
+        if (OnAnchorDragReleased(e))
+        {
+            return;
+        }
+
         if (_resizing)
         {
             _resizing = false;
@@ -188,6 +238,174 @@ public partial class ModuleWindow : Window
                 controller.RaiseNotice($"拖动诊断日志已写入：{path}", isError: false);
             }
         }
+    }
+
+    // ---------------------------------------------------------------- 口标记：锚点拖动（G5 · C5-7）
+
+    /// <summary>
+    /// 标记按下：**只记录候选**，不 Capture、不 Handled —— 否则双击改网络名会被拖动吃掉。
+    /// </summary>
+    /// <remarks>
+    /// 本类是"指针交互 → 几何数值"的翻译层：这里只算出**目标边 + 目标偏移**，写入一律走
+    /// <see cref="ModuleWindowsViewModel.MovePortAnchor"/>（松手时提交，失败回滚）。
+    /// </remarks>
+    private void OnPortMarkersPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (FindMarker(e.Source) is not { } marker || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        _anchorCandidate = marker;
+        _anchorDragging = false;
+        _anchorOrigin = e.GetPosition(this);
+        _anchorFromEdge = marker.Edge;
+        _anchorFromOffset = marker.Offset;
+        _anchorDelta = 0;
+
+        // 抓取偏移要用**按下点**（在面板坐标系里）——不能用后续移动事件的位置（见 `_anchorDelta`）
+        _anchorPressLocal = MarkerPanel is { } panel ? e.GetPosition(panel) : default;
+    }
+
+    /// <summary>标记面板（算边与偏移的坐标系）。</summary>
+    private ItemsControl? MarkerPanel => this.FindControl<ItemsControl>("PortMarkers");
+
+    /// <summary>
+    /// 锚点拖动：**越过阈值**才启动（启动帧保留抓取偏移 ⇒ 标记不跳位），松手提交。
+    /// </summary>
+    /// <returns>是否消费了本次移动。</returns>
+    private bool OnAnchorDragMoved(PointerEventArgs e)
+    {
+        if (_anchorCandidate is not { } marker)
+        {
+            return false;
+        }
+
+        var point = e.GetPosition(this);
+        var dx = point.X - _anchorOrigin.X;
+        var dy = point.Y - _anchorOrigin.Y;
+
+        if (!_anchorDragging)
+        {
+            if ((dx * dx) + (dy * dy) < AnchorDragThreshold * AnchorDragThreshold)
+            {
+                return false;   // 还在阈值内：不启动，保留"这是双击"的可能
+            }
+
+            if (marker.IsAnchorFixed)
+            {
+                // 固定锚点：拖不动，但**必须给反馈**，否则用户以为程序卡了（一次手势提示一次）
+                _anchorCandidate = null;
+                Controller?.RaiseNotice(
+                    $"{marker.PortName}：锚点已固定，不可拖动（用「固定 / 解锁端口锚点」快捷键解锁）",
+                    isError: false);
+                return true;
+            }
+
+            _anchorDragging = true;
+
+            // 拖动期间冻结"框架权威值 → 本地"的节拍同步（否则预览会被拽回原位；见 `SyncPorts`）
+            marker.IsDraggingAnchor = true;
+
+            if (MarkerPanel is { } startPanel && startPanel.Bounds.Height > 0)
+            {
+                // 标记当前中心 − **按下点** = 抓取偏移（拖动第一帧就地不动）
+                var vertical = marker.Edge is PortEdge.Left or PortEdge.Right;
+                var axis = vertical ? _anchorPressLocal.Y : _anchorPressLocal.X;
+                var extent = vertical ? startPanel.Bounds.Height : startPanel.Bounds.Width;
+                _anchorDelta = (marker.Offset * extent) - axis;
+            }
+
+            e.Pointer.Capture(MarkerPanel);
+        }
+
+        UpdateAnchorPreview(marker, e);
+        e.Handled = true;
+        return true;
+    }
+
+    /// <summary>
+    /// 松手：真拖过 ⇒ 提交（**一次写全**偏移/边/固定标志，见 <c>MovePortAnchor</c> 的说明）。
+    /// </summary>
+    /// <returns>是否消费了本次释放。</returns>
+    private bool OnAnchorDragReleased(PointerReleasedEventArgs e)
+    {
+        if (_anchorCandidate is not { } marker)
+        {
+            return false;
+        }
+
+        var dragged = _anchorDragging;
+        _anchorCandidate = null;
+        _anchorDragging = false;
+
+        if (!dragged)
+        {
+            return false;   // 没越过阈值 ⇒ 交给双击
+        }
+
+        // **先解锁同步再提交**：提交后框架的权威值会经节拍同步回本地（失败则被 `MovePortAnchor` 回滚）
+        marker.IsDraggingAnchor = false;
+
+        e.Pointer.Capture(null);
+
+        if (Module is { } module && Controller is { } controller)
+        {
+            _ = controller.MovePortAnchor(module, marker, _anchorFromEdge, _anchorFromOffset);
+        }
+
+        e.Handled = true;
+        return true;
+    }
+
+    /// <summary>
+    /// 由指针位置算出**最近的边 + 该边上的归一化偏移**（拖动预览，就地更新标记）。
+    /// </summary>
+    /// <remarks>
+    /// 规则刻意为"简单可预期"：**到哪条边最近就贴哪条边**，沿边位置 = 指针在该轴上的投影
+    /// （归一化到 0–1，超出即夹到端部）；**不做**"必须拖到边外才换边"这类隐藏手势。
+    /// </remarks>
+    private void UpdateAnchorPreview(PortMarkerViewModel marker, PointerEventArgs e)
+    {
+        if (MarkerPanel is not { } panel)
+        {
+            return;
+        }
+
+        var width = panel.Bounds.Width;
+        var height = panel.Bounds.Height;
+
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        var local = e.GetPosition(panel);
+
+        var toLeft = local.X;
+        var toRight = width - local.X;
+        var toTop = local.Y;
+        var toBottom = height - local.Y;
+
+        var edge = toLeft <= toRight && toLeft <= toTop && toLeft <= toBottom
+            ? PortEdge.Left
+            : toRight <= toTop && toRight <= toBottom
+                ? PortEdge.Right
+                : toTop <= toBottom
+                    ? PortEdge.Top
+                    : PortEdge.Bottom;
+
+        if (edge != marker.Edge)
+        {
+            marker.Edge = edge;
+            _anchorDelta = 0;   // 换了轴 ⇒ 抓取偏移作废（否则会按另一根轴的像素量错位）
+        }
+
+        var (axis, extent) = edge is PortEdge.Left or PortEdge.Right
+            ? (local.Y, height)
+            : (local.X, width);
+
+        marker.Offset = Math.Clamp((axis + _anchorDelta) / extent, 0, 1);
     }
 
     // ---------------------------------------------------------------- 口标记：网络标签编辑
@@ -280,6 +498,45 @@ public partial class ModuleWindow : Window
         {
             CancelLabel(marker);
         }
+    }
+
+    /// <summary>
+    /// 悬停标记 ⇒ 让**「固定 / 解锁」按钮**淡入；离开 ⇒ 收起。
+    /// </summary>
+    /// <remarks>
+    /// 按钮在**另一层**（`PortAnchors`，位置由面板排布）⇒ 样式选择器够不到"悬停标记 ⇒ 显示按钮"，
+    /// 故由视图把悬停态写回标记视图模型（纯呈现状态，不进组合件）。
+    /// </remarks>
+    private void OnMarkerPointerEntered(object? sender, PointerEventArgs e) => SetMarkerHovered(sender, hovered: true);
+
+    /// <summary>离开标记 ⇒ 收起「固定 / 解锁」按钮（悬停在按钮自己身上时由样式保底，不会闪掉）。</summary>
+    private void OnMarkerPointerExited(object? sender, PointerEventArgs e) => SetMarkerHovered(sender, hovered: false);
+
+    private static void SetMarkerHovered(object? sender, bool hovered)
+    {
+        if (sender is Control { DataContext: PortMarkerViewModel marker })
+        {
+            marker.IsMarkerHovered = hovered;
+        }
+    }
+
+    /// <summary>
+    /// **固定 / 解锁该口锚点**（G5 · C5-7）：标记带里那个图标按钮。
+    /// </summary>
+    /// <remarks>
+    /// 本类只做"指针 → 意图"的翻译，写入一律走
+    /// <see cref="ModuleWindowsViewModel.SetPortAnchorFixed"/>（失败由它回滚并送状态栏）。
+    /// </remarks>
+    private void OnToggleAnchorFixed(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control { DataContext: PortMarkerViewModel marker }
+            || Module is not { } module
+            || Controller is not { } controller)
+        {
+            return;
+        }
+
+        _ = controller.SetPortAnchorFixed(module, marker, !marker.IsAnchorFixed);
     }
 
     /// <summary>提交标签编辑（结果由控制器送回状态栏；失败则**保持弹窗打开**并就地显示原因）。</summary>

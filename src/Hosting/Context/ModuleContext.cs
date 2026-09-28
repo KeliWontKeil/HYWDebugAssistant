@@ -56,7 +56,16 @@ public sealed class ModuleContext : IModuleContext
         Ports = new PlaceholderPortAccess(_receiveHandlers);
         Configuration = new InMemoryConfigurationAccess(_configuration, _configurationGate);
         Inbox = new BoundedInbox();
+        InputFeedback = InputFeedbackStore;
     }
+
+    /// <summary>
+    /// **输入处理结果的存放处**（G3）——L4 经此读快照、并在**投递入队时**清除旧结果（"下一次提交即刷新"）。
+    /// </summary>
+    public InputFeedbackStore InputFeedbackStore { get; } = new();
+
+    /// <inheritdoc />
+    public IInputFeedbackReporter InputFeedback { get; }
 
     /// <summary>实例 ID。</summary>
     public string InstanceId { get; }

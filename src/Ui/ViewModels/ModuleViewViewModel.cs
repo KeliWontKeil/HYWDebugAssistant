@@ -59,6 +59,44 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     private readonly IRuntimeCommand _command;
     private readonly double _scale;
 
+    /// <summary>【G1】标签页选中态（键 = 声明树路径如 <c>v/0</c>）——**纯 UI 状态，不进组合件**。</summary>
+    private readonly Dictionary<string, int> _tabSelection = new(StringComparer.Ordinal);
+
+    /// <summary>【G1】最近一次重建用的实例视图（切换标签后需要按同一声明重建元素表）。</summary>
+    private ModuleInstanceView? _lastView;
+
+    /// <summary>
+    /// **多行文本输入的提交键**（G2 · 2026-09）——由 <see cref="ModuleWindowsViewModel"/> 从应用级设置下发。
+    /// </summary>
+    /// <remarks>
+    /// 三档：<c>CtrlEnter</c>（默认：回车换行 / Ctrl+Enter 提交 / **失焦不提交** —— 否则"点按钮 ⇒ 先失焦提交 ⇒ 按钮又发"会双发）·
+    /// <c>Enter</c>（回车提交 / Shift+Enter 换行）· <c>None</c>（键盘都不提交）。
+    /// **只影响多行输入**；单行输入保持"回车 / 失焦一次提交"（ADR-0040 D-5）。
+    /// 变更后需要**重建输入元素**才能生效 ⇒ 由 <see cref="ModuleWindowsViewModel"/> 在刷新时重设并触发重新渲染。
+    /// </remarks>
+    public string MultilineSubmitKey
+    {
+        get => _multilineSubmitKey;
+        set
+        {
+            if (string.Equals(_multilineSubmitKey, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _multilineSubmitKey = value;
+            OnPropertyChanged();
+
+            // 提交键变了 ⇒ 重建元素表（输入元素的提交策略在构造时定型）
+            if (_lastView is { } view)
+            {
+                Rebuild(view);
+            }
+        }
+    }
+
+    private string _multilineSubmitKey = "CtrlEnter";
+
     /// <summary>创建模块视图视图模型。</summary>
     /// <param name="view">实例视图（声明来源）。</param>
     /// <param name="layout">布局（可为空 = 未摆放）。</param>
@@ -299,8 +337,69 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         ApplyState(view.State);
         SyncPorts(view);
 
+        // 【G3 · 2026-09】把"模块回报的输入处理结果"分发到对应输入元素（失败态 = 红框）。
+        // 这里在**每刷新节拍**都会走到（`Refresh → SyncModules → Apply`）⇒ 失败态是**在线**出现的。
+        ApplyInputFeedback();
+
         OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(IsPlaceholder));
+    }
+
+    /// <summary>
+    /// 把查询面里的**输入处理结果**（G3）分发到对应输入元素。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>为什么由框架做</b>：模块不持 UI，无法自己把元素标红；模块只经 `IModuleContext.InputFeedback` 回报；</item>
+    ///   <item><b>生命周期</b>：框架在**投递入队时**清除旧结果 ⇒ 查询面里没有条目 = 无失败态
+    ///     （所以这里"查不到就清掉红框"，"下一次提交即刷新"自然成立）；</item>
+    ///   <item><b>快路径</b>：模块没有输入元素时**不查查询面**（绝大多数模块），避免每帧无谓分配。</item>
+    /// </list>
+    /// </remarks>
+    private void ApplyInputFeedback()
+    {
+        var hasInput = false;
+        foreach (var element in Elements)
+        {
+            if (element is TextInputElementViewModel)
+            {
+                hasInput = true;
+                break;
+            }
+        }
+
+        if (!hasInput)
+        {
+            return;
+        }
+
+        var feedback = _query.GetInputFeedback(InstanceId);
+
+        foreach (var element in Elements)
+        {
+            if (element is not TextInputElementViewModel input)
+            {
+                continue;
+            }
+
+            InputFeedbackView? hit = null;
+            foreach (var candidate in feedback)
+            {
+                if (string.Equals(candidate.SourceName, input.Source, StringComparison.Ordinal))
+                {
+                    hit = candidate;
+                    break;
+                }
+            }
+
+            var invalid = hit is { Succeeded: false };
+            input.IsInvalid = invalid;
+
+            if (invalid && hit!.Message is { Length: > 0 } message)
+            {
+                input.LastResult = message;
+            }
+        }
     }
 
     /// <summary>接受外部几何（来自布局数据；拖动/缩放中不调用）。</summary>
@@ -366,13 +465,25 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         Elements.Clear();
         SyncPorts(view);
 
+        // 标签页选中态是**纯 UI 状态**（不进组合件）：重建时要拿得到当前视图声明 ⇒ 留一份引用
+        _lastView = view;
+
         // **每个模块实例都有一个窗口**（用户裁决 M1-15）：声明了视图就按声明渲染；
         // 未声明视图的模块也照常开窗（至少显示模块名行），不引入"无界面模块"这一例外概念。
         if (view.View is not null)
         {
             var dataSources = view.View.DataSources.ToDictionary(s => s.Name, StringComparer.Ordinal);
-            foreach (var element in Flatten(view.View.Elements))
+            foreach (var item in Expand(view.View.Elements, "v"))
             {
+                // 【G1】标签条：容器本身由框架渲染（与其他容器"展平"同一约定，只是它自己要画一条页签）
+                if (item is TabStripElementViewModel strip)
+                {
+                    Elements.Add(strip);
+                    continue;
+                }
+
+                var element = (ViewElement)item;
+
                 // 【M1-16 / ADR-0040 D1】命令按钮：元素只负责**位置**，标题/图标/说明来自命令声明；
                 // 元素引用了未声明的命令 → 走"未渲染"占位（不假装支持，也不静默）。
                 if (element.Kind == ViewElementKind.CommandButton)
@@ -406,6 +517,99 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// 声明元素 → **可渲染项**序列（`ViewElement` 或 <see cref="TabStripElementViewModel"/>）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 容器按既有约定**不自己画**：`Group` / `Collapsible` / `Scroll` 的子元素**展平**显示。
+    /// </para>
+    /// <para>
+    /// <b>【G1 · 2026-09】`TabPages` 展开为「标签条 + <u>当前页</u>的子元素」</b>：
+    /// 此前它对 `TabPages` **只取第一页**、页签条与切换从未实现 ⇒ 模块声明的多页只能看到第 1 页
+    /// （缺口登记见 `docs/roadmap.md` §4 G16 邻项与 §3 第 12 项）。现在：
+    /// ① 页签条由 <see cref="TabStripElementViewModel"/> 渲染；② **只渲染当前页**；
+    /// ③ 页序号用**声明路径**（`v/0` 这类）作键 —— 与"每次重建元素表"一致，且**纯 UI 状态、不进组合件**。
+    /// </para>
+    /// <para>
+    /// **已知限制**：切换标签会**重建整个元素表**（`Elements.Clear()` + 重填）⇒ 其他元素的焦点/滚动位置会重置。
+    /// v1 接受；若将来需要保留，改为"标签页用独立宿主 + 只换内容"（需把元素模板抽成共享资源字典）。
+    /// </para>
+    /// </remarks>
+    /// <param name="elements">声明元素（根层或某容器的子元素）。</param>
+    /// <param name="path">本层在声明树里的路径（用于标签页选中态的稳定键）。</param>
+    private IEnumerable<object> Expand(IReadOnlyList<ViewElement> elements, string path)
+    {
+        var index = 0;
+
+        foreach (var element in elements)
+        {
+            var childPath = $"{path}/{index++}";
+
+            if (element.Kind == ViewElementKind.TabPages)
+            {
+                if (element.Children.Count == 0)
+                {
+                    continue;   // 零页 ⇒ 什么都不画（不假装支持）
+                }
+
+                var selected = Math.Clamp(_tabSelection.GetValueOrDefault(childPath), 0, element.Children.Count - 1);
+                var pages = new List<TabPageItemViewModel>(element.Children.Count);
+
+                for (var page = 0; page < element.Children.Count; page++)
+                {
+                    pages.Add(new TabPageItemViewModel(
+                        page,
+                        element.Children[page].Title ?? $"{page + 1}",
+                        page == selected,
+                        target => SelectTab(childPath, target)));
+                }
+
+                yield return new TabStripElementViewModel(element.Title, pages, selected);
+
+                // 页内容：页节点**带子元素**时用子元素；**页节点本身就是内容元素**时用它自己
+                //（沿用旧 `Flatten` 对首页的同一条兜底 —— 两种声明写法都容忍，否则表现为"切过去是空白页"）。
+                var pageNode = element.Children[selected];
+                var pageContent = pageNode.Children.Count > 0
+                    ? pageNode.Children
+                    : (IReadOnlyList<ViewElement>)[pageNode];
+
+                foreach (var nested in Expand(pageContent, childPath))
+                {
+                    yield return nested;
+                }
+
+                continue;
+            }
+
+            if (element.Children.Count > 0
+                && element.Kind is ViewElementKind.Group or ViewElementKind.Collapsible or ViewElementKind.Scroll)
+            {
+                foreach (var nested in Expand(element.Children, childPath))
+                {
+                    yield return nested;
+                }
+
+                continue;
+            }
+
+            yield return element;
+        }
+    }
+
+    /// <summary>切换标签页（**纯 UI 状态**：只记在本视图模型里，不进组合件、不下发模块）并重建元素表。</summary>
+    /// <param name="path">标签页在声明树里的路径键。</param>
+    /// <param name="page">目标页序号。</param>
+    private void SelectTab(string path, int page)
+    {
+        _tabSelection[path] = page;
+
+        if (_lastView is { } view)
+        {
+            Rebuild(view);
+        }
+    }
+
+    /// <summary>
     /// 同步口标记的**身份与几何**（口名/方向/标签/锚点位置/类型）——**不写任何"当前状态"**。
     /// </summary>
     /// <remarks>
@@ -427,11 +631,26 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
                     port.NetworkLabel,
                     port.AnchorOffset,
                     typeText: port.ContractText,
-                    typeKey: port.TypeKey));
+                    typeKey: port.TypeKey,
+                    // 【G5 · C5-7】边的**有效值**（Core 已按"用户覆盖 > 模块声明的默认边 > 数据流惯例"解析）
+                    edge: port.Edge,
+                    isAnchorFixed: port.IsAnchorFixed));
                 continue;
             }
 
-            existing.Offset = port.AnchorOffset;
+            // 【G5 · C5-7】拖动中：本地 `Edge`/`Offset` 是**待提交的意图** ⇒ 节拍同步不得覆盖
+            // （与 `IsEditing` 保护 `Label` 同一纪律；否则拖到一半会被框架权威值拽回原位）
+            if (!existing.IsDraggingAnchor)
+            {
+                existing.Offset = port.AnchorOffset;
+
+                // 边同源：**框架是唯一权威**（用户覆盖 > 模块声明的默认边 > 数据流惯例）。
+                // 少这一行 ⇒ 载入组合件/撤销后标记会停在旧的边（本地值成了第二个来源）。
+                existing.Edge = port.Edge;
+            }
+
+            // 【G5】「固定」是可变的呈现事实（模块声明 + 全局快捷键都会改它）⇒ 每次同步都跟一遍
+            existing.IsAnchorFixed = port.IsAnchorFixed;
 
             if (!existing.IsEditing && !string.Equals(existing.Label, port.NetworkLabel, StringComparison.Ordinal))
             {
@@ -464,7 +683,11 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
             ViewElementKind.TextLog => new TextLogElementViewModel(element.Title, source),
 
             // 【M1-16 / ADR-0040】人机操作三通道：命令按钮 / 文本输入 / 开关 —— 全部**投递到模块线程**
-            ViewElementKind.TextInput => new TextInputElementViewModel(element, SubmitInput),
+            // 【G2 · 2026-09】文本输入：把**应用级**的多行提交键档位传进去（多行提交键不属模块声明）
+            ViewElementKind.TextInput => new TextInputElementViewModel(element, SubmitInput, MultilineSubmitKey),
+
+            // 【G4 · 2026-09】B6 文件选择器：弹对话框选/存路径 → 经既有输入通道提交给模块
+            ViewElementKind.FileSelector => new FileSelectorElementViewModel(element, SubmitInput),
             ViewElementKind.ToggleSlider => new ToggleElementViewModel(element, SubmitInput),
             ViewElementKind.ConfigurationEditor => CreateConfigurationEditor(),
             _ => new UnsupportedElementViewModel(element.Kind, element.Title),
@@ -489,40 +712,4 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
     /// <summary>预留带厚度（与 <c>PortMarkerPanel.BandThickness</c> 一致；内容区内边距用它）。</summary>
     public const double ModuleContentBands = 20;
-
-    /// <summary>
-    /// 把容器元素展平：<c>Group</c>/<c>Scroll</c>/<c>Collapsible</c> 的子元素一并显示；
-    /// <c>TabPages</c> 只取首页（页签交互属 Gate C）。
-    /// </summary>
-    private static IEnumerable<ViewElement> Flatten(IReadOnlyList<ViewElement> elements)
-    {
-        foreach (var element in elements)
-        {
-            if (element.Kind == ViewElementKind.TabPages)
-            {
-                var first = element.Children.Count > 0 ? element.Children[0] : null;
-                if (first is not null)
-                {
-                    foreach (var nested in Flatten(first.Children.Count > 0 ? first.Children : [first]))
-                    {
-                        yield return nested;
-                    }
-                }
-
-                continue;
-            }
-
-            if (element.Children.Count > 0 && element.Kind is ViewElementKind.Group or ViewElementKind.Collapsible or ViewElementKind.Scroll)
-            {
-                foreach (var nested in Flatten(element.Children))
-                {
-                    yield return nested;
-                }
-
-                continue;
-            }
-
-            yield return element;
-        }
-    }
 }

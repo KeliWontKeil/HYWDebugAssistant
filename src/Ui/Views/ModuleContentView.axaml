@@ -11,6 +11,32 @@
              d:DesignWidth="320" d:DesignHeight="200"
              Background="Transparent">
 
+    <UserControl.Styles>
+        <!--
+          【G1 · 2026-09】C2 标签页的**选中态**：下边框 + 前景用主题强调色。
+          未选中保持常规按钮外观（做减法：只靠一处对比表达"哪一页是当前页"，不加底色不加图标）。
+        -->
+        <Style Selector="Button.tabStripItem">
+            <Setter Property="MinHeight" Value="24" />
+            <Setter Property="Padding" Value="10,2" />
+            <Setter Property="FontSize" Value="11" />
+        </Style>
+        <Style Selector="Button.tabStripItem.selected">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+            <Setter Property="BorderThickness" Value="0,0,0,2" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentPrimary}" />
+        </Style>
+
+        <!--
+          【G3 · 2026-09】输入元素的**处理失败态**：模块回报"这次没处理好" ⇒ 边框标红（`SemanticError`）。
+          做法是"改边框颜色 + 加粗到 2px"（做减法：不叠背景色、不加图标、不弹提示）—— 用户草图的原文是"边框显著标红"。
+        -->
+        <Style Selector="TextBox.invalid">
+            <Setter Property="BorderBrush" Value="{DynamicResource SemanticError}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+    </UserControl.Styles>
+
     <!--
       模块窗口的**内容层**：按声明渲染的元素 + 窗内虚线参考线。
 
@@ -94,9 +120,19 @@
                                                    FontSize="11"
                                                    Foreground="{DynamicResource TextSecondary}"
                                                    Text="{Binding Title}" />
+                                        <!--
+                                          【G2 · 2026-09】多行输入（`ViewElement.Multiline`）：`AcceptsReturn` + 最小高度。
+                                          **提交键不在 XAML 里定** —— 由代码后置按视图模型的档位判定
+                                          （`SubmitOnEnter` / `SubmitOnCtrlEnter` / `SubmitOnLostFocus`），档位来自**应用级设置**。
+                                          **不设 `TextWrapping`（不折行）是特性**（用户 2026-09 裁决）：画面上的换行 ⟺ 文本里
+                                          真的有一个换行符 ⇒ 「所见即所发」，长行横向滚动。详见 `02`「多行输入框不自动折行是特性」。
+                                        -->
                                         <TextBox Grid.Column="1"
                                                  FontFamily="{DynamicResource FontData}"
                                                  Text="{Binding Text, Mode=TwoWay}"
+                                                 AcceptsReturn="{Binding IsMultiline}"
+                                                 MinHeight="{Binding EditorMinHeight}"
+                                                 Classes.invalid="{Binding IsInvalid}"
                                                  KeyDown="OnInputKeyDown"
                                                  LostFocus="OnInputLostFocus" />
                                         <TextBlock Grid.Column="2"
@@ -131,6 +167,61 @@
                                                   Content="{Binding Title}"
                                                   IsChecked="{Binding IsOn, Mode=TwoWay}" />
                                         <TextBlock Grid.Column="1"
+                                                   Margin="6,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="10"
+                                                   Foreground="{DynamicResource SemanticError}"
+                                                   Text="{Binding LastResult}" />
+                                    </Grid>
+                                </DataTemplate>
+
+                                <!--
+                                  【G1 · 2026-09】C2 标签页：**标签条**（本模板）+ **当前页的子元素**
+                                  （由视图模型展开，与其他容器"展平"同一约定 ⇒ 无需嵌套模板）。
+                                  切页 = 纯 UI 状态（不进组合件）；见 `TabStripElementViewModel` 的 remarks。
+                                -->
+                                <DataTemplate DataType="vm:TabStripElementViewModel">
+                                    <ItemsControl ItemsSource="{Binding Pages}" Margin="0,2,0,4">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="vm:TabPageItemViewModel">
+                                                <Button Classes="tabStripItem"
+                                                        Margin="0,0,4,0"
+                                                        Content="{Binding Title}"
+                                                        Command="{Binding SelectCommand}"
+                                                        Classes.selected="{Binding IsSelected}" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </DataTemplate>
+
+                                <!--
+                                  【G4 · 2026-09】B6 文件选择器：标签 + 只读路径框 + 「浏览」按钮。
+                                  弹系统文件对话框在**代码后置**（`OnBrowseClick`）——它需要 `StorageProvider`（UI 概念）；
+                                  选/存的路径经既有输入通道提交给模块（`FileSelectorElementViewModel.Submit`）。
+                                -->
+                                <DataTemplate DataType="vm:FileSelectorElementViewModel">
+                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,2">
+                                        <TextBlock Grid.Column="0"
+                                                   VerticalAlignment="Center"
+                                                   Margin="0,0,6,0"
+                                                   FontSize="11"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   Text="{Binding Title}" />
+                                        <TextBox Grid.Column="1"
+                                                 FontFamily="{DynamicResource FontData}"
+                                                 Text="{Binding SelectedPath}"
+                                                 IsReadOnly="True" />
+                                        <Button Grid.Column="2"
+                                                Margin="6,0,0,0"
+                                                Padding="8,0"
+                                                Content="浏览…"
+                                                Click="OnBrowseClick" />
+                                        <TextBlock Grid.Column="3"
                                                    Margin="6,0,0,0"
                                                    VerticalAlignment="Center"
                                                    FontSize="10"

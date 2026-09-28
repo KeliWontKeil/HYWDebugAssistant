@@ -930,9 +930,13 @@ public sealed partial class ModuleRuntime
         {
             var geometry = Content.Layout.GetPort(instance.InstanceId, port.Name);
 
-            // 默认值不入文件；但**网络标签**是建网的事实源，必须随件保存（否则重载后网络消失）
+            // 默认值不入文件；但**网络标签**是建网的事实源，必须随件保存（否则重载后网络消失）；
+            // 【G5】**边覆盖**同理（非 Auto 才写）—— 有覆盖就必须进文件，否则重载后口会跳回模块声明的默认边；
+            // 【G5】**固定态**也是三态：非 null 就写（**false 同样要写** —— 那是用户"解锁"了模块声明为固定的口，
+            // 不写就等于把用户的解锁丢掉）。
             if (Math.Abs(geometry.Offset - 0.5) > double.Epsilon
-                || geometry.IsLocked
+                || geometry.IsAnchorFixed is not null
+                || geometry.Edge != HYWDebugAssistant.Sdk.Ports.PortEdge.Auto
                 || !string.IsNullOrWhiteSpace(geometry.Label))
             {
                 ports.Add(geometry);

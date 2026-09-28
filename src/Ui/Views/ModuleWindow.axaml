@@ -87,6 +87,57 @@
         </Style>
 
         <!--
+          **锚点拖动的指针反馈**（G5 · C5-7）：
+          · 光标：可拖动 = `SizeAll`（移动手势的通用光标，与边框带拖动同款）；**已固定 = 默认箭头**
+            （光标必须说实话：固定了就拖不动，还给"移动"光标是误导）。
+          · **不做悬停放大**（用户 2026-09 裁定："不对网络标签本身进行放大，更改鼠标指针的形态即可
+            —— 简洁又能表达含义"）⇒ 悬停反馈只有**光标变化**，标记本身纹丝不动（也就没有了放大压到邻居的问题）。
+          · 这些属性**不能**在元素上写内联值（Avalonia 本地值优先于样式）——故模板里的 `Border` 不写 `Cursor`。
+        -->
+        <Style Selector="Border.portMarker">
+            <Setter Property="Cursor" Value="SizeAll" />
+        </Style>
+        <Style Selector="Border.portMarker.anchorFixed">
+            <Setter Property="Cursor" Value="Arrow" />
+        </Style>
+
+        <!--
+          **「固定 / 解锁」图标按钮**（G5 · C5-7）：平时不可见（同模块按钮簇），**悬停该标记时淡入**。
+          `Opacity=0` 仍可命中（与 `Border#Cluster` 同一处理）⇒ 鼠标从标记滑到按钮上能点到，不会"看得见点不着"。
+          位置**不在这里**：由 `PortMarkerPanel` 的 `AnchorButton` 层排布（落位规则与标记共用一份算法）。
+        -->
+        <Style Selector="Button.anchorToggle">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <!-- 20×20 与预留带同宽；`MinWidth/MinHeight=0` 是**必须的**：按钮主题自带最小高度（实测 27），
+                 不压掉就会比槽位高 ⇒ 上下各溢出 ~3.5px ⇒ **压到标记上**（实测踩过） -->
+            <Setter Property="Width" Value="20" />
+            <Setter Property="Height" Value="20" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="CornerRadius" Value="3" />
+            <Setter Property="Background" Value="{DynamicResource BgChrome}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Button.anchorToggle.shown">
+            <Setter Property="Opacity" Value="0.95" />
+        </Style>
+        <!-- 悬停在按钮自己身上时**必须保持可见**（鼠标离开标记滑向按钮的那一刻 `IsMarkerHovered` 已变 false） -->
+        <Style Selector="Button.anchorToggle:pointerover">
+            <Setter Property="Opacity" Value="0.95" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+        </Style>
+
+        <!--
           **网络标签（端口标记）在叠加层里的待遇 = 做减法**【ADR-0053 · 用户第三十四轮】：
           用户原话："网络标签不高亮**指的不是在上面覆盖一层**，我的意思是**做减法**，将网络标签也埋入灰色玻璃下方"。
           ⇒ 实现方式是**层级**：`PortMarkers` 排在 `OverlayScrim` **之前**（见下方 Grid 子元素顺序）⇒ 遮罩自然把它压暗；
@@ -184,6 +235,7 @@
             -->
             <ItemsControl Name="PortMarkers"
                           ItemsSource="{Binding Ports}"
+                          PointerPressed="OnPortMarkersPressed"
                           DoubleTapped="OnPortMarkersDoubleTapped">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -206,14 +258,23 @@
                           竖排/横排两套分支在**同一个模板命名域**里，同名会抛
                           "Control with the name 'X' already registered"（2026-09 实测踩过）。
                         -->
+                        <!--
+                          模板根是 `Panel`（**不是标记 Border**）：为了容纳**浮在标记之外**的「固定 / 解锁」图标按钮。
+                          尺寸仍等于标记：按钮用**负外边距**摆到标记外面 ⇒ 它对 `Panel` 的 `DesiredSize` 贡献为
+                          `20 + (−22) < 0`，故 `Panel` 量出来的仍是标记的 20×114 —— `PortMarkerPanel` 按
+                          `child.DesiredSize` 定位标记，**这里一变标记就会错位**（故不能给按钮独立占位）。
+                        -->
+                        <Panel Classes="portMarkerHost"
+                               PointerEntered="OnMarkerPointerEntered"
+                               PointerExited="OnMarkerPointerExited">
                         <Border Classes="portMarker"
                                 Classes.send="{Binding IsSend}"
+                                Classes.anchorFixed="{Binding IsAnchorFixed}"
                                 Width="{Binding MarkerWidth}"
                                 Height="{Binding MarkerHeight}"
                                 Background="{DynamicResource BgChrome}"
                                 BorderThickness="1"
                                 CornerRadius="0"
-                                Cursor="Hand"
                                 ToolTip.Tip="{Binding Tooltip}">
                             <Grid>
                                 <!-- 即将建网：**同一方向色**的 2px 描边（覆盖在标记之上，不改变布局） -->
@@ -230,10 +291,12 @@
                                     </LayoutTransformControl.LayoutTransform>
                                     <!--
                                       槽位**固定**（内容变化不引起排版抖动）：
-                                        色条(Auto=6) | 网络名(*) | **通路速率(Auto，仅叠加层)** | 箭头(20) | 指示灯(Auto=8)。
+                                        色条(Auto=6) | 网络名(*) | **通路速率(Auto，仅叠加层)** | 箭头(20) | 指示灯(Auto=8)
+                                        | **「固定」徽标(恒占 13)**。
                                       **槽位顺序 = 读数顺序**：内容整体旋转 −90°（把 (x,y) 映射为 (y,−x)）后，
                                       内容 x 小的一端落到屏幕**下方**（文字自下而上读），故"色条在最前、灯在最末"
                                       在屏幕上表现为 **灯在上端（贴端部）、色条在下端** —— 与用户草图的读数顺序一致。
+                                      徽标排在**最末**（屏幕最上端的端部外侧）⇒ 不与任何既有槽位重叠。
                                     -->
                                     <Grid ColumnDefinitions="Auto,*,Auto,20,Auto">
                                         <!-- ① 窄颜色条：数据包类型（颜色映射待定 → Colors/PacketTypePalette） -->
@@ -445,6 +508,47 @@
                                 </Popup>
                             </Grid>
                         </Border>
+                        </Panel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!--
+              **「固定 / 解锁」按钮层**（G5 · C5-7）——与标记**同一条边、同一列预留带**，但落在**标记长度之外**
+              （用户 2026-09 裁定："实际落在了内侧遮挡 UI，而不是边框留白处" ⇒ 必须落在带内的空白段）。
+              **为什么单开一层而不是塞进标记模板**：位置只能由**面板**算（模板不知道标记被夹到哪、两端还剩多少），
+              塞进模板就只剩"相对标记的固定偏移"一条路 —— 那必然压住内容或压住标记。
+              两层**共用 `PortMarkerPanel` 的同一份定位算法**（`Layer` 属性切排布分支 ⇒ 规则仍只有一处实现）。
+              层级：排在遮罩**之前** ⇒ 与标记一起"沉下去"（ADR-0053 的"做减法"）；遮罩不参与命中 ⇒ 按钮始终可点。
+            -->
+            <ItemsControl Name="PortAnchors"
+                          ItemsSource="{Binding Ports}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <ctrl:PortMarkerPanel Layer="AnchorButton" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:PortMarkerViewModel">
+                        <!--
+                          显隐：**悬停该标记时淡入**（`IsMarkerHovered` 由标记模板的 `PointerEntered/Exited` 置位）；
+                          悬停按钮自身时也保持可见 ⇒ 鼠标从标记滑到按钮上不会闪掉。
+                          图标表达**状态**（未固定 = 开锁 / 已固定 = 锁），动作写在悬停提示里（同模块右上角锁定按钮）。
+                        -->
+                        <Button Classes="anchorToggle"
+                                Classes.shown="{Binding IsMarkerHovered}"
+                                ToolTip.Tip="{Binding AnchorToggleTip}"
+                                Click="OnToggleAnchorFixed">
+                            <!-- 两态用两块字形（`Button` 是内容控件、只能有一个子元素 ⇒ 用 `Panel` 叠放） -->
+                            <Panel>
+                                <TextBlock Classes="icon"
+                                           Text="{DynamicResource GlyphUnlock}"
+                                           IsVisible="{Binding !IsAnchorFixed}" />
+                                <TextBlock Classes="icon"
+                                           Text="{DynamicResource GlyphLock}"
+                                           IsVisible="{Binding IsAnchorFixed}" />
+                            </Panel>
+                        </Button>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>

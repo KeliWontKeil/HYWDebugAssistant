@@ -688,6 +688,17 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     }
 
     /// <inheritdoc />
+    public IReadOnlyList<InputFeedbackView> GetInputFeedback(string instanceId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
+
+        // 不存在 / 占位实例 ⇒ 空表（没回报过就没有条目 —— "不回报 = 无失败态"）
+        return !_runtime.Content.TryGetInstance(instanceId, out var instance) || instance is null
+            ? []
+            : [.. instance.Context.InputFeedbackStore.Snapshot()
+                .Select(e => new InputFeedbackView(e.SourceName, e.Succeeded, e.Message))];
+    }
+
     /// <inheritdoc />
     public IReadOnlyList<RoleView> GetRoles(string instanceId)
     {
@@ -924,6 +935,34 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
     // ---------------------------------------------------------------- 内部
 
+    /// <summary>
+    /// **解析口的有效挂载边**（G5 · C5-7）：用户拖动后的覆盖 &gt; 模块声明的默认边 &gt; 数据流惯例。
+    /// </summary>
+    /// <remarks>
+    /// 数据流惯例（`Auto`）= **发送口在右边缘、接收口在左边缘** —— 这是**老模块的行为**，也是默认值。
+    /// 解析结果**永远是具体边**（不会是 `Auto`）。
+    /// </remarks>
+    /// <param name="declared">模块声明的默认边（`PortDeclaration.Edge`）。</param>
+    /// <param name="overridden">用户在画布上拖动后的覆盖（`PortGeometryView.Edge`；`Auto` = 无覆盖）。</param>
+    /// <param name="isSend">是否发送口（决定 `Auto` 解析成右还是左）。</param>
+    private static HYWDebugAssistant.Sdk.Ports.PortEdge ResolveEdge(
+        HYWDebugAssistant.Sdk.Ports.PortEdge declared,
+        HYWDebugAssistant.Sdk.Ports.PortEdge overridden,
+        bool isSend)
+    {
+        if (overridden != HYWDebugAssistant.Sdk.Ports.PortEdge.Auto)
+        {
+            return overridden;   // 用户拖过 ⇒ 优先
+        }
+
+        if (declared != HYWDebugAssistant.Sdk.Ports.PortEdge.Auto)
+        {
+            return declared;     // 模块声明了默认边 ⇒ 用它
+        }
+
+        return isSend ? HYWDebugAssistant.Sdk.Ports.PortEdge.Right : HYWDebugAssistant.Sdk.Ports.PortEdge.Left;
+    }
+
     private ModuleInstanceView ToView(Hosting.Instances.ModuleInstance instance)
     {
         var ports = new List<PortView>(instance.Ports.Count);
@@ -939,10 +978,15 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 connected,
                 stalled,
                 geometry.Offset,
-                geometry.IsLocked,
+                // 【G5 · C5-7】**有效「固定」态**：用户设置过（三态里的具体值）优先；
+                // 没设置过 ⇒ 由**模块声明** `AnchorDraggable`（默认 false = 固定）决定 ⇒ 老模块零改动、行为不变。
+                geometry.IsAnchorFixed ?? !port.Declaration.AnchorDraggable,
                 geometry.Label,
                 port.Declaration.Shape.Describe())
             {
+                // 【G5 · C5-7】**有效挂载边**：用户拖动后的覆盖优先，否则模块声明的默认边
+                // （`Auto` = 数据流惯例 ⇒ 发送右 / 接收左 —— 老模块行为不变）。
+                Edge = ResolveEdge(port.Declaration.Edge, geometry.Edge, isSend: string.Equals(port.Direction.ToString(), "Send", StringComparison.Ordinal)),
                 // 【ADR-0048 R2 / ADR-0049 D6】**类型身份**（色板键）：已声明 ⇒ `标识@v版本`；未声明 ⇒ 结构描述。
                 // 与角色键**同一来源**（`DescribePortTypeKey`）⇒ 端口标记的窄色条与角色方块填充色永远一致。
                 TypeKey = _runtime.DescribePortTypeKey(instance.InstanceId, port),

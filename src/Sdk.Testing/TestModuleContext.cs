@@ -18,13 +18,14 @@ namespace HYWDebugAssistant.Sdk.Testing;
 ///   <item>`Publish` 写入的记录可直接断言（<see cref="Published"/>）。</item>
 /// </list>
 /// </remarks>
-public sealed class TestModuleContext : IModuleContext
+public sealed class TestModuleContext : IModuleContext, IInputFeedbackReporter
 {
     private readonly List<PortDeclaration> _ports = [];
     private readonly List<ViewDeclaration> _views = [];
     private readonly List<DataTypeDeclaration> _dataTypes = [];
     private readonly List<FlowDeclaration> _flows = [];
     private readonly List<RoleDeclaration> _roles = [];
+    private readonly List<InputFeedbackReport> _inputFeedback = [];
     private readonly Dictionary<string, ReceiveHandler> _receiveHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, object> _configuration = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<byte[]>> _published = new(StringComparer.Ordinal);
@@ -46,7 +47,27 @@ public sealed class TestModuleContext : IModuleContext
         Issues = new IssueCollector(ReportedIssues);
         Configuration = new InMemoryConfigurationAccess(_configuration);
         StopSignal = _stopSignal;
+        InputFeedback = this;
     }
+
+    /// <summary>
+    /// 模块回报的**输入处理结果**（G3）——模块作者可在自己的测试里断言"非法输入确实回报了失败"。
+    /// </summary>
+    /// <remarks>与框架侧同一语义：**只记录、不解释**（呈现文本）；框架在投递入队时清旧结果（"下一次提交即刷新"）。</remarks>
+    public IReadOnlyList<InputFeedbackReport> InputFeedbackReports => _inputFeedback;
+
+    /// <inheritdoc />
+    public IInputFeedbackReporter InputFeedback { get; }
+
+    /// <inheritdoc />
+    void IInputFeedbackReporter.Report(string sourceName, bool succeeded, string? message) =>
+        _inputFeedback.Add(new InputFeedbackReport(sourceName, succeeded, message));
+
+    /// <summary>一次输入处理结果的**记录**（G3；测试断言用）。</summary>
+    /// <param name="SourceName">输入源名。</param>
+    /// <param name="Succeeded">是否成功。</param>
+    /// <param name="Message">可选原因。</param>
+    public readonly record struct InputFeedbackReport(string SourceName, bool Succeeded, string? Message);
 
     /// <summary>实例 ID。</summary>
     public string InstanceId { get; }

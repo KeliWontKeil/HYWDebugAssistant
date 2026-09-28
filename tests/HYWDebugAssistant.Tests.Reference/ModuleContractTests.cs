@@ -120,6 +120,65 @@ public class ModuleContractTests
     }
 
     [Fact]
+    public void 角色两侧口类型不一致_契约自检应报出并指向拆成两个角色()
+    {
+        // 【2026-09 补充裁定 α】一个角色的**输入口与输出口必须同一种数据类型**（= 角色的 Type）。
+        // ADR-0052 Q2 只裁了"一个角色只有一种数据类型"，α 裁的是**两侧是否同型**。
+        var problems = ModuleContract.CheckAll(typeof(MixedTypeRoleModule)).ToList();
+
+        problems.ShouldContain(
+            p => p.Contains("不一致", StringComparison.Ordinal)
+                 && p.Contains("拆成两个角色", StringComparison.Ordinal),
+            "收 A 出 B 写在同一个角色里 ⇒ 必须报出，并给出正写法（两个角色 + DeclareFlow）");
+    }
+
+    [Fact]
+    public void 类型转换模块_按两个角色声明则无问题_且角色数为二()
+    {
+        // α 的**正写法**：收 A 的角色 + 发 B 的角色 + DeclareFlow（叠加层上 = 两个方块，各按自己的类型色）。
+        var problems = ModuleContract.CheckAll(typeof(ConverterModule)).ToList();
+        problems.ShouldBeEmpty(string.Join("；", problems));
+
+        var probe = ModuleContract.Probe(typeof(ConverterModule));
+        probe.DeclaredRoles.Count.ShouldBe(2, "类型转换 = 两个数据角色（一个角色只有一种数据类型）");
+        probe.DeclaredFlows.Count.ShouldBe(1, "两个角色之间用 DeclareFlow 表达先后");
+    }
+
+    [Fact]
+    public void 口未声明类型时_同型检查跳过不报()
+    {
+        // "可声明 ≠ 必须声明"：旧模块形态（口不带 `Type`）**无可比对象** ⇒ 同型检查跳过，
+        // 不得因此让旧模块的契约自检失败（向后兼容，与 `PortDeclaration.Type` 的既有语义一致）。
+        var problems = ModuleContract.CheckAll(typeof(UntypedPortRoleModule)).ToList();
+        problems.ShouldBeEmpty(string.Join("；", problems));
+    }
+
+    [Fact]
+    public void 有数据口却零角色_应给一条建议而不是问题()
+    {
+        // 【B5 · 2026-09 裁定】"口 → 角色归属"的完整性**只给建议、不进 Problems、运行期不报**：
+        // 与"口数 > 2 只给建议"同口径（ADR-0052 Q3）；ADR-0052 的措辞是"**应当**"（不是"必须"）⇒ 不得升级为错误。
+        var probe = ModuleContract.Probe(typeof(NoRoleModule));
+
+        probe.Advisories.ShouldContain(
+            a => a.Contains("没有任何有效的角色声明", StringComparison.Ordinal),
+            "有数据口却零角色 ⇒ 叠加层不画任何功能块，应当建议作者补 DeclareRole");
+        probe.Problems.ShouldBeEmpty(string.Join("；", probe.Problems));
+    }
+
+    [Fact]
+    public void 口不属于任何角色_应给一条建议而不是问题()
+    {
+        // 同 B5：**有角色，但某些口没有归属** ⇒ 那些口在叠加层上没有方块 ⇒ 建议（不是问题）。
+        var probe = ModuleContract.Probe(typeof(OrphanPortModule));
+
+        probe.Advisories.ShouldContain(
+            a => a.Contains("不属于任何角色", StringComparison.Ordinal) && a.Contains("'in2'", StringComparison.Ordinal),
+            "未归属的口应当被点名");
+        probe.Problems.ShouldBeEmpty(string.Join("；", probe.Problems));
+    }
+
+    [Fact]
     public void 参考模块_应声明同一个数据类型且形状一致()
     {
         // 【ADR-0046 D2/D6】六个参考模块都声明 `hyw/analog-sample@1` ⇒ 兼容判定走"**同标识同版本**"层；
@@ -446,6 +505,100 @@ public class ModuleContractTests
             context.Declaration.DeclareRole(RoleDeclaration.Input("steal", known, "in"));                      // ⑤ 口已被 dup 占用
             context.Declaration.DeclareRole(new RoleDeclaration(
                 "many", known, [], ["out1", "out2", "out3"], "三输出"));                                        // ⑥ 口数 > 2：**合法**（不再提示）
+        }
+    }
+
+    /// <summary>**α 的反例**：把"收 A 出 B"写进**同一个**角色（角色的输入口与输出口类型不同）。</summary>
+    [ModuleDefinition("test", "mixed-role", "1.0.0")]
+    public sealed class MixedTypeRoleModule : IModule
+    {
+        public void OnRegistered(IModuleContext context)
+        {
+            var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
+            var typeA = new DataTypeRef("test/type-a", 1);
+            var typeB = new DataTypeRef("test/type-b", 1);
+
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/type-a", 1, shape));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/type-b", 1, shape));
+            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { Type = typeA });
+            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { Type = typeB });
+
+            // ✗ 一个角色跨两种类型 ⇒ 报 Problem（α）
+            context.Declaration.DeclareRole(RoleDeclaration.Both("convert", typeA, "in", "out", "转换（写法错误）"));
+        }
+    }
+
+    /// <summary>**α 的正例**：类型转换 = **两个角色**（收 A / 发 B）+ 一条内部顺序。</summary>
+    [ModuleDefinition("test", "converter", "1.0.0")]
+    public sealed class ConverterModule : IModule
+    {
+        public void OnRegistered(IModuleContext context)
+        {
+            var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
+            var typeA = new DataTypeRef("test/recv-a", 1);
+            var typeB = new DataTypeRef("test/send-b", 1);
+
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/recv-a", 1, shape));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/send-b", 1, shape));
+            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { Type = typeA });
+            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { Type = typeB });
+
+            context.Declaration.DeclareRole(RoleDeclaration.Input("recv", typeA, "in", "接收 A"));
+            context.Declaration.DeclareRole(RoleDeclaration.Output("send", typeB, "out", "发出 B"));
+            context.Declaration.DeclareFlow(new FlowDeclaration("recv", "send"));
+        }
+    }
+
+    /// <summary>**旧模块形态**：口**未声明** `Type` ⇒ 同型检查无可比对象，不报（向后兼容）。</summary>
+    [ModuleDefinition("test", "untyped-port-role", "1.0.0")]
+    public sealed class UntypedPortRoleModule : IModule
+    {
+        public void OnRegistered(IModuleContext context)
+        {
+            var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
+            var type = new DataTypeRef("test/untyped-role", 1);
+
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/untyped-role", 1, shape));
+            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape));    // 不带 Type
+            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape));     // 不带 Type
+
+            context.Declaration.DeclareRole(RoleDeclaration.Both("block", type, "in", "out", "块"));
+        }
+    }
+
+    /// <summary>**B5 反例之一**：有数据口，但**一个角色都没声明** ⇒ 建议补 `DeclareRole`（不是问题）。</summary>
+    [ModuleDefinition("test", "no-role", "1.0.0")]
+    public sealed class NoRoleModule : IModule
+    {
+        public void OnRegistered(IModuleContext context)
+        {
+            var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
+            var type = new DataTypeRef("test/no-role", 1);
+
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/no-role", 1, shape));
+            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { Type = type });
+            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { Type = type });
+
+            // 刻意不声明任何角色（ADR-0052 的措辞是"应当"⇒ 只给建议）
+        }
+    }
+
+    /// <summary>**B5 反例之二**：有角色，但 `in2` **不属于任何角色** ⇒ 建议（不是问题）。</summary>
+    [ModuleDefinition("test", "orphan-port", "1.0.0")]
+    public sealed class OrphanPortModule : IModule
+    {
+        public void OnRegistered(IModuleContext context)
+        {
+            var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
+            var type = new DataTypeRef("test/orphan-port", 1);
+
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/orphan-port", 1, shape));
+            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { Type = type });
+            context.Declaration.DeclarePort(new PortDeclaration("in2", PortDirection.Receive, shape) { Type = type });
+            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { Type = type });
+
+            // 只声明一块功能，且**没有**把 in2 收进去 ⇒ in2 成为"无归属口"
+            context.Declaration.DeclareRole(RoleDeclaration.Both("blk", type, "in", "out", "块"));
         }
     }
 }

@@ -57,27 +57,18 @@
 
 ---
 
-## 4. 文档同步表（同次迭代完成，不留给下次）
+## 4. 文档同步表 —— **已收敛，见 `../DOC-WORKFLOW.md` §2**
 
-| 改动类型 | 必须更新 |
-|---|---|
-| 分层 / 依赖方向 | `01-layering-and-projects` §1/§2 + `docs/decisions.md` |
-| 项目 / 目录结构 | `01-layering-and-projects` §4/§5 |
-| SDK 公开面（模块作者可见） | `02-module-sdk` + 破坏性变更走 `docs/decisions.md` |
-| 数据协议 / 契约形状 / 类型身份 | `03-data-protocol-and-typing` |
-| 机制行为（投递 / 缓冲 / 变更 / 持久化 / Issue） | `04-runtime-mechanisms` |
-| 建网 / 网络语义 / 兼容判定 | `05-network-semantics` |
-| UI 层 / 窗口 / 交互 | `06-ui-shell-and-windows` |
-| 视觉取值（颜色 / 字号 / 尺寸 / 叠加层） | `07-overlay-and-visual-baseline` |
-| 设置项增减 | `08-application-settings` §2 |
-| 测试规则 / 测试项目 | `09-test-and-gate` |
-| Gate 状态变化 | 主文档 §18.5 + `docs/roadmap.md` |
-| 里程碑 / 步骤变化 | `09-test-and-gate` §10 + `docs/roadmap.md` |
-| 依赖增减 | `docs/decisions.md` + `Directory.Packages.props` + 许可门禁（`10-delivery-and-ops` §3） |
-| 例外豁免 | `docs/decisions.md` §3 |
-
-**禁止**：新增"平行事实源"（同一事实在两处各写一遍）；优先更新已有文档，其余位置只留指针。
-（文档纪律全文见 `00-architecture-index` §4。）
+> 本节原有的"改动类型 → 必须更新"对照表**已整体并入 `../DOC-WORKFLOW.md` §2**（与该文件合的还有 `README` §4 的维护规则与 `architecture/00` §4 的文档纪律 —— 三处**同一件事写三遍**，已收敛为一处）。**内容一条未丢。**
+>
+> | 我要查的事 | 去哪 |
+> |---|---|
+> | **改什么 → 必须更新哪些文件** | `../DOC-WORKFLOW.md` §2（**唯一对照表**） |
+> | 归档规程（含退役模块 → `archive/modules-<年-月>/`） | `../DOC-WORKFLOW.md` §3 |
+> | 审计门禁（命令 · 五项检查 · 何时跑 · FAIL 处置） | `../DOC-WORKFLOW.md` §4 |
+> | `【待裁】`/`【待评估】` 标记纪律 | `../DOC-WORKFLOW.md` §5 |
+>
+> **两条仍然最容易忘的**（在此保留，因为本节是"开发流程"）：① 文档与代码**同一次改动**；② 新增"平行事实源"是被禁止的 —— 优先更新已有文档，其余位置只留指针。
 
 ---
 

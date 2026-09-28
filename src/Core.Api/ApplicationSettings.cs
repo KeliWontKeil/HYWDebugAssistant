@@ -85,6 +85,23 @@ public sealed class ApplicationSettings
     public string BackgroundColor { get; set; } = "#F3F4F6";
 
     /// <summary>
+    /// **多行文本输入的提交键**（G2 · 2026-09）：
+    /// <c>CtrlEnter</c>（默认：**回车换行 · Ctrl+Enter 提交 · 失焦不提交**）/
+    /// <c>Enter</c>（回车提交 · Shift+Enter 换行）/
+    /// <c>None</c>（键盘都不提交，只用模块的按钮）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>为什么是应用级设置而不是模块声明</b>：用户 2026-09 裁决 —— "换行是一个极其常见的行为，
+    ///     且**不同用户习惯不一样**"，故由**用户**在设置里选，模块只声明"我要多行"（`ViewElement.Multiline`）；</item>
+    ///   <item><b>只影响多行输入框</b>：单行输入仍是"回车 / 失焦一次提交"（ADR-0040 D-5）**不变**；</item>
+    ///   <item><c>CtrlEnter</c> 下**失焦不提交** —— 否则"点发送按钮 ⇒ 先失焦提交一次 ⇒ 按钮又发一次"会**双发**；</item>
+    ///   <item>非法值 ⇒ 回落默认 <c>CtrlEnter</c>（与外观类设置同一容错口径：不做校验、不提示）。</item>
+    /// </list>
+    /// </remarks>
+    public string MultilineSubmitKey { get; set; } = "CtrlEnter";
+
+    /// <summary>
     /// **发送方向色**（十六进制，如 <c>#EA580C</c>；**空 = 跟随主题默认值**）【ADR-0044 · 用户第十四轮裁决 D1a】。
     /// </summary>
     /// <remarks>
@@ -164,6 +181,7 @@ public sealed class ApplicationSettings
         AccentColor = AccentColor,
         BackgroundMode = BackgroundMode,
         BackgroundColor = BackgroundColor,
+        MultilineSubmitKey = MultilineSubmitKey,
         DirectionSendColor = DirectionSendColor,
         DirectionReceiveColor = DirectionReceiveColor,
         ShellAspect = ShellAspect,

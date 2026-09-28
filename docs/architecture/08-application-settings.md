@@ -59,6 +59,7 @@
 | `alignAutoNetwork` | `AlignAutoNetworkEnabled` | bool | `true` | — | **即时**（`ModuleRuntime.UpdateAlignAutoNetwork`） |
 | `snapDistance` | `SnapDistance` | double | `4` | `2–8`（px） | **即时**：每次刷新同步；拖动时按它取容差〔源: ADR-0042 D6〕 |
 | `showInfoOverlay` | `ShowInfoOverlay` | bool | `false` | — | **即时**（写入模块窗口集）〔源: ADR-0045 D1〕 |
+| `multilineSubmitKey` | `MultilineSubmitKey` | string | `"CtrlEnter"` | `CtrlEnter` / `Enter` / `None`（非法 ⇒ 回落 `CtrlEnter`） | **即时**：每刷新节拍下发到模块窗口并**重建多行输入元素**（提交策略在构造时定型）〔源: **G2 · 用户 2026-09 裁决**〕 |
 | `theme` | `Theme` | string | `"Light"` | `Light` / `Dark` / `System` | **即时**（`ThemeApplier.Apply`） |
 | `accentColor` | `AccentColor` | string | `"#2563EB"` | 十六进制；空/非法 = 用内置主题色 | **即时** |
 | `backgroundMode` | `BackgroundMode` | string | `"Theme"` | `Theme` / `LightGray` / `DarkGray` / `Custom` | **即时** |
@@ -72,7 +73,13 @@
 | `hotkeys` | `Hotkeys` | object（动作 → 绑定文本） | 空表（缺失动作用内置默认） | 绑定文本如 `Ctrl+L`、`M`；**空串 = 不绑定** | **即时**（应用成功后重建绑定） |
 | `typeColors` | `TypeColors` | object（类型身份 → `#RRGGBB`） | 空表（缺省 = 自动配色） | 键 = `标识@v版本`（未声明类型的旧模块用结构描述） | **即时**（改色 → 色板 → 落盘 → 重画）+ 启动即生效 |
 
-**共 20 个键**（上表逐行；`schemaVersion` 是文件版本字段，含在内）。**`appTopmost` 不在本清单内** —— 它属**运行期状态（不持久化）**，见下。
+**共 21 个键**（上表逐行；`schemaVersion` 是文件版本字段，含在内）。**`appTopmost` 不在本清单内** —— 它属**运行期状态（不持久化）**，见下。
+
+> **`multilineSubmitKey` 为什么是应用级设置而不是模块声明**（G2 · 用户 2026-09 裁决）：用户原话 ——
+> **"换行是一个极其常见的行为，且不同用户习惯不一样"** ⇒ 由**用户**在设置里选；**模块只声明"我要多行"**
+> （`ViewElement.Multiline`，SDK 面 `init` 只增）。**单行输入不受本项影响**：仍是"回车 / 失焦一次提交"（ADR-0040 D-5）。
+> 三档语义：`CtrlEnter`（默认）= 回车换行 · Ctrl+Enter 提交 · **失焦不提交**（否则"点模块按钮 ⇒ 先失焦提交 ⇒ 按钮又发"会**双发**）；
+> `Enter` = 回车提交 · Shift+Enter 换行 · 失焦提交；`None` = 键盘都不提交，只用模块的按钮。
 
 **运行期状态（不持久化，不进设置键清单）**：
 
@@ -132,9 +139,14 @@
 | `toggleMarkers` | 切换叠加信息层 | `L` |
 | `toggleSnap` | 切换几何吸附 | `G` |
 | `toggleLockAll` | 全部锁定 / 解锁 | `Ctrl+L` |
+| `toggleAnchorFixed` | 固定 / 解锁端口锚点 | `Ctrl+P` |
 | `toggleAppTopmost` | 应用整体置顶 | `Ctrl+T` |
 | `raiseAllWindows` | 全部置前 | `Ctrl+R` |
 | `showAllWindows` | 显示全部模块窗口 | `Ctrl+W` |
+
+> `toggleAnchorFixed`（**G5 · C5-7**）与 `toggleLockAll` **不是一回事**：后者锁的是**模块窗口**（不可移动、不可缩放），
+> 前者固定的是**端口锚点**（不可沿边拖动、不可换边）；用词按 `decisions.md` 7.14 一律「固定」。
+> 它是**全局批量**入口；**单口**固定/解锁在标记内侧浮出的图标按钮上（见 `07` 端口标记表）。
 
 绑定文本语法：`Ctrl` / `Shift` / `Alt` + 主键名（如 `Ctrl+Shift+L`、`M`）；只按修饰键不算绑定；非法/空 → 不绑定。
 

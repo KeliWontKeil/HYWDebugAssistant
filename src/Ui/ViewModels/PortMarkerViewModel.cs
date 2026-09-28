@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Ui.Geometry;
 
 namespace HYWDebugAssistant.Ui.ViewModels;
@@ -41,7 +42,9 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
         string? label,
         double offset,
         string? typeText = null,
-        string? typeKey = null)
+        string? typeKey = null,
+        PortEdge edge = PortEdge.Auto,
+        bool isAnchorFixed = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
         ArgumentException.ThrowIfNullOrWhiteSpace(portName);
@@ -49,6 +52,10 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
         InstanceId = instanceId;
         PortName = portName;
         IsSend = isSend;
+        Edge = edge == PortEdge.Auto
+            ? isSend ? PortEdge.Right : PortEdge.Left   // 兜底：调用方应给**已解析**的具体边
+            : edge;
+        IsAnchorFixed = isAnchorFixed;
         Label = string.IsNullOrWhiteSpace(label) ? null : label;
         Offset = Math.Clamp(offset, 0, 1);
         TypeText = string.IsNullOrWhiteSpace(typeText) ? "—" : typeText;
@@ -198,8 +205,66 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     /// <summary>状态语义（连接状态点用；颜色 + 形状双重编码，09 §7）。</summary>
     public StateVisual State => IsStalled ? StateVisual.Dangling : IsConnected ? StateVisual.Active : StateVisual.Idle;
 
-    /// <summary>所在边缘。</summary>
-    public PortSide Side => IsSend ? PortSide.Right : PortSide.Left;
+    /// <summary>
+    /// **所在边缘**（G5 · C5-7）——来自 `PortView.Edge` 的**有效边**（用户拖动覆盖 &gt; 模块声明的默认边 &gt; 数据流惯例）。
+    /// </summary>
+    /// <remarks>
+    /// 此前是写死的 `IsSend ? Right : Left`；现在**模块可以声明默认边、用户可以把标记拖到任意边**（C5-7）。
+    /// **可变**：拖动过程中就地更新形成预览；松手时由 <c>ModuleWindowsViewModel.MovePortAnchor</c> 提交，
+    /// 失败则回滚（提交是唯一写入方，本地值只是"待提交的意图"）。
+    /// </remarks>
+    [ObservableProperty]
+    public partial PortEdge Edge { get; set; }
+
+    /// <summary>
+    /// 锚点是否「**固定**」（G5）——固定 ⇒ **不可拖动**。
+    /// </summary>
+    /// <remarks>
+    /// **与「模块窗口锁定」区分**：后者是整个模块不可移动、不可缩放（ADR-0041 D1）。
+    /// 用词一律「固定」，不用「锁定」（用户 2026-09 裁定，见 `decisions.md` 7.14）。
+    /// </remarks>
+    [ObservableProperty]
+    public partial bool IsAnchorFixed { get; set; }
+
+    /// <summary>所在边缘（视图用的枚举；与 <see cref="Edge"/> 同源）。</summary>
+    public PortSide Side => Edge switch
+    {
+        PortEdge.Right => PortSide.Right,
+        PortEdge.Top => PortSide.Top,
+        PortEdge.Bottom => PortSide.Bottom,
+        _ => PortSide.Left,
+    };
+
+    /// <summary>锚点**可拖动**（= 未固定）——只用于光标与悬停提示。</summary>
+    public bool IsDraggable => !IsAnchorFixed;
+
+    /// <summary>
+    /// **指针是否悬停在本标记上**（G5）——「固定 / 解锁」按钮的显隐条件。
+    /// </summary>
+    /// <remarks>
+    /// 按钮在**另一层**（位置由 `PortMarkerPanel` 排布）⇒ 样式选择器够不到"悬停标记 ⇒ 显示按钮"，
+    /// 故由视图在 `PointerEntered/Exited` 里写回本属性。**纯呈现状态**：不进组合件、不下发模块。
+    /// </remarks>
+    [ObservableProperty]
+    public partial bool IsMarkerHovered { get; set; }
+
+    /// <summary>
+    /// **固定 / 解锁**按钮的悬停提示（G5 · C5-7）——按钮本身就是该口的开关，提示必须说清"按下去会怎样"。
+    /// </summary>
+    public string AnchorToggleTip => IsAnchorFixed
+        ? "锚点已固定：点击解锁，之后可沿边缘拖动或拖到别的边"
+        : "锚点可拖动：点击固定，之后不可拖动（模块拉伸时按比例重排）";
+
+    /// <summary>
+    /// **正在被拖动**（G5）——拖动期间本地 <see cref="Edge"/>/<see cref="Offset"/> 是"待提交的意图"，
+    /// 刷新节拍的 <c>SyncPorts</c> **不得**用框架权威值覆盖它（否则拖到一半会被拽回原位）。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="IsEditing"/> 保护 <see cref="Label"/> 是**同一条纪律**（瞬态本地意图 vs 框架权威值）。
+    /// 由视图在手势期间置位，松手（提交后）立即复位。
+    /// </remarks>
+    [ObservableProperty]
+    public partial bool IsDraggingAnchor { get; set; }
 
     /// <summary>标记是否为竖直形态（左右边缘 → 竖排；上下边缘 → 横排）。</summary>
     public bool IsVertical => Side is PortSide.Left or PortSide.Right;
@@ -252,7 +317,9 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
                     + (BytesText is { Length: > 0 } bytes ? $"\n流量约 {bytes}（网络粒度估算）" : string.Empty);
             }
 
-            return text + "\n双击填写/清除网络名";
+            return text + (IsAnchorFixed
+                ? "\n锚点已固定（不可拖动）—— 双击填写/清除网络名"
+                : "\n拖动可改锚点所在边缘与位置 · 双击填写/清除网络名");
         }
     }
 
@@ -265,6 +332,30 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     }
 
     partial void OnEditErrorChanged(string? value) => OnPropertyChanged(nameof(HasEditError));
+
+    /// <summary>
+    /// **换了边 ⇒ 形态全套跟着变**：竖排/横排、标记宽高、箭头字形、悬停提示。
+    /// </summary>
+    /// <remarks>
+    /// 拖动跨边时（左右 ↔ 上下）标记从 20×114 变 114×20，必须通知到位，否则 <c>PortMarkerPanel</c>
+    /// 会按旧尺寸排布（表现为"拖过去了但还是一条竖条"）。
+    /// </remarks>
+    partial void OnEdgeChanged(PortEdge value)
+    {
+        OnPropertyChanged(nameof(Side));
+        OnPropertyChanged(nameof(IsVertical));
+        OnPropertyChanged(nameof(MarkerWidth));
+        OnPropertyChanged(nameof(MarkerHeight));
+        OnPropertyChanged(nameof(Arrow));
+        OnPropertyChanged(nameof(Tooltip));
+    }
+
+    partial void OnIsAnchorFixedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsDraggable));
+        OnPropertyChanged(nameof(AnchorToggleTip));
+        OnPropertyChanged(nameof(Tooltip));
+    }
 
     partial void OnTypeTextChanged(string value)
     {

@@ -332,6 +332,71 @@ public class OverlaySnapshotTests
     }
 
     /// <summary>
+    /// 快照用"锚点可拖动"模块（**G5 · C5-7**）：一个发送口，声明 <c>AnchorDraggable = true</c>。
+    /// </summary>
+    /// <remarks>
+    /// 用来给「**固定**」徽标的"真出像素"服务：固定前后各渲一帧，**像素必须不同**
+    /// （徽标是纯 `IsVisible` 绑定的叠加块，样式/模板写错时不会报错，只是什么都不画）。
+    /// 声明 `AnchorDraggable = true` ⇒ **未固定**是初始态，这样"固定后多出一块徽标"才可比较。
+    /// </remarks>
+    [ModuleDefinition("test", "snapshot-anchor", "1.0.0")]
+    public sealed class SnapshotAnchorModule : IModule
+    {
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context)
+        {
+            context.Declaration.DeclarePort(new PortDeclaration(
+                "out",
+                PortDirection.Send,
+                ContractShape.OfPrimitive(ContractPrimitive.F32))
+            {
+                AnchorDraggable = true,
+            });
+        }
+    }
+
+    /// <summary>
+    /// 快照用"多页标签页"模块（**G1**）：3 页，**每页内容文字不同** ⇒ 切页后画面必须真的变。
+    /// </summary>
+    /// <remarks>
+    /// 声明结构 = `TabPages > [页节点 …]`，每个页节点的子元素是该页内容（`ViewElement.children` 的语义）。
+    /// 无端口、无角色 —— 标签页与叠加层无关，本条只为"真出像素"服务。
+    /// </remarks>
+    [ModuleDefinition("test", "snapshot-tabs", "1.0.0")]
+    public sealed class SnapshotTabsModule : IModule
+    {
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context) =>
+            context.Declaration.DeclareView(new ViewDeclaration(
+                [
+                    new ViewElement(
+                        ViewElementKind.TabPages,
+                        title: "消息",
+                        children:
+                        [
+                            new ViewElement(
+                                ViewElementKind.Group,
+                                title: "第 1 页",
+                                children: [new ViewElement(ViewElementKind.TextInput, "page0", "第一页输入")]),
+                            new ViewElement(
+                                ViewElementKind.Group,
+                                title: "第 2 页",
+                                children: [new ViewElement(ViewElementKind.TextInput, "page1", "第二页输入")]),
+                            new ViewElement(
+                                ViewElementKind.Group,
+                                title: "第 3 页",
+                                children: [new ViewElement(ViewElementKind.TextInput, "page2", "第三页输入")]),
+                        ]),
+                ],
+                dataSources:
+                [
+                    new ViewDataSource("page0"),
+                    new ViewDataSource("page1"),
+                    new ViewDataSource("page2"),
+                ]));
+    }
+
+    /// <summary>
     /// 让无头会话使用**真实渲染栈**（`UseHeadlessDrawing = false` + Skia）——否则 `RenderTargetBitmap` 出不了像素。
     /// </summary>
     public static class SkiaHeadlessEntryPoint
@@ -344,7 +409,8 @@ public class OverlaySnapshotTests
     }
 
     /// <summary>快照现场（复用生产 VM 与真实模块窗口）。</summary>
-    private sealed class SnapshotHarness : IDisposable
+    /// <remarks>`internal`（非 private）：**G1 的标签条快照**在 `TabStripSnapshotTests` 里复用它，避免复制第二份现场。</remarks>
+    internal sealed class SnapshotHarness : IDisposable
     {
         public SnapshotHarness()
         {
@@ -354,6 +420,8 @@ public class OverlaySnapshotTests
 
             Register("snapshot-sender", typeof(SnapshotSenderModule));
             Register("snapshot-sink", typeof(SnapshotSinkModule));
+            Register("snapshot-tabs", typeof(SnapshotTabsModule));
+            Register("snapshot-anchor", typeof(SnapshotAnchorModule));
         }
 
         public HYWDebugAssistant.Core.Runtime.ModuleRuntime Runtime { get; }
@@ -365,6 +433,12 @@ public class OverlaySnapshotTests
         public void AddSender(string instanceId, double x, double y) => Add(instanceId, "test/snapshot-sender/1.0.0", x, y);
 
         public void AddSink(string instanceId, double x, double y) => Add(instanceId, "test/snapshot-sink/1.0.0", x, y);
+
+        /// <summary>加入一个"多页标签页"模块（G1 快照用）。</summary>
+        public void AddTabs(string instanceId, double x, double y) => Add(instanceId, "test/snapshot-tabs/1.0.0", x, y);
+
+        /// <summary>加入一个"锚点可拖动"的模块（**G5** 锚点「固定」徽标快照用）。</summary>
+        public void AddAnchor(string instanceId, double x, double y) => Add(instanceId, "test/snapshot-anchor/1.0.0", x, y);
 
         public ModuleWindow OpenWindow(ModuleViewViewModel module)
         {

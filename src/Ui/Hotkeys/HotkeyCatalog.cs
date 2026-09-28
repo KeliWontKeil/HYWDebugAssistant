@@ -32,6 +32,13 @@ public static class HotkeyCatalog
     /// <summary>全部锁定 / 解锁。</summary>
     public const string ToggleLockAll = "toggleLockAll";
 
+    /// <summary>**固定 / 解锁全部端口锚点**（G5 · C5-7：锚点是否可拖动）。</summary>
+    /// <remarks>
+    /// 与 <see cref="ToggleLockAll"/> **不是一回事**：那个锁的是**模块窗口**（不可移动、不可缩放），
+    /// 这个固定的是**端口锚点**（不可沿边拖动、不可换边）。用词按 `decisions.md` 7.14 一律「固定」。
+    /// </remarks>
+    public const string ToggleAnchorFixed = "toggleAnchorFixed";
+
     /// <summary>应用整体置顶（全体窗口一起）。</summary>
     public const string ToggleAppTopmost = "toggleAppTopmost";
 
@@ -51,6 +58,7 @@ public static class HotkeyCatalog
         new(ToggleMarkers, "切换叠加信息层", "L"),
         new(ToggleSnap, "切换几何吸附", "G"),
         new(ToggleLockAll, "全部锁定 / 解锁", "Ctrl+L"),
+        new(ToggleAnchorFixed, "固定 / 解锁端口锚点", "Ctrl+P"),
         new(ToggleAppTopmost, "应用整体置顶", "Ctrl+T"),
         new(RaiseAllWindows, "全部置前", "Ctrl+R"),
         new(ShowAllWindows, "显示全部模块窗口", "Ctrl+W"),

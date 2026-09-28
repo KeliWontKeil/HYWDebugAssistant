@@ -107,8 +107,8 @@ public static class ModuleInstanceFactory
                 continue;
             }
 
-            if (!ValidatePorts(role.Id, role.Inputs, Sdk.Ports.PortDirection.Receive)
-                || !ValidatePorts(role.Id, role.Outputs, Sdk.Ports.PortDirection.Send))
+            if (!ValidatePorts(role.Id, role.Type, role.Inputs, Sdk.Ports.PortDirection.Receive)
+                || !ValidatePorts(role.Id, role.Type, role.Outputs, Sdk.Ports.PortDirection.Send))
             {
                 continue;
             }
@@ -137,7 +137,11 @@ public static class ModuleInstanceFactory
 
         return roles;
 
-        bool ValidatePorts(string roleId, IReadOnlyList<string> names, Sdk.Ports.PortDirection expected)
+        bool ValidatePorts(
+            string roleId,
+            Sdk.Contracts.DataTypeRef roleType,
+            IReadOnlyList<string> names,
+            Sdk.Ports.PortDirection expected)
         {
             foreach (var name in names)
             {
@@ -158,6 +162,17 @@ public static class ModuleInstanceFactory
                 {
                     Report($"角色 '{roleId}' 的{(expected == Sdk.Ports.PortDirection.Receive ? "输入" : "输出")}口 '{name}' " +
                         $"实际方向是 {port.Direction}（已忽略该条）");
+                    return false;
+                }
+
+                // 【2026-09 补充裁定 α】角色的**输入口与输出口必须承载同一种数据类型**（= `roleType`）。
+                // ⇒ 类型转换 = **两个数据角色**（"收 A" + "发 B"）+ DeclareFlow（叠加层上是两个方块）。
+                // 口**未声明类型**（旧模块形态）⇒ 无可比对象，跳过（与"可声明 ≠ 必须声明"一致）。
+                if (port.Declaration.Type is { } portType && portType != roleType)
+                {
+                    Report($"角色 '{roleId}' 的{(expected == Sdk.Ports.PortDirection.Receive ? "输入" : "输出")}口 '{name}' " +
+                        $"类型是 {portType}，与角色的类型 {roleType} 不一致（一个角色的输入口与输出口必须同一种数据类型；" +
+                        "类型转换请拆成两个角色 + DeclareFlow；已忽略该条）");
                     return false;
                 }
             }

@@ -29,7 +29,7 @@ param(
     # Build：项目名片段（如 Core / Ui / FrameworkUi / Monitor）或 csproj 相对路径
     [string]$Project,
 
-    # Test：xUnit 过滤词（方法名/类名片段）
+    # Test：xUnit 过滤词（方法名/类名片段；**只写片段**，脚本自己拼 `FullyQualifiedName~`）
     [string]$Filter,
 
     # Test：测试项目名片段（默认主测试项目）
@@ -55,6 +55,15 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+
+# 【2026-09 缺陷修复】**过滤词不许自带 `FullyQualifiedName~` 前缀** —— 脚本自己会拼一层。
+# 曾把 `-Filter "FullyQualifiedName~X"` 原样再拼一次 ⇒ `FullyQualifiedName~FullyQualifiedName~X`
+# ⇒ **匹配到 0 个用例，却报「测试通过」**（绿色门禁其实一个用例都没跑，是"假通过"）。
+# 这里**就地剥掉**前缀并把过滤词归一化，用户怎么写都不至于静默空跑。
+if ($Filter) {
+    $Filter = $Filter -replace '^\s*FullyQualifiedName\s*~\s*', ''
+    $Filter = $Filter.Trim()
+}
 
 function Clear-PollutedEnvironment {
     foreach ($name in @('Platform', 'Platform(x86)')) {
@@ -242,7 +251,36 @@ switch ($Mode) {
 
         if ($AllTests) {
             Write-Host "===== T2 测试：全部测试项目（不含许可审计）=====" -ForegroundColor Cyan
-            $output = dotnet test (Join-Path $root 'HYWDebugAssistant.slnx') -c $Configuration --nologo -v q 2>&1
+
+            # 【F 裁定 · 2026-09】`VisualSnapshots` **必须单独进程跑**：`AvaloniaHeadlessPlatform` 是**进程级**配置，
+            # 与其它测试项目并发时真实 Skia 渲染互相破坏 ⇒ **假失败**
+            # （实测：`ColorPickerDialogSnapshotTests` 在 -AllTests 下红、单独跑 4/4 全绿）。
+            # 故：先跑其余测试项目，**最后串行单独**跑它。
+            # 项目清单**按目录发现**（目录名 = 项目名），新增测试项目零改动；`Benchmarks` 不是 xUnit 用例 ⇒ 排除。
+            $testProjects = Get-ChildItem (Join-Path $root 'tests') -Directory |
+                ForEach-Object { Join-Path $_.FullName "$($_.Name).csproj" } |
+                Where-Object { Test-Path -LiteralPath $_ } |
+                Where-Object { $_ -notmatch 'Benchmarks' }
+
+            $snapshotProjects = @($testProjects | Where-Object { $_ -match 'VisualSnapshots' })
+            $regularProjects = @($testProjects | Where-Object { $_ -notmatch 'VisualSnapshots' })
+
+            $failed = @()
+            # 逐个串行：常规项目先跑，快照项目**最后单独**跑（顺序即隔离，避免并发破坏渲染会话）
+            foreach ($proj in @($regularProjects) + @($snapshotProjects)) {
+                $label = [System.IO.Path]::GetFileNameWithoutExtension($proj)
+                $isSnapshot = $proj -match 'VisualSnapshots'
+                Write-Host "----- $label$(if ($isSnapshot) { '（单独进程：渲染快照）' }) -----" -ForegroundColor DarkCyan
+
+                $projOut = dotnet test $proj -c $Configuration --nologo -v q 2>&1
+                $projOut | Select-Object -Last 4 | ForEach-Object { Write-Host $_ }
+
+                if ($LASTEXITCODE -ne 0) { $failed += $label }
+            }
+
+            if ($failed.Count -gt 0) { throw "测试失败：$($failed -join '、')" }
+            Write-Host "[dev] 测试通过（含快照项目单独跑）" -ForegroundColor Green
+            break
         }
         else {
             $testTarget = Resolve-ProjectPath -Name $TestProject
@@ -271,11 +309,17 @@ switch ($Mode) {
 
         $output | Select-Object -Last 12 | ForEach-Object { Write-Host $_ }
 
-        # 「过滤词没匹配到任何测试」不是失败：明确区分，避免误报
+        # 「过滤词没匹配到任何测试」**必须显式区分**，否则会变成"跑了 0 个用例的绿灯"：
+        #   ① 旧 xUnit/VSTest 措辞（没有测试与…匹配）；
+        #   ② **.NET 10 MTP 措辞**「总共 N 个测试文件与指定模式相匹配」——
+        #      只说了"文件匹配上了"，**没说用例跑了几条**；若整段输出里**没有**用例汇总行，就是零用例空跑。
+        # 实测踩过：`-Filter "FullyQualifiedName~X"` 被再拼一层前缀 ⇒ 0 用例 + 「测试通过」。
         $noMatch = $output | Where-Object { $_ -match '没有测试与|No test matches|no test matches' }
-        if ($noMatch) {
-            Write-Host "[dev] 过滤词未匹配到任何测试（换个过滤词，或去掉 -Filter 跑整个测试项目）" -ForegroundColor Yellow
-            break
+        $summary = $output | Where-Object { $_ -match '已通过!|失败!|通过:\s*\d+|Passed!|Failed!' }
+
+        if ($noMatch -or -not $summary) {
+            Write-Host '[dev] 过滤词未匹配到任何测试（换个过滤词，或去掉 -Filter 跑整个测试项目）' -ForegroundColor Yellow
+            throw '没有用例被执行：过滤词未匹配（拒绝把"零用例"当作通过）'
         }
 
         if ($LASTEXITCODE -ne 0) { throw '测试失败' }

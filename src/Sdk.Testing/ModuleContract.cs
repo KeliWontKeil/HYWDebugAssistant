@@ -274,13 +274,19 @@ public static class ModuleContract
 
     /// <summary>
     /// 校验**角色声明**（功能分块）【ADR-0052】：Id 唯一 · 类型可在本模块解析 · 口存在且方向相符 ·
-    /// **一个口最多属于一个角色** · 至少一个口；**口数 &gt; 2 时给建议**（进 <paramref name="advice"/>，**不是问题**）。
+    /// **一个口最多属于一个角色** · **输入口与输出口同型（α）** · 至少一个口；
+    /// **口数 &gt; 2 时给建议**（进 <paramref name="advice"/>，**不是问题**）。
     /// </summary>
     /// <remarks>
     /// 角色**只用于呈现**（叠加层画功能块与 `m/n`），不参与建网/兼容/投递 —— 因此这里的校验只回答
     /// "画得出来吗、说得清吗"；**校验不了语义**（作者可以声明"融合"而代码里走别的路径：声明 ≠ 证明）。
     /// **口数不设上限**（2 入 1 出的融合块是合法且最常见的多口形态）；该建议只提醒作者"多数分块只有一入一出"，
     /// 并明说"多入一出/一入多出不必拆"，避免把一件功能硬拆成两块。
+    /// <para>
+    /// <b>两侧同型（2026-09 补充裁定 α）</b>：角色的输入口与输出口必须承载**同一种**数据类型（= 角色的
+    /// <c>Type</c>）—— ADR-0052 Q2 已裁"一个角色只有一种数据类型"，α 裁的是**两侧是否同型**。
+    /// ⇒ 类型转换 = **两个数据角色** + <c>DeclareFlow</c>；**口未声明类型时不校验**（旧模块形态）。
+    /// </para>
     /// </remarks>
     private static void CheckRoles(
         IReadOnlyList<RoleDeclaration> roles,
@@ -293,6 +299,7 @@ public static class ModuleContract
         var ids = new HashSet<string>(StringComparer.Ordinal);
         var claimed = new Dictionary<string, string>(StringComparer.Ordinal);
         var withRoles = new HashSet<string>(StringComparer.Ordinal);
+        var validRoleCount = 0;
 
         foreach (var role in roles)
         {
@@ -347,6 +354,19 @@ public static class ModuleContract
                     continue;
                 }
 
+                // 【2026-09 补充裁定 α】角色的**输入口与输出口必须承载同一种数据类型**（= 角色的 Type）：
+                // ADR-0052 Q2 已裁"一个角色只有一种数据类型"，α 裁的是它没裁的那半 —— **两侧是否同型**。
+                // ⇒ **类型转换 = 两个数据角色**（"收 A" + "发 B"）+ DeclareFlow；叠加层上表现为两个方块。
+                // 口**未声明类型**（旧模块形态，"可声明 ≠ 必须声明"）⇒ 无可比对象，**跳过不报**。
+                if (port.Type is { } portType && portType != role.Type)
+                {
+                    problems.Add(
+                        $"角色 '{role.Id}' 的{(expected == PortDirection.Receive ? "输入" : "输出")}口 '{name}' 的类型是 {portType}，" +
+                        $"与角色的类型 {role.Type} 不一致（一个角色的输入口与输出口必须同一种数据类型；" +
+                        "**类型转换请拆成两个角色** + DeclareFlow）");
+                    continue;
+                }
+
                 if (claimed.TryGetValue(name, out var owner))
                 {
                     problems.Add($"口 '{name}' 同时属于角色 '{owner}' 与 '{role.Id}'（一个口最多属于一个角色）");
@@ -355,6 +375,34 @@ public static class ModuleContract
 
                 claimed[name] = role.Id;
                 _ = withRoles.Add(name);
+            }
+
+            validRoleCount++;
+        }
+
+        // 【B5 · 2026-09 裁定】"口 → 角色归属"的完整性**只给建议、不进 Problems、运行期不报**：
+        // 与"口数 > 2 只给建议"同一口径（ADR-0052 Q3）—— 在自家正确模块的 Issue 中心报警，
+        // 用户会以为模块写错了；而 ADR-0052 的措辞是"**应当**"（不是"必须"），故不得升级为错误。
+        // 两条规则分别对应：① 有数据口却零（有效）角色 ⇒ 叠加层不画任何功能块；
+        //                   ② 有角色，但某些口没有归属 ⇒ 那些口在叠加层上没有方块。
+        if (ports.Count > 0 && validRoleCount == 0)
+        {
+            advice.Add(
+                $"建议：本模块声明了 {ports.Count} 个数据口，但**没有任何有效的角色声明** —— " +
+                "叠加层不会画功能块，用户看不到\"这个模块内部有哪几块功能\"；请为每块处理功能声明一个角色（DeclareRole）");
+        }
+        else if (validRoleCount > 0)
+        {
+            var orphans = ports
+                .Where(p => !withRoles.Contains(p.Name))
+                .Select(p => $"'{p.Name}'")
+                .ToList();
+
+            if (orphans.Count > 0)
+            {
+                advice.Add(
+                    $"建议：口 {string.Join("、", orphans)} **不属于任何角色** —— 这些口在叠加层上没有归属方块；" +
+                    "若它们与某块功能是一件事，请把口名加进该角色的输入/输出口");
             }
         }
     }

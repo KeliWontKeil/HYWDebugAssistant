@@ -57,6 +57,15 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     ];
 
     /// <inheritdoc />
+    public IReadOnlyList<InputFeedbackView> GetInputFeedback(string instanceId) =>
+        // 设计时样例：给输入元素一个失败态样本（G3 红框的设计时可见性）
+        instanceId switch
+        {
+            "inputs-1" => [new("input", Succeeded: false, Message: "示例：处理失败")],
+            _ => [],
+        };
+
+    /// <inheritdoc />
     public IReadOnlyList<RoleView> GetRoles(string instanceId) => instanceId switch
     {
         // 设计时样例：发送器 = 一个纯源功能块；显示器 = 一个纯汇功能块（`m/n` 用 `--` 表示"没有那一侧"）。

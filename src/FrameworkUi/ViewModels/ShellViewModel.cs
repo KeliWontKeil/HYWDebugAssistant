@@ -522,6 +522,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
             case HotkeyCatalog.ToggleMarkers: ToggleMarkersCommand.Execute(null); break;
             case HotkeyCatalog.ToggleSnap: ToggleSnapCommand.Execute(null); break;
             case HotkeyCatalog.ToggleLockAll: AllLocked = !AllLocked; break;
+            case HotkeyCatalog.ToggleAnchorFixed: Windows.ToggleAllAnchorsFixed(); break;
             case HotkeyCatalog.ToggleAppTopmost: ToggleAppTopmostCommand.Execute(null); break;
             case HotkeyCatalog.RaiseAllWindows: RaiseAllWindowsCommand.Execute(null); break;
             case HotkeyCatalog.ShowAllWindows: ShowAllWindowsCommand.Execute(null); break;

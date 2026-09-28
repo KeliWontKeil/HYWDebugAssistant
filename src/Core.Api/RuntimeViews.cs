@@ -9,7 +9,15 @@ namespace HYWDebugAssistant.Core.Api;
 /// <param name="IsConnected">是否已加入网络。</param>
 /// <param name="IsStalled">是否停流（合法状态）。</param>
 /// <param name="AnchorOffset">端口在所属边缘上的归一化位置（0–1；**端口几何**，随组合件保存）。</param>
-/// <param name="IsAnchorLocked">端口位置是否被锁定（锁定 = 模块拉伸时按比例重排，不可拖动）。</param>
+/// <param name="IsAnchorFixed">
+/// 锚点是否「**固定**」—— 固定 ⇒ **不可拖动**（模块拉伸时按比例重排；`Offset` 归一化，天然如此）。
+/// **与「模块窗口锁定」不是一回事**（后者是整个模块不可移动、不可缩放）⇒ 用词一律「固定」（用户 2026-09 裁定）。
+/// <para>
+/// 这里是**已解析的有效值**（G5 · C5-7）：<c>PortGeometryView.IsAnchorFixed</c>（用户设置）优先，
+/// 未设置 ⇒ 取模块声明的 <c>PortDeclaration.AnchorDraggable</c>（默认 <see langword="false"/> = 固定）。
+/// 界面只读这一个值 —— **不要再**自己去合流两个来源（那就是"同一事实两个来源"）。
+/// </para>
+/// </param>
 /// <param name="NetworkLabel">
 /// 端口**网络标签**（ADR-0034：用户可见的唯一建网机制）；同名标签的发送口与接收口自动连成命名网络。
 /// </param>
@@ -24,10 +32,19 @@ public sealed record PortView(
     bool IsConnected,
     bool IsStalled,
     double AnchorOffset = 0.5,
-    bool IsAnchorLocked = false,
+    bool IsAnchorFixed = false,
     string? NetworkLabel = null,
     string? ContractText = null)
 {
+    /// <summary>
+    /// 该口的**有效挂载边**（G5 · C5-7）——**永远是具体边**，不会是 <c>Auto</c>。
+    /// </summary>
+    /// <remarks>
+    /// 取值优先级：**用户在画布上拖动后的覆盖**（`PortGeometryView.Edge`）优先于**模块声明的默认边**
+    /// （`PortDeclaration.Edge`，`Auto` 时按数据流惯例解析为"发送右 / 接收左"）。
+    /// **只用于呈现**（标记贴哪条边、横排还是竖排）——不参与建网/兼容/停流/投递/计量。
+    /// </remarks>
+    public HYWDebugAssistant.Sdk.Ports.PortEdge Edge { get; init; } = HYWDebugAssistant.Sdk.Ports.PortEdge.Left;
     /// <summary>
     /// **该口声明的类型身份**（`标识@版本`；未声明或引用不可解析 ⇒ <see langword="null"/>）【ADR-0048 R2】。
     /// </summary>
@@ -158,6 +175,18 @@ public sealed record ModuleInstanceView(
     bool IsPlaceholder = false,
     HYWDebugAssistant.Sdk.Views.ViewDeclaration? View = null);
 
+/// <summary>
+/// 某个**输入元素**的最近一次**处理结果**（G3 · 用户 2026-09 裁决；经 <c>IRuntimeQuery.GetInputFeedback</c> 取得）。
+/// </summary>
+/// <param name="SourceName">输入元素的数据源名（= 视图声明里该元素的 <c>DataSource</c>）。</param>
+/// <param name="Succeeded">是否处理成功（false ⇒ UI 渲染失败态）。</param>
+/// <param name="Message">模块给的呈现文本（框架**不理解**其语义；null = 留白）。</param>
+/// <remarks>
+/// **只呈现**：不参与建网/兼容/停流/投递/计量，**不进组合件**（纯运行期状态）。
+/// 生命周期 = "**下一次提交即刷新**"（框架在投递入队时清除旧结果）。
+/// </remarks>
+public sealed record InputFeedbackView(string SourceName, bool Succeeded, string? Message);
+
 /// <summary>网络视图。</summary>
 /// <param name="Name">网络名（匿名网络为空串）。</param>
 /// <param name="IsAnonymous">是否匿名（直连）。</param>
@@ -230,16 +259,36 @@ public sealed record ModuleLayoutView(
 /// <summary>端口几何（用户在边缘上调整过的位置；未调整时为默认值）。</summary>
 /// <param name="PortName">口名。</param>
 /// <param name="Offset">在所属边缘上的归一化位置（0–1）。</param>
-/// <param name="IsLocked">是否锁定（锁定后不随模块拉伸重排，也不可拖动）。</param>
+/// <param name="IsAnchorFixed">
+/// **用户对锚点「固定」的覆盖**（G5 · C5-7）：固定 ⇒ **不可拖动**（模块拉伸时锚点按比例重排 —— `Offset` 是归一化的，天然如此）。
+/// **与「模块窗口锁定」不是一回事**：后者是整个模块不可移动、不可缩放（ADR-0041 D1）。
+/// 用词一律「固定」，不用「锁定」（用户 2026-09 裁定，见 `decisions.md` 7.14）。
+/// <para>
+/// <b>三态</b>（与 <see cref="Edge"/> 的 <c>Auto</c> 同一手法 —— 只是布尔没有哨兵值，故用 <see langword="null"/>）：
+/// <list type="bullet">
+///   <item><see langword="null"/> = **用户没设置过** ⇒ 该口是否可拖由**模块声明**
+///     <c>PortDeclaration.AnchorDraggable</c>（默认 <see langword="false"/> = 固定）决定；**缺省不写**；</item>
+///   <item>具体值 = **用户设过**（拖动 / 全局「固定 / 解锁端口锚点」快捷键）⇒ 覆盖模块声明，随组合件保存。</item>
+/// </list>
+/// 少了"未设置"这一态，全局快捷键就无法解锁"模块声明为固定"的口（要么快捷键说谎，要么模块声明失效）——
+/// 两种坏结果都真实存在，故必须三态。
+/// </para>
+/// </param>
 /// <param name="Label">
 /// **端口网络标签**（ADR-0034：用户可见的唯一建网机制）——
 /// 同名标签的发送口与接收口**自动连成一条命名网络**；空 = 未命名（不参与命名网络）。
 /// </param>
+/// <param name="Edge">
+/// **用户在画布上拖动后的挂载边覆盖**（G5 · C5-7）：<see cref="HYWDebugAssistant.Sdk.Ports.PortEdge.Auto"/> = **无覆盖**
+/// ⇒ 该口的边由**模块声明**决定（见 `PortView.Edge` 的有效值）。
+/// **刻意与 `Offset` 分开**：`Auto` 表示"用户没拖过边"，从而让"模块声明的默认边"继续生效。
+/// </param>
 public sealed record PortGeometryView(
     string PortName,
     double Offset = 0.5,
-    bool IsLocked = false,
-    string? Label = null);
+    bool? IsAnchorFixed = null,
+    string? Label = null,
+    HYWDebugAssistant.Sdk.Ports.PortEdge Edge = HYWDebugAssistant.Sdk.Ports.PortEdge.Auto);
 
 /// <summary>
 /// 订阅数据源视图（UI 交接，Q4-4）：模块声明了什么、缓冲是什么形态、写入与覆盖计数。

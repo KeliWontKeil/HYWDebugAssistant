@@ -63,7 +63,7 @@
 | **T3** 核心机制 | `Tests` | ChangeSet 原子性（含"Prepare 失败零副作用"）、增量重建、资源释放 | ChangeSet 原子性、增量重建、资源释放（承载/订阅/绑定/布局随实例移除清理，空现场可复用） | ✅ |
 | **T4** 持久化 | `Tests` | round-trip、版本迁移、缺失/损坏、未知字段保真、原子写 | round-trip、版本、缺失（占位+重锚）、损坏（部分恢复）、不可解析（拒绝并保护原文件）、片段逐层保真、应用级设置 | ✅ |
 | **T5** 故障注入 | `Tests` | 异常不逸出、慢消费丢帧、**停止超时路径**（孤儿线程 + Issue）、队列满丢旧 | 同左 | ✅ |
-| **T6** 模块契约测试套件 | 独立测试包 `HYWDebugAssistant.Sdk.Testing`（以包分发，避免污染 `Sdk` 的零依赖约束；亦可作为源码模板提供）；参考模块自检用例落在 `Tests.Reference`（门禁计数口径写作"T1/T6 参考"） | 声明完整性 / 原语合法性 / 钩子实现 / 无跨模块引用 | `ModuleContract` 契约自检 + `TestModuleContext` 模块级夹具；参考模块自检（含"故意写坏"的反例） | ✅ **提供且推荐（不强制，用户裁决 Q6-4）** |
+| **T6** 模块契约测试套件 | 独立测试包 `HYWDebugAssistant.Sdk.Testing`（以包分发，避免污染 `Sdk` 的零依赖约束；亦可作为源码模板提供）；参考模块自检用例落在 `Tests.Reference`（门禁计数口径写作"T1/T6 参考"） | 声明完整性 / 原语合法性 / 钩子实现 / 无跨模块引用 / **角色两侧同型（α，2026-09 补）** | `ModuleContract` 契约自检 + `TestModuleContext` 模块级夹具；参考模块自检（含"故意写坏"的反例：`MixedTypeRoleModule` 反例 · `ConverterModule` 正例 · `UntypedPortRoleModule` 不校验态） | ✅ **提供且推荐（不强制，用户裁决 Q6-4）** |
 | **T7** UX 手工/原型 | 人工 | 排版、网络标签、建网体验 | 由 `docs/implementation/04-m1-manual-acceptance.md` 承载（本册只引用） | ✅（手工） |
 | **T8** UI 自动化 | —（`Avalonia.Headless` 已选型） | UI 自动化回归 | — | ❌ **v1 不做**（留 Gate，用户裁决 Q6-3） |
 
@@ -217,14 +217,17 @@
 
 | 项目 | 承载 | 职责 | 最近记录数量 |
 |---|---|---|---|
-| `tests/HYWDebugAssistant.Tests` | T2、T3、T4、T5（+ 无头 UI 测试） | 契约兼容矩阵、建网两机制、ChangeSet 原子性、增量重建、资源释放、持久化 round-trip、故障注入；引用 `Core`/`Hosting`/`DataPlane`/`Sdk`/`Infrastructure`（测试可跨层） | **308** |
-| `tests/HYWDebugAssistant.Tests.Reference` | T1（+ T6 参考模块自检） | AC-1~6 判据测试 + 参考组合端到端；引用框架 + `Modules.Reference.*` | **38** |
+| `tests/HYWDebugAssistant.Tests` | T2、T3、T4、T5（+ 无头 UI 测试） | 契约兼容矩阵、建网两机制、ChangeSet 原子性、增量重建、资源释放、持久化 round-trip、故障注入；引用 `Core`/`Hosting`/`DataPlane`/`Sdk`/`Infrastructure`（测试可跨层） | **341** |
+| `tests/HYWDebugAssistant.Tests.Reference` | T1（+ T6 参考模块自检） | AC-1~6 判据测试 + 参考组合端到端；引用框架 + `Modules.Reference.*` | **43** |
+| `tests/HYWDebugAssistant.Modules.Tests` | T1（+ T6 业务模块自检） | **业务模块**的契约自检 + 模块级测试（集中一个项目，**每模块一个测试项目已否决** → `implementation/06` §C.4）；引用 `Sdk` + `Sdk.Testing` + 各业务模块 | **0**（待第一批模块落地） |
 | `tests/HYWDebugAssistant.ArchitectureTests` | 架构规则集 | AR-0~AR-16（依赖方向禁令 + 源码级规则）；**不引用产品项目**，经程序集元数据与源码读取分析 | **10**（= §4 的 10 项规则实现） |
-| `tests/HYWDebugAssistant.VisualSnapshots` | 渲染冒烟 / 观感自检（**非 T8**） | 真实 Skia 无头渲染 → PNG（落在 `%TEMP%\hyw-overlay-snapshot\`）：调 UI 时直接打开 PNG 看，不必启动应用 | **2**（当轮记录的快照用例数；以实跑为准） |
+| `tests/HYWDebugAssistant.VisualSnapshots` | 渲染冒烟 / 观感自检（**非 T8**） | 真实 Skia 无头渲染 → PNG：**叠加层/调色板**在 `%TEMP%\hyw-overlay-snapshot\`、**标签条（G1）**在 `%TEMP%\hyw-tab-snapshot\`、**端口锚点按钮（G5）**在 `%TEMP%\hyw-anchor-snapshot\`（**各自持目录**，避免被前者的 `Directory.Delete` 清掉）；调 UI 时直接打开 PNG 看，不必启动应用 | **6**（当轮记录的快照用例数；以实跑为准） |
 | `tests/HYWDebugAssistant.Benchmarks` | Gate B 数值实测 | 按 `04a` §5 清单；**不进常规门禁**（`build.ps1 -RunBenchmarks` 按需运行） | 基准（非 xUnit 用例） |
 | `src/Sdk.Testing` | T6 契约测试套件 | `ModuleContract` 自检 + `TestModuleContext` 夹具；**只引 `Sdk`、不引任何测试框架**，供模块作者自检 | — |
 
-**记录口径**：最近一次**分层回归**记录 = `Tests` 308 · `Tests.Reference` 38 · 架构 10 · 快照 2（合计 **358 全绿**，当轮 **T3 未跑**）；最近一次**完整门禁**记录见 §5.3（**366 通过 / 0 失败**）。两者是不同时点的快照（其间有测试被改写/删除），**当前实数以 `build.ps1` 实跑输出为准**，不以本表数字为准。
+**记录口径**：最近一次**全项目串行回归**记录（2026-09 · **G1 标签页 + G2 多行输入 + G3 输入失败态 + G4 文件选择器 + G5 端口锚点落地**）= `Tests` **341** · `Tests.Reference` **43**（本轮那条**已知偶发**触发过一次，**按登记口径重跑整项目即通过**，见 `../roadmap.md` §3 第 14 项）· 架构 **10** · 快照 **6** · `Modules.Tests` **0**（待第一批模块）＝ **400 通过 / 0 失败**。
+**测试项目必须逐个串行跑**（`dev.ps1 -Mode Test -AllTests` 与 `build.ps1` 已按此实现）：`VisualSnapshots` 的 `AvaloniaHeadlessPlatform` 是**进程级**配置，与其它项目并发会互相破坏真实 Skia 渲染 ⇒ 假失败（F 裁定 · 2026-09）。
+**当前实数一律以 `build.ps1` 实跑输出为准**，不以本表数字为准。
 
 **参考模块（判据与手工验收的载体）全集 = 六个**：`DataGenerator` · `Recorder` · `Asserter`（三个判据桩）+ `ManualSender`（手动数据发送器）+ `Monitor`（信息显示）+ `Fuser`（多源融合器，两入一出，策略 Latest/Priority/Average）。前五个随 M1-15/M1-16 落地；`Fuser` 由 ADR-0050 R5 落地（"多源 → 合并 → 再发布"范例）。〔源: architecture/08 §M1-12/M1-15 + architecture/18 §8.12 R5 + 代码 src/Modules/Reference〕
 

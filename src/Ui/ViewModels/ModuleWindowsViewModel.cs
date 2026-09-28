@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Ui.Controls;
 using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.Runtime;
@@ -158,6 +159,17 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     [ObservableProperty]
     public partial bool SnapEnabled { get; set; } = true;
 
+    /// <summary>
+    /// **多行文本输入的提交键**（G2 · 2026-09）——应用级设置 `multilineSubmitKey` 的镜像，
+    /// 由本类下发到每个模块窗口（与 <see cref="ShowInfoOverlay"/> 同一条路径）。
+    /// </summary>
+    /// <remarks>
+    /// 三档：<c>CtrlEnter</c>（默认：回车换行 / Ctrl+Enter 提交 / 失焦不提交）· <c>Enter</c>（回车提交 / Shift+Enter 换行）·
+    /// <c>None</c>（键盘都不提交）。**只影响多行输入**；单行输入仍是"回车 / 失焦一次提交"（ADR-0040 D-5）。
+    /// </remarks>
+    [ObservableProperty]
+    public partial string MultilineSubmitKey { get; set; } = "CtrlEnter";
+
     /// <summary>拖动中的吸附辅助线（屏幕坐标）。</summary>
     [ObservableProperty]
     public partial IReadOnlyList<GuideLine> Guides { get; set; } = [];
@@ -258,6 +270,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         foreach (var module in Modules)
         {
             module.ShowInfoOverlay = ShowInfoOverlay;
+            module.MultilineSubmitKey = MultilineSubmitKey;
 
             foreach (var marker in module.Ports)
             {
@@ -1032,6 +1045,225 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         marker.IsEditing = false;
     }
 
+    // ---------------------------------------------------------------- 端口锚点（G5 · C5-7）
+
+    /// <summary>
+    /// **提交端口锚点几何**（拖动松手时调用）：边缘 + 偏移 + 固定标志**一次写全**。
+    /// </summary>
+    /// <param name="module">所属模块视图。</param>
+    /// <param name="marker">端口标记（其 <c>Edge</c>/<c>Offset</c>/<c>IsAnchorFixed</c> 已是**拖动后的目标值**）。</param>
+    /// <param name="fromEdge">拖动前的边缘（失败时回滚用）。</param>
+    /// <param name="fromOffset">拖动前的偏移（失败时回滚用）。</param>
+    /// <returns>结果文本（成功/失败原因）。</returns>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>**为什么一次写全**：`WorkspaceLayout.SetPort` 是**整条替换**（不是字段合并）⇒ 只写偏移会把
+    ///     标签、固定标志、默认边一起抹掉。故这里从标记读回全套字段，语义上**必须**如此（踩过：组合件里
+    ///     `Label` 为 null 就清掉了网络名）。</item>
+    ///   <item>失败时**就地回滚**到拖动前的位置（不像标签编辑可以"保持打开让用户改"—— 拖动没有输入框），
+    ///     并把原因送到状态栏，用户不会看到"标记跳到了新位置但重启后又回去了"。</item>
+    /// </list>
+    /// </remarks>
+    public string MovePortAnchor(
+        ModuleViewViewModel module,
+        PortMarkerViewModel marker,
+        PortEdge fromEdge,
+        double fromOffset)
+    {
+        ArgumentNullException.ThrowIfNull(module);
+        ArgumentNullException.ThrowIfNull(marker);
+
+        // 拖动不改「固定」态 ⇒ 回滚目标就是当前值
+        var ok = TryWriteAnchorGeometry(
+            module,
+            marker,
+            fromEdge,
+            fromOffset,
+            marker.IsAnchorFixed,
+            out var failure,
+            out var notices);
+
+        var message = ok
+            ? $"{module.Title} · {marker.PortName}：锚点已移到{EdgeText(marker.Edge)}（位置 {marker.Offset:0.00}）"
+                + (notices.Length > 0 ? $" —— {notices}" : string.Empty)
+            : $"{module.Title} · {marker.PortName}：锚点未移动 —— {failure}";
+
+        RaiseNotice(message, isError: !ok);
+        return message;
+    }
+
+    /// <summary>
+    /// **端口锚点几何的唯一写入路径**（拖动落位、单口固定/解锁、全局批量都走它）。
+    /// </summary>
+    /// <param name="module">所属模块视图。</param>
+    /// <param name="marker">端口标记（其当前 <c>Edge</c>/<c>Offset</c>/<c>IsAnchorFixed</c> 即**目标值**）。</param>
+    /// <param name="fromEdge">写之前的值（失败时回滚）。</param>
+    /// <param name="fromOffset">写之前的值（失败时回滚）。</param>
+    /// <param name="fromFixed">写之前的「固定」态（失败时回滚）。</param>
+    /// <param name="failure">失败原因（成功时为空串）。</param>
+    /// <param name="notices">框架的附带说明（`CommandResult.Notices` 拼成的一段文本；无则空串）。</param>
+    /// <returns>是否写入成功。</returns>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>为什么一次写全</b>：`WorkspaceLayout.SetPort` 是**整条替换**（不是字段合并）⇒ 只写一个字段会把
+    ///     标签、固定标志、边、偏移一起抹掉。故这里从标记读回全套字段（踩过：`Label` 传 null 就清掉了网络名）。</item>
+    ///   <item><b>为什么失败要回滚</b>：本地呈现**绝不能**停留在"写不进去"的状态 ——
+    ///     否则用户看到标记跳到了新位置，重启后又回去了（比当场拒绝更糟）。</item>
+    ///   <item><b>发提示不在这里</b>：批量切换要发一条汇总 ⇒ 报告职责归调用方。</item>
+    /// </list>
+    /// </remarks>
+    private bool TryWriteAnchorGeometry(
+        ModuleViewViewModel module,
+        PortMarkerViewModel marker,
+        PortEdge fromEdge,
+        double fromOffset,
+        bool fromFixed,
+        out string failure,
+        out string notices)
+    {
+        var geometry = new PortGeometryView(
+            marker.PortName,
+            marker.Offset,
+            marker.IsAnchorFixed,
+            marker.Label,
+            marker.Edge);
+
+        var result = _command.UpdatePortGeometry(module.InstanceId, geometry);
+
+        if (result.Succeeded)
+        {
+            failure = string.Empty;
+            notices = result.Notices.Count > 0 ? string.Join("；", result.Notices) : string.Empty;
+            return true;
+        }
+
+        marker.Edge = fromEdge;
+        marker.Offset = fromOffset;
+        marker.IsAnchorFixed = fromFixed;
+        failure = string.Join("；", result.Failures);
+        notices = string.Empty;
+        return false;
+    }
+
+    /// <summary>
+    /// **固定 / 解锁单个端口锚点**（G5 · C5-7：C5-7 的"可通过快捷键/**操作**锁定与解锁"里的"操作"）。
+    /// </summary>
+    /// <param name="module">所属模块视图。</param>
+    /// <param name="marker">端口标记。</param>
+    /// <param name="fixedState">目标状态（true = 固定）。</param>
+    /// <returns>结果文本（送状态栏）。</returns>
+    /// <remarks>
+    /// 与 <see cref="MovePortAnchor"/> **共用同一条纪律**：整条几何一次写全（`SetPort` 是整条替换）、
+    /// 失败就地回滚（本地呈现绝不停留在"写不进去"的状态）。
+    /// 它是 <see cref="ToggleAllAnchorsFixed"/>（全局批量）的**单口版**；两者都不改"模块声明"，
+    /// 只写**用户覆盖**。
+    /// </remarks>
+    public string SetPortAnchorFixed(ModuleViewViewModel module, PortMarkerViewModel marker, bool fixedState)
+    {
+        ArgumentNullException.ThrowIfNull(module);
+        ArgumentNullException.ThrowIfNull(marker);
+
+        if (marker.IsAnchorFixed == fixedState)
+        {
+            return string.Empty;   // 已经是目标状态：不产生无意义的写与提示
+        }
+
+        var ok = TryWriteAnchorFixed(module, marker, fixedState, out var failure);
+        var message = ok
+            ? fixedState
+                ? $"{module.Title} · {marker.PortName}：锚点已固定（不可拖动）"
+                : $"{module.Title} · {marker.PortName}：锚点已解锁（可拖动）"
+            : $"{module.Title} · {marker.PortName}：固定状态未改变 —— {failure}";
+
+        RaiseNotice(message, isError: !ok);
+        return message;
+    }
+
+    /// <summary>**只改「固定」态**：把目标值写在标记上，再走通用写入（回滚目标 = 取反）。</summary>
+    /// <param name="module">所属模块视图。</param>
+    /// <param name="marker">端口标记。</param>
+    /// <param name="fixedState">目标状态。</param>
+    /// <param name="failure">失败原因（成功时为空串）。</param>
+    /// <returns>是否写入成功。</returns>
+    private bool TryWriteAnchorFixed(
+        ModuleViewViewModel module,
+        PortMarkerViewModel marker,
+        bool fixedState,
+        out string failure)
+    {
+        var fromEdge = marker.Edge;
+        var fromOffset = marker.Offset;
+        marker.IsAnchorFixed = fixedState;
+        return TryWriteAnchorGeometry(module, marker, fromEdge, fromOffset, !fixedState, out failure, out _);
+    }
+
+    /// <summary>
+    /// **全局切换端口锚点「固定 / 解锁」**（C5-7 的"可通过快捷键/操作锁定与解锁"，G5）。
+    /// </summary>
+    /// <returns>结果文本（送状态栏）。</returns>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>**全局**（全部模块的全部端口**统一**取反）：与"全部锁定 / 解锁"模块窗口同一口味，
+    ///     单口固定留给模块声明（`PortDeclaration.AnchorDraggable = false`）；</item>
+    ///   <item>取反基准 = **当前所有口是否都已固定**：全固定 ⇒ 解锁全部，否则 ⇒ 固定全部
+    ///     （否则混状态下用户按一次只翻转了一半，第二次才齐 —— 反直觉）。</item>
+    /// </list>
+    /// </remarks>
+    public string ToggleAllAnchorsFixed()
+    {
+        var markers = Modules.SelectMany(m => m.Ports).ToList();
+
+        if (markers.Count == 0)
+        {
+            const string empty = "端口锚点：当前没有端口";
+            RaiseNotice(empty);
+            return empty;
+        }
+
+        // 全固定 ⇒ 这次是"解锁"；否则（含混合态）⇒ 这次是"固定"
+        var target = !markers.All(m => m.IsAnchorFixed);
+        var changed = 0;
+        var failed = 0;
+
+        foreach (var module in Modules)
+        {
+            foreach (var marker in module.Ports)
+            {
+                if (marker.IsAnchorFixed == target)
+                {
+                    continue;
+                }
+
+                if (TryWriteAnchorFixed(module, marker, target, out _))
+                {
+                    changed++;
+                }
+                else
+                {
+                    failed++;
+                }
+            }
+        }
+
+        var text = target
+            ? $"端口锚点：已固定 {changed} 个（不可拖动）" + (failed > 0 ? $"，{failed} 个失败" : string.Empty)
+            : $"端口锚点：已解锁 {changed} 个（可拖动）" + (failed > 0 ? $"，{failed} 个失败" : string.Empty);
+
+        RaiseNotice(text, isError: failed > 0);
+        return text;
+    }
+
+    /// <summary>边缘的界面用语。</summary>
+    /// <param name="edge">边缘。</param>
+    private static string EdgeText(PortEdge edge) => edge switch
+    {
+        PortEdge.Right => "右边",
+        PortEdge.Top => "上边",
+        PortEdge.Bottom => "下边",
+        PortEdge.Left => "左边",
+        _ => "默认边",
+    };
+
     /// <summary>
     /// **还原模块**【用户第十一轮反馈 · 替代原「暂停」】：回到默认尺寸，可选连配置一起还原。
     /// </summary>
@@ -1333,6 +1565,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         // 吸附距离（设置项，默认 4，2–8）：在线即时生效 —— 每次刷新同步一次，拖动时按它取容差
         SnapDistance = Math.Clamp(_query.GetSettings().SnapDistance, 2, 8);
+
+        // 多行输入提交键（G2，设置项，默认 CtrlEnter）：**在线即时生效** —— 每次刷新同步一次，
+        // 再由 `RefreshOverlayPeers()` 下发到各模块窗口（与叠加层开关同一条路径）
+        MultilineSubmitKey = _query.GetSettings().MultilineSubmitKey;
 
         _sources.Clear();
         foreach (var source in _query.GetSubscriptionSources())

@@ -9,10 +9,11 @@
 ```
 上位机架构设计.md              ← ① 验收唯一事实源（冻结结论 + 边界与 Gate）
 docs/
-├─ README.md                   ← 你在这里：入口、权威层级、维护规则
-├─ decisions.md                ← ② 现行决策表（7 类约 55 条）+ 关键取证索引（R1–R15）+ 架构例外登记
-├─ architecture/               ← ③ 现行分册 11 份（"具体怎么做"）
-│   ├─ 00-architecture-index.md      分册索引：每份管什么、何时看、跨册边界、改动同步表
+├─ README.md                   ← 你在这里：入口、权威层级、阅读顺序、维护规则指针
+├─ DOC-WORKFLOW.md             ← ② **文档工作流**（编辑/同步对照表/归档/审计门禁/标记体系）——"文档自己怎么管"的唯一落点
+├─ decisions.md                ← ③ 现行决策表（7 类约 55 条）+ 关键取证索引（R1–R15）+ 架构例外登记
+├─ architecture/               ← ④ 现行分册 11 份（"具体怎么做"）
+│   ├─ 00-architecture-index.md      分册索引：每份管什么、何时看、跨册边界（同步表已收进 DOC-WORKFLOW §2）
 │   ├─ 01-layering-and-projects.md   七层与依赖链、项目结构、App 白名单
 │   ├─ 02-module-sdk.md              SDK 公开面、声明式视图、线程与投递、不做清单
 │   ├─ 03-data-protocol-and-typing.md 数据单元、形状=契约、类型注册、兼容规则
@@ -23,14 +24,15 @@ docs/
 │   ├─ 08-application-settings.md    设置键清单（唯一来源）与生效规则
 │   ├─ 09-test-and-gate.md           判据、测试分层、架构规则集、门禁与里程碑
 │   └─ 10-delivery-and-ops.md        交付、构建、许可门禁、诊断
-├─ implementation/             ← ④ 工程纪律：怎么写字、工程基线（P 踩坑表）、开发流程、手工验收清单
-├─ skills/                     ← ⑤ 可迁移的方法（与本项目解耦，可交给任何 AI 工具）
-├─ roadmap.md                  ← ⑥ 状态唯一源：当前阶段、未完成项、落地缺口
-└─ archive/                    ← ⑦ 历史材料（不作为依据；每份头部有"⚠ 历史材料 + 现行锚点"）
+├─ implementation/             ← ⑤ 工程纪律：怎么写字（01）、工程基线 P 表（02）、开发流程（03）、手工验收清单（04）、**双轨开发工作流（05）**、**模块标准与开发流程（06）**
+├─ modules/                    ← ⑥ **模块文档：一模块一页**（清单页 + `_模板.md`）；"这个模块是什么"看这里，"做到哪了"看 roadmap
+├─ roadmap.md                  ← ⑦ 状态唯一源：当前阶段、未完成项、落地缺口、模块开发状态
+└─ archive/                    ← ⑧ 历史材料（不作为依据；每份头部有"⚠ 历史材料 + 现行锚点"）
     ├─ adr/                    54 个 ADR 原文 + ADR 历史索引
     ├─ architecture/           收敛前的旧分册
     ├─ implementation/         重写前的旧工程文档
     ├─ technology-selection/   选型论证
+    ├─ modules-<年-月>/        退役/归档的模块文档（DOC-WORKFLOW §3.2）
     └─ roadmap.md / changelog.md / decisions.md（旧） / reorg-2026-09（本轮审计报告）
 ```
 
@@ -43,9 +45,10 @@ docs/
 | **结论**（这个系统是什么、边界在哪） | **主文档 `上位机架构设计.md`** ← 验收唯一事实源 |
 | **为什么这么定**（决定 + 取证 + 例外） | `decisions.md` |
 | **具体怎么做**（分层/协议/机制/网络/UI/设置/测试/交付） | `architecture/` 各分册（索引见 `architecture/00-architecture-index.md`） |
-| **怎么写代码/怎么跑验证** | `implementation/`（+ 代码仓库的 `DEVELOPMENT.md`、`LESSONS.md`、`UI-ADJUST.md`） |
-| **方法（跨项目可复用）** | `skills/` |
-| **到哪了 / 还差什么** | `roadmap.md`（状态唯一源，含**落地缺口**清单） |
+| **怎么写代码/怎么跑验证** | `implementation/`（**双轨工作流见 `implementation/05`**）+ 代码仓库的 `DEVELOPMENT.md`、`LESSONS.md`、`UI-ADJUST.md` |
+| **方法（跨项目可复用）** | **`.dsh/skills/`**（原 `docs/skills/`，2026-09 移至此处以便 DSH 发现；**与本项目解耦**，可交给任何 AI 工具；由用户显式跟踪） |
+| **这个模块是什么** | `modules/<模块标识>.md`（一模块一页；清单 `modules/README.md`） |
+| **到哪了 / 还差什么** | `roadmap.md`（状态唯一源，含**落地缺口**与**模块开发状态**） |
 | **历史与被否决方案** | `archive/`（**不作为依据**） |
 
 **一句话**：**结论看主文档 · 为什么看 decisions · 怎么做看分册 · 怎么写看 implementation · 到哪了看 roadmap · 历史看 archive。**
@@ -57,8 +60,8 @@ docs/
 | 我是谁 / 我要做什么 | 顺序 |
 |---|---|
 | **第一次接手** | 主文档 §1–§3、§18 → `architecture/00` → `01` → `03` → `04` → `09` → `roadmap.md` |
-| **写一个新模块** | `architecture/02` → `03` → `05` → `implementation/01` → 参考模块代码 |
-| **改界面观感** | `architecture/07` → `06` → `skills/ui-rendering-and-third-party-control-discipline` |
+| **写一个新模块** | `implementation/06`（**模块标准与七阶段流程**）→ `implementation/05`（走哪条轨）→ `architecture/02` → `03` → `architecture/05` → `modules/_模板.md` → **空模板**（`src/Modules/Templates/`，**不从参考模块抄**） |
+| **改界面观感** | `architecture/07` → `06` → `.dsh/skills/ui-rendering-and-third-party-control-discipline`（**仓库根**） |
 | **动建网/数据面** | `architecture/05` → `03` → `04` → `09`（这类改动必须跑完整门禁） |
 | **加设置项** | `architecture/08` → 主文档 §9.5 → `decisions.md` |
 | **修 bug** | `roadmap.md` 落地缺口 → 相关分册 → `implementation/02` 的 P 踩坑表 |
@@ -66,24 +69,21 @@ docs/
 
 ---
 
-## 4. 维护规则（改文档前先读这段）
+## 4. 维护规则（**全文在 `DOC-WORKFLOW.md`**）
 
-1. **单一事实源**：一处事实只在一个文件里写全，其它地方给**指针**。跨册边界见 `architecture/00-architecture-index.md` §1。
-2. **失效信息搬家，不与生效结论共存**：被推翻的写法**移出**现行路径，进 `archive/` 并加"⚠ 历史材料 + 现行锚点"标记。
-3. **绝不丢失有效信息**：删/合并前确认内容在别处仍有承载；"只此一处且有指导意义"的（实测数值、边界条件、被否决方案的理由）**必须留下**。
-4. **改设计 = 三处同步**：`decisions.md`（决定级）+ **回写主文档**（验收事实源 + 修订记录 +1）+ 相关分册。
-5. **例外必须登记**：代码注释 `// ARCH-EXCEPTION: <原因> · <复查条件>` **并**登记到 `decisions.md` §3。
-6. **数值唯一**：字号/尺寸/容差/阈值在现行文档里只允许一个取值；两代值并存必须按显式取代标记取新值，否则标 `【待裁】`。
-7. **状态只在一处**：进度与缺口只写在 `roadmap.md`；分册不写进度。
-8. **手工验收清单有生命周期**：里程碑收尾即冻结归档，下一个里程碑另起文件（不在同一文件上叠修订版）。
+> **文档自己怎么管** —— 单一事实源 · 失效信息搬家 · **改动同步对照表** · 归档规程 · 审计门禁 · 标记体系（`【待裁】`/`【待评估】`）· 提案→裁决→回写循环 —— **唯一落点是 `DOC-WORKFLOW.md`**。
+> 本节原先的 11 条规则已**整体收敛进该文件**（内容一条未丢），此处只留最短指针，避免两处各写一遍。
 
-完整的"改什么 → 必须更新哪些文件"对照表在 `architecture/00-architecture-index.md` §4。
+| 我要做的事 | 去哪 |
+|---|---|
+| 改了东西，要知道**该同步哪些文件** | `DOC-WORKFLOW.md` §2（**唯一对照表**；`architecture/00` §4 与 `implementation/03` §4 的旧表已并入） |
+| 要**归档 / 搬迁**内容（含退役模块） | `DOC-WORKFLOW.md` §3（退役模块 → `docs/archive/modules-<年-月>/`） |
+| 跑**审计**、处理 FAIL | `DOC-WORKFLOW.md` §4 —— 命令 `pwsh -NoProfile -File .\docs\tools\audit-docs.ps1`；**已挂进 `build.ps1` 第 1/5 步** |
+| 用 `【待裁】` / `【待评估】` / `【待细化】` 标记 | `DOC-WORKFLOW.md` §5（**必须登记到 `roadmap.md` §3**，不能只躺在正文里） |
+| 走"**提案 → 裁决 → 回写**" | `DOC-WORKFLOW.md` §6 |
+| 判断"这属于哪一类问题"（A 类裁决 / B 类实现） | `DOC-WORKFLOW.md` §5 末的判据 |
 
-**改完文档跑一次机械审计**（只读，不修改任何文件）：
+**三条最容易忘的**：① **改设计 = 三处同步**（`decisions.md` + 回写主文档 + 相关分册）；② 文档与代码**同一次改动**；③ **模块**改动要**三处一致**（模块页 / `modules/README.md` §2.1 / `roadmap.md` §5）。
 
-```powershell
-pwsh -NoProfile -File .\docs\tools\audit-docs.ps1
-```
-
-它检查五件事：① **失效术语黑名单**（`快速建网`/`R0–R6`/`不建立数据流`/`形状子集`/`标题栏 24 px` 等，带"作废/历史/取代"标记的行允许）；② **引用可达性**（`docs/**.md` 与 `ADR-00XX` 是否都能落到实际文件；ADR-0047 按"从未产出"豁免）；③ **数值唯一性抽查**（如遮罩不透明度）；④ **结构完整性**（11 份分册齐备、旧文件不在现行路径、`docs/adr` 已移除）；⑤ **skills 去事实**（SKILL.md 正文不得含本项目专名）。任一未过会输出具体 `文件:行号`。
+**一条失效路径更正**：代码仓库的 `DEVELOPMENT.md` §6 仍写"设计/验收事实源在 `D:\project\上位机开发\docs\`" —— 那是**已失效的旧路径**（文档已并入本仓库 `docs/`），冲突时以本仓库为准。
 

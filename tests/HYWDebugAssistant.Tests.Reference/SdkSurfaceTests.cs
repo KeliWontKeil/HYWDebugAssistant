@@ -131,6 +131,9 @@ public class SdkSurfaceTests
 
         public IModuleDeclaration Declaration { get; }
 
+        /// <summary>输入处理结果反馈（G3）——本替身不使用。</summary>
+        public HYWDebugAssistant.Sdk.Context.IInputFeedbackReporter InputFeedback => null!;
+
         public IPortAccess Ports => null!;
 
         public IConfigurationAccess Configuration => null!;

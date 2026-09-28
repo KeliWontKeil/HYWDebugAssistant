@@ -84,12 +84,29 @@ public interface IRuntimeQuery
     /// <list type="bullet">
     ///   <item><b>只读、只用于呈现</b>：不参与建网、兼容、停流、投递与计量（ADR-0048 R9）；</item>
     ///   <item>顺序 = 模块**声明顺序**（稳定，便于 UI 逐块摆放）；</item>
-    ///   <item>**未声明角色 ⇒ 空列表**（叠加层不画方块；自检与运行期会提示作者补齐）；</item>
+    ///   <item>**未声明角色 ⇒ 空列表**（叠加层不画方块；**运行期不报**，由 SDK 自检给一条建议 —— B5 裁定）；</item>
     ///   <item>`m/n` 由框架从网络成员关系派生（**不是模块自报**）：无该方向的口 ⇒ null，有口未连 ⇒ 0。</item>
     /// </list>
     /// </remarks>
     /// <param name="instanceId">实例 ID（不存在 / 占位实例 ⇒ 空列表）。</param>
     IReadOnlyList<RoleView> GetRoles(string instanceId);
+
+    /// <summary>
+    /// 某实例各**输入元素**的**最近一次处理结果**（G3 · 用户 2026-09 裁决）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>它回答什么</b>：模块经 <c>IModuleContext.InputFeedback.Report</c> 回报的"某次输入处理失败（及原因）"
+    ///     —— 用于把**处理失败**（转换失败 / HEX 非法……）渲染成该输入元素的**失败态**（红框）；</item>
+    ///   <item><b>为什么需要它</b>：`SubmitInput` 的 `CommandResult` 只反映"是否投递入队"，**不反映模块处理结果**，
+    ///     而模块不持 UI ⇒ 处理失败在界面上无处可见（取证见 `roadmap.md` §3 第 15 项）；</item>
+    ///   <item><b>生命周期 = "下一次提交即刷新"</b>：框架在**投递入队时清除**该 (实例, 源名) 的旧结果 ⇒
+    ///     **没回报过就没有条目**（返回空表），模块默认什么都不做也不受影响；</item>
+    ///   <item><b>只读、只用于呈现</b>：不参与建网/兼容/停流/投递/计量，**不进组合件**。</item>
+    /// </list>
+    /// </remarks>
+    /// <param name="instanceId">实例 ID（不存在 / 占位实例 ⇒ 空列表）。</param>
+    IReadOnlyList<InputFeedbackView> GetInputFeedback(string instanceId);
 
     /// <summary>
     /// 某实例参与的**角色间数据流**清单【ADR-0052】：已按（本端角色, 对端实例, 对端角色）**聚合**并给出口对数。

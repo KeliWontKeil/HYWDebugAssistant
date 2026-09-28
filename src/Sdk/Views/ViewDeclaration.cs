@@ -3,6 +3,19 @@ using HYWDebugAssistant.Sdk.Contracts;
 namespace HYWDebugAssistant.Sdk.Views;
 
 /// <summary>
+/// **B6 文件选择器**的模式（G4 · 2026-09）：打开 / 保存。
+/// </summary>
+/// <remarks>打开用 <c>OpenFilePickerAsync</c>，保存用 <c>SaveFilePickerAsync</c>。属 SDK 声明面（只增）。</remarks>
+public enum FilePickerMode
+{
+    /// <summary>打开文件。</summary>
+    Open = 0,
+
+    /// <summary>保存文件。</summary>
+    Save = 1,
+}
+
+/// <summary>
 /// 视图**预置元素**目录（v1 = 档 3 完整）——ADR-0028 C3-6。
 /// </summary>
 /// <remarks>
@@ -198,6 +211,37 @@ public sealed record ViewElement
 
     /// <summary>子元素（容器类元素使用；其余为空）。</summary>
     public IReadOnlyList<ViewElement> Children { get; }
+
+    /// <summary>
+    /// **多行文本输入**（G2 · 2026-09；仅 <see cref="ViewElementKind.TextInput"/> 有意义）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>用 `init` 属性而不是构造器参数</b>：给 SDK 构造器加可选参数会**改变方法签名** ⇒
+    ///     已编译模块加载时抛 <c>MissingMethodException</c>（实测踩过）—— 新增"可选声明"一律用 <c>init</c>；</item>
+    ///   <item><b>提交键不在模块侧定</b>：回车是"换行"还是"提交"**因人而异**（用户 2026-09 裁决：
+    ///     "换行是一个极其常见的行为，且不同用户习惯不一样"）⇒ 它是**框架级可配置项**
+    ///     （设置键 `multilineSubmitKey`，见《应用级设置》分册）；**模块只声明"我要多行"**；</item>
+    ///   <item>单行输入（默认）行为**不变**：回车 / 失焦一次提交（ADR-0040 D-5）。</item>
+    /// </list>
+    /// 用法：<c>new ViewElement(ViewElementKind.TextInput, "text") { Multiline = true }</c>
+    /// </remarks>
+    public bool Multiline { get; init; }
+
+    /// <summary>
+    /// **B6 文件选择器的模式**（G4 · 2026-09；仅 <see cref="ViewElementKind.FileSelector"/> 有意义）。
+    /// </summary>
+    /// <remarks>
+    /// 打开 / 保存。**只增**（`init`）。模块不接触文件对话框 API —— 用户选/存的**路径**经既有输入通道
+    /// （`SubmitInput`）投递到模块，模块在活动体里 `TryDequeueInput` 拿到。
+    /// </remarks>
+    public FilePickerMode FileMode { get; init; } = FilePickerMode.Open;
+
+    /// <summary>
+    /// **B6 文件选择器的类型过滤**（G4；仅 <see cref="ViewElementKind.FileSelector"/> 有意义）。
+    /// </summary>
+    /// <remarks>形如 <c>*.txt</c> 或 <c>文本文件(*.txt)|*.txt</c>；空 = 不过滤。只增（`init`）。</remarks>
+    public string? FileFilter { get; init; }
 }
 
 /// <summary>

@@ -43,7 +43,8 @@ public interface IModuleDeclaration
     ///     （数据接口的抽象）**不是同一层级** —— 叠加层只画角色，接口仍由端口标记表达；</item>
     ///   <item>一个角色**只有一种类型**；**口通常各 1 个**（多源融合器 = 2 入 1 出，允许）；一个口**最多属于一个角色**；</item>
     ///   <item>**只呈现**：不参与建网 / 契约兼容 / 停流 / 投递 / 计量，也不进组合件（ADR-0048 R9）；</item>
-    ///   <item>声明即契约：有数据口的模块**应当**声明角色；未声明 ⇒ 叠加层不画方块（自检与运行期会提示）。</item>
+    ///   <item>声明即契约：有数据口的模块**应当**声明角色；未声明 ⇒ 叠加层不画方块。**运行期不报**（避免在自家正确模块的
+    ///     Issue 中心报警）；由 SDK 自检（`ModuleContract`）给一条**建议**（`Advisories`，**不进 `Problems`**）—— 见 B5 裁定。</item>
     /// </list>
     /// </remarks>
     /// <param name="role">角色声明。</param>
@@ -153,6 +154,32 @@ public interface IModuleInbox
 }
 
 /// <summary>
+/// **输入处理结果反馈**【新增 · G3 / 用户 2026-09 裁决】：模块把"某次输入的处理结果"回报到**对应的输入元素**上，
+/// 框架据此把它渲染成**失败态**（红框）—— 模块**不持 UI**、视图由框架渲染，故这件事**本质只能由框架做**。
+/// </summary>
+/// <remarks>
+/// <list type="bullet">
+///   <item><b>为什么需要它</b>：`SubmitInput` 返回的 `CommandResult` **只反映"是否投递入队"**，
+///     不反映模块的处理结果（转换失败、HEX 非法……都发生在**模块内部**，此时投递是成功的）⇒
+///     没有本通道时，"处理失败"在界面上**无处可见**；</item>
+///   <item><b>粒度</b>：按**输入元素**（`ViewElement.DataSource` 的名字）定位；**只做输入** ——
+///     命令侧的同类反馈留待需要时再只增；</item>
+///   <item><b>生命周期（"下一次提交即刷新"）</b>：框架在**投递入队时清除**该 (实例, 源名) 的旧结果 ⇒
+///     **不回报 = 无失败态**（模块可以默认什么都不做，零影响）；想让失败态消失，**下一次提交**即可；</item>
+///   <item><b>纪律</b>：<see cref="Report"/> **不抛**（非法源名 / 内部失败只记诊断计数）；回报的是**呈现文本**，
+///     框架**不理解**它的语义（与 `Issue` / 业务状态同一口径）。</item>
+/// </list>
+/// </remarks>
+public interface IInputFeedbackReporter
+{
+    /// <summary>回报一次输入的处理结果。</summary>
+    /// <param name="sourceName">输入元素的数据源名（= 视图声明里该输入元素的 <c>DataSource</c>）。</param>
+    /// <param name="succeeded">是否处理成功（false ⇒ 该输入渲染失败态）。</param>
+    /// <param name="message">可选原因（展示在该输入元素旁；null = 留白）。</param>
+    void Report(string sourceName, bool succeeded, string? message = null);
+}
+
+/// <summary>
 /// 模块上下文：模块**唯一**的框架访问面（不持有框架对象引用）——ADR-0028 §3.8。
 /// </summary>
 /// <remarks>
@@ -181,6 +208,9 @@ public interface IModuleContext
 
     /// <summary>业务状态上报（框架只登记/呈现、**不解释语义**）。</summary>
     IBusinessStateReporter State { get; }
+
+    /// <summary>**输入处理结果反馈**（G3：让"处理失败"在对应输入元素上可见）。</summary>
+    IInputFeedbackReporter InputFeedback { get; }
 
     /// <summary>停止信号（长期活动必须响应）。</summary>
     IStopSignal StopSignal { get; }

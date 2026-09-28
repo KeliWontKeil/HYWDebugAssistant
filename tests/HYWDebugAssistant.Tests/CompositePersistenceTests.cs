@@ -33,8 +33,7 @@ public class CompositePersistenceTests
     // ------------------------------------------------------------ 无损往返（AC-4）
 
     [Fact]
-    public void 往返_保存加载再保存应逐字段等价()
-    {
+    public void 往返_保存加载再保存应逐字段等价()    {
         using var first = new Harness(("gen", typeof(GeneratorModule)), ("sink", typeof(SinkModule)));
         first.Services.AddModule("g1", "test/gen/1.0.0").Succeeded.ShouldBeTrue();
         first.Services.AddModule("s1", "test/sink/1.0.0").Succeeded.ShouldBeTrue();
@@ -59,7 +58,7 @@ public class CompositePersistenceTests
         generator.ModuleId.ShouldBe("test/gen/1.0.0");
         generator.State.ShouldBe("Active");
         generator.Ports.Single().AnchorOffset.ShouldBe(0.25);
-        generator.Ports.Single().IsAnchorLocked.ShouldBeTrue();
+        generator.Ports.Single().IsAnchorFixed.ShouldBeTrue();
 
         var networks = second.Services.GetNetworks();
         networks.Count.ShouldBe(1);
@@ -588,7 +587,7 @@ public class CompositePersistenceTests
         harness.Services.UpdatePortGeometry("g1", new PortGeometryView(GeneratorModule.OutPort, 0.75, true)).Succeeded.ShouldBeTrue();
         var port = harness.Services.GetInstances().Single().Ports.Single();
         port.AnchorOffset.ShouldBe(0.75);
-        port.IsAnchorLocked.ShouldBeTrue();
+        port.IsAnchorFixed.ShouldBeTrue();
 
         // 非法值：整体拒绝 + 零副作用
         harness.Services.UpdateModuleLayout(new ModuleLayoutView("g1", double.NaN, 0, 240, 120)).Succeeded.ShouldBeFalse();
@@ -623,6 +622,81 @@ public class CompositePersistenceTests
         root["instances"]!.AsArray().Count.ShouldBe(1);
         root["networks"]!.AsArray().Count.ShouldBe(0);
     }
+
+    // ------------------------------------------------------------ 端口锚点「固定」三态（G5 · C5-7）
+
+    [Fact]
+    public void 端口锚点固定_未设置按模块声明_设置后覆盖声明_且解锁false也要落盘()
+    {
+        using var first = new Harness(
+            ("gen", typeof(GeneratorModule)),
+            ("draggable-anchor", typeof(DraggableAnchorModule)));
+
+        first.Services.AddModule("g1", "test/gen/1.0.0").Succeeded.ShouldBeTrue();
+        first.Services.AddModule("a1", "test/draggable-anchor/1.0.0").Succeeded.ShouldBeTrue();
+
+        // ① **未设置**（组合件里没有 `locked`）⇒ 由模块声明决定：
+        //    `GeneratorModule` 没声明 `AnchorDraggable` ⇒ 默认 **固定**（保守默认，用户 2026-09 裁定）；
+        //    `DraggableAnchorModule` 声明 `AnchorDraggable = true` ⇒ 默认可拖。
+        Anchor(first, "g1").IsAnchorFixed.ShouldBeTrue("未声明 `AnchorDraggable` ⇒ 默认固定");
+        Anchor(first, "a1").IsAnchorFixed.ShouldBeFalse("声明 `AnchorDraggable = true` ⇒ 默认可拖");
+
+        // ② 用户**解锁**（显式 false）—— 三态里的"具体值"，必须**覆盖声明**
+        first.Services.UpdatePortGeometry(
+            "g1",
+            new PortGeometryView(GeneratorModule.OutPort, 0.5, IsAnchorFixed: false)).Succeeded.ShouldBeTrue();
+        Anchor(first, "g1").IsAnchorFixed.ShouldBeFalse("用户设过 ⇒ 覆盖模块声明");
+
+        var path = first.PathFor("anchor.json");
+        first.Services.SaveComposite(path, "anchor").Succeeded.ShouldBeTrue();
+
+        // ③ `false` 必须**真的写进文件**：不写就等于把用户的解锁丢掉（重载后又变成固定）
+        var locked = ReadWithoutTimestamp(path)["instances"]!.AsArray()
+            .Select(n => n!.AsObject())
+            .Single(n => (string?)n["instanceId"] == "g1")["ports"]!
+            .AsObject()[GeneratorModule.OutPort]!
+            .AsObject()["locked"];
+        locked.ShouldNotBeNull("显式解锁（false）必须落盘");
+        locked!.GetValue<bool>().ShouldBeFalse();
+
+        using var second = new Harness(
+            ("gen", typeof(GeneratorModule)),
+            ("draggable-anchor", typeof(DraggableAnchorModule)));
+        second.Services.LoadComposite(path).Succeeded.ShouldBeTrue();
+
+        Anchor(second, "g1").IsAnchorFixed.ShouldBeFalse("重载后用户的解锁必须还在");
+        Anchor(second, "a1").IsAnchorFixed.ShouldBeFalse("没设置过的口按模块声明（仍可拖）");
+
+        // ④ 反向：**默认值不写文件**（缺省不写）—— 没动过的口不该在组合件里留下 `locked`
+        AnchorGeometry(second, "a1").IsAnchorFixed.ShouldBeNull("用户没设置过 ⇒ 三态保持 null（不写文件）");
+    }
+
+    [Fact]
+    public void 端口锚点固定_模块声明为固定的口_用户设置true同样落盘()
+    {
+        using var first = new Harness(("draggable-anchor", typeof(DraggableAnchorModule)));
+        first.Services.AddModule("a1", "test/draggable-anchor/1.0.0").Succeeded.ShouldBeTrue();
+
+        first.Services.UpdatePortGeometry(
+            "a1",
+            new PortGeometryView(DraggableAnchorModule.OutPort, 0.5, IsAnchorFixed: true)).Succeeded.ShouldBeTrue();
+
+        var path = first.PathFor("anchor-fixed.json");
+        first.Services.SaveComposite(path, "anchor-fixed").Succeeded.ShouldBeTrue();
+
+        using var second = new Harness(("draggable-anchor", typeof(DraggableAnchorModule)));
+        second.Services.LoadComposite(path).Succeeded.ShouldBeTrue();
+
+        Anchor(second, "a1").IsAnchorFixed.ShouldBeTrue("用户设过的固定态要保住（覆盖'默认可拖'的声明）");
+    }
+
+    /// <summary>取某实例唯一端口的**查询面**（已解析的有效固定态）。</summary>
+    private static PortView Anchor(Harness harness, string instanceId) =>
+        harness.Services.GetInstances().Single(i => i.InstanceId == instanceId).Ports.Single();
+
+    /// <summary>取某实例唯一端口的**几何**（三态原始值，用来断言"缺省不写"）。</summary>
+    private static PortGeometryView AnchorGeometry(Harness harness, string instanceId) =>
+        harness.Runtime.Content.Layout.GetPort(instanceId, Anchor(harness, instanceId).Name);
 
     // ------------------------------------------------------------ 测试辅助
 
@@ -762,5 +836,25 @@ public class CompositePersistenceTests
         public int PeriodMs { get; set; } = 100;
 
         public double Gain { get; set; } = 1.0;
+    }
+
+    /// <summary>
+    /// 测试模块：**显式声明锚点可拖动**（G5 · C5-7）—— 用来对照"未声明 ⇒ 默认固定"。
+    /// </summary>
+    [ModuleDefinition("test", "draggable-anchor", "1.0.0")]
+    public sealed class DraggableAnchorModule : IModule
+    {
+        /// <summary>口名。</summary>
+        public const string OutPort = "out";
+
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context) =>
+            context.Declaration.DeclarePort(new PortDeclaration(
+                OutPort,
+                PortDirection.Send,
+                ContractShape.OfPrimitive(ContractPrimitive.F32))
+            {
+                AnchorDraggable = true,
+            });
     }
 }

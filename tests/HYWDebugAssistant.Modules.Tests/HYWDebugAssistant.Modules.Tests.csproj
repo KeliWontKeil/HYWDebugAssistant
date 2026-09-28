@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    业务模块测试（**集中一个项目**）—— B/C3 裁定（2026-09 · 用户裁决"②"）：
+      · 模块的 T6 契约自检 + 模块级测试都放这里，**不再每个模块起一个测试项目**（项目数可控）；
+      · 参考模块的判据测试仍在 Tests.Reference（那是"判据载体"项目，与本项目分工不同）；
+      · 模块间测试隔离由本项目的用例组织自行守（按模块分文件 / 分 Collection）。
+    规范见 docs/implementation/06-module-standard-and-development-process.md §C.4。
+  -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <!-- 测试专用豁免（须注明原因）：xUnit 测试方法名用中文场景描述 -->
+    <NoWarn>$(NoWarn);CA1707;CA1859;CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- T6 契约自检套件（模块作者视角：只引 Sdk + Sdk.Testing） -->
+    <ProjectReference Include="..\..\src\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\..\src\Sdk.Testing\HYWDebugAssistant.Sdk.Testing.csproj" />
+    <!-- 业务模块：随第一个模块落地时在此逐个加入（模块只引 Sdk；测试项目可跨层引用） -->
+  </ItemGroup>
+
+</Project>

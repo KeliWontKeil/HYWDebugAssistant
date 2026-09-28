@@ -274,6 +274,24 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     public IReadOnlyList<string> BackgroundOptions { get; } =
         [ThemeApplier.BackgroundTheme, ThemeApplier.BackgroundLightGray, ThemeApplier.BackgroundDarkGray, ThemeApplier.BackgroundCustom];
 
+    /// <summary>
+    /// **多行文本输入的提交键**（G2 · 2026-09）——三档字符串（值域与 `ApplicationSettings` 一致）。
+    /// </summary>
+    /// <remarks>
+    /// 用户 2026-09 裁决："换行是一个极其常见的行为，且**不同用户习惯不一样**" ⇒ 做成**框架级可配置项**，
+    /// 而**不是**模块声明（模块只声明"我要多行"）。**只影响多行输入框**；单行输入仍"回车 / 失焦一次提交"（ADR-0040 D-5）。
+    /// </remarks>
+    [ObservableProperty]
+    public partial string MultilineSubmitKey { get; set; } = "CtrlEnter";
+
+    /// <summary>多行提交键选项（下拉用）：`CtrlEnter`（回车换行 / Ctrl+Enter 提交 / 失焦不提交）· `Enter`（回车提交 / Shift+Enter 换行）· `None`（键盘都不提交）。</summary>
+    public IReadOnlyList<string> MultilineSubmitKeyOptions { get; } = ["CtrlEnter", "Enter", "None"];
+
+    /// <summary>把多行提交键收敛到三档之一（非法/空 ⇒ 默认 `CtrlEnter`；与外观类设置同一容错口径：不校验、不提示）。</summary>
+    /// <param name="value">用户选择或文件里的值。</param>
+    private static string NormalizeSubmitKey(string? value) =>
+        value is "Enter" or "None" or "CtrlEnter" ? value : "CtrlEnter";
+
     /// <summary>当前主题色画刷（设置页的"色块"按钮显示它；用户在弹窗里改色）。</summary>
     public Avalonia.Media.IBrush AccentBrush =>
         ThemeApplier.Parse(AccentColor) is { } color
@@ -445,6 +463,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         DiagnosticHintThreshold = settings.DiagnosticHintThreshold;
         UiRefreshRateHz = settings.UiRefreshRateHz;
         SnapDistance = settings.SnapDistance;
+        MultilineSubmitKey = settings.MultilineSubmitKey;
         ShowInfoOverlay = settings.ShowInfoOverlay;
         Theme = settings.Theme;
         AccentColor = settings.AccentColor;
@@ -694,6 +713,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         settings.DiagnosticHintThreshold = DiagnosticHintThreshold;
         settings.UiRefreshRateHz = UiRefreshRateHz;
         settings.SnapDistance = Math.Clamp(SnapDistance, 2, 8);
+        settings.MultilineSubmitKey = NormalizeSubmitKey(MultilineSubmitKey);
         settings.ShowInfoOverlay = ShowInfoOverlay;
         settings.Theme = Theme;
         settings.AccentColor = AccentColor;

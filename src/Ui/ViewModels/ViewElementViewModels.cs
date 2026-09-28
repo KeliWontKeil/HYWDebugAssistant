@@ -138,22 +138,63 @@ public sealed partial class CommandElementViewModel : ViewElementViewModel
 }
 
 /// <summary>
-/// **B5 文本输入**【M1-16 / ADR-0040 D2】：回车 / 失焦时**一次提交**（不逐字符写入）。
+/// **B5 文本输入**【M1-16 / ADR-0040 D2】：单行 = 回车 / 失焦时**一次提交**（不逐字符写入）。
 /// </summary>
+/// <remarks>
+/// <b>多行（G2 · 2026-09）</b>：元素声明 <see cref="ViewElement.Multiline"/> = true 时渲染为多行框，
+/// 提交键由**应用级设置** <c>multilineSubmitKey</c> 决定（**不属模块声明** —— 用户裁决"不同用户习惯不一样"）：
+/// <c>CtrlEnter</c>（默认：回车换行 / Ctrl+Enter 提交 / 失焦不提交）· <c>Enter</c>（回车提交 / Shift+Enter 换行）·
+/// <c>None</c>（键盘都不提交）。**单行行为不变**。
+/// </remarks>
 public sealed partial class TextInputElementViewModel : ViewElementViewModel
 {
     private readonly Func<string, string, CommandResult>? _submit;
 
     /// <summary>创建文本输入视图模型。</summary>
-    /// <param name="element">元素声明（<c>DataSource</c> = 输入源名）。</param>
+    /// <param name="element">元素声明（<c>DataSource</c> = 输入源名；<c>Multiline</c> = 是否多行）。</param>
     /// <param name="submit">提交回调（源名 + 文本 → 结果）。</param>
-    public TextInputElementViewModel(ViewElement element, Func<string, string, CommandResult>? submit = null)
+    /// <param name="multilineSubmitKey">多行提交键档位（应用级设置；默认 <c>CtrlEnter</c>）。</param>
+    public TextInputElementViewModel(
+        ViewElement element,
+        Func<string, string, CommandResult>? submit = null,
+        string? multilineSubmitKey = null)
         : base(ViewElementKind.TextInput, element.Title, element.DataSource)
     {
         ArgumentNullException.ThrowIfNull(element);
         Source = element.DataSource ?? string.Empty;
+        IsMultiline = element.Multiline;
         _submit = submit;
+
+        // 未知/空档位 ⇒ 回落默认 `CtrlEnter`（与设置层的口径一致：损坏的文件不能让"回车与 Ctrl+回车都不提交"）
+        var key = multilineSubmitKey is "Enter" or "None" ? multilineSubmitKey : DefaultSubmitKey;
+        SubmitOnEnter = !IsMultiline || string.Equals(key, "Enter", StringComparison.Ordinal);
+        SubmitOnCtrlEnter = !IsMultiline || string.Equals(key, "CtrlEnter", StringComparison.Ordinal);
+
+        // 单行：失焦即提交（ADR-0040 D-5）。多行且提交键为 Ctrl+Enter 时**不**在失焦提交 ——
+        // 否则"点模块的发送按钮 ⇒ 先失焦提交一次 ⇒ 按钮点击又提交一次"会**双发**。
+        SubmitOnLostFocus = !IsMultiline || string.Equals(key, "Enter", StringComparison.Ordinal);
     }
+
+    /// <summary>多行提交键的默认档位（与 <c>ApplicationSettings.MultilineSubmitKey</c> 的默认值一致）。</summary>
+    public const string DefaultSubmitKey = "CtrlEnter";
+
+    /// <summary>是否多行输入（元素声明的 <c>Multiline</c>；视图据此渲染多行框）。</summary>
+    public bool IsMultiline { get; }
+
+    /// <summary>回车是否**提交**（false ⇒ 回车交给输入框换行）。</summary>
+    public bool SubmitOnEnter { get; }
+
+    /// <summary>Ctrl+Enter 是否**提交**。</summary>
+    public bool SubmitOnCtrlEnter { get; }
+
+    /// <summary>失焦是否**提交**（多行 + CtrlEnter 档位下为 false，防双发）。</summary>
+    public bool SubmitOnLostFocus { get; }
+
+    /// <summary>多行编辑框的最小高度（DIP = 约三行）；单行时 0（= 不设最小值）。</summary>
+    public double EditorMinHeight => IsMultiline ? MultilineEditorMinHeight : 0;
+
+    /// <summary>多行编辑框最小高度取值（DIP）。</summary>
+    public const double MultilineEditorMinHeight = 60;
 
     /// <summary>输入源名。</summary>
     public string Source { get; }
@@ -165,6 +206,16 @@ public sealed partial class TextInputElementViewModel : ViewElementViewModel
     /// <summary>最近一次提交结果（失败就地显示）。</summary>
     [ObservableProperty]
     public partial string? LastResult { get; set; }
+
+    /// <summary>
+    /// **处理失败态**（G3）：模块经 <c>IModuleContext.InputFeedback</c> 回报"这次输入没处理好"⇒ 视图渲染**红框**。
+    /// </summary>
+    /// <remarks>
+    /// 由**框架**从查询面（`IRuntimeQuery.GetInputFeedback`）写入 —— 模块不持 UI，无法自己标红。
+    /// 生命周期 = "**下一次提交即刷新**"（框架在投递入队时清旧结果）⇒ 这里只需跟着查询面走。
+    /// </remarks>
+    [ObservableProperty]
+    public partial bool IsInvalid { get; set; }
 
     /// <summary>是否有未提交的编辑（视图用于提示"未提交"）。</summary>
     [ObservableProperty]

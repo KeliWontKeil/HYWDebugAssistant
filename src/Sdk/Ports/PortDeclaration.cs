@@ -3,6 +3,31 @@ using HYWDebugAssistant.Sdk.Contracts;
 namespace HYWDebugAssistant.Sdk.Ports;
 
 /// <summary>
+/// 口的**默认挂载边**（C5-7 · G5 · 2026-09）。
+/// </summary>
+/// <remarks>
+/// <see cref="Auto"/> = **框架沿用数据流惯例**（发送口在右边缘、接收口在左边缘）—— 这是**老模块的行为**，
+/// 也是默认值。其余四值 = 模块**自己定义默认位置**。用户仍可在画布上把标记拖到任意边（拖动结果随组合件保存、优先于声明）。
+/// </remarks>
+public enum PortEdge
+{
+    /// <summary>按数据流惯例：**发送口在右、接收口在左**（默认；老模块行为不变）。</summary>
+    Auto = 0,
+
+    /// <summary>左边缘。</summary>
+    Left = 1,
+
+    /// <summary>右边缘。</summary>
+    Right = 2,
+
+    /// <summary>上边缘。</summary>
+    Top = 3,
+
+    /// <summary>下边缘。</summary>
+    Bottom = 4,
+}
+
+/// <summary>
 /// 口的**方向两态**——ADR-0022（双向 = 两个口 + 两条单向网络）。
 /// </summary>
 public enum PortDirection
@@ -79,4 +104,36 @@ public sealed record PortDeclaration
     /// 用法：<c>new PortDeclaration("in", PortDirection.Receive, shape) { Type = new("hyw/f32", 1) }</c>
     /// </remarks>
     public DataTypeRef? Type { get; init; }
+
+    /// <summary>
+    /// 本口的**默认挂载边**（C5-7 · G5 · 2026-09）——**由模块自己定义它的默认位置**。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>默认 <see cref="PortEdge.Auto"/></b> = 框架沿用数据流惯例（**发送口在右边缘、接收口在左边缘**）
+    ///     ⇒ **老模块零改动、行为不变**；</item>
+    ///   <item><b>只增</b>（<c>init</c> 属性）：不改变既有签名，已编译模块照常加载；</item>
+    ///   <item><b>它只是"默认"</b>：用户在画布上**可把标记拖到任意边**（C5-7），拖动结果**随组合件保存**并**优先于**本声明；</item>
+    ///   <item><b>非强制约定</b>（用户 2026-09）：**宽 &gt; 高的模块建议把口放在上下边、高 &gt; 宽的放在左右边** ——
+    ///     只是开发约定，框架**不据此判定任何东西**（不强制、不改建网/兼容/计量）。</item>
+    /// </list>
+    /// 用法：<c>new PortDeclaration("out", PortDirection.Send, shape) { Edge = PortEdge.Bottom }</c>
+    /// </remarks>
+    public PortEdge Edge { get; init; } = PortEdge.Auto;
+
+    /// <summary>
+    /// 本口的锚点**是否允许用户拖动**（C5-7 · G5 · 2026-09；**默认 <see langword="false"/>** —— 用户裁定）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>为什么默认不允许</b>：保守 —— 避免用户误拖把口挪歪（用户 2026-09 裁定"默认不允许拖动"）；
+    ///     要可拖的模块**显式声明</b>；</item>
+    ///   <item><b>"固定"的语义</b>（C5-7）：不可拖动，且模块拉伸时锚点**按比例重排**（`Offset` 是归一化的，天然如此）；
+    ///     **注意与「模块窗口锁定」区分** —— 后者是**整个模块**不可移动、不可缩放（ADR-0041 D1）；
+    ///     故本项在文档与代码里一律用词「**固定**」，不用「锁定」（用户 2026-09 裁定，见 `decisions.md` 7.14）；</item>
+    ///   <item><b>全局开关</b>：快捷键可**一次性切换全部模块的所有口**的固定/解锁（C5-7 的"快捷键/操作锁定与解锁"）；</item>
+    ///   <item><b>只增</b>（<c>init</c> 属性）。</item>
+    /// </list>
+    /// </remarks>
+    public bool AnchorDraggable { get; init; }
 }

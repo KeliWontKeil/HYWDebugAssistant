@@ -12,7 +12,7 @@
 | # | 纪律 | 出处 / 指针 |
 |---|---|---|
 | 1 | **垂直切片**：先打通一条最小完整链路（模块包 → 实例 → 网络 → 投递 → 界面显示），不按层横向做完 | `architecture/09-test-and-gate` §10.2 |
-| 2 | **设计—实现阈值**：设计阶段只消除 A 类不确定性（"应该是什么"）；仅当剩余未知以 B 类（"怎样实现"）为主才进入实现。**整版原理图未完成不 layout**，不得以"用代码验证设计"为由提前进入实现 | `skills/human-ai-collaborative-design-review`（权威源）· `methodology/top-down-design-with-human-expert-review.md` |
+| 2 | **设计—实现阈值**：设计阶段只消除 A 类不确定性（"应该是什么"）；仅当剩余未知以 B 类（"怎样实现"）为主才进入实现。**整版原理图未完成不 layout**，不得以"用代码验证设计"为由提前进入实现 | `<仓库根>/.dsh/skills/human-ai-collaborative-design-review`（权威源）· `methodology/top-down-design-with-human-expert-review.md` |
 | 3 | **域内四步协议**：图景描述 → 概念与支点 → 机制/结构 → 细节 Gate，前一步未冻结不进下一步；配三条守护规则（层级定位检查 · 转写校验门 · 逆例自检） | 同上 |
 | 4 | **逐条裁决、不打包默认**；正式裁决落 `decisions.md`；AC 判据给纸面路径，实证在实现期完成并回写 | 同上 · `decisions.md` |
 | 5 | **后一阶段不得推翻前一阶段已冻结结论**；确需推翻必须走新 ADR（Superseded/Deprecated）+ 人工决策 | `decisions.md` |
@@ -26,7 +26,7 @@
 
 ## 2. 里程碑状态
 
-> 判据来自 `architecture/09-test-and-gate` §10（里程碑交付边界与验收判据）+ `implementation/04-m1-manual-acceptance.md`（手工验收清单，修订版 9）。**本表只记状态，不记规模与计划性描述。**
+> 判据来自 `architecture/09-test-and-gate` §10（里程碑交付边界与验收判据）+ `implementation/04-m1-manual-acceptance.md`（手工验收清单，现行版）。**本表只记状态，不记规模与计划性描述。**
 
 | 步骤 | 状态 | 判据 / 说明 |
 |---|---|---|
@@ -48,7 +48,7 @@
 | M1-15 界面澄清与修正 | ✅ 完成 · **待验收** | 拼图式多窗口 · 外壳侧边栏 · 建网唯一化（标签同名即连）· 配置 Schema 表单 · 两个新参考模块 |
 | M1-17 发现 · 层级 · 设置分类 | ✅ 完成 · **待验收** | 构建即归拢 · 声明根发现与重扫 · 窗口层级统一 · 设置七类 · 快捷键可编辑 |
 | M1-16 UI 专项 | 🔄 **进行中（当前步骤）** | 用户出要点 → 草案 → 定稿 → 实现 + 文档回写；已多轮交付、**待用户复验**；是 M1-14 的直接前置 |
-| M1-14 验收 + 回写 | ⏳ **未开始（顺延）** | 在 M1-16 之后的**最终形态**上一次性执行；清单 = `implementation/04`（111 条，**不在旧稿上反复改**）；**验收前须跑一次 T3** |
+| M1-14 验收 + 回写 | ⏳ **未开始（顺延）** | 在 M1-16 之后的**最终形态**上一次性执行；清单 = `implementation/04`（**113 条，其中 39 条仅人工可判**；**不在旧稿上反复改**）；**验收前须跑一次 T3** |
 | M2 / M3 / M4 | ⏳ 未开始 | M2 = Gate C UX 原型 + 完整 UI（18 元素 + 4 容器）· M3 = 首批真实业务模块 + 产品验收场景 · M4 = 打磨与稳定性（`09` §10.6） |
 
 ---
@@ -58,22 +58,29 @@
 | # | 事项 | 依据 | 阻塞与否 |
 |---|---|---|---|
 | 1 | **M1-16「UI 专项」收口**（当前步骤）：按用户方案要点打磨视觉体系 / 模块窗口 / 端口标记 / 弹窗信息层级 / 状态反馈 / 克制动效 | `architecture/09-test-and-gate` §10.3 · 用户逐轮反馈 | 不阻塞（正在做） |
-| 2 | **M1-14 手工验收**：在 M1-16 之后的最终形态上**一次性执行**；清单 `implementation/04` 修订版 9（111 条） | 同上 · 用户裁决（顺延） | **阻塞 M1 收尾** |
+| 2 | **M1-14 手工验收**：在 M1-16 之后的最终形态上**一次性执行**；清单 `implementation/04`（现行版：113 条，其中 39 条仅人工可判） | 同上 · 用户裁决（顺延） | **阻塞 M1 收尾** |
 | 3 | **验收前跑一次 T3 完整门禁**（`build.ps1`，**需先关闭应用**） | `implementation/04` 前置 · `09` §5.3 触发条件① | 阻塞（M1-14 前置） |
 | 4 | **`WaitForData` 主动接收原语**（让主动接收也微秒级且不占核；SDK 兼容扩展项，**不是 v1 交付**） | `architecture/02-module-sdk` · `04-runtime-mechanisms`（R 项一览） | 不阻塞 M1（后续里程碑） |
 | 5 | **池化包装对象**：投递路径当前 **40 B/单元** → 目标 0（L3 内部空闲链复用 wrapper，不动 SDK 面） | `architecture/04-runtime-mechanisms`（实测偏差项）· `03-data-protocol-and-typing` | 不阻塞 M1（**列为后续里程碑首项**；在此之前文档承诺以实测 40 B 为准） |
 | 6 | **叠加层虚线穿过角色信息文字是否加极淡底衬**（用户观察项，一句话即可裁定） | 旧 roadmap 登记项 · `architecture/07-overlay-and-visual-baseline` 叠加层节 | 不阻塞（纯观感项） |
 | 7 | **M2 范围**：Gate C UX 原型（M1 后、M2 前做一次）→ 完整渲染（元素目录全集）· 三层信息类层 · 设置界面 · 诊断面板；**M2 后跑第二轮数值实测**（含 UI 节拍下丢弃率、GC、内存） | `architecture/09-test-and-gate` §9（Gate C）· §10.6 | 不阻塞（M1 收尾后启动） |
 | 8 | **Gate D 预留项尚未实现**：**会话快照**（崩溃/退出恢复现场）· **模块版本迁移路径**（旧版本实例 → 新 Definition） | `architecture/09-test-and-gate` §9（Gate D） | 不阻塞（接口位已预留） |
-| 9 | **Gate E**：首批真实业务模块清单与设计（**M1 后、进入 M2 前由用户给出**）+ v1 产品验收场景（业务闭环，只做业务验收） | `architecture/09-test-and-gate` §9（Gate E） | 不阻塞（待用户给需求） |
+| 9 | **首批正式模块**：用户 2026-09 已给出**三批清单（15 个）** —— 清单唯一落点 = `modules/README.md` §2.1；**顶层开发路线** = `implementation/06` §H.5（框架缺口 → 第一批 4 个基础模块 → 归档旧 6 个 → 纯框架修复 7 项 → 验收）；**顺序与拆分待细化** | 用户直接给出 · `implementation/06` §H.5/§J.0 | **进行中**（待细化后开工） |
 | 10 | **波形 / FFT 相关依赖未引入**：ScottPlot 与 FftSharp（或 MathNet.Numerics）在 `Directory.Packages.props` **尚无条目** | `architecture/10-delivery-and-ops` §8 · ADR-0024 | 不阻塞（波形能力未开工） |
+| 11 | **模块标准与开发流程**（`implementation/06`）**已生效**：**B1 三层判据 · α 两侧同型 · B2/B3 层①命名与多角色 · B4 `Capabilities` 检查项 · B5 角色归属建议 · C3 测试落点 · D 大小数值 · E 外部 IO 强制写法 · F 快照并发** **均已裁并落地**；仍【待评估】= 模块族分类维度（B2′）· 空模板形态（F1）——**评估时点 = 第一批基础模块完成后** | `implementation/06` §I | 不阻塞第一批开发（**标准已可照做**） |
+| 12 | **框架缺口修复（顶层路线第 ① 步）—— 用户 2026-09 裁定「框架全做完再出模块页」**，按序执行五项：**G1** `TabPages` 渲染 + 页签交互（**唯一硬阻塞**）—— ✅ **完成**（代码：`TabStripElementViewModel` + `ModuleViewViewModel.Expand` 取代 `Flatten` 的"只取首页" + `ModuleContentView.axaml` 模板与选中态；**三层回归网齐**：VM 用例 4 条 + **真实窗口无头 2 条**（含**真指针点击**切页）+ **真出像素快照 1 条**（切页两帧必须不同；PNG 在 `%TEMP%\hyw-tab-snapshot\`，**已人工看图**）；T0 `Ui` **0 警告**；全项目串行回归 **375 通过 / 0 失败**；文档回写 `02`（渲染子集 + C2 声明结构）/`06` §7（交互）/`07`（视觉取值））· **G2** `TextInput` 加 `Multiline` —— ✅ **完成**（`ViewElement.Multiline`（`init` 只增）+ 模板 `AcceptsReturn`/最小高度 + **提交键做成应用级设置 `multilineSubmitKey`**（用户裁定"换行极其常见、习惯不一"）：`CtrlEnter` 默认 / `Enter` / `None`，**即时生效**（每刷新节拍下发并重建输入元素）；**单行行为不变**；回归网：VM 用例 **8 条** + 真实窗口 **2 条**（`AcceptsReturn` / 最小高度 / 走 `UpdateSettings` 真实路径改档位）；文档回写 `08` §2（键清单 20→**21**）/`02`/`06`/`decisions` 7.15。**「不自动折行」登记为特性而非限制**（用户 2026-09 裁决：画面换行 ⟺ 文本里真有换行符 ⇒ **所见即所发**、发送内容完整、用户不必猜"这是折行还是换行符"；长行横向滚动；**框架不规范化文本**；行尾 `CR/LF/CRLF` 由模块定））· **G3** 输入元素"校验失败"态（红框）—— ✅ **完成**（SDK 只增 `IInputFeedbackReporter` + `IModuleContext.InputFeedback`（模块回报"某次输入的处理结果"）；`InputFeedbackStore`（Hosting）按 (实例, 源名) 存；`Core.Api` 只增 `GetInputFeedback` + `InputFeedbackView`；`ModuleRuntime` 在**投递入队时清旧结果** ⇒ **"下一次提交即刷新"**；`Ui` 侧 `TextInputElementViewModel.IsInvalid` → `Classes.invalid` → `TextBox.invalid`（**`SemanticError` + 线宽 2**）。**回归网**：2 条**整链集成**用例（模块活动体回报 → 查询面 → VM → **渲染真的变红**：断言边框 2px + 颜色显著偏红；以及"再提交合法值 ⇒ 红框消失"）。**T3 豁免**见 `decisions.md` 7.17；**取值范围**：只做输入，命令侧留待需要时再只增） · **G4** B6 文件选择渲染 —— ✅ **完成**（SDK 只增 `FilePickerMode` + `ViewElement.FileMode`/`FileFilter`（`init`）；`FileSelectorElementViewModel` + 模板（标签 + **只读**路径框 + 「浏览…」+ 就地结果）；**弹窗在视图层**（`OnBrowseClick` 用 `TopLevel.StorageProvider`；`async void` 事件处理 + 异常就地提示不逸出）；**路径走既有输入通道**（`SubmitInput` → 模块 `TryDequeueInput`）⇒ **模块不碰文件对话框 API**。**回归网**：渲染用例（2 个选择器 → 标签/只读框/浏览按钮**都真的画出来**）+ 提交用例（框架接受路径；未声明输入被拒）。**顺带修掉一个真缺陷**：`ModuleRuntime.IsInputElement` **原先漏了 `FileSelector`** ⇒ 声明 B6 的模块收路径会被判"**模块未声明该输入**"而拒绝（由本用例抓出）。**只能人工验**：点「浏览」真的弹系统对话框。文档回写 `02`（渲染子集 + B6 声明语义）/`06`（输入通道 + 渲染子集）） · **G5** **C5-7 端口锚点一次做完**：`PortDeclaration.Edge` + `AnchorDraggable`（默认 **false**）+ **可拖到任意边**（⇒ 组合件**新增"边"字段** + 走 ADR-0017 迁移）+ **全局**「固定/解锁端口锚点」快捷键 + `Core.Api` 锚点变更操作 ⇒ **必须跑 T3 + 重编全部模块** —— ✅ **完成**（**SDK 只增**：`PortDeclaration.Edge`（`Auto` 默认 = 惯例）+ `AnchorDraggable`（默认 `false` = 固定）；**组合件新增 `edge` 字段**（`Auto` 缺省不写）与 `locked` **三态**（`null` = 用户没设过 ⇒ 按模块声明，见 `decisions.md` 7.19）；`Core` 侧 `ResolveEdge`（用户覆盖 > 声明 > 惯例）唯一解析；**拖动**：标记按下 → 越过 **4px 阈值**才启动（阈值内留给**双击改网名**，有真双击用例钉住）→ **最近边 + 沿边偏移**就地预览 → 松手经 `UpdatePortGeometry` **一次写全**（`SetPort` 是整条替换 ⇒ 少写字段会抹掉标签/边/固定态）、失败**就地回滚**；拖动期间 `IsDraggingAnchor` **冻结节拍同步**（否则预览被框架权威值拽回，有专门用例）；**入口**：标记**带内、标记长度之外**（悬停该标记时淡入）的**图标按钮**（点 = 固定/解锁该口）+ **全局 `Ctrl+P`**（批量）；**用户两次否掉视觉实现**（汉字「固」徽标槽位 + 悬停放大标记 ⇒ "太破坏观感""过于复杂"；二版落"标记内侧" ⇒ "实际落在了内侧遮挡 UI，**而不是边框留白处**"——实测预留带与内容区内边距**是同一块地方**）后按裁定重做，见 `decisions.md` 7.18。**落地中抓出并修掉两个真缺陷**（`decisions.md` 7.20）：同边拖动的抓取偏移算错（⇒ **恒等于没拖**）+ 面板没订阅模型（⇒ **改偏移屏幕不重排**）——两条都补了"去掉修复即红"的回归用例。**T3 已跑**（`build.ps1` 五步全绿：文档审计 ✓ · 构建 **0 警告 0 错误**（**6 个参考模块一并重编** ⇒ 二进制兼容已验证）· 模块包 **6/6** ✓ · 许可审计 ✓ · 测试 **400 通过 / 0 失败**（Tests 341 · Reference 43 · 架构 10 · 快照 6 · Modules.Tests 0））。**回归网**：VM/持久化 **2 条**（三态按声明解析、`locked:false` 也落盘、`locked` 缺省不写）+ **真指针** 6 条（拖动换边并落盘、默认固定拖不动且给解锁提示、纯点击/阈值内抖动不提交、**真双击仍打开网名编辑**、拖动期间刷新不拽回、全局固定/解锁）+ **真出像素快照 1 条**（悬停淡入的按钮**真的出现**（隐藏帧 vs 淡入帧像素差 > 40）、**真指针点击**命中并写进运行时、两态字形互斥且切换、光标 `SizeAll`→`Arrow`、按钮**不与标记/指示灯重叠**且在窗口内）；快捷键目录用例 +1（默认键唯一、术语用「固定」不用「锁定」） | 用户 2026-09 裁定 · `implementation/06` §H.1/§H.5 · `roadmap.md` §4 **G16** · `07` 端口标记表 | **✅ 完成（G1 ✅ · G2 ✅ · G3 ✅ · G4 ✅ · G5 ✅ —— 框架缺口已清零，下一步 = 4 份模块页）** |
+| 13 | ~~模块自检的"口 → 角色归属完整性"未落地~~ → **已收口**（`implementation/06` §I 的 **B5** 已裁 = a 且已实施：两条规则进 `ModuleContract` 的 `Advisories`、运行期不报；`IModuleContext` / `RoleDeclaration` / `Core.Api` 三处"运行期会提示"的旧承诺已校正） | `architecture/02`「口 → 角色归属的完整性（B5）」 | — |
+| 14 | **`MultiSourceChainTests.多源链路_两路输入应按策略融合并转发给下游` 偶发失败**：断言 `fuserRole.RateBytesPerSecond > 0` 偶得 `0`（**代码未变、同一命令重复跑即复现/不复现**；实测 6 次里 3 次红）。根因指向已知口径 —— `RateMeter.MinIntervalSeconds = 0.1`（1.0.29 为修"一次刷新多消费者除第一个外全读 0"而加）⇒ **距上次读取不足 100 ms 的读取返回 0**，而该测试在活动结束后**立刻单次读**。**不是本次改动引入**（改前 41/41 通过是"并发跑"的时序，改后走串行 ⇒ 时序变了）。**用户 2026-09 裁定：先不修，只留登记**（按测试环境噪声处理） | `tests/HYWDebugAssistant.Tests.Reference/MultiSourceChainTests.cs` L115–121 · 主文档 1.0.29 · `Core/Services/RateMeter.cs` | **不阻塞**（已登记为**已知偶发**）。**红时的正确判断**：只单跑该项目一次 —— `.\tools\dev.ps1 -Mode Test -Filter 多源链路` **第二次通过即为本条**，不是回归；若**连续两次都红**才按真实缺陷处理。**将来若要根治**：① 测试改为轮询等速率（保留"必须 > 0"的原意）② `RateMeter` 最小间隔改可配/可重置（需回写主文档 1.0.29 口径 + `decisions.md`） |
+| 15 | **输入元素「处理结果」反馈通道**（**契约扩展请求 · 已裁 = 新增通道（只增）**，见 `decisions.md` 7.16）：模块可把"某次输入的处理结果（成功/失败 + 原因）"回报到**对应输入元素**，框架渲染**失败态（红框）**；**失败态在"下一次提交"时刷新**（框架在投递入队时清旧结果 ⇒ 无回报 = 无失败态、零回归）。**取证（为何现有面做不到）**：`SubmitInput` 的 `CommandResult` 只反映投递是否入队（`src/Core/Runtime/ModuleRuntime.cs` `case SubmitInputOperation` 只校验实例存在 + 该输入已声明，然后 `plan.InputDeliveries.Add(...)`）；模块无"把结果落到某元素"的通道（Issue 进 Issue 中心、业务状态进状态徽标，都不按元素定位）；模块**不持 UI** ⇒ 满足判据"本质只能由框架做"。**影响** = #4 转换器（转换失败标红）· #2 HEX 发送器（非法 HEX）· 后续逐输入校验类模块。**范围：只做输入**（命令侧留待需要时再只增）。**T3 豁免**见 `decisions.md` 7.17（**重编全部模块照常发生**，只豁免额外那次完整门禁） | `implementation/05` §2 · `src/Core/Runtime/ModuleRuntime.cs` · `src/Core/Services/RuntimeServices.cs` | **G3 的实现依据**（已裁，无阻塞） |
+| 16 | **快照项目在 `-AllTests` 负载下曾偶发一条红（未复现）**：`VisualSnapshots.OverlaySnapshotTests.叠加层_应在真实渲染栈下画出方块与连线_并留下快照` 在 G2 收尾的那次全量跑中红过一次；此后**单独跑 6 次 + 全量 `-AllTests` 2 次全绿**，**失败断言原文未捕获** | `tests/HYWDebugAssistant.VisualSnapshots/OverlaySnapshotTests.cs` · `TabStripSnapshotTests.cs`（G1 新增，使同进程**第三个**各自 `StartNew` 无头会话的快照类） | **不阻塞 · 归因未定**（按纪律**只报证据支持的结论**：该用例不碰标签页/多行输入的新代码路径；疑似"多无头会话 + 负载时序"，但**未证实**）。**暂按与第 14 项同一口径处理**（先不修、只留登记）：**红时单跑一次，通过即非回归**；若再复现**且捕获到断言原文**，再定是否要给"多会话串行"加保护 |
 
 **已收口、不再作为未完成项（登记备查，勿重复开单）**：
 ① **B2/B5 命令与输入通道** → 已由收件箱拉取式（`IModuleContext.Inbox`）落地，推送式 `IModule.OnCommand`/`OnInput` 作废；
 ② **ADR-0050 的 R6（UI 投影）** → 已由 P3/P4（数据角色模型 → 声明式角色投影，ADR-0048/0049/0052/0053）落地；
 ③ **异常隔离政策 Z**（投递回调异常是否改为丢弃继续）→ 维持现状（报 Issue + 停止该实例活动）；
 ④ **UDP 语义规范化与结构级 Q1–Q6**（含队列粒度、薄旁路头）→ ADR-0050；**数据协议 Q1–Q14** → ADR-0046；**吸附 D-1~D-5** → ADR-0042；
-⑤ **`Disabled` 是否保留线程** → 裁定"**保留线程与资源**"（仅 `Removed` 回收）。
+⑤ **`Disabled` 是否保留线程** → 裁定"**保留线程与资源**"（仅 `Removed` 回收）；
+⑥ **文档编辑 / 归档工作流** → 2026-09 已落地为 **`DOC-WORKFLOW.md`**（唯一对照表 + 归档规程 + 审计挂进 `build.ps1` 第 1/5 步），`README` §4 / `architecture/00` §4 / `implementation/03` §4 的三处重复规则**已收敛为一处**。
 
 **明确不做（v1）**：跨窗口长连线 · 模块热重载 · 任务栏相关设置项 · UI 自动化（T8）· 进程级沙箱 · 崩溃转储 · 安装包/自动更新 · 首次运行引导 · i18n 与无障碍（详见主文档 §18.4 与 `architecture/10-delivery-and-ops` §7）。
 
@@ -103,9 +110,27 @@
 
 **已核对通过、不列入缺口**：组合件网络记录的可选字段 **`allowUnverifiedTypeMatch`**（仅在该值为 `true` 时写出、缺省 `false`）已在 `03-data-protocol-and-typing` 与 `05-network-semantics` 写明，无需补；`CarrierOptions` 的队列容量 **1024**（按 (实例, 口) 计）与"丢最旧"默认值已在分册与主文档一致。
 
+| G16 | **✅ 已闭合（G5 · 2026-09）** —— 原登记"C5-7 端口锚点：多数子项已实现，缺'口的默认边'与'拖动 / 锁定入口'"：三处缺口**已全部补齐**（① **口的默认边**：`PortDeclaration.Edge`，`Auto` = 惯例；② **拖动**：标记拖到任意边 + 沿边改偏移，松手经 `UpdatePortGeometry` 落盘；③ **入口**：标记内侧悬停淡入的图标按钮（单口）+ `Ctrl+P`（全局））。**原登记内容保留在下方作为沿革**：✅ **已实现** = 沿边偏移的数据链（`Core.Api.PortView.AnchorOffset` → `PortGeometryView.Offset` → `ModuleViewViewModel` L428/L434 消费）· **随组合件往返保存**（`CompositeSerializer`；`CompositePersistenceTests` L61/L590/L600 断言 0.25 / 0.75）· 锚点锁定标志（`PortView.IsAnchorLocked` / `PortGeometryView.IsLocked`，含序列化）· **建网判定双轴泛化**（`DockRule.TryGetContact` 左右 + 上下、`MarkerCenter` 按接触面取轴）· **吸附轴按边取**（`PortAnchorPair.AlignsX = !边竖直性`）· **横排标记渲染**（`MarkerWidth/Height => IsVertical ? 20 : 114`）。❌ **缺** = ① 口的**默认边**（`PortMarkerViewModel.Side => IsSend ? Right : Left` **写死**；模块无法声明，也没有 Top/Bottom）② **拖动锚点**（全仓 `AnchorOffset` **没有任何写入方**，只有测试在写 ⇒ 用户改不了）③ **锁定 / 解锁的操作入口**（C5-7 原文要求"可通过**快捷键/操作**锁定与解锁"） | 证据见左列各文件：`src/Ui/ViewModels/PortMarkerViewModel.cs` L202 · `src/Ui/ViewModels/ModuleViewViewModel.cs` L428/434 · `src/Core.Api/RuntimeViews.cs` L11–27/L233–241 · `src/Core/Composition/DockRule.cs` · `src/Core/Services/CompositeSerializer.cs` L307/613 | **按 C5-7 补齐**（`ADR-0031 §6③` + 旧分册 `05 §C5-7` + `07` 端口标记表"锚点是否可拖动是模块属性"）；旧分册 `13` 的"本批只泛化布局规则、暂不开放上下边端口"是**有意的暂缓**，**不是**废止 C5-7。⚠ **另登记两处（用户 2026-09 已判）**：① **语义冲突**：`07` L83 写"**固定**锚点在模块拉伸时**按比例重排**"，而 `RuntimeViews.cs` L233 的 `IsLocked` 注释写"锁定后**不随**模块拉伸重排，也不可拖动" —— 用户裁定"**锁定时即不允许移动也不允许拉伸**"（**已核实实现正确**：`ModuleWindowsViewModel` 的 `BeginDrag` L410 与 `BeginResize` L867 **都**要求 `Is Locked: false`）⇒ **模块锁定后不会被拉伸，锚点重排问题不会发生**；锚点那个标志只应表达**不可拖动**（= C5-7 的「固定」）⇒ **改 `RuntimeViews.cs` 注释**（代码行为无需改）。② **术语撞词**：「锁定」现同时指**模块窗口锁定**（ADR-0041 按钮簇）与**锚点固定**（C5-7）⇒ **锚点侧换词为「固定 / `AnchorDraggable`」**，`07` 措辞一并收敛 | 用户 2026-09 指出 · `ADR-0031` §6③ · `07` 端口标记表 · `implementation/06` §H.1 |
+
 ---
 
-## 5. 门禁节奏与当前生效例外
+## 5. 模块开发状态（状态唯一源的一部分）
+
+> 规定见 `implementation/05-two-track-development-workflow.md` §4：**模块页与本节必须一致**。
+> **清单的唯一落点 = `modules/README.md` §2.1**（15 个正式模块的标识与一句话职责在那里）；**本节只做状态汇总**，不重列清单。
+> 参考模块（判据载体）不在此列 —— 其处置（**验收后归档**）见 `implementation/06` §G 与 `modules/README.md` §2.2。
+
+| 批次 | 数量 | 状态 | 说明 |
+|---|---|---|---|
+| **第一批**（基础 · 纯文本处理） | 4 | **未开始** | 顶层路线的第 ② 步；**待**：框架缺口修复（`implementation/06` §H.1）与标准裁决 |
+| **第二批**（外部接口：串口 / TCP / UDP） | 3 | 未开始 | 串口会触发新依赖（许可门禁 + ADR） |
+| **第三批**（高级功能：预设发送 / 波形 / 协议解析 / 示波器 / 仪表盘 / 姿态 / 分流） | 7 | 未开始 | 多数依赖框架缺口（波形依赖、A7/A8 未渲染） |
+| **第四批**（工具 / 美化：图片显示器） | 1 | 未开始 | 依赖 B6 文件选择渲染 |
+| **已交付** | 0 | — | — |
+
+**当前有效状态**：**第一批正式模块尚未开工**；开工前须先定 `implementation/06` 的【待裁】项与框架缺口修复范围（`implementation/06` §H.5）。
+
+## 6. 门禁节奏与当前生效例外
 
 | 项 | 内容 |
 |---|---|

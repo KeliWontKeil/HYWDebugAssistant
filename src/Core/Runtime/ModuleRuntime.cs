@@ -294,6 +294,10 @@ public sealed partial class ModuleRuntime : IDisposable
                     else
                     {
                         plan.InputDeliveries.Add((input.InstanceId, input.Source, input.Text));
+
+                        // 【G3 · 2026-09】"**下一次提交即刷新**"：投递入队时清除该 (实例, 源名) 的旧处理结果
+                        // ⇒ 模块这次若不再回报，失败态自然消失；**没回报过也永远没有失败态**（零影响）。
+                        inputInstance.Context.InputFeedbackStore.Clear(input.Source);
                     }
 
                     break;
@@ -539,7 +543,10 @@ public sealed partial class ModuleRuntime : IDisposable
     private static bool IsInputElement(HYWDebugAssistant.Sdk.Views.ViewElementKind kind) =>
         kind is HYWDebugAssistant.Sdk.Views.ViewElementKind.TextInput
             or HYWDebugAssistant.Sdk.Views.ViewElementKind.ToggleSlider
-            or HYWDebugAssistant.Sdk.Views.ViewElementKind.EnumSelector;
+            or HYWDebugAssistant.Sdk.Views.ViewElementKind.EnumSelector
+            // 【G4 · 2026-09】B6 文件选择器**也是输入元素**：它产出一个**路径字符串**，走同一条 `SubmitInput` 通道。
+            // （此前漏了它 ⇒ 声明了文件选择器的模块收路径会被判"未声明该输入"而拒绝 —— 由 G4 的用例抓出。）
+            or HYWDebugAssistant.Sdk.Views.ViewElementKind.FileSelector;
 
     // ---------------------------------------------------------------- 增量重建与自动建网
 
