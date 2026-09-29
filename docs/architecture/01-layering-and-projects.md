@@ -101,8 +101,8 @@
 
 - 开发期：模块 = 普通类库项目，**仅引用 `Sdk`**；目标框架与其他项目一致（`net10.0`，由 `Directory.Build.props` 统一）。
 - 交付期：模块项目产出**模块包**（manifest + 实现绑定 + 可选资源）；包的物理形式与 manifest 载体属模块 SDK 分册与 Gate B。
-- **参考模块与业务模块同构**：参考桩模块放在 `src/`，与第三方模块享受**完全相同的引用面与加载路径**（不享受测试程序集特权）—— 这是 AC-1~AC-6 实证保真度的前提。
-- 参考桩模块现为 **5 个独立项目**（`DataGenerator` / `Recorder` / `Asserter` / `ManualSender` 手动数据发送器 / `Monitor` 信息显示模块），另有**多源融合器**（包名 `fuser`，双入一出，ADR-0050 R5 新增）。C2-4 冻结时的"三个"是当时的点数；**"一模块一包"为默认形态**的结论不变。
+- **正式模块与判据载体同构**：现行四个正式模块放在 `src/Modules/Business/`，与第三方模块享受**完全相同的引用面与加载路径**（不享受测试程序集特权）—— 这是 AC-1~AC-6 实证保真度的前提。**原参考桩模块已于 2026-09 按用户裁定删除**；判据项目内的测试桩（`tests/HYWDebugAssistant.Tests.Reference/Stubs/`）**不进产品模块目录、不打包**。
+- 现行模块项目为 **4 个**（`TextSender` / `HexSender` / `DataMonitor` / `HexStringConverter`，包名 `text-sender` / `hex-sender` / `data-monitor` / `hex-string-converter`）；**原参考桩模块（6 个）已于 2026-09 按用户裁定删除**。C2-4 冻结时的"三个"是当时的点数；**"一模块一包"为默认形态**的结论不变。
 - 模块项目**不得**引用其它模块项目，**不得**引用 `Core.Api`/`Hosting`/`DataPlane`/`Core`/`Ui`/`FrameworkUi`/`Infrastructure`。
 
 ---
@@ -123,24 +123,20 @@ HYWDebugAssistant.slnx
 │  ├─ FrameworkUi/             HYWDebugAssistant.FrameworkUi    （L5 框架自身 UI：外壳、弹窗、清单/设置/Issue/拓扑页）
 │  ├─ App/                     HYWDebugAssistant.App            （WinExe 组合根）
 │  └─ Modules/
-│     ├─ Reference/
-│     │  ├─ DataGenerator/ · Recorder/ · Asserter/
-│     │  ├─ ManualSender/  （手动数据发送器，M1-15）
-│     │  ├─ Monitor/       （信息显示模块，M1-15）
-│     │  └─ <多源融合器>   （包名 `fuser`，ADR-0050 R5）
-│     └─ <业务模块>/        HYWDebugAssistant.Modules.<名称>
+│     ├─ Business/            （正式模块，4 个：TextSender/ · HexSender/ · DataMonitor/ · HexStringConverter/）
+│     └─ <业务模块>/           HYWDebugAssistant.Modules.<名称>
 ├─ tests/
 │  ├─ HYWDebugAssistant.Tests               （T2–T5 机制与单元测试）
-│  ├─ HYWDebugAssistant.Tests.Reference     （T1 判据测试：参考组合 + AC-1~6）
+│  ├─ HYWDebugAssistant.Tests.Reference     （T1 判据测试：四个正式模块 + 项目内测试桩 + AC-1~6）
 │  ├─ HYWDebugAssistant.ArchitectureTests   （架构规则集 AR-0~AR-16）
 │  ├─ HYWDebugAssistant.Benchmarks          （Gate B 数值实测；不进常规门禁）
 │  └─ HYWDebugAssistant.VisualSnapshots     （真实 Skia 渲染快照自检，独立进程）
-├─ tools/                       （audit-licenses.ps1 · license-allowlist.json · dev.ps1）
+├─ tools/                       （audit-licenses.ps1 · license-allowlist.json · dev.ps1 · verify-module-packages.ps1）
 ├─ docs/                        （文档组：不在产品项目内）
 ├─ Directory.Build.props · Directory.Packages.props · .editorconfig · global.json · build.ps1
 ```
 
-- **约定**：项目目录名 = 项目名（命名空间应与目录结构一致，AR-14）；模块一律置于 `src/Modules/` 之下，分 `Reference/`（参考桩模块）与业务模块两类。
+- **约定**：项目目录名 = 项目名（命名空间应与目录结构一致，AR-14）；模块一律置于 `src/Modules/` 之下（现行 `Business/` 下为四个正式模块；**`Reference/` 分组已随参考模块于 2026-09 删除**）。
 - **工程根约定**：CPM 保留（`Directory.Packages.props`），**Avalonia 相关包引用只留在 `Ui`/`FrameworkUi`/`App`**（框架与数据面项目不得引用 UI 包）；`build.ps1`、`tools/audit-licenses.ps1` 保留，许可门禁覆盖全部依赖（含传递依赖）。
 - **`VisualSnapshots` 必须独立进程**：`AvaloniaHeadlessPlatform` 配置是**进程级**的，同进程混用两种会话会让主测试项目的无头会话集体失败。
 
@@ -152,7 +148,7 @@ HYWDebugAssistant.slnx
 | `<应用输出>\modules\<包名>\` | `App` 项目的构建后目标（把 `artifacts\modules\*` 镜像过去） | **内置模块包目录**：应用启动默认扫描，开箱可用 |
 
 - 规则：**先清空该包目录再复制**（避免新旧 DLL 混放）；包名由项目属性推导（默认取项目名后缀），**新增模块项目无需改任何脚本/targets**。
-- `artifacts/` 已在 `.gitignore`；`tools/stage-reference-modules.ps1` 降级为**发布打包用**（遍历 `artifacts\modules`，不再硬编码模块清单）；`build.ps1` 的"归拢"步骤改为**校验**（每个包目录是否齐全）。
+- `artifacts/` 已在 `.gitignore`；`tools/verify-module-packages.ps1`（**2026-09 由 `stage-reference-modules.ps1` 改名，功能不变**）降级为**发布打包用**（遍历 `artifacts\modules`，不再硬编码模块清单）；`build.ps1` 的"归拢"步骤改为**校验**（每个包目录是否齐全）。
 
 ---
 

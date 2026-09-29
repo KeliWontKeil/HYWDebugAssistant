@@ -65,13 +65,6 @@ public sealed partial class TopologyViewModel : ViewModelBase
     /// <remarks>用增量同步（见 <see cref="CollectionSync"/>）：每帧重建列表会让悬停等瞬时视觉状态反复重置（闪烁）。</remarks>
     public void Refresh()
     {
-        // 【P40】按**网络身份键**索引（网络名不唯一：匿名网络名为空串 ⇒ 两条匿名网络会撞键并抛异常）
-        var diagnostics = new Dictionary<string, BindingDiagnosticView>(StringComparer.Ordinal);
-        foreach (var diagnostic in _query.GetDiagnostics())
-        {
-            _ = diagnostics.TryAdd(diagnostic.Key, diagnostic);
-        }
-
         var networks = _query.GetNetworks();
 
         var rows = new List<TopologyRowViewModel>();
@@ -87,7 +80,14 @@ public sealed partial class TopologyViewModel : ViewModelBase
                 ? "停流"
                 : (network.UnresolvedMembers?.Count ?? 0) > 0 ? "悬空" : "正常";
 
-            _ = diagnostics.TryGetValue(network.Key, out var diagnostic);
+            // 【统一口径 · 用户 2026-09 裁定"统一宿口取数口径"】源行的指标 = **该网络各源端口指标之和**
+            // （端口指标由框架的**唯一**查询 `GetPortMetrics` 给出：该口参与的全部"流"之和）。
+            //
+            // **旧写法错在哪**（本行就是缺陷现场）：它拿 `network.Key`（= `源集合 → 宿集合`）去查
+            // `GetDiagnostics()` 的 `Key` 字典 —— 而后者是**逐源键**（= `单源 → 宿子集`）。
+            // 多源网络下两个键**永不相等** ⇒ **源行恒显示 0 / 0 / —**（1:1 单源单宿时两个键恰好字面相同，
+            // 所以这个缺陷一直没被看见）。现在改为向框架要"该口参与了哪些流"，不再猜键。
+            var sourceMetrics = SourceMetricsOf(network);
 
             rows.Add(new TopologyRowViewModel(
                 name,
@@ -95,12 +95,13 @@ public sealed partial class TopologyViewModel : ViewModelBase
                 network.Source,
                 "源",
                 state,
-                diagnostic?.Delivered ?? 0,
-                diagnostic?.Dropped ?? 0,
-                diagnostic?.LastDataTime?.ToLocalTime().ToString("HH:mm:ss.fff", System.Globalization.CultureInfo.CurrentCulture) ?? "—"));
+                sourceMetrics.Delivered,
+                sourceMetrics.Dropped,
+                FormatTime(sourceMetrics.LastDataTime)));
 
             members++;
 
+            // 宿行按既有设计**不显示计数**（见 `TopologyRowViewModel` 的文档："仅源行显示"）
             foreach (var target in network.Targets)
             {
                 rows.Add(new TopologyRowViewModel(name, kind, target, "宿", state, 0, 0, "—"));
@@ -119,4 +120,49 @@ public sealed partial class TopologyViewModel : ViewModelBase
         var stalled = networks.Count(n => n.IsStalled);
         Summary = $"网络 {networks.Count} · 成员 {members}" + (stalled > 0 ? $" · 停流 {stalled}" : string.Empty);
     }
+
+    /// <summary>
+    /// 该网络**源行的指标** = 它的**各源端口**指标之和（源行是**网络级**行；单源网络下 = 该源口自己的数）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>端口字面量一律按**最后一个 `.`** 拆成（实例, 口）——与本仓库其余字面量解析同一约定；</item>
+    ///   <item><see cref="PortMetricsView.Dropped"/> 只含**传输丢弃**（停流未投递是合法状态，按 ADR-0046 D8
+    ///     不得混算），故本表的"丢弃"列不再把停流未投递算进去；</item>
+    ///   <item>悬空/停流的源口由框架给出全 0（它不在任何流上）——这正是本表该显示的降级事实。</item>
+    /// </list>
+    /// </remarks>
+    /// <param name="network">网络视图。</param>
+    private (long Delivered, long Dropped, DateTimeOffset? LastDataTime) SourceMetricsOf(NetworkView network)
+    {
+        long delivered = 0;
+        long dropped = 0;
+        DateTimeOffset? last = null;
+
+        foreach (var literal in network.Sources)
+        {
+            var separator = literal.LastIndexOf('.');
+            if (separator <= 0)
+            {
+                continue;   // 非法字面量：不猜，跳过（宁可少显示，不让界面崩）
+            }
+
+            var metrics = _query.GetPortMetrics(literal[..separator], literal[(separator + 1)..]);
+
+            delivered += metrics.Delivered;
+            dropped += metrics.Dropped;
+
+            if (metrics.LastDataTime is { } time && (last is null || time > last))
+            {
+                last = time;
+            }
+        }
+
+        return (delivered, dropped, last);
+    }
+
+    /// <summary>最后数据时间的呈现文本（无数据 = 破折号）。</summary>
+    /// <param name="time">时刻。</param>
+    private static string FormatTime(DateTimeOffset? time) =>
+        time?.ToLocalTime().ToString("HH:mm:ss.fff", System.Globalization.CultureInfo.CurrentCulture) ?? "—";
 }

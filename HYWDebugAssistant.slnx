@@ -11,13 +11,11 @@
     <Project Path="src/FrameworkUi/HYWDebugAssistant.FrameworkUi.csproj" />
     <Project Path="src/App/HYWDebugAssistant.App.csproj" />
   </Folder>
-  <Folder Name="/src/Modules/Reference/">
-    <Project Path="src/Modules/Reference/DataGenerator/HYWDebugAssistant.Modules.Reference.DataGenerator.csproj" />
-    <Project Path="src/Modules/Reference/Recorder/HYWDebugAssistant.Modules.Reference.Recorder.csproj" />
-    <Project Path="src/Modules/Reference/Asserter/HYWDebugAssistant.Modules.Reference.Asserter.csproj" />
-    <Project Path="src/Modules/Reference/ManualSender/HYWDebugAssistant.Modules.Reference.ManualSender.csproj" />
-    <Project Path="src/Modules/Reference/Monitor/HYWDebugAssistant.Modules.Reference.Monitor.csproj" />
-    <Project Path="src/Modules/Reference/Fuser/HYWDebugAssistant.Modules.Reference.Fuser.csproj" />
+  <Folder Name="/src/Modules/Business/">
+    <Project Path="src/Modules/Business/TextSender/HYWDebugAssistant.Modules.TextSender.csproj" />
+    <Project Path="src/Modules/Business/HexSender/HYWDebugAssistant.Modules.HexSender.csproj" />
+    <Project Path="src/Modules/Business/DataMonitor/HYWDebugAssistant.Modules.DataMonitor.csproj" />
+    <Project Path="src/Modules/Business/HexStringConverter/HYWDebugAssistant.Modules.HexStringConverter.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/HYWDebugAssistant.Tests/HYWDebugAssistant.Tests.csproj" />

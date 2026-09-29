@@ -37,8 +37,15 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <summary>最小宽（DIP；缩放下限，与 `ModuleWindow.axaml` 的 `MinWidth` 一致）。</summary>
     public const double MinWidth = 180;
 
-    /// <summary>最小高（DIP；与 `ModuleWindow.axaml` 的 `MinHeight` 一致）。</summary>
-    public const double MinHeight = 120;
+    /// <summary>
+    /// 最小高（DIP；与 `ModuleWindow.axaml` 的 `MinHeight` 一致）。
+    /// </summary>
+    /// <remarks>
+    /// 【2026-09】120 → <see cref="PortMarkerMetrics.MinWindowExtent"/>：标记沿边长度加到 150 之后，
+    /// 窗口比标记短就会把标记**裁掉一截**（面板把起点夹到 0 并让它溢出）⇒ 下限必须由标记长度推出来，
+    /// 不再是随手取的 120。
+    /// </remarks>
+    public const double MinHeight = PortMarkerMetrics.MinWindowExtent;
 
     /// <summary>
     /// 本模块声明（或框架兜底）的**首选窗口尺寸**（DIP）——「还原」回到这个尺寸。
@@ -61,6 +68,10 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
     /// <summary>【G1】标签页选中态（键 = 声明树路径如 <c>v/0</c>）——**纯 UI 状态，不进组合件**。</summary>
     private readonly Dictionary<string, int> _tabSelection = new(StringComparer.Ordinal);
+    private readonly IViewStateAccess? _viewState;
+
+    /// <summary>声明树路径 → 容器的 `StateKey`（切页时用它把选中态写进视图状态存储）。</summary>
+    private readonly Dictionary<string, string> _tabStateKeys = new(StringComparer.Ordinal);
 
     /// <summary>【G1】最近一次重建用的实例视图（切换标签后需要按同一声明重建元素表）。</summary>
     private ModuleInstanceView? _lastView;
@@ -105,6 +116,11 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <param name="scale">屏幕缩放（1.0 = 100%；用于默认尺寸的像素换算）。</param>
     /// <param name="fallbackX">未摆放时的默认 X（物理像素）。</param>
     /// <param name="fallbackY">未摆放时的默认 Y（物理像素）。</param>
+    /// <param name="viewState">
+    /// **视图状态存取面**〔2026-09 · `decisions.md` 7.28/7.31〕：切页的选中态、输入框**未提交**的文本、
+    /// 文本显示的共享缓冲都放在这里 —— 元素表重建（切页 / 改设置）**不再丢内容**（对齐 WinForms"控件活着，数据就在"）。
+    /// `null`（设计期 / 旧调用点）⇒ 回落今天的行为（选中态只记在本地、显示用各自的本地缓冲）。
+    /// </param>
     public ModuleViewViewModel(
         ModuleInstanceView view,
         ModuleLayoutView? layout,
@@ -112,7 +128,8 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         IRuntimeCommand command,
         double scale,
         double fallbackX,
-        double fallbackY)
+        double fallbackY,
+        IViewStateAccess? viewState = null)
     {
         ArgumentNullException.ThrowIfNull(view);
         ArgumentNullException.ThrowIfNull(query);
@@ -120,6 +137,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
         _query = query;
         _command = command;
+        _viewState = viewState;
         _scale = scale <= 0 ? 1.0 : scale;
 
         // 尺寸来源优先级：① 组合件里的布局（用户拖过）② **模块声明的首选尺寸** ③ 框架默认（= XAML 默认）
@@ -361,7 +379,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         var hasInput = false;
         foreach (var element in Elements)
         {
-            if (element is TextInputElementViewModel)
+            if (element is TextInputElementViewModel or FileSelectorElementViewModel)
             {
                 hasInput = true;
                 break;
@@ -377,7 +395,15 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
         foreach (var element in Elements)
         {
-            if (element is not TextInputElementViewModel input)
+            // 收哪个源名的反馈（输入框与文件选择器走**同一条**通道：都是"提交了一串文本"）
+            var source = element switch
+            {
+                TextInputElementViewModel input => input.Source,
+                FileSelectorElementViewModel picker => picker.Source,
+                _ => null,
+            };
+
+            if (source is null)
             {
                 continue;
             }
@@ -385,7 +411,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
             InputFeedbackView? hit = null;
             foreach (var candidate in feedback)
             {
-                if (string.Equals(candidate.SourceName, input.Source, StringComparison.Ordinal))
+                if (string.Equals(candidate.SourceName, source, StringComparison.Ordinal))
                 {
                     hit = candidate;
                     break;
@@ -393,11 +419,31 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
             }
 
             var invalid = hit is { Succeeded: false };
-            input.IsInvalid = invalid;
 
-            if (invalid && hit!.Message is { Length: > 0 } message)
+            switch (element)
             {
-                input.LastResult = message;
+                case TextInputElementViewModel input:
+                    input.IsInvalid = invalid;
+                    if (invalid && hit!.Message is { Length: > 0 } message)
+                    {
+                        input.LastResult = message;
+                    }
+
+                    break;
+
+                case FileSelectorElementViewModel picker:
+                    // 【2026-09】文件选择器的**成功也显示**（弹过系统对话框 ⇒ 给一次落点确认；
+                    // 保存类操作尤其需要——"存到哪儿了"必须看得见）。失败则同色标红。
+                    picker.IsInvalid = invalid;
+                    if (hit is { Message: { Length: > 0 } pickerMessage })
+                    {
+                        picker.LastResult = pickerMessage;
+                    }
+
+                    break;
+
+                default:
+                    break;
             }
         }
     }
@@ -501,13 +547,13 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
             }
         }
 
-        // 配置表单：模块声明里没有 B1 元素时由**框架补一个**——"配置编辑在模块视图内"（C5-4）
-        // 对所有模块都成立（否则模块的配置在界面上无处可改）。
-        if (!Elements.Any(e => e is ConfigurationEditorElementViewModel))
-        {
-            Elements.Add(CreateConfigurationEditor());
-        }
-
+        // 【2026-09 用户裁定：**删除整个配置框**】此前这里在"模块没声明 B1"时由**框架补一个**配置表单
+        // （理由曾是"否则配置在界面上无处可改"）。用户否掉了这条：
+        //   · "有哪些配置项"这类**细节表单用户不应了解、也不应显示给用户看**；
+        //   · "哪些值需要作为配置保存"由**模块作者声明**、**用户隐式感知**；
+        //   · 表单里那个「还原」按钮与左上角已有入口重复，也不需要。
+        // ⇒ 框架**不再自动补**；**配置能力完全保留**：模块若显式声明 B1（`ViewElementKind.ConfigurationEditor`），
+        //    仍按声明渲染（下面 `CreateElement` 的分支照旧）。
         ReloadConfigurationForms();
 
         // **窗口尺寸不由内容计算**【用户第九轮反馈 · UI 开发方式修正】：
@@ -552,7 +598,12 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
                     continue;   // 零页 ⇒ 什么都不画（不假装支持）
                 }
 
-                var selected = Math.Clamp(_tabSelection.GetValueOrDefault(childPath), 0, element.Children.Count - 1);
+                // 【2026-09 · 7.28】声明了 `StateKey` ⇒ 选中态读**视图状态存储**（模块也能回读；元素表重建后仍在）；
+                // 未声明 ⇒ 沿用本地字典（今天的行为，老模块零变化）。
+                var stateKey = element.StateKey ?? string.Empty;
+                _tabStateKeys[childPath] = stateKey;
+                var stored = stateKey.Length > 0 ? _viewState?.GetSelectedPage(InstanceId, stateKey) : null;
+                var selected = Math.Clamp(stored ?? _tabSelection.GetValueOrDefault(childPath), 0, element.Children.Count - 1);
                 var pages = new List<TabPageItemViewModel>(element.Children.Count);
 
                 for (var page = 0; page < element.Children.Count; page++)
@@ -602,6 +653,15 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     private void SelectTab(string path, int page)
     {
         _tabSelection[path] = page;
+
+        // 【2026-09 · 7.28】把选中页写进**视图状态存储**：① 模块可回读（"当前选中页可被感知"）
+        // ② 元素表重建后仍记得（切页不再丢状态）。**仍不进组合件、不持久化**（重启即丢）。
+        if (_viewState is not null
+            && _tabStateKeys.TryGetValue(path, out var stateKey)
+            && stateKey.Length > 0)
+        {
+            _viewState.SetSelectedPage(InstanceId, stateKey, page);
+        }
 
         if (_lastView is { } view)
         {
@@ -680,19 +740,49 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         {
             ViewElementKind.Numeric => new ValueElementViewModel(element.Title, source),
             ViewElementKind.Curve => new CurveElementViewModel(element.Title, source),
-            ViewElementKind.TextLog => new TextLogElementViewModel(element.Title, source),
+
+            // 【2026-09 · 7.31】A5 文本日志：**共享文本缓冲**（"不清空就一直在"）——
+            // 同一份给 UI 渲染与模块回读（`IModuleContext.ViewState.GetDisplayLines`）；未接线 ⇒ 本地缓冲。
+            ViewElementKind.TextLog => new TextLogElementViewModel(
+                element.Title,
+                source,
+                DisplayFor(element.DataSource)),
 
             // 【M1-16 / ADR-0040】人机操作三通道：命令按钮 / 文本输入 / 开关 —— 全部**投递到模块线程**
             // 【G2 · 2026-09】文本输入：把**应用级**的多行提交键档位传进去（多行提交键不属模块声明）
-            ViewElementKind.TextInput => new TextInputElementViewModel(element, SubmitInput, MultilineSubmitKey),
+            // 【2026-09】再传数据源：只为取"**框外单位标签**"（`ViewDataSource.Unit`）与数值输入的字符放行
+            // 【2026-09 · 7.28】并把"当前文本"落到**视图状态存储**（元素表重建后恢复；模块可回读）
+            ViewElementKind.TextInput => new TextInputElementViewModel(
+                element,
+                SubmitInput,
+                MultilineSubmitKey,
+                source,
+                _viewState,
+                InstanceId),
 
             // 【G4 · 2026-09】B6 文件选择器：弹对话框选/存路径 → 经既有输入通道提交给模块
             ViewElementKind.FileSelector => new FileSelectorElementViewModel(element, SubmitInput),
-            ViewElementKind.ToggleSlider => new ToggleElementViewModel(element, SubmitInput),
+
+            // 【2026-09 缺陷修复】开关也把"当前值"落到**视图状态存储**：切页 / 改设置重建元素表后，
+            // 开关必须停在用户上次拨到的位置 —— 否则 UI 弹回"关"、模块还在按"开"跑（实测：连续发送）。
+            ViewElementKind.ToggleSlider => new ToggleElementViewModel(element, SubmitInput, _viewState, InstanceId),
+
+            // 【2026-09 用户裁定】**开关式滑块**（B7）：与 B3 语义相同、外观不同（模板按 `IsSwitch` 二选一）
+            ViewElementKind.ToggleSwitch => new ToggleElementViewModel(element, SubmitInput, _viewState, InstanceId),
             ViewElementKind.ConfigurationEditor => CreateConfigurationEditor(),
             _ => new UnsupportedElementViewModel(element.Kind, element.Title),
         };
     }
+
+    /// <summary>
+    /// 取某显示源的**共享文本缓冲**（视图状态存储里那一份）；未接线或未声明源名 ⇒ <see langword="null"/>
+    /// （元素自己建本地缓冲 —— 设计期与旧调用点行为不变）。
+    /// </summary>
+    /// <param name="sourceName">显示源名。</param>
+    private DisplayBuffer? DisplayFor(string? sourceName) =>
+        _viewState is not null && sourceName is { Length: > 0 }
+            ? _viewState.Display(InstanceId, sourceName)
+            : null;
 
     /// <summary>命令按钮：按命令声明生成（未声明的命令不会出现在界面上）。</summary>
     /// <param name="command">命令声明。</param>

@@ -7,12 +7,38 @@
       · 尺寸只从 token 取，**禁止逐处写死高度**；
       · 应用范围 = 全局（模块窗口内的配置表单、发送器视图、外壳与弹窗一致）。
     -->
+
+    <!--
+      【2026-09 缺陷修复 · 用户实测"界面字体改了没反应"】**把 `FontUi` 真正用起来**：
+      此前它只在 `Tokens.axaml` 里定义、**全应用无一处引用** ⇒ 换界面对界面文字毫无影响（只有"数据字体"
+      因为各输入框显式引用了 `FontData` 才生效）。`FontFamily` 是**继承属性** ⇒ 在窗口这一层设一次，
+      整棵树都跟着走；模块数据区各自的 `FontFamily="{DynamicResource FontData}"` 是**元素级**值，优先级更高，
+      所以数据字体不会被这条盖掉。
+    -->
+    <Style Selector="Window">
+        <Setter Property="FontFamily" Value="{DynamicResource FontUi}" />
+    </Style>
+
     <Style Selector="TextBox">
         <Setter Property="Height" Value="{DynamicResource ControlHeight}" />
         <Setter Property="MinHeight" Value="{DynamicResource ControlHeight}" />
         <Setter Property="FontSize" Value="{DynamicResource ControlFontSize}" />
         <Setter Property="Padding" Value="6,0" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <!--
+      【2026-09 用户反馈】"不允许编辑的文本框"（只读路径框、只读结果框）**背景也用白色** ——
+      Fluent 主题默认给只读 `TextBox` 一层灰底，用户口径："灰色不好看"。
+    -->
+    <Style Selector="TextBox:disabled">
+        <Setter Property="Background" Value="{DynamicResource BgModule}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+    </Style>
+
+    <Style Selector="TextBox[IsReadOnly=True]">
+        <Setter Property="Background" Value="{DynamicResource BgModule}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
     </Style>
 
     <Style Selector="ComboBox">

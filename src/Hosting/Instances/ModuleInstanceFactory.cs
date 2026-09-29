@@ -16,7 +16,19 @@ public static class ModuleInstanceFactory
     /// <param name="instanceId">实例 ID（工作现场内唯一、稳定）。</param>
     /// <param name="definition">模块定义。</param>
     /// <param name="issues">框架侧上报口。</param>
-    public static ModuleInstance Create(string instanceId, Registry.ModuleDefinition definition, Diagnostics.IIssueSink issues)
+    /// <param name="viewState">
+    /// **按实例绑定的视图状态读取面**〔2026-09 · `decisions.md` 7.28〕；`null` ⇒ 模块读到"全部未知"
+    /// （不影响声明与生命周期，老调用点零改动）。
+    /// </param>
+    /// <param name="display">
+    /// **按实例绑定的显示请求面**〔2026-09〕；`null` ⇒ 模块的"清空显示源"请求被忽略（老调用点零改动）。
+    /// </param>
+    public static ModuleInstance Create(
+        string instanceId,
+        Registry.ModuleDefinition definition,
+        Diagnostics.IIssueSink issues,
+        Sdk.Context.IViewStateReader? viewState = null,
+        Sdk.Context.IViewDisplayAccess? display = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
         ArgumentNullException.ThrowIfNull(definition);
@@ -25,6 +37,16 @@ public static class ModuleInstanceFactory
         var module = (Sdk.Lifecycle.IModule)Activator.CreateInstance(definition.EntryType)!;
         var context = new Context.ModuleContext(instanceId, definition.Id, issues);
         var objectPath = $"module:{instanceId}";
+
+        if (viewState is not null)
+        {
+            context.AttachViewState(viewState);
+        }
+
+        if (display is not null)
+        {
+            context.AttachDisplay(display);
+        }
 
         // ① 声明（异常边界：钩子异常不得逸出）
         try

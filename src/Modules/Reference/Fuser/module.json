@@ -1,8 +1,0 @@
-{
-  "id": "hyw/reference-fuser/1.0.0",
-  "entryAssembly": "HYWDebugAssistant.Modules.Reference.Fuser.dll",
-  "entryType": "HYWDebugAssistant.Modules.Reference.Fuser.FuserModule",
-  "frameworkCompatibility": ">=1.0.0 <2.0.0",
-  "dependsOn": [],
-  "resources": []
-}

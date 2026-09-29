@@ -177,6 +177,130 @@ public class SettingsServiceTests
         service.Current.InputQueueCapacity.ShouldBe(1024, "被拒绝的更新不得改变当前值");
     }
 
+    /// <summary>
+    /// **字体设置必须真的生效并落盘**（2026-09 用户实测："颜色改成立即生效，字体不仅不生效，也无法保存"）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>真因</b>：`ApplicationSettings.Clone()` **漏拷** `UiFontFamily`/`DataFontFamily`，而 Clone 是
+    /// **读**（`RuntimeServices.GetSettings`）与**写**（`SettingsService.Update` 的 `Current = settings.Clone()`）
+    /// 的必经之路 ⇒ 落盘写默认值、读回默认值、交给 `ThemeApplier` 的也是默认值。
+    /// </para>
+    /// <para>
+    /// <b>本用例为什么能拦住它</b>：它**同时走三个出口** —— ① 公开读出口（`GetSettings` = Clone）
+    /// ② 文件出口（settings.json 的键值）③ 重启读回出口；并且多一条**反向断言**（④ 改别的设置不得把字体冲回默认，
+    /// 这正是"用户改一次吸附距离，字体就悄悄回默认"的那条路径）。只断言其中一个出口都会漏。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void 更新_界面字体与数据字体应生效并落盘往返()
+    {
+        using var scope = new SettingsScope();
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load();
+
+        var services = new RuntimeServices(runtime, service);
+
+        // 用户改完点「应用」：界面 → 设置对象（`GetSettings` 给的是副本 ⇒ 这里同时验证了读出口带字体）
+        var view = services.GetSettings();
+        view.UiFontFamily = "Georgia";
+        view.DataFontFamily = "Cascadia Code";
+
+        services.UpdateSettings(view).Succeeded.ShouldBeTrue();
+
+        // ① 写出口（生效值）
+        services.GetSettings().UiFontFamily.ShouldBe("Georgia", "写完再读必须还是用户选的那个");
+        services.GetSettings().DataFontFamily.ShouldBe("Cascadia Code");
+
+        // ② 文件出口
+        var text = File.ReadAllText(scope.SettingsPath);
+        text.ShouldContain("\"uiFontFamily\": \"Georgia\"");
+        text.ShouldContain("\"dataFontFamily\": \"Cascadia Code\"");
+
+        // ③ 重启读回出口
+        var reloaded = new SettingsService(runtime, scope.SettingsPath);
+        reloaded.Load();
+        reloaded.Current.UiFontFamily.ShouldBe("Georgia", "重新加载应保留用户设置");
+        reloaded.Current.DataFontFamily.ShouldBe("Cascadia Code");
+
+        // ④ 反向断言：改一个**别的**设置（界面上最常见的动作）不得把字体冲回默认值
+        var again = services.GetSettings();
+        again.SnapDistance = 6;
+        services.UpdateSettings(again).Succeeded.ShouldBeTrue();
+        services.GetSettings().UiFontFamily.ShouldBe("Georgia", "别的设置落盘时，字体不得被自己的副本冲回默认");
+        services.GetSettings().DataFontFamily.ShouldBe("Cascadia Code");
+    }
+
+    /// <summary>
+    /// **`Clone()` 必须与全部可写属性一一对应**（"漏一个字段就静默失效"的结构性防线）。
+    /// </summary>
+    /// <remarks>
+    /// 用户实测的字体缺陷就是"Clone 漏了两个字段"—— 这类缺陷**不会报错、不会红**，只表现为"改了没反应"。
+    /// 本用例对**每一个**可写属性赋一个非默认哨兵值再 Clone，逐字段比对 ⇒ 将来任何人加字段忘了补 Clone 会当场红。
+    /// 新增属性时若类型未登记，哨兵工厂会**显式抛出并带上属性名**（宁可红，不要静默放过）。
+    /// </remarks>
+    [Fact]
+    public void Clone_必须复制全部可写属性()
+    {
+        var fresh = new ApplicationSettings();
+
+        foreach (var property in typeof(ApplicationSettings)
+            .GetProperties()
+            .Where(p => p is { CanRead: true, CanWrite: true }))
+        {
+            var sentinel = property.PropertyType == typeof(bool)
+                ? !(bool)property.GetValue(fresh)!
+                : Sentinel(property.PropertyType, property.Name);
+
+            property.SetValue(fresh, sentinel);
+
+            var copied = property.GetValue(fresh.Clone());
+
+            AssertCopied(property.Name, sentinel, copied);
+        }
+    }
+
+    /// <summary>为某一类型的属性造一个**非默认**哨兵值。</summary>
+    private static object Sentinel(Type type, string name) => true switch
+    {
+        _ when type == typeof(string) => $"sentinel-{name}",
+        _ when type == typeof(int) => 987_654,
+        _ when type == typeof(double) => 12.5,
+        _ when type == typeof(IList<string>) => new List<string> { $"dir-{name}" },
+        _ when type == typeof(IDictionary<string, string>) => new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [$"key-{name}"] = "value",
+        },
+        _ => throw new NotSupportedException(
+            $"新增了可写属性 {name}（{type.Name}）：请在 {nameof(Sentinel)} 里补一个哨兵值，让 Clone 完整性用例继续生效"),
+    };
+
+    /// <summary>比对"克隆出来的值"与"写进去的哨兵值"（集合按内容比，字典按键值比）。</summary>
+    private static void AssertCopied(string name, object expected, object? actual)
+    {
+        switch (expected)
+        {
+            case IDictionary<string, string> dictionary:
+                var copiedDictionary = actual.ShouldBeAssignableTo<IDictionary<string, string>>()!;
+                copiedDictionary.Count.ShouldBe(dictionary.Count, $"{name}：Clone 漏了这个字典字段");
+                foreach (var (key, value) in dictionary)
+                {
+                    copiedDictionary[key].ShouldBe(value, $"{name}：Clone 漏了这个字典字段");
+                }
+
+                break;
+
+            case IList<string> list:
+                actual.ShouldBeAssignableTo<IList<string>>()!.ShouldBe(list, $"{name}：Clone 漏了这个列表字段");
+                break;
+
+            default:
+                actual.ShouldBe(expected, $"{name}：Clone 漏了这个字段（用户实测「改了没反应」的那一类缺陷）");
+                break;
+        }
+    }
+
     [Fact]
     public void 往返_应保留未识别字段()
     {

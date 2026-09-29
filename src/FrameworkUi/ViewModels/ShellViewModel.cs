@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HYWDebugAssistant.Core.Api;
@@ -58,22 +59,37 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     /// <summary>创建外壳视图模型。</summary>
     /// <param name="query">查询面。</param>
     /// <param name="command">命令面。</param>
-    public ShellViewModel(IRuntimeQuery query, IRuntimeCommand command)
+    /// <param name="viewState">
+    /// **视图状态存取面**〔2026-09 · `decisions.md` 7.28/7.31〕：透传给模块窗口集
+    /// （切页选中态 / 输入框未提交文本 / 显示缓冲）。`null` ⇒ 回落今天的行为。
+    /// </param>
+    /// <param name="noticeLifetime">
+    /// **状态栏临时提示的存活时长**（缺省 = <see cref="DefaultNoticeLifetime"/>，8 秒）。
+    /// 显式参数而不是可变静态字段：生产用默认值，用例把它调成几十毫秒就能测"到点自动过期"
+    /// （否则那种用例要么慢、要么偶发）。
+    /// </param>
+    public ShellViewModel(
+        IRuntimeQuery query,
+        IRuntimeCommand command,
+        IViewStateAccess? viewState = null,
+        TimeSpan? noticeLifetime = null)
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(command);
 
         _query = query;
         _command = command;
+        _noticeLifetime = noticeLifetime ?? DefaultNoticeLifetime;
 
         Hotkeys = new HotkeyService(this);
-        Windows = new ModuleWindowsViewModel(query, command);
+        Windows = new ModuleWindowsViewModel(query, command, viewState);
 
         // 模块窗口发出的**面向用户提示**（建网/端口标签结果）→ 状态栏
         Windows.NoticeRaised += (_, notice) =>
         {
             StatusNotice = notice.Message;
             StatusNoticeIsError = notice.IsError;
+            _statusNoticeRaisedAt = Stopwatch.GetTimestamp();
             UpdateStatus();
         };
         Catalog = new ModuleCatalogViewModel(query, command);
@@ -257,8 +273,46 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     public partial bool AppTopmost { get; set; }
 
     /// <summary>最近一次面向用户的提示（建网结果、端口标签提交结果等；空 = 无）。</summary>
+    /// <remarks>
+    /// <b>2026-09 缺陷修复</b>：这条提示原先**没有任何过期机制**（只有下一条提示才会替换它）⇒
+    /// 一条陈旧提示会长期占据状态栏；又因为它被拼在摘要文本**末尾**、而主窗口只有 396 宽，
+    /// 摘要占满后提示被 `TextTrimming` 截成"拖动…" ⇒ 用户看到的是"**未完成显示的信息**"。
+    /// 现在：<b>独占一列</b>（摘要先省略，见 `MainWindow.axaml` 状态栏）+ <b>到点自动过期</b>。
+    /// </remarks>
     [ObservableProperty]
     public partial string? StatusNotice { get; set; }
+
+    /// <summary>
+    /// **临时提示的默认存活时长**（8 秒；到点由 <see cref="Refresh"/> 清掉）。
+    /// </summary>
+    /// <remarks>
+    /// 旧实现**没有过期机制**（只有下一条提示才会替换它）⇒ 一条陈旧提示会长期占据状态栏
+    /// （2026-09 用户实测："这里的'拖动'似乎是未完成显示的信息"）。
+    /// </remarks>
+    public static readonly TimeSpan DefaultNoticeLifetime = TimeSpan.FromSeconds(8);
+
+    /// <summary>本实例的提示存活时长（构造时注入；见 <see cref="ShellViewModel"/> 的 `noticeLifetime`）。</summary>
+    private readonly TimeSpan _noticeLifetime;
+
+    /// <summary>提示写入时刻（<see cref="Stopwatch.GetTimestamp"/>；无提示时为 0）。</summary>
+    private long _statusNoticeRaisedAt;
+
+    /// <summary>提示是否已到点（纯函数：给时刻算结论）。</summary>
+    private static bool IsNoticeExpired(long raisedAt, long now, TimeSpan lifetime) =>
+        raisedAt > 0 && (now - raisedAt) >= (long)(lifetime.TotalSeconds * Stopwatch.Frequency);
+
+    /// <summary>把到点的提示清掉（每个刷新节拍调一次）。</summary>
+    private void ExpireStatusNotice()
+    {
+        if (!IsNoticeExpired(_statusNoticeRaisedAt, Stopwatch.GetTimestamp(), _noticeLifetime))
+        {
+            return;
+        }
+
+        _statusNoticeRaisedAt = 0;
+        StatusNotice = null;
+        StatusNoticeIsError = false;
+    }
 
     /// <summary>最近提示是否为错误（状态栏以警示色显示）。</summary>
     [ObservableProperty]
@@ -411,10 +465,17 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         Windows.Refresh();
         Catalog.Refresh();
         Issues.Refresh();
+
+        // 【2026-09 缺陷修复 · 用户实测"拓扑诊断器无论是否建网都没有任何东西"】
+        // 真因：这里**漏了拓扑** —— 拓扑视图模型从来没有被刷新过（只有设计时样例与测试里手工调用）
+        // ⇒ 弹窗打开后表格恒为空、摘要恒为"网络 0"（与是否建网无关）。
+        Topology.Refresh();
+
         RefreshDataTypeColors();
 
         IssueCount = Issues.TotalCount;
         ErrorIssueCount = Issues.ErrorCount;
+        ExpireStatusNotice();
         UpdateStatus();
     }
 
@@ -552,7 +613,8 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         var locked = AllLocked ? " · 已锁定" : string.Empty;
         var issues = ErrorIssueCount > 0 ? $" · Issue {IssueCount}（错误 {ErrorIssueCount}）" : $" · Issue {IssueCount}";
 
-        var notice = StatusNotice is { Length: > 0 } text ? $"　▏{text}" : string.Empty;
-        StatusText = $"模块 {Windows.ModuleCount} · {links} · {snap} · 刷新 {Windows.RefreshRateHz} Hz{locked}{issues}{notice}";
+        // 【2026-09】提示**不再拼进摘要**（那样会被截成"拖动…"）⇒ 摘要只放长期事实，提示另占一列。
+        // Issue 计数留在摘要里（信息），**入口**只剩活动栏那个图标（状态栏右侧那个按钮已按用户要求删除）。
+        StatusText = $"模块 {Windows.ModuleCount} · {links} · {snap} · 刷新 {Windows.RefreshRateHz} Hz{locked}{issues}";
     }
 }

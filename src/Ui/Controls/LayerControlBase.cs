@@ -1,4 +1,3 @@
-using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -115,24 +114,10 @@ public abstract class LayerControlBase : Control
         set => SetValue(MutedTextBrushProperty, value);
     }
 
-    /// <summary>创建一段可绘制文本（数据区等宽字体，09 §3）。</summary>
-    /// <param name="text">文本。</param>
-    /// <param name="size">字号。</param>
-    /// <param name="brush">画刷。</param>
-    /// <param name="monospace">是否使用等宽（数据区）。</param>
-    protected static FormattedText CreateText(string text, double size, IBrush? brush, bool monospace = false)
-    {
-        var typeface = new Typeface(
-            monospace ? new FontFamily("Cascadia Mono, Consolas, Courier New, monospace") : FontFamily.Default,
-            FontStyle.Normal,
-            FontWeight.Normal);
-
-        return new FormattedText(
-            text,
-            CultureInfo.CurrentCulture,
-            FlowDirection.LeftToRight,
-            typeface,
-            size,
-            brush);
-    }
+    // 【2026-09 缺陷修复 · 用户实测"改了数据字体没反应"】**删除**了这里原先的 `CreateText(...)`
+    // 辅助方法：它把字体**写死**成 `Cascadia Mono, Consolas…` / `FontFamily.Default`，而
+    // ① 它**没有任何调用者**（自绘层的活路径是 `ConnectionOverlay.Format`，用的是 `Typeface.Default`）
+    // ② 留着它就等于给自绘层留了**第二个字体来源**（"尺寸/字体只能有一个来源"）。
+    // 正确的做法是像颜色一样由 XAML 用 `{DynamicResource FontData}` 注入（见 `ConnectionOverlay.DataFontFamily`），
+    // 故这里不再提供"自带字体的排版工厂"。
 }

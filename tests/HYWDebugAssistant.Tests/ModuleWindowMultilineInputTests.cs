@@ -75,12 +75,45 @@ public class ModuleWindowMultilineInputTests
         after.SubmitOnEnter.ShouldBeTrue("新档位 `Enter` ⇒ 回车提交");
     }
 
+    // ---------------------------------------------------------------- 输入类型 / 对齐 / 单位（2026-09）
+
+    [Fact]
+    public void 数值输入_按声明解析出输入类型与对齐_单位来自数据源()
+    {
+        var element = new ViewElement(ViewElementKind.TextInput, "interval", "间隔")
+        {
+            InputKind = TextInputKind.Number,
+            Alignment = ViewAlignment.Right,
+        };
+
+        var input = new TextInputElementViewModel(element, dataSource: new ViewDataSource("interval", unit: "ms"));
+
+        input.IsNumeric.ShouldBeTrue("声明为数值输入 ⇒ 视图据此只放行数字写法");
+        input.IsAlignRight.ShouldBeTrue("对齐由**模块声明**（不归框架限死）");
+        input.IsAlignLeft.ShouldBeFalse();
+        input.IsAlignCenter.ShouldBeFalse();
+        input.Unit.ShouldBe("ms", "单位取**数据源声明**（框外标签用）—— 不是元素字段、也不做框内后缀");
+    }
+
+    [Fact]
+    public void 普通文本输入_默认为文本且无对齐无单位()
+    {
+        var input = new TextInputElementViewModel(
+            new ViewElement(ViewElementKind.TextInput, "text", "值"),
+            dataSource: new ViewDataSource("text"));
+
+        input.IsNumeric.ShouldBeFalse("默认 Text ⇒ 不限制字符（老模块行为不变）");
+        input.IsAlignLeft.ShouldBeFalse("Default ⇒ 三类全 false ⇒ 落框架默认（左）");
+        input.IsAlignRight.ShouldBeFalse();
+        input.IsAlignCenter.ShouldBeFalse();
+        input.Unit.ShouldBeNull("数据源未声明单位 ⇒ 整块标签不显示");
+    }
+
     private static TextInputElementViewModel Create(bool multiline, string? submitKey = null) =>
         new(
             new ViewElement(ViewElementKind.TextInput, "text", "输入") { Multiline = multiline },
             submit: null,
             multilineSubmitKey: submitKey);
-
     /// <summary>造一个"只声明一个多行输入"的模块视图。</summary>
     private static ModuleViewViewModel CreateModuleViewModel()
     {

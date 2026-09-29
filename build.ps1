@@ -92,7 +92,7 @@ if ($LASTEXITCODE -ne 0) { throw '构建失败' }
 # 包由**构建自动归拢**（src/Modules/Directory.Build.targets + App 镜像目标）；
 # 本步只做一致性校验：让"内置模块开箱可用"这件事在门禁里可验证。
 Write-Host "===== 4/5 校验模块包 + 依赖许可审计 =====" -ForegroundColor Cyan
-& (Join-Path $root 'tools\stage-reference-modules.ps1') -Configuration $Configuration
+& (Join-Path $root 'tools\verify-module-packages.ps1') -Configuration $Configuration
 if ($LASTEXITCODE -ne 0) { throw '模块包校验失败' }
 
 if (-not $SkipAudit) {

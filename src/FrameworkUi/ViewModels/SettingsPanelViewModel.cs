@@ -111,9 +111,6 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     /// <summary>最近一次载入/生效的设置快照（外观即时生效时以此为基础，避免把未应用的编辑一起写盘）。</summary>
     private ApplicationSettings? _lastLoaded;
 
-    /// <summary>外观是否已就绪（避免初始化期把默认值覆盖到界面）。</summary>
-    private bool _appearanceReady;
-
     /// <summary>创建设置面板视图模型。</summary>
     /// <param name="query">查询面。</param>
     /// <param name="command">命令面。</param>
@@ -256,6 +253,69 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     [ObservableProperty]
     public partial string BackgroundColor { get; set; } = "#F3F4F6";
 
+    /// <summary>
+    /// **界面字体**（2026-09 用户裁定）：框架自身界面文字用的字体族（资源键 `FontUi`）。
+    /// </summary>
+    /// <remarks>可写**回退列表**（逗号分隔，如 <c>Times New Roman, 宋体</c>）；改动即时生效。</remarks>
+    [ObservableProperty]
+    public partial string UiFontFamily { get; set; } = DefaultUiFontFamily;
+
+    /// <summary>
+    /// **数据字体**（2026-09 用户裁定）：**所有输入框与显示框**用的字体族（资源键 `FontData`）。
+    /// </summary>
+    [ObservableProperty]
+    public partial string DataFontFamily { get; set; } = DefaultDataFontFamily;
+
+    /// <summary>
+    /// **系统已有字体**（下拉候选项）——"**读系统已有字体即可**"（用户原话）。
+    /// </summary>
+    /// <remarks>
+    /// <para>取 Avalonia 的 <c>FontManager.Current.SystemFonts</c>；无字体服务时（无头环境）回落到默认两项。</para>
+    /// <para>
+    /// <b>2026-09 缺陷修复</b>（用户实测"设置界面的字体选择框为空"）：候选表里**先是系统字体名（单个名字）**，
+    /// 而设置值是**回退列表**（`Segoe UI, Microsoft YaHei UI` / `Times New Roman, 宋体`）⇒ 非编辑下拉框的
+    /// `SelectedItem` 匹配不到任何一项 ⇒ **显示为空**（用户从列表里选了一个单名保存后就不再出现，正是这个原因）。
+    /// ⇒ ① 两条**默认回退列表**排在最前面（写回默认值时也选得中）；② 下拉框改为**可编辑**（`IsEditable`）并绑
+    /// `Text` ⇒ 任何值都显示得出来、也能手输回退列表。
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<string> FontFamilyOptions { get; } =
+        [DefaultUiFontFamily, DefaultDataFontFamily, .. LoadSystemFonts()];
+
+    /// <summary>界面字体的**框架默认值**（回退列表；与 `ApplicationSettings` 的缺省一致）。</summary>
+    public const string DefaultUiFontFamily = "Segoe UI, Microsoft YaHei UI";
+
+    /// <summary>数据字体的**框架默认值**（回退列表；与 `ApplicationSettings` 的缺省一致）。</summary>
+    public const string DefaultDataFontFamily = "Times New Roman, 宋体";
+
+    private static List<string> LoadSystemFonts()
+    {
+        try
+        {
+            var names = Avalonia.Media.FontManager.Current.SystemFonts
+                .Select(f => f.Name)
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (names.Count > 0)
+            {
+                return names;
+            }
+        }
+        catch (Exception)
+        {
+            // 无头/无字体服务：回落默认（**不阻断设置界面**）
+        }
+
+        return ["Segoe UI", "Microsoft YaHei UI", "Times New Roman", "宋体"];
+    }
+
+    partial void OnUiFontFamilyChanged(string value) { /* 只改本页下拉框的选中项；生效走「应用 / 确认」 */ }
+
+    partial void OnDataFontFamilyChanged(string value) { /* 同上 */ }
+
     /// <summary>外壳窗口比例档位（ADR-0038 D2）。</summary>
     [ObservableProperty]
     public partial string ShellAspect { get; set; } = "9:19.5";
@@ -346,51 +406,32 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
             : Avalonia.Media.Brushes.Transparent;
     }
 
-    // 外观改动**即时生效**（ADR-0038 D4：主题/主题色/背景在线生效，与 §7.1 全在线变更一致）
-    // 注意：主题切换后**方向色片要重读资源**（未自定义时取的是"当前主题的有效值"）⇒ 通知放到 Apply 之后
+    // 【2026-09 用户裁定 · 设置生效机制改常规做法】外观改动**不再"改即生效"**：
+    // 这些回调只更新**本页内的色片预览**；真正生效统一走「应用 / 确认」按钮
+    // （用户原话："设置界面建议显式添加确认/取消/应用按钮，修改机制，不使用当前的'修改即应用'机制，
+    //   而是常见的设置更改生效机制"）。⇒ `ApplyAppearance` 已删除（连带 `_appearanceReady` 字段）。
+    // 注意：主题切换后**方向色片要重读资源**（未自定义时取的是"当前主题的有效值"）⇒ 仍在这里发通知。
     partial void OnThemeChanged(string value)
     {
-        ApplyAppearance();
         OnPropertyChanged(nameof(DirectionSendBrush));
         OnPropertyChanged(nameof(DirectionReceiveBrush));
     }
 
-    partial void OnAccentColorChanged(string value)
-    {
-        OnPropertyChanged(nameof(AccentBrush));
-        ApplyAppearance();
-    }
+    partial void OnAccentColorChanged(string value) => OnPropertyChanged(nameof(AccentBrush));
 
-    partial void OnBackgroundModeChanged(string value) => ApplyAppearance();
+    partial void OnBackgroundColorChanged(string value) => OnPropertyChanged(nameof(BackgroundBrush));
 
-    partial void OnBackgroundColorChanged(string value)
-    {
-        OnPropertyChanged(nameof(BackgroundBrush));
-        ApplyAppearance();
-    }
-
-    // 方向色【ADR-0044】：改动即时生效；**不做任何合法性/对比度提示**（裁决 D6：完全尊重用户选择）
+    // 方向色【ADR-0044】：**不做任何合法性/对比度提示**（裁决 D6：完全尊重用户选择）
     partial void OnDirectionSendColorChanged(string value)
     {
         OnPropertyChanged(nameof(DirectionSendBrush));
         OnPropertyChanged(nameof(DirectionSendText));
-        ApplyAppearance();
     }
 
     partial void OnDirectionReceiveColorChanged(string value)
     {
         OnPropertyChanged(nameof(DirectionReceiveBrush));
         OnPropertyChanged(nameof(DirectionReceiveText));
-        ApplyAppearance();
-    }
-
-    /// <summary>把当前外观设置应用到界面（未装载设置时不做事，避免初始化期覆盖默认）。</summary>
-    private void ApplyAppearance()
-    {
-        if (_appearanceReady)
-        {
-            ThemeApplier.Apply(ToAppearanceSettings());
-        }
     }
 
     /// <summary>导出外观设置（只含外观字段，避免把未应用的其他编辑一起落盘）。</summary>
@@ -400,6 +441,8 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         settings.Theme = Theme;
         settings.AccentColor = AccentColor;
         settings.BackgroundMode = BackgroundMode;
+        settings.UiFontFamily = UiFontFamily;
+        settings.DataFontFamily = DataFontFamily;
         settings.BackgroundColor = BackgroundColor;
         settings.DirectionSendColor = DirectionSendColor;
         settings.DirectionReceiveColor = DirectionReceiveColor;
@@ -468,6 +511,8 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         Theme = settings.Theme;
         AccentColor = settings.AccentColor;
         BackgroundMode = settings.BackgroundMode;
+        UiFontFamily = settings.UiFontFamily;
+        DataFontFamily = settings.DataFontFamily;
         BackgroundColor = settings.BackgroundColor;
         DirectionSendColor = settings.DirectionSendColor;
         DirectionReceiveColor = settings.DirectionReceiveColor;
@@ -476,7 +521,8 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         LogLevel = settings.LogLevel;
 
         _lastLoaded = settings;
-        _appearanceReady = true;
+
+        // 装载 = 把**已生效**的设置套到界面（打开弹窗时保证"看到的 = 实际生效的"）
         ThemeApplier.Apply(settings);
 
         ModuleSourceDirectories.Clear();
@@ -599,6 +645,55 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         SetStatus(true, "已恢复默认快捷键 —— 点「应用」后生效");
     }
 
+    /// <summary>
+    /// **全局恢复默认**（2026-09 用户裁定：一键还原**所有**设置，含快捷键与外观，做成全局式按钮）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>范围</b>：本页全部可配置项（应用行为 / 外观 / 字体 / 快捷键 / 模块来源根 / 日志级别 / 置顶）；
+    ///     取的是 `ApplicationSettings` 的**缺省值本身**（不另写一份"默认值清单"——两份迟早会漂）；</item>
+    ///   <item><b>不落盘</b>：与设置页既有的三键机制一致（"任何改动都只是**待生效**"）⇒ 状态栏提示"点应用/确认生效"，
+    ///     用户还能用「取消」反悔；</item>
+    ///   <item>**数据结构颜色表**（类型 → 颜色）不在本页 ⇒ 不动它（那是另一处入口的映射表）。</item>
+    /// </list>
+    /// </remarks>
+    [RelayCommand]
+    private void ResetAllSettings()
+    {
+        var defaults = new ApplicationSettings();
+
+        StopTimeoutSeconds = defaults.StopTimeoutSeconds;
+        InputQueueCapacity = defaults.InputQueueCapacity;
+        AlignAutoNetworkEnabled = defaults.AlignAutoNetworkEnabled;
+        DiagnosticHintThreshold = defaults.DiagnosticHintThreshold;
+        UiRefreshRateHz = defaults.UiRefreshRateHz;
+        SnapDistance = defaults.SnapDistance;
+        MultilineSubmitKey = NormalizeSubmitKey(defaults.MultilineSubmitKey);
+        ShowInfoOverlay = defaults.ShowInfoOverlay;
+        Theme = defaults.Theme;
+        AccentColor = defaults.AccentColor;
+        BackgroundMode = defaults.BackgroundMode;
+        BackgroundColor = defaults.BackgroundColor;
+        UiFontFamily = defaults.UiFontFamily;
+        DataFontFamily = defaults.DataFontFamily;
+        DirectionSendColor = defaults.DirectionSendColor;
+        DirectionReceiveColor = defaults.DirectionReceiveColor;
+        ShellAspect = defaults.ShellAspect;
+        ShellFixedSize = defaults.ShellFixedSize;
+        LogLevel = defaults.LogLevel;
+        AppTopmost = defaults.AppTopmost;
+
+        ModuleSourceDirectories.Clear();
+        foreach (var directory in defaults.ModuleSourceDirectories)
+        {
+            ModuleSourceDirectories.Add(directory);
+        }
+
+        // 快捷键走既有那条路径（每行回到 `DefaultBinding`），避免默认值有两个来源。
+        ResetHotkeys();
+        SetStatus(true, "已恢复全部默认设置（含快捷键与外观）—— 点「应用」或「确认」后生效");
+    }
+
     /// <summary>单个动作恢复默认（由界面行的按钮调用）。</summary>
     /// <param name="row">行。</param>
     public void ResetHotkey(HotkeyRowViewModel row)
@@ -701,6 +796,39 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         SetStatus(true, "顺序已调整 —— 点「应用」后生效（顺序 = 优先级）");
     }
 
+    /// <summary>
+    /// **确认**：应用并关闭弹窗（校验失败 ⇒ **不关**，把原因留在状态行）。
+    /// </summary>
+    /// <remarks>【2026-09 用户裁定】设置生效机制改为常规三键：**确认 / 取消 / 应用**
+    /// （不再是"改一下即时生效"）。三者语义：
+    /// <list type="bullet">
+    ///   <item><b>应用</b> = 校验 → 生效 → 落盘，**弹窗留着**（继续改）；</item>
+    ///   <item><b>确认</b> = 应用 + 关闭；失败则不关（用户能看见原因）；</item>
+    ///   <item><b>取消</b> = 丢弃本次改动（回到已生效值）并关闭。</item>
+    /// </list>
+    /// </remarks>
+    [RelayCommand]
+    private void Confirm()
+    {
+        Apply();
+
+        if (StatusIsOk)
+        {
+            CloseRequested?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>**取消**：丢弃本次改动（回到"已生效"的值）并关闭弹窗。</summary>
+    [RelayCommand]
+    private void Cancel()
+    {
+        Load();
+        CloseRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>请求宿主关闭设置弹窗（由 `MainWindow` 接到后关闭对应的 `DialogWindow`）。</summary>
+    public event EventHandler? CloseRequested;
+
     /// <summary>应用设置（校验 → 即时生效 → 原子写盘）。</summary>
     [RelayCommand]
     private void Apply()
@@ -718,6 +846,8 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         settings.Theme = Theme;
         settings.AccentColor = AccentColor;
         settings.BackgroundMode = BackgroundMode;
+        settings.UiFontFamily = UiFontFamily;
+        settings.DataFontFamily = DataFontFamily;
         settings.BackgroundColor = BackgroundColor;
         settings.DirectionSendColor = DirectionSendColor;
         settings.DirectionReceiveColor = DirectionReceiveColor;
@@ -755,6 +885,11 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
             Theme = current.Theme;
             AccentColor = current.AccentColor;
             BackgroundMode = current.BackgroundMode;
+            // 【2026-09 缺陷修复】字体也必须回读：缺这两行时，界面上显示的是"你刚选的"，而实际生效的是默认值
+            // （用户实测"改了字体没反应"；真因在 `ApplicationSettings.Clone` 漏字段，但这里不同步回读会让
+            //  "界面显示 = 实际生效值" 这条纪律再破一次）。
+            UiFontFamily = current.UiFontFamily;
+            DataFontFamily = current.DataFontFamily;
             BackgroundColor = current.BackgroundColor;
             DirectionSendColor = current.DirectionSendColor;
             DirectionReceiveColor = current.DirectionReceiveColor;

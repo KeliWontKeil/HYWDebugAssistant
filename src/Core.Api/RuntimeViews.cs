@@ -41,8 +41,11 @@ public sealed record PortView(
     /// </summary>
     /// <remarks>
     /// 取值优先级：**用户在画布上拖动后的覆盖**（`PortGeometryView.Edge`）优先于**模块声明的默认边**
-    /// （`PortDeclaration.Edge`，`Auto` 时按数据流惯例解析为"发送右 / 接收左"）。
-    /// **只用于呈现**（标记贴哪条边、横排还是竖排）——不参与建网/兼容/停流/投递/计量。
+    /// （`PortDeclaration.Edge`，`Auto` 时按数据流惯例解析为"发送右 / 接收左"）；解析见 `PortEdgeResolution`（唯一实现）。
+    /// <para>
+    /// <b>参与两件事</b>：① **呈现**（标记贴哪条边、横排还是竖排）；② **建网判定**（"接触且对齐"要求端口挂在
+    /// **朝向接触面**的那条边上 —— 2026-09 增补，见 `05` §2 的七条表）。**不参与**兼容 / 停流 / 投递 / 计量。
+    /// </para>
     /// </remarks>
     public HYWDebugAssistant.Sdk.Ports.PortEdge Edge { get; init; } = HYWDebugAssistant.Sdk.Ports.PortEdge.Left;
     /// <summary>
@@ -88,11 +91,17 @@ public sealed record PortView(
 /// **只呈现**：框架不解释语义，只把它交给界面显示。
 /// </param>
 /// <param name="NominalRateHz">该类型的**标称速率**（Hz；未声明 ⇒ null）——有了它才能看"掉速"。</param>
-/// <param name="RateBytesPerSecond">
-/// **该角色自身的搬运字节速率**（B/s）【ADR-0053 · 用户第三十四轮】：取该角色**产出侧**所承载网络的
-/// `BusByteRate` 之和（有输出口 ⇒ 输出网络；纯汇分块 ⇒ 输入网络）。这是**角色维度**的量
-/// （"这块功能自己在跑多快"），与端口标记上的**通路速率**（"这条网络在跑多快"）是两个维度——
-/// 两者读**同一份**框架诊断，但表达的对象不同（用户裁定：不能因为底层同源就当成一个维度）。
+/// <param name="PayloadRateBytesPerSecond">
+/// **该角色自身的有效载荷字节速率**（B/s）【ADR-0053 · 用户第三十四轮；口径 2026-09 修正】：
+/// 取该角色**产出侧**所承载网络的**有效载荷字节速率**之和（有输出口 ⇒ 输出网络；纯汇分块 ⇒ 输入网络）。
+/// 这是**角色维度**的量（"这块功能自己在跑多快"），与端口标记上的**通路速率**（"这条网络在跑多快"）
+/// 是两个维度——两者读**同一份**框架诊断，但表达的对象不同（用户裁定：不能因为底层同源就当成一个维度）。
+/// <para>
+/// **为什么是"有效载荷"而不是"搬运"**（用户 2026-09 裁定："速率只要有效数据，截断的不应该算在有效数据里面，
+/// 整个数据包大小速率是底层协议，用户想知道的肯定是**有效速率**"）⇒ 本字段取第 3 档
+/// （<see cref="BindingDiagnosticView.PayloadByteRate"/>：逐单元读类型声明的有效长度字段），
+/// 不是含补零/对齐填充的 <see cref="BindingDiagnosticView.BusByteRate"/>。
+/// </para>
 /// </param>
 /// <param name="Delivered">该角色产出侧承载网络的**投递单元数**合计。</param>
 /// <param name="Dropped">该角色产出侧承载网络的**传输丢弃**合计（不含停流未投递）。</param>
@@ -108,7 +117,7 @@ public sealed record RoleView(
     int? OutboundRoleCount,
     string SemanticText = "",
     double? NominalRateHz = null,
-    double RateBytesPerSecond = 0,
+    double PayloadRateBytesPerSecond = 0,
     long Delivered = 0,
     long Dropped = 0);
 
@@ -441,6 +450,129 @@ public sealed record PortQueueDepthView(
     public double Fill => Capacity > 0 ? Math.Clamp((double)Depth / Capacity, 0, 1) : 0;
 }
 
+/// <summary>
+/// **一个端口的统一指标**（可观测性 L4）——经 <see cref="IRuntimeQuery.GetPortMetrics"/> 取得。
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>立项原因（用户 2026-09 裁定"统一宿口取数口径，关系到整个数据来源的一致性"）</b>：
+/// 此前界面按"两次字典查找 + 猜键"取数 —— 先按<b>网络身份键</b>（`源集合 → 宿集合`）查、查不到再拿
+/// <b>口字面量</b>去查<b>逐源诊断表</b>（键 = `单源 → 宿子集`，是<b>源</b>键）。宿口永远匹配不上后一张表
+/// ⇒ <b>宿口的投递/丢弃/速率静默为 0</b>（多源网络、加载期有未锚定源、宿被逐对兼容过滤时必现；
+/// 1:1 单源单宿时两个键恰好相等，所以一直看不出来）。
+/// </para>
+/// <para><b>口径定义（唯一，必须照此实现）</b>：</para>
+/// <list type="bullet">
+///   <item>一个端口的指标 = <b>该端口参与的"流"上的指标之和</b>；</item>
+///   <item>"流" = 网络里的一条 **(源成员 → 宿成员) 绑定**，指标取该绑定的**逐源诊断**
+///     （<see cref="BindingDiagnosticView"/>，键 = `源 → 宿子集`）；</item>
+///   <item><b>发送口</b> = 所有以"该 (实例, 口)"为**源**的绑定；</item>
+///   <item><b>接收口</b> = 所有以"该 (实例, 口)"为**宿**的绑定 —— <b>宿口按网络把该网络的各源诊断加起来</b>，
+///     而不是拿宿口字面量去查"源"键的表；</item>
+///   <item>该端口**不在任何网络上 ⇒ 本视图全部为 0**（"未入网"由界面自行判定，本视图不管文案）。</item>
+/// </list>
+/// <para>
+/// <b>绑定级口径的已知性质（读之前必须知道）</b>：框架的投递计数是**每条绑定一份**
+/// （<c>ModuleRuntime</c> 在"逐宿循环"里对每个宿各记一次 ⇒ 一条含 N 个宿的绑定，其
+/// <c>Delivered</c> 是**按宿计的 N 倍**）。因此：
+/// <list type="bullet">
+///   <item>一条 `源 → 多宿` 绑定的**每个宿口都会读到同一份计数**（含投给兄弟宿的那些）；
+///     它回答的是「**该口参与的流上走了多少**」，**不是**「落到该口队列多少」；</item>
+///   <item>想要"严格落到本口队列"的数，那是**队列口径**（<see cref="PortQueueDepthView.Enqueued"/>）；
+///     **不得**拿它来充当本视图的 <see cref="Delivered"/> / <see cref="BytesPerSecond"/>——
+///     那会让端口标记与角色方块（<see cref="RoleView.PayloadRateBytesPerSecond"/>）分叉，正是本次要消除的问题；</item>
+///   <item>单源单宿（最常见）时两者数值相同，看不出差别。</item>
+/// </list>
+/// </para>
+/// <para>
+/// <b>速率与角色方块同一口径</b>：界面显示的那一个速率 = <see cref="PayloadBytesPerSecond"/>
+/// （逐源诊断 <see cref="BindingDiagnosticView.PayloadByteRate"/> 之和），与
+/// <see cref="RoleView.PayloadRateBytesPerSecond"/> 读的是<b>同一批</b>框架速率计（<c>_rateMeters</c>），
+/// 只是汇总范围不同（端口维度 / 角色维度）。<b>不得</b>为端口另起"每口队列"的第二套速率
+/// （那会让同一根线的两侧显示不同的数）。
+/// <para>
+/// <see cref="BytesPerSecond"/>（搬运口径）**保留为 API 事实**，但**界面不再显示它**——
+/// 用户 2026-09 裁定："速率只要有效数据，截断的不应该算在有效数据里面"。
+/// </para>
+/// </para>
+/// <para>
+/// <b>三类丢弃不混算</b>【ADR-0046 D8 / ADR-0050 Q5】：<see cref="Dropped"/> 只装
+/// **传输丢弃**（队列满 + 无承载 + 载荷非法，= <see cref="BindingDiagnosticView.DropTransport"/>）；
+/// **停流未投递**是合法状态，单独放 <see cref="DropStalled"/>，**不并进** <see cref="Dropped"/>；
+/// **模块内部丢弃**（样本覆盖/丢弃）是模块自己的口径，不经网络诊断，故不在本视图内。
+/// </para>
+/// <para>界面侧<b>只格式化</b>本视图的字段，不得再自行差分估算或另行相加（`07` §"叠加层与视觉基线"）。</para>
+/// </remarks>
+/// <param name="Delivered">
+/// 该端口参与的**全部流**的累计投递单元数之和（= 各条绑定的
+/// <see cref="BindingDiagnosticView.Delivered"/> 之和；**绑定级「按宿计」**——
+/// 一条含 N 个宿的绑定，它的 N 个宿口读到**同一份**计数，见 Remarks 的"已知性质"）。
+/// </param>
+/// <param name="Dropped">
+/// 该端口参与的**全部流**的**传输丢弃**合计（队列满 + 无承载 + 载荷非法；**不含停流未投递**）。
+/// </param>
+/// <param name="BytesPerSecond">
+/// **搬运字节速率**（字节 / 秒；与角色方块**同一口径**）= 各条流 `Delivered × 该源契约尺寸` 的速率之和。
+/// </param>
+public sealed record PortMetricsView(long Delivered, long Dropped, double BytesPerSecond)
+{
+    /// <summary>
+    /// **停流未投递**次数【ADR-0046 D8 / ADR-0050 Q5】——上游挂起 / 网络停流期间的发送：
+    /// **合法状态，不是故障**，因此**不得**与 <see cref="Dropped"/>（传输丢弃）混算，故单独给。
+    /// </summary>
+    public long DropStalled { get; init; }
+
+    /// <summary>**队列满**导致未被投递的次数（传输丢弃之一）。</summary>
+    public long DropQueueFull { get; init; }
+
+    /// <summary>**无承载**（目标线程 / 队列不存在）导致未被投递的次数（传输丢弃之一）。</summary>
+    public long DropNoCarrier { get; init; }
+
+    /// <summary>**载荷非法**（长度小于契约尺寸）导致未被投递的次数（传输丢弃之一）。</summary>
+    public long DropInvalidPayload { get; init; }
+
+    /// <summary>
+    /// **累计搬运字节**（= 各条流 `Delivered × 该源契约尺寸` 之和）——与 <see cref="BytesPerSecond"/>
+    /// **同一口径的累计量**。给它是为了让界面**只格式化**（旧写法是界面自己拿"投递数 × 契约尺寸"乘一遍）。
+    /// </summary>
+    public long BytesDelivered { get; init; }
+
+    /// <summary>**投递单元速率**（单元 / 秒；按宿计）——与 <see cref="BytesPerSecond"/> 同源于逐源诊断。</summary>
+    public double UnitRateHz { get; init; }
+
+    /// <summary>
+    /// **累计有效载荷字节**（= 各条流**逐单元读有效长度字段**累加的有效字节之和；**按源计**）。
+    /// </summary>
+    /// <remarks>
+    /// 【2026-09 用户裁定"速率只要有效数据"】与 <see cref="PayloadBytesPerSecond"/> **同一口径的累计量**
+    /// （界面显示的"流量约 X"取它，不再取含补零的 <see cref="BytesDelivered"/>）。
+    /// </remarks>
+    public long PayloadBytesDelivered { get; init; }
+
+    /// <summary>
+    /// **有效载荷字节速率**（字节 / 秒；**按源计**）——界面（网络标签 / 角色方块）显示的那一个速率。
+    /// </summary>
+    /// <remarks>
+    /// 【2026-09 用户裁定"速率只要有效数据"】= 逐源诊断 <see cref="BindingDiagnosticView.PayloadByteRate"/> 之和
+    /// （逐单元读类型声明的有效长度字段；未声明 ⇒ 静态 `PayloadSizeInBytes` ?? 契约尺寸）。
+    /// 与 <see cref="BytesPerSecond"/>（搬运字节，含补零/对齐）**是两个口径**：后者保留为 API 事实，
+    /// **界面不再显示它**。
+    /// </remarks>
+    public double PayloadBytesPerSecond { get; init; }
+
+    /// <summary>该端口参与的流里**最新的一次投递时刻**（无数据为 <see langword="null"/>）。</summary>
+    public DateTimeOffset? LastDataTime { get; init; }
+
+    /// <summary>
+    /// 该端口参与的**网络身份键**（去重、有序；与 <see cref="NetworkView.Key"/> 一致）。
+    /// </summary>
+    /// <remarks>
+    /// **空 ⇒ 该端口不在任何网络上**（此时本视图其余字段全为 0）。
+    /// 只作诊断/配对用，**不要**拿它当指标（指标看 <see cref="Delivered"/> 等字段）。
+    /// </remarks>
+    public IReadOnlyList<string> NetworkKeys { get; init; } = [];
+}
+
 /// <summary>Issue 视图。</summary>
 /// <param name="Sequence">序号。</param>
 /// <param name="ObjectPath">归属对象路径。</param>
@@ -487,6 +619,31 @@ public sealed record ModuleCatalogEntryView(
 /// <param name="SourceLiteral">发送端口字面量（<c>实例ID.口名</c>）。</param>
 /// <param name="TargetLiteral">接收端口字面量（<c>实例ID.口名</c>）。</param>
 public sealed record ConnectionCandidateView(string SourceLiteral, string TargetLiteral);
+
+/// <summary>
+/// **拖动网络标签时的"连接对齐"建议**（G5 追加 · 用户 2026-09）。
+/// </summary>
+/// <param name="InstanceId">本口所属实例。</param>
+/// <param name="PortName">本口名。</param>
+/// <param name="PeerInstanceId">对端口所属实例。</param>
+/// <param name="PeerPortName">对端口名。</param>
+/// <param name="Offset">
+/// **建议的归一化偏移**（0–1）：把它赋给本口，两个标记中心就沿接触面对齐 ⇒ **松手即可建网**。
+/// </param>
+/// <remarks>
+/// 用途 = UI 在**拖动网络标签**时，若该口与某个**面对面**的口已满足建网条件（只差对齐），
+/// 就把标记吸到这个偏移并高亮（"边框高亮"）。
+/// <para>
+/// <b>判据与真正建网同一份实现</b>（`DockRule`）：本建议只在 <c>IsDockable</c> 通过时才产生，
+/// 因此"吸上去" ⟺ "松手后真的连上"，预览不会骗人。
+/// </para>
+/// </remarks>
+public sealed record AnchorDockHintView(
+    string InstanceId,
+    string PortName,
+    string PeerInstanceId,
+    string PeerPortName,
+    double Offset);
 
 /// <summary>
 /// **模块来源根的扫描结果**（ADR-0036 D1）——供「模块清单」弹窗做诊断：

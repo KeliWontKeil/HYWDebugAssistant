@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    业务模块（第一批 #3）：数据显示器 `hyw/data-monitor`（docs/modules/hyw-data-monitor.md）
+    与第三方模块**同构同路径**：只引 Sdk（AR-1）；不得引用其他模块（AR-2）。
+    能力声明 = File（把显示内容保存为 .txt；**限制在用户选择的路径内**）。
+  -->
+  <PropertyGroup>
+    <ModulePackageName>data-monitor</ModulePackageName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

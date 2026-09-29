@@ -42,7 +42,15 @@
         </Style>
     </UserControl.Styles>
 
-    <TabControl Classes="settings" TabStripPlacement="Left" Margin="6">
+    <!--
+      【2026-09 用户裁定 · 设置生效机制】底部**三键条**：`取消` / `应用` / `确认`（Windows 常规做法）。
+      用户原话："设置界面建议显式添加确认/取消/应用按钮，修改机制，不使用当前的'修改即应用'机制，
+      而是常见的设置更改生效机制。" ⇒ 页面里**任何**改动都只是"待生效"，
+      只有点「应用」（生效并留在本页）或「确认」（生效并关闭）才写盘；「取消」丢弃本次改动并关闭。
+      左侧状态行显示"已生效 / 未生效：原因"（`StatusMessage`）。
+    -->
+    <Grid RowDefinitions="*,Auto">
+        <TabControl Grid.Row="0" Classes="settings" TabStripPlacement="Left" Margin="6">
 
         <!-- ============================ 常规 ============================ -->
         <TabItem Header="常规">
@@ -234,6 +242,36 @@
                         <TextBlock Grid.Column="2" Margin="6,0,0,0" VerticalAlignment="Center"
                                    FontFamily="{DynamicResource FontData}" FontSize="11"
                                    Foreground="{DynamicResource TextMuted}" Text="{Binding AccentColor}" />
+                    </Grid>
+
+                    <!--
+                      【2026-09 用户裁定】**字体两项**（读系统已有字体；**点「应用 / 确认」才生效**）：
+                        · 界面字体 = 框架自身界面文字（资源键 `FontUi`，由 `Window` 层继承给整棵树）；
+                        · 数据字体 = **所有输入框与显示框**（资源键 `FontData`，元素级引用）。
+                      默认：界面 `Segoe UI / 微软雅黑`；**数据 = Times New Roman + 宋体**（用户指定）。
+                      【2026-09 缺陷修复】下拉框**只绑 `SelectedItem`**（不再同时绑 `Text` —— 非编辑态下两个绑定
+                      互相覆盖，是"选了没反应"的来源之一）。
+                    -->
+                    <Grid ColumnDefinitions="140,*">
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                   ToolTip.Tip="界面文字用的字体（从系统已有字体里选）"
+                                   Foreground="{DynamicResource TextSecondary}" Text="界面字体" />
+                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="260"
+                                  IsEditable="True"
+                                  ItemsSource="{Binding FontFamilyOptions}"
+                                  Text="{Binding UiFontFamily, Mode=TwoWay}"
+                                  ToolTip.Tip="框架界面文字（外壳 / 清单 / 设置页 / 状态栏…）；可手输**回退列表**，如「Segoe UI, Microsoft YaHei UI」" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="140,*">
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                   ToolTip.Tip="所有输入框与显示框用的字体（默认 Times New Roman + 宋体）"
+                                   Foreground="{DynamicResource TextSecondary}" Text="数据字体" />
+                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="260"
+                                  IsEditable="True"
+                                  ItemsSource="{Binding FontFamilyOptions}"
+                                  Text="{Binding DataFontFamily, Mode=TwoWay}"
+                                  ToolTip.Tip="模块内容区的输入框 / 显示框 + 诊断里的数据列；可手输**回退列表**，如「Times New Roman, 宋体」" />
                     </Grid>
 
                     <Grid ColumnDefinitions="140,Auto,*">
@@ -437,4 +475,38 @@
             </ScrollViewer>
         </TabItem>
     </TabControl>
+
+        <!-- 三键条：左 = 状态行（已生效 / 未生效：原因），右 = 恢复全部默认 · 取消 · 应用 · 确认 -->
+        <Border Grid.Row="1"
+                Padding="10,6"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource BorderDefault}">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0"
+                           VerticalAlignment="Center"
+                           FontSize="11"
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource TextSecondary}"
+                           Text="{Binding StatusMessage}" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                    <!--
+                      【2026-09 用户裁定】全局式一键还原：**与保存类按钮同一行**（底部那排），
+                      一次把**所有**设置恢复默认（含快捷键与外观）——用户原话："全局还原所有设置，
+                      包括快捷键，外观，这是与'保存'按钮放在同一行的全局式按钮"。
+                      与设置页既有机制一致：它只把本页字段填成默认值，**点「应用 / 确认」才生效**（可「取消」反悔）。
+                    -->
+                    <Button Content="恢复全部默认设置" Command="{Binding ResetAllSettingsCommand}"
+                            ToolTip.Tip="把本页所有设置（含快捷键、外观、字体）恢复为默认值；点「应用」或「确认」后生效" />
+                    <Rectangle Width="1" Margin="4,2" Fill="{DynamicResource BorderDefault}" />
+                    <Button Content="取消" Command="{Binding CancelCommand}"
+                            ToolTip.Tip="丢弃本次改动（回到已生效的值）并关闭" />
+                    <Button Content="应用" Command="{Binding ApplyCommand}"
+                            ToolTip.Tip="校验 → 生效 → 落盘；弹窗保留，可继续修改" />
+                    <Button Content="确认" Command="{Binding ConfirmCommand}"
+                            Classes="accent"
+                            ToolTip.Tip="应用并关闭（校验不通过时不关闭，原因显示在左下）" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
 </UserControl>

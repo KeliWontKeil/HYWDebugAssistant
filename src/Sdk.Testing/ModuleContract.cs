@@ -251,6 +251,31 @@ public static class ModuleContract
                 problems.Add(
                     $"数据类型 {type.Reference} 的 PayloadSizeInBytes = {payload} 不合理（应 > 0 且 ≤ 契约尺寸 {type.SizeInBytes}）");
             }
+
+            // 【2026-09 用户裁定"速率只要有效数据"】**有效长度字段声明**必须真的能读：
+            // 名字要能在本类型的**顶层字段**里找到，且必须是**整型原语**（小端读出来当字节数用）。
+            // 只声明不校验 ⇒ 框架运行期读到 0 ⇒ "有效速率恒为 0"这种**静默归零**（比误报危险得多）。
+            if (type.Metering.PayloadLengthField is { Length: > 0 } lengthField)
+            {
+                var layout = ContractLayout.FromShape(type.Shape);
+
+                if (!layout.TryGetField(lengthField, out var field))
+                {
+                    problems.Add(
+                        $"数据类型 {type.Reference} 的计量块声明了有效长度字段 '{lengthField}'，"
+                        + $"但契约形状里没有这个顶层字段（现有：{string.Join("、", layout.Fields.Select(f => f.Name))}）");
+                }
+                else if (field.Shape is not PrimitiveShape primitive
+                    || primitive.Primitive is not (ContractPrimitive.I8 or ContractPrimitive.U8
+                        or ContractPrimitive.I16 or ContractPrimitive.U16
+                        or ContractPrimitive.I32 or ContractPrimitive.U32
+                        or ContractPrimitive.I64 or ContractPrimitive.U64))
+                {
+                    problems.Add(
+                        $"数据类型 {type.Reference} 的有效长度字段 '{lengthField}' 必须是**整型**原语"
+                        + "（字节数是从它读出来的一个整数；浮点/字节块/结构都不行）");
+                }
+            }
         }
 
         // 引用必须能在**本模块**解析：解析不了 ⇒ 框架只能回退结构比较（不是错误，但作者必须知道）
@@ -490,10 +515,13 @@ public static class ModuleContract
     }
 
     /// <summary>是否为**交互控制类元素**（B 类：绑定命令/输入，而非数据源）。</summary>
+    /// <remarks>B7 `ToggleSwitch`（2026-09 新增的开关滑块）与 B3 同属"开关 ⇒ 输入"，必须列在这里，
+    /// 否则契约自检会把它当成绑定数据源的元素而报"未声明的数据源"。</remarks>
     private static bool IsInteractive(ViewElementKind kind) => kind is
         ViewElementKind.ConfigurationEditor
         or ViewElementKind.CommandButton
         or ViewElementKind.ToggleSlider
+        or ViewElementKind.ToggleSwitch
         or ViewElementKind.EnumSelector
         or ViewElementKind.TextInput
         or ViewElementKind.FileSelector;

@@ -407,6 +407,13 @@ public class ModuleWindowUsabilityTests
         public void OnRegistered(HYWDebugAssistant.Sdk.Context.IModuleContext context)
         {
             _ = context.Configuration.Read<EnumConfig>();
+
+            // 【2026-09 用户裁定：删除整个配置框】框架不再自动补 ⇒ 本用例显式声明 B1 以继续覆盖"枚举字段"渲染
+            context.Declaration.DeclareView(new HYWDebugAssistant.Sdk.Views.ViewDeclaration(
+                [new HYWDebugAssistant.Sdk.Views.ViewElement(
+                    HYWDebugAssistant.Sdk.Views.ViewElementKind.ConfigurationEditor,
+                    title: "参数")],
+                []));
         }
     }
 

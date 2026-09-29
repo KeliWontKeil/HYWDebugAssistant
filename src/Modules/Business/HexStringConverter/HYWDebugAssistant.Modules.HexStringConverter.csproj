@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    业务模块（第一批 #4）：HEX ↔ 字符串转换器 `hyw/hex-string-converter`
+    （docs/modules/hyw-hex-string-converter.md）—— **零口零角色**的纯工具型模块。
+    与第三方模块**同构同路径**：只引 Sdk（AR-1）；不得引用其他模块（AR-2）。
+  -->
+  <PropertyGroup>
+    <ModulePackageName>hex-string-converter</ModulePackageName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

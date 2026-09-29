@@ -117,12 +117,74 @@ public static class ThemeApplier
         Restore();
 
         var overrides = BuildOverrides(settings);
-        if (overrides.Count == 0)
+        if (overrides.Count > 0)
         {
-            return;   // 全部跟随主题 → 不覆盖
+            ApplyToThemeDictionaries(app.Resources, overrides);
         }
 
-        ApplyToThemeDictionaries(app.Resources, overrides);
+        // 【2026-09 缺陷修复 · 用户反馈"字体修改不生效"】**字体必须独立于颜色覆盖**：
+        // 此前这一句写在 `overrides.Count == 0 ⇒ return` 之后 ⇒ 只要用户没设主题色/背景色/方向色
+        // （= 默认"全部跟随主题"），**字体改动就被整段跳过**（改了下拉框却毫无变化）。
+        // 现在无论颜色是否有覆盖，字体都照常应用。
+        ApplyFonts(app, settings);
+    }
+
+    /// <summary>
+    /// **字体覆盖**（2026-09 用户裁定："字体在设置里**显式可调**，读系统已有字体"）：
+    /// <c>FontUi</c>（界面文字）/ <c>FontData</c>（**所有输入框与显示框**）。
+    /// </summary>
+    /// <remarks>
+    /// 值可以是**回退列表**（逗号分隔，拉丁在前 / 中文在后）—— 直接交给 <see cref="FontFamily"/> 解析；
+    /// 空串 ⇒ 不覆盖（回落 `Tokens.axaml` 的内置值）。与颜色同一套"记原值 → 可反复切回"的机制。
+    /// </remarks>
+    private static void ApplyFonts(Application app, ApplicationSettings settings)
+    {
+        var overrides = new Dictionary<string, object>(StringComparer.Ordinal);
+
+        if (settings.UiFontFamily is { Length: > 0 } ui)
+        {
+            overrides["FontUi"] = new FontFamily(ui);
+        }
+
+        if (settings.DataFontFamily is { Length: > 0 } data)
+        {
+            overrides["FontData"] = new FontFamily(data);
+        }
+
+        if (overrides.Count > 0)
+        {
+            ApplyToKeyedDictionaries(app.Resources, overrides);
+        }
+    }
+
+    /// <summary>把覆盖写进**含该键**的任意层字典（顶层 + 合并字典，逐层递归）。</summary>
+    /// <param name="root">资源根。</param>
+    /// <param name="overrides">键 → 值。</param>
+    private static void ApplyToKeyedDictionaries(
+        IResourceDictionary root,
+        IReadOnlyDictionary<string, object> overrides)
+    {
+        if (root is ResourceDictionary own)
+        {
+            foreach (var (key, value) in overrides)
+            {
+                if (!own.ContainsKey(key))
+                {
+                    continue;
+                }
+
+                Overridden.Add((own, key, own[key]));
+                own[key] = value;
+            }
+        }
+
+        foreach (var merged in root.MergedDictionaries)
+        {
+            if (merged is ResourceDictionary nested)
+            {
+                ApplyToKeyedDictionaries(nested, overrides);
+            }
+        }
     }
 
     /// <summary>

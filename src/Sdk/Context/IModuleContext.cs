@@ -217,4 +217,25 @@ public interface IModuleContext
 
     /// <summary>**人机操作收件箱**（命令 / 输入；模块在自身线程消费 —— ADR-0040）。</summary>
     IModuleInbox Inbox { get; }
+
+    /// <summary>
+    /// **显示内容的请求面**（模块 → 框架的"请求"方向）：目前只有"**清空某个显示源**"
+    /// 〔2026-09 · 为 `hyw/data-monitor` 的「清空」而只增〕。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="ViewState"/> 的分界：那边是**只读**（模块改不了用户的选中页与编辑内容）；
+    /// 这里能动的是**模块自己发布出去的显示内容**（如 A5 文本日志的缓冲）。语义见 <see cref="IViewDisplayAccess"/>。
+    /// </remarks>
+    IViewDisplayAccess Display { get; }
+
+    /// <summary>
+    /// **视图状态回读**（只读快照）：当前选中页 / 输入框当前文本 / 显示区保留的文本
+    /// 〔2026-09 用户裁定 · `decisions.md` 7.28〕。
+    /// </summary>
+    /// <remarks>
+    /// <b>方向纪律的增补</b>：既有纪律是"模块 → 框架 = 声明/上报/请求；框架 → 模块 = 钩子 + 投递回调"；
+    /// 本属性是**框架 → 模块的只读事实**（不是回调、不反向操作 UI）—— 语义见 <see cref="IViewStateReader"/>。
+    /// <b>只增成员</b>：模块实现者无需改动（属性由框架提供），既有模块零影响。
+    /// </remarks>
+    IViewStateReader ViewState { get; }
 }

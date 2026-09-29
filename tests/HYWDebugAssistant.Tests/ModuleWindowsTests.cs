@@ -56,12 +56,13 @@ public class ModuleWindowsTests
         layout.Y.ShouldBe(module.Y);
         layout.Width.ShouldBe(module.Width);
 
-        // 按声明渲染：数值 + 曲线 + 未渲染元素 + **框架补的配置表单**（声明里没有 B1 元素时补一个）
-        module.Elements.Count.ShouldBe(4);
+        // 按声明渲染：数值 + 曲线 + 未渲染元素 —— **不再补配置表单**（2026-09 用户裁定"删除整个配置框"）
+        module.Elements.Count.ShouldBe(3);
+        module.Elements.OfType<ConfigurationEditorElementViewModel>().ShouldBeEmpty(
+            "框架不再自动补配置表单（模块显式声明 B1 时才渲染）");
         module.Elements[0].ShouldBeOfType<ValueElementViewModel>();
         module.Elements[1].ShouldBeOfType<CurveElementViewModel>();
         module.Elements[2].ShouldBeOfType<UnsupportedElementViewModel>();
-        module.Elements[3].ShouldBeOfType<ConfigurationEditorElementViewModel>();
     }
 
     [Fact]
@@ -113,8 +114,8 @@ public class ModuleWindowsTests
 
         // **每个模块实例都有窗口**（用户裁决 M1-15）：无声明视图 ≠ 无窗口
         var module = harness.Windows.Modules.ShouldHaveSingleItem();
-        module.Elements.ShouldHaveSingleItem().ShouldBeOfType<ConfigurationEditorElementViewModel>(
-            "未声明视图时窗口内至少给出配置表单（无配置则说明原因），不引入「无界面模块」这一例外");
+        module.Elements.ShouldBeEmpty(
+            "未声明视图 ⇒ 窗口里没有元素（配置框已按裁定删除自动补那一份）");
         module.Ports.ShouldNotBeEmpty("口仍存在 → 口上标记仍可用于建网");
         module.IsEnabled.ShouldBeTrue();
 

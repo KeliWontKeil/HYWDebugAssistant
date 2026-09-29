@@ -41,8 +41,14 @@ public enum PortMarkerLayer
 /// </remarks>
 public sealed class PortMarkerPanel : Panel
 {
-    /// <summary>预留带厚度（px）——内容区需加同宽内边距，否则标记会压住内容。</summary>
-    public const double BandThickness = 20;
+    /// <summary>
+    /// 预留带厚度（px）——内容区需加同宽内边距，否则标记会压住内容。
+    /// </summary>
+    /// <remarks>
+    /// = <see cref="PortMarkerMetrics.Width"/>（**同一块地方**，不是相加）；两者若各写一份，
+    /// 改了标记宽度而忘了内边距 ⇒ 标记压住内容（"尺寸只能有一个来源"）。
+    /// </remarks>
+    public const double BandThickness = PortMarkerMetrics.Width;
 
     /// <summary>「固定」按钮与标记之间的缝（px）——按钮落在**带内、标记长度之外**时留的间隙。</summary>
     public const double AnchorButtonGap = 2;

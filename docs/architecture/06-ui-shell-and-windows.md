@@ -36,9 +36,9 @@
 | A 区活动栏 | 宽 **44 px**；6 个入口，自上而下：**模块清单 · 交互** ｜（分隔线）**拓扑诊断 · Issue（有错误时显示计数徽标）· 设置 · 帮助**；按钮 40×36、间距 2；选中态 = **最左 3 px 主色滑块（独占一列，与图标分列不重合）+ 浅底**；图标用**系统图标字体**（`FontIcons` = Segoe Fluent Icons / Segoe MDL2 Assets + `Glyph*` 码位表） |
 | B 区侧边界面 | **模块清单**与**交互**为**常驻竖向页面**（不是弹窗）；其余入口一律开 `DialogWindow` 弹窗 |
 | 顶部菜单 | **撤销**（文件/视图/窗口/帮助）：动作全部改由 A 区入口 + B 区页面 + 弹窗承担 |
-| 状态栏 | 固定高 **28**；左 = 状态文本（11 px、次要色、超长省略），右 = **「Issue N」按钮**（固定高 20，点开 Issue 弹窗）；两端垂直居中，内边距左 10 / 右 6 |
+| 状态栏 | 固定高 **28**；左 = 状态文本（11 px、次要色、超长省略；内容 = `模块 N · 叠加层开/关 · 吸附开/关 · 刷新 N Hz [· 已锁定] · Issue N[（错误 M）]`），**右 = 临时提示**（独占一列、`TextBlock.notice`（错误态 `.error`），最长 240、超长自己省略，**8 秒自动过期**）；内边距左 10 / 右 10。〔**2026-09 用户实测修复**〕① **删掉尾部那个「Issue N」按钮** —— 活动栏已有 Issue 图标 + 错误计数 ⇒ 那是**重复入口**、标签又与摘要里的 `· Issue N` 重复（用户："建议直接删掉最尾部的 ISSUE 入口点"）；② **提示不再拼进摘要**：主窗口只有 396 宽，摘要占满后提示被截成"拖动…"（用户："似乎是未完成显示的信息"）⇒ 摘要先省略、提示优先完整；③ 提示原先**永不过期**（只有下一条提示才替换它）⇒ 现在到点由外壳刷新节拍清（`ShellViewModel.DefaultNoticeLifetime`，可经构造参数覆盖以复用真实外壳做用例） |
 | 窗口尺寸 | 默认 **396×858**（= 9:19.5），默认值**写在 `MainWindow.axaml`**；**现行最小尺寸 = 360×360**（`MainWindow.axaml` 的 `MinWidth=360` / `MinHeight=360`）；设置 `shellAspect`（9:19.5 / 9:16 / 16:9 / 自定义）与 `shellFixedSize`（默认 **true** = 不可缩放）**只在用户显式改过时**覆盖；换算集中一处（`ShellLayout`），换比例只改一处 〔源: 代码 `src/FrameworkUi/Views/MainWindow.axaml`（`Width=396 Height=858 MinWidth=360 MinHeight=360`）+ `MainWindow.axaml.cs` `ApplyShellSizeFromSettings`〕 |
-| 弹窗宿主 | 外层尺寸**固定 780×620**、可手动缩放（Min 560×320 / Max 1080×880）、**不按内容撑高**；每个弹窗根都有 `ScrollViewer` ⇒ **外层固定 + 子区滚动**（取代 ADR-0038 D3 的"按内容自适应"） |
+| 弹窗宿主 | 外层尺寸**固定 780×620**、可手动缩放（Min 560×320 / Max 1080×880）、**不按内容撑高**；每个弹窗根都有 `ScrollViewer` ⇒ **外层固定 + 子区滚动**（取代 ADR-0038 D3 的"按内容自适应"）。**四个种类（模块清单 / Issue / 设置 / 拓扑诊断）尺寸一致**〔**2026-09 用户实测修复**：`DialogWindow.axaml.cs` 原先**按种类覆盖**尺寸（清单 720×520 · Issue 900×520 · 设置与拓扑 520×460），与 XAML 里"尺寸固定"的声明**直接矛盾** ⇒ 三种大小、观感不一致（用户："需要一致化…观感不好"）⇒ 覆盖已删除，**尺寸只有 XAML 一处来源**，`ShellChromeTests.弹窗_四个种类的默认尺寸必须一致` 把它钉住〕 |
 | 主题跟随 | 外壳、模块窗口、弹窗、叠加层走**同一套角色 token**（`Ui/Styles/Tokens.axaml`）；设置里改主题/主题色/背景**即时生效**（机制 = 改写主题字典 + 快照还原；放进合并字典会被内置 token 盖住） |
 | 调色板窗口 | `ColorPickerDialog` **可复用**：主题色 · 自定义背景色 · 发送色 · 接收色 4 个设置色块 + 「数据结构 · 颜色」表内色块，**5 个取色点全走它**；设置页内联取色 `Flyout` 已删除 ⇒ 全应用一种选色交互 |
 
@@ -107,7 +107,7 @@
 | 选中 / 取消选中 | 点**边框带**选中；点内容区、点外壳或本应用其他窗口 → **取消选中**；锁定态不可选中 |
 | 边框交互带 | **6 px**：边中点/角点 = 缩放，其余 = 拖动；**内容区点击不选中**（不与模块内控件抢事件） |
 | 缩放手柄 | **6×6**；**仅选中或悬停时可命中**（未选中时 `IsHitTestVisible=false`）⇒ 不再压住端口标记 |
-| 默认/最小尺寸 | `ModuleWindow.axaml` 写死 **320×220**、最小 **180×120**；模块可用 `ViewDeclaration.PreferredWidth/PreferredHeight`（**`init` 属性**）声明自己的默认尺寸，未声明回退 320×220；参考模块声明值：手动发送器 **330×330**、信息显示模块 **360×460** |
+| 默认/最小尺寸 | `ModuleWindow.axaml` 写死 **320×220**、最小 **180×160**（**2026-09：最小高由 120 抬到 160** —— 端口标记沿边长度加到 150 后，窗口比它短会把标记裁掉一截；见 `PortMarkerMetrics.MinWindowExtent`）；模块可用 `ViewDeclaration.PreferredWidth/PreferredHeight`（**`init` 属性**）声明自己的默认尺寸，未声明回退 320×220；**现行四个正式模块的声明值**：文本发送器 **340×340** · HEX 发送器 **340×340** · 数据监视器 **460×500** · HEX 字符串转换器 **520×600**（**2026-09 第二轮 UI 反馈后按实测重定**：预留带 + 开关滑块 + 结果行占位一起算）（原参考模块的 330×330 / 360×460 已随其载体于 2026-09 删除） |
 | 尺寸归属 | **尺寸归 XAML**：`ApplyContentDrivenSize` 与"元素→高度表"已删除——**信息量不得改变外层容器尺寸**，排不下由内容区滚动条处理；未摆放模块只分配**位置**，窗口按 XAML 尺寸打开后由 `PublishActualSize` 把实际尺寸读回落盘 |
 | 默认摆放 | 起点 = **外壳右边缘 + 12 px**，与已有模块逐个相交检查，**一列到底自动换右列**（上限 256 次兜底）⇒ 新窗口不压住主窗口、不互相堆叠 |
 | 隐藏 / 关闭 | 隐藏 = 窗口不可见、**模块继续运行**并写回布局（恢复入口 = 交互页「显示全部」）；关闭 = **移除该实例**（要回来从模块清单重新加入） |
@@ -176,11 +176,15 @@
 - 命令/输入**一律入队** `IModuleContext.Inbox`（`IModuleInbox.TryDequeueCommand` / `TryDequeueInput`），由模块**在自己的活动体内（模块线程）**消费 —— **框架不跨线程直接调模块**、不阻塞 UI。
 - 队列**有界 64**：满则**丢最旧并计数**（`DroppedCount`）；投递方 = 管理线程，消费方 = 模块线程，以锁保护。
 - 投递结果一律进 `CommandResult`（Notice / Failures）→ 界面就地显示 + 状态栏提示。
-- **B6 文件选择器（G4 · 2026-09）走同一条输入通道**：用户选/存后，**路径字符串**经 `SubmitInput` 投递；
+- **B6 文件选择器（G4 · 2026-09；**2026-09 改单按钮**）走同一条输入通道**：用户选/存后，**路径字符串**经 `SubmitInput` 投递；
   弹系统对话框在**视图层**（`ModuleContentView.axaml.cs` 的 `OnBrowseClick`，用 `TopLevel.StorageProvider`），
-  **模块不接触文件对话框 API**。渲染 = 标签 + **只读**路径框 +「浏览…」按钮 + 就地结果。
-  **只有人工能验的部分**：无头环境没有真实对话框 ⇒ "点浏览真的弹窗"归人工验收。
-- **已登记限制**：**无活动循环的模块不消费收件箱**（投递入队但框架不代执行 —— 模块线程纪律不允许）；v1 参考模块均为活动模块，后续如需支持应在数据面投递循环增加收件箱消费点（**不是静默降级**）。
+  **模块不接触文件对话框 API**。渲染 = **一个按钮**（文案 = 声明标题）+ 其下一行**就地结果**；保存模式把声明里的
+  `SuggestedFileName` 交给对话框预填，路径改挂按钮的悬停提示（用户："更好的方案为**只提供一个保存按钮**，
+  点击后弹出窗口选择位置 → **选择完成自动保存在此处**"）。
+  **结果行归模块回报**（写盘成没成功只有模块知道，视图层自己写"已保存"就是预览骗人）：成功也显示（"已保存 …（N 行）"）、
+  失败 = 按钮红框 + 红字原因。
+  **只有人工能验的部分**：无头环境没有真实对话框 ⇒ "点按钮真的弹窗"归人工验收。
+- **已登记限制**：**无活动循环的模块不消费收件箱**（投递入队但框架不代执行 —— 模块线程纪律不允许）；v1 的四个正式模块均为活动模块，后续如需支持应在数据面投递循环增加收件箱消费点（**不是静默降级**）。
 
 **渲染子集（现行）**〔源: ADR-0040 D4 + 05 §5.20；**元素编号以 SDK 声明面为准** = A/B/C 三类前缀 + 枚举序号〕：**A1 数值 · A3 曲线 · A5 文本日志 · B1 配置表单 · B2 命令按钮 · B5 文本输入 · B3 开关/滑块（序号 10）· B6 文件选择器（序号 13，2026-09 G4 补齐）· C2 标签页（序号 15，2026-09 G1 补齐）**；其余元素按"**未渲染**"占位（不假装支持）。**代码核对补充**〔源: 代码 `src/Ui/ViewModels/ModuleViewViewModel.cs` 元素工厂〕：`EnumSelector`（**B4**，序号 11）当前**未接渲染分支**，落入"未渲染"占位 ⇒ v1 实际渲染子集**不含 B4**（旧文中的"A10/A11"是 ADR-0040 的连续编号记法）。控件统一高 `ControlHeight = 27`（字号 12、圆角 3、行距 4），尺寸**只从 token 取**，禁止逐处写死。
 
@@ -232,7 +236,7 @@
 | 模块清单页 / 交互页 / 设置页 / Issue 页 / 拓扑页 | `src/FrameworkUi/Views/{ModuleCatalogView,InteractionView,SettingsView,IssuesView,TopologyView}.axaml`（VM 在同名 `ViewModels/*`） |
 | 调色板窗口（取色，可复用） | `src/FrameworkUi/Views/ColorPickerDialog.axaml` |
 | 模块窗口（边框、按钮簇、运行指示、口标记、叠加层） | `src/Ui/Views/ModuleWindow.axaml(.cs)` |
-| 模块窗口内容与配置表单 | `src/Ui/Views/{ModuleContentView,ConfigurationFormView,TextLogView}.axaml` |
+| 模块窗口内容与配置表单 | `src/Ui/Views/{ModuleContentView,ConfigurationFormView,TextSurface}.axaml` |
 | 视觉 token（颜色/字体/控件高度/圆角/图标字形） | `src/Ui/Styles/Tokens.axaml` · `src/Ui/Styles/Controls.axaml` |
 | 模块自己的界面 | **不是 XAML**：模块在 C# 里声明（`OnRegistered → DeclareView`），由框架模板渲染 |
 
@@ -267,6 +271,6 @@
 
 - **人机操作通道 = 收件箱拉取式（已裁定）**：模块从 `IModuleContext.Inbox`（`IModuleInbox.TryDequeueCommand` / `TryDequeueInput`）自己取，**框架不跨线程调模块**；**推送式 `IModule.OnCommand` / `OnInput` 作废**，**ADR-0040 的推送式条款（D1/D2）已不适用**（历史见归档）。本文件 §7 即按此写。仍有效的语义：**失败转 Issue、输入一次提交、开关松手写入**〔源: 用户裁定 + 05 §5.20 + `ModuleContext.BoundedInbox`〕。
 - **取色器形态 = 取色窗口提供 HSV 分量页签（已裁定）**：**以已落地的调色板窗口为准** —— `ColorPickerDialog` 内的 `ColorView` 自带"**光谱 / 分量 / 十六进制**"页签，**分量页签含 HSV 滑块**（`IsColorComponentsVisible` + `IsComponentSliderVisible`，光谱 = `HueSaturation`）⇒ **ADR-0041 D5 的"不做 HSV 滑杆"已不适用**（历史见归档；仍不做取色环 / 屏幕吸管）〔源: 用户裁定 + 代码 `src/FrameworkUi/Views/ColorPickerDialog.axaml`（L34–L48）+ ADR-0054〕。
-- **外壳最小尺寸 = 360×360（以代码为准）**：实现 `MainWindow.axaml` = **默认 `396×858`、最小 `360×360`**（`MinWidth=360` / `MinHeight=360`）；模块窗 `ModuleWindow.axaml` = **默认 320×220、最小 180×120**（模块可用 `ViewDeclaration.PreferredWidth/PreferredHeight` 覆盖默认值）。**ADR-0038 的"最小 360×640"与实现不一致（历史值，见归档）**〔源: 用户裁定 + 代码 `src/FrameworkUi/Views/MainWindow.axaml` L14–L15、`src/Ui/Views/ModuleWindow.axaml` L18–L19、`src/Ui/ViewModels/ModuleViewViewModel.cs`（`DefaultWidth=320` / `DefaultHeight=220`）〕。**附带发现（遗留）**：`ShellLayout.cs` 声明 `MinWidth=360` / `MinHeight=480`，但**全仓无任何引用**（有效最小值只来自 XAML 的 360×360）⇒ 两处常量不一致，建议后续二选一收口。
+- **外壳最小尺寸 = 360×360（以代码为准）**：实现 `MainWindow.axaml` = **默认 `396×858`、最小 `360×360`**（`MinWidth=360` / `MinHeight=360`）；模块窗 `ModuleWindow.axaml` = **默认 320×220、最小 180×160**（**2026-09：最小高 120 → 160**，由端口标记长度推出；模块可用 `ViewDeclaration.PreferredWidth/PreferredHeight` 覆盖默认值）。**ADR-0038 的"最小 360×640"与实现不一致（历史值，见归档）**〔源: 用户裁定 + 代码 `src/FrameworkUi/Views/MainWindow.axaml` L14–L15、`src/Ui/Views/ModuleWindow.axaml` L18–L19、`src/Ui/ViewModels/ModuleViewViewModel.cs`（`DefaultWidth=320` / `DefaultHeight=220` / `MinHeight=PortMarkerMetrics.MinWindowExtent`）〕。**附带发现（遗留）**：`ShellLayout.cs` 声明 `MinWidth=360` / `MinHeight=480`，但**全仓无任何引用**（有效最小值只来自 XAML 的 360×360）⇒ 两处常量不一致，建议后续二选一收口。
 
 > 上述三条均已在 `.reorg/conflicts.md` 登记对应条目，本轮按本节的裁定收口。

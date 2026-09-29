@@ -69,7 +69,7 @@ internal static class DragSelfTest
         DispatcherTimer.RunOnce(
             () =>
             {
-                _ = command.AddModule("selftest-c", "hyw/reference-monitor/1.0.0");
+                _ = command.AddModule("selftest-c", "hyw/text-sender/1.0.0");
                 windows.Refresh();
 
                 if (windows.Modules.FirstOrDefault(m => m.InstanceId == "selftest-c") is not { } module
@@ -115,8 +115,8 @@ internal static class DragSelfTest
     /// <summary>摆两个模块：先隔开（≈430px），随后把左侧那个拖到右侧那个旁边（"靠很近"）。</summary>
     private static void Arrange(ModuleWindowsViewModel windows, IRuntimeCommand command)
     {
-        _ = command.AddModule("selftest-a", "hyw/reference-manual-sender/1.0.0");
-        _ = command.AddModule("selftest-b", "hyw/reference-monitor/1.0.0");
+        _ = command.AddModule("selftest-a", "hyw/text-sender/1.0.0");
+        _ = command.AddModule("selftest-b", "hyw/data-monitor/1.0.0");
         windows.Refresh();
 
         _ = command.UpdateModuleLayout(new ModuleLayoutView("selftest-a", 200, 200, 413, 413, true));

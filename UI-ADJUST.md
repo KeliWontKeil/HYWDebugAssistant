@@ -31,7 +31,7 @@
 | **字体** | 同上 | `FontUi`（界面对话字体）· `FontData`（数据/日志等宽字体） |
 | **控件高度（输入框/按钮）** | 同上 | `ControlHeight`（当前 **27**）· `ControlFontSize`（12） |
 | **模块窗口尺寸相关** | 同上 | `ModuleHandleSize`（缩放手柄 **6**）· `ModuleBandThickness`（拖动带 **6**）· `ModuleCornerRadius`（圆角，类型必须是 `CornerRadius`！） |
-| **端口标记规格** | 同上 + `src/Ui/ViewModels/PortMarkerViewModel.cs` | token：`PortMarkerWidth`(20) · `PortMarkerLength`(**114**) · `PortMarkerFontSize`(11)；VM 里 `MarkerWidth/MarkerHeight` 用同一组数值 |
+| **端口标记规格**（尺寸的**唯一来源**） | `src/Ui/Geometry/PortMarkerMetrics.cs`（**2026-09 起**；`Tokens.axaml` 的 `PortMarkerWidth`/`PortMarkerLength` 是**死资源** —— 真正生效的一直是视图模型那份 —— 已删除） | `Width`(**20**，= 预留带厚度) · `Length`(**150**，沿边长度；由 114 加长以容下「（直连）」+ 速率) · `FixedChrome`(49，固定槽位合计) · `MinWindowExtent`(160，窗口最小边长由它推出来)。**标记内元素尺寸仍看 `Tokens.axaml`**：`PortMarkerFontSize`(11) · `PortMarkerArrowFontSize`(18) · `PortMarkerLampSize`(8) · `PortMarkerStripWidth`(6) · `PortMarkerRateFontSize`(10) |
 | **图标（字形）** | `src/Ui/Styles/Tokens.axaml` 的 `FontIcons` + `Glyph*` | 图标用**系统图标字体**（Segoe Fluent Icons / Segoe MDL2 Assets），码位见该处注释表；换图标 = 改 `Glyph*` 一行 |
 | **全局控件样式**（输入框内边距、图标按钮大小、活动栏图标字号） | `src/Ui/Styles/Controls.axaml` | `TextBox`/`ComboBox`/`Button`/`ToggleButton`/`CheckBox` 样式；`TextBlock.icon`；`Button.icon`；`Button.rail` |
 
@@ -50,17 +50,49 @@
 | **设置弹窗**（七类） | `src/FrameworkUi/Views/SettingsView.axaml` | 左分类样式在文件顶部 `UserControl.Styles`（字号 12 / 行高 28 / 宽 132） |
 | **拓扑诊断 / Issue / 帮助** 弹窗 | `src/FrameworkUi/Views/{TopologyView,IssuesView}.axaml` + `DialogWindow.axaml` | 弹窗尺寸自适应在 `DialogWindow.axaml`（`SizeToContent` + `Max*`） |
 | **模块窗口**（边框、按钮簇、运行指示、端口标记、叠加层） | `src/Ui/Views/ModuleWindow.axaml`（+ `.axaml.cs`） | 窗口级样式在该文件 `Window.Styles`（`handle`、`Cluster`、`Frame.selected`） |
-| **模块窗口内容**（数值/曲线/日志/表单/命令/输入/开关的模板） | `src/Ui/Views/ModuleContentView.axaml` | 每种元素一个 `DataTemplate` |
-| 配置表单（字段行、控件类型） | `src/Ui/Views/ConfigurationFormView.axaml` | |
-| 文本日志 | `src/Ui/Views/TextLogView.axaml` | |
+| **模块窗口内容**（数值/曲线/日志/命令/输入/开关的模板） | `src/Ui/Views/ModuleContentView.axaml` | 每种元素一个 `DataTemplate`；**元素之间的间距 = 该文件里 `ModuleElementPanel` 的 `Spacing`**；**内容四周留白 = 外层 `ScrollViewer` 的 `Padding="20,20,20,20"`**（这两处是"布局不紧凑"直接可调的旋钮） |
+| **模块内容的"高度分配"**（谁随窗口拉伸、谁按内容高） | `src/Ui/Controls/ModuleElementPanel.cs` | **填满型** = A5 文本日志 + 多行输入（分走剩余高度、内部滚动）；**按内容型** = 其余元素。填满型的**最小高度**：日志 `LogMinHeight = 88`、多行输入取 `TextInputElementViewModel.EditorMinHeight`（60） |
+| 配置表单（字段行、控件类型） | `src/Ui/Views/ConfigurationFormView.axaml` | **框架不再自动补**这张表单（2026-09 用户裁定"删除整个配置框"）：只有模块**显式声明** B1 才渲染 |
+| 文本日志（显示区） | `src/Ui/Controls/TextSurface.axaml` | 只读虚拟化行列表；**行距/字号**在该文件顶部的 `ListBoxItem` / `SelectableTextBlock` 样式里 |
+| **文本框字体**（输入框 + 显示框） | **设置 → 外观与显示 → 「界面字体」/「数据字体」**（设置模型 `ApplicationSettings.UiFontFamily` / `DataFontFamily`；资源键 `FontUi` / `FontData`，落在 `src/Ui/Styles/Tokens.axaml`） | 默认：界面 `Segoe UI, Microsoft YaHei UI`；**数据 `Times New Roman, 宋体`**。下拉读**系统已有字体**、可手输回退列表（逗号分隔）；改动即时生效 |
+| 输入框的**光标/文字垂直位置** | `src/Ui/Views/ModuleContentView.axaml` 顶部的 `TextBox` 样式 | **单行垂直居中、多行顶端左对齐**（`Classes.multiline` 区分） |
 | 曲线绘制 | `src/Ui/Controls/CurveControl.cs` | 纯绘制代码 |
 | **端口标记排布**（贴边、边感知、预留带） | `src/Ui/Controls/PortMarkerPanel.cs` | `BandThickness=20`、`EdgeInset=-1`（标记压到窗口外框上） |
 | **对齐参考线 / 缩放高亮** | `src/Ui/Controls/GuideOverlay.cs` | 坐标换算：屏幕物理像素 ÷ `RenderScaling` |
 | **叠加信息层**（连接线/流向/对端标签） | `src/Ui/Controls/ConnectionOverlay.cs` | 连线色/箭头色在 `ModuleWindow.axaml` 里绑 `AccentSecondary`/`AccentPrimary` |
-| 模块**视图声明**（发送器这类模块长什么样） | `src/Modules/Reference/ManualSender/ManualSenderModule.cs` 的 `OnRegistered` → `DeclareView(...)` | **不是 XAML**：模块只声明元素，框架按模板渲染；**模块默认尺寸**也在同一个调用里（`{ PreferredWidth = 330, PreferredHeight = 330 }`，见 `src/Sdk/Views/ViewDeclaration.cs`） |
+| 模块**视图声明**（发送器这类模块长什么样） | `src/Modules/Business/TextSender/TextSenderModule.cs` 的 `OnRegistered` → `DeclareView(...)` | **不是 XAML**：模块只声明元素，框架按模板渲染；**模块默认尺寸**也在同一个调用里（`{ PreferredWidth = 340, PreferredHeight = 230 }`，见 `src/Sdk/Views/ViewDeclaration.cs`） |
 | **「还原」范围确认弹窗** | `src/Ui/Views/ResetModuleDialog.axaml`（+ `.axaml.cs`）· `src/Ui/ViewModels/ModuleResetScope.cs` | 三选一（只还原尺寸 / 尺寸和配置都还原 / 取消）；按钮簇在 `ModuleWindow.axaml` 的 `ResetButton` |
 | 设置页与主界面的**同名开关** | `src/FrameworkUi/ViewModels/SettingsPanelViewModel.cs`（`Owner` 委托外壳） | 改开关行为只改 `ShellViewModel` 那一处，两个界面自动一致 |
 | 活动栏/窗口图标字体可用性 | `src/Ui/Styles/Tokens.axaml` 的注释表 | 若某个字形显示成方块，把对应 `Glyph*` 改成注释表里的其他码位 |
+
+---
+
+## 2.1 你想自己调"布局紧凑度/位置"时的三个旋钮（2026-09 用户要求："告诉我去哪调"）
+
+| 想改什么 | 改哪里 | 现值 |
+|---|---|---|
+| 模块内**元素之间的间距** | `src/Ui/Views/ModuleContentView.axaml` → `<ctrl:ModuleElementPanel Spacing="2" />` | **2** |
+| 模块内容**四周留白 / 上·下预留带** | 同文件 → 外层 `<ScrollViewer Margin="20,22,20,24">` | **左右 20 · 上 22 · 下 24** |
+| 显示区（日志）**行距 / 字号** | `src/Ui/Controls/TextSurface.axaml` → `TextBox#LogEditor` 的 `LineHeight` / `FontSize`（**必须与 `TextSurface.axaml.cs` 的 `LineHeightDip` 一致**：窗口行数按它算） | 行高 **14** / 字号 **11** |
+| 显示区**分页窗口**的规模与节拍 | `src/Ui/Controls/TextSurface.cs`（**输入框与显示区共用的那一个文本面控件**）→ `MinWindowLines`（20）· `MaxWindowLines`（200）· 刷新节拍（50 ms = 20 Hz）· 滚轮行数（3） | 窗口 = 视口行数 × 2，夹在 **[20, 200]**；**调大窗口 = 每次重排更贵**（实测 ≈ 0.47 ms/行） |
+| 现实：**不再有"一行多少字节"这回事** | 显示模块只做"字节 → 文本"（`MonitorLineFormatter`）；**没有 96 字节定宽行、没有填充、没有空闲断行** | 一行多少由**文本框宽度**决定（用户 2026-09 裁定："请不要抛开成熟方案去自创方案"） |
+| 显示区**最小高度** | `src/Ui/Controls/ModuleElementPanel.cs` → `LogMinHeight` | **88** |
+| 多行输入框**最小高度** | `src/Ui/ViewModels/ViewElementViewModels.cs` → `TextInputElementViewModel.MultilineEditorMinHeight` | **60** |
+| **输入结果行**（失败提示那一行）的**常驻高度** | `src/Ui/Views/ModuleContentView.axaml` 的 `TextInput` / `FileSelector` 模板 → 结果 `TextBlock` 的 `MinHeight` | **14**（常驻占位 ⇒ 有无信息都不改布局） |
+| **开关滑块**（B7）的行高与排布 | 同文件 → `ToggleSwitch`（**不要写 `Content`**，文字用旁边独立的 `TextBlock`） | 行高 **32**（模板自带）；**写 `Content` 会让它涨到 ~48 并把轨道挤出可视区** ⇒ 真机上只剩一行文字（2026-09 实测缺陷） |
+| 文本框**标题**的位置 | 同文件 → `TextInput` / `FileSelector` 模板的第 0 行 | **标题在左上、与框左对齐**（用户 2026-09："需要统一文本框标题于左上角，同样与文本框左对齐"） |
+| **文本框字体** | 设置 → 外观与显示（或 `ApplicationSettings` 的 `UiFontFamily` / `DataFontFamily`） | 数据 = `Times New Roman, 宋体` |
+| 输入框**行末换行标记 `↵`** 的观感 | `src/Ui/Controls/NewlineMarkOverlay.cs` → `MarkGap`（与文本末尾的间距）、`MarkFontScale`（相对正文的字号比例，现值 **0.85**） | 标记是**绘制层装饰**（不进文本、不参与选择、光标跳过）；**不要**改回"把标记塞进文本"（2026-09 实测：光标规律不可预测，已被用户否定） |
+| **标签页数量** | 该模块源码的 `PageCount`（`TextSender` / `HexSender` / `HexStringConverter`） | **5**（2026-09 用户裁定；增删页**不影响窗口尺寸**，只显示当前页） |
+| 某个模块的**默认尺寸** | 该模块源码 `OnRegistered` 里的 `PreferredWidth/PreferredHeight`（模块页 §3 有算式）；调完同步模块页 | 文本/HEX 发送器 **340×340** · 数据显示器 **460×500** · 转换器 **520×600** |
+
+> 原则（2026-09 用户裁定）：**能靠 `.axaml` / 声明调好的位置与间距问题，由开发者自己调**；框架侧只保证"不遮蔽、不覆盖、随窗口伸缩、内容增长只出内部滚动条"。
+>
+> ⚠ **改设置页的生效机制**：设置弹窗走 **确认 / 取消 / 应用** 三键（`SettingsView.axaml` 底部三键条 + `SettingsPanelViewModel` 的 `ConfirmCommand`/`CancelCommand`/`ApplyCommand`）——**不要再加"改一下就即时生效"的字段回调**（2026-09 用户裁定撤销了旧口径）。
+> 
+> ⚠ **"填满型"（多行输入 / A5 日志）的高度由 `ScrollViewer` 拉伸给**：内容比视口矮时，`ScrollViewer` 会把 `ItemsControl`（`VerticalAlignment="Stretch"`）拉到视口高 ⇒ `ModuleElementPanel` 才有多余空间分给填满型。**不要改回 `MinHeight="{Binding Viewport.Height}"`**（首帧视口=0 ⇒ 框只有一个最小高，放大窗口才对；2026-09 实测缺陷）。填满型**最小高**见 `ModuleElementPanel.LogMinHeight` / `TextInputElementViewModel.MultilineEditorMinHeight`。
+> 
+> ⚠ **上/下预留带必须写成 `ScrollViewer` 的 `Margin`（不能写成它的 `Padding`）**：`Padding` 算在**视口之内**，而内容面板的 `MinHeight` 绑的是**视口高** ⇒ 内容恒比视口高一点点 ⇒ **默认尺寸下常驻一条滚动条**（2026-09 第二轮反馈修掉的真实缺陷）。
 
 ---
 
@@ -106,7 +138,7 @@
 | 取色太原始（只有一排预设） | `src/FrameworkUi/Views/SettingsView.axaml`（色片 `Button` + `Flyout` 面板） | 点色片弹出面板：**预设色块（`WrapPanel`）+ 十六进制输入框**（填 `#RRGGBB` 回车生效）；主题色与背景色都是这一套 |
 | 锁定后仍会跟着壳体移动 | `src/Ui/ViewModels/ModuleWindowsViewModel.cs` 的 `BeginDrag` / **`FollowShellMove`** | 锁定 = ①不能拖 ②**不进拖动组、不被随壳移动带走**；`FollowShellMove` 只在模块**贴住外壳右边缘**（`\|Left − shell.Right\| ≤ 2` 且竖向有重叠）时整组平移，拖开后自然留在原地 |
 | 「停」语义不对，要的是「还原」 | `src/Ui/Views/ModuleWindow.axaml(.cs)` 的 `ResetButton`/`OnReset` + **`ResetModuleDialog`** + `src/Core/Changes/ChangeOperation.cs` 的 `ResetModuleConfigurationOperation` | 按钮簇 = **[还原][锁][隐][×]**；点还原弹**范围确认**（只还原默认尺寸 / 尺寸和配置都还原 / 取消）；配置还原 = **换成同类型新默认实例**（不是清空，否则表单会空） |
-| 模块尺寸总是一样 | `src/Sdk/Views/ViewDeclaration.cs` 的 **`PreferredWidth`/`PreferredHeight`**（`init` 属性）+ 各参考模块的 `DeclareView(...) { PreferredWidth = …, PreferredHeight = … }` | 想给模块定默认尺寸：**在模块代码里加两个 `init` 属性**（不要改构造器签名——那是二进制破坏，P30）；未声明的模块仍回退 320×220 |
+| 模块尺寸总是一样 | `src/Sdk/Views/ViewDeclaration.cs` 的 **`PreferredWidth`/`PreferredHeight`**（`init` 属性）+ 各正式模块的 `DeclareView(...) { PreferredWidth = …, PreferredHeight = … }` | 想给模块定默认尺寸：**在模块代码里加两个 `init` 属性**（不要改构造器签名——那是二进制破坏，P30）；未声明的模块仍回退 320×220 |
 
 ### 第十二轮（**吸附手感 · 像素对齐 · 外壳成组**；`docs/architecture/07-overlay-and-visual-baseline` + `docs/decisions.md`）
 
@@ -187,14 +219,15 @@
 |---|---|---|
 | 叠加层里的方块**代表什么** | `ConnectionOverlay.LayoutRoles`（纯函数）+ `RoleBoxViewModel` | 方块 = **模块声明的功能分块**（`SDK DeclareRole`：一个 `Id` + 一种数据类型 + 输入口/输出口）⇒ **声明几个就画几个**；**单列竖直堆叠、居中**，**宽度随文本自适应**（`RoleTextMetrics.BoxWidth`，夹 [64,176]；块高 34）⇒ 放不下就只画得下的 + 底部 `+K`。**框架不派生、不发明角色** |
 | 方块内容/配色 | `ConnectionOverlay.DrawRoleBoxes` + `PacketTypePalette` | 两行：**功能名**（无则类型短名，11px）+ **`m/n`** = 输入/输出侧**连接的对端角色数**（10px；无该侧口 ⇒ `--`、有口未连 ⇒ `0`）；**填充 = 类型色**（按 `TypeKey` 稳定哈希）、**左边缘 = 接收方向色（有输入口才画）· 右边缘 = 发送方向色（有输出口才画）**、**>1 口才画刻痕**；**不带状态色** |
-| **配色**想固定某类型的颜色 | `PacketTypePalette.SetOverride("hyw/analog-sample@v1", Color.Parse("#…"))`（或后续的侧边栏"数据包类型表"） | 默认 **FNV-1a 稳定哈希**（同一类型恒同色、跨进程一致）；覆盖表可注入。端口标记的窄色条与角色方块**共用同一入口** ⇒ 颜色天然一致 |
+| **配色**想固定某类型的颜色 | `PacketTypePalette.SetOverride("RawBytes@v1", Color.Parse("#…"))`（或后续的侧边栏"数据包类型表"） | 默认 **FNV-1a 稳定哈希**（同一类型恒同色、跨进程一致）；覆盖表可注入。端口标记的窄色条与角色方块**共用同一入口** ⇒ 颜色天然一致 |
 | 线的**条数/聚合** | `ModuleWindowsViewModel.RefreshRoleLinks`（`GetRoleFlows`） | 同一（本端角色, 方向, 对端实例, 对端角色）⇒ **一条线**（`PortPairCount` 只作内部量，**线上不再标 `×N`、也不标网络名**——网络标签属接口层）；多源网络的**不同模块的源 = 各自一条线** |
 | 线的**几何与流向** | `ConnectionOverlay.LinkSegment`（纯函数）+ `OverlayAnimationClock.DashOffset` | 端点 = **两个角色方块的中心**；画出来的那段 = **本窗内 ∩ 本端方块之外**（视觉上"从方块中心出发"、不横穿方块）；**虚线沿数据流方向流动**：两侧共用 `-相位 ÷ 线宽`（`DashStyle.Offset` 单位是**笔宽倍数**）⇒ **发送向外、接收向内**。想改走向 ⇒ 改锚点，**不要加方位分类** |
-| **角色自身的信息**（**角色维度**） | `ConnectionOverlay.DrawRoleInfo` + `RoleBoxViewModel.InfoLines` | **纯文字、不画文本框**，贴在方块**上方、左对齐**：① **速率**（**大字** 15px，主行）· ② `输入 m / 输出 n`（**口数**，10px）· ③ `类型：<短标签>`（10px，只取第一个语义标签并截断 8 字 —— 用户："禁止 UI 外显过长描述"）。数字来自 `RoleView.RateBytesPerSecond`（**框架的角色维度聚合**，产出侧优先：有输出口取输出网络、纯汇取输入网络） |
-| **通路速率**（**通路维度**） | `PortMarkerViewModel.RateText` + `ModuleWindow.axaml` 的 `markerRate` 槽 | **常驻**在标记上（10px，比名称小一号；未入网 `---`）—— 用户："速率显示**常驻**于网络标签上，**它不属于叠加层**" ⇒ 与叠加层开关**无关** |
+| **角色自身的信息**（**角色维度**） | `ConnectionOverlay.DrawRoleInfo` + `RoleBoxViewModel.InfoLines` | **纯文字、不画文本框**，贴在方块**上方、左对齐**：① **速率**（**大字** 15px，主行）· ② `输入 m / 输出 n`（**口数**，10px）· ③ `类型：<短标签>`（10px，只取第一个语义标签并截断 8 字 —— 用户："禁止 UI 外显过长描述"）。数字来自 `RoleView.PayloadRateBytesPerSecond`（**框架的角色维度聚合**，产出侧优先：有输出口取输出网络、纯汇取输入网络；**2026-09 口径 = 有效载荷字节速率**，用户："速率只要有效数据"） |
+| **通路速率**（**通路维度**） | `PortMarkerViewModel.RateText` + `ModuleWindow.axaml` 的 `markerRate` 槽 | **常驻**在标记上（10px，比名称小一号；未入网 `---`、有连接无数据 `0.00 B/s`）—— 用户："速率显示**常驻**于网络标签上，**它不属于叠加层**" ⇒ 与叠加层开关**无关**。数值 = `PortMetricsView.PayloadBytesPerSecond`（**有效载荷口径**） |
+| **标记里的网络名与速率谁让谁** | `ModuleWindow.axaml` 的标记模板（两套分支）+ `PortMarkerViewModel.NameMaxWidth` | **名称优先**（2026-09 用户裁定）：名称列拿自己需要的宽度（上限 = 标记长度 − 固定槽位），**速率吃剩余、不够就省略**。想改长短 ⇒ 改 `PortMarkerMetrics.Length`（不要只改模板） |
 | 接口层**沉下去**（"不高亮"） | `ModuleWindow.axaml` 的 **Grid 子元素顺序**（不是样式） | **做减法**：`内容 → 端口标记 → 遮罩 → 连线/角色层 → 运行指示/按钮簇` ⇒ 叠加层开启时标记被灰玻璃压暗（用户："网络标签不高亮**指的不是在上面覆盖一层**……是做减法，把它埋入灰色玻璃下方"）。**不要**再给标记加降权样式（那是做加法，已被否决）；标记仍在命中层之上 ⇒ 照样可双击建网 |
 | 信息**分区域 + 按字号分层** | `ConnectionOverlay.Render` + `RoleOverlayInfoBuilder.Build` | 左上**身份 12px**（`实例 · 模块名`）· 左上第二行 **10px 仅在需要说明时非空**（`无数据口` / `未声明角色（N 个数据口）`）· 方块上的角色信息（见上）。**字号常量**：`CaptionFontSize`（12）/ `RoleTextMetrics.TitleFontSize`（11）/ `DetailFontSize`（10） |
-| 模块**内部处理顺序**（原"内部关系线"） | SDK `DeclareFlow(FlowDeclaration(FromRoleId, ToRoleId))` + `ConnectionOverlay.DrawRoleOrder` | 声明的是**块与块之间**的顺序（角色已含 in/out ⇒ 块内部不必声明）；画成**细实线 + 中性色 `OverlayFlow` + 不流动**（结构 ≠ 流量）；**零声明 ⇒ 不画**（参考模块全是单块 ⇒ 本轮图上零内部线） |
+| 模块**内部处理顺序**（原"内部关系线"） | SDK `DeclareFlow(FlowDeclaration(FromRoleId, ToRoleId))` + `ConnectionOverlay.DrawRoleOrder` | 声明的是**块与块之间**的顺序（角色已含 in/out ⇒ 块内部不必声明）；画成**细实线 + 中性色 `OverlayFlow` + 不流动**（结构 ≠ 流量）；**零声明 ⇒ 不画**（**当时**参考模块全是单块 ⇒ 本轮图上零内部线；**该载体已于 2026-09 按用户裁定删除**，现行四个正式模块同样是单块 ⇒ 仍零内部线） |
 | 未连接 / 没声明角色 | `RoleOverlayInfoBuilder.Build` + `GetRoles` | **没有「未连」文字**（没连上时端口标记的指示灯会灭，文字多余且抢宽度）——未连的事实看方块第二行的 `m/n`（`0` vs `--`）；**没有声明角色 ⇒ 不画方块**（框架不发明角色），左上第二行给 `未声明角色（N 个数据口）` |
 | 开机就想看效果（**不必启动应用**） | 独立项目 `tests/HYWDebugAssistant.VisualSnapshots` | `dotnet test tests\HYWDebugAssistant.VisualSnapshots\...` ⇒ 在**真实渲染栈**下把带叠加层的窗口渲染成 PNG（`%TEMP%\hyw-overlay-snapshot\`）。**调叠加层观感时先跑它、直接看 PNG**；它同时是"自绘层真的出像素"的渲染冒烟，并含一条**虚线偏移语义**的实测用例（改流向/相位前先看它） |
 | **新模块要在叠加层里出现**（新增一节用法） | 模块 `OnRegistered` | `DeclareDataType(...)` + `DeclarePort(...)`（口要带 `Type = new DataTypeRef(id, ver)`）+ `DeclareRole(RoleDeclaration.Output/Input/Both(...))`。**注意**：角色引用的类型必须**在本模块已声明**，否则声明被拒（运行期报 Issue + SDK 自检也会报）⇒ 现场表现就是"叠加层里没有这个模块的方块" |

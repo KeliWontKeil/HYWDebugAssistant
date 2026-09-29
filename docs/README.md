@@ -60,7 +60,7 @@ docs/
 | 我是谁 / 我要做什么 | 顺序 |
 |---|---|
 | **第一次接手** | 主文档 §1–§3、§18 → `architecture/00` → `01` → `03` → `04` → `09` → `roadmap.md` |
-| **写一个新模块** | `implementation/06`（**模块标准与七阶段流程**）→ `implementation/05`（走哪条轨）→ `architecture/02` → `03` → `architecture/05` → `modules/_模板.md` → **空模板**（`src/Modules/Templates/`，**不从参考模块抄**） |
+| **写一个新模块** | `implementation/06`（**模块标准与七阶段流程**）→ `implementation/05`（走哪条轨）→ `architecture/02` → `03` → `architecture/05` → `modules/_模板.md` → **开发参考 = 第一批四个正式模块**（`src/Modules/Business/`；**不要**照抄已于 2026-09 删除的 6 个旧参考模块 —— 见 `decisions.md` 7.36） |
 | **改界面观感** | `architecture/07` → `06` → `.dsh/skills/ui-rendering-and-third-party-control-discipline`（**仓库根**） |
 | **动建网/数据面** | `architecture/05` → `03` → `04` → `09`（这类改动必须跑完整门禁） |
 | **加设置项** | `architecture/08` → 主文档 §9.5 → `decisions.md` |

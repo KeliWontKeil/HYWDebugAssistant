@@ -248,10 +248,10 @@ public class DataTypeCompatibilityTests
         AddModule(runtime, "r1", "metered-receiver", typeof(MeteredReceiverModule));
         Connect(runtime, "s1", "out", "r1", "in", "bus").ShouldBeTrue();
 
-        // 第一次观察只建基准（速率 0），随后发一批数据，再观察一次得到速率。
-        // 间隔要**大于速率计的最小重算间隔**（否则重复读取按设计返回上次速率 —— 见 `RateMeter.MinIntervalSeconds`）。
+          // 第一次观察只建基准（速率 0），随后发一批数据，再观察一次得到速率。
+          // 间隔要**大于速率计的整秒窗口**（否则窗口未满按设计返回上次速率 —— 见 `RateMeter.WindowSeconds`）。
         _ = services.GetDiagnostics();
-        Thread.Sleep((int)(Core.Diagnostics.RateMeter.MinIntervalSeconds * 1000) + 60);
+        Thread.Sleep((int)(Core.Diagnostics.RateMeter.WindowSeconds * 1000) + 80);
 
         for (var i = 0; i < 50; i++)
         {
@@ -278,6 +278,92 @@ public class DataTypeCompatibilityTests
         // 样本档 = 单元速率 × SamplesPerUnit；通道样本档再 × ChannelCount
         diagnostic.SampleRateHz.ShouldBe(unit * 8, 0.001, "每单元 8 个样本");
         diagnostic.ChannelSampleRateHz.ShouldBe(unit * 8 * 4, 0.001, "每样本 4 通道");
+    }
+
+    /// <summary>
+    /// **有效载荷字节速率：逐单元读"有效长度字段"**（2026-09 用户裁定"速率只要有效数据，截断的不应该算在
+    /// 有效数据里面，整个数据包大小速率是底层协议，用户想知道的肯定是有效速率"）。
+    /// </summary>
+    /// <remarks>
+    /// 契约 18B、每个数据报只带 **3 字节**业务数据 ⇒ 两档必须**各说各的数**：
+    /// 搬运字节 = 单元速率 × 18，有效载荷字节 = 单元速率 × **3**。
+    /// 若框架退回"按静态尺寸猜"（= 契约尺寸），第二档会等于第一档 ⇒ 本用例红。
+    /// </remarks>
+    [Fact]
+    public void 有效载荷字节_应逐单元读有效长度字段()
+    {
+        using var runtime = new ModuleRuntime();
+        var services = new Core.Services.RuntimeServices(runtime);
+
+        AddModule(runtime, "v1", "variable-length-sender", typeof(VariableLengthSenderModule));
+        AddModule(runtime, "vr", "variable-length-receiver", typeof(VariableLengthReceiverModule));
+        Connect(runtime, "v1", "out", "vr", "in", "bus").ShouldBeTrue();
+
+        VariableLengthReceiverModule.Received.Clear();
+
+        // 首次观察只建基准；等满一个整秒窗口再放数据（`RateMeter.WindowSeconds`）
+        _ = services.GetDiagnostics();
+        Thread.Sleep((int)(Core.Diagnostics.RateMeter.WindowSeconds * 1000) + 80);
+
+        for (var i = 0; i < 50; i++)
+        {
+            SendVariable(runtime, "v1", payloadLength: 3);
+        }
+
+        WaitUntil(() => VariableLengthReceiverModule.Received.Count >= 50, TimeSpan.FromSeconds(2)).ShouldBeTrue();
+
+        var diagnostic = services.GetDiagnostics().ShouldHaveSingleItem();
+        var unit = diagnostic.UnitRateHz;
+
+        diagnostic.Published.ShouldBe(50);
+        diagnostic.BusByteRate.ShouldBe(
+            unit * VariableLengthSenderModule.Shape.SizeInBytes,
+            0.001,
+            "搬运字节速率仍按**契约尺寸**（18B，含补零）算");
+        diagnostic.PayloadByteRate.ShouldBe(
+            unit * 3,
+            0.001,
+            "有效载荷字节速率必须按**每个单元真实的 len**（3B）算 —— 这正是用户要的「有效速率」");
+        diagnostic.PayloadByteRate.ShouldBeLessThan(
+            diagnostic.BusByteRate / 4,
+            "两者必须差出量级（18 vs 3），否则说明有效长度字段没被读");
+    }
+
+    /// <summary>
+    /// **有效长度超出契约尺寸 ⇒ 夹到契约尺寸**（不让一个坏字段把速率算到天上去）。
+    /// </summary>
+    /// <remarks>
+    /// 载荷字段是**数据**，模块写错/链路损坏都可能给出 9999 ⇒ 上限必须由框架（它才知道契约尺寸）夹住。
+    /// 夹取发生在**累计之前**（`Binding.PayloadBytesOfUnit`），所以速率与"长度 ≤ 契约尺寸"的既有不变量一致。
+    /// </remarks>
+    [Fact]
+    public void 有效长度超过契约尺寸应被夹住()
+    {
+        using var runtime = new ModuleRuntime();
+        var services = new Core.Services.RuntimeServices(runtime);
+
+        AddModule(runtime, "v2", "variable-length-sender", typeof(VariableLengthSenderModule));
+        AddModule(runtime, "vr2", "variable-length-receiver", typeof(VariableLengthReceiverModule));
+        Connect(runtime, "v2", "out", "vr2", "in", "bus").ShouldBeTrue();
+
+        VariableLengthReceiverModule.Received.Clear();
+        _ = services.GetDiagnostics();
+        Thread.Sleep((int)(Core.Diagnostics.RateMeter.WindowSeconds * 1000) + 80);
+
+        for (var i = 0; i < 20; i++)
+        {
+            SendVariable(runtime, "v2", payloadLength: 9999);
+        }
+
+        WaitUntil(() => VariableLengthReceiverModule.Received.Count >= 20, TimeSpan.FromSeconds(2)).ShouldBeTrue();
+
+        var diagnostic = services.GetDiagnostics().ShouldHaveSingleItem();
+        var contractSize = VariableLengthSenderModule.Shape.SizeInBytes;
+
+        diagnostic.PayloadByteRate.ShouldBe(
+            diagnostic.UnitRateHz * contractSize,
+            0.001,
+            "越界的有效长度必须夹到契约尺寸（不是放任它把速率算大）");
     }
 
     [Fact]
@@ -428,6 +514,26 @@ public class DataTypeCompatibilityTests
         writer.WriteU64("seq", seq);
         writer.WriteF32("value", seq);
         writer.WriteU32("tag", 7);
+
+        return instance!.Context.Ports.TrySend("out", payload);
+    }
+
+    /// <summary>
+    /// 发一个"**变长有效载荷**"数据报（18B：<c>len:u16</c> + <c>data:bytes[16]</c>），
+    /// <c>len</c> 由调用方给（可以故意给越界值，验证框架夹取）。
+    /// </summary>
+    /// <param name="runtime">运行时。</param>
+    /// <param name="instanceId">发送实例。</param>
+    /// <param name="payloadLength">写进 `len` 字段的"有效字节数"（**不校验** —— 校验是被测对象的事）。</param>
+    private static bool SendVariable(ModuleRuntime runtime, string instanceId, ushort payloadLength)
+    {
+        runtime.Content.TryGetInstance(instanceId, out var instance).ShouldBeTrue();
+
+        var layout = VariableLengthSenderModule.Layout;
+        var payload = new byte[layout.SizeInBytes];
+        var writer = new PayloadWriter(payload, layout);
+        writer.WriteU16("len", payloadLength);
+        writer.WriteBytes("data", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
 
         return instance!.Context.Ports.TrySend("out", payload);
     }
@@ -784,6 +890,65 @@ public class DataTypeCompatibilityTests
 
             context.Ports.SetReceiveHandler(InPort, payload =>
                 Received.Add(new PayloadReader(payload, MeteredSenderModule.Layout).ReadU64("seq")));
+        }
+    }
+
+    /// <summary>
+    /// **变长有效载荷**的发送模块：契约 <c>{ len:u16, data:bytes[16] }</c>（18B，尾部补零），
+    /// 计量块**声明有效长度字段 = `len`** ⇒ 有效载荷字节速率必须逐单元读它。
+    /// </summary>
+    /// <remarks>这是 `RawBytes`（文本/HEX 发送器）的最小复刻：**同一个"契约定长、载荷变长"问题**。</remarks>
+    [ModuleDefinition("test", "variable-length-sender", "1.0.0")]
+    public sealed class VariableLengthSenderModule : IModule
+    {
+        public const string OutPort = "out";
+        public const string TypeId = "test/variable";
+        public const int DataCapacity = 16;
+
+        public static readonly ContractShape Shape = ContractShape.OfStruct(
+            ("len", ContractShape.OfPrimitive(ContractPrimitive.U16)),
+            ("data", ContractShape.OfBytes(DataCapacity)));
+
+        public static readonly ContractLayout Layout = ContractLayout.FromShape(Shape);
+
+        public void OnRegistered(IModuleContext context)
+        {
+            // 契约尺寸 = 2 + 16 = 18（发 3 字节业务数据也搬满 18 字节）
+            Shape.SizeInBytes.ShouldBe(18);
+
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, 1, Shape)
+            {
+                Metering = new MeteringBlock { PayloadLengthField = "len" },
+            });
+
+            context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape)
+            {
+                Type = new DataTypeRef(TypeId, 1),
+            });
+        }
+    }
+
+    /// <summary>接收 <c>test/variable</c> 的模块（同标识同版本 ⇒ 兼容）。</summary>
+    [ModuleDefinition("test", "variable-length-receiver", "1.0.0")]
+    public sealed class VariableLengthReceiverModule : IModule
+    {
+        public const string InPort = "in";
+
+        public static List<ushort> Received { get; } = [];
+
+        public void OnRegistered(IModuleContext context)
+        {
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(
+                VariableLengthSenderModule.TypeId, 1, VariableLengthSenderModule.Shape));
+
+            context.Declaration.DeclarePort(new PortDeclaration(
+                InPort, PortDirection.Receive, VariableLengthSenderModule.Shape)
+            {
+                Type = new DataTypeRef(VariableLengthSenderModule.TypeId, 1),
+            });
+
+            context.Ports.SetReceiveHandler(InPort, payload =>
+                Received.Add(new PayloadReader(payload, VariableLengthSenderModule.Layout).ReadU16("len")));
         }
     }
 

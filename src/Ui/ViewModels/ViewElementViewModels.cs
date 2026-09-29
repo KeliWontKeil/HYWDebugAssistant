@@ -48,6 +48,7 @@ public abstract partial class ViewElementViewModel : ViewModelBase
         ViewElementKind.ConfigurationEditor => "配置",
         ViewElementKind.CommandButton => "命令",
         ViewElementKind.ToggleSlider => "开关",
+        ViewElementKind.ToggleSwitch => "开关滑块",
         ViewElementKind.EnumSelector => "选择",
         ViewElementKind.TextInput => "输入",
         ViewElementKind.FileSelector => "文件",
@@ -149,21 +150,52 @@ public sealed partial class CommandElementViewModel : ViewElementViewModel
 public sealed partial class TextInputElementViewModel : ViewElementViewModel
 {
     private readonly Func<string, string, CommandResult>? _submit;
+    private readonly IViewStateAccess? _viewState;
+    private readonly string _instanceId;
 
     /// <summary>创建文本输入视图模型。</summary>
     /// <param name="element">元素声明（<c>DataSource</c> = 输入源名；<c>Multiline</c> = 是否多行）。</param>
     /// <param name="submit">提交回调（源名 + 文本 → 结果）。</param>
     /// <param name="multilineSubmitKey">多行提交键档位（应用级设置；默认 <c>CtrlEnter</c>）。</param>
+    /// <param name="dataSource">
+    /// 绑定的数据源声明（2026-09 增加：**只为取"框外单位标签"** —— `ViewDataSource.Unit`）。
+    /// 可为 <see langword="null"/>（数据源未声明时不影响其余行为）。
+    /// </param>
+    /// <param name="viewState">
+    /// **视图状态存取面**〔2026-09 · `decisions.md` 7.28〕：输入框的"当前文本"落在框架侧存储里 ⇒
+    /// **元素表重建（切页 / 改设置）后文本还在**（对齐 WinForms"控件活着，数据就在"）；
+    /// 模块也能经 `IModuleContext.ViewState.GetInputText` 回读到**未提交**的内容。
+    /// `null`（设计期 / 旧调用点）⇒ 只留在本地（今天的行为）。
+    /// </param>
+    /// <param name="instanceId">实例 ID（写视图状态时的归属；<paramref name="viewState"/> 为 null 时忽略）。</param>
     public TextInputElementViewModel(
         ViewElement element,
         Func<string, string, CommandResult>? submit = null,
-        string? multilineSubmitKey = null)
+        string? multilineSubmitKey = null,
+        ViewDataSource? dataSource = null,
+        IViewStateAccess? viewState = null,
+        string? instanceId = null)
         : base(ViewElementKind.TextInput, element.Title, element.DataSource)
     {
         ArgumentNullException.ThrowIfNull(element);
         Source = element.DataSource ?? string.Empty;
         IsMultiline = element.Multiline;
+        InputKind = element.InputKind;
+        Alignment = element.Alignment;
+        Unit = string.IsNullOrWhiteSpace(dataSource?.Unit) ? null : dataSource.Unit;
         _submit = submit;
+        _viewState = viewState;
+        _instanceId = instanceId ?? string.Empty;
+
+        // 【2026-09 · 7.28】**恢复**用户此前（尚未提交）的编辑内容 —— 修掉"切页/重建即丢编辑"。
+        if (_viewState is not null
+            && _instanceId.Length > 0
+            && Source.Length > 0
+            && _viewState.GetInputText(_instanceId, Source) is { } restored)
+        {
+            Text = restored;
+            IsDirty = restored.Length > 0;
+        }
 
         // 未知/空档位 ⇒ 回落默认 `CtrlEnter`（与设置层的口径一致：损坏的文件不能让"回车与 Ctrl+回车都不提交"）
         var key = multilineSubmitKey is "Enter" or "None" ? multilineSubmitKey : DefaultSubmitKey;
@@ -180,6 +212,43 @@ public sealed partial class TextInputElementViewModel : ViewElementViewModel
 
     /// <summary>是否多行输入（元素声明的 <c>Multiline</c>；视图据此渲染多行框）。</summary>
     public bool IsMultiline { get; }
+
+    /// <summary>
+    /// 元素的**文本类型**（`Text` / `Number` / `Hex`）—— 视图据此**只放行合法字符**
+    /// （数字写法 / 十六进制 + 空白排版）。
+    /// </summary>
+    /// <remarks>
+    /// <b>框架只做格式判定</b>：范围、字节分组与业务合法性由**模块**用输入反馈通道回报（红框）——
+    /// 与"可声明 ≠ 可判定"同一纪律（`Sdk/Views/ViewDeclaration.cs` 的 `InputKind` 注释）。
+    /// </remarks>
+    public TextInputKind InputKind { get; }
+
+    /// <summary>是否**数值输入**（`InputKind = Number`）。</summary>
+    public bool IsNumeric => InputKind == TextInputKind.Number;
+
+    /// <summary>是否**十六进制输入**（`InputKind = Hex`）—— 只放行 `0-9 A-F a-f` 与空白。</summary>
+    public bool IsHex => InputKind == TextInputKind.Hex;
+
+    /// <summary>元素声明的**对齐**（当前只有文本输入消费；`Default` = 跟随框架默认）。</summary>
+    public ViewAlignment Alignment { get; }
+
+    /// <summary>是否右对齐（元素声明 <c>Alignment = Right</c>）。</summary>
+    public bool IsAlignRight => Alignment == ViewAlignment.Right;
+
+    /// <summary>是否居中（元素声明 <c>Alignment = Center</c>）。</summary>
+    public bool IsAlignCenter => Alignment == ViewAlignment.Center;
+
+    /// <summary>是否显式左对齐（元素声明 <c>Alignment = Left</c>）。</summary>
+    public bool IsAlignLeft => Alignment == ViewAlignment.Left;
+
+    /// <summary>
+    /// **框外单位标签**（取自数据源声明的 <c>Unit</c>；空 = 不显示）。
+    /// </summary>
+    /// <remarks>
+    /// 用户 2026-09 裁定：**不做框内单位后缀**（"容易给人一种'这里单位可以改'的错觉"），
+    /// 单位用**文本框外部的标签**呈现。
+    /// </remarks>
+    public string? Unit { get; }
 
     /// <summary>回车是否**提交**（false ⇒ 回车交给输入框换行）。</summary>
     public bool SubmitOnEnter { get; }
@@ -199,9 +268,26 @@ public sealed partial class TextInputElementViewModel : ViewElementViewModel
     /// <summary>输入源名。</summary>
     public string Source { get; }
 
-    /// <summary>输入中的文本（**未提交**）。</summary>
+    /// <summary>
+    /// **输入中的文本**（模块、提交、视图状态看到的**唯一**文本；**行末 `↵` 不在其中**）。
+    /// </summary>
     [ObservableProperty]
     public partial string Text { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 本输入框是否要**画行末换行标记**（多行 + 纯文本）——标记由**绘制层**画，不进文本。
+    /// </summary>
+    /// <remarks>
+    /// 【2026-09 用户裁定】**标记必须是不可编辑的装饰**（用户："我更倾向于自绘层"）：可编辑文本框里塞显示字符
+    /// 会连带接管光标（实测"光标变化规律难以预测"，已被用户否定）⇒ 改为
+    /// <see cref="HYWDebugAssistant.Ui.Controls.NewlineMarkOverlay"/> 在**同格的只读绘制层**里画 `↵`
+    /// （光标跳过、删不掉、不参与选择，与 Word 的 ¶ 同构）。
+    /// <para>
+    /// **只有多行 + 纯文本**输入才画：十六进制输入的换行是**排版**（用户既有裁定"HEX 的换行不作为字符"）
+    /// ⇒ 标 `↵` 反而误导；单行框里没有换行。
+    /// </para>
+    /// </remarks>
+    public bool ShowsNewlineMarks => IsMultiline && InputKind == TextInputKind.Text;
 
     /// <summary>最近一次提交结果（失败就地显示）。</summary>
     [ObservableProperty]
@@ -221,8 +307,22 @@ public sealed partial class TextInputElementViewModel : ViewElementViewModel
     [ObservableProperty]
     public partial bool IsDirty { get; set; }
 
-    partial void OnTextChanged(string value) => IsDirty = true;
+    partial void OnTextChanged(string value)
+    {
+        IsDirty = true;
 
+        // 【2026-09 · 7.28】"当前文本"写进视图状态存储（含**未提交**内容）⇒ ① 重建后恢复
+        // ② 模块可回读（点按钮时拿到用户此刻看到的文本 —— "所见即所发"）。
+        if (_viewState is not null && _instanceId.Length > 0 && Source.Length > 0)
+        {
+            _viewState.SetInputText(_instanceId, Source, value);
+        }
+    }
+
+    /// <summary>显示文本（用户编辑后）⇒ **真实文本**。</summary>
+    /// <remarks>
+    /// **用户敲进去的那一份以"剥掉标记后的真实文本"为准**（他可能只是删了标记、也可能删了换行本身）；
+    /// 随后把显示**重新规范化**（标记回来），文本框据此写回并**由视图修正光标**（见 `ModuleContentView` 的
     /// <summary>提交当前文本（Enter / 失焦 / 按钮触发）。</summary>
     [RelayCommand]
     private void Commit()
@@ -234,8 +334,13 @@ public sealed partial class TextInputElementViewModel : ViewElementViewModel
         }
 
         var result = submit(Source, Text);
+
+        // 【2026-09 缺陷修复 · 用户实测"输入了内容反而发不了"】成功时**不显示任何信息**：
+        // 此前把框架的提示（"已写入输入「interval」= 100 → 文本发送器"）写进这一行，而这一行按设计是
+        // **失败色**（红）⇒ 用户把"成功"读成了"失败"（截图即此）。按 D4 裁定：**没有特殊问题就不显示这行信息**；
+        // 框架提示的落点是**外壳状态栏**（那里已经是灰色正文），不在这里重复。
         LastResult = result.Succeeded
-            ? result.Notices.Count > 0 ? result.Notices[^1] : "已写入"
+            ? null
             : $"未生效：{string.Join("；", result.Failures)}";
 
         if (result.Succeeded)
@@ -251,20 +356,71 @@ public sealed partial class TextInputElementViewModel : ViewElementViewModel
 public sealed partial class ToggleElementViewModel : ViewElementViewModel
 {
     private readonly Func<string, string, CommandResult>? _submit;
+    private readonly IViewStateAccess? _viewState;
+    private readonly string _instanceId;
+
+    /// <summary>
+    /// 正在**回读**上次的开关值（此时不得再投递一次：那会把"恢复 UI"变成"又下一次命令"）。
+    /// </summary>
+    /// <remarks>用 <see cref="Volatile"/> / <see cref="Interlocked"/> 读写（与发送器的"连续发送"标志同一写法）——
+    /// 直接赋值的字段只在构造函数里被写过，会被只读分析器（IDE0044）点名。</remarks>
+    private int _restoring;
 
     /// <summary>创建开关视图模型。</summary>
     /// <param name="element">元素声明（<c>DataSource</c> = 输入源名）。</param>
     /// <param name="submit">提交回调（源名 + 文本 → 结果）。</param>
-    public ToggleElementViewModel(ViewElement element, Func<string, string, CommandResult>? submit = null)
-        : base(ViewElementKind.ToggleSlider, element.Title, element.DataSource)
+    /// <param name="viewState">
+    /// **视图状态存取面**〔2026-09 缺陷修复〕：开关的"当前值"落在这里 ⇒ **元素表重建（切页 / 改设置 / 重建窗口）后
+    /// 开关还停在用户上次拨到的位置**。此前不回读 ⇒ 切页后开关**弹回默认的"关"**，而模块里的标志**还是"开"**
+    /// ⇒ **UI 与行为不符**（用户实测："切换页面的时候连续发送开关弹回去了，但继续发当前页面内容"）。
+    /// </param>
+    /// <param name="instanceId">实例 ID（写视图状态时的归属）。</param>
+    public ToggleElementViewModel(
+        ViewElement element,
+        Func<string, string, CommandResult>? submit = null,
+        IViewStateAccess? viewState = null,
+        string? instanceId = null)
+        : base(element.Kind, element.Title, element.DataSource)
     {
         ArgumentNullException.ThrowIfNull(element);
         Source = element.DataSource ?? string.Empty;
         _submit = submit;
+        _viewState = viewState;
+        _instanceId = instanceId ?? string.Empty;
+
+        // 回读上次的开关值（与文本输入同一套机制：**不持久化到磁盘**，只在本次会话内跨元素表重建存活）
+        if (_viewState is not null
+            && _instanceId.Length > 0
+            && Source.Length > 0
+            && _viewState.GetInputText(_instanceId, Source) is { Length: > 0 } restored)
+        {
+            _ = Interlocked.Exchange(ref _restoring, 1);
+
+            try
+            {
+                IsOn = string.Equals(restored, "true", StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                _ = Interlocked.Exchange(ref _restoring, 0);
+            }
+        }
     }
 
     /// <summary>输入源名。</summary>
     public string Source { get; }
+
+    /// <summary>
+    /// **外观 = 开关式滑块**（B7 `ToggleSwitch`）还是**勾选框**（B3 `ToggleSlider`）。
+    /// </summary>
+    /// <remarks>
+    /// 两者**语义完全相同**（值都是 `true` / `false`），只有外观不同（用户 2026-09 裁定新增滑块）
+    /// ⇒ 共用同一个视图模型，模板里按本属性二选一渲染（**互斥可见**）。
+    /// </remarks>
+    public bool IsSwitch => Kind == ViewElementKind.ToggleSwitch;
+
+    /// <summary>外观 = 勾选框（<see cref="IsSwitch"/> 的反面）。</summary>
+    public bool IsCheckBox => !IsSwitch;
 
     /// <summary>开关状态。</summary>
     [ObservableProperty]
@@ -276,6 +432,19 @@ public sealed partial class ToggleElementViewModel : ViewElementViewModel
 
     partial void OnIsOnChanged(bool value)
     {
+        if (Volatile.Read(ref _restoring) == 1)
+        {
+            // 回读上次的值不算"用户拨了一下"：**这一道守卫只对本次赋值有效**（自清）
+            _ = Interlocked.Exchange(ref _restoring, 0);
+            return;
+        }
+
+        // 记下**用户拨到的位置**：元素表重建后据此恢复（否则开关弹回默认值 ⇒ UI 与行为不符）
+        if (_viewState is not null && _instanceId.Length > 0 && Source.Length > 0)
+        {
+            _viewState.SetInputText(_instanceId, Source, value ? "true" : "false");
+        }
+
         if (_submit is not { } submit)
         {
             LastResult = "内部错误：未连接到运行时";
@@ -376,56 +545,139 @@ public sealed partial class CurveElementViewModel : SubscriptionElementViewModel
 }
 
 /// <summary>
-/// A5 文本日志：**定长文本样本**解码成的行（等宽、带时间戳；§5.3）。
+/// A5 文本日志：**显示区的一条连续文本**（等宽；行/条由通道与数据决定，见下）。
 /// </summary>
 /// <remarks>
-/// 框架要求同一数据源的样本长度一致（先写入者定槽），故模块按定长发布日志行；
-/// UI 解码后去掉尾部空白与 NUL。显示**最近 N 行**（旧行滚出，不无限增长）。
+/// <b>2026-09 用户裁定</b>：一行多长由**文本框宽度**决定（自动折行）—— 不再有"定长样本"。
+/// 显示区里的"条"由**通道**决定：`AppendText`（不换行 ⇒ 接在当前最后一条后面）/
+/// `AppendLine`（通道换行 ⇒ 起一条新的）；数据里真有的换行**字符**原样保留在其中。
+/// 显示**最近 N 条**（旧条滚出，不无限增长）。
 /// </remarks>
 public sealed partial class TextLogElementViewModel : SubscriptionElementViewModel
 {
-    /// <summary>界面保留的最大行数（防无界增长；采样窗口的取舍，Gate C 可调）。</summary>
-    public const int MaxLines = 200;
+    /// <summary>
+    /// **保留行数上限**（"不清空就一直在"的容量）—— 用户 2026-09 裁定 **20 000 行**（`decisions.md` 7.31）。
+    /// </summary>
+    /// <remarks>
+    /// 语义对齐 WinForms 的 `TextBox`：**只增**，只有 <see cref="Clear"/> 才清；到顶**丢最旧**并累计
+    /// <see cref="DroppedLines"/>（界面提示"已丢弃 N 行"，**不静默丢**）。缓冲**由框架持有**（视图状态存储），
+    /// 模块可经 `IModuleContext.ViewState.GetDisplayLines` 回读**同一份**内容。
+    /// </remarks>
+    public const int MaxLines = DisplayBuffer.DefaultCapacity;
 
-    private readonly List<string> _lines = new(MaxLines);
+    private readonly DisplayBuffer _buffer;
 
     /// <summary>创建文本日志元素视图模型。</summary>
     /// <param name="title">标题。</param>
     /// <param name="dataSource">数据源声明。</param>
-    public TextLogElementViewModel(string? title, ViewDataSource? dataSource)
+    /// <param name="buffer">
+    /// **共享文本缓冲**（视图状态存储里那一份；`null` ⇒ 自建本地缓冲 —— 设计期 / 旧调用点行为不变）。
+    /// </param>
+    public TextLogElementViewModel(string? title, ViewDataSource? dataSource, DisplayBuffer? buffer = null)
         : base(ViewElementKind.TextLog, title, dataSource)
     {
+        _buffer = buffer ?? new DisplayBuffer();
+
+        foreach (var line in _buffer.Snapshot())
+        {
+            _lines.Add(line);
+            Lines.Add(line);
+        }
+
+        DroppedLines = _buffer.DroppedCount;
+
+        _buffer.Appended += OnAppended;
+        _buffer.TextAppended += OnTextAppended;
+        _buffer.Trimmed += OnTrimmed;
+        _buffer.Cleared += OnCleared;
     }
 
-    /// <summary>日志行（最新在最后；绑定到界面）。</summary>
+    private readonly List<string> _lines = [];
+
+    /// <summary>共享文本缓冲（视图据此渲染**同一份**内容；模块回读的也是它）。</summary>
+    public DisplayBuffer Buffer => _buffer;
+
+    /// <summary>日志行（最新在最后；镜像自缓冲，供界面与测试读取）。</summary>
     public ObservableCollection<string> Lines { get; } = [];
 
-    /// <summary>追加一行（超出上限则移除最旧）。</summary>
-    /// <param name="line">行文本。</param>
-    public void Append(string line)
-    {
-        ArgumentNullException.ThrowIfNull(line);
+    /// <summary>因超出容量被丢弃的**旧行累计数**（界面据此提示"已丢弃 N 行"）。</summary>
+    [ObservableProperty]
+    public partial int DroppedLines { get; set; }
 
-        if (string.IsNullOrWhiteSpace(line))
+    /// <summary>丢弃提示文本（无丢弃 ⇒ <see langword="null"/> ⇒ 界面整块不显示）。</summary>
+    public string? DroppedText => DroppedLines > 0
+        ? $"已丢弃 {DroppedLines} 行（超出容量 {MaxLines} 行）"
+        : null;
+
+    partial void OnDroppedLinesChanged(int value) => OnPropertyChanged(nameof(DroppedText));
+
+    /// <summary>缓冲保留的行数（= <see cref="Lines"/> 的条数）。</summary>
+    public int Count => _lines.Count;
+
+    /// <summary>追加一行（超出容量则由缓冲丢弃最旧）。</summary>
+    /// <param name="line">行文本。</param>
+    public void Append(string line) => _buffer.Append(line);
+
+    /// <summary>清空（唯一会丢内容的入口；实例移除或数据源重置时）。</summary>
+    public void Clear() => _buffer.Clear();
+
+    /// <summary>全部保留行的快照（保存显示内容时用）。</summary>
+    public IReadOnlyList<string> Snapshot() => _buffer.Snapshot();
+
+    /// <summary>
+    /// 缓冲追加了一行。
+    /// </summary>
+    /// <remarks>
+    /// **不再对外发事件**：A5 改成"只读文本框 + 分页窗口"后（2026-09 用户裁定 B 案），视图直接订阅
+    /// <see cref="Lines"/> 的集合变化即可（追加 / 丢弃 / 清空都会冒泡），原先为"自动滚到底"设的
+    /// <c>LineAppended</c> 已无用武之地 ⇒ 删掉，避免出现两个"有新内容"的信号源。
+    /// </remarks>
+    private void OnAppended(string line)
+    {
+        _lines.Add(line);
+        Lines.Add(line);
+    }
+
+    /// <summary>
+    /// **把内容接长**（不换行的那条路）：改的是**最后一条**，不是新增一条。
+    /// </summary>
+    /// <remarks>
+    /// 2026-09 用户裁定（WinForms 模型）："不开换行/时间戳时，追加数据应**直接追加在后面**" ⇒
+    /// 显示区里"条"的个数可能一直不变、而最后一条一直在长。界面必须收到通知
+    /// （窗口要重排、`↵` 判断要重来），否则表现为"数据来了但屏幕不动"。
+    /// 用集合的**替换**（而非新增）表达，正好对应"还是那一行、内容变了"。
+    /// </remarks>
+    private void OnTextAppended(string text)
+    {
+        if (_lines.Count == 0)
         {
+            _lines.Add(text);
+            Lines.Add(text);
             return;
         }
 
-        _lines.Add(line);
-        Lines.Add(line);
+        _lines[^1] = text;
+        Lines[^1] = text;
+    }
 
-        while (_lines.Count > MaxLines)
+    private void OnTrimmed(int count)
+    {
+        var take = Math.Min(count, _lines.Count);
+
+        for (var i = 0; i < take; i++)
         {
             _lines.RemoveAt(0);
             Lines.RemoveAt(0);
         }
+
+        DroppedLines = _buffer.DroppedCount;
     }
 
-    /// <summary>清空（实例移除或数据源重置时）。</summary>
-    public void Clear()
+    private void OnCleared()
     {
         _lines.Clear();
         Lines.Clear();
+        DroppedLines = 0;
     }
 }
 

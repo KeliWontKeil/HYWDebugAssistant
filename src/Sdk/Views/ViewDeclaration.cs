@@ -16,6 +16,62 @@ public enum FilePickerMode
 }
 
 /// <summary>
+/// **文本输入的"文本类型"**（2026-09 · 用户裁定"不使用新控件而是扩展它"）。
+/// </summary>
+/// <remarks>
+/// 决定框架在输入时**放行哪些字符**（纯格式）；**范围与业务合法性不在此列** —— 那是模块的事
+/// （用输入反馈通道回报 ⇒ 红框），与"可声明 ≠ 可判定"同一纪律。详见 <see cref="ViewElement.InputKind"/>。
+/// <para>
+/// 三档：<see cref="Text"/>（任意字符）· <see cref="Number"/>（数字写法）· <see cref="Hex"/>（十六进制 + 空白排版）。
+/// </para>
+/// </remarks>
+public enum TextInputKind
+{
+    /// <summary>普通文本（默认；不限制字符）。</summary>
+    Text = 0,
+
+    /// <summary>数值写法：数字 · 一个小数点 · 首位负号（范围/合法性归模块）。</summary>
+    Number = 1,
+
+    /// <summary>
+    /// **十六进制写法**（2026-09 · 用户裁定"HEX 输入框只接受 HEX"）：只放行 `0-9 A-F a-f`
+    /// **与空白**（空格 / 制表 / 换行）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>空白是排版</b>（用户 2026-09 裁定："HEX 的**换行不作为字符，仅作为排版**"）⇒
+    ///     框架只保证"用户敲进去的每个非空白字符都是十六进制数字"；**空白怎么分组、是否忽略，由模块解析时定**
+    ///     （用户可按字节、按 16 字节一行随意排版）；</item>
+    ///   <item>**每字节两位十六进制**（用户裁定）；缺位/奇数字符/非法字符的处置属**模块语义**（回报失败 ⇒ 红框）；</item>
+    ///   <item>**只增**（新枚举值）⇒ 老模块行为不变。</item>
+    /// </list>
+    /// </remarks>
+    Hex = 2,
+}
+
+/// <summary>
+/// 元素的**对齐**（2026-09 · 由模块声明 —— 对齐属**视觉组织**，不归框架限死）。
+/// </summary>
+/// <remarks>
+/// **当前只有 <see cref="ViewElementKind.TextInput"/> 消费**；其它元素声明了不生效（渲染子集逐步补齐）。
+/// 单位**不在**本枚举职责内：输入框不显示框内单位后缀，单位用**框外标签**（取 <c>ViewDataSource.Unit</c>）。
+/// </remarks>
+public enum ViewAlignment
+{
+    /// <summary>跟随框架默认（当前 = 左对齐）。</summary>
+    Default = 0,
+
+    /// <summary>左对齐。</summary>
+    Left = 1,
+
+    /// <summary>居中。</summary>
+    Center = 2,
+
+    /// <summary>右对齐。</summary>
+    Right = 3,
+}
+
+/// <summary>
 /// 视图**预置元素**目录（v1 = 档 3 完整）——ADR-0028 C3-6。
 /// </summary>
 /// <remarks>
@@ -83,6 +139,22 @@ public enum ViewElementKind
 
     /// <summary>C4 滚动容器。</summary>
     Scroll = 17,
+
+    // ---- 交互控制类（B · 续） ----
+
+    /// <summary>
+    /// **B7 开关式滑块**（**2026-09 用户裁定新增**）——与 B3 同为"开 / 关"语义（值 = `true`/`false`），
+    /// 只是**外观**是滑块开关（比勾选框更美观）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>用户原话："目前开关类的控件全部用的勾选框，**我想添加一个开关式的滑块，更美观**"；</item>
+    ///   <item><b>为什么新增而不改 B3</b>：B3 `ToggleSlider` = **勾选框**形态（保留给"复选 / 多选"语义），
+    ///     两者**语义相同、外观不同** ⇒ 拆成两个元素类型，模块按场景自选；</item>
+    ///   <item><b>枚举值追加在末尾</b>（`18`）⇒ 老模块的声明字节不变（**只增不改**，`02` §19）。</item>
+    /// </list>
+    /// </remarks>
+    ToggleSwitch = 18,
 }
 
 /// <summary>
@@ -213,6 +285,22 @@ public sealed record ViewElement
     public IReadOnlyList<ViewElement> Children { get; }
 
     /// <summary>
+    /// **视图状态的寻址键**（2026-09 用户裁定 · `decisions.md` 7.28；可选，`init` 只增）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>用途</b>：模块用 <c>IModuleContext.ViewState</c> **回读**视图状态时，用它指认"哪一个元素" ——
+    ///     输入源 / 显示源本来就有**数据源名**可用，**容器（如 <see cref="ViewElementKind.TabPages"/>）没有**
+    ///     ⇒ 需要这个显式名字（典型用途：读"当前选中页"）；</item>
+    ///   <item>**不用 <see cref="Title"/>**：标题是**给人看的展示文案**，改文案的人不该顺手改坏程序语义；</item>
+    ///   <item>模块内唯一（重复时框架取**首次声明**者并报 Issue）；</item>
+    ///   <item>**不参与**契约 / 兼容 / 建网 —— 纯视图状态寻址。</item>
+    /// </list>
+    /// 用法：<c>new ViewElement(ViewElementKind.TabPages, children: pages) { StateKey = "text-pages" }</c>
+    /// </remarks>
+    public string? StateKey { get; init; }
+
+    /// <summary>
     /// **多行文本输入**（G2 · 2026-09；仅 <see cref="ViewElementKind.TextInput"/> 有意义）。
     /// </summary>
     /// <remarks>
@@ -242,6 +330,55 @@ public sealed record ViewElement
     /// </summary>
     /// <remarks>形如 <c>*.txt</c> 或 <c>文本文件(*.txt)|*.txt</c>；空 = 不过滤。只增（`init`）。</remarks>
     public string? FileFilter { get; init; }
+
+    /// <summary>
+    /// **B6 文件选择器的默认文件名**（2026-09；仅 <see cref="ViewElementKind.FileSelector"/> + 保存模式有意义）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>解决什么</b>（用户 2026-09 实测）：保存对话框的文件名**空着**会让用户每次都得现想一个名字；
+    ///     模块声明一个默认名（如 <c>savetext1.txt</c>）⇒ 对话框预填它，用户直接确定即可；</item>
+    ///   <item><b>只是一句"建议"</b>：框架把它交给系统保存对话框的 `SuggestedFileName`（用户可以改成任何名字，
+    ///     也能换目录）；框架**不**校验、**不**代替用户决定路径 —— "限制在用户选择的路径内"这条纪律不变；</item>
+    ///   <item>打开模式（<see cref="FilePickerMode.Open"/>）忽略它（"默认文件名"对打开无意义）；</item>
+    /// </list>
+    /// 用法：<c>new ViewElement(ViewElementKind.FileSelector, "savePath", "保存") { FileMode = FilePickerMode.Save, SuggestedFileName = "savetext1.txt" }</c>
+    /// </remarks>
+    public string? SuggestedFileName { get; init; }
+
+    /// <summary>
+    /// **文本输入的"文本类型"**（2026-09；仅 <see cref="ViewElementKind.TextInput"/> 有意义）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>为什么是"给已有元素加字段"而不是新元素</b>（用户 2026-09 裁定）：数值输入与文本输入
+    ///     **走同一条通道、同一套提交语义**（都是"一串文本"），差别只在**放行哪些字符**；
+    ///     新建一个元素会把"元素目录"撑大而语义重复 ⇒ **扩展已有元素**；</item>
+    ///   <item><b>框架只做"格式"判定</b>：<see cref="TextInputKind.Number"/> 时输入框**只放行**
+    ///     数字 · 一个小数点 · 首位负号（构造"插入后文本"用 <c>^-?[0-9]*\.?[0-9]*$</c> 校验）；
+    ///     **范围 / 业务合法性归模块**（模块用输入反馈通道回报 ⇒ 红框）—— 与"可声明 ≠ 可判定"同一纪律；</item>
+    ///   <item><b>投递的仍是文本</b>：输入通道签名是 string，数值输入**不新增通道**，
+    ///     框架只保证"传进来的是个数的写法"，解析与校验仍由模块做；</item>
+    ///   <item>**只增**（`init`，默认 <see cref="TextInputKind.Text"/> ⇒ 老模块行为不变）。</item>
+    /// </list>
+    /// 用法：<c>new ViewElement(ViewElementKind.TextInput, "interval", "间隔") { InputKind = TextInputKind.Number }</c>
+    /// </remarks>
+    public TextInputKind InputKind { get; init; } = TextInputKind.Text;
+
+    /// <summary>
+    /// **元素对齐**（2026-09；**当前只有 <see cref="ViewElementKind.TextInput"/> 消费**）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>由模块声明、不由框架限死</b>（用户 2026-09 裁定）：对齐是**视觉组织**的一部分
+    ///     （"数值右对齐、文本左对齐"这类选择随界面布局而定）⇒ 交回模块声明；</item>
+    ///   <item>**单位不在这里**：输入框**不显示框内单位后缀**（会让用户误以为"单位可以改"），
+    ///     单位用**框外标签**呈现（取 <c>ViewDataSource.Unit</c>）；</item>
+    ///   <item>当前消费方只有 B5；其它元素**声明了不生效**（渲染子集逐步补齐 —— `02` 的"未渲染"占位纪律）；</item>
+    ///   <item>**只增**（`init`，默认 <see cref="ViewAlignment.Default"/> ⇒ 跟随框架默认，老模块行为不变）。</item>
+    /// </list>
+    /// </remarks>
+    public ViewAlignment Alignment { get; init; } = ViewAlignment.Default;
 }
 
 /// <summary>

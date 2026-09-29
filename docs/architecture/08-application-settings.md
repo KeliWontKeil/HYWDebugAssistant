@@ -89,6 +89,7 @@
 
 ### 2.1 校验与非法值处理 〔源: SettingsService.Validate / FromJson / ThemeApplier〕
 
+- **生效机制 = 常规三键「确认 / 取消 / 应用」**（**2026-09 用户裁定**，见 `decisions.md` 7.38）：用户原话"设置界面建议显式添加确认/取消/应用按钮，**修改机制，不使用当前的'修改即应用'机制**，而是常见的设置更改生效机制" ⇒ 设置页里**任何**改动（含主题/主题色/背景/方向色/字体）都只是"**待生效**"；**只有**点「应用」（校验 → 生效 → 落盘，弹窗保留）或「确认」（同上 + 关闭弹窗）才真正生效并写盘；「取消」= 回到已生效值并关闭。**校验失败 ⇒ 「确认」不关闭**（原因显示在面板左下角的状态行）。**旧口径"外观改动即时生效（ADR-0038 D4）"已撤销**。
 - **值域校验失败 ⇒ 整批拒绝，零副作用**（不落盘、不生效），回执逐条原因。受校验的只有 5 项：`inputQueueCapacity` 1–65536 · `stopTimeoutSeconds` 0.1–300 · `uiRefreshRateHz` 1–240 · `diagnosticHintThreshold` ≥1 · `snapDistance` 2–8。
 - **外观类不做校验**：`theme` 非 `Dark`/`Light` 的值 → 走 `ThemeVariant.Default`（跟随系统）；`accentColor`/`backgroundColor` 无法解析 → **不覆盖 token**（回落主题内置值）；两个方向色同理（空/非法 = 跟随主题默认）。
 - **类型不符/缺失的字段** → 回落默认值（`ReadInt/ReadDouble/ReadBool/ReadString` 容错读）。
@@ -113,7 +114,12 @@
 | `accentColor` | `AccentPrimary`、`AccentSecondary`、`OverlaySelection`(α0.20)、`OverlayHighlight`(α0.12) | `AccentSecondary` = 主题色邻近色派生；**无用户输入** |
 | `backgroundMode` / `backgroundColor` | `BgWorkspace`、`BgModule`、`BgChrome` | 三档背景色；`Theme` = 不覆盖（跟随主题） |
 | `directionSendColor` / `directionReceiveColor` | `DirectionSend` / `DirectionReceive` | **仅用户显式填色时覆盖**；空 = 跟随主题默认（深浅两套各自的内置方向色都保住） |
+| `uiFontFamily` / `dataFontFamily` | `FontUi` / `FontData`（**顶层键**，不在 `ThemeDictionaries` 里） | **界面字体 / 数据字体**（值可以是**回退列表**，逗号分隔、拉丁在前中文在后）；设置页可手输或从系统字体里选 |
 | `theme` | `Application.RequestedThemeVariant` | `Dark`/`Light`/其他→`Default`（跟随系统） |
+
+- **字体与颜色是同一条管线**（`ThemeApplier.Apply` → 资源覆盖 → `{DynamicResource}`）：**唯一技术差别**是颜色写进 `ThemeDictionaries`（按主题变体分两套）、字体写进**顶层键字典**（深浅共用）⇒ 排查"改了没生效"时**先看落盘与回读**，别先怀疑机制不同。
+- **2026-09 缺陷（已修 · `decisions.md` 7.53）**：`ApplicationSettings.Clone()` **漏拷** `UiFontFamily`/`DataFontFamily`，而 Clone 是**读**（`RuntimeServices.GetSettings`）与**写**（`SettingsService.Update` 的 `Current = settings.Clone()`）两条路的必经之地 ⇒ 落盘写默认值、读回默认值、"生效"拿到的还是默认值（现象 = "颜色能改、字体改不动也存不下"）。修法 = 补齐 Clone 的两个字段 + `SettingsPanelViewModel.Apply` 的回读块补两行；回归网 = `SettingsServiceTests.更新_界面字体与数据字体应生效并落盘往返`（**四个出口**：公开读出口 + 文件出口 + 重启读回 + "改别的设置不得把字体冲回默认"的反向断言）与 `SettingsServiceTests.Clone_必须复制全部可写属性`（反射式，**将来再漏一个字段会当场红**）。
+- **自绘层也必须跟字体**（同日修复）：`ConnectionOverlay` 的叠层文字此前写死 `Typeface.Default`、`LayerControlBase` 里还留着一个硬编码 `Cascadia Mono…` 的排版工厂（**无调用者**，已删）⇒ 设置里的数据字体对**最显眼**的那几处（角色方块 / 连线文字）无效。现在与颜色**同一手法**：控件暴露 `DataFontFamily`，XAML 用 `{DynamicResource FontData}` 注入；字体变化时**清文字排版缓存**（缓存键不含字体）。回归网 = `ModuleWindowVisualTests.叠加信息层_自绘文字字体必须来自FontData资源`（**断言来源键**，不是断言某个字体名）。
 
 - 主题色预设 **8 档**：蓝 `#2563EB` · 青 `#0891B2` · 绿 `#16A34A` · 橙 `#EA580C` · 红 `#DC2626` · 紫 `#7C3AED` · 粉 `#DB2777` · 灰 `#52525B`。
 - 背景档位 → 三色：`LightGray` = `#E8EAED`/`#F7F8FA`/`#F1F2F5`；`DarkGray` = `#17181A`/`#202124`/`#1B1C1F`；`Custom` = 用户色 + 向白 +6%/+3% 的两级派生。**v1 无图片背景**。

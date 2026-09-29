@@ -164,6 +164,115 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
         });
     }
 
+    /// <summary>
+    /// **输入框的换行标记是"绘制层"画出来的，且完全不影响编辑**（2026-09 用户裁定："我更倾向于自绘层"）。
+    /// </summary>
+    /// <remarks>
+    /// 用户原话："**建议在输入框也加↵；↵ 应该在文本末尾而不是另起一行**"，随后否定了"把标记塞进文本"的做法
+    /// （实测"光标变化规律难以预测"）⇒ 现方案 = <see cref="HYWDebugAssistant.Ui.Controls.NewlineMarkOverlay"/>
+    /// 在同格的**只读绘制层**里画 `↵`（与 Word 的 ¶ 同构）。本用例钉住三件事：
+    /// <list type="number">
+    ///   <item>**文本与光标完全不被标记污染**：`TextBox.Text` 与真实文本**逐字符相同**（不含 `↵`），
+    ///     回车后接着敲的字必须落在下一行（光标在末尾）；</item>
+    ///   <item>**标记真的算出了位置**（不是"有个属性"）：绘制层报出 **1 个标记**，其 x 在该行文本末之**右**、
+    ///     y 在**第一行**内、且落在框内；</item>
+    ///   <item>**不抢命中**：绘制层不可命中（键盘鼠标照常落到文本框上）。</item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public void 多行输入_换行标记应由绘制层给出_且不污染文本与光标()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceMultilineAt("m1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var box = window.GetVisualDescendants().OfType<TextBox>()
+                .Single(b => b.DataContext is TextInputElementViewModel { IsMultiline: true });
+            var input = module.Elements.OfType<TextInputElementViewModel>().Single(e => e.IsMultiline);
+            var overlay = window.GetVisualDescendants().OfType<NewlineMarkOverlay>()
+                .Single(o => o.DataContext is TextInputElementViewModel { IsMultiline: true });
+
+            box.Focus();
+            window.KeyTextInput("甲");
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            window.KeyTextInput("乙");
+            VisualHarness.Settle();
+
+            // Windows 的多行 `TextBox` 敲回车插入的是 `Environment.NewLine`（`\r\n`）
+            var raw = $"甲{Environment.NewLine}乙";
+
+            box.Text.ShouldBe(raw, "**文本框里就是真实文本**（标记不进文本 —— 这是「手感可预测」的前提）");            input.Text.ShouldBe(raw, "真实文本（模块与视图状态读到的）与框里逐字符一致");
+            box.CaretIndex.ShouldBe(raw.Length, "光标应在末尾 —— 回车后接着敲的字必须落在下一行，不能挤回上一行");
+
+            // 标记 = **算出来的几何**（回归网据此判"真的画了、且画在行末"）
+            overlay.IsHitTestVisible.ShouldBeFalse("绘制层不得抢命中（键鼠必须照常落到文本框上）");
+
+            var mark = overlay.Marks.ShouldHaveSingleItem("一个换行符 ⇒ 一个标记");
+            mark.Text.ShouldBe(NewlineMarkOverlay.NewlineMark);
+            mark.Position.X.ShouldBeGreaterThan(0, "标记必须在行内（行首之后）");
+            mark.Position.X.ShouldBeLessThan(box.Bounds.Width, "标记必须落在框内（不能画到框外）");
+            mark.Position.Y.ShouldBeGreaterThanOrEqualTo(0);
+            mark.Position.Y.ShouldBeLessThan(box.Bounds.Height, "标记必须落在第一行的高度内");
+        });
+    }
+
+    /// <summary>
+    /// **纯换行造出来的空行自己也显示 `↵`**（Word 的 ¶ 口径）〔2026-09 用户实测反馈：
+    /// "如果文本输入框的一行没有东西就换行（纯换行），它就不显示换行符"〕。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>已撤销的老口径</b>：连续换行的标记**一起挂到上一行末尾**（`甲↵↵` / `乙`，空行一个标记都没有）。
+    ///     那条口径来自标记还是**文本字符**的时代 —— 给空段补标记等于**凭空多出一行**；
+    ///     现在的标记是**同格只读绘制层**（不参与布局），画在空行上不会多出任何一行。</item>
+    ///   <item><b>判据</b>：`甲⏎⏎乙` 的**两个**换行各自落在**自己结束的那一行**上 ⇒ 两个标记的 **Y 必须不同**
+    ///     （一个在一行的末尾，一个在**空行**上）；行数仍是三行（标记不占行、不进文本）。</item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public void 多行输入_纯换行的空行自己也应显示换行标记()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceMultilineAt("m1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var box = window.GetVisualDescendants().OfType<TextBox>()
+                .Single(b => b.DataContext is TextInputElementViewModel { IsMultiline: true });
+            var overlay = window.GetVisualDescendants().OfType<NewlineMarkOverlay>()
+                .Single(o => o.DataContext is TextInputElementViewModel { IsMultiline: true });
+
+            box.Focus();
+            window.KeyTextInput("甲");
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            window.KeyTextInput("乙");
+            VisualHarness.Settle();
+
+            box.Text.ShouldBe($"甲{Environment.NewLine}{Environment.NewLine}乙", "文本里就是两个真换行（标记不进文本）——空行是一条**真实存在**的行");
+
+            var marks = overlay.Marks;
+            marks.Count.ShouldBe(2, "两个换行符 ⇒ 两个标记（一个都不能少：空行那个也必须显示出来）");
+
+            var rows = marks.Select(m => Math.Round(m.Position.Y, 1)).Distinct().OrderBy(y => y).ToArray();
+            rows.Length.ShouldBe(
+                2,
+                "两个标记必须落在**两行**上（第一行末尾 + 空行自己）—— 全在同一 Y 上就是"
+                + "「空行的换行符没显示，被并到上一行去了」，正是用户报的那条缺陷");
+
+            marks.ShouldAllBe(m => m.Text == NewlineMarkOverlay.NewlineMark);
+        });
+    }
+
     [Fact]
     public void 多行输入_应用级提交键应下发到模块窗口并重建输入元素()
     {
@@ -260,7 +369,7 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
     }
 
     [Fact]
-    public void 文件选择器_真实窗口应渲染出标签与只读路径框与浏览按钮()
+    public void 文件选择器_真实窗口应渲染出单个按钮_且文案来自声明标题()
     {
         _ui.Run(() =>
         {
@@ -278,24 +387,23 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
             pickers[1].Mode.ShouldBe(FilePickerMode.Open, "第二个声明的是「打开」");
             pickers[1].Filter.ShouldBe("文本文件 (*.txt)|*.txt", "过滤器原样带到视图模型（供弹窗用）");
 
-            var browseButtons = window.GetVisualDescendants()
+            var buttons = window.GetVisualDescendants()
                 .OfType<Button>()
                 .Where(b => b.DataContext is FileSelectorElementViewModel)
                 .ToList();
 
-            browseButtons.Count.ShouldBe(2, "每个选择器一个「浏览」按钮（没渲染时这里会是 0）");
-            browseButtons.ShouldAllBe(b => b.IsEffectivelyVisible);
-            browseButtons.ShouldAllBe(b => b.Bounds.Width > 0 && b.Bounds.Height > 0, "按钮必须有非零尺寸（被裁/压成 0 高＝看不见）");
-            browseButtons[0].Content.ShouldBe("浏览…");
+            buttons.Count.ShouldBe(2, "每个选择器**一个**按钮（没渲染时这里会是 0）");
+            buttons.ShouldAllBe(b => b.IsEffectivelyVisible);
+            buttons.ShouldAllBe(b => b.Bounds.Width > 0 && b.Bounds.Height > 0, "按钮必须有非零尺寸（被裁/压成 0 高＝看不见）");
 
-            // 路径框必须是**只读**的：路径由系统对话框给出，不允许手打（否则就不是"选择器"了）
-            var pathBoxes = window.GetVisualDescendants()
+            // 【2026-09 用户裁定】界面**只有一个按钮**：文案 = 声明的标题（不再是写死的「浏览…」），
+            // 且**不再有只读路径框**（用户："各种控件占位置且有些多此一举"）。
+            buttons[0].Content.ShouldBe(pickers[0].ButtonText);
+            buttons[1].Content.ShouldBe(pickers[1].ButtonText);
+            window.GetVisualDescendants()
                 .OfType<TextBox>()
-                .Where(t => t.DataContext is FileSelectorElementViewModel)
-                .ToList();
-
-            pathBoxes.Count.ShouldBe(2, "每个选择器一个路径框");
-            pathBoxes.ShouldAllBe(t => t.IsReadOnly);
+                .Count(t => t.DataContext is FileSelectorElementViewModel)
+                .ShouldBe(0, "文件选择器不再有独立的只读路径框（路径在按钮的悬停提示里）");
         });
     }
 
@@ -316,15 +424,213 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
             // 等价于"用户在对话框里选好了文件" ⇒ `Submit` 走**既有输入通道**（与 B5 同一条路）
             picker.Submit(@"C:\temp\out.txt");
 
-            picker.SelectedPath.ShouldBe(@"C:\temp\out.txt", "选中的路径要显示在只读框里");
-            picker.LastResult.ShouldNotBeNullOrEmpty();
-            picker.LastResult!.ShouldContain("已写入", Case.Insensitive, "框架必须接受该路径（该源名已在视图里声明）⇒ 投递入队成功");
-            picker.LastResult!.ShouldNotContain("未生效", Case.Insensitive);
+            picker.SelectedPath.ShouldBe(@"C:\temp\out.txt", "选中的路径要记下来（按钮悬停提示用它）");
+            picker.SuggestedFileName.ShouldBe("savetext1.txt", "保存模式的默认文件名随声明生效");
+
+            // 【2026-09 用户裁定】成功**不显示**行内信息（框架提示落在外壳状态栏）⇒ 这里断言"没有失败文案"，
+            // 用**公开查询面**证"框架确实接受了这一步"（不靠界面文案）。
+            picker.LastResult.ShouldBeNull("成功时不显示行内信息（D4：没有特殊问题就不显示这行信息）");
+            harness.Services.SubmitInput("p1", VisualFilePickerModule.SaveSource, @"C:\temp\out.txt").Succeeded
+                .ShouldBeTrue("该源名已在视图里声明 ⇒ 框架必须接受（投递入队成功）");
 
             // 未声明的源名 ⇒ 明确失败、不静默（与 B5 输入同一口径；走公开面直接验框架校验）
             var rejected = harness.Services.SubmitInput("p1", "not-declared", @"C:\temp\x.txt");
             rejected.Succeeded.ShouldBeFalse("未声明的输入必须被拒绝");
             string.Join("；", rejected.Failures).ShouldContain("未声明该输入", Case.Insensitive);
+        });
+    }
+
+    /// <summary>
+    /// **输入结果行**（2026-09 用户裁定 D4）：画在**文本框下方、与框左对齐**，**常驻占位**（没有问题时是空的），
+    /// 且**出现 / 消失都不改布局**（用户："弹出信息影响控件大小" · "不显示这行信息也不要改控件布局，
+    /// 空出来的地方让他空着"）。
+    /// </summary>
+    [Fact]
+    public void 输入结果行_应画在文本框下方左对齐_且有无信息都不改布局()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceFeedbackAt("f1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var input = module.Elements.OfType<TextInputElementViewModel>().ShouldHaveSingleItem();
+            var box = FindInputBox(window, VisualFeedbackModule.TextSource);
+            var panel = window.GetVisualDescendants().OfType<ModuleElementPanel>().Single();
+
+            var boxBefore = box.Bounds;
+            var panelHeightBefore = panel.Bounds.Height;
+
+            // ① **没有问题时不显示文本**，但那一行仍然占着高度（空着）
+            var resultLine = ResultLineOf(window, input);
+            resultLine.ShouldNotBeNull("结果行应存在于模板里（常驻）");
+            string.IsNullOrEmpty(resultLine!.Text).ShouldBeTrue("没有特殊问题就**不显示**这行信息");
+            resultLine.Bounds.Height.ShouldBeGreaterThan(
+                0, "这一行必须**常驻占位**（用户：空出来的地方让他空着）");
+
+            // ② 触发一次真实的失败：投递 → 模块回报 → 刷新节拍写回
+            harness.Services.SubmitInput("f1", VisualFeedbackModule.TextSource, "坏值").Succeeded.ShouldBeTrue();
+            WaitForInvalid(harness, module, expected: true);
+            VisualHarness.Settle();
+
+            input.LastResult.ShouldBe("非法输入：坏值", "模块给的原因要显示出来");
+
+            var resultText = ResultLineOf(window, input).ShouldNotBeNull();
+            resultText!.Text.ShouldBe("非法输入：坏值");
+
+            // ③ **在框下方**（同一父 Grid 的坐标系 ⇒ 直接比 Y）且**与框左对齐**
+            resultText.Bounds.Y.ShouldBeGreaterThanOrEqualTo(
+                box.Bounds.Y + box.Bounds.Height - 0.5,
+                "结果信息必须落在**文本框下方**（用户：「统一放在文本框的下方」）");
+            Math.Abs(resultText.Bounds.X - box.Bounds.X).ShouldBeLessThan(
+                0.5, "结果信息必须与**文本框左对齐**");
+
+            // ④ **布局没被改**：X / 宽 / Y 逐项一致，面板高度一致
+            //    （高度允许 ≤2px 的差：失败态的红框是 `BorderThickness` 1→2，属 G3 既有语义，
+            //      与"结果行"无关 —— 结果行本身不占额外高度，因为它**常驻占位**）
+            box.Bounds.X.ShouldBe(boxBefore.X, "结果信息不得挤动文本框的横向位置");
+            box.Bounds.Width.ShouldBe(boxBefore.Width, "结果信息不得挤窄文本框（此前它挤在框右侧的 Auto 列里）");
+            box.Bounds.Y.ShouldBe(boxBefore.Y, "结果信息不得把文本框顶下去（它在下一行）");
+            Math.Abs(box.Bounds.Height - boxBefore.Height).ShouldBeLessThanOrEqualTo(
+                2, "只有失败态的 2px 红框会让框高 +2（G3 既有语义）；结果行不改变框高");
+            panel.Bounds.Height.ShouldBe(panelHeightBefore, "有信息时**不得**改变内容面板高度");
+
+            // ⑤ 结果行**不得**撑宽（长文案只截断，不改布局）
+            resultText.Bounds.Width.ShouldBeLessThanOrEqualTo(box.Bounds.Width + 0.5, "结果行宽度受文本框约束（超长截断）");
+        });
+    }
+
+    /// <summary>
+    /// **元素表重建后开关必须停在用户拨到的位置**（2026-09 用户实测："切换页面的时候连续发送开关弹回去了，
+    /// 但继续发当前页面内容，行为正确而 UI 弹回去 ⇒ 行为与 UI 不符"）。
+    /// </summary>
+    /// <remarks>
+    /// 成因：开关的"当前值"此前**只活在视图模型里** ⇒ 切页 / 改设置触发元素表重建后，新建的开关从默认的"关"起步，
+    /// 而**模块里的标志还是"开"**。修法与文本输入同一套（`decisions.md` 7.28）：用户拨动的值写进**视图状态存储**，
+    /// 重建时回读 ⇒ UI 与行为一致。这里用 `Refresh()` 触发重建 —— 与"切页"走的是同一条 `CreateElement` 路径。
+    /// </remarks>
+    [Fact]
+    public void 开关_元素表重建后应停在用户拨到的位置()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceToggleAt("s1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            _ = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var toggle = module.Elements.OfType<ToggleElementViewModel>().Single(t => t.IsSwitch);
+            toggle.IsOn.ShouldBeFalse("默认是关");
+
+            toggle.IsOn = true;   // 用户拨动（与真机同一条提交路径）
+            VisualHarness.Settle();
+
+            // **触发元素表重建**：走"改应用级设置 ⇒ 刷新时重建元素表"这条真实路径
+            // （切页 / 改设置最后都落在同一个 `CreateElement` 上）。
+            var settings = harness.Services.GetSettings();
+            settings.MultilineSubmitKey = string.Equals(settings.MultilineSubmitKey, "Enter", StringComparison.Ordinal)
+                ? "CtrlEnter"
+                : "Enter";
+            harness.Services.UpdateSettings(settings).Succeeded.ShouldBeTrue();
+
+            harness.Windows.Refresh();
+            VisualHarness.Settle();
+
+            var rebuilt = module.Elements.OfType<ToggleElementViewModel>().Single(t => t.IsSwitch);
+            rebuilt.ShouldNotBeSameAs(toggle, "元素表确实重建了（否则本用例测不出东西）");
+            rebuilt.IsOn.ShouldBeTrue(
+                "**重建后开关必须停在用户上次拨到的位置**（否则 UI 弹回\"关\"、模块还在按\"开\"跑 ⇒ 行为与 UI 不符）");
+        });
+    }
+
+    /// <summary>
+    /// **开关式滑块**（2026-09 用户裁定 D5）：B7 `ToggleSwitch` **真的被画出来**，且与 B3 勾选框**互斥可见**。
+    /// </summary>
+    [Fact]
+    public void 开关滑块_应真的渲染出来而非勾选框()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceToggleAt("s1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var toggles = module.Elements.OfType<ToggleElementViewModel>().ToList();
+            toggles.Count.ShouldBe(2, "模块声明了 B7 滑块 + B3 勾选框各一个");
+
+            var switchVm = toggles.Single(t => t.IsSwitch);
+            var checkVm = toggles.Single(t => !t.IsSwitch);
+
+            switchVm.IsSwitch.ShouldBeTrue("声明 B7 `ToggleSwitch` ⇒ 外观应为**开关滑块**");
+            checkVm.IsCheckBox.ShouldBeTrue("声明 B3 `ToggleSlider` ⇒ 外观仍为**勾选框**（编号与语义未动）");
+
+            var rendered = window.GetVisualDescendants().OfType<ToggleSwitch>()
+                .Where(t => ReferenceEquals(t.DataContext, switchVm))
+                .ToList();
+
+            rendered.Count.ShouldBe(1, "开关滑块应真的渲染（未渲染时会落到「未渲染」占位）");
+            rendered[0].IsVisible.ShouldBeTrue("B7 形态可见");
+            rendered[0].Bounds.Width.ShouldBeGreaterThan(0, "开关滑块应有实际宽度");
+            rendered[0].Bounds.Height.ShouldBeGreaterThan(0, "开关滑块应有实际高度");
+
+            // **真的画出了"滑块"图形**（不只是那行文字）：模板内部的轨道/滑块必须是**有尺寸的图形元素**。
+            // 2026-09 用户实测反馈"滑块开关变成了一行字"—— 只断言控件自身 `Bounds > 0` 抓不到这种塌陷
+            // （文字也算宽度）⇒ 这里改为断言**图形后代**的尺寸。
+            var graphic = rendered[0].GetVisualDescendants()
+                .OfType<Avalonia.Controls.Shapes.Shape>()
+                .Concat<Avalonia.Visual>(rendered[0].GetVisualDescendants().OfType<Border>())
+                .Where(v => v.Bounds.Width >= 20 && v.Bounds.Height >= 8)
+                .OrderByDescending(v => v.Bounds.Width * v.Bounds.Height)
+                .FirstOrDefault();
+
+            var diagnostic = string.Join(
+                " | ",
+                rendered[0].GetVisualDescendants()
+                    .Take(12)
+                    .Select(v => $"{v.GetType().Name}:{v.Bounds.Width:0.#}×{v.Bounds.Height:0.#}"));
+
+            System.IO.File.AppendAllText(
+                Path.Combine(Path.GetTempPath(), "hyw-layout-probe.txt"),
+                $"[toggle] 控件={rendered[0].Bounds.Width:0.#}×{rendered[0].Bounds.Height:0.#} 图形="
+                + $"{(graphic is null ? "无" : $"{graphic.GetType().Name}:{graphic.Bounds.Width:0.#}×{graphic.Bounds.Height:0.#}")} 后代={diagnostic}{Environment.NewLine}");
+
+            graphic.ShouldNotBeNull(
+                "开关滑块必须画出**有尺寸的图形**（轨道/滑块）；只有一行文字 ⇒ 用户看到的\"滑块变成了一行字\"（用户 2026-09 实测反馈）");
+
+            // **轨道不得被压出控件可视区**（"滑块变成一行字"的真正成因：给 `ToggleSwitch` 写死过小的 `Height`
+            // ⇒ 模板把轨道排到可视高度之外 ⇒ 真机上被裁掉；无头测试因为不裁剪，看不出来）。
+            var trackTop = TopOf(graphic!, window) - TopOf(rendered[0], window);
+            (trackTop + graphic!.Bounds.Height).ShouldBeLessThanOrEqualTo(
+                rendered[0].Bounds.Height + 0.5,
+                $"滑块轨道（顶 {trackTop:0.#} + 高 {graphic.Bounds.Height:0.#}）必须落在控件可视区"
+                + $"（控件高 {rendered[0].Bounds.Height:0.#}）内 —— 否则真机上只会剩下一行文字");
+
+            // 互斥：B7 那一处**只显示滑块**（同模板里的勾选框是隐藏的），B3 那一处**只显示勾选框**
+            window.GetVisualDescendants().OfType<CheckBox>()
+                .Where(c => ReferenceEquals(c.DataContext, switchVm))
+                .ToList()
+                .ShouldAllBe(c => !c.IsVisible, "B7 那一处的勾选框必须**隐藏**（互斥可见）");
+
+            var checkBoxes = window.GetVisualDescendants().OfType<CheckBox>()
+                .Where(c => ReferenceEquals(c.DataContext, checkVm))
+                .ToList();
+
+            checkBoxes.Count.ShouldBe(1, "B3 那一处仍应渲染出勾选框");
+            checkBoxes[0].IsVisible.ShouldBeTrue("B3 形态可见");
+            checkBoxes[0].Bounds.Width.ShouldBeGreaterThan(0);
+
+            window.GetVisualDescendants().OfType<ToggleSwitch>()
+                .Where(t => ReferenceEquals(t.DataContext, checkVm))
+                .ToList()
+                .ShouldAllBe(t => !t.IsVisible, "B3 那一处的滑块必须**隐藏**（互斥可见）");
         });
     }
 
@@ -345,12 +651,40 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
         throw new InvalidOperationException($"等待输入失败态 = {expected} 超时（1 秒）");
     }
 
+    /// <summary>
+    /// 某个可视元素**相对于指定祖先**的顶边（逐级累加父级 `Bounds.Y`；`TranslatePoint` 在本测试项目的引用面里不可用）。
+    /// </summary>
+    /// <param name="element">目标元素。</param>
+    /// <param name="ancestor">祖先（走到它就停）。</param>
+    private static double TopOf(Visual element, Visual ancestor)
+    {
+        var y = 0.0;
+
+        for (Visual? current = element; current is not null && !ReferenceEquals(current, ancestor); current = current.GetVisualParent())
+        {
+            y += current.Bounds.Y;
+        }
+
+        return y;
+    }
+
     /// <summary>窗内绑定到指定输入源的输入框。</summary>
     private static TextBox FindInputBox(Window window, string source) =>
         window.GetVisualDescendants()
             .OfType<TextBox>()
             .Single(b => b.DataContext is TextInputElementViewModel input
                          && string.Equals(input.Source, source, StringComparison.Ordinal));
+
+    /// <summary>
+    /// 某个输入元素的**结果行**（模板里 `MinHeight ≥ 14` 的那个 `TextBlock` —— 它常驻占位，
+    /// 与标题、单位标签区分）。
+    /// </summary>
+    /// <param name="window">模块窗口。</param>
+    /// <param name="input">输入元素视图模型。</param>
+    private static TextBlock? ResultLineOf(Window window, TextInputElementViewModel input) =>
+        window.GetVisualDescendants()
+            .OfType<TextBlock>()
+            .FirstOrDefault(t => ReferenceEquals(t.DataContext, input) && t.MinHeight >= 14);
 
     /// <summary>窗内**标签条**上的页签按钮（按样式类定位；未渲染时返回空表）。</summary>
     /// <param name="window">模块窗口。</param>
@@ -374,9 +708,10 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
             marker.ShouldNotBeNull("模块窗口必须渲染出口标记（资源类型写错 / 层级被盖住时根本到不了这一步）");
             marker.IsEffectivelyVisible.ShouldBeTrue("标记必须**可见**（底色与边框对比过低＝等于看不见）");
 
-            // 左右边缘：宽 20 · 长 114（ADR-0039 D3：长度比原 76 **加长 50%**）
-            marker.Bounds.Width.ShouldBe(20, 1e-6);
-            marker.Bounds.Height.ShouldBe(114, 1e-6);
+            // 左右边缘：宽 20 · 长 = `PortMarkerMetrics.Length`（**从规格读**，不写字面量：
+            // 【2026-09】长度由 114 加到 150 修"（直连）被速率吃掉"，断言跟着规格走才不会变成"改一处要改三处"）
+            marker.Bounds.Width.ShouldBe(PortMarkerMetrics.Width, 1e-6);
+            marker.Bounds.Height.ShouldBe(PortMarkerMetrics.Length, 1e-6);
 
             // 贴边：标记外沿与窗口边框重合（EdgeInset = 0）
             marker.Bounds.Left.ShouldBe(0, 1e-6, "标记应与外边框完全重合");
@@ -744,7 +1079,7 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
             var role = sender.Roles.ShouldHaveSingleItem();
             role.RateText.ShouldNotBeNull();
             role.InfoLines.Count.ShouldBeGreaterThanOrEqualTo(2, "①速率 ②`输入 m / 输出 n`（口数）");
-            role.InfoLines[1].Text.ShouldBe("输入 0 / 输出 1", "纯源分块的**口数**（与方块上的连接数 `m/n` 不同）");
+            role.InfoLines[1].Text.ShouldBe("输入口 0 / 输出口 1", "纯源分块的**口数**（与方块上的连接数 `m/n` 不同；2026-09 加「口」字以免被读成计数器）");
             role.InfoLines[0].FontSize.ShouldBeGreaterThan(
                 role.InfoLines[1].FontSize,
                 "速率用大字（用户：字体更大一些）");
@@ -786,6 +1121,244 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
             VisualHarness.Settle();
 
             FindVisibleByClass<TextBlock>(window, "markerRate").ShouldNotBeNull("叠加层开启后速率依然常驻");
+        });
+    }
+
+    /// <summary>
+    /// **自绘叠加层的文字字体必须来自 `FontData` 资源**（2026-09 用户实测"改了数据字体没反应"）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 自绘层此前**写死字体** —— `ConnectionOverlay` 用 `Typeface.Default`、`LayerControlBase` 里还留着一个
+    /// 硬编码 <c>"Cascadia Mono, Consolas…"</c> 的排版工厂（无调用者）⇒ 设置里的「数据字体」对它毫无作用，
+    /// 而它恰好是**最显眼**的那几处（角色方块 / 连线文字）。
+    /// </para>
+    /// <para>
+    /// <b>断言的是"来源"而不是"某个具体字体名"</b>：即使功能回落到默认字体，只要别的资源恰好也叫某个名字，
+    /// 名字断言仍会通过 —— 来源断言才拦得住"资源换了没人引用"。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void 叠加信息层_自绘文字字体必须来自FontData资源()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceAt("s1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var overlay = FindByName<ConnectionOverlay>(window, "Overlay").ShouldNotBeNull();
+            Application.Current!.TryFindResource("FontData", out var resource).ShouldBeTrue("FontData token 应存在");
+
+            overlay.DataFontFamily.ShouldBe(
+                resource as FontFamily,
+                "自绘叠加层的字体必须由 XAML 注入 `{DynamicResource FontData}`（否则改「数据字体」它对不动）");
+        });
+    }
+
+    /// <summary>
+    /// **网络标签"名称优先" + 加长之后「（直连）」真的排得下**（2026-09 用户实测缺陷的回归网）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 用户原话："**（直连）括号太大显示不出来，一半的文字被后面的速率遮住了**，建议适当加长网络标签"。
+    /// </para>
+    /// <para>
+    /// <b>为什么以前拦不住</b>：这一块的既有断言全是**字符串相等**（"文本是「（直连）」"），
+    /// **没有一条断言"它排得下"** —— 而缺陷恰恰是"文本对、像素上被裁/被挤"。
+    /// 本用例用**真实布局**量三件事：① 名称有可读宽度；② 名称框不越过速率框（不重叠）；
+    /// ③ 标记长度 = 加长后的值（几何与"名称可用宽"同源）。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void 网络标签_名称优先_直连二字必须真的排得下()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+
+            // 两个模块**贴合**（右边缘贴左边缘 + 标记都在边缘中点）⇒ 自动建成**匿名直连**网络
+            harness.PlaceAt("s1", 0);
+            harness.PlaceSinkAt("r1", ModuleViewViewModel.DefaultWidth);
+
+            harness.Windows.Refresh();
+            VisualHarness.Settle();
+
+            var module = harness.Windows.Modules.Single(m => m.InstanceId == "s1");
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var name = FindVisibleByClass<TextBlock>(window, "markerName").ShouldNotBeNull();
+            var rate = FindVisibleByClass<TextBlock>(window, "markerRate").ShouldNotBeNull();
+            var marker = FindMarker(window).ShouldNotBeNull();
+
+            name.Text.ShouldBe("（直连）", "未命名但已连上 ⇒ 网络名占位（正是用户看到的那段文字）");
+
+            // ① 标记真的加长了（竖排标记沿边 = 高度）
+            marker.Bounds.Height.ShouldBe(PortMarkerMetrics.Length, 0.5, "竖排标记长度 = 加长后的值");
+
+            // ② 名称有**实际可读**的宽度：「（直连）」= 4 个全角字 × 字号 11 ⇒ ≈44px
+            //（旧实现长度 114 时这里只剩约 10px —— 本断言就是那盏灯）
+            name.Bounds.Width.ShouldBeGreaterThan(
+                38,
+                $"名称可用宽必须容得下「（直连）」（实际 {name.Bounds.Width:0.0}px）");
+
+            // ③ 名称与速率**不重叠**：名称框整个落在速率框左边（用户看到的"被遮住一半"）
+            name.Bounds.Right.ShouldBeLessThanOrEqualTo(
+                rate.Bounds.Left + 0.5,
+                $"名称框（right={name.Bounds.Right:0.0}）不得越过速率框（left={rate.Bounds.Left:0.0}）");
+
+            // ④ **两者都要读得出**：速率是"常驻于网络标签上"的通路速率（用户第三十四轮裁定），
+            // 名称优先**不等于**把速率挤没。
+            // **2026-09 注意**：速率改**右对齐**后，它的 `Bounds` 不再是被拉满的整列，而是**文字自己的宽度**
+            // （旧断言 `> 40` 是按"拉满的列"定的，右对齐后正好卡在边界）⇒ 这里改成两条与字体无关的判据：
+            // ① 绝对下限（任何写法都读得出来）；② **相对名称**不能小得离谱（长度 114 时速率只剩约 11px，
+            // 本断言在那种情形下必红 —— 这正是「适当加长网络标签」要保住的东西）。
+            rate.Bounds.Width.ShouldBeGreaterThan(
+                30,
+                $"速率也要排得下（实际 {rate.Bounds.Width:0.0}px）—— 名称优先 ≠ 速率消失");
+            rate.Bounds.Width.ShouldBeGreaterThan(
+                name.Bounds.Width * 0.7,
+                $"速率相对名称不能小得离谱（速率 {rate.Bounds.Width:0.0}px vs 名称 {name.Bounds.Width:0.0}px）");
+        });
+    }
+
+    /// <summary>
+    /// **网络标签可以吸到模块中线**（2026-09 用户新增诉求："希望添加网络标签与中线对齐能力"）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 拖动标签时的吸附有**两级**，优先级明确：
+    /// ① **连接对齐**（吸到哪里就能连上，判据在 Core，与建网同源）；
+    /// ② 没有可连的位置时，退一步做**排版对齐** —— 吸到所在边的**中线**（= 归一化偏移 0.5）。
+    /// </para>
+    /// <para>
+    /// 本用例走**只有一块模块**的现场（没有任何对端 ⇒ 连接对齐必然无候选）⇒ 量到的一定是中线吸附。
+    /// 容差复用设置里的「吸附距离」（默认 4px），按**像素**判定。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void 网络标签_拖动应能吸到模块中线_离得远则不吸()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceAnchorAt("a1", 0);
+
+            var module = harness.Windows.Modules.ShouldHaveSingleItem();
+            _ = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            var marker = module.Ports.ShouldHaveSingleItem();
+            var extent = module.Height;   // 该模块的口在左右边 ⇒ 竖排 ⇒ 沿边方向是**高**
+
+            // 离中点约 3px（< 4px 容差）⇒ 吸到中线
+            var near = 0.5 + (3 / extent);
+            harness.Windows.SnapAnchorToConnection(module, marker, marker.Edge, near)
+                .ShouldBe(0.5, 1e-6, $"离中线 3px（<「吸附距离」4px）⇒ 必须吸到中线（沿边长 {extent:0}）");
+
+            // 离得远 ⇒ 原样（不抢用户的手感）
+            harness.Windows.SnapAnchorToConnection(module, marker, marker.Edge, 0.7)
+                .ShouldBe(0.7, 1e-6, "离中线很远 ⇒ 不吸（吸附只帮「差不多对准了」的情况）");
+        });
+    }
+
+    /// <summary>
+    /// **速率要贴住箭头、箭头要在「速率—指示灯」之间居中**（2026-09 用户实测）。
+    /// </summary>
+    /// <remarks>
+    /// 用户原话："**箭头贴边，看起来不在中间；速率显示建议靠近箭头**"。
+    /// 真因：速率列虽然是 `*`，但块内**左对齐** ⇒ 空档全留在速率**左边**（因此"看起来占了名称的位置"），
+    /// 而速率右边紧贴箭头 ⇒ 箭头在视觉上被挤到灯那一侧。改为**右对齐**后，空档落到「名称—速率」之间。
+    /// 本用例把**两段间距**量出来并断言它们基本相等（"在中间"的可执行判据）。
+    /// </remarks>
+    [Fact]
+    public void 网络标签_速率应贴箭头_且箭头在速率与灯之间居中()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceAt("s1", 0);
+            harness.PlaceSinkAt("r1", ModuleViewViewModel.DefaultWidth);
+
+            harness.Windows.Refresh();
+            VisualHarness.Settle();
+
+            var module = harness.Windows.Modules.Single(m => m.InstanceId == "s1");
+            var window = harness.OpenWindow(module);
+            VisualHarness.Settle();
+
+            // 三者是同一个 Grid 的兄弟 ⇒ `Bounds` 在同一坐标系（竖排分支的**内容**坐标）里可直接比
+            var rate = FindVisibleByClass<TextBlock>(window, "markerRate").ShouldNotBeNull();
+            var arrow = FindVisibleArrow(window).ShouldNotBeNull();
+            var lamp = FindVisibleByClass<StateIndicator>(window, "markerLamp").ShouldNotBeNull();
+
+            var beforeArrow = arrow.Bounds.Left - rate.Bounds.Right;   // 速率 → 箭头
+            var afterArrow = lamp.Bounds.Left - arrow.Bounds.Right;    // 箭头 → 指示灯
+
+            beforeArrow.ShouldBeGreaterThanOrEqualTo(0, "速率不得压到箭头上");
+            afterArrow.ShouldBeGreaterThanOrEqualTo(0, "箭头不得压到指示灯上");
+
+            Math.Abs(beforeArrow - afterArrow).ShouldBeLessThanOrEqualTo(
+                1.5,
+                $"箭头要在两段空档里居中（速率→箭头 {beforeArrow:0.0}px vs 箭头→灯 {afterArrow:0.0}px）");
+
+            // 速率必须**贴住**箭头那一侧（旧实现左对齐时空档在速率左边 ⇒ 这里会很宽）
+            beforeArrow.ShouldBeLessThanOrEqualTo(
+                10,
+                $"速率要靠近箭头（实际间距 {beforeArrow:0.0}px；旧实现把空档留在了速率左边）");
+        });
+    }
+
+    [Fact]
+    public void 端口标记_多源网络下宿口必须显示真实投递数而不是零()
+    {
+        // 【用户 2026-09 裁定"统一宿口取数口径，关系到整个数据来源的一致性"】**本用例就是那盏灯**：
+        // 两个发送器用**同名标签** ⇒ 一条**多源网络** → 一个显示器（1:1 单源单宿时新旧实现看不出差别，
+        // 所以必须造多源才拦得住）。旧实现取数时拿**宿口字面量**去查逐源表（键 = `源 → 宿子集`，是**源**键）
+        // ⇒ **宿口永远是 0**。
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceAt("s1", 0);
+            harness.PlaceAt("s2", 0, 300);        // 第二个发送器（同名标签的另一端源）；错开放置，避免"接触即建网"
+            harness.PlaceSinkAt("r1", 400);
+
+            harness.Services.UpdatePortNetwork("s1", "out", "bus").Succeeded.ShouldBeTrue();
+            harness.Services.UpdatePortNetwork("s2", "out", "bus").Succeeded.ShouldBeTrue();
+            harness.Services.UpdatePortNetwork("r1", "in", "bus").Succeeded.ShouldBeTrue();
+
+            // **真窗口**：标记必须真的渲染出来（VM 有值 ≠ 画面上有标记）
+            var sink = harness.Windows.Modules.Single(m => m.InstanceId == "r1");
+            var window = harness.OpenWindow(sink);
+            VisualHarness.Settle();
+
+            // 两个源各发一次（走真实投递路径：Context.Ports → 绑定 → 宿队列）
+            var unit = new byte[sizeof(float)];
+            harness.Runtime.Content.TryGetInstance("s1", out var first).ShouldBeTrue();
+            first!.Context.Ports.TrySend("out", unit).ShouldBeTrue("同名标签已建网 ⇒ 数据必须真的投出去");
+            harness.Runtime.Content.TryGetInstance("s2", out var second).ShouldBeTrue();
+            second!.Context.Ports.TrySend("out", unit).ShouldBeTrue("同名标签已建网 ⇒ 数据必须真的投出去");
+
+            // 口标记的指标按**约 0.5 秒节拍**刷新（`_frameCounter % 30`，帧间隔 1000/60ms）⇒ 手动推进 30 帧
+            for (var i = 0; i < 30; i++)
+            {
+                harness.Windows.Refresh();
+            }
+
+            VisualHarness.Settle();
+
+            var marker = FindMarker(window).ShouldNotBeNull("宿口标记必须真的被画出来");
+            var vm = marker.DataContext.ShouldBeOfType<PortMarkerViewModel>();
+
+            vm.IsConnected.ShouldBeTrue("同名标签 ⇒ 该宿口已入网");
+            vm.Delivered.ShouldBeGreaterThan(0, "**宿口必须按网络把各源诊断加起来**（旧实现在这里恒为 0）");
+            vm.Delivered.ShouldBe(2, "s1 与 s2 各发一次 ⇒ 该宿口累计投递 = 2");
+            vm.Tooltip.Contains("投递 2 单元", StringComparison.Ordinal).ShouldBeTrue(
+                $"用户悬停看到的那句话也必须是真的（不能画面上写着 0）：实际 = {vm.Tooltip}");
         });
     }
 
@@ -971,7 +1544,10 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
             var lampBox = ScreenRect(lamp, window);
             lampBox.Width.ShouldBe(8, 1.0, "指示灯 6×6 → 8×8（StateIndicator 半径 = 边长/2 − 1 ⇒ 2 → 3）");
             lampBox.Height.ShouldBe(8, 1.0);
-            lamp.Margin.ShouldBe(new Thickness(0, 0, 5, 0), "指示灯离标记端部留 5px（内容坐标右边距）");
+            lamp.Margin.ShouldBe(
+                new Thickness(4, 0, 5, 0),
+                "右边距 = 离端部 5px（几何断言见下一条）；**左边距 4px 是 2026-09 新增** —— "
+                + "给箭头让出与「速率→箭头」相等的空档，使箭头在两段空档里居中");
 
             // ③ 两端贴齐：色条贴标记一端、灯在另一端内侧 5px（各留 1 px 边框）
             stripBox.Top.ShouldBeGreaterThan(markerBox.Top, "色条与灯必须分居标记两端");
@@ -1099,8 +1675,8 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
 
             // **屏幕上真的换过来了**（只断言视图模型会漏掉"排布没失效"这一类缺陷 —— 用户实测报过）
             var moved = ScreenRect(FindMarker(window).ShouldNotBeNull(), window);
-            moved.Width.ShouldBe(114, 1e-6, "横排标记宽 114");
-            moved.Height.ShouldBe(20, 1e-6, "横排标记高 20");
+            moved.Width.ShouldBe(PortMarkerMetrics.Length, 1e-6, "横排标记宽 = 规格里的长度");
+            moved.Height.ShouldBe(PortMarkerMetrics.Width, 1e-6, "横排标记高 = 规格里的跨轴宽");
             moved.Y.ShouldBeLessThan(2, "拖到上边 ⇒ 标记必须真的贴到窗口上沿");
 
             // **真的写进了运行时**（不只是改了个视图模型）：查询面与组合件几何都要跟上
@@ -1357,6 +1933,71 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
         });
     }
 
+    [Fact]
+    public void 数值输入_真实窗口应只放行数字写法_并对齐_且单位在框外标签()
+    {
+        _ui.Run(() =>
+        {
+            using var harness = new VisualHarness();
+            harness.PlaceNumericAt("n1", 0);
+
+            var window = harness.OpenWindow(harness.Windows.Modules.ShouldHaveSingleItem());
+            VisualHarness.Settle();
+
+            var box = FindInputBox(window, "interval");
+            var vm = box.DataContext.ShouldBeOfType<TextInputElementViewModel>();
+
+            vm.IsNumeric.ShouldBeTrue("声明 `InputKind = Number`");
+            vm.IsAlignRight.ShouldBeTrue("对齐由模块声明（本例声明右对齐）");
+
+            // ① **数字写法放行**：直接走真实输入路径（`Text` 由 XAML 双向绑定，等价于用户键入后的结果）
+            box.Text = "-12.5";
+            VisualHarness.Settle();
+            vm.Text.ShouldBe("-12.5", "合法的数字写法应当原样进入输入框");
+
+            // ② **非数字被吞**：模拟"用户键入一个字母" —— 隧道阶段的 `TextInput` 拦截把它吞掉
+            var before = box.Text;
+            RaiseTextInput(window, box, "a");
+            VisualHarness.Settle();
+            box.Text.ShouldBe(before, "非数字字符必须被拦下（用户不会'先写错再被拒'）");
+
+            // ③ 第二个小数点同样被吞（形态约束不只看单个字符）
+            box.Text = "1.5";
+            RaiseTextInput(window, box, ".");
+            VisualHarness.Settle();
+            box.Text.ShouldBe("1.5", "已有小数点 ⇒ 再敲一个小数点必须被吞");
+
+            // ④ **对齐真的作用到控件上**（不是只改了视图模型）
+            box.TextAlignment.ShouldBe(TextAlignment.Right, "右对齐声明必须落到真实控件");
+
+            // ⑤ **单位在框外**（数据源 `Unit` ⇒ 输入框右侧的标签），且框内**没有**单位后缀
+            window.GetVisualDescendants()
+                .OfType<TextBlock>()
+                .Any(t => t.IsEffectivelyVisible && t.Text == "ms")
+                .ShouldBeTrue("单位必须以**框外标签**呈现（用户裁定：不做框内后缀，避免'单位可改'的错觉）");
+            box.Text.ShouldNotContain("ms", Case.Sensitive, "框内文本里不得混入单位");
+        });
+    }
+
+    /// <summary>
+    /// 向输入框**派发一次文本输入**（模拟键入一个字符）——走真实隧道链路，用来验证字符放行。
+    /// </summary>
+    /// <remarks>
+    /// 直接改 <c>Text</c> 会绕过 `TextInput` 事件（那是"绑定已更新"的结果，不是"用户键入"），
+    /// 因此这里显式构造 <see cref="TextInputEventArgs"/> 并 `RaiseEvent`。
+    /// </remarks>
+    private static void RaiseTextInput(Window window, TextBox box, string text)
+    {
+        var args = new TextInputEventArgs
+        {
+            RoutedEvent = InputElement.TextInputEvent,
+            Source = box,
+            Text = text,
+        };
+
+        box.RaiseEvent(args);
+    }
+
     // ---------------------------------------------------------------- 辅助
 
     /// <summary>取画刷颜色（非纯色/为空时返回 <see cref="Colors.Transparent"/>，便于断言直接失败）。</summary>
@@ -1364,10 +2005,18 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
         brush is ISolidColorBrush solid ? solid.Color : Colors.Transparent;
 
     /// <summary>找**真正可见**的方向箭头（标记模板的竖排/横排两套分支只有一套可见）。</summary>
+    /// <summary>
+    /// 找**可见的方向箭头**。
+    /// </summary>
+    /// <remarks>
+    /// 字形集合是**四个方向**（2026-09）：箭头由「所在边 + 发送/接收」推出（发送朝外、接收朝内），
+    /// 不再是写死的"左/右式"两个字 ⇒ 这里必须把四个都算上，否则换边/换向之后"找不到箭头"，
+    /// 断言会在**没测到东西**的情况下失败或（更糟）静默跳过。
+    /// </remarks>
     private static TextBlock? FindVisibleArrow(Visual root) =>
         root.GetVisualDescendants()
             .OfType<TextBlock>()
-            .FirstOrDefault(t => t.IsEffectivelyVisible && t.Text is "↓" or "→");
+            .FirstOrDefault(t => t.IsEffectivelyVisible && t.Text is "↑" or "↓" or "←" or "→");
 
     private static Border? FindMarker(Visual root) =>
         root.GetVisualDescendants()
@@ -1432,7 +2081,11 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
     {
         public VisualHarness()
         {
-            Runtime = new ModuleRuntime();
+            // **带视图状态存储**（与生产接线一致：`CompositionRoot` 注册 `ViewStateStore`）——
+            // 没有它，"切页/改设置重建元素表后恢复输入框文本 / 开关位置"这类行为在夹具里根本无从发生
+            // （视图模型拿到 `null` ⇒ 不回读），用例会测不出东西。
+            ViewState = new HYWDebugAssistant.Core.Services.ViewStateStore();
+            Runtime = new ModuleRuntime(viewState: ViewState);
             Services = new RuntimeServices(Runtime);
             Register("visual-sender", typeof(VisualSenderModule));
             Register("visual-sink", typeof(VisualSinkModule));
@@ -1442,8 +2095,13 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
             Register("visual-feedback", typeof(VisualFeedbackModule));
             Register("visual-file-picker", typeof(VisualFilePickerModule));
             Register("visual-anchor", typeof(VisualAnchorModule));
-            Windows = new ModuleWindowsViewModel(Services, Services);
+            Register("visual-numeric", typeof(VisualNumericModule));
+            Register("visual-toggle", typeof(VisualToggleModule));
+
+            Windows = new ModuleWindowsViewModel(Services, Services, ViewState);
         }
+
+        public HYWDebugAssistant.Core.Services.ViewStateStore ViewState { get; }
 
         public ModuleRuntime Runtime { get; }
 
@@ -1485,6 +2143,14 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
         /// <summary>加入一个"锚点可拖动"的模块并摆放（G5：锚点拖动/固定测试用）。</summary>
         public void PlaceAnchorAt(string instanceId, double x, double y = 0) =>
             PlaceModuleAt(instanceId, "test/visual-anchor/1.0.0", x, y);
+
+        /// <summary>加入一个"开关滑块 + 勾选框"的模块并摆放（D5：B7 渲染测试用）。</summary>
+        public void PlaceToggleAt(string instanceId, double x, double y = 0) =>
+            PlaceModuleAt(instanceId, "test/visual-toggle/1.0.0", x, y);
+
+        /// <summary>加入一个"数值输入（带单位、右对齐）"的模块并摆放（2026-09：输入类型/对齐/单位测试用）。</summary>
+        public void PlaceNumericAt(string instanceId, double x, double y = 0) =>
+            PlaceModuleAt(instanceId, "test/visual-numeric/1.0.0", x, y);
 
         private void PlaceModuleAt(string instanceId, string moduleIdLiteral, double x, double y)
         {
@@ -1672,6 +2338,50 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
     }
 
     /// <summary>
+    /// **视觉测试用"开关滑块"模块**（2026-09 用户裁定 D5）：一个 B7 `ToggleSwitch` + 一个 B3 `ToggleSlider`
+    /// —— 同一窗口里两种外观并存，用来钉住"滑块真的被画出来"和"两者互斥可见"。
+    /// </summary>
+    [ModuleDefinition("test", "visual-toggle", "1.0.0")]
+    public sealed class VisualToggleModule : IModule, IActivitySource
+    {
+        /// <summary>B7 开关滑块的数据源名。</summary>
+        public const string SwitchSource = "switch";
+
+        /// <summary>B3 勾选框的数据源名。</summary>
+        public const string CheckSource = "check";
+
+        /// <inheritdoc />
+        public ActivityKind Kind => ActivityKind.Periodic;
+
+        /// <inheritdoc />
+        public TimeSpan Interval => TimeSpan.FromMilliseconds(10);
+
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context) =>
+            context.Declaration.DeclareView(new ViewDeclaration(
+                [
+                    new ViewElement(ViewElementKind.ToggleSwitch, SwitchSource, "开关滑块"),
+                    new ViewElement(ViewElementKind.ToggleSlider, CheckSource, "勾选框"),
+                ],
+                dataSources:
+                [
+                    new ViewDataSource(SwitchSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U8),
+                    new ViewDataSource(CheckSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U8),
+                ]));
+
+        /// <inheritdoc />
+        public void RunActivity(IModuleContext context)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+
+            while (!context.StopSignal.IsStopRequested)
+            {
+                _ = context.StopSignal.Wait(Interval);
+            }
+        }
+    }
+
+    /// <summary>
     /// 视觉测试用"声明文件选择器"的模块（**G4**）：一个"保存到"的文件选择器 + 一个"打开"的。
     /// </summary>
     /// <remarks>
@@ -1697,10 +2407,13 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
         public void OnRegistered(IModuleContext context) =>
             context.Declaration.DeclareView(new ViewDeclaration(
                 [
-                    new ViewElement(ViewElementKind.FileSelector, SaveSource, "保存到")
+                    new ViewElement(ViewElementKind.FileSelector, SaveSource, "保存")
                     {
                         FileMode = FilePickerMode.Save,
                         FileFilter = "*.txt",
+
+                        // 默认文件名（2026-09 用户裁定"不要空着"）—— 视觉用例顺带证明它被带到视图模型
+                        SuggestedFileName = "savetext1.txt",
                     },
                     new ViewElement(ViewElementKind.FileSelector, OpenSource, "打开")
                     {
@@ -1725,6 +2438,28 @@ public class ModuleWindowVisualTests : IClassFixture<HeadlessUiFixture>
                 _ = context.StopSignal.Wait(Interval);
             }
         }
+    }
+
+    /// <summary>
+    /// 视觉测试用"**数值输入**"模块（**2026-09**）：输入类型 = 数值 · 右对齐 · 数据源带单位 `ms`。
+    /// </summary>
+    /// <remarks>
+    /// 覆盖三件事：① `InputKind = Number` 的**字符放行** ② **对齐由模块声明** ③ **单位走框外标签**。
+    /// </remarks>
+    [ModuleDefinition("test", "visual-numeric", "1.0.0")]
+    public sealed class VisualNumericModule : IModule
+    {
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context) =>
+            context.Declaration.DeclareView(new ViewDeclaration(
+                [
+                    new ViewElement(ViewElementKind.TextInput, "interval", "间隔")
+                    {
+                        InputKind = TextInputKind.Number,
+                        Alignment = ViewAlignment.Right,
+                    },
+                ],
+                dataSources: [new ViewDataSource("interval", unit: "ms")]));
     }
 
     /// <summary>视觉测试用"多页标签页"模块（**G1**：3 页，每页一个文本输入）。</summary>

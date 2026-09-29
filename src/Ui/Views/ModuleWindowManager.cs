@@ -245,10 +245,12 @@ public sealed class ModuleWindowManager : IDisposable
             window.Position = position;
         }
 
-        if (!hasLayout)
-        {
-            return;   // 尺寸交给 XAML 默认值
-        }
+        // 【缺陷修复 · 2026-09 用户反馈"模块默认大小不对，信息被遮蔽和覆盖"】
+        // 此前**没有布局记录就直接返回**（尺寸交给 XAML 默认 320×220）⇒ 模块声明的
+        // `PreferredWidth/PreferredHeight` **从来没被应用过**（实测：显示器声明 460×380，窗口却是 320×220，
+        // 内容被挤到要滚动才看得全）。现在：没有布局记录时**按模型里的尺寸开窗** ——
+        // 那里正是"模块声明的首选尺寸 × 屏幕缩放"（`ModuleViewViewModel` 构造时算好）。
+        _ = hasLayout;
 
         var size = new Size(
             Math.Max(ModuleViewViewModel.MinWidth, ScreenPixels.Round(geometry.Width) / scaling),
@@ -362,21 +364,24 @@ public sealed class ModuleWindowManager : IDisposable
     /// 发布外壳的**可见外框**矩形（拼图起始点的吸附参照基准）。
     /// </summary>
     /// <remarks>
-    /// <b>缺陷修复 · M1-16 后</b>：曾用 <c>Position</c>（外框左上角）+ <c>Bounds</c>（客户区尺寸）拼矩形 →
-    /// 右边界的实际位置少一个"窗口边框宽度"（外壳有标题栏与系统边框），表现为"模块吸附到外壳右侧差几像素"。
-    /// 曾改为 <c>PointToScreen(0,0)</c> + <c>ClientSize</c>（**客户区**右边缘）—— 但用户视觉上的"窗口边缘"是
-    /// **可见外框**，两者相差"可见边框（约 1px）" ⇒ **贴上去总有 1px 的缝**（用户第十二轮反馈）。
-    /// 现在取 <see cref="WindowFrameProbe"/>（DWM 扩展外框 = 可见外框，物理像素），取不到才回退到客户区。
+    /// <list type="bullet">
+    ///   <item><b>缺陷修复 · M1-16 后</b>：曾用 <c>Position</c>（外框左上角）+ <c>Bounds</c>（客户区尺寸）拼矩形 →
+    ///     右边界的实际位置少一个"窗口边框宽度"（外壳有标题栏与系统边框），表现为"模块吸附到外壳右侧差几像素"；</item>
+    ///   <item>曾改为 <c>PointToScreen(0,0)</c> + <c>ClientSize</c>（**客户区**右边缘）—— 但用户视觉上的"窗口边缘"是
+    ///     **可见外框**，两者相差"可见边框（约 1px）" ⇒ **贴上去总有 1px 的缝**（用户第十二轮反馈）；</item>
+    ///   <item>现在取 <see cref="WindowFrameProbe"/>（DWM 扩展外框 = 可见外框，物理像素），取不到才回退到客户区；</item>
+    ///   <item><b>取整口径（2026-09 缺陷修复）</b>：曾对 <c>frame.X</c> 与 <c>frame.Width</c> **各自**四舍五入 ⇒
+    ///     右边缘拿到的是 <c>Round(X) + Round(Width)</c>，与真实的 <c>X + Width</c> 最多差 1px（两个方向的舍入误差可以叠加），
+    ///     表现为"贴上去仍有一条 1px 的缝"（用户复报）。现在改为**先把四条边各自定好，再相减求宽高**；
+    ///     且左/上**向下取整**、右/下**向上取整** —— 宁可多覆盖不到 1px（被模块自身边框盖住、看不出来），
+    ///     **也绝不留缝**（用户要的是"严丝合缝"）。</item>
+    /// </list>
     /// </remarks>
     private void PublishShellRect()
     {
         if (WindowFrameProbe.TryGetVisibleFrame(_shell, out var frame))
         {
-            _controller.ShellRect = new CanvasRect(
-                ScreenPixels.Round(frame.X),
-                ScreenPixels.Round(frame.Y),
-                ScreenPixels.Round(frame.Width),
-                ScreenPixels.Round(frame.Height));
+            _controller.ShellRect = ToRoundedRect(frame.X, frame.Y, frame.X + frame.Width, frame.Y + frame.Height);
             return;
         }
 
@@ -384,10 +389,27 @@ public sealed class ModuleWindowManager : IDisposable
         var scaling = _shell.RenderScaling <= 0 ? 1.0 : _shell.RenderScaling;
         var clientOrigin = _shell.PointToScreen(new Point(0, 0));
 
-        _controller.ShellRect = new CanvasRect(
-            ScreenPixels.Round(clientOrigin.X),
-            ScreenPixels.Round(clientOrigin.Y),
-            ScreenPixels.Round(_shell.ClientSize.Width * scaling),
-            ScreenPixels.Round(_shell.ClientSize.Height * scaling));
+        _controller.ShellRect = ToRoundedRect(
+            clientOrigin.X,
+            clientOrigin.Y,
+            clientOrigin.X + (_shell.ClientSize.Width * scaling),
+            clientOrigin.Y + (_shell.ClientSize.Height * scaling));
+    }
+
+    /// <summary>
+    /// 由**四条边**构造整数物理像素矩形（左/上向下取整、右/下向上取整 ⇒ **保证不留缝**）。
+    /// </summary>
+    /// <param name="left">左边缘（物理像素）。</param>
+    /// <param name="top">上边缘。</param>
+    /// <param name="right">右边缘。</param>
+    /// <param name="bottom">下边缘。</param>
+    private static CanvasRect ToRoundedRect(double left, double top, double right, double bottom)
+    {
+        var l = Math.Floor(left);
+        var t = Math.Floor(top);
+        var r = Math.Ceiling(right);
+        var b = Math.Ceiling(bottom);
+
+        return new CanvasRect(l, t, Math.Max(0, r - l), Math.Max(0, b - t));
     }
 }

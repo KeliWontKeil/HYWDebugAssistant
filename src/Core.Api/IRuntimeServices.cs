@@ -46,6 +46,24 @@ public interface IRuntimeQuery
     /// </summary>
     IReadOnlyList<PortQueueDepthView> GetQueueDepths();
 
+    /// <summary>
+    /// **按端口取指标**（用户 2026-09 裁定"统一宿口取数口径"）—— 一个端口的指标的**唯一来源**。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>为什么要有它</b>：界面此前按"两次字典查找 + 猜键"取数（先查网络身份键、再拿口字面量查逐源表），
+    ///     而逐源表的键是**源**键 ⇒ **宿口永远匹配不上** ⇒ 宿口标记的投递/丢弃/速率**静默为 0**。
+    ///     本查询把"一个端口该读哪些流"这件事**放回框架**（它才知道网络成员关系），界面只格式化；</item>
+    ///   <item><b>口径</b>：发送口 = 以它为源的全部绑定之和；接收口 = 以它为宿的全部绑定之和；
+    ///     **不在任何网络上 ⇒ 全 0**。完整定义与"三类丢弃不混算"见 <see cref="PortMetricsView"/>；</item>
+    ///   <item>速率与角色方块**同一口径**（同一批框架速率计），故同一根线两侧不会再显示不同的数。</item>
+    /// </list>
+    /// </remarks>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="portName">口名。</param>
+    /// <returns>该端口的指标（**永不返回 null**；未入网 / 实例或口不存在 ⇒ 全 0）。</returns>
+    PortMetricsView GetPortMetrics(string instanceId, string portName);
+
     /// <summary>最近的问题（最新在前）。</summary>
     IReadOnlyList<IssueView> GetIssues(int maxCount);
 
@@ -61,6 +79,24 @@ public interface IRuntimeQuery
     /// </remarks>
     /// <param name="provisionalLayouts">拖动中的临时布局（为空 = 用当前现场布局）。</param>
     IReadOnlyList<ConnectionCandidateView> PreviewConnections(IReadOnlyList<ModuleLayoutView>? provisionalLayouts = null);
+
+    /// <summary>
+    /// **拖动网络标签时的"连接对齐"建议**（G5 追加 · 用户 2026-09）：把某个口拖到指定**边 + 偏移**时，
+    /// 若它与某个**面对面**的口已满足"接触且对齐"的建网条件（只差对齐），返回**应对齐到的偏移**。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>判定复用 <c>DockRule</c>（与真正建网**同一份实现**）⇒ **"能吸上" ⟺ "松手真的连上"**；</item>
+    ///   <item>返回 <see langword="null"/> = 没有这样的对端口（不吸附、不高亮）；</item>
+    ///   <item><b>不改现场、不落盘、不触发重算</b>：纯查询（端口几何用传入的预览值，不进布局）。</item>
+    /// </list>
+    /// </remarks>
+    /// <param name="instanceId">本口所属实例。</param>
+    /// <param name="portName">本口名。</param>
+    /// <param name="edge">本口**当前**所在边（拖动中可能已换边）。</param>
+    /// <param name="offset">本口**当前**的归一化偏移（指针算出来的预览值）。</param>
+    /// <returns>建议（含对端口与应对齐到的偏移）；无则 <see langword="null"/>。</returns>
+    AnchorDockHintView? SuggestAnchorDock(string instanceId, string portName, Sdk.Ports.PortEdge edge, double offset);
 
     /// <summary>
     /// **模块来源根的扫描结果**（ADR-0036 D1）：上次扫描（启动或「立即重扫」）时每个根的

@@ -17,20 +17,21 @@ public class HostingPackageTests
             ? "Release"
             : "Debug";
 
-    /// <summary>参考桩模块 DataGenerator 的构建输出目录（= 它的模块包目录）。</summary>
-    private static string DataGeneratorPackage => Path.Combine(
-        RepoRoot, "src", "Modules", "Reference", "DataGenerator", "bin", Configuration, "net10.0");
+    /// <summary>业务模块 文本发送器 的构建输出目录（= 它的模块包目录）。</summary>
+    /// <remarks>载体说明：原参考桩模块 `data-generator` 已按 2026-09 用户裁定删除 ⇒ 换成本项目的正式模块。</remarks>
+    private static string TextSenderPackage => Path.Combine(
+        RepoRoot, "src", "Modules", "Business", "TextSender", "bin", Configuration, "net10.0");
 
     [Fact]
-    public void 加载参考桩模块包_应成功并解析出标识与入口类型()
+    public void 加载业务模块包_应成功并解析出标识与入口类型()
     {
-        var result = ModulePackageLoader.Load(DataGeneratorPackage);
+        var result = ModulePackageLoader.Load(TextSenderPackage);
 
         result.Succeeded.ShouldBeTrue(result.FailureReason);
         var package = result.Package!;
-        package.Id.ToString().ShouldBe("hyw/reference-data-generator/1.0.0");
-        package.EntryType.Name.ShouldBe("DataGeneratorModule");
-        package.DefinitionAttribute.DisplayName.ShouldBe("参考数据发生器");
+        package.Id.ToString().ShouldBe("hyw/text-sender/1.0.0");
+        package.EntryType.Name.ShouldBe("TextSenderModule");
+        package.DefinitionAttribute.DisplayName.ShouldBe("文本发送器");
         File.Exists(package.AssemblyPath).ShouldBeTrue();
     }
 
@@ -47,7 +48,7 @@ public class HostingPackageTests
     [Fact]
     public void 清单标识非法_应失败()
     {
-        using var temp = new TempPackage(DataGeneratorPackage, manifestId: "NotAValidId");
+        using var temp = new TempPackage(TextSenderPackage, manifestId: "NotAValidId");
 
         var result = ModulePackageLoader.Load(temp.Directory);
 
@@ -59,7 +60,7 @@ public class HostingPackageTests
     public void 清单与代码声明不一致_应拒绝加载()
     {
         // 清单写 2.0.0，而代码声明是 1.0.0 → 拒绝（避免同名歧义）
-        using var temp = new TempPackage(DataGeneratorPackage, manifestId: "hyw/reference-data-generator/2.0.0");
+        using var temp = new TempPackage(TextSenderPackage, manifestId: "hyw/text-sender/2.0.0");
 
         var result = ModulePackageLoader.Load(temp.Directory);
 
@@ -84,7 +85,7 @@ public class HostingPackageTests
         var registry = new ModuleRegistry();
         var v1 = DefinitionFromRealPackage();
         var v2 = new ModuleDefinition(
-            ModuleId.Create("hyw", "reference-data-generator", "2.0.0"),
+            ModuleId.Create("hyw", "text-sender", "2.0.0"),
             v1.DisplayName, v1.Description, v1.Tags, v1.Capabilities, v1.DependsOn,
             v1.FrameworkCompatibility, v1.ParticipatesInDataFlow, v1.EntryType, v1.PackageDirectory, v1.AssemblyPath);
 
@@ -92,9 +93,9 @@ public class HostingPackageTests
         registry.TryRegister(v2, out _).ShouldBeTrue();
 
         registry.Definitions.Count.ShouldBe(2);
-        registry.ResolveVersions("hyw", "reference-data-generator").Count.ShouldBe(2);
+        registry.ResolveVersions("hyw", "text-sender").Count.ShouldBe(2);
 
-        registry.TryResolve(ModuleId.Create("hyw", "reference-data-generator", "2.0.0"), out var resolved).ShouldBeTrue();
+        registry.TryResolve(ModuleId.Create("hyw", "text-sender", "2.0.0"), out var resolved).ShouldBeTrue();
         resolved!.Id.Version.ShouldBe("2.0.0");
     }
 
@@ -112,7 +113,7 @@ public class HostingPackageTests
 
     private static ModuleDefinition DefinitionFromRealPackage()
     {
-        var result = ModulePackageLoader.Load(DataGeneratorPackage);
+        var result = ModulePackageLoader.Load(TextSenderPackage);
         result.Succeeded.ShouldBeTrue(result.FailureReason);
         return ModuleDefinition.FromPackage(result.Package!);
     }
@@ -152,8 +153,8 @@ public class HostingPackageTests
             var manifest = $$"""
             {
               "id": "{{manifestId}}",
-              "entryAssembly": "HYWDebugAssistant.Modules.Reference.DataGenerator.dll",
-              "entryType": "HYWDebugAssistant.Modules.Reference.DataGenerator.DataGeneratorModule"
+              "entryAssembly": "HYWDebugAssistant.Modules.TextSender.dll",
+              "entryType": "HYWDebugAssistant.Modules.TextSender.TextSenderModule"
             }
             """;
 

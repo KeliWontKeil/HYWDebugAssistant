@@ -27,8 +27,9 @@ public class HostingLifecycleTests
             ? "Release"
             : "Debug";
 
-    private static string DataGeneratorPackage => Path.Combine(
-        RepoRoot, "src", "Modules", "Reference", "DataGenerator", "bin", Configuration, "net10.0");
+    /// <summary>业务模块 文本发送器 的构建输出目录（= 它的模块包目录；原参考桩模块已按裁定删除）。</summary>
+    private static string TextSenderPackage => Path.Combine(
+        RepoRoot, "src", "Modules", "Business", "TextSender", "bin", Configuration, "net10.0");
 
     // ------------------------------------------------------------ 实例化与成员实例表
 
@@ -45,7 +46,7 @@ public class HostingLifecycleTests
         instance.Ports[0].Name.ShouldBe("out");
         instance.Ports[0].Direction.ShouldBe(PortDirection.Send);
         instance.View.ShouldNotBeNull();
-        instance.View!.Elements.Count.ShouldBe(3, "M1-12：数据发生器声明 数值 + 曲线 + 序号");
+        instance.View!.Elements.Count.ShouldBe(5, "文本发送器声明 5 个顶层元素（分页输入区 / 发送 / 连续发送 / 间隔 / 已发送）");
         instance.ActivitySource.ShouldNotBeNull();
     }
 
@@ -154,11 +155,11 @@ public class HostingLifecycleTests
         var registry = new ModuleRegistry();
         var installer = new ModuleInstaller(registry, sink);
 
-        installer.TryInstall(DataGeneratorPackage, out var definition).ShouldBeTrue();
-        definition!.Id.ToString().ShouldBe("hyw/reference-data-generator/1.0.0");
+        installer.TryInstall(TextSenderPackage, out var definition).ShouldBeTrue();
+        definition!.Id.ToString().ShouldBe("hyw/text-sender/1.0.0");
         registry.Definitions.Count.ShouldBe(1);
 
-        installer.TryInstall(DataGeneratorPackage, out _).ShouldBeFalse();
+        installer.TryInstall(TextSenderPackage, out _).ShouldBeFalse();
         sink.Issues.Count.ShouldBe(1);
         sink.Issues[0].Issue.Message.ShouldContain("已注册");
     }
@@ -166,7 +167,7 @@ public class HostingLifecycleTests
     [Fact]
     public void 安装器_缺少依赖应拒绝安装并报Issue()
     {
-        using var temp = new TempPackage(DataGeneratorPackage, dependsOn: "hyw/not-installed/1.0.0");
+        using var temp = new TempPackage(TextSenderPackage, dependsOn: "hyw/not-installed/1.0.0");
         var sink = new CollectingIssueSink();
         var installer = new ModuleInstaller(new ModuleRegistry(), sink);
 
@@ -179,7 +180,7 @@ public class HostingLifecycleTests
     [Fact]
     public void 安装器_框架兼容范围不满足应拒绝安装()
     {
-        using var temp = new TempPackage(DataGeneratorPackage, frameworkCompatibility: ">=9.0.0");
+        using var temp = new TempPackage(TextSenderPackage, frameworkCompatibility: ">=9.0.0");
         var sink = new CollectingIssueSink();
         var installer = new ModuleInstaller(new ModuleRegistry(), sink);
 
@@ -226,7 +227,7 @@ public class HostingLifecycleTests
 
     private static ModuleDefinition RealDefinition()
     {
-        var result = ModulePackageLoader.Load(DataGeneratorPackage);
+        var result = ModulePackageLoader.Load(TextSenderPackage);
         result.Succeeded.ShouldBeTrue(result.FailureReason);
         return ModuleDefinition.FromPackage(result.Package!);
     }
@@ -321,9 +322,9 @@ public class HostingLifecycleTests
                 : $",{Environment.NewLine}  \"frameworkCompatibility\": \"{frameworkCompatibility}\"";
             var manifest = $$"""
             {
-              "id": "hyw/reference-data-generator/1.0.0",
-              "entryAssembly": "HYWDebugAssistant.Modules.Reference.DataGenerator.dll",
-              "entryType": "HYWDebugAssistant.Modules.Reference.DataGenerator.DataGeneratorModule",
+              "id": "hyw/text-sender/1.0.0",
+              "entryAssembly": "HYWDebugAssistant.Modules.TextSender.dll",
+              "entryType": "HYWDebugAssistant.Modules.TextSender.TextSenderModule",
               "dependsOn": {{depends}}{{compatibility}}
             }
             """;

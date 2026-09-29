@@ -112,6 +112,31 @@ public sealed class TestModuleContext : IModuleContext, IInputFeedbackReporter
     /// <inheritdoc />
     public IModuleInbox Inbox { get; } = new TestInbox();
 
+    /// <summary>
+    /// **视图状态回读**（测试可预置）〔2026-09 · `decisions.md` 7.28〕：模块读到的就是这里预置的值
+    /// （框架里由 UI 写，测试里由用例写 —— 语义同一份）。
+    /// </summary>
+    public TestViewState ViewState { get; } = new();
+
+    /// <inheritdoc />
+    IViewStateReader IModuleContext.ViewState => ViewState;
+
+    /// <summary>
+    /// **显示内容的请求面**（测试可断言）：模块请求"清空某个显示源"时记在这里。
+    /// </summary>
+    /// <remarks>
+    /// 框架里这条请求进 L4 的挂起表、由 UI 在刷新节拍里执行；测试里**直接落到 <see cref="ViewState"/>**
+    /// —— 于是模块"追加/清空后再回读"（保存）这条路在测试里也走得通，与框架侧语义一致。
+    /// </remarks>
+    public List<string> ClearedDisplays { get; } = [];
+
+    /// <inheritdoc />
+    IViewDisplayAccess IModuleContext.Display => DisplayAccess;
+
+    private DisplayRecorder? _display;
+
+    private DisplayRecorder DisplayAccess => _display ??= new DisplayRecorder(this);
+
     /// <summary>投递一个命令（测试驱动用；等价于用户在模块窗口里点按钮）。</summary>
     /// <param name="commandName">命令名。</param>
     public void EnqueueCommand(string commandName) => ((TestInbox)Inbox).Commands.Enqueue(commandName);
@@ -345,5 +370,45 @@ public sealed class TestModuleContext : IModuleContext, IInputFeedbackReporter
         public override Contracts.ContractLayout Layout { get; }
 
         public override ReadOnlySpan<byte> Span => _payload;
+    }
+    /// <summary>
+    /// 测试替身：把"显示请求"记下来，并**落到 <see cref="TestViewState"/>**（模块回读到的就是它）。
+    /// </summary>
+    /// <remarks>
+    /// 与框架侧同一模型：**只入队、由"UI"落地** —— 测试里"UI"就是用例本身（它读 <see cref="TestViewState"/>）。
+    /// 追加的拼装规则与框架侧逐字一致（不换行 = 直接接在后面；通道换行 = 起一条新的）。
+    /// </remarks>
+    private sealed class DisplayRecorder(TestModuleContext owner) : IViewDisplayAccess
+    {
+        public void Clear(string dataSourceName)
+        {
+            if (string.IsNullOrWhiteSpace(dataSourceName))
+            {
+                return;
+            }
+
+            owner.ClearedDisplays.Add(dataSourceName);
+            owner.ViewState.ClearDisplay(dataSourceName);
+        }
+
+        public void AppendText(string dataSourceName, string text)
+        {
+            if (string.IsNullOrWhiteSpace(dataSourceName))
+            {
+                return;
+            }
+
+            owner.ViewState.AppendDisplay(dataSourceName, text, lineBreak: false);
+        }
+
+        public void AppendLine(string dataSourceName, string text)
+        {
+            if (string.IsNullOrWhiteSpace(dataSourceName))
+            {
+                return;
+            }
+
+            owner.ViewState.AppendDisplay(dataSourceName, text, lineBreak: true);
+        }
     }
 }

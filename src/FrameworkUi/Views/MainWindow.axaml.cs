@@ -154,6 +154,17 @@ public partial class MainWindow : Window
         };
 
         dialog.Closed += (_, _) => _ = _dialogs.Remove(kind);
+
+        // 【2026-09 用户裁定 · 设置三键】「确认 / 取消」由视图模型发起关闭请求 ⇒ 关掉这个弹窗
+        //（订阅在弹窗关闭时摘掉：视图模型是**长生命周期**的，不摘会随每次打开累积）
+        if (kind == DialogKind.Settings)
+        {
+            void OnCloseRequested(object? sender, EventArgs e) => dialog.Close();
+
+            shell.Settings.CloseRequested += OnCloseRequested;
+            dialog.Closed += (_, _) => shell.Settings.CloseRequested -= OnCloseRequested;
+        }
+
         _dialogs[kind] = dialog;
         dialog.Show(this);
 

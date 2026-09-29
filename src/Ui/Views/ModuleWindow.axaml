@@ -15,7 +15,7 @@
         ShowInTaskbar="False"
         Background="Transparent"
         SizeToContent="Manual"
-        MinWidth="180" MinHeight="120"
+        MinWidth="180" MinHeight="160"
         Width="320" Height="220">
 
     <!--
@@ -31,6 +31,8 @@
       【用户第九轮反馈 · UI 开发方式】**尺寸的默认值就在本文件**（`Width`/`Height`/`MinWidth`/`MinHeight`）：
       内容排不下时由 `ModuleContentView` 的 ScrollViewer 滚动，**代码不再按内容计算窗口尺寸**；
       用户在界面上拖过的尺寸会随组合件保存（那是"用户的布局"，不是"代码算的布局"）。
+      **`MinHeight = 160` 是推出来的**（2026-09）：端口标记沿边长度 150（`PortMarkerMetrics.Length`）
+      ⇒ 窗口比它短就会把标记裁掉一截；`MinWidth = 180` 同理要容下横排标记（150）+ 「固定」按钮脚下的空隙。
       `d:DataContext` = 设计时样例数据 → **VS 设计器里可直接预览与调整**（见 `Ui/Design/DesignData.cs`）。
     -->
     <Window.Styles>
@@ -291,14 +293,19 @@
                                     </LayoutTransformControl.LayoutTransform>
                                     <!--
                                       槽位**固定**（内容变化不引起排版抖动）：
-                                        色条(Auto=6) | 网络名(*) | **通路速率(Auto，仅叠加层)** | 箭头(20) | 指示灯(Auto=8)
+                                        色条(Auto=6) | **网络名(Auto，名称优先)** | **通路速率(*，可被裁)** | 箭头(20) | 指示灯(Auto=8)
                                         | **「固定」徽标(恒占 13)**。
+                                      【2026-09 用户裁定 · 名称优先】此前名称列是 `*`、速率列是 `Auto`
+                                      ⇒ 速率（`0.00 KB/s` ≈54px）先把宽度吃光，名称只剩约 10px，
+                                      「（直连）」必然被截（用户："一半的文字被后面的速率遮住了"）。
+                                      现在反过来：**名称拿自己需要的宽度**（上限 = 标记长度 − 固定槽位，
+                                      见 `PortMarkerViewModel.NameMaxWidth`），**速率吃剩下的、不够就省略**。
                                       **槽位顺序 = 读数顺序**：内容整体旋转 −90°（把 (x,y) 映射为 (y,−x)）后，
                                       内容 x 小的一端落到屏幕**下方**（文字自下而上读），故"色条在最前、灯在最末"
                                       在屏幕上表现为 **灯在上端（贴端部）、色条在下端** —— 与用户草图的读数顺序一致。
                                       徽标排在**最末**（屏幕最上端的端部外侧）⇒ 不与任何既有槽位重叠。
                                     -->
-                                    <Grid ColumnDefinitions="Auto,*,Auto,20,Auto">
+                                    <Grid ColumnDefinitions="Auto,Auto,*,20,Auto">
                                         <!-- ① 窄颜色条：数据包类型（颜色映射待定 → Colors/PacketTypePalette） -->
                                         <Border Classes="typeStrip"
                                                 Grid.Column="0"
@@ -306,13 +313,14 @@
                                                 Background="{Binding TypeBrush}"
                                                 Margin="0" />
 
-                                        <!-- ② 网络名：吃剩余宽度，超长省略（前景色走样式 ⇒ 叠加层模式下可换次要色） -->
+                                        <!-- ② 网络名：**名称优先**（拿自己需要的宽度，上限见 NameMaxWidth），超长省略 -->
                                         <TextBlock Grid.Column="1"
                                                    Classes="markerName"
                                                    Margin="4,0,2,0"
                                                    VerticalAlignment="Center"
                                                    FontSize="{DynamicResource PortMarkerFontSize}"
                                                    FontFamily="{DynamicResource FontData}"
+                                                   MaxWidth="{Binding NameMaxWidth}"
                                                    TextTrimming="CharacterEllipsis"
                                                    Text="{Binding NetworkText}" />
 
@@ -321,13 +329,19 @@
                                           用户："**网络标签上缺少速率显示，这才是'数据通路速率'**" + "速率显示**常驻**于网络标签上，
                                           **它不属于叠加层**" ⇒ **始终显示**（不随叠加层开关）；比名称小一号、次要色；
                                           未入网/无流量显示占位符。
+                                          【2026-09 名称优先】它吃**剩余**宽度（`*`）⇒ 名字长时先省略的是它。
+                                          【2026-09 用户实测】**右对齐**：左侧对齐时空档留在速率**左边**，
+                                          看起来"速率占了名称的位置、箭头被挤到边上"（用户："箭头贴边，看起来不在中间；
+                                          速率显示建议靠近箭头"）⇒ 右对齐后空档落到「名称—速率」之间，**速率贴住箭头**。
                                         -->
                                         <TextBlock Grid.Column="2"
                                                    Classes="markerRate"
-                                                   Margin="0,0,4,0"
+                                                   Margin="6,0,4,0"
+                                                   HorizontalAlignment="Right"
                                                    VerticalAlignment="Center"
                                                    FontSize="{DynamicResource PortMarkerRateFontSize}"
                                                    FontFamily="{DynamicResource FontData}"
+                                                   TextTrimming="CharacterEllipsis"
                                                    Text="{Binding RateText}" />
 
                                         <!--
@@ -369,7 +383,7 @@
                                                              Grid.Column="4"
                                                              Width="{DynamicResource PortMarkerLampSize}"
                                                              Height="{DynamicResource PortMarkerLampSize}"
-                                                             Margin="0,0,5,0"
+                                                             Margin="4,0,5,0"
                                                              HorizontalAlignment="Right"
                                                              VerticalAlignment="Center"
                                                              State="{Binding State}"
@@ -380,8 +394,8 @@
                                     </Grid>
                                 </LayoutTransformControl>
 
-                                <!-- 横排（上下边缘）：正常方向（当前框架把口只放在左右，本支为将来留口）；同样槽位固定 -->
-                                <Grid ColumnDefinitions="Auto,*,Auto,20,Auto"
+                                <!-- 横排（上下边缘）：正常方向；同样槽位（**名称优先**，见竖排分支的同一说明） -->
+                                <Grid ColumnDefinitions="Auto,Auto,*,20,Auto"
                                       IsVisible="{Binding !IsVertical}">
                                     <Border Classes="typeStrip"
                                             Grid.Column="0"
@@ -395,16 +409,19 @@
                                                VerticalAlignment="Center"
                                                FontSize="{DynamicResource PortMarkerFontSize}"
                                                FontFamily="{DynamicResource FontData}"
+                                               MaxWidth="{Binding NameMaxWidth}"
                                                TextTrimming="CharacterEllipsis"
                                                Text="{Binding NetworkText}" />
 
-                                    <!-- ②b 通路速率（**常驻**，见竖排分支的同一说明） -->
+                                    <!-- ②b 通路速率（**常驻**；名称优先 ⇒ 它吃剩余宽度；**右对齐贴箭头**，见竖排分支的说明） -->
                                     <TextBlock Grid.Column="2"
                                                Classes="markerRate"
-                                               Margin="0,0,4,0"
+                                               Margin="6,0,4,0"
+                                               HorizontalAlignment="Right"
                                                VerticalAlignment="Center"
                                                FontSize="{DynamicResource PortMarkerRateFontSize}"
                                                FontFamily="{DynamicResource FontData}"
+                                               TextTrimming="CharacterEllipsis"
                                                Text="{Binding RateText}" />
 
                                     <!--
@@ -442,7 +459,7 @@
                                                          Grid.Column="4"
                                                          Width="{DynamicResource PortMarkerLampSize}"
                                                          Height="{DynamicResource PortMarkerLampSize}"
-                                                         Margin="0,0,5,0"
+                                                         Margin="4,0,5,0"
                                                          HorizontalAlignment="Right"
                                                          VerticalAlignment="Center"
                                                          State="{Binding State}"
@@ -601,6 +618,7 @@
                                     FlowLineBrush="{DynamicResource OverlayFlow}"
                                     InkBrush="{DynamicResource OverlayInk}"
                                     InkMutedBrush="{DynamicResource OverlayInkMuted}"
+                                    DataFontFamily="{DynamicResource FontData}"
                                     IsHitTestVisible="False" />
 
             <!-- 运行指示：**左下角**（状态点 + 状态文本；模块名不显示） -->

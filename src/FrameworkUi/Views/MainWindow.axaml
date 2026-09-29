@@ -59,6 +59,17 @@
         <Style Selector="Rectangle.railMark.active">
             <Setter Property="Fill" Value="{DynamicResource AccentPrimary}" />
         </Style>
+
+        <!--
+          状态栏**临时提示**（2026-09）：常态用次要色，错误提示用语义错误色。
+          用两道样式而不是给每处写死颜色 ⇒ "提示是什么色"只有一处定义。
+        -->
+        <Style Selector="TextBlock.notice">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        </Style>
+        <Style Selector="TextBlock.notice.error">
+            <Setter Property="Foreground" Value="{DynamicResource SemanticError}" />
+        </Style>
     </Window.Styles>
 
     <Grid ColumnDefinitions="44,*" RowDefinitions="*,Auto">
@@ -133,28 +144,37 @@
         </Panel>
 
         <!-- ==================== 状态栏（左右两端同一基线与高度） ==================== -->
+        <!--
+          【2026-09 用户实测修复 · 三处】
+          ① **删掉最尾部那个 `Issue N` 入口按钮**：活动栏（A 区）已有 Issue 图标 + 错误计数，
+             这里的按钮是**重复入口**、标签又与摘要里的 `· Issue N` **重复**（用户："ISSUE 的入口点也重复了，
+             建议直接删掉最尾部的 ISSUE 入口点"）。**计数仍留在摘要里**（那是信息，不是入口）。
+          ② **临时提示独占一列**：此前提示被拼在摘要末尾，主窗口只有 396 宽 ⇒ 摘要占满后提示被截成"拖动…"，
+             看起来像"未完成显示的信息"。现在摘要（`*`，先省略）+ 提示（`Auto`，优先完整显示，超长自己省略）。
+          ③ 提示**到点自动过期**（8 秒，见 `ShellViewModel.NoticeLifetime`）—— 旧实现只有"下一条提示"才会替换它。
+        -->
         <Border Grid.Row="1" Grid.Column="1"
                 Height="28"
                 Background="{DynamicResource BgChrome}"
                 BorderBrush="{DynamicResource BorderDefault}"
                 BorderThickness="0,1,0,0">
-            <Grid ColumnDefinitions="*,Auto" Margin="10,0,6,0">
+            <Grid ColumnDefinitions="*,Auto" Margin="10,0,10,0">
                 <TextBlock Grid.Column="0"
                            VerticalAlignment="Center"
                            FontSize="11"
                            TextTrimming="CharacterEllipsis"
                            Foreground="{DynamicResource TextSecondary}"
                            Text="{Binding StatusText}" />
-                <Button Grid.Column="1"
-                        VerticalAlignment="Center"
-                        FontSize="11"
-                        Padding="8,0"
-                        MinHeight="20"
-                        Height="20"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Click="OnOpenIssues"
-                        Content="{Binding IssueCount, StringFormat='Issue {0}'}" />
+                <TextBlock Grid.Column="1"
+                           Margin="12,0,0,0"
+                           MaxWidth="240"
+                           VerticalAlignment="Center"
+                           FontSize="11"
+                           TextTrimming="CharacterEllipsis"
+                           Classes.notice="True"
+                           Classes.error="{Binding StatusNoticeIsError}"
+                           ToolTip.Tip="{Binding StatusNotice}"
+                           Text="{Binding StatusNotice}" />
             </Grid>
         </Border>
     </Grid>

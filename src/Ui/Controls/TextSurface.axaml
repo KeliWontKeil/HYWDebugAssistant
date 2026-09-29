@@ -1,0 +1,87 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctrl="using:HYWDebugAssistant.Ui.Controls"
+             x:Class="HYWDebugAssistant.Ui.Controls.TextSurface">
+
+    <!--
+      **唯一一块文本面**〔2026-09 用户裁定〕：模块文本**输入框**与 A5 **日志**曾经是两套实现
+      （各自一个 `TextBox` + 各自一行行画的 `↵` 层），用户口径是"两者行为基本一致，只是数据写入者/只读属性
+      和滚动条行为不同" ⇒ 合并到本控件，**差异只用属性表达**：
+        · 数据来源：`Lines`（模块缓冲 ⇒ 日志）还是用户键入（`Text` 双向绑定 ⇒ 输入框）；
+        · `IsReadOnly`；
+        · 滚动：`ShowScrollBar`（自建竖条 + 分页窗口）还是内层滚动条（输入框）；
+        · 换行标记、字符级选择、复制：**同一份实现**（本控件 + `NewlineMarkOverlay`）。
+      行为口径：**自动换行 + 无横向滚动条**（长行按字符折行 —— 一行多长由**文本框宽度**决定，
+      不再由数据侧规定字节数）。
+    -->
+    <UserControl.Styles>
+        <!--
+          文本面的**公共排版**：数据字体、小号字、自动换行、无横向滚动条。
+          `Height=NaN` 是必须的：全局 `Controls.axaml` 给 `TextBox` 定了固定高（`ControlHeight`）⇒
+          不覆盖的话多行框/日志框永远只有一个单行高。
+        -->
+        <Style Selector="TextBox.surface">
+            <Setter Property="Height" Value="NaN" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Padding" Value="4,1" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+        </Style>
+
+        <!--
+          **分页窗口模式（日志）**：滚动由右侧自建的那一根驱动 ⇒ 内层竖条只隐藏、不出现；
+          内层**仍可滚动**是有意的：折行会让窗口内容略高于视口，那时靠代码把光标放到末尾让文本框自己滚到底
+          —— 否则"最新那行"会被裁掉（"跟随尾部"就名不副实了）。
+        -->
+        <Style Selector="TextBox.surface.paged">
+            <Setter Property="VerticalContentAlignment" Value="Top" />
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="LineHeight" Value="14" />
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Hidden" />
+        </Style>
+
+        <!--
+          **只读文本面不画聚焦边框**【2026-09 用户实测缺陷修复】：
+          `Fluent` 主题的聚焦态**不是改文本框自己的 `BorderThickness`**，而是直接给模板里的
+          `Border#PART_BorderElement` 加粗到 2 px（`TextControlBorderThemeThicknessFocused`）——
+          所以 `.paged` 里那条 `BorderThickness=0` 只压得住静止态，**一聚焦就冒出深色圆角粗框**
+          （用户截图里那个"很重的聚焦环"）。要压住它，选择器必须**打到同一个模板部件**上，
+          且带上同样的伪类（触发态优先级高于普通态）。
+        -->
+        <Style Selector="TextBox.surface[IsReadOnly=True]:focus /template/ Border#PART_BorderElement">
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="TextBox.surface[IsReadOnly=True]:focus-within /template/ Border#PART_BorderElement">
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+    </UserControl.Styles>
+    <Grid ColumnDefinitions="*,Auto">
+        <Grid Grid.Column="0">
+            <TextBox Name="PartEditor"
+                     Classes="surface"
+                     FontFamily="{DynamicResource FontData}" />
+            <!-- 行末换行标记：**纯装饰**（不进文本、不参与选择、光标跳过），见 `NewlineMarkOverlay` -->
+            <ctrl:NewlineMarkOverlay Name="PartMarks" />
+        </Grid>
+        <!--
+          **自建竖向滚动条**（仅分页窗口模式、且**真的有东西可滚**时才出现）：
+          `Maximum = 总行数 - 窗口行数`、`ViewportSize = 窗口行数`、`Value = 窗口起点`
+          ⇒ 拖动条 = 拖动"窗口"，而不是滚动文本框内部。
+          **尺寸与外观一律交给主题**〔2026-09 用户实测缺陷修复〕：此前这里写了 `Width=12` +
+          `AllowAutoHide=False`，实测后果是 **`AllowAutoHide=False` 会把 `ScrollBar.IsExpanded` 顶成 `true`**
+          ⇒ 主题立刻画出**整根灰轨道 + 上下两个箭头按钮**（用户："滚动条风格非常奇怪且无用，怀疑是之前
+          开发时叠加上去的"）。`AllowAutoHide` 保持默认后：未展开态只有一根**细滑块**（主题的
+          `VerticalSmallScrollThumbScaleTransform`），轨道与箭头按钮的不透明度都是 0 —— 即"普通编辑器滚动条"。
+          **可见性由代码按"有没有回看余地"控制**（`Maximum <= 0` ⇒ 收起），不在 XAML 里写死。
+        -->
+        <ScrollBar Grid.Column="1"
+                   Name="PartScroll"
+                   Orientation="Vertical"
+                   Minimum="0"
+                   Maximum="0"
+                   ViewportSize="1"
+                   IsVisible="False" />
+    </Grid>
+</UserControl>

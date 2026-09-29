@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    T1 判据测试（AC-1~6）：参考组合（三个桩模块）+ 框架 —— docs/architecture/06 §6.4/§6.5
+    T1 判据测试（AC-1~6）：**四个基础模块**（判据载体，2026-09 起）+ 框架 —— docs/architecture/06 §6.4/§6.5
     测试项目可跨层引用（AR 规则只约束 src/ 下的产品程序集）
   -->
   <PropertyGroup>
@@ -21,21 +21,23 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Sdk\HYWDebugAssistant.Sdk.csproj" />
-    <!-- T6 契约测试套件：参考模块的声明面自检（与模块作者用法一致） -->
+    <!-- T6 契约测试套件：在真实模块的声明面上做自检（与模块作者用法一致） -->
     <ProjectReference Include="..\..\src\Sdk.Testing\HYWDebugAssistant.Sdk.Testing.csproj" />
     <ProjectReference Include="..\..\src\Infrastructure\HYWDebugAssistant.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Hosting\HYWDebugAssistant.Hosting.csproj" />
     <ProjectReference Include="..\..\src\DataPlane\HYWDebugAssistant.DataPlane.csproj" />
     <ProjectReference Include="..\..\src\Core\HYWDebugAssistant.Core.csproj" />
     <ProjectReference Include="..\..\src\Core.Api\HYWDebugAssistant.Core.Api.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Reference\DataGenerator\HYWDebugAssistant.Modules.Reference.DataGenerator.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Reference\Recorder\HYWDebugAssistant.Modules.Reference.Recorder.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Reference\Asserter\HYWDebugAssistant.Modules.Reference.Asserter.csproj" />
-    <!-- M1-15：手工验收用的两个测试模块也纳入自动化（发送器 → 信息显示 的端到端） -->
-    <ProjectReference Include="..\..\src\Modules\Reference\ManualSender\HYWDebugAssistant.Modules.Reference.ManualSender.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Reference\Monitor\HYWDebugAssistant.Modules.Reference.Monitor.csproj" />
-    <!-- M1-18：**多源参考模块**（ADR-0050 落地示例：双源融合/仲裁） -->
-    <ProjectReference Include="..\..\src\Modules\Reference\Fuser\HYWDebugAssistant.Modules.Reference.Fuser.csproj" />
+    <!--
+      【2026-09 用户裁定"完全删除旧的模块和数据结构，新测试全部转入新的四个模块"】
+      判据载体 = **四个正式模块**（文本发送器 / HEX 发送器 / 数据显示器 / 转换器）+ **本项目内的测试桩**
+      （`Stubs/`：多源融合 / 定值数据源 / 判据接收）——参考模块独有的能力（仲裁 / 阈值断言 / 记录统计 /
+      定时出数）由桩承载，**框架能力与接口一个都不删**（见 `docs/architecture/06` §G 的"能力→载体"对照表）。
+    -->
+    <ProjectReference Include="..\..\src\Modules\Business\TextSender\HYWDebugAssistant.Modules.TextSender.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\HexSender\HYWDebugAssistant.Modules.HexSender.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\DataMonitor\HYWDebugAssistant.Modules.DataMonitor.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\HexStringConverter\HYWDebugAssistant.Modules.HexStringConverter.csproj" />
   </ItemGroup>
 
 </Project>

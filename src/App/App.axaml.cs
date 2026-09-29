@@ -16,7 +16,16 @@ public partial class App : Application
     private ServiceProvider? _provider;
 
     /// <inheritdoc />
-    public override void Initialize() => AvaloniaXamlLoader.Load(this);
+    public override void Initialize()
+    {
+        AvaloniaXamlLoader.Load(this);
+
+        // 【2026-09 用户裁定】"鼠标必须点其他控件/窗口才能离开焦点，**点其他空白不行**" ⇒
+        // 全局一处安装（`Window` 的类处理器 + 隧道阶段）：主窗口与模块窗口同时生效。
+        // 放在 `Initialize`（而不是 `OnFrameworkInitializationCompleted`）里，是因为无头测试会话
+        // 不一定走到后者 —— 规则必须**与窗口是否存在无关地**就位。
+        PointerFocusRelease.Install();
+    }
 
     /// <inheritdoc />
     public override void OnFrameworkInitializationCompleted()

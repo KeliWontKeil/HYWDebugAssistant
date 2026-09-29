@@ -41,12 +41,12 @@
 - **关键事实**：两者**共用同一份代码与工程文件**，差异仅在发布参数（`--self-contained true/false` + RID），**不影响开发**——因此在**发布阶段一次性处理**。
 - **旧句已不适用**：`architecture/10 §1` 表里"依赖 .NET 10 桌面运行时（**不发布 self-contained**，避免包体过大）"的表述**已被上述用户裁决取代**，不再作为约束；§1 的目录布局与启动提示需按"两种形态各自处理"。
 
-**发布打包动作** 〔源: code: tools/stage-reference-modules.ps1〕：
+**发布打包动作** 〔源: code: tools/verify-module-packages.ps1（2026-09 由 `stage-reference-modules.ps1` 改名，功能不变）〕：
 
-- `tools\stage-reference-modules.ps1 -ExportDirectory <目录>` ⇒ 把 `artifacts\modules\` 下**全部**包目录复制到目标目录（先清空目标目录）。
+- `tools\verify-module-packages.ps1 -ExportDirectory <目录>` ⇒ 把 `artifacts\modules\` 下**全部**包目录复制到目标目录（先清空目标目录）。
 - **不再维护模块清单**——打包只遍历 `artifacts\modules`，新增模块项目自动进入发布包。
 
-## 2. 构建门禁与产物归拢 〔源: code: build.ps1 / tools/stage-reference-modules.ps1 / src/Modules/Directory.Build.targets / src/App/HYWDebugAssistant.App.csproj / Directory.Build.props + ADR-0036 D2/D3〕
+## 2. 构建门禁与产物归拢 〔源: code: build.ps1 / tools/verify-module-packages.ps1 / src/Modules/Directory.Build.targets / src/App/HYWDebugAssistant.App.csproj / Directory.Build.props + ADR-0036 D2/D3〕
 
 ### 2.1 门禁实际步骤（`build.ps1`）
 
@@ -56,7 +56,7 @@
 | 1 | 环境清理 | 清除被污染的 `Platform` / `Platform(x86)` 环境变量 | 不失败（否则 MSBuild 报 `MSB4126`） |
 | 2 | 还原 | `dotnet restore HYWDebugAssistant.slnx` | **中止** |
 | 3 | 构建 | `dotnet build HYWDebugAssistant.slnx -c <Configuration> --no-restore` | **中止** |
-| 4 | 模块包校验 | `tools\stage-reference-modules.ps1 -Configuration <Configuration>` | **中止** |
+| 4 | 模块包校验 | `tools\verify-module-packages.ps1 -Configuration <Configuration>` | **中止** |
 | 5 | 依赖许可审计 | `tools\audit-licenses.ps1 -Root <仓库根>` | **中止**（非零退出） |
 | 6 | 测试 | `dotnet test HYWDebugAssistant.slnx -c <Configuration> --no-build` | **中止** |
 | 7 | 基准（默认不跑） | `-RunBenchmarks` ⇒ `dotnet run -c Release --project tests\HYWDebugAssistant.Benchmarks` | 仅该步失败时中止 |
@@ -77,15 +77,15 @@
 | 环节 | 机制 |
 |---|---|
 | 判定"是模块项目" | 项目目录下存在 **`module.json`**（**不引入额外开关**） |
-| 包目录名 | `$(ModulePackageName)`；缺省取项目名**最后一个点段**，可在模块项目显式指定（参考模块均显式指定为 kebab 名：`data-generator` / `manual-sender` / `monitor` / `recorder` / `asserter` / `fuser`） |
+| 包目录名 | `$(ModulePackageName)`；缺省取项目名**最后一个点段**，可在模块项目显式指定（现行四个正式模块均显式指定为 kebab 名：`text-sender` / `hex-sender` / `data-monitor` / `hex-string-converter`；原参考模块的 `data-generator` / `manual-sender` / `monitor` / `recorder` / `asserter` / `fuser` 已随其载体于 2026-09 删除） |
 | 模块侧产出 | 模块项目构建后（`AfterTargets="Build"`）⇒ `artifacts\modules\<包名>\`：**先清空该包目录再复制** `$(TargetDir)**\*`（避免新旧程序集混放造成"改了代码没生效"的假象） |
 | 应用侧镜像 | `App` 项目构建后 ⇒ `$(OutDir)modules\<包名>\`（镜像 `artifacts\modules\**\*` 全部内容） |
 | 新增模块 | **零改动**：新建模块项目（含 `module.json`）即可，不需要改任何脚本 / targets |
 | 仓库卫生 | `artifacts/` 已在 `.gitignore`（构建产物不入库）；包物理形式 = **1 包 = 1 目录**（不变） |
 
-**模块包内容与校验规则** 〔源: code: tools/stage-reference-modules.ps1〕：
+**模块包内容与校验规则** 〔源: code: tools/verify-module-packages.ps1（2026-09 由 `stage-reference-modules.ps1` 改名）〕：
 
-- 每个包目录必须同时含 **`module.json`** 与清单 `entryAssembly` 指名的**实现程序集**（不齐即校验失败）。参考包实际内容：实现程序集 + `HYWDebugAssistant.Sdk.dll` + `*.deps.json` + `*.pdb` + `module.json`。
+- 每个包目录必须同时含 **`module.json`** 与清单 `entryAssembly` 指名的**实现程序集**（不齐即校验失败）。现行包实际内容：实现程序集 + `HYWDebugAssistant.Sdk.dll` + `*.deps.json` + `*.pdb` + `module.json`。
 - 校验两处**包数必须一致**：`artifacts\modules\`（构建产出）vs `src\App\bin\<Configuration>\net10.0\modules\`（应用输出）；不一致 ⇒ 报错并提示"请重新构建 App 项目"。`artifacts\modules\` 不存在或为空 ⇒ 直接失败（提示先运行 `build.ps1`）。
 - 应用输出 `modules\` 是**构建产物**（每次构建重建）——**不要手工往里放东西**。
 
@@ -264,14 +264,14 @@ MIT · Apache-2.0 · BSD-2-Clause · BSD-3-Clause · ISC · Zlib · MS-PL · Unl
 
 | 项 | 设计口径 | 代码现状 |
 |---|---|---|
-| 便携包打包 | §1 布局 + `-ExportDirectory` 导出 | 目录布局与 zip 打包**未落地**；导出脚本已有（`stage-reference-modules.ps1 -ExportDirectory`） |
+| 便携包打包 | §1 布局 + `-ExportDirectory` 导出 | 目录布局与 zip 打包**未落地**；导出脚本已有（`verify-module-packages.ps1 -ExportDirectory`） |
 | 两种发布形态（framework-dependent + self-contained） | §1（**两者都发**，用户裁决） | **未落地**（工程无 RID / self-contained 发布配置） |
 | 日志文件（`logs\` + sink + 7 文件 / 32 MB 滚动） | §4.2 | **未落地**（无日志依赖、无 sink、无 `logs\`） |
 | 未处理异常兜底（日志 + 转 Issue + 不静默崩溃） | §4.2 | **未落地**（`Program.cs` / `App.axaml.cs` 无 `UnhandledException` / `UnobservedTaskException` 处理） |
 | NOTICE 生成与随包 | §3.4 | **未落地**（审计脚本只打印控制台；仓库无 `THIRD_PARTY_NOTICES.md`） |
 | 依赖可复现（**不生成 lock 文件**） | §3.3：`RestorePackagesWithLockFile=false`，由 **CPM + 版本锁定**承担 | **已生效**（`Directory.Build.props`；全仓无 lock 文件）；ADR-0024 §6 的 lock 要求**已不适用** |
 | 许可门禁（白名单 + 传递依赖 + 例外表） | §3 | **已落地并生效**（`build.ps1` 第 5 步） |
-| 构建即归拢 + 应用镜像 + 门禁校验 | §2.2 | **已落地**（6 个参考模块包齐全，应用输出与 `artifacts\modules` 数量校验通过） |
+| 构建即归拢 + 应用镜像 + 门禁校验 | §2.2 | **已落地**（**4 个正式模块包**齐全，应用输出与 `artifacts\modules` 数量校验通过；原 6 个参考模块包已于 2026-09 删除） |
 | 内置模块目录默认扫描 + 来源根诊断 | §2.3 | **已落地**（`CompositionRoot` + 启动 Issue + 「模块清单」诊断区） |
 | Issue 中心（收集 / 过滤 / 标注） | §4.1 L2 / §5.1 | **已落地**（内存，不落盘） |
 | 波形 / FFT 相关依赖 | ADR-0024 §3（`FftSharp` 或 `MathNet.Numerics`；`ScottPlot.Avalonia`） | CPM 中**尚无**对应包条目（波形能力未引入依赖） |

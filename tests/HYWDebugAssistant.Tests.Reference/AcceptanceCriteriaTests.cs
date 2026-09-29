@@ -1,13 +1,10 @@
 using System.Buffers.Binary;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.Json.Nodes;
 using HYWDebugAssistant.Core.Api;
-using HYWDebugAssistant.Core.Runtime;
-using HYWDebugAssistant.Core.Services;
 using HYWDebugAssistant.Hosting.Instances;
-using HYWDebugAssistant.Modules.Reference.Asserter;
-using HYWDebugAssistant.Modules.Reference.DataGenerator;
-using HYWDebugAssistant.Modules.Reference.Recorder;
+using HYWDebugAssistant.Modules.DataMonitor;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
@@ -16,6 +13,7 @@ using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Views;
+using HYWDebugAssistant.Tests.Reference.Stubs;
 using Shouldly;
 using Xunit;
 using ActivityKind = HYWDebugAssistant.Sdk.Lifecycle.ActivityKind;
@@ -26,21 +24,22 @@ namespace HYWDebugAssistant.Tests.Reference;
 /// **T1 判据测试（AC-1~6）**——主文档 §17 / `docs/architecture/06` §6.4、`08` §M1-12。
 /// </summary>
 /// <remarks>
-/// 参考组合 = 三个参考桩模块（数据发生器 → 记录器 + 断言器，1:N 多播）。
-/// 三个模块都是 Core **从未见过**的业务模块：只引 SDK、只凭声明接入。
+/// <para>
+/// <b>载体变更（2026-09 用户裁定"完全删除旧的模块…新测试全部转入新的四个模块"）</b>：
+/// 原判据组合 = 三个参考桩模块（数据发生器 → 记录器 + 断言器，1:N 多播）。
+/// </para>
+/// <list type="bullet">
+///   <item><b>链路载体</b>换成**正式模块 + 本项目内的测试桩**：`hyw/data-monitor`（下游显示）+
+///     `test/rate-source`（不需要人操作的持续数据源，见 <c>Stubs/</c>）+
+///     `test/fusion-stub`（多源合并）；</item>
+///   <item><b>判据本身一条都没改口径</b>：AC-1 依赖图 + 接入即运行、AC-2 故障隔离、AC-3 五类在线变更、
+///     AC-4 保存/加载往返无损、AC-5 批量新增不碰既有、AC-6 未知形状零改动；</item>
+///   <item>框架程序集引用集断言（AC-1/AC-6）的对象是**框架自身**，与载体无关 ⇒ 原样保留；
+///     "模块只引 SDK"（AR-1）复核对象改为**四个正式模块程序集**。</item>
+/// </list>
 /// </remarks>
 public class AcceptanceCriteriaTests
 {
-    private static readonly string RepoRoot = FindRepoRoot();
-
-    private static string Configuration =>
-        AppContext.BaseDirectory.Contains($"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
-            ? "Release"
-            : "Debug";
-
-    private static string PackagePath(string moduleName) => Path.Combine(
-        RepoRoot, "src", "Modules", "Reference", moduleName, "bin", Configuration, "net10.0");
-
     /// <summary>框架程序集（AC-1/AC-6 的"依赖图断言"对象）。</summary>
     private static readonly string[] FrameworkAssemblies =
     [
@@ -50,6 +49,21 @@ public class AcceptanceCriteriaTests
         "HYWDebugAssistant.Core",
         "HYWDebugAssistant.Core.Api",
     ];
+
+    /// <summary>四个正式模块的项目名（AR-1 复核对象）。</summary>
+    private static readonly string[] BusinessModules =
+    [
+        "TextSender",
+        "HexSender",
+        "DataMonitor",
+        "HexStringConverter",
+    ];
+
+    private const string MonitorModuleId = "hyw/data-monitor/1.0.0";
+
+    private const string RateSourceModuleId = "test/rate-source/1.0.0";
+
+    private const string FusionStubModuleId = "test/fusion-stub/1.0.0";
 
     // ------------------------------------------------------------ AC-1
 
@@ -65,42 +79,51 @@ public class AcceptanceCriteriaTests
                 $"{assembly} 不得引用模块程序集（模块是新增物，框架不认识它）");
         }
 
-        // ② 参考桩模块自身只引 SDK（AR-1 在真实模块上的复核）
-        foreach (var module in new[] { "DataGenerator", "Recorder", "Asserter" })
+        // ② 四个正式模块自身只引 SDK（AR-1 在真实模块上的复核）
+        foreach (var module in BusinessModules)
         {
-            var moduleAssembly = $"HYWDebugAssistant.Modules.Reference.{module}";
-            var references = ReadAssemblyReferences(moduleAssembly);
+            var references = ReadAssemblyReferences($"HYWDebugAssistant.Modules.{module}");
             references.Where(r => r.StartsWith("HYWDebugAssistant.", StringComparison.Ordinal))
                 .ShouldBe(["HYWDebugAssistant.Sdk"], $"{module} 只允许引用 Sdk");
         }
 
-        // ③ 接入运行：装包 → 加入 → 建网 → 数据流
-        using var composition = new Composition();
-        composition.InstallReferencePackages();
+        // ③ 装包 → 加入 → 建网 → 数据流：**一个源、两个下游**（1:N 多播）
+        using var composition = new BusinessChainTests.Composition();
+        composition.InstallBusinessPackages();
+        composition.Register("rate-source", typeof(RateSourceStubModule));
+        composition.Register("fusion-stub", typeof(FusionStubModule));
 
-        composition.Services.AddModule("gen", "hyw/reference-data-generator/1.0.0").Succeeded.ShouldBeTrue();
-        composition.Services.AddModule("rec", "hyw/reference-recorder/1.0.0").Succeeded.ShouldBeTrue();
-        composition.Services.AddModule("asr", "hyw/reference-asserter/1.0.0").Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("src", RateSourceModuleId).Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("mon", MonitorModuleId).Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("fus", FusionStubModuleId).Succeeded.ShouldBeTrue();
 
-        composition.Services.UpdateConfiguration("gen", new DataGeneratorConfig
-        {
-            Waveform = GeneratorWaveform.Constant,
-            Offset = 0.5,
-            PeriodMs = 5,
-        }).Succeeded.ShouldBeTrue();
-
-        composition.Services.UpdateConfiguration("asr", new AsserterConfig { Expected = 0.5, Tolerance = 1e-6 })
+        composition.Services.UpdateConfiguration("src", new RateSourceStubConfig { Value = 0.5, IntervalMs = 5 })
             .Succeeded.ShouldBeTrue();
 
-        composition.Services.Connect(
-            new PortRef("gen", DataGeneratorModule.OutputPort),
-            [new PortRef("rec", RecorderModule.InputPort), new PortRef("asr", AsserterModule.InputPort)],
-            "link-1").Succeeded.ShouldBeTrue();
+        // 显示器「接收换行」开 ⇒ 每个包立即成行（便于断言内容）
+        composition.Submit("mon", DataMonitorModule.LineBreakSource, "true").Succeeded.ShouldBeTrue();
 
-        composition.WaitForFlow("asr", AsserterModule.PassedSource).ShouldBeTrue("断言器应通过样本（数据真的流过了）");
-        composition.WaitForFlow("rec", RecorderModule.CountSource).ShouldBeTrue("记录器应记录样本");
+        // 建网：同一网络标签 ⇒ 一个源、两个宿
+        composition.Services.UpdatePortNetwork("src", RateSourceStubModule.OutPort, "bus").Succeeded.ShouldBeTrue();
+        composition.Services.UpdatePortNetwork("mon", DataMonitorModule.InPort, "bus").Succeeded.ShouldBeTrue();
+        composition.Services.UpdatePortNetwork("fus", FusionStubModule.InputPort1, "bus").Succeeded.ShouldBeTrue();
 
-        composition.IssuesWith("断言器").ShouldBeEmpty("常量 0.5 与期望一致 → 不应有断言失败");
+        composition.Services.GetNetworks().ShouldHaveSingleItem().Targets.Count.ShouldBe(2, "1:N 多播：两个下游同属一条网络");
+
+        composition.WaitForDisplayCount("mon", DataMonitorModule.LogSource, atLeast: 1)
+            .ShouldBeTrue(IssueSummary(composition, "显示器应收到样本"));
+        composition.WaitForCount("fus", FusionStubModule.Count1Source, atLeast: 1)
+            .ShouldBeTrue(IssueSummary(composition, "融合桩应在其第 1 个口上收到样本"));
+
+        composition.WaitUntilDisplayText("mon", DataMonitorModule.LogSource, "0.5")
+            .ShouldBeTrue("定值 0.5 真的流到了下游（模块只凭声明接入，框架零改动）");
+
+        // 健康链路上不应有**错误级** Issue（原判据"断言器不应有断言失败"的等价物；
+        // `IssueView.Severity` 是枚举名文本，故按名字比较）
+        composition.Services.GetIssues(200)
+            .ShouldNotContain(
+                i => string.Equals(i.Severity, nameof(IssueSeverity.Error), StringComparison.Ordinal),
+                IssueSummary(composition, "健康链路不应产生错误"));
     }
 
     // ------------------------------------------------------------ AC-2
@@ -108,7 +131,7 @@ public class AcceptanceCriteriaTests
     [Fact]
     public void AC2_模块故障不影响无关模块_上游无数据是合法无输入()
     {
-        using var composition = new Composition();
+        using var composition = new BusinessChainTests.Composition();
 
         composition.Register("healthy", typeof(HealthyGeneratorModule));
         composition.Register("faulty", typeof(FaultyGeneratorModule));
@@ -124,13 +147,14 @@ public class AcceptanceCriteriaTests
         composition.Services.Connect(new PortRef("f1", "out"), [new PortRef("sb", "in")], "faulty-link").Succeeded.ShouldBeTrue();
 
         // ① 故障模块的活动体抛异常 → 受控捕获 + 上报，**不影响**健康链路
-        composition.WaitForFlow("h1", "value").ShouldBeTrue("健康链路应照常产生数据");
+        composition.WaitForCount("h1", "value", atLeast: 1).ShouldBeTrue("健康链路应照常产生数据");
 
-        composition.IssuesWith("活动体异常").ShouldNotBeEmpty("故障模块的异常应被边界捕获并上报（不逸出）");
+        IssuesWith(composition, "活动体异常").ShouldNotBeEmpty("故障模块的异常应被边界捕获并上报（不逸出）");
 
         var healthyWrites = composition.Written("h1", "value");
-        WaitUntil(() => composition.Written("h1", "value") > healthyWrites, TimeSpan.FromSeconds(2))
-            .ShouldBeTrue("故障发生后，无关模块应继续运行");
+        BusinessChainTests.Composition.WaitUntil(
+            () => composition.Written("h1", "value") > healthyWrites,
+            TimeSpan.FromSeconds(2)).ShouldBeTrue("故障发生后，无关模块应继续运行");
 
         composition.Services.GetInstances().Single(i => i.InstanceId == "sb").State
             .ShouldBe(nameof(ModuleInstanceState.Active), "故障模块的实例仍在场（框架不擅自清理）");
@@ -141,7 +165,7 @@ public class AcceptanceCriteriaTests
 
         composition.Services.GetInstances().Single(i => i.InstanceId == "sa").State
             .ShouldBe(nameof(ModuleInstanceState.Active), "上游停流对下游是合法状态，非错误");
-        composition.IssuesWith("无输入").ShouldBeEmpty();
+        IssuesWith(composition, "无输入").ShouldBeEmpty();
     }
 
     // ------------------------------------------------------------ AC-3
@@ -149,107 +173,137 @@ public class AcceptanceCriteriaTests
     [Fact]
     public void AC3_五类变更_可在常驻运行中在线生效且不中断既有数据流()
     {
-        using var composition = new Composition();
-        composition.InstallReferencePackages();
+        using var composition = new BusinessChainTests.Composition();
+        composition.InstallBusinessPackages();
+        composition.Register("rate-source", typeof(RateSourceStubModule));
 
-        composition.Services.AddModule("gen", "hyw/reference-data-generator/1.0.0").Succeeded.ShouldBeTrue();
-        composition.Services.AddModule("asr", "hyw/reference-asserter/1.0.0").Succeeded.ShouldBeTrue();
-        composition.Services.Connect(
-            new PortRef("gen", DataGeneratorModule.OutputPort),
-            [new PortRef("asr", AsserterModule.InputPort)],
-            "main").Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("src", RateSourceModuleId).Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("mon", MonitorModuleId).Succeeded.ShouldBeTrue();
 
-        composition.WaitForFlow("asr", AsserterModule.PassedSource).ShouldBeTrue();
+        composition.Services.UpdateConfiguration("src", new RateSourceStubConfig { Value = 1.0, IntervalMs = 5 })
+            .Succeeded.ShouldBeTrue();
+        composition.Submit("mon", DataMonitorModule.LineBreakSource, "true").Succeeded.ShouldBeTrue();
+
+        composition.Services.UpdatePortNetwork("src", RateSourceStubModule.OutPort, "main").Succeeded.ShouldBeTrue();
+        composition.Services.UpdatePortNetwork("mon", DataMonitorModule.InPort, "main").Succeeded.ShouldBeTrue();
+
+        composition.WaitForDisplayCount("mon", DataMonitorModule.LogSource, atLeast: 1)
+            .ShouldBeTrue(IssueSummary(composition, "既有链路应先跑起来"));
 
         // ① 加入（Add Module）
-        composition.Services.AddModule("asr2", "hyw/reference-asserter/1.0.0").Succeeded.ShouldBeTrue();
-        composition.AssertFlowContinues("asr");
+        composition.Services.AddModule("mon2", MonitorModuleId).Succeeded.ShouldBeTrue();
+        AssertFlowContinues(composition, "src");
 
-        // ② 建网（Connect）
-        composition.Services.Connect(
-            new PortRef("gen", DataGeneratorModule.OutputPort),
-            [new PortRef("asr2", AsserterModule.InputPort)],
-            "second").Succeeded.ShouldBeTrue();
-        composition.WaitForFlow("asr2", AsserterModule.PassedSource).ShouldBeTrue("新建网络应立即可流");
-        composition.AssertFlowContinues("asr");
+        // ② 建网（写同名网络标签）：第二个下游立即加入同一条网络并开始收数
+        composition.Submit("mon2", DataMonitorModule.LineBreakSource, "true").Succeeded.ShouldBeTrue();
+        composition.Services.UpdatePortNetwork("mon2", DataMonitorModule.InPort, "main").Succeeded.ShouldBeTrue();
 
-        // ③ 配置更新（模块热生效，不重建实例）
-        var instanceBefore = composition.Runtime.Content.Instances.Single(i => i.InstanceId == "gen");
-        composition.Services.UpdateConfiguration("gen", new DataGeneratorConfig
-        {
-            Waveform = GeneratorWaveform.Constant,
-            Offset = 1.25,
-            PeriodMs = 5,
-        }).Succeeded.ShouldBeTrue();
-        composition.Services.UpdateConfiguration("asr", new AsserterConfig { Expected = 1.25, Tolerance = 1e-6 })
+        composition.WaitForDisplayCount("mon2", DataMonitorModule.LogSource, atLeast: 1)
+            .ShouldBeTrue(IssueSummary(composition, "新建网络应立即可流"));
+        AssertFlowContinues(composition, "src");
+
+        // ③ 配置更新（模块热生效，不重建实例，新值真的流到下游）
+        var instanceBefore = composition.Runtime.Content.Instances.Single(i => i.InstanceId == "src");
+        composition.Services.UpdateConfiguration("src", new RateSourceStubConfig { Value = 1.25, IntervalMs = 5 })
             .Succeeded.ShouldBeTrue();
-        composition.AssertFlowContinues("asr");
-        composition.Runtime.Content.Instances.Single(i => i.InstanceId == "gen").ShouldBeSameAs(instanceBefore, "配置热生效不重建实例");
+
+        composition.WaitUntilDisplayText("mon", DataMonitorModule.LogSource, "1.25")
+            .ShouldBeTrue("配置热生效后新值应流到下游");
+        composition.Runtime.Content.Instances.Single(i => i.InstanceId == "src")
+            .ShouldBeSameAs(instanceBefore, "配置热生效不重建实例");
+        AssertFlowContinues(composition, "src");
 
         // ④ 禁用 / 启用（保留拓扑与配置，只停流）
-        composition.Services.SetModuleEnabled("asr2", false).Succeeded.ShouldBeTrue();
-        composition.Services.SetModuleEnabled("asr2", true).Succeeded.ShouldBeTrue();
-        composition.AssertFlowContinues("asr");
+        composition.Services.SetModuleEnabled("mon2", false).Succeeded.ShouldBeTrue();
+        composition.Services.SetModuleEnabled("mon2", true).Succeeded.ShouldBeTrue();
+        AssertFlowContinues(composition, "src");
 
-        // ⑤ 断开与移除（级联）
-        composition.Services.Disconnect("second").Succeeded.ShouldBeTrue();
-        composition.Services.RemoveModule("asr2").Succeeded.ShouldBeTrue();
-        composition.AssertFlowContinues("asr");
+        // ⑤ 断开与移除（级联）：mon2 先退出网络，再被移除
+        composition.Services.UpdatePortNetwork("mon2", DataMonitorModule.InPort, null).Succeeded.ShouldBeTrue();
 
-        composition.Services.GetInstances().Count.ShouldBe(2, "移除后现场只剩 gen 与 asr（新批次已被级联清理）");
+        var network = composition.Services.GetNetworks().Single(n => n.Name == "main");
+        network.Targets.Count.ShouldBe(1, "断开后网络只剩既有显示器");
+
+        composition.Services.RemoveModule("mon2").Succeeded.ShouldBeTrue();
+        AssertFlowContinues(composition, "src");
+
+        composition.Services.GetInstances().Count.ShouldBe(2, "移除后现场只剩 src 与 mon（新批次已被级联清理）");
         composition.Services.GetNetworks().ShouldContain(n => n.Name == "main");
-        composition.Services.GetNetworks().ShouldNotContain(n => n.Name == "second");
+        composition.Services.GetNetworks().Single(n => n.Name == "main").Targets.Count.ShouldBe(1);
     }
 
     // ------------------------------------------------------------ AC-4
 
     [Fact]
-    public void AC4_参考组合件的保存加载运行再保存应无损往返()
+    public void AC4_组合件的保存加载运行再保存应无损往返()
     {
-        using var first = new Composition();
-        first.InstallReferencePackages();
+        var directory = Path.Combine(Path.GetTempPath(), "hyw-ac-" + Guid.NewGuid().ToString("N"));
+        _ = Directory.CreateDirectory(directory);
 
-        first.Services.AddModule("gen", "hyw/reference-data-generator/1.0.0").Succeeded.ShouldBeTrue();
-        first.Services.AddModule("rec", "hyw/reference-recorder/1.0.0").Succeeded.ShouldBeTrue();
-        first.Services.AddModule("asr", "hyw/reference-asserter/1.0.0").Succeeded.ShouldBeTrue();
-        first.Services.Connect(
-            new PortRef("gen", DataGeneratorModule.OutputPort),
-            [new PortRef("rec", RecorderModule.InputPort), new PortRef("asr", AsserterModule.InputPort)],
-            "link-1").Succeeded.ShouldBeTrue();
-        first.Services.UpdateConfiguration("gen", new DataGeneratorConfig
+        var path = Path.Combine(directory, "composite.json");
+        var resaved = Path.Combine(directory, "composite-2.json");
+
+        try
         {
-            Waveform = GeneratorWaveform.Constant,
-            Offset = 0.75,
-            PeriodMs = 5,
-        }).Succeeded.ShouldBeTrue();
-        first.Services.UpdateConfiguration("asr", new AsserterConfig { Expected = 0.75, Tolerance = 1e-6 })
-            .Succeeded.ShouldBeTrue();
-        first.Services.UpdateModuleLayout(new ModuleLayoutView("gen", 10, 20, 240, 140)).Succeeded.ShouldBeTrue();
+            using (var first = new BusinessChainTests.Composition())
+            {
+                first.InstallBusinessPackages();
+                first.Register("rate-source", typeof(RateSourceStubModule));
 
-        var path = first.PathFor("reference-composite.json");
-        first.Services.SaveComposite(path, "reference").Succeeded.ShouldBeTrue();
+                first.Services.AddModule("src", RateSourceModuleId).Succeeded.ShouldBeTrue();
+                first.Services.AddModule("mon", MonitorModuleId).Succeeded.ShouldBeTrue();
 
-        using var second = new Composition();
-        second.InstallReferencePackages();
-        second.Services.LoadComposite(path).Succeeded.ShouldBeTrue();
+                first.Services.UpdatePortNetwork("src", RateSourceStubModule.OutPort, "bus").Succeeded.ShouldBeTrue();
+                first.Services.UpdatePortNetwork("mon", DataMonitorModule.InPort, "bus").Succeeded.ShouldBeTrue();
 
-        second.Services.GetInstances().Count.ShouldBe(3);
-        second.Services.GetInstances().ShouldNotContain(i => i.IsPlaceholder);
+                first.Services.UpdateConfiguration("src", new RateSourceStubConfig { Value = 0.75, IntervalMs = 5 })
+                    .Succeeded.ShouldBeTrue();
+                first.Submit("mon", DataMonitorModule.LineBreakSource, "true").Succeeded.ShouldBeTrue();
+                first.Services.UpdateModuleLayout(new ModuleLayoutView("src", 10, 20, 240, 140)).Succeeded.ShouldBeTrue();
 
-        // 加载后**可运行**：两侧配置都已恢复（发生器常量 0.75、断言器期望 0.75）→ 直接通过
-        second.WaitForFlow("asr", AsserterModule.PassedSource).ShouldBeTrue("加载后的组合应能立即运行");
-        second.WaitForFlow("asr", AsserterModule.FailedSource).ShouldBeTrue();
-        second.IssuesWith("断言器").ShouldBeEmpty("配置随组合件恢复，断言应通过");
+                first.WaitForDisplayCount("mon", DataMonitorModule.LogSource, atLeast: 1)
+                    .ShouldBeTrue(IssueSummary(first, "保存前链路应先跑起来"));
 
-        var resaved = second.PathFor("reference-composite-2.json");
-        second.Services.SaveComposite(resaved, "reference").Succeeded.ShouldBeTrue();
+                first.Services.SaveComposite(path, "基础组合").Succeeded.ShouldBeTrue();
+            }
 
-        var before = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!.AsObject();
-        var after = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(resaved))!.AsObject();
-        _ = before.Remove("savedAt");
-        _ = after.Remove("savedAt");
-        System.Text.Json.Nodes.JsonNode.DeepEquals(before, after)
-            .ShouldBeTrue($"参考组合的往返应无损：\n前：{before}\n后：{after}");
+            using (var second = new BusinessChainTests.Composition())
+            {
+                second.InstallBusinessPackages();
+                second.Register("rate-source", typeof(RateSourceStubModule));
+
+                second.Services.LoadComposite(path).Succeeded.ShouldBeTrue();
+
+                second.Services.GetInstances().Count.ShouldBe(2);
+                second.Services.GetInstances().ShouldNotContain(i => i.IsPlaceholder);
+
+                // 加载后**可运行**：配置随组合件恢复（定值 0.75、间隔 5ms）⇒ 无需人工干预即出数
+                second.WaitForDisplayCount("mon", DataMonitorModule.LogSource, atLeast: 1)
+                    .ShouldBeTrue(IssueSummary(second, "加载后的组合应能立即运行"));
+                second.WaitUntilDisplayText("mon", DataMonitorModule.LogSource, "0.75")
+                    .ShouldBeTrue("配置随组合件恢复 ⇒ 定值 0.75 应流到下游（不是靠界面里的输入文本）");
+
+                second.Services.SaveComposite(resaved, "基础组合").Succeeded.ShouldBeTrue();
+            }
+
+            // 往返无损：除时间戳外逐字段一致
+            var before = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+            var after = JsonNode.Parse(File.ReadAllText(resaved))!.AsObject();
+            _ = before.Remove("savedAt");
+            _ = after.Remove("savedAt");
+            JsonNode.DeepEquals(before, after).ShouldBeTrue($"组合件往返应无损：\n前：{before}\n后：{after}");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+                // 清理失败不影响结论
+            }
+        }
     }
 
     // ------------------------------------------------------------ AC-5
@@ -257,45 +311,52 @@ public class AcceptanceCriteriaTests
     [Fact]
     public void AC5_同批新增多个模块不要求修改既有模块()
     {
-        using var composition = new Composition();
-        composition.InstallReferencePackages();
+        using var composition = new BusinessChainTests.Composition();
+        composition.InstallBusinessPackages();
+        composition.Register("rate-source", typeof(RateSourceStubModule));
 
-        composition.Services.AddModule("gen", "hyw/reference-data-generator/1.0.0").Succeeded.ShouldBeTrue();
-        composition.Services.AddModule("asr", "hyw/reference-asserter/1.0.0").Succeeded.ShouldBeTrue();
-        composition.Services.Connect(
-            new PortRef("gen", DataGeneratorModule.OutputPort),
-            [new PortRef("asr", AsserterModule.InputPort)],
-            "base").Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("src", RateSourceModuleId).Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("mon", MonitorModuleId).Succeeded.ShouldBeTrue();
 
-        composition.Services.UpdateConfiguration("gen", new DataGeneratorConfig
-        {
-            Waveform = GeneratorWaveform.Constant,
-            Offset = 0,
-            PeriodMs = 5,
-        }).Succeeded.ShouldBeTrue();
-        composition.Services.UpdateConfiguration("asr", new AsserterConfig { Expected = 0 }).Succeeded.ShouldBeTrue();
+        composition.Services.UpdatePortNetwork("src", RateSourceStubModule.OutPort, "base").Succeeded.ShouldBeTrue();
+        composition.Services.UpdatePortNetwork("mon", DataMonitorModule.InPort, "base").Succeeded.ShouldBeTrue();
 
-        composition.WaitForFlow("asr", AsserterModule.PassedSource).ShouldBeTrue();
+        composition.Services.UpdateConfiguration("src", new RateSourceStubConfig { Value = 0, IntervalMs = 5 })
+            .Succeeded.ShouldBeTrue();
+        composition.Submit("mon", DataMonitorModule.LineBreakSource, "true").Succeeded.ShouldBeTrue();
 
-        var existingGenerator = composition.Runtime.Content.Instances.Single(i => i.InstanceId == "gen");
-        var existingAsserter = composition.Runtime.Content.Instances.Single(i => i.InstanceId == "asr");
-        var passedBefore = composition.Written("asr", AsserterModule.PassedSource);
+        composition.WaitForDisplayCount("mon", DataMonitorModule.LogSource, atLeast: 1)
+            .ShouldBeTrue(IssueSummary(composition, "既有链路应先跑起来"));
+
+        var existingSource = composition.Runtime.Content.Instances.Single(i => i.InstanceId == "src");
+        var existingMonitor = composition.Runtime.Content.Instances.Single(i => i.InstanceId == "mon");
+        var linesBefore = composition.DisplayLines("mon", DataMonitorModule.LogSource).Count;
 
         // 一批新增（2 组）——**不改动既有模块**
-        composition.Services.AddModule("gen2", "hyw/reference-data-generator/1.0.0").Succeeded.ShouldBeTrue();
-        composition.Services.AddModule("gen3", "hyw/reference-data-generator/1.0.0").Succeeded.ShouldBeTrue();
-        composition.Services.AddModule("asr2", "hyw/reference-asserter/1.0.0").Succeeded.ShouldBeTrue();
-        composition.Services.AddModule("asr3", "hyw/reference-asserter/1.0.0").Succeeded.ShouldBeTrue();
-        composition.Services.Connect(new PortRef("gen2", DataGeneratorModule.OutputPort), [new PortRef("asr2", AsserterModule.InputPort)], "batch-2").Succeeded.ShouldBeTrue();
-        composition.Services.Connect(new PortRef("gen3", DataGeneratorModule.OutputPort), [new PortRef("asr3", AsserterModule.InputPort)], "batch-3").Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("src2", RateSourceModuleId).Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("src3", RateSourceModuleId).Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("mon2", MonitorModuleId).Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("mon3", MonitorModuleId).Succeeded.ShouldBeTrue();
 
-        composition.WaitForFlow("asr2", AsserterModule.PassedSource).ShouldBeTrue("新批次应即刻可流");
-        composition.WaitForFlow("asr3", AsserterModule.PassedSource).ShouldBeTrue();
+        composition.Services.UpdateConfiguration("src2", new RateSourceStubConfig { Value = 2, IntervalMs = 5 })
+            .Succeeded.ShouldBeTrue();
+        composition.Services.UpdateConfiguration("src3", new RateSourceStubConfig { Value = 3, IntervalMs = 5 })
+            .Succeeded.ShouldBeTrue();
 
-        // 既有模块：实例与配置未被触碰，数据流持续
-        composition.Runtime.Content.Instances.Single(i => i.InstanceId == "gen").ShouldBeSameAs(existingGenerator);
-        composition.Runtime.Content.Instances.Single(i => i.InstanceId == "asr").ShouldBeSameAs(existingAsserter);
-        composition.Written("asr", AsserterModule.PassedSource).ShouldBeGreaterThan(passedBefore);
+        composition.Services.UpdatePortNetwork("src2", RateSourceStubModule.OutPort, "batch-2").Succeeded.ShouldBeTrue();
+        composition.Services.UpdatePortNetwork("mon2", DataMonitorModule.InPort, "batch-2").Succeeded.ShouldBeTrue();
+        composition.Services.UpdatePortNetwork("src3", RateSourceStubModule.OutPort, "batch-3").Succeeded.ShouldBeTrue();
+        composition.Services.UpdatePortNetwork("mon3", DataMonitorModule.InPort, "batch-3").Succeeded.ShouldBeTrue();
+
+        composition.WaitForDisplayCount("mon2", DataMonitorModule.LogSource, atLeast: 1)
+            .ShouldBeTrue(IssueSummary(composition, "新批次应即刻可流"));
+        composition.WaitForDisplayCount("mon3", DataMonitorModule.LogSource, atLeast: 1)
+            .ShouldBeTrue(IssueSummary(composition, "新批次应即刻可流"));
+
+        // 既有模块：实例未被触碰，数据流持续
+        composition.Runtime.Content.Instances.Single(i => i.InstanceId == "src").ShouldBeSameAs(existingSource);
+        composition.Runtime.Content.Instances.Single(i => i.InstanceId == "mon").ShouldBeSameAs(existingMonitor);
+        composition.DisplayLines("mon", DataMonitorModule.LogSource).Count.ShouldBeGreaterThan(linesBefore);
     }
 
     // ------------------------------------------------------------ AC-6
@@ -306,7 +367,7 @@ public class AcceptanceCriteriaTests
         // 依赖图断言：新增"新形状模块"后，框架程序集引用集仍不变（Core 零改动）
         var frameworkRefsBefore = FrameworkAssemblies.ToDictionary(a => a, ReadAssemblyReferences);
 
-        using var composition = new Composition();
+        using var composition = new BusinessChainTests.Composition();
         composition.Register("new-shape", typeof(NewShapeSourceModule));
         composition.Register("new-shape-sink", typeof(NewShapeSinkModule));
 
@@ -316,7 +377,8 @@ public class AcceptanceCriteriaTests
         composition.Services.Connect(new PortRef("ns", NewShapeSourceModule.OutputPort), [new PortRef("nk", NewShapeSinkModule.InputPort)], "new-shape-link")
             .Succeeded.ShouldBeTrue();
 
-        composition.WaitForFlow("ns", NewShapeSourceModule.ValueSource).ShouldBeTrue("新形状模块应能自行运行并写订阅缓冲");
+        composition.WaitForCount("ns", NewShapeSourceModule.ValueSource, atLeast: 1)
+            .ShouldBeTrue("新形状模块应能自行运行并写订阅缓冲");
 
         var frameworkRefsAfter = FrameworkAssemblies.ToDictionary(a => a, ReadAssemblyReferences);
         foreach (var (assembly, references) in frameworkRefsBefore)
@@ -327,20 +389,33 @@ public class AcceptanceCriteriaTests
 
     // ------------------------------------------------------------ 基础设施
 
-    private static bool WaitUntil(Func<bool> condition, TimeSpan timeout)
+    /// <summary>归属对象或描述中包含关键词的 Issue。</summary>
+    private static IReadOnlyList<IssueView> IssuesWith(BusinessChainTests.Composition composition, string keyword) =>
+        [.. composition.Services.GetIssues(200).Where(i =>
+            i.Message.Contains(keyword, StringComparison.Ordinal)
+            || i.ObjectPath.Contains(keyword, StringComparison.Ordinal))];
+
+    /// <summary>断言数据流持续（计数还在增长）——用于"变更不中断既有链路"。</summary>
+    private static void AssertFlowContinues(BusinessChainTests.Composition composition, string instanceId, string dataSourceName = RateSourceStubModule.ValueSource)
     {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            if (condition())
-            {
-                return true;
-            }
+        var before = composition.Written(instanceId, dataSourceName);
+        BusinessChainTests.Composition.WaitUntil(
+            () => composition.Written(instanceId, dataSourceName) > before,
+            TimeSpan.FromSeconds(3)).ShouldBeTrue($"{instanceId} 的数据流不应因在线变更而中断");
+    }
 
-            Thread.Sleep(10);
-        }
+    /// <summary>失败时的现场说明（链路断点定位；含 Issue 与网络成员）。</summary>
+    private static string IssueSummary(BusinessChainTests.Composition composition, string what)
+    {
+        var networks = string.Join(
+            "；",
+            composition.Services.GetNetworks().Select(n => $"{n.Name}: {string.Join(",", n.Sources)} → {string.Join(",", n.Targets)}（停流={n.IsStalled}）"));
 
-        return condition();
+        var issues = string.Join(
+            "；",
+            composition.Services.GetIssues(10).Select(i => $"[{i.Severity}] {i.ObjectPath}: {i.Message}"));
+
+        return $"{what}；网络：{networks}；Issue：{issues}";
     }
 
     /// <summary>读取程序集的直接引用名集合（AC-1/AC-6 的依赖图断言）。</summary>
@@ -361,113 +436,6 @@ public class AcceptanceCriteriaTests
 
         names.Sort(StringComparer.Ordinal);
         return names;
-    }
-
-    private static string FindRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            if (dir.EnumerateFiles("*.slnx").Any() || dir.EnumerateFiles("*.sln").Any())
-            {
-                return dir.FullName;
-            }
-
-            dir = dir.Parent;
-        }
-
-        throw new InvalidOperationException("未能定位解决方案根目录（未找到 *.slnx/*.sln）");
-    }
-
-    /// <summary>参考组合现场：真实运行时 + 真实服务面 + 临时目录。</summary>
-    private sealed class Composition : IDisposable
-    {
-        private readonly string _directory;
-
-        public Composition()
-        {
-            _directory = Path.Combine(Path.GetTempPath(), "hyw-ac-" + Guid.NewGuid().ToString("N"));
-            _ = Directory.CreateDirectory(_directory);
-
-            Runtime = new ModuleRuntime();
-            Services = new RuntimeServices(Runtime);
-        }
-
-        public ModuleRuntime Runtime { get; }
-
-        public RuntimeServices Services { get; }
-
-        /// <summary>装入三个参考桩模块包（走真实包加载路径）。</summary>
-        public void InstallReferencePackages()
-        {
-            foreach (var module in new[] { "DataGenerator", "Recorder", "Asserter" })
-            {
-                var directory = PackagePath(module);
-                Directory.Exists(directory).ShouldBeTrue($"参考模块未构建：{directory}（请先 build）");
-                Services.InstallModulePackage(directory).Succeeded.ShouldBeTrue($"{module} 包应能加载");
-            }
-        }
-
-        /// <summary>直接注册一个模块定义（测试局部模块用；不经过包加载）。</summary>
-        public void Register(string name, Type entryType)
-        {
-            var definition = new Hosting.Registry.ModuleDefinition(
-                ModuleId.Create("test", name, "1.0.0"),
-                entryType.Name,
-                string.Empty,
-                [],
-                ModuleCapability.None,
-                [],
-                null,
-                true,
-                entryType,
-                string.Empty,
-                string.Empty);
-
-            Services.Registry.TryRegister(definition, out var failure).ShouldBeTrue(failure);
-        }
-
-        public string PathFor(string fileName) => Path.Combine(_directory, fileName);
-
-        /// <summary>某实例某数据源的累计写入数（UI 侧可观测指标）。</summary>
-        public long Written(string instanceId, string dataSourceName) =>
-            Services.GetSubscriptionSources()
-                .Where(s => string.Equals(s.InstanceId, instanceId, StringComparison.Ordinal)
-                         && string.Equals(s.DataSourceName, dataSourceName, StringComparison.Ordinal))
-                .Select(s => s.Written)
-                .FirstOrDefault();
-
-        /// <summary>等待某实例某数据源开始产生数据。</summary>
-        public bool WaitForFlow(string instanceId, string dataSourceName) =>
-            WaitUntil(() => Written(instanceId, dataSourceName) > 0, TimeSpan.FromSeconds(5));
-
-        /// <summary>断言数据流持续（计数还在增长）——用于"变更不中断既有链路"。</summary>
-        public void AssertFlowContinues(string instanceId, string dataSourceName = AsserterModule.PassedSource)
-        {
-            var before = Written(instanceId, dataSourceName);
-            WaitUntil(() => Written(instanceId, dataSourceName) > before, TimeSpan.FromSeconds(3))
-                .ShouldBeTrue($"{instanceId} 的数据流不应因在线变更而中断");
-        }
-
-        /// <summary>归属对象或描述中包含关键词的 Issue。</summary>
-        public IReadOnlyList<IssueView> IssuesWith(string keyword) =>
-            [.. Services.GetIssues(200).Where(i =>
-                i.Message.Contains(keyword, StringComparison.Ordinal)
-                || i.ObjectPath.Contains(keyword, StringComparison.Ordinal))];
-
-        public void Dispose()
-        {
-            Runtime.Dispose();
-
-            try
-            {
-                Directory.Delete(_directory, recursive: true);
-            }
-            catch (IOException)
-            {
-                // 清理失败不影响结论
-            }
-        }
     }
 
     // ------------------------------------------------------------ 测试局部模块

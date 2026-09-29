@@ -305,14 +305,14 @@ public class RoleProjectionTests
         role.InfoLines[0].FontSize.ShouldBeGreaterThan(
             role.InfoLines[1].FontSize,
             "用户第三十四轮：速率**字体更大**一些");
-        role.InfoLines[1].Text.ShouldBe("输入 2 / 输出 1", "②行 = 该角色的**口数**（与方块上的连接数 `m/n` 不同）");
+        role.InfoLines[1].Text.ShouldBe("输入口 2 / 输出口 1", "②行 = 该角色的**口数**（与方块上的连接数 `m/n` 不同；2026-09 加「口」字以免被读成计数器）");
         role.InfoLines[1].Primary.ShouldBeFalse("次要行 10px、次要色");
 
         role.RateText = "12.0 kB/s";
         role.MetaText = RoleTextMetrics.TypeTagOf("样本含序号与值 / value 为无单位实数");
 
         role.InfoLines.Count.ShouldBe(3, "①速率 ②口数 ③类型标签");
-        role.InfoLines.Select(l => l.Text).ShouldBe(["12.0 kB/s", "输入 2 / 输出 1", "类型：样本含序号与值"]);
+        role.InfoLines.Select(l => l.Text).ShouldBe(["12.0 kB/s", "输入口 2 / 输出口 1", "类型：样本含序号与值"]);
     }
 
     [Fact]

@@ -46,15 +46,26 @@ public sealed partial class ModuleRuntime : IDisposable
     /// <summary>创建运行时。</summary>
     /// <param name="issues">Issue 中心（缺省新建）。</param>
     /// <param name="carrierOptions">承载参数（队列容量/丢弃策略/停止超时）。</param>
+    /// <param name="viewState">
+    /// **视图状态存取面**〔2026-09 · `decisions.md` 7.28〕：创建实例时按实例绑一份**只读**读取面交给模块
+    /// （`IModuleContext.ViewState`），移除实例时清理该实例的视图状态。`null` ⇒ 不注入（模块读到"全部未知"）。
+    /// </param>
     public ModuleRuntime(
         IssueCenter? issues = null,
-        CarrierOptions? carrierOptions = null)
+        CarrierOptions? carrierOptions = null,
+        Api.IViewStateAccess? viewState = null)
     {
         Issues = issues ?? new IssueCenter();
         Carriers = new CarrierHost(options: carrierOptions);
         Content = new WorkspaceContent();
         _lifecycle = new ModuleLifecycleController(Issues);
+        ViewState = viewState;
     }
+
+    /// <summary>
+    /// **视图状态存取面**（UI 与 L4 共用；`null` = 未接线 ⇒ 模块读到"全部未知"、UI 回落本地缓冲）。
+    /// </summary>
+    public Api.IViewStateAccess? ViewState { get; }
 
     /// <summary>Issue 中心（框架判定与模块报告的统一收集点）。</summary>
     public IssueCenter Issues { get; }
@@ -131,7 +142,13 @@ public sealed partial class ModuleRuntime : IDisposable
                     }
 
                     // 实例化在此完成（对象创建 + OnRegistered 声明）；**不启动线程、不改动现场**
-                    var created = ModuleInstanceFactory.Create(add.InstanceId, add.Definition, Issues);
+                    // 【2026-09 · 7.28】视图状态**按实例绑定**交给模块（只读）：模块在活动体里拉取快照。
+                    var created = ModuleInstanceFactory.Create(
+                        add.InstanceId,
+                        add.Definition,
+                        Issues,
+                        ViewState?.ReaderFor(add.InstanceId),
+                        (ViewState as Services.ViewStateStore)?.DisplayFor(add.InstanceId));
                     plan.AddInstances.Add((created, new ModuleCarrierAdapter(created, created.Context, Issues)));
                     break;
 
@@ -286,9 +303,13 @@ public sealed partial class ModuleRuntime : IDisposable
                         failures.Add($"实例不存在：{input.InstanceId}");
                     }
                     else if (inputInstance.Context.DeclaredView is not { } inputView
-                        || !inputView.Elements.Any(e => IsInputElement(e.Kind)
+                        || !FlattenElements(inputView.Elements).Any(e => IsInputElement(e.Kind)
                             && string.Equals(e.DataSource, input.Source, StringComparison.Ordinal)))
                     {
+                        // **必须**在**展平后**的元素里找：输入可以声明在容器里（`TabPages` 的页内、`Group` 内……）
+                        // —— 只看顶层会把"页内输入的回车/失焦提交"误判成"模块未声明该输入"而拒绝
+                        //（同一类缺陷在 G4 出现过一次：`IsInputElement` 漏了 `FileSelector`；本次由四模块
+                        // 的"多页输入"形态暴露 —— `tests/.../BusinessModulesIntegrationTests`）。
                         failures.Add($"模块未声明该输入：{input.InstanceId}.{input.Source}");
                     }
                     else
@@ -533,6 +554,9 @@ public sealed partial class ModuleRuntime : IDisposable
         foreach (var instanceId in plan.RemoveInstances)
         {
             RemoveInstanceCore(instanceId);
+
+            // 【2026-09 · 7.28】视图状态随实例移除清理（"不持久化、关闭模块即丢"）
+            ViewState?.RemoveInstance(instanceId);
         }
 
         // **每次变更都重算派生网络**（ADR-0037）：布局（拖动/缩放）· 增删启停 · 标签变更 · 加载
@@ -540,9 +564,38 @@ public sealed partial class ModuleRuntime : IDisposable
         ReconcileNetworks(notices, AlignAutoNetwork);
     }
 
+    /// <summary>
+    /// **展平**声明元素树（容器与页节点都算节点，只取内容元素）—— 判定"声明了什么"时**一律用它**，
+    /// 不要只看顶层（输入/显示元素可以声明在 `TabPages` 页内或 `Group` 里）。
+    /// </summary>
+    /// <param name="elements">根层元素。</param>
+    /// <returns>展平后的元素序列（容器自身不出现）。</returns>
+    private static IEnumerable<HYWDebugAssistant.Sdk.Views.ViewElement> FlattenElements(
+        IReadOnlyList<HYWDebugAssistant.Sdk.Views.ViewElement> elements)
+    {
+        foreach (var element in elements)
+        {
+            if (element.Children.Count == 0)
+            {
+                yield return element;
+                continue;
+            }
+
+            // 容器（含 `TabPages` 的页节点）：自身不是内容元素 ⇒ 继续往下展平
+            foreach (var nested in FlattenElements(element.Children))
+            {
+                yield return nested;
+            }
+        }
+    }
+
     private static bool IsInputElement(HYWDebugAssistant.Sdk.Views.ViewElementKind kind) =>
         kind is HYWDebugAssistant.Sdk.Views.ViewElementKind.TextInput
             or HYWDebugAssistant.Sdk.Views.ViewElementKind.ToggleSlider
+            // 【2026-09 用户裁定 · D5】B7 开关滑块**也是开关**（与 B3 语义相同、外观不同）
+            // ⇒ 必须一并算作输入元素，否则声明的开关值会被判"模块未声明该输入"而拒绝
+            //（**同一类缺陷第三次出现**：G4 的 `FileSelector`、四模块落地时的页内输入、本次的 `ToggleSwitch`）。
+            or HYWDebugAssistant.Sdk.Views.ViewElementKind.ToggleSwitch
             or HYWDebugAssistant.Sdk.Views.ViewElementKind.EnumSelector
             // 【G4 · 2026-09】B6 文件选择器**也是输入元素**：它产出一个**路径字符串**，走同一条 `SubmitInput` 通道。
             // （此前漏了它 ⇒ 声明了文件选择器的模块收路径会被判"未声明该输入"而拒绝 —— 由 G4 的用例抓出。）
@@ -581,17 +634,9 @@ public sealed partial class ModuleRuntime : IDisposable
             return;
         }
 
-        // ① 先按**对象引用**清掉该网络已有绑定（成员重锚/重算时；按引用是因为匿名网络无唯一名）
-        BindingSet current, cleared;
-        do
-        {
-            current = Volatile.Read(ref _bindings);
-            cleared = current.Without(network);
-        }
-        while (!ReferenceEquals(Interlocked.CompareExchange(ref _bindings, cleared, current), current));
-
-        // ② 再**逐源**建绑定
-        var bound = 0;
+        // ① **先把新绑定全算出来**（纯计算，不碰 `_bindings`）；Issue 先攒着，换完快照再报
+        var additions = new List<RuntimeBinding>(network.Sources.Count);
+        var problems = new List<IssueReport>();
 
         foreach (var source in network.Sources)
         {
@@ -606,7 +651,7 @@ public sealed partial class ModuleRuntime : IDisposable
             var layout = ResolveLayout(source);
             if (layout is null)
             {
-                Issues.Report($"network:{network}", new IssueReport(
+                problems.Add(new IssueReport(
                     IssueCategory.InterfaceError, IssueSeverity.Error, $"无法解析源口契约（源 {source} 未建立绑定）"));
                 continue;
             }
@@ -614,32 +659,45 @@ public sealed partial class ModuleRuntime : IDisposable
             var targets = network.Targets.Where(target => IsPairCompatible(network, source, target)).ToList();
             if (targets.Count == 0)
             {
-                Issues.Report($"network:{network}", new IssueReport(
+                problems.Add(new IssueReport(
                     IssueCategory.InterfaceError, IssueSeverity.Warning, $"源 {source} 没有契约兼容的宿（该源未建立绑定）"));
                 continue;
             }
 
-            AddBinding(new RuntimeBinding(network, source, targets, layout, ResolveMetering(source)));
-            bound++;
+            additions.Add(new RuntimeBinding(network, source, targets, layout, ResolveMetering(source)));
         }
 
-        if (bound == 0)
+        if (additions.Count == 0)
         {
-            Issues.Report($"network:{network}", new IssueReport(
+            problems.Add(new IssueReport(
                 IssueCategory.InterfaceError, IssueSeverity.Error, "网络未建立任何绑定（全部源都不可用）"));
         }
-    }
 
-    /// <summary>把一个绑定加入快照（无锁原子替换）。</summary>
-    private void AddBinding(RuntimeBinding binding)
-    {
+        // ② **一次 CAS** 用"该网络的新绑定集"整体替换它的旧绑定集。
+        // 【2026-09 缺陷修复 · **偶发静默丢单元**】旧写法是**两步**：先把该网络的绑定**全部清掉**（一次 CAS），
+        // 再**逐源加回**（每源一次 CAS）⇒ 两步之间存在一个"**该网络没有任何绑定的空窗**"。
+        // 模块线程恰好在这个窗口里 `TrySend` ⇒ `Deliver` 遍历快照找不到绑定 ⇒ `TrySend` 返回 false ⇒
+        // 单元**被静默丢弃**：既不计入"传输丢弃"（没有绑定可记），也没有 Issue ⇒ 现场只剩"发了但没到"。
+        // 而派生网络**每次变更提交**末尾都会重算（`ReconcileNetworks`）⇒ 这个窗口被反复打开
+        // （实测：`多源链路` 用例偶发红，现场 = `TrySend` 被拒 + 绑定诊断全 0 + 无 Issue）。
+        // 现在"新集合"算完才发布，且**只发一次** ⇒ 投递方要么看到旧快照、要么看到新快照，**不存在空窗**。
         BindingSet current, updated;
         do
         {
             current = Volatile.Read(ref _bindings);
-            updated = current.With(binding);
+            updated = current.Without(network);
+
+            foreach (var binding in additions)
+            {
+                updated = updated.With(binding);
+            }
         }
         while (!ReferenceEquals(Interlocked.CompareExchange(ref _bindings, updated, current), current));
+
+        foreach (var problem in problems)
+        {
+            Issues.Report($"network:{network}", problem);
+        }
     }
 
     /// <summary>逐 **(源, 宿)** 对判定契约兼容（方向 + 契约；只排除不兼容的那一对 —— ADR-0050 M6）。</summary>
@@ -824,6 +882,25 @@ public sealed partial class ModuleRuntime : IDisposable
         while (!ReferenceEquals(Interlocked.CompareExchange(ref _bindings, updated, current), current));
     }
 
+    /// <summary>
+    /// 移除一条网络（**按对象引用**定位绑定）——匿名网络（对齐直连）没有唯一名，按名移除会误伤其他匿名网络。
+    /// </summary>
+    /// <param name="network">要移除的网络。</param>
+    private void RemoveNetworkCore(Network network)
+    {
+        ArgumentNullException.ThrowIfNull(network);
+
+        _ = Content.RemoveNetwork(network);
+
+        BindingSet current, updated;
+        do
+        {
+            current = Volatile.Read(ref _bindings);
+            updated = current.Without(network);
+        }
+        while (!ReferenceEquals(Interlocked.CompareExchange(ref _bindings, updated, current), current));
+    }
+
     private void ApplyEnabled(string instanceId, bool enabled)
     {
         if (!Content.TryGetInstance(instanceId, out var instance) || instance is null)
@@ -1004,8 +1081,11 @@ public sealed partial class ModuleRuntime : IDisposable
                 continue;
             }
 
-            // 【ADR-0046 D8】**发布计数 = 每个数据报一次**（按源；不受多播放大），在宿循环之前记
-            binding.Diagnostics.RecordPublished();
+            // 【ADR-0046 D8】**发布计数 = 每个数据报一次**（按源；不受多播放大），在宿循环之前记。
+            // 【2026-09 用户裁定"速率只要有效数据"】同时累计**有效字节**（读类型声明的有效长度字段；
+            // 未声明 ⇒ 静态尺寸）—— 第 3 档速率（有效载荷字节速率）的分子就是它，与发布计数**同一处**累加
+            // （分开写就会出现"分子分母不是同一批数据报"）。
+            binding.Diagnostics.RecordPublished(binding.PayloadBytesOfUnit(payload));
 
             // 【ADR-0050 Q6(c)】**薄旁路头只在多源网络**：单源网络**零附加**（不构造、不入队、不读）。
             // 序号 = 按源递增（= 刚记下的发布计数，1 起）；接收时刻 = 框架投递该数据报的时刻（单调计数）。

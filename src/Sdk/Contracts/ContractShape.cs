@@ -8,8 +8,15 @@ namespace HYWDebugAssistant.Sdk.Contracts;
 /// <remarks>
 /// 形状 = 成员序列（名称 + 原语类型 + 顺序）= **签名**；兼容判定 = 接收契约 ⊇ 发送契约（形状子集，可计算）。
 /// <para>
-/// v1 规则：仅定长原语（<see cref="ContractPrimitive"/>）、定长字节块（1–256）、定长数组（元素为原语，长度 1–256）、
+/// v1 规则：仅定长原语（<see cref="ContractPrimitive"/>）、定长字节块（1–<see cref="BytesShape.MaxLength"/>）、
+/// 定长数组（元素为原语，长度 1–<see cref="ArrayShape.MaxLength"/>）、
 /// 结构组合（嵌套深度 ≤ 4）；**无变长**。
+/// </para>
+/// <para>
+/// <b>字节块上限 256 → 4096（2026-09 放宽，只增）</b>：第一批模块的**文本载荷**要"一个 UDP 包量级"
+/// （用户裁定 `N = 1472`，上限留到 4096）。放宽属**兼容扩展**（老模块引用小尺寸照常工作）。
+/// <b>代价（已在模块页写明）</b>：v1 只定长 ⇒ **每个数据单元搬运字节 = 契约尺寸**（发 1 个字符也搬满 N），
+/// 大上限意味着字节速率与队列内存随之上升 —— 但那正是"还原文本"必须付的代价（用长度字段取真实内容）。
 /// </para>
 /// <para>
 /// 契约**不含单位/量纲语义**（主文档 §5.4.2）——单位属模块配置/显示层。
@@ -26,10 +33,10 @@ public abstract record ContractShape
     /// <summary>创建单原语形状。</summary>
     public static PrimitiveShape OfPrimitive(ContractPrimitive primitive) => new(primitive);
 
-    /// <summary>创建定长字节块（1–256 字节）。</summary>
+    /// <summary>创建定长字节块（1–<see cref="BytesShape.MaxLength"/> 字节）。</summary>
     public static BytesShape OfBytes(int length) => new(length);
 
-    /// <summary>创建定长数组（元素为原语，长度 1–256）。</summary>
+    /// <summary>创建定长数组（元素为原语，长度 1–<see cref="ArrayShape.MaxLength"/>）。</summary>
     public static ArrayShape OfArray(ContractPrimitive element, int length) => new(element, length);
 
     /// <summary>创建结构组合（字段顺序即签名顺序）。</summary>
@@ -149,11 +156,18 @@ public sealed record PrimitiveShape(ContractPrimitive Primitive) : ContractShape
     public override int Depth => 1;
 }
 
-/// <summary>定长字节块（1–256 字节）。</summary>
+/// <summary>定长字节块（1–<see cref="MaxLength"/> 字节）。</summary>
 public sealed record BytesShape : ContractShape
 {
-    /// <summary>长度上限（v1）。</summary>
-    public const int MaxLength = 256;
+    /// <summary>
+    /// 长度上限（v1）。
+    /// </summary>
+    /// <remarks>
+    /// <b>256 → 4096（2026-09 放宽，只增）</b>：文本类载荷要"一个 UDP 包量级"。
+    /// 放宽属**兼容扩展**（老模块用不到这么大，照常工作）；引用该常量的只有
+    /// `Sdk.Testing.ModuleContract`（长度校验）与 `TestModuleContext`（按长度推断形状）⇒ **自动跟随**。
+    /// </remarks>
+    public const int MaxLength = 4096;
 
     /// <summary>创建字节块形状。</summary>
     public BytesShape(int length)
@@ -173,10 +187,16 @@ public sealed record BytesShape : ContractShape
     public override int Depth => 1;
 }
 
-/// <summary>定长数组（元素为原语，长度 1–256）。</summary>
+/// <summary>定长数组（元素为原语，长度 1–<see cref="MaxLength"/>）。</summary>
 public sealed record ArrayShape : ContractShape
 {
-    /// <summary>长度上限（v1）。</summary>
+    /// <summary>
+    /// 长度上限（v1）——**本次未放宽**（与字节块的上限彼此独立）。
+    /// </summary>
+    /// <remarks>
+    /// 数组长度按**元素个数**计：配合 `u64` 元素时 256 个元素 = 2048 字节，量级已足够；
+    /// 文本类需求走**字节块**（`BytesShape`，2026-09 已放宽到 4096），故此处保持不动（最小改动）。
+    /// </remarks>
     public const int MaxLength = 256;
 
     /// <summary>创建定长数组形状。</summary>

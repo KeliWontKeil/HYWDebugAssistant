@@ -585,6 +585,148 @@ public class CoreRuntimeTests
     }
 
     [Fact]
+    public void 宿口指标_多源网络下必须等于各源诊断之和而不是零()
+    {
+        // 【用户 2026-09 裁定"统一宿口取数口径，关系到整个数据来源的一致性"】
+        // **根因（旧实现）**：取数按"两次字典查找 + 猜键"——先按**网络身份键**（`源集合 → 宿集合`）查，
+        // 失败再拿**口字面量**去查**逐源诊断表**（键 = `单源 → 宿子集`，是**源**键）。
+        // 宿口在后一个键空间里根本不存在 ⇒ **宿口的投递/丢弃/速率静默为 0**
+        // （1:1 单源单宿时两个键恰好字面相等，所以这个缺陷一直没被看见）。
+        // 本用例就是那盏灯：宿口必须按**网络**把该网络各源的诊断加起来。
+        using var runtime = new ModuleRuntime();
+        var services = new RuntimeServices(runtime);
+
+        AddModule(runtime, "s1", "sender", typeof(SenderModule));
+        AddModule(runtime, "s2", "sender", typeof(SenderModule));
+        AddModule(runtime, "r1", "dual-receiver", typeof(DualReceiverModule));
+        AddModule(runtime, "r9", "receiver", typeof(ReceiverModule));   // **未入网**的口（"全 0"的对照）
+
+        SetLabel(runtime, "s1", SenderModule.OutPort, "bus");
+        SetLabel(runtime, "s2", SenderModule.OutPort, "bus");
+        SetLabel(runtime, "r1", "in1", "bus");
+        SetLabel(runtime, "r1", "in2", "bus");
+
+        // ① **不在任何网络上的口 ⇒ 全 0**（"未入网"这条文案由界面自己判定，框架只保证口径）
+        var idle = services.GetPortMetrics("r9", ReceiverModule.InPort);
+        idle.Delivered.ShouldBe(0);
+        idle.Dropped.ShouldBe(0);
+        idle.BytesPerSecond.ShouldBe(0);
+        idle.NetworkKeys.ShouldBeEmpty("未入网 ⇒ 该口不参与任何「流」");
+
+        runtime.Content.TryGetInstance("s1", out var sender1).ShouldBeTrue();
+        runtime.Content.TryGetInstance("s2", out var sender2).ShouldBeTrue();
+        var payload = new byte[sizeof(float)];
+        _ = BitConverter.TryWriteBytes(payload, 1f);
+        _ = sender1!.Context.Ports.TrySend(SenderModule.OutPort, payload);
+        _ = sender2!.Context.Ports.TrySend(SenderModule.OutPort, payload);
+
+        var diagnostics = services.GetDiagnostics();
+        diagnostics.Count.ShouldBe(2, "多源网络 = 逐源一条绑定");
+        diagnostics.ShouldAllBe(d => d.Delivered == 2, "每个源各投到 2 个宿 ⇒ 各自的 Delivered = 2");
+
+        // ② **宿口**：两个源各有一次投递落在本口 ⇒ 本口读到"该网络各源诊断之和"（**旧实现在这里恒为 0**）
+        var sink = services.GetPortMetrics("r1", "in1");
+        sink.Delivered.ShouldBeGreaterThan(0, "宿口必须按**网络**把该网络各源的诊断加起来（这正是本次修复的红灯）");
+        sink.Delivered.ShouldBe(
+            diagnostics.Sum(d => d.Delivered),
+            "**宿口指标 = 其入网各源诊断之和**（每个源的绑定都把 in1 算在它自己的 2 个宿里 ⇒ 各 2，合计 4）");
+        sink.NetworkKeys.ShouldContain(
+            services.GetNetworks().ShouldHaveSingleItem().Key,
+            "该口参与的网络身份键必须能对回网络视图（配对用，不参与取数）");
+
+        // ③ **「绑定级按宿计」是框架口径的既有性质**（不是缺陷，但也别误读）：一条 `源 → 多宿` 绑定只有
+        //    一份诊断 ⇒ 它的**每个宿口**都读到同一份计数（含投给兄弟宿的那些）。钉住它，免得后人"顺手修好"成
+        //    另一套口径（那正是本次要消除的分叉：端口标记会与角色方块对不上）。
+        var siblingSink = services.GetPortMetrics("r1", "in2");
+        siblingSink.Delivered.ShouldBe(sink.Delivered, "同一条绑定的两个宿口读同一份绑定级计数（框架既有性质）");
+        siblingSink.Dropped.ShouldBe(sink.Dropped);
+        siblingSink.BytesPerSecond.ShouldBe(sink.BytesPerSecond);
+
+        // ④ **发送口**：以它为源的全部绑定之和 = 它自己的那条逐源诊断（本例 = 2 个宿）
+        var source = services.GetPortMetrics("s1", SenderModule.OutPort);
+        source.Delivered.ShouldBe(2);
+        source.Delivered.ShouldBe(
+            diagnostics.Single(d => d.Key.StartsWith("s1.out", StringComparison.Ordinal)).Delivered,
+            "发送口只读「以它为源」的那些流");
+
+        // ⑤ 接口契约：实例/口不存在**不抛**（全 0），空白参数必须拒绝（与查询面其余方法一致）
+        services.GetPortMetrics("nobody", "nowhere").Delivered.ShouldBe(0);
+        _ = Should.Throw<ArgumentException>(() => services.GetPortMetrics(" ", "out"));
+
+        // ⑥ **把根因本身也钉住**：多源网络下 `NetworkView.Key`（= `源集合 → 宿集合`）**不在**逐源诊断的键集合里
+        //    ⇒ "先按网络键查、查不到再拿口字面量查逐源表"这条老路**必然落空**（宿口就是这么静默归零的）。
+        //    有了这条，谁把修复回退成"猜键"取数，这里立刻红。
+        var networkKey = services.GetNetworks().ShouldHaveSingleItem().Key;
+        var diagnosticKeys = diagnostics.Select(d => d.Key).ToList();
+        diagnosticKeys.ShouldNotContain(
+            networkKey,
+            "多源网络下网络身份键 ≠ 逐源键 —— 这正是「按网络键查逐源表」永远取不到数的原因");
+        diagnosticKeys.ShouldContain("s1.out→r1.in1,r1.in2");
+        diagnosticKeys.ShouldContain("s2.out→r1.in1,r1.in2");
+    }
+
+    [Fact]
+    public void 端口指标_单源单宿时源口与宿口必须读到同一个速率()
+    {
+        // 【用户 2026-09 裁定"统一口径"，"同一根线两侧不得显示不同的数"】
+        // 源口与宿口读的是**同一份**逐源诊断、**同一批**框架速率计（`_rateMeters` 按绑定身份键索引）。
+        // 旧实现里接收侧走"每 (实例, 口) 队列"的速率计、发送侧走绑定速率计 ⇒ 两套口径、两侧可能不同数。
+        using var runtime = new ModuleRuntime();
+        var services = new RuntimeServices(runtime);
+
+        AddModule(runtime, "s1", "sender", typeof(SenderModule));
+        AddModule(runtime, "r1", "receiver", typeof(ReceiverModule));
+        Connect(runtime, "s1", SenderModule.OutPort, "r1", ReceiverModule.InPort, "link-rate").ShouldBeTrue();
+
+        runtime.Content.TryGetInstance("s1", out var sender).ShouldBeTrue();
+        var payload = new byte[sizeof(float)];
+
+        // 先观察一次**建立基准**（RateMeter：首个观察只建基准、返回 0 —— 不猜历史速率）
+        services.GetPortMetrics("s1", SenderModule.OutPort).BytesPerSecond.ShouldBe(
+            0,
+            "首个观察没有「上一时刻」⇒ 不得猜历史速率");
+
+        // 基准之后才真正流过数据；窗口必须 > RateMeter.WindowSeconds(1s) 才会重算
+        Thread.Sleep((int)(HYWDebugAssistant.Core.Diagnostics.RateMeter.WindowSeconds * 1000) + 150);   // 整秒桶：窗口未满不会重算
+        for (var i = 0; i < 10; i++)
+        {
+            _ = sender!.Context.Ports.TrySend(SenderModule.OutPort, payload);
+        }
+
+        var source = services.GetPortMetrics("s1", SenderModule.OutPort);
+        var sink = services.GetPortMetrics("r1", ReceiverModule.InPort);
+
+        source.BytesPerSecond.ShouldBeGreaterThan(0, "有数据流过 ⇒ 速率必须是个正数");
+        sink.BytesPerSecond.ShouldBeGreaterThan(0, "宿口同样必须给出速率（占位符只应出现在真的没数据时）");
+
+        // **断言设计理由**：两侧读的是同一条绑定的同一个速率计 ⇒ 数值逐位相同；但它们是两次浮点求和，
+        // 故用**相对容差 1e-6** 吸收求和顺序差。这个容差**不足以掩盖"两套口径"**：口径一旦分叉，
+        // 差值要么是"0 vs 正数"、要么是量级差（两个速率计的**基准时刻**不同 ⇒ 一个刚建基准为 0、
+        // 另一个已算出正数），两种都会被这条断言逮住 —— 既不会 flaky，也不失红灯的力气。
+        ShouldShareRate(
+            sink.BytesPerSecond,
+            source.BytesPerSecond,
+            "同一根线两侧必须读**同一个**速率口径（旧实现：接收侧走队列口径、发送侧走绑定口径）");
+
+        // 与"逐源诊断"再对一次：宿口速率必须就是**该绑定**的搬运字节速率（同一批速率计的直接证据）
+        ShouldShareRate(
+            sink.BytesPerSecond,
+            services.GetDiagnostics().ShouldHaveSingleItem().BusByteRate,
+            "端口指标与逐源诊断必须同源（框架侧只有这一批速率计）");
+    }
+
+    /// <summary>
+    /// 断言两个速率是**同一个口径**：相对容差 1e-6 只吸收浮点求和顺序差（见调用处的理由）。
+    /// </summary>
+    /// <param name="actual">实测值。</param>
+    /// <param name="expected">对照值。</param>
+    /// <param name="because">失败说明。</param>
+    private static void ShouldShareRate(double actual, double expected, string because) =>
+        Math.Abs(actual - expected).ShouldBeLessThanOrEqualTo(
+            1e-6 * Math.Max(Math.Abs(actual), Math.Abs(expected)) + 1e-9,
+            because);
+
+    [Fact]
     public void 多源网络_逐对契约兼容_每个源只投递到自己兼容的宿()
     {
         // 【ADR-0050 M6/M7】兼容判定**逐 (源,宿) 对**：一个源**只**投向契约兼容的宿；

@@ -34,20 +34,10 @@ public partial class DialogWindow : Window
             _ => "拓扑诊断（只读）",
         };
 
-        Width = kind switch
-        {
-            DialogKind.ModuleCatalog => 720,
-            DialogKind.Issues => 900,
-            _ => 520,
-        };
-
-        Height = kind switch
-        {
-            DialogKind.Issues => 520,
-            DialogKind.ModuleCatalog => 520,
-            _ => 460,
-        };
-
+        // 【2026-09 缺陷修复 · 用户实测"侧边栏的默认大小需要一致化（设置/Issue 等）"】
+        // 这里**原先按种类覆盖了尺寸**（清单 720×520 / Issue 900×520 / 设置与拓扑 520×460），
+        // 与 `DialogWindow.axaml` 里写死的"外层容器尺寸固定 = 780×620"**直接矛盾** ⇒ 四个弹窗大小各异。
+        // 现在**只保留 XAML 那一处**（尺寸只有一个来源；内容排不下由各自的 ScrollViewer 滚动）。
         Body.DataContext = DataContext;
         DataContextChanged += (_, _) => Body.DataContext = DataContext;
     }

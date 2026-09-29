@@ -134,7 +134,7 @@ public sealed class RoleBoxViewModel
             var lines = new List<RoleInfoLine>(3)
             {
                 new(RateText, RoleTextMetrics.RateFontSize, Primary: true),
-                new($"输入 {Inputs.Count} / 输出 {Outputs.Count}", RoleTextMetrics.DetailFontSize, Primary: false),
+                new($"输入口 {Inputs.Count} / 输出口 {Outputs.Count}", RoleTextMetrics.DetailFontSize, Primary: false),
             };
 
             if (MetaText.Length > 0)

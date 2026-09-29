@@ -127,15 +127,25 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     [ObservableProperty]
     public partial string RateText { get; set; } = "---";
 
-    /// <summary>标记宽度（标准尺寸：左右边缘 20、上下边缘 114 —— 所有标记占地统一）。</summary>
+    /// <summary>标记宽度（标准尺寸：左右边缘 20、上下边缘 150 —— 所有标记占地统一）。</summary>
     /// <remarks>
-    /// 【M1-16 / ADR-0039 D3】**长度加长 50%**（原 76 → 114），为"名称 / 类型 / 箭头 / 速率"四段预留空间，
-    /// 使信息变化**不引起排版抖动**。取值与 `Tokens.axaml` 的 `PortMarkerWidth`/`PortMarkerLength` 一致。
+    /// 【M1-16 / ADR-0039 D3】原先长度 76 → 114（为名称/速率/箭头/灯预留空间，使信息变化不引起排版抖动）；
+    /// 【2026-09 用户实测】114 下名称只剩约 10px（「（直连）」被速率吃掉）⇒ 再加长到
+    /// <see cref="PortMarkerMetrics.Length"/>（**唯一来源**，不再写第二份在 Tokens 里）。
     /// </remarks>
-    public double MarkerWidth => IsVertical ? 20 : 114;
+    public double MarkerWidth => IsVertical ? PortMarkerMetrics.Width : PortMarkerMetrics.Length;
 
-    /// <summary>标记高度（标准尺寸：左右边缘 114、上下边缘 20）。</summary>
-    public double MarkerHeight => IsVertical ? 114 : 20;
+    /// <summary>标记高度（标准尺寸：左右边缘 150、上下边缘 20）。</summary>
+    public double MarkerHeight => IsVertical ? PortMarkerMetrics.Length : PortMarkerMetrics.Width;
+
+    /// <summary>
+    /// **网络名列的最大宽**（"名称优先"：空间不够时先裁速率，不裁名字）。
+    /// </summary>
+    /// <remarks>
+    /// 由**本标记自己的沿边延长**减去固定槽位算出（单一来源）⇒ 模板里不写死数字：改了标记长度，
+    /// 名称可用宽自动跟着走（写死会出现"加长了标签、名称列还是老宽度"这种半修状态）。
+    /// </remarks>
+    public double NameMaxWidth => (IsVertical ? MarkerHeight : MarkerWidth) - PortMarkerMetrics.FixedChrome;
 
     /// <summary>端口**信息类型**文本（如 <c>f32</c>；未知为 <c>—</c>）。</summary>
     [ObservableProperty]
@@ -174,16 +184,30 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     public string DirectionText => IsSend ? "发送" : "接收";
 
     /// <summary>
-    /// 方向箭头（**按边取向外 / 向内** · ADR-0039 D3）：数据流向恒为"左 → 右"，
-    /// 因此**发送口（右边缘）= 向外**、**接收口（左边缘）= 向内**，屏幕上都表现为**指向右侧**。
+    /// **方向箭头字形**（2026-09 用户裁定："在上下两条边时箭头方向仍为左/右式，希望箭头方向**不要写死**，
+    /// 而是根据**网络标签位置**和**输入输出关系**推"）。
     /// </summary>
     /// <remarks>
-    /// 左右边缘的标记内容整体旋转 −90°：旋转把 <c>(x,y)</c> 映射为 <c>(y,−x)</c>，
-    /// 故竖排分支必须写 <c>↓</c> 才能在屏幕上呈现为 <c>→</c>；
-    /// 上下边缘（横排、无旋转）直接用 <c>→</c>（当前框架只把口放在左右，横排为将来留口）。
-    /// 【用户第十三轮反馈】箭头"过小看不清" → 字号由标记字号（11）提到 **16**（见 `Tokens.axaml` 的 `PortMarkerArrowFontSize`）。
+    /// <list type="bullet">
+    ///   <item><b>语义</b>：发送 = **朝外**（数据从本模块出去）、接收 = **朝内**（数据进本模块）
+    ///     ⇒ 屏幕方向由「所在边」+「发送/接收」唯一确定，不再假设"数据流恒为左→右"；</item>
+    ///   <item><b>为什么两个分支可以共用一张字形表</b>：竖排分支外面套了 −90° 旋转
+    ///     （内容 <c>(x,y)</c> → 屏幕 <c>(y,−x)</c>：内容 `↓` 在屏幕上才呈 `→`），
+    ///     而"低侧边（上/左）朝外"与"高侧边（下/右）朝内"在这套映射下**恰好都对应内容字形 `↑`**
+    ///     ⇒ 同一个公式对两种形态都成立（各写一张表迟早会漂，正是本项目反复踩过的坑）；</item>
+    ///   <item><b>默认边上的表现</b>：发送器默认在**下边**、显示器默认在**上边**（业务模块声明）
+    ///     ⇒ 发送显示 `↓`（朝外向下）、接收显示 `↓`（朝内向下）—— 都由"数据向下流"这一事实推出，
+    ///     不再是写死的 `→`；</item>
+    ///   <item>【用户第十三轮反馈】箭头"过小看不清" → 字号由标记字号（11）提到 **18**
+    ///     （见 `Tokens.axaml` 的 `PortMarkerArrowFontSize`）。</item>
+    /// </list>
     /// </remarks>
-    public string Arrow => IsVertical ? "↓" : "→";
+    public string Arrow => ArrowPointsUp ? "↑" : "↓";
+
+    /// <summary>箭头在**屏幕上朝上**（= 该口"朝外"的那一侧在屏幕上是上/左 ⇒ 字形 `↑`）。</summary>
+    private bool ArrowPointsUp => IsSend
+        ? Edge is PortEdge.Top or PortEdge.Left
+        : Edge is PortEdge.Bottom or PortEdge.Right;
 
     /// <summary>连接状态文本（**只用于工具提示**；标记本身不显示连接状态 —— 指示灯已经表达，用户第十三轮反馈）。</summary>
     public string StateText => IsStalled

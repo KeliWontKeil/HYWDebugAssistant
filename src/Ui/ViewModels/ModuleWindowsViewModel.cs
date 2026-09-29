@@ -60,6 +60,15 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     public const double GroupTolerance = SnapEngine.FlushTolerance;
 
     /// <summary>
+    /// **外壳与模块"拼上"的容差**（px）——严格：只有**真的贴上**（吸附产生的 0 间隙，容许 1px 取整误差）才算。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="GroupTolerance"/>（模块之间，8px）**刻意不同**：模块之间"差一点也算拼上"对拼装手感友好；
+    /// 但外壳用它会让"停在附近、没吸附"的模块在拖动主窗口时被一并带走（用户实测复报）。
+    /// </remarks>
+    public const double ShellJoinTolerance = 1;
+
+    /// <summary>
     /// **当前生效的吸附距离**（px）——【ADR-0042 D6 / 用户裁决】设置项 `snapDistance`（默认 4，2–8），
     /// 由 `Refresh` 从设置同步；**对齐类容差 = 本值**，**贴合类容差 = 本值 × 2**。
     /// </summary>
@@ -124,14 +133,21 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <summary>创建控制器。</summary>
     /// <param name="query">查询面（UI 唯一读通道）。</param>
     /// <param name="command">命令面（UI 唯一写通道）。</param>
-    public ModuleWindowsViewModel(IRuntimeQuery query, IRuntimeCommand command)
+    /// <param name="viewState">
+    /// **视图状态存取面**〔2026-09 · `decisions.md` 7.28/7.31〕：切页选中态 / 输入框未提交文本 /
+    /// 显示缓冲都存这里 ⇒ 元素表重建不丢内容、模块可回读。`null` ⇒ 回落今天的行为（设计期 / 旧调用点）。
+    /// </param>
+    public ModuleWindowsViewModel(IRuntimeQuery query, IRuntimeCommand command, IViewStateAccess? viewState = null)
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(command);
 
         _query = query;
         _command = command;
+        _viewState = viewState;
     }
+
+    private readonly IViewStateAccess? _viewState;
 
     /// <summary>模块窗口（每个模块一项）。</summary>
     public ObservableCollection<ModuleViewViewModel> Modules { get; } = [];
@@ -767,10 +783,139 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
     }
 
+    // ---------------------------------------------------------------- 网络标签的"连接对齐"吸附（G5 追加）
+
+    /// <summary>
+    /// **拖动网络标签时的"连接对齐"吸附**（G5 追加 · 用户 2026-09 裁定"允许连接对齐式吸附/边框高亮"）。
+    /// </summary>
+    /// <param name="module">标记所属模块。</param>
+    /// <param name="marker">正在拖的标记。</param>
+    /// <param name="edge">标记**当前**所在边（拖动中可能已换边）。</param>
+    /// <param name="offset">指针算出来的归一化偏移（未吸附）。</param>
+    /// <returns>吸附后的偏移（无候选时原样返回）。</returns>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>解决什么</b>：模块**已经拼在一起**、但两个口没对齐（因而没连上）时，
+    ///     用户拖动网络标签到附近就能被"吸到对齐位置"，并高亮两侧标记 ⇒ 松手即连上；</item>
+    ///   <item><b>判据在 Core</b>（<see cref="IRuntimeQuery.SuggestAnchorDock"/>，复用 `DockRule`）：
+    ///     本方法**只做呈现**（赋偏移 + 高亮 + 提示），所以"能吸上" ⟺ "松手真的连上"；</item>
+    ///   <item>每帧先清旧高亮再重算（拖动中换边/移开都要跟着变）；提示**只在换了对象时发一次**
+    ///     （每帧发会把状态栏刷屏）。</item>
+    /// </list>
+    /// </remarks>
+    public double SnapAnchorToConnection(
+        ModuleViewViewModel module,
+        PortMarkerViewModel marker,
+        PortEdge edge,
+        double offset)
+    {
+        ArgumentNullException.ThrowIfNull(module);
+        ArgumentNullException.ThrowIfNull(marker);
+
+        ClearDockPreview();
+
+        var hint = _query.SuggestAnchorDock(module.InstanceId, marker.PortName, edge, offset);
+
+        if (hint is null)
+        {
+            _anchorDockNoticeKey = null;
+
+            // 【2026-09 用户新增诉求】"希望添加网络标签与**中线对齐**能力"：
+            // 没有"吸到哪里就能连上"的候选时，退一步做**纯排版**的对齐（吸到模块边缘中点 = 中线）。
+            // 优先级明确：**连接对齐 > 中线对齐**（能连上的位置永远优先于"好看的位置"）。
+            return SnapAnchorToCenterLine(module, marker, edge, offset);
+        }
+
+        HighlightMarker(hint.InstanceId, hint.PortName);
+        HighlightMarker(hint.PeerInstanceId, hint.PeerPortName);
+
+        var key = $"{hint.PeerInstanceId}.{hint.PeerPortName}";
+
+        if (!string.Equals(_anchorDockNoticeKey, key, StringComparison.Ordinal))
+        {
+            _anchorDockNoticeKey = key;
+            RaiseNotice($"网络标签已对齐：松手即可与 {key} 建立连接");
+        }
+
+        return hint.Offset;
+    }
+
+    /// <summary>
+    /// 把标签吸到**所在边的中线**（= 归一化偏移 0.5）——"网络标签与中线对齐"能力的落点。
+    /// </summary>
+    /// <param name="module">标签所属模块（提供该边方向的长度）。</param>
+    /// <param name="marker">正在拖的标签（提供"是否已经在线上"的判断依据）。</param>
+    /// <param name="edge">目标边。</param>
+    /// <param name="offset">指针算出来的归一化偏移。</param>
+    /// <returns>吸附后的偏移。</returns>
+    /// <remarks>
+    /// 容差取设置里的**「吸附距离」**（与模块拖动吸附同一个偏好）；提示**只在真的吸上去时发一次**
+    /// （每帧发会把状态栏刷屏，与连接对齐同一条纪律）。
+    /// </remarks>
+    private double SnapAnchorToCenterLine(
+        ModuleViewViewModel module,
+        PortMarkerViewModel marker,
+        PortEdge edge,
+        double offset)
+    {
+        var extent = PortEdgeGeometry.IsVertical(edge) ? module.Height : module.Width;
+        var snapped = AnchorSnap.ToEdgeCenter(offset, extent, SnapDistance);
+
+        var atCenter = AnchorSnap.IsAtCenter(snapped);
+
+        if (atCenter && !AnchorSnap.IsAtCenter(marker.Offset))
+        {
+            if (!string.Equals(_anchorCenterNoticeKey, marker.PortName, StringComparison.Ordinal))
+            {
+                _anchorCenterNoticeKey = marker.PortName;
+                RaiseNotice($"{marker.PortName}：已与模块中线对齐");
+            }
+        }
+        else if (!atCenter)
+        {
+            _anchorCenterNoticeKey = null;
+        }
+
+        return snapped;
+    }
+
+    /// <summary>结束网络标签拖动：清掉"连接对齐"高亮与提示去重状态。</summary>
+    public void EndAnchorDockPreview()
+    {
+        ClearDockPreview();
+        _anchorDockNoticeKey = null;
+        _anchorCenterNoticeKey = null;
+    }
+
+    /// <summary>上一次提示过的"连接对齐"对端（null = 当前没有）——避免每帧刷状态栏。</summary>
+    private string? _anchorDockNoticeKey;
+
+    /// <summary>上一次提示过的"已与中线对齐"的口名（同上，只为不刷屏）。</summary>
+    private string? _anchorCenterNoticeKey;
+
+    /// <summary>把某个口标成"即将建网"（找不到就静默跳过：拖动中对方可能刚好被移除）。</summary>
+    private void HighlightMarker(string instanceId, string portName)
+    {
+        foreach (var module in Modules)
+        {
+            if (!string.Equals(module.InstanceId, instanceId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            foreach (var marker in module.Ports)
+            {
+                if (string.Equals(marker.PortName, portName, StringComparison.Ordinal))
+                {
+                    marker.IsDockCandidate = true;
+                }
+            }
+        }
+    }
+
     /// <summary>结束拖动：**一次 ChangeSet** 提交整组位置（原子），随后清辅助线（C5-1 约束 1）。</summary>
     public void EndDrag()
-    {
-        if (_draggingId is null)
+    {        if (_draggingId is null)
         {
             return;
         }
@@ -1453,7 +1598,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 _command,
                 Scale,
                 placement.X,
-                placement.Y);
+                placement.Y,
+                _viewState);
 
             Modules.Add(created);
 
@@ -1558,6 +1704,65 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         return builder.ToString();
     }
 
+    /// <summary>
+    /// **取完某实例的挂起"清空显示"请求**（模块 → 框架的请求方向；`null` = 本帧没有请求）。
+    /// </summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <returns>被请求清空的**数据源名集合**；没有请求时为 <see langword="null"/>。</returns>
+    /// <remarks>
+    /// 一次性取完（而不是"每遇到一个显示元素取一个"）的理由见调用处的注释：**顺序不该影响语义**，
+    /// 而且旧写法会在源名不匹配时把请求**丢掉**。
+    /// </remarks>
+    private HashSet<string>? DrainClears(string instanceId)
+    {
+        if (_viewState is null)
+        {
+            return null;
+        }
+
+        HashSet<string>? clears = null;
+
+        while (_viewState.TryTakeClear(instanceId, out var source) && source is { Length: > 0 })
+        {
+            clears ??= new HashSet<string>(StringComparer.Ordinal);
+            _ = clears.Add(source);
+        }
+
+        return clears;
+    }
+
+    /// <summary>
+    /// **落地某实例挂起的"追加文本"请求**〔2026-09 用户裁定 · WinForms 模型〕。
+    /// </summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <remarks>
+    /// 模块线程只入队（<c>IViewDisplayAccess.AppendText/AppendLine</c>），**显示缓冲的唯一写者仍是 UI 线程**
+    /// —— 界面绑定的行集合绝不被跨线程改。本方法在**每帧刷新**里把队列取空并按入队顺序落地：
+    /// 「不换行」=`AppendText`（数据直接接在后面、什么都不加）、「通道换行」=`AppendLine`。
+    /// <para>清空请求先于追加落地（同一个节拍内的语义见 <c>ViewStateStore</c> 的说明）。</para>
+    /// </remarks>
+    private void DrainAppends(string instanceId)
+    {
+        if (_viewState is null)
+        {
+            return;
+        }
+
+        // 取空再落地：取的时候持存储锁、落地时持缓冲锁，两把锁不嵌套（避免锁序问题）
+        foreach (var append in _viewState.DrainAppends(instanceId))
+        {
+            var buffer = _viewState.Display(instanceId, append.SourceName);
+
+            if (append.LineBreak)
+            {
+                buffer.AppendLine(append.Text);
+            }
+            else
+            {
+                buffer.AppendText(append.Text);
+            }
+        }
+    }
     private void RefreshSubscriptions()
     {
         _frameCounter++;
@@ -1585,6 +1790,24 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         foreach (var module in Modules)
         {
+            // 【2026-09 缺陷修复 · 用户实测"清空按钮无用，只会使窗口闪一下"】**本帧先把该实例的挂起清空请求
+            // 一次取完**（旧写法是在"每遇到一个 A5 元素"时才 `TryTakeClear` 一次 ⇒ ① 顺序不对就**丢掉**
+            // 别的源的请求；② 语义上也不该被元素遍历顺序左右）。取到的是一个**集合**，供下面的元素循环按源名匹配。
+            var clears = DrainClears(module.InstanceId);
+
+            // **顺序纪律：清空先落地，追加后落地**（模块先 `Clear` 再 `Append` 的语义不能被倒过来）。
+            // 缓冲的写者只有这一处（UI 线程）⇒ 两边都安全。
+            if (clears is not null && _viewState is not null)
+            {
+                foreach (var name in clears)
+                {
+                    _viewState.Display(module.InstanceId, name).Clear();
+                }
+            }
+
+            // 本帧把挂起的"追加文本"落地（数据到达即落地，不存在"半行/pending tail"）
+            DrainAppends(module.InstanceId);
+
             // 配置 Schema 读取要反射配置类型 → 不按帧重读：约每 2 秒一次，捕获外部（组合件加载/JSON 写回）变更
             if (_frameCounter % 120 == 0)
             {
@@ -1601,8 +1824,25 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
             foreach (var element in module.Elements)
             {
-                if (element.DataSourceName is not { Length: > 0 } name
-                    || !_sources.TryGetValue((module.InstanceId, name), out var source))
+                if (element.DataSourceName is not { Length: > 0 } name)
+                {
+                    continue;
+                }
+
+                // **清空优先，且不依赖"订阅源是否存在"**（2026-09 缺陷修复）：此前这段在
+                // `_sources.TryGetValue(...)` 之后 ⇒ 一个**还没出过数据/当前无发布者**的显示源
+                // 会连"清空"都轮不到（用户实测："清空按钮无用"）。框架持有的显示缓冲已在**本帧开头**清掉了
+                // （见 `DrainAppends` 上方的顺序说明）⇒ 这里只需把**元素自己的镜像**跟着清掉。
+                if (element is TextLogElementViewModel clearable
+                    && clears is not null
+                    && clears.Contains(name))
+                {
+                    _textReadCounts.Remove((module.InstanceId, name));
+                    clearable.Clear();
+                    continue;
+                }
+
+                if (!_sources.TryGetValue((module.InstanceId, name), out var source))
                 {
                     continue;
                 }
@@ -1642,11 +1882,14 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item>诊断按**连接**（逐源绑定）统计：单源网络下同一网络的所有成员显示同一组数字；
-    ///     **多源网络按源归属**取（键 = `源 → 宿子集`）；</item>
-    ///   <item>字节数 = 投递单元数 × 发送方契约尺寸（**累计量**，可由此反推）；</item>
-    ///   <item>**速率一律取框架口径**【ADR-0046 D8】：接收侧用**每 (实例,口) 队列**的搬运字节速率
-    ///     （按宿计，ADR-0050 Q2），发送侧用本条连接的搬运字节速率——**UI 不再自行差分估算**。</item>
+    ///   <item><b>指标一律经唯一口径 <see cref="IRuntimeQuery.GetPortMetrics"/></b>（Core 算、UI 只格式化）：
+    ///     一个端口的指标 = **该口参与的"流"上的指标之和**（发送口 = 以它为源的全部绑定；接收口 = 以它为宿的全部绑定）；</item>
+    ///   <item><b>为什么不再在这里查字典</b>（2026-09 缺陷根因）：旧写法先按<b>网络身份键</b>查、失败再拿
+    ///     <b>口字面量</b>去查<b>逐源诊断表</b>（键 = `单源 → 宿子集`，是**源**键）⇒ **宿口永远匹配不上**
+    ///     ⇒ 宿口标记的投递/丢弃/速率**静默为 0**（多源网络 / 加载期有未锚定源 / 宿被逐对兼容过滤时必现；
+    ///     1:1 单源单宿时两个键恰好相等，所以一直没被发现）。现在"一个口该读哪些流"由框架回答；</item>
+    ///   <item>**速率与角色方块同一口径**：都取逐源诊断的搬运字节速率（同一批框架速率计），
+    ///     故同一根线两侧不会再显示不同的数（旧写法接收侧走"每口队列"速率 ⇒ 与发送侧可能对不上）。</item>
     /// </list>
     /// </remarks>
     private void RefreshMarkerStatus(ModuleViewViewModel module)
@@ -1656,36 +1899,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             return;
         }
 
-        // 【P40】诊断按**网络身份键**索引，**不能按网络名**：匿名网络（自动建网）名为空串，
-        // 现场出现第二条匿名网络时，`ToDictionary(d => d.NetworkName)` 会抛"同一键已存在（键为空串）"（实测崩溃）。
-        var diagnostics = new Dictionary<string, BindingDiagnosticView>(StringComparer.Ordinal);
-        var diagnosticsBySource = new Dictionary<string, BindingDiagnosticView>(StringComparer.Ordinal);
-
-        foreach (var diagnostic in _query.GetDiagnostics())
-        {
-            _ = diagnostics.TryAdd(diagnostic.Key, diagnostic);   // 键重复也不抛：宁可少显示，不让界面崩
-
-            // 【ADR-0050 M2/M7】逐源键 = `源 → 宿子集`：多源网络下**按源归属**取到本条连接的诊断
-            var separator = diagnostic.Key.IndexOf('→', StringComparison.Ordinal);
-            if (separator > 0)
-            {
-                _ = diagnosticsBySource.TryAdd(diagnostic.Key[..separator], diagnostic);
-            }
-        }
-
-        // 【ADR-0050 Q2 / ADR-0046 D8】**每 (实例, 口) 队列**：水位与"按宿计"的搬运字节速率（框架口径）
-        var queueDepths = new Dictionary<string, PortQueueDepthView>(StringComparer.Ordinal);
-        foreach (var depth in _query.GetQueueDepths())
-        {
-            _ = queueDepths.TryAdd($"{depth.InstanceId}.{depth.PortName}", depth);
-        }
-
         var networks = _query.GetNetworks();
-
-        // 端口契约尺寸（字节数估算用）：一次取实例视图即可
-        var contractSizes = _query.TryGetInstance(module.InstanceId, out var instance) && instance is not null
-            ? instance.Ports.ToDictionary(p => p.Name, p => p.ContractSizeInBytes, StringComparer.Ordinal)
-            : [];
 
         foreach (var marker in module.Ports)
         {
@@ -1717,29 +1931,26 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             marker.NetworkName = network.IsAnonymous ? null : network.Name;
             marker.IsStalled = network.IsStalled;
 
-            // 【ADR-0050 M2/M7】**键空间要分清**（实测踩坑）：
-            //   · `BindingDiagnosticView.Key` = **逐源键**（`源 → 宿子集`，多源下按源归属）⇒ 用它取"这条连接"的投递/丢弃；
-            //   · `PortQueueDepthView` = **每 (实例, 口)** 一条队列 ⇒ 用它取"本口按宿计"的速率（源口/宿口都有）。
-            // 早先只按网络键查逐源表 ⇒ 宿口查不到 ⇒ 该口速率/投递**静默不更新**（一直显示占位符）。
-            if (!diagnostics.TryGetValue(network.Key, out var diagnostic))
-            {
-                _ = diagnosticsBySource.TryGetValue(literal, out diagnostic);
-            }
+            // 【ADR-0050 Q2 / ADR-0046 D8】**框架算、界面只格式化**：不再自行差分估算、
+            // 也不再拿"投递数 × 契约尺寸"自己乘一遍（累计字节由框架给出，同一口径）。
+            var metrics = _query.GetPortMetrics(module.InstanceId, marker.PortName);
 
-            marker.Delivered = diagnostic?.Delivered ?? 0;
-            marker.Dropped = diagnostic?.Dropped ?? 0;
+            marker.Delivered = metrics.Delivered;
 
-            var size = contractSizes.TryGetValue(marker.PortName, out var bytes) ? bytes : 0;
-            var totalBytes = marker.Delivered * size;
-            marker.BytesText = size > 0 ? FormatBytes(totalBytes) : null;
+            // `Dropped` = **传输丢弃**（队列满 + 无承载 + 载荷非法）；**停流未投递**是合法状态，
+            // 不算故障，故不显示在这里（三类丢弃不混算，ADR-0046 D8 / ADR-0050 Q5）
+            marker.Dropped = metrics.Dropped;
 
-            // 【ADR-0046 D8 / R4】**速率由框架给出**（不再由 UI 差分估算）：
-            // 接收侧取**按宿计**的口径（每口一条队列）；取不到队列指标时回退到本条连接的搬运字节速率。
-            var busRate = queueDepths.TryGetValue(literal, out var depth)
-                ? depth.BusByteRate
-                : diagnostic?.BusByteRate ?? 0;
-
-            marker.RateText = busRate > 0.5 ? $"{FormatBytes((long)busRate)}/s" : "---";
+            // 【2026-09 用户裁定"速率只要有效数据"】**界面显示的是有效口径**：
+            // 速率取 `PayloadBytesPerSecond`、累计流量取 `PayloadBytesDelivered`
+            // （逐单元读类型声明的有效长度字段 ⇒ 不含尾部补零/对齐填充）。
+            // 搬运口径（`BytesPerSecond` / `BytesDelivered`）仍是 API 事实，但**界面不再显示它**
+            // ——否则同一块标签上"速率"与"流量"会各说一套。
+            marker.BytesText = metrics.PayloadBytesDelivered > 0 ? FormatBytes(metrics.PayloadBytesDelivered) : null;
+            // 【2026-09 用户裁定】速率**如实显示**：`---` 只表示"**无连接**"（上面那条分支）；
+            // 有连接但这一秒没数据 ⇒ `0.00 B/s`（**不再拿 `---` 冒充 0** —— 用户："再低的速率也是有数据，
+            // 如实显示，没有数据就写 0.00，--- 表示无连接"）。
+            marker.RateText = FormatRate(metrics.PayloadBytesPerSecond);
         }
     }
 
@@ -1775,8 +1986,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
             // **角色自身的信息**（用户第三十四轮：画在角色方块上方、左对齐、大字速率、禁止过长描述）——
             // 数值全部来自框架的**角色维度聚合**（`GetRoles` 已按角色汇总），UI 只做格式化。
-            box.RateText = role.RateBytesPerSecond > 0.5
-                ? $"{FormatBytes((long)role.RateBytesPerSecond)}/s"
+            // 【2026-09】速率是**有效载荷字节速率**（用户："速率只要有效数据"）。
+            box.RateText = role.PayloadRateBytesPerSecond > 0.5
+                ? $"{FormatBytes((long)role.PayloadRateBytesPerSecond)}/s"
                 : "---";
             box.MetaText = RoleTextMetrics.TypeTagOf(role.SemanticText);
 
@@ -1910,6 +2122,16 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         && peer.Rect.IsValid
         && module.Rect.IsValid
         && AreNodesJoined((module.InstanceId, module.Rect), (peer.InstanceId, peer.Rect), GroupTolerance);
+    /// <summary>
+    /// **速率文本**（每秒字节数）：**如实显示**，不做"低于阈值就显示占位符"的模糊化。
+    /// </summary>
+    /// <param name="bytesPerSecond">每秒搬运字节数（框架算，界面只格式化）。</param>
+    /// <returns>`0.00 B/s` / `12.34 B/s` / `1.44 KB/s` …（2026-09 用户裁定："再低的速率也是有数据，如实显示"）。</returns>
+    private static string FormatRate(double bytesPerSecond) =>
+        bytesPerSecond < 1024
+            ? $"{bytesPerSecond:0.00} B/s"
+            : $"{bytesPerSecond / 1024:0.00} KB/s";
+
     private static string FormatBytes(long bytes) => bytes switch
     {
         < 1024 => $"{bytes} B",
@@ -2004,6 +2226,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <summary>
     /// 文本日志：读**新增**的文本样本并逐行追加（用已读计数避免重复追加）。
     /// </summary>
+    /// <remarks>
+    /// <b>这是**历史路径**</b>：只有仍按"发布定长样本"写显示区的模块走它（如零口的转换器）。
+    /// 数据显示器已改为经 <c>IViewDisplayAccess.AppendText/AppendLine</c> 追加（见 <see cref="DrainAppends"/>）
+    /// —— 两条路都往**同一份**显示缓冲里写，因此可以共存（只增纪律：老模块零改动）。
+    /// </remarks>
     private void AppendTextLines(string instanceId, SubscriptionSourceView source, TextLogElementViewModel log)
     {
         var sampleSize = source.SampleSizeInBytes;
@@ -2073,9 +2300,16 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// 两节点是否"拼在一起"（成组谓词）。
     /// </summary>
     /// <remarks>
-    /// 模块 ↔ 模块：沿用 <see cref="SnapEngine.AreJoined"/>（相邻边贴合 + 交叉轴有重叠）。
-    /// **模块 ↔ 外壳：只有"模块左边缘贴外壳右边缘"算**（外壳只提供右边缘 —— ADR-0038 D5 / 用户裁决 D-2），
-    /// 不允许贴它的左/上/下边缘。
+    /// <list type="bullet">
+    ///   <item>模块 ↔ 模块：沿用 <see cref="SnapEngine.AreJoined"/>（相邻边贴合 + 交叉轴有重叠）；</item>
+    ///   <item><b>模块 ↔ 外壳：只有"模块左边缘贴外壳右边缘"算</b>（外壳只提供右边缘 —— ADR-0038 D5 / 用户裁决 D-2），
+    ///     不允许贴它的左/上/下边缘；</item>
+    ///   <item><b>外壳用严格容差</b>（<see cref="ShellJoinTolerance"/>，2026-09 缺陷修复）：模块间用
+    ///     <see cref="GroupTolerance"/>（贴合容差 8px，"差一点也算拼上"对拼装手感友好），但**外壳不能用它** ——
+    ///     否则"停在离外壳 8px 处、根本没吸附"的模块也被判成已拼上，拖动主窗口时被一并带走，
+    ///     表现为"没产生吸附行为却粘在主窗口上"（用户实测复报，与第三十四轮反馈同一现象）。
+    ///     外壳侧的判据是"**真的贴上了**"⇒ 吸附产生的 0 间隙（允许 1px 取整误差）。</item>
+    /// </list>
     /// </remarks>
     private static bool AreNodesJoined(
         (string Id, CanvasRect Rect) a,
@@ -2086,7 +2320,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         {
             var (shell, module) = string.Equals(a.Id, ShellNodeId, StringComparison.Ordinal) ? (a.Rect, b.Rect) : (b.Rect, a.Rect);
             var overlap = Math.Min(module.Bottom, shell.Bottom) - Math.Max(module.Top, shell.Top);
-            return Math.Abs(module.Left - shell.Right) <= tolerance && overlap > tolerance;
+            return Math.Abs(module.Left - shell.Right) <= Math.Min(tolerance, ShellJoinTolerance)
+                && overlap > ShellJoinTolerance;
         }
 
         return SnapEngine.AreJoined(a.Rect, b.Rect, tolerance);
@@ -2159,9 +2394,14 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// 端口锚点对（ADR-0042 D2/D4）：被拖模块的发送口 ↔ 其他模块的接收口（及反向）。
     /// </summary>
     /// <remarks>
-    /// **对齐轴由端口所在的边决定**：当前模型里口只在左/右边（`PortMarkerViewModel.Side`），
-    /// 因此端口锚点恒为 **Y 对齐**（左右相邻时"插上"要看高度对齐）。
-    /// 接近范围由引擎按两模块的交叉轴间隙判定（不再"按缝隙大小猜邻接方向" —— ADR-0042 D4）。
+    /// <list type="bullet">
+    ///   <item><b>对齐轴由端口所在的边决定</b>：左/右边的口 → 约束 Y（两个口沿竖直方向对齐）；上/下边的口 → 约束 X；</item>
+    ///   <item><b>只有"面对面"的两个口才参与</b>（2026-09 缺陷修复）：对方的口必须挂在**对面那条边**上
+    ///     （我朝右 → 对方朝左；我朝下 → 对方朝上）。缺这一条时，两个**背对背/错向**的口
+    ///     （例如上下相邻的两模块，一个右边缘口、一个左边缘口）也会产生"对齐吸附"，
+    ///     把模块吸到一个**永远不会连上**的位置（用户实测："明明对齐的下侧却导致左右两侧的吸附"）；</item>
+    ///   <item>接近范围由引擎按两模块的交叉轴间隙判定（不再"按缝隙大小猜邻接方向" —— ADR-0042 D4）。</item>
+    /// </list>
     /// 同组成员与自身不参与；此通道**恒开**（不依赖"叠加信息层"开关）。
     /// </remarks>
     private List<PortAnchorPair> BuildPortAnchors(string draggingId)
@@ -2179,11 +2419,18 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         {
             foreach (var mine in moving.Ports)
             {
+                var facing = PortEdgeGeometry.Opposite(mine.Edge);
+
                 foreach (var theirs in other.Ports)
                 {
                     if (mine.IsSend == theirs.IsSend)
                     {
                         continue;   // 只考虑"发送 ↔ 接收"
+                    }
+
+                    if (theirs.Edge != facing)
+                    {
+                        continue;   // **不是面对面** ⇒ 插不上，不产生对齐候选
                     }
 
                     // 端口的对齐轴 = 它所在的边：左/右边 → 约束 Y（横向参照线）；上/下边 → 约束 X

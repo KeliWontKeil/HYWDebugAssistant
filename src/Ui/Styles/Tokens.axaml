@@ -108,14 +108,15 @@
       尺寸 token【M1-16 / ADR-0039 D1-D3 · ADR-0040 D4】：**改尺寸只改这里**。
       · 控件高度 27：输入类控件与 12 px 字号匹配（用户第六轮反馈"文本框太高"）；
       · 模块窗口：交互带 6 px、缩放手柄 6×6（原 12×12 **缩小 50%**，且仅选中时可命中）；
-      · 端口标记（标准件）：宽 20 · 长 114（原 76，**加长 50%**）· 字号 11。
+      · 端口标记（标准件）：**尺寸不在这里** —— 见 `Ui/Geometry/PortMarkerMetrics.cs`
+        （【2026-09 缺陷修复】`PortMarkerWidth`/`PortMarkerLength` 两个 token 曾与视图模型里的
+        20/114 各写一份，而**真正生效的只有视图模型那份**、token 全仓库无人引用（死资源）⇒ 已删除，
+        统一由 `PortMarkerMetrics` 提供；标记内元素尺寸仍在下面）。
     -->
     <x:Double x:Key="ControlHeight">27</x:Double>
     <x:Double x:Key="ControlFontSize">12</x:Double>
     <x:Double x:Key="ModuleHandleSize">6</x:Double>
     <x:Double x:Key="ModuleBandThickness">6</x:Double>
-    <x:Double x:Key="PortMarkerWidth">20</x:Double>
-    <x:Double x:Key="PortMarkerLength">114</x:Double>
     <x:Double x:Key="PortMarkerFontSize">11</x:Double>
 
     <!--

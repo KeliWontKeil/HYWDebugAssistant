@@ -220,6 +220,8 @@ public sealed class SettingsService
 
         // 多行输入提交键【G2 · 2026-09】：非法值回退默认（`Ui` 侧按三档字符串解释，不做校验、不提示）
         settings.MultilineSubmitKey = ReadString(root, "multilineSubmitKey") ?? settings.MultilineSubmitKey;
+        settings.UiFontFamily = ReadString(root, "uiFontFamily") ?? settings.UiFontFamily;
+        settings.DataFontFamily = ReadString(root, "dataFontFamily") ?? settings.DataFontFamily;
 
         // 方向语义色【ADR-0044】：空串 = 跟随主题默认值（不校验色值：完全尊重用户输入，见裁决 D6）
         settings.DirectionSendColor = ReadString(root, "directionSendColor") ?? settings.DirectionSendColor;
@@ -248,6 +250,11 @@ public sealed class SettingsService
         root["accentColor"] = settings.AccentColor;
         root["backgroundMode"] = settings.BackgroundMode;
         root["backgroundColor"] = settings.BackgroundColor;
+
+        // 【2026-09 缺陷修复 · 用户实测"字体不能持久化"】**这两项此前只读不写** ⇒ 改完字体一重启就回到默认。
+        root["uiFontFamily"] = settings.UiFontFamily;
+        root["dataFontFamily"] = settings.DataFontFamily;
+
         root["multilineSubmitKey"] = settings.MultilineSubmitKey;
         root["directionSendColor"] = settings.DirectionSendColor;
         root["directionReceiveColor"] = settings.DirectionReceiveColor;

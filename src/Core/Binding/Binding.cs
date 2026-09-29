@@ -35,6 +35,7 @@ public sealed class BindingDiagnostics
 
     private readonly long[] _droppedByReason = new long[ReasonCount];
     private long _published;
+    private long _payloadBytes;
     private long _delivered;
     private long _dropped;
     private long _lastDataTicks = -1;
@@ -76,8 +77,27 @@ public sealed class BindingDiagnostics
     /// <summary>
     /// 记录一次**发布**：该源产出了一个**合法载荷的数据报**并进入投递阶段（**每个数据报一次**）。
     /// </summary>
-    /// <remarks>在宿循环**之前**调用，故它不受多播放大、也不因某个宿满队而漏计。</remarks>
-    public void RecordPublished() => Interlocked.Increment(ref _published);
+    /// <param name="payloadBytes">
+    /// 本次数据报的**有效字节数**（业务数据；由 <see cref="Binding.PayloadBytesOfUnit"/> 给出）——
+    /// 第 3 档速率（有效载荷字节速率）的分子即本累计值（2026-09 用户裁定"速率只要有效数据"）。
+    /// </param>
+    /// <remarks>
+    /// 在宿循环**之前**调用，故它不受多播放大、也不因某个宿满队而漏计（与"按源计"的口径一致）。
+    /// </remarks>
+    public void RecordPublished(long payloadBytes)
+    {
+        Interlocked.Increment(ref _published);
+        Interlocked.Add(ref _payloadBytes, payloadBytes);
+    }
+
+    /// <summary>
+    /// **累计有效载荷字节**（业务数据字节之和；按源计）——有效载荷字节速率的分子。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="Published"/> **同一处**累加（同一次发布）：两者相除必须是"每单元平均有效字节"，
+    /// 分开两处写就会出现"分子分母不是同一批数据报"的经典缺陷。
+    /// </remarks>
+    public long PayloadBytes => Interlocked.Read(ref _payloadBytes);
 
     /// <summary>记录一次成功投递。</summary>
     public void RecordDelivered()
@@ -148,7 +168,16 @@ public sealed class Binding
         Targets = targets;
         Layout = layout;
         Metering = metering ?? MeteringBlock.Default;
+
+        _staticPayloadBytes = Math.Clamp(Metering.PayloadSizeInBytes ?? layout.SizeInBytes, 0, layout.SizeInBytes);
+        _payloadLength = PayloadLengthReader.Resolve(layout, Metering.PayloadLengthField);
     }
+
+    /// <summary>未声明"有效长度字段"时的**静态**每单元有效字节数（= `PayloadSizeInBytes` ?? 契约尺寸）。</summary>
+    private readonly int _staticPayloadBytes;
+
+    /// <summary>有效长度字段的读取器（**加载期解析一次**：偏移 + 原语；未声明 / 不可用 ⇒ null）。</summary>
+    private readonly PayloadLengthReader? _payloadLength;
 
     /// <summary>对应的网络声明。</summary>
     public Network Network { get; }
@@ -167,12 +196,36 @@ public sealed class Binding
     /// </summary>
     /// <remarks>
     /// 框架据它**机械**给出四档速率（零解析）：有效载荷字节速率 · 样本 / 通道样本速率；
-    /// 缺省语义：`PayloadSizeInBytes` 空 ⇒ 取 <see cref="Layout"/> 的契约尺寸。
+    /// 缺省语义：`PayloadSizeInBytes` 空 ⇒ 取 <see cref="Layout"/> 的契约尺寸；
+    /// 声明了 `PayloadLengthField` ⇒ **逐单元**读那个字段（变长载荷的真实有效字节，2026-09 用户裁定）。
     /// </remarks>
     public MeteringBlock Metering { get; }
 
     /// <summary>诊断计数。</summary>
     public BindingDiagnostics Diagnostics { get; } = new();
+
+    /// <summary>
+    /// **一个数据单元的"有效字节数"**（有效载荷字节速率的分子；2026-09 用户裁定"速率只要有效数据"）。
+    /// </summary>
+    /// <param name="unit">数据单元字节（长度已由调用方校验 ≥ 契约尺寸）。</param>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>声明了 **<see cref="MeteringBlock.PayloadLengthField"/>** ⇒ 读该字段（整型、小端）、
+    ///     夹到 <c>[0, 契约尺寸]</c> ⇒ 变长载荷（如 <c>{len:u16,data:bytes[N]}</c>）拿到**真实**业务字节；
+    ///     读不出来（声明了形状里却没有 / 原语不对 / 字节不够）⇒ **回落到静态值**，不放任它静默变 0
+    ///     （声明错误由 <c>ModuleContract</c> 的契约自检在加载期报出来）；</item>
+    ///   <item>未声明该字段 ⇒ 静态值 = `PayloadSizeInBytes`（缺省 = 契约尺寸）⇒ **旧模块行为不变**。</item>
+    /// </list>
+    /// </remarks>
+    public int PayloadBytesOfUnit(ReadOnlySpan<byte> unit)
+    {
+        if (_payloadLength is { } reader && reader.TryRead(unit, out var declared))
+        {
+            return Math.Clamp(declared, 0, Layout.SizeInBytes);
+        }
+
+        return _staticPayloadBytes;
+    }
 
     /// <summary>停止投递（上游 Disabled 或停流时；绑定保留）。</summary>
     public bool IsSuspended { get; internal set; }

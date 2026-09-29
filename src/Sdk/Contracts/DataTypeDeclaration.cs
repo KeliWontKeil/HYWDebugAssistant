@@ -34,6 +34,7 @@ public readonly record struct DataTypeRef(string TypeId, int Version)
 ///   <item><b>四档速率</b>：单元速率（按源计）· 搬运字节速率（按宿计，含自描述与对齐填充）·
 ///         有效载荷字节速率（业务数据）· 样本 / 通道样本速率；</item>
 ///   <item><b>全可选且有明确缺省</b>：<see cref="PayloadSizeInBytes"/> 缺省 = 契约尺寸 ·
+///         <see cref="PayloadLengthField"/> 缺省 = 不逐单元读（按静态尺寸算） ·
 ///         <see cref="SamplesPerUnit"/> 缺省 1 · <see cref="ChannelCount"/> 缺省 1 · <see cref="NominalRateHz"/> 缺省"未声明"；</item>
 ///   <item><b>纪律</b>：这些字段**只用于计量与呈现**，**禁止参与**建网/兼容等任何框架判定（"可声明 ≠ 可判定"）；</item>
 ///   <item>未声明计量块的类型（或旧模块）⇒ 四档速率**只显示有定义的那几档**，绝不猜。</item>
@@ -54,6 +55,26 @@ public sealed record MeteringBlock
 
     /// <summary>**每样本的通道数**（多通道采集）；缺省 1。必须 &gt; 0。</summary>
     public int ChannelCount { get; init; } = 1;
+
+    /// <summary>
+    /// **有效长度字段名**（业务数据"到哪结束"的那个顶层字段；缺省 = 有效载荷按静态尺寸算）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>解决什么</b>（用户 2026-09 裁定："速率只要有效数据，截断的不应该算在有效数据里面"）：
+    ///     定长契约里的**变长载荷**（典型：<c>{ len: u16, data: bytes[1472] }</c>，尾部补零）用一个静态尺寸
+    ///     表达不出"这一个单元真正有多少业务字节" ⇒ 声明**哪个字段写着有效长度**，框架逐单元读它、
+    ///     夹到 <c>[0, 契约尺寸]</c> 后累计 ⇒ 第 3 档（有效载荷字节速率）给出**真实**有效速率；</item>
+    ///   <item><b>怎么读</b>：字段名按**顶层字段**在 <see cref="ContractLayout"/> 里定位偏移（加载期算好，运行期零反射），
+    ///     按该字段的**整型原语**、**小端**读取（与数据面一致）；字段不存在 / 不是整型 /
+    ///     不是结构形状 ⇒ 由 <c>ModuleContract</c> 的契约自检**明确报错**（不静默）；</item>
+    ///   <item><b>与 <see cref="PayloadSizeInBytes"/> 的关系</b>：声明了本字段 ⇒ **动态值优先**
+    ///     （逐单元真实长度）；没声明才回落到静态尺寸（旧模块/定长载荷行为不变）；</item>
+    ///   <item>**纪律不变**：计量块**只用于计量与呈现**，禁止参与建网/兼容等任何框架判定。</item>
+    /// </list>
+    /// 用法：<c>Metering = new MeteringBlock { PayloadLengthField = "len" }</c>
+    /// </remarks>
+    public string? PayloadLengthField { get; init; }
 
     /// <summary>**标称速率**（Hz；仅用于"实测 vs 标称"的掉速呈现）；缺省 = 未声明。</summary>
     public double? NominalRateHz { get; init; }

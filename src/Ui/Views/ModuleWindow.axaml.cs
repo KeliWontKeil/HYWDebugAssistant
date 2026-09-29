@@ -352,6 +352,9 @@ public partial class ModuleWindow : Window
         if (Module is { } module && Controller is { } controller)
         {
             _ = controller.MovePortAnchor(module, marker, _anchorFromEdge, _anchorFromOffset);
+
+            // 收尾：清掉"连接对齐"高亮与提示去重状态（松手后由真实建网接管）
+            controller.EndAnchorDockPreview();
         }
 
         e.Handled = true;
@@ -405,7 +408,13 @@ public partial class ModuleWindow : Window
             ? (local.Y, height)
             : (local.X, width);
 
-        marker.Offset = Math.Clamp((axis + _anchorDelta) / extent, 0, 1);
+        var proposed = Math.Clamp((axis + _anchorDelta) / extent, 0, 1);
+
+        // 【G5 追加 · 用户 2026-09】"连接对齐"吸附：模块已拼在一起、两个口只差对齐时，
+        // 把标记吸到**能连上**的位置并高亮两侧（判据在 Core，复用建网判定 ⇒ 吸得上就一定连得上）。
+        marker.Offset = Module is { } module && Controller is { } controller
+            ? controller.SnapAnchorToConnection(module, marker, edge, proposed)
+            : proposed;
     }
 
     // ---------------------------------------------------------------- 口标记：网络标签编辑

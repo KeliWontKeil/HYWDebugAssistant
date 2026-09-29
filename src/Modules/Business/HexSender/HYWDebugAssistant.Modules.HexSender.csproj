@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    业务模块（第一批 #2）：HEX 发送器 `hyw/hex-sender`（docs/modules/hyw-hex-sender.md）
+    与第三方模块**同构同路径**：只引 Sdk（AR-1）；不得引用其他模块（AR-2）。
+  -->
+  <PropertyGroup>
+    <!-- 包目录名（artifacts\modules\hex-sender\ 与应用输出 modules\hex-sender\）—— 用户可见 -->
+    <ModulePackageName>hex-sender</ModulePackageName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 模块清单随构建输出（M1 物理形式：目录 + module.json + 实现程序集） -->
+    <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

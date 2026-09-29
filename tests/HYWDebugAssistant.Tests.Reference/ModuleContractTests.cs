@@ -1,15 +1,18 @@
-using HYWDebugAssistant.Modules.Reference.Asserter;
-using HYWDebugAssistant.Modules.Reference.DataGenerator;
-using HYWDebugAssistant.Modules.Reference.Recorder;
+using System.Text;
+using HYWDebugAssistant.Modules.DataMonitor;
+using HYWDebugAssistant.Modules.HexSender;
+using HYWDebugAssistant.Modules.HexStringConverter;
+using HYWDebugAssistant.Modules.TextSender;
 using HYWDebugAssistant.Sdk;
-using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
+using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Testing;
 using HYWDebugAssistant.Sdk.Views;
+using HYWDebugAssistant.Tests.Reference.Stubs;
 using Shouldly;
 using Xunit;
 
@@ -19,10 +22,24 @@ namespace HYWDebugAssistant.Tests.Reference;
 /// **T6 契约测试套件**（`Sdk.Testing`）——docs/architecture/06 §6.5：模块作者在自己的测试项目里的用法示范。
 /// </summary>
 /// <remarks>
+/// <para>
 /// 两条用法：
+/// </para>
 /// <list type="number">
 ///   <item><b>契约自检</b>：<see cref="ModuleContract.CheckAll"/> 一行跑出声明面问题（不拉起框架）；</item>
 ///   <item><b>行为自检</b>：<see cref="TestModuleContext"/> 注入上下文，直接驱动模块的钩子与逻辑。</item>
+/// </list>
+/// <para>
+/// <b>载体变更（2026-09 用户裁定"完全删除旧的模块…新测试全部转入新的四个模块"）</b>：原来的六个参考模块
+/// （数据发生器 / 记录器 / 断言器 / 手动发送器 / 显示模块 / 融合器）已删除 ⇒
+/// </para>
+/// <list type="bullet">
+///   <item><b>声明面与数据契约</b>的载体换成**四个正式模块**（`text-sender` / `hex-sender` /
+///     `data-monitor` / `hex-string-converter`）——它们只引 SDK、只凭声明接入，正是本文件的示例对象；</item>
+///   <item>框架能力（多源合并 / 定时出数 / 判据上报）**一个都没删**：由本项目内的**测试桩**承载
+///     （见 <c>Stubs/</c>，桩不进产品模块目录、不打包）；</item>
+///   <item>故意写坏的模块（下面的 <c>Broken*</c> 系列）**原样保留** —— 它们验证"自检确实能发现问题"，
+///     与载体无关。</item>
 /// </list>
 /// </remarks>
 public class ModuleContractTests
@@ -30,54 +47,53 @@ public class ModuleContractTests
     // ------------------------------------------------------------ 契约自检
 
     [Fact]
-    public void 三个参考模块的声明面应无契约问题()
+    public void 四个业务模块与测试桩的声明面应无契约问题()
     {
         var problems = ModuleContract.CheckAll(
-            typeof(DataGeneratorModule),
-            typeof(RecorderModule),
-            typeof(AsserterModule),
-            typeof(HYWDebugAssistant.Modules.Reference.ManualSender.ManualSenderModule),
-            typeof(HYWDebugAssistant.Modules.Reference.Monitor.MonitorModule),
-            typeof(HYWDebugAssistant.Modules.Reference.Fuser.FuserModule));
+            typeof(TextSenderModule),
+            typeof(HexSenderModule),
+            typeof(DataMonitorModule),
+            typeof(HexStringConverterModule),
+            typeof(RateSourceStubModule),
+            typeof(JudgementSinkStubModule),
+            typeof(FusionStubModule));
 
         problems.ShouldBeEmpty(string.Join("；", problems));
     }
 
     [Fact]
-    public void 参考模块应各自声明角色_融合器一块两入一出_且都不声明内部顺序()
+    public void 业务模块应各自声明角色_融合桩一块两入一出_且都不声明内部顺序()
     {
         // 【ADR-0052】角色 = 模块声明的**功能分块**（一种数据类型 + 输入口/输出口），**框架不派生**。
-        // 六个参考模块都是"单块"：数据发生 / 手动发送 = 纯源，显示 / 记录 / 断言 = 纯汇，
-        // 融合 = **一块两入一出**（这正是"允许 >2 个口"的具体理由：合成一路是**一件事**）。
-        var fuser = ModuleContract.Probe(typeof(HYWDebugAssistant.Modules.Reference.Fuser.FuserModule));
+        // 四个业务模块都是"单块"：两个发送器 = 纯源，显示器 = 纯汇，转换器 = 零口；
+        // 融合桩 = **一块两入一出**（这正是"允许 >2 个口"的具体理由：合成一路是**一件事**）。
+        var fusion = ModuleContract.Probe(typeof(FusionStubModule));
 
-        fuser.Problems.ShouldBeEmpty(string.Join("；", fuser.Problems));
+        fusion.Problems.ShouldBeEmpty(string.Join("；", fusion.Problems));
 
-        var fuse = fuser.DeclaredRoles.ShouldHaveSingleItem();
-        fuse.Id.ShouldBe("fuse");
-        fuse.Inputs.ShouldBe(
-            [HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.InputPort1,
-             HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.InputPort2]);
-        fuse.Outputs.ShouldBe([HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.OutputPort]);
+        var fuse = fusion.DeclaredRoles.ShouldHaveSingleItem();
+        fuse.Id.ShouldBe(FusionStubModule.RoleId);
+        fuse.Inputs.ShouldBe([FusionStubModule.InputPort1, FusionStubModule.InputPort2]);
+        fuse.Outputs.ShouldBe([FusionStubModule.OutputPort]);
         fuse.Type.ShouldBe(
-            new DataTypeRef(HYWDebugAssistant.Sdk.Contracts.CommonDataTypes.AnalogSampleTypeId, 1),
+            new DataTypeRef(FusionStubModule.RawBytesTypeId, FusionStubModule.RawBytesVersion),
             "一个角色只有**一种**数据类型");
 
-        fuser.DeclaredFlows.ShouldBeEmpty("单块模块没有「角色 → 角色」的内部顺序 ⇒ 零声明零线");
+        fusion.DeclaredFlows.ShouldBeEmpty("单块模块没有「角色 → 角色」的内部顺序 ⇒ 零声明零线");
 
         // 【ADR-0052 Q3】多口块只得到**建议**（走 `Advisories`），**不是问题**：它可能在说
         // "两件事挤成一块"（该拆），也可能就是"多路合成一路"（不必拆）——框架判不了，故只说、不判定。
-        fuser.Advisories.ShouldContain(
+        fusion.Advisories.ShouldContain(
             a => a.Contains("3 个口", StringComparison.Ordinal) && a.Contains("不必拆", StringComparison.Ordinal),
-            "融合器的 2 入 1 出应当只得到一条**建议**（含「不必拆」的口径），且不得进 Problems");
+            "融合桩的 2 入 1 出应当只得到一条**建议**（含「不必拆」的口径），且不得进 Problems");
 
         foreach (var type in new[]
                  {
-                     typeof(DataGeneratorModule),
-                     typeof(RecorderModule),
-                     typeof(AsserterModule),
-                     typeof(HYWDebugAssistant.Modules.Reference.ManualSender.ManualSenderModule),
-                     typeof(HYWDebugAssistant.Modules.Reference.Monitor.MonitorModule),
+                     typeof(TextSenderModule),
+                     typeof(HexSenderModule),
+                     typeof(DataMonitorModule),
+                     typeof(RateSourceStubModule),
+                     typeof(JudgementSinkStubModule),
                  })
         {
             var probe = ModuleContract.Probe(type);
@@ -86,6 +102,11 @@ public class ModuleContractTests
             probe.DeclaredFlows.ShouldBeEmpty($"{type.Name} 没有内部处理结构 ⇒ 不声明（框架不猜）");
             probe.Advisories.ShouldBeEmpty($"{type.Name} 是一入一出/单口 ⇒ 连建议都没有（建议要精准，不能到处都是）");
         }
+
+        // 零口模块（离线转换器）同样合法：**零角色 + 零建议**（建议的触发条件是"有口却零角色"）
+        var converter = ModuleContract.Probe(typeof(HexStringConverterModule));
+        converter.DeclaredRoles.ShouldBeEmpty("转换器不接数据面 ⇒ 没有功能分块可声明");
+        converter.Advisories.ShouldBeEmpty("零口零角色**合法且不出建议**");
     }
 
     [Fact]
@@ -133,9 +154,30 @@ public class ModuleContractTests
     }
 
     [Fact]
+    public void 有效长度字段写错_契约自检应当场报出来()
+    {
+        // 【2026-09 用户裁定"速率只要有效数据"】`MeteringBlock.PayloadLengthField` 是"逐单元读哪个字段"
+        // 的声明 ⇒ 只在运行期"读不到就静默算静态值"是不行的（表现为"有效速率恒等于搬运速率"，无人察觉）
+        // ⇒ 加载期的契约自检必须把两种写错**明确报出来**。
+        var problems = ModuleContract.CheckAll(typeof(BrokenMeteringModule)).ToList();
+
+        problems.ShouldContain(
+            p => p.Contains("没有这个顶层字段", StringComparison.Ordinal),
+            "字段名拼错（形状里没有）⇒ 必须报出来");
+        problems.ShouldContain(
+            p => p.Contains("必须是**整型**原语", StringComparison.Ordinal),
+            "把浮点/字节块当「有效长度」用 ⇒ 必须报出来");
+
+        // 写对的形态（形状里有 `len:u16`）⇒ 不得报任何问题
+        ModuleContract.CheckAll(typeof(GoodMeteringModule)).ShouldBeEmpty(
+            string.Join("；", ModuleContract.CheckAll(typeof(GoodMeteringModule))));
+    }
+
+    [Fact]
     public void 类型转换模块_按两个角色声明则无问题_且角色数为二()
     {
         // α 的**正写法**：收 A 的角色 + 发 B 的角色 + DeclareFlow（叠加层上 = 两个方块，各按自己的类型色）。
+        // 正式模块 `hex-string-converter` 是**另一种**正写法（不接数据面 ⇒ 零口零角色）——见上面的断言。
         var problems = ModuleContract.CheckAll(typeof(ConverterModule)).ToList();
         problems.ShouldBeEmpty(string.Join("；", problems));
 
@@ -179,106 +221,29 @@ public class ModuleContractTests
     }
 
     [Fact]
-    public void 参考模块_应声明同一个数据类型且形状一致()
+    public void 业务模块_应声明同一个数据类型且形状一致()
     {
-        // 【ADR-0046 D2/D6】六个参考模块都声明 `hyw/analog-sample@1` ⇒ 兼容判定走"**同标识同版本**"层；
+        // 【ADR-0046 D2/D6】四个业务模块与两个"接数据面"的桩都声明 `RawBytes@1` ⇒ 兼容判定走"**同标识同版本**"层；
         // 若谁的形状写歪了，这里立刻暴露（否则现场表现为"莫名其妙连不上"）。
-        var expected = HYWDebugAssistant.Sdk.Contracts.CommonDataTypes.AnalogSampleShape;
+        var expected = TextSenderModule.RawBytesShape;
 
         foreach (var type in new[]
                  {
-                     typeof(DataGeneratorModule),
-                     typeof(RecorderModule),
-                     typeof(AsserterModule),
-                     typeof(HYWDebugAssistant.Modules.Reference.ManualSender.ManualSenderModule),
-                     typeof(HYWDebugAssistant.Modules.Reference.Monitor.MonitorModule),
-                     typeof(HYWDebugAssistant.Modules.Reference.Fuser.FuserModule),
+                     typeof(TextSenderModule),
+                     typeof(HexSenderModule),
+                     typeof(DataMonitorModule),
+                     typeof(RateSourceStubModule),
+                     typeof(FusionStubModule),
                  })
         {
             var probe = ModuleContract.Probe(type);
-            var analog = probe.DataTypes.SingleOrDefault(t =>
-                t.TypeId == HYWDebugAssistant.Sdk.Contracts.CommonDataTypes.AnalogSampleTypeId && t.Version == 1);
+            var rawBytes = probe.DataTypes.SingleOrDefault(t =>
+                t.TypeId == TextSenderModule.RawBytesTypeId && t.Version == TextSenderModule.RawBytesVersion);
 
-            analog.ShouldNotBeNull($"{type.Name} 应声明 hyw/analog-sample@1");
-            analog!.Shape.ShouldBe(expected, $"{type.Name} 的 hyw/analog-sample@1 形状必须与标准一致");
+            rawBytes.ShouldNotBeNull($"{type.Name} 应声明 {TextSenderModule.RawBytesTypeId}@{TextSenderModule.RawBytesVersion}");
+            ContractShape.AreSame(rawBytes!.Shape, expected)
+                .ShouldBeTrue($"{type.Name} 的 {TextSenderModule.RawBytesTypeId}@{TextSenderModule.RawBytesVersion} 形状必须逐字段一致");
         }
-    }
-
-    [Fact]
-    public void 多源融合器_三种策略应给出不同的合并结果()
-    {
-        // 【ADR-0050 M3/Q4】**合并由模块承担**：本模块是"两个发布者 → 一个结果"的参考实现
-        var module = new HYWDebugAssistant.Modules.Reference.Fuser.FuserModule();
-        var context = new TestModuleContext();
-        module.OnRegistered(context);
-
-        context.DeclaredPorts.Count.ShouldBe(3, "两个输入口 + 一个输出口");
-        context.DeclaredDataTypes.ShouldContain(t =>
-            t.TypeId == HYWDebugAssistant.Sdk.Contracts.CommonDataTypes.AnalogSampleTypeId);
-
-        // ① 按到达（默认）：后到的赢
-        context.SetConfiguration(new HYWDebugAssistant.Modules.Reference.Fuser.FuserConfig
-        {
-            Mode = HYWDebugAssistant.Modules.Reference.Fuser.FusionMode.Latest,
-        });
-        module.OnActivated();
-
-        module.Fuse(context, portIndex: 0, value: 10).ShouldBe(10);
-        module.Fuse(context, portIndex: 1, value: 20).ShouldBe(20, "Latest = 后到的覆盖先到的");
-        module.Winner.ShouldBe(HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.WinnerSecond);
-
-        // ② 固定优先级：1 路优先
-        context.SetConfiguration(new HYWDebugAssistant.Modules.Reference.Fuser.FuserConfig
-        {
-            Mode = HYWDebugAssistant.Modules.Reference.Fuser.FusionMode.Priority,
-        });
-        module.OnConfigurationChanged();
-
-        module.Fuse(context, portIndex: 1, value: 99).ShouldBe(10, "Priority = 1 路有数据就用 1 路");
-
-        // ③ 平均：两路都有数据则取算术平均
-        context.SetConfiguration(new HYWDebugAssistant.Modules.Reference.Fuser.FuserConfig
-        {
-            Mode = HYWDebugAssistant.Modules.Reference.Fuser.FusionMode.Average,
-        });
-        module.OnConfigurationChanged();
-
-        module.Fuse(context, portIndex: 1, value: 30).ShouldBe(20, "Average = (10 + 30) / 2");
-        module.Winner.ShouldBe(HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.WinnerAverage);
-
-        // 计数按**口**归属（这就是"多源用口区分来源"的落地方式）
-        module.Count1.ShouldBe(1UL);
-        module.Count2.ShouldBe(3UL);
-
-        // 转发开关：融合值从输出口发给下游（下游看到的是**模块自己产出的**单元）
-        module.Emitted.ShouldBe(4UL, "每次融合各转发一个单元（本用例调用了 4 次）");
-        context.Sent.Count.ShouldBe(4);
-        context.Sent[^1].PortName.ShouldBe(HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.OutputPort);
-
-        var reader = new PayloadReader(
-            context.Sent[^1].Payload,
-            HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.UnitLayout);
-        reader.ReadF32("value").ShouldBe(20f);
-        reader.ReadU64("seq").ShouldBe(4UL, "序号由模块自己维护（框架不代管）");    }
-
-    [Fact]
-    public void 多源融合器_转发关闭时不应产生输出单元()
-    {
-        var module = new HYWDebugAssistant.Modules.Reference.Fuser.FuserModule();
-        var context = new TestModuleContext();
-        module.OnRegistered(context);
-
-        context.SetConfiguration(new HYWDebugAssistant.Modules.Reference.Fuser.FuserConfig
-        {
-            ForwardMerged = false,
-        });
-        module.OnActivated();
-
-        module.Fuse(context, portIndex: 0, value: 1);
-
-        module.Emitted.ShouldBe(0UL);
-        context.Sent.ShouldBeEmpty("转发关闭 = 只在界面显示，不产生输出");
-        context.Published.ShouldContainKey(HYWDebugAssistant.Modules.Reference.Fuser.FuserModule.FusedSource);
     }
 
     [Fact]
@@ -294,54 +259,83 @@ public class ModuleContractTests
     // ------------------------------------------------------------ 行为自检（模块级，无需框架）
 
     [Fact]
-    public void 发生器_波形应由序号决定且可复现()
+    public void 融合桩_转发关闭时只在界面显示不产生输出单元()
     {
-        var config = new DataGeneratorConfig
-        {
-            Waveform = GeneratorWaveform.Sine,
-            Frequency = 1.0,
-            Amplitude = 2.0,
-            Offset = 0.5,
-            PeriodMs = 10,
-        };
-
-        var first = new Random(config.Seed);
-        var second = new Random(config.Seed);
-
-        for (ulong sequence = 0; sequence < 16; sequence++)
-        {
-            DataGeneratorModule.NextValue(config, sequence, first)
-                .ShouldBe(DataGeneratorModule.NextValue(config, sequence, second));
-        }
-
-        // 常量波形 = 偏置（与序号无关）
-        var constant = new DataGeneratorConfig { Waveform = GeneratorWaveform.Constant, Offset = 0.25 };
-        var random = new Random(1);
-        DataGeneratorModule.NextValue(constant, 0, random).ShouldBe(0.25);
-        DataGeneratorModule.NextValue(constant, 12345, random).ShouldBe(0.25);
-
-        // 正弦在 1/4 周期处达到峰值（幅值 2 → 0.5 + 2 = 2.5）
-        var quarter = new DataGeneratorConfig { Waveform = GeneratorWaveform.Sine, Frequency = 1.0, Amplitude = 2.0, Offset = 0.5, PeriodMs = 10 };
-        DataGeneratorModule.NextValue(quarter, 25, new Random(1)).ShouldBe(2.5, 1e-9);
-    }
-
-    [Fact]
-    public void 记录器_应记录并断言序号单调与值域()
-    {
-        var module = new RecorderModule();
+        var module = new FusionStubModule();
         var context = new TestModuleContext();
         module.OnRegistered(context);
 
-        context.DeclaredPorts.ShouldHaveSingleItem().Name.ShouldBe(RecorderModule.InputPort);
+        context.SetConfiguration(new FusionStubConfig { ForwardMerged = false });
+
+        // 用"与正式发送器逐字节相同"的单元喂第 1 路（桩按 `len` 切片解析文本数值）
+        module.Handle(context, FusionStubModule.InputPort1, RateSourceStubModule.EncodeUnit(1.5));
+
+        context.Sent.ShouldBeEmpty("转发关闭 = 只在界面显示，不产生输出");
+        context.Published.ShouldContainKey(FusionStubModule.FusedSource);
+
+        var fused = context.Published[FusionStubModule.FusedSource];
+        fused.ShouldNotBeEmpty();
+        BitConverter.ToSingle(fused[^1], 0).ShouldBe(1.5f, "Latest 策略下第 1 路的到达即成为当前融合值");
+    }
+
+    [Fact]
+    public void 定值数据源_应在测试上下文中发出定长单元并写入订阅()
+    {
+        var module = new RateSourceStubModule();
+        var context = new TestModuleContext();
+        module.OnRegistered(context);
+
+        context.SetConfiguration(new RateSourceStubConfig { IntervalMs = 1, Value = 0.5 });
+
+        // 活动体在测试上下文里跑一小段后请求停止（不用框架线程）
+        var runner = new Thread(() => module.RunActivity(context));
+
+        runner.Start();
+        WaitUntil(
+            () => context.Published.TryGetValue(RateSourceStubModule.ValueSource, out var list) && list.Count > 3,
+            TimeSpan.FromSeconds(2)).ShouldBeTrue("定值数据源应在测试上下文里写入订阅样本");
+        context.RequestStop();
+        runner.Join(TimeSpan.FromSeconds(2)).ShouldBeTrue();
+
+        context.Sent.ShouldNotBeEmpty("应发出契约数据单元");
+        context.Sent[0].PortName.ShouldBe(RateSourceStubModule.OutPort);
+        context.Sent[0].Payload.Length.ShouldBe(RateSourceStubModule.RawBytesShape.SizeInBytes);
+        context.Sent[0].Payload.ShouldBe(
+            RateSourceStubModule.EncodeUnit(0.5),
+            "同一配置 ⇒ 逐字节相同的单元（可复现；`data` 为文本、尾部补零）");
+
+        // 单元按声明**可被第三方解码**（`{ len: u16, data: bytes[1472] }`）
+        var reader = new PayloadReader(context.Sent[0].Payload, RateSourceStubModule.UnitLayout);
+        var length = reader.ReadU16("len");
+        Encoding.UTF8.GetString(reader.ReadBytes("data")[..length]).ShouldBe("0.5");
+
+        // 数值另写一份订阅样本（呈现层据此画数值；跨度 = 4 字节浮点）
+        context.Published[RateSourceStubModule.ValueSource][0].Length.ShouldBe(sizeof(float));
+        BitConverter.ToSingle(context.Published[RateSourceStubModule.ValueSource][0], 0).ShouldBe(0.5f);
+    }
+
+    [Fact]
+    public void 判据接收桩_应记录统计并按类别限流上报()
+    {
+        var module = new JudgementSinkStubModule();
+        var context = new TestModuleContext();
+        module.OnRegistered(context);
+
+        context.DeclaredPorts.ShouldHaveSingleItem().Name.ShouldBe(JudgementSinkStubModule.InPort);
         context.DeclaredView.ShouldNotBeNull();
 
-        context.SetConfiguration(new RecorderConfig { ExpectedMin = 0, ExpectedMax = 1, MaxIssues = 2 });
-        module.OnActivated();
+        context.SetConfiguration(new JudgementSinkStubConfig
+        {
+            AssertRange = true,
+            ExpectedMin = 0,
+            ExpectedMax = 1,
+            MaxIssues = 2,
+        });
 
-        module.Record(context, 1, 0.5f);
-        module.Record(context, 2, 0.75f);
-        module.Record(context, 2, 2.0f);   // 序号未递增 + 值超上限
-        module.Record(context, 4, 0.2f);
+        module.Judge(context, 1, 0.5f);
+        module.Judge(context, 2, 0.75f);
+        module.Judge(context, 2, 2.0f);   // 序号未递增 + 值超上限
+        module.Judge(context, 4, 0.2f);
 
         module.ReceivedCount.ShouldBe(4UL);
         module.LastValue.ShouldBe(0.2, 1e-6);
@@ -350,75 +344,60 @@ public class ModuleContractTests
         module.SequenceViolations.ShouldBe(1);
         module.RangeViolations.ShouldBe(1);
 
-        // 违规上报（受上限约束，不刷屏）
-        context.ReportedIssues.ShouldContain(i => i.Message.Contains("序号非单调", StringComparison.Ordinal));
+        // 违规上报（模块自己判定，框架只登记呈现）
+        context.ReportedIssues.ShouldContain(i =>
+            i.Message.Contains("序号非单调", StringComparison.Ordinal) && i.Severity == IssueSeverity.Warning);
         context.ReportedIssues.ShouldContain(i => i.Message.Contains("值超出期望范围", StringComparison.Ordinal));
 
-        // 触发上限后不再增加（MaxIssues = 2）
-        var reported = context.ReportedIssues.Count;
-        module.Record(context, 5, 3.0f);
-        module.Record(context, 6, 4.0f);
-        context.ReportedIssues.Count.ShouldBeLessThanOrEqualTo(
-            reported + 1,
-            "同类问题超过上限后不刷屏；实际上报：" + string.Join(" | ", context.ReportedIssues.Select(i => i.Message)));
+        // 上限**按类别**计（MaxIssues = 2）：两类各自到顶后都不再刷屏，且互不挤占
+        var monotonic = context.ReportedIssues.Count(i => i.Message.Contains("序号非单调", StringComparison.Ordinal));
+        var range = context.ReportedIssues.Count(i => i.Message.Contains("值超出期望范围", StringComparison.Ordinal));
+        monotonic.ShouldBe(1);
+        range.ShouldBe(1);
+
+        module.Judge(context, 4, 3.0f);   // 序号非单调（4 ≤ 4）+ 超范围 ⇒ 两类各 +1，正好到上限
+        module.Judge(context, 4, 4.0f);   // 两类都已超上限 ⇒ 一条都不再上报
+
+        context.ReportedIssues.Count(i => i.Message.Contains("序号非单调", StringComparison.Ordinal))
+            .ShouldBe(2, "序号类到上限 2 后不再增加");
+        context.ReportedIssues.Count(i => i.Message.Contains("值超出期望范围", StringComparison.Ordinal))
+            .ShouldBe(2, "范围类同理（两类各自计数，互不挤占）");
+
+        // 限流只影响"上报"，**不影响判定**：违规计数照旧累计
+        module.SequenceViolations.ShouldBe(3);
+        module.RangeViolations.ShouldBe(3);
     }
 
     [Fact]
-    public void 断言器_应给出偏差并上报超差()
+    public void 判据接收桩_应给出偏差并上报超差()
     {
-        var module = new AsserterModule();
+        var module = new JudgementSinkStubModule();
         var context = new TestModuleContext();
         module.OnRegistered(context);
 
-        context.SetConfiguration(new AsserterConfig { Expected = 1.0, Tolerance = 0.01, MaxIssues = 1 });
-        module.OnActivated();
+        context.SetConfiguration(new JudgementSinkStubConfig
+        {
+            AssertTolerance = true,
+            Expected = 1.0,
+            Tolerance = 0.01,
+            MaxIssues = 1,
+        });
 
-        module.Assert(context, 1.005f).ShouldBe(0.005, 1e-6);
-        module.Assert(context, 1.5f).ShouldBe(0.5, 1e-6);
+        module.Judge(context, 1, 1.005f).ShouldBe(0.005, 1e-6);
+        module.Judge(context, 2, 1.5f).ShouldBe(0.5, 1e-6);
 
         module.PassedCount.ShouldBe(1UL);
         module.FailedCount.ShouldBe(1UL);
         module.LastDeviation.ShouldBe(0.5, 1e-6);
         context.ReportedIssues.ShouldContain(i =>
             i.Message.Contains("值超出容差", StringComparison.Ordinal) && i.Severity == IssueSeverity.Warning);
-    }
 
-    [Fact]
-    public void 发生器_在测试上下文中应发出契约单元并写入订阅()
-    {
-        var module = new DataGeneratorModule();
-        var context = new TestModuleContext();
-        module.OnRegistered(context);
+        // MaxIssues = 1 ⇒ 再超差也不刷屏（这是"限流"的语义，不是"不再判定"：判定照旧，只是不上报）
+        module.Judge(context, 3, 2.0f);
 
-        context.SetConfiguration(new DataGeneratorConfig
-        {
-            Waveform = GeneratorWaveform.Constant,
-            Offset = 0.5,
-            PeriodMs = 1,
-        });
-        module.OnActivated();
-
-        // 活动体在测试上下文里跑一小段后请求停止（不用框架线程）
-        var runner = new Thread(() =>
-        {
-            module.RunActivity(context);
-        });
-
-        runner.Start();
-        WaitUntil(() => context.Published.TryGetValue(DataGeneratorModule.ValueSource, out var list) && list.Count > 3, TimeSpan.FromSeconds(2))
-            .ShouldBeTrue("发生器应在测试上下文里写入订阅样本");
-        context.RequestStop();
-        runner.Join(TimeSpan.FromSeconds(2)).ShouldBeTrue();
-
-        context.Sent.ShouldNotBeEmpty("应发出契约数据单元");
-        context.Sent[0].PortName.ShouldBe(DataGeneratorModule.OutputPort);
-        context.Sent[0].Payload.Length.ShouldBe(DataGeneratorModule.OutputLayout.SizeInBytes);
-
-        var reader = new PayloadReader(context.Sent[0].Payload, DataGeneratorModule.OutputLayout);
-        reader.ReadU64("seq").ShouldBe(0UL);
-        reader.ReadF32("value").ShouldBe(0.5f);
-
-        context.Published[DataGeneratorModule.ValueSource][0].Length.ShouldBe(sizeof(float));
+        module.FailedCount.ShouldBe(2UL, "判定照旧执行");
+        context.ReportedIssues.Count(i => i.Message.Contains("值超出容差", StringComparison.Ordinal))
+            .ShouldBe(1, "同类问题上限 1 ⇒ 第二条起不再上报");
     }
 
     private static bool WaitUntil(Func<bool> condition, TimeSpan timeout)
@@ -435,6 +414,50 @@ public class ModuleContractTests
         }
 
         return condition();
+    }
+
+    /// <summary>
+    /// **有效长度字段写错**的计量模块：① 字段名在形状里不存在 ② 字段存在但不是整型。
+    /// </summary>
+    /// <remarks>用于验证契约自检**真的会报**（否则写错只会表现为"有效速率恒等于搬运速率"这种静默归零）。</remarks>
+    [ModuleDefinition("test", "broken-metering", "1.0.0")]
+    public sealed class BrokenMeteringModule : IModule
+    {
+        public void OnRegistered(IModuleContext context)
+        {
+            var shape = ContractShape.OfStruct(
+                ("len", ContractShape.OfPrimitive(ContractPrimitive.U16)),
+                ("data", ContractShape.OfBytes(16)));
+
+            // ① 字段名拼错：形状里没有 `length`
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/broken-metering-a", 1, shape)
+            {
+                Metering = new MeteringBlock { PayloadLengthField = "length" },
+            });
+
+            // ② 字段存在但**不是整型**（浮点不能当字节数）
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/broken-metering-b", 1, shape)
+            {
+                Metering = new MeteringBlock { PayloadLengthField = "data" },
+            });
+        }
+    }
+
+    /// <summary>**有效长度字段写对**的计量模块（对照组：不得报任何问题）。</summary>
+    [ModuleDefinition("test", "good-metering", "1.0.0")]
+    public sealed class GoodMeteringModule : IModule
+    {
+        public void OnRegistered(IModuleContext context)
+        {
+            var shape = ContractShape.OfStruct(
+                ("len", ContractShape.OfPrimitive(ContractPrimitive.U16)),
+                ("data", ContractShape.OfBytes(16)));
+
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/good-metering", 1, shape)
+            {
+                Metering = new MeteringBlock { PayloadLengthField = "len" },
+            });
+        }
     }
 
     /// <summary>故意写坏的模块（验证契约自检**确实能发现问题**）。</summary>

@@ -141,6 +141,19 @@ public sealed class ConnectionOverlay : Control
     public static readonly StyledProperty<IBrush?> InkMutedBrushProperty =
         AvaloniaProperty.Register<ConnectionOverlay, IBrush?>(nameof(InkMutedBrush));
 
+    /// <summary>
+    /// **叠层文字字体**（叠层自绘 `FormattedText` 用的字体族）。
+    /// </summary>
+    /// <remarks>
+    /// <b>2026-09 缺陷修复 · 用户实测"改了数据字体没反应"</b>：本控件此前**写死** <c>Typeface.Default</c>
+    /// ⇒ 设置 → 外观 → 数据字体对它毫无作用（自绘层是"改了没生效"的第二现场）。
+    /// 现在与颜色**同一手法**：由 XAML 用 <c>{DynamicResource FontData}</c> 注入（颜色也全是这么进来的），
+    /// 未注入时回退 <see cref="Typeface.Default"/>（老 XAML / 无头用例不至于画不出字）。
+    /// <para>字体变了必须**清文字缓存**（<c>_textCache</c> 的键是"文本 + 字号 + 画刷"，不含字体）。</para>
+    /// </remarks>
+    public static readonly StyledProperty<FontFamily?> DataFontFamilyProperty =
+        AvaloniaProperty.Register<ConnectionOverlay, FontFamily?>(nameof(DataFontFamily));
+
     /// <summary>模块实例名（左上；也可由 <see cref="IdentityText"/> 直接给整行）。</summary>
     public static readonly StyledProperty<string?> InstanceIdProperty =
         AvaloniaProperty.Register<ConnectionOverlay, string?>(nameof(InstanceId));
@@ -172,6 +185,7 @@ public sealed class ConnectionOverlay : Control
         FlowLineBrushProperty,
         InkBrushProperty,
         InkMutedBrushProperty,
+        DataFontFamilyProperty,
         InstanceIdProperty,
         ModuleTitleProperty,
         CanvasWidthProperty,
@@ -252,6 +266,13 @@ public sealed class ConnectionOverlay : Control
     {
         get => GetValue(InkMutedBrushProperty);
         set => SetValue(InkMutedBrushProperty, value);
+    }
+
+    /// <summary>叠层文字字体（由 XAML 注入 `{DynamicResource FontData}`；null = 用系统默认）。</summary>
+    public FontFamily? DataFontFamily
+    {
+        get => GetValue(DataFontFamilyProperty);
+        set => SetValue(DataFontFamilyProperty, value);
     }
 
     /// <summary>
@@ -608,6 +629,12 @@ public sealed class ConnectionOverlay : Control
         if (change.Property == IsVisibleProperty)
         {
             SyncAnimationSubscription();
+        }
+
+        // 字体换了 ⇒ 缓存里的 `FormattedText` 全是旧字体的（键不含字体，故必须整体丢弃）。
+        if (change.Property == DataFontFamilyProperty)
+        {
+            _textCache.Clear();
         }
     }
 
@@ -1091,7 +1118,8 @@ public sealed class ConnectionOverlay : Control
             text,
             CultureInfo.CurrentCulture,
             FlowDirection.LeftToRight,
-            Typeface.Default,
+            // 字体来自 XAML 注入的 `FontData`（改了数据字体 ⇒ 叠层文字跟着变）；未注入则回退系统默认。
+            DataFontFamily is { } family ? new Typeface(family) : Typeface.Default,
             size,
             brush);
 

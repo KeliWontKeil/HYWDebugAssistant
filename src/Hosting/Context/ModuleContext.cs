@@ -97,6 +97,36 @@ public sealed class ModuleContext : IModuleContext
     /// <inheritdoc />
     public IModuleInbox Inbox { get; }
 
+    /// <summary>
+    /// **视图状态回读**（只读快照）〔2026-09 用户裁定 · `decisions.md` 7.28〕——由 L4 在创建实例时注入
+    /// （按实例绑定的只读适配器）；未注入时回落到"全部未知"的空实现（**不抛异常**）。
+    /// </summary>
+    public IViewStateReader ViewState { get; private set; } = EmptyViewState.Instance;
+
+    /// <summary>
+    /// 挂上视图状态读取面（**由 L4 在创建实例时调用**；模块作者不使用本方法）。
+    /// </summary>
+    /// <param name="viewState">按实例绑定的只读读取面。</param>
+    public void AttachViewState(IViewStateReader viewState)
+    {
+        ArgumentNullException.ThrowIfNull(viewState);
+        ViewState = viewState;
+    }
+
+    /// <summary>
+    /// **显示内容的请求面**（模块 → 框架的"请求"方向）：目前只有"清空某个显示源"
+    /// 〔2026-09 · 为 `hyw/data-monitor` 的「清空」而只增〕。未注入 ⇒ 请求被忽略（**不抛异常**）。
+    /// </summary>
+    public IViewDisplayAccess Display { get; private set; } = EmptyViewDisplay.Instance;
+
+    /// <summary>挂上显示请求面（**由 L4 在创建实例时调用**；模块作者不使用本方法）。</summary>
+    /// <param name="display">按实例绑定的请求面。</param>
+    public void AttachDisplay(IViewDisplayAccess display)
+    {
+        ArgumentNullException.ThrowIfNull(display);
+        Display = display;
+    }
+
     /// <summary>已声明的口（按声明顺序）。</summary>
     public IReadOnlyList<PortDeclaration> DeclaredPorts => _ports;
 
@@ -387,21 +417,21 @@ public sealed class ModuleContext : IModuleContext
     /// <param name="text">用户输入文本。</param>
     public void EnqueueInput(string source, string text) => ((BoundedInbox)Inbox).EnqueueInput(source, text);
 
-    private sealed class SimpleStopSignal : IStopSignal    {
+    private sealed class SimpleStopSignal : IStopSignal
+    {
         private volatile bool _stopRequested;
 
         public bool IsStopRequested => _stopRequested;
 
-        public bool Wait(TimeSpan timeout)
-        {
-            if (_stopRequested)
-            {
-                return true;
-            }
-
-            Thread.Sleep(timeout);
-            return _stopRequested;
-        }
+        /// <summary>
+        /// 等待一段时间（**等待 + 自旋补偿混合**，见 <see cref="PreciseWait"/>）。
+        /// </summary>
+        /// <remarks>
+        /// 【2026-09 用户裁定】此前是裸 `Thread.Sleep(timeout)` ⇒ 受 Windows 系统计时器粒度限制
+        /// （实测 1–15 ms）⇒ 模块声明 1 ms 的周期拿不到 1 ms 的精度，定时发送/接收的时序被拉粗。
+        /// 现在统一走框架侧唯一的等待实现（默认精确模式；可切粗粒度对照）。
+        /// </remarks>
+        public bool Wait(TimeSpan timeout) => PreciseWait.Wait(timeout, () => _stopRequested);
 
         /// <summary>请求停止（由数据面的停止协议调用——M1-5）。</summary>
         public void Request() => _stopRequested = true;
@@ -476,5 +506,41 @@ public sealed class ModuleContext : IModuleContext
                 store[typeof(T).FullName!] = configuration;
             }
         }
+    }
+
+    /// <summary>**"请求被忽略"的显示请求面**（未注入真实面时的回落 —— 不抛异常）。</summary>
+    private sealed class EmptyViewDisplay : IViewDisplayAccess
+    {
+        public static readonly EmptyViewDisplay Instance = new();
+
+        public void Clear(string dataSourceName)
+        {
+            // 无框架接线 ⇒ 忽略（模块不该被这个面绊倒）
+        }
+
+        public void AppendText(string dataSourceName, string text)
+        {
+            // 同上：只增的追加入口在未接线时同样是"忽略"，不抛
+        }
+
+        public void AppendLine(string dataSourceName, string text)
+        {
+            // 同上
+        }
+    }
+
+    /// <summary>
+    /// **"全部未知"的视图状态读取面**（未注入真实面时的回落）：一律 <see langword="null"/> / 空，
+    /// **不抛异常**（"未声明 / 未渲染"与"模块不该被这个面绊倒"同一纪律）。
+    /// </summary>
+    private sealed class EmptyViewState : IViewStateReader
+    {
+        public static readonly EmptyViewState Instance = new();
+
+        public int? GetSelectedPage(string stateKey) => null;
+
+        public string? GetInputText(string sourceName) => null;
+
+        public IReadOnlyList<string> GetDisplayLines(string sourceName) => [];
     }
 }

@@ -54,8 +54,8 @@ public static class DesignData
 
         var instance = new ModuleInstanceView(
             "sender-1",
-            "hyw/reference-manual-sender/1.0.0",
-            "手动数据发送器",
+            "hyw/text-sender/1.0.0",
+            "文本发送器",
             "Active",
             HasView: true,
             ports,

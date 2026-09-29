@@ -27,8 +27,9 @@ namespace HYWDebugAssistant.Tests;
 /// </remarks>
 public class FrameworkUiTests
 {
-    private static readonly string DataGeneratorPackage = Path.Combine(
-        FindRepoRoot(), "src", "Modules", "Reference", "DataGenerator", "bin",
+    /// <summary>业务模块 文本发送器 的构建输出目录（= 它的模块包目录；原参考桩模块已按裁定删除）。</summary>
+    private static readonly string TextSenderPackage = Path.Combine(
+        FindRepoRoot(), "src", "Modules", "Business", "TextSender", "bin",
         BuildConfiguration(), "net10.0");
 
     // ------------------------------------------------------------ 设置弹窗
@@ -76,6 +77,69 @@ public class FrameworkUiTests
         settings.UiRefreshRateHz.ShouldBe(60);
     }
 
+    /// <summary>
+    /// **设置生效机制 = 常规三键（2026-09 用户裁定）**：改动**不再即时生效**，只有「应用 / 确认」才落盘。
+    /// </summary>
+    /// <remarks>用户原话："设置界面建议显式添加确认/取消/应用按钮，**修改机制，不使用当前的'修改即应用'机制**，
+    /// 而是常见的设置更改生效机制。"</remarks>
+    [Fact]
+    public void 设置面板_改动不再即时生效_只有应用后才落盘()
+    {
+        using var harness = new ShellHarness();
+        var settings = harness.Shell.Settings;
+
+        settings.UiRefreshRateHz = 42;
+
+        harness.Services.GetSettings().UiRefreshRateHz.ShouldBe(
+            60, "改一下**不该**即时生效（旧机制已按用户裁定撤销）");
+
+        settings.ApplyCommand.Execute(null);
+
+        settings.StatusIsOk.ShouldBeTrue(settings.StatusMessage);
+        harness.Services.GetSettings().UiRefreshRateHz.ShouldBe(42, "点「应用」才落盘");
+    }
+
+    /// <summary>「取消」= 丢弃本次改动（回到已生效值）**并请求关闭**弹窗。</summary>
+    [Fact]
+    public void 设置面板_取消应丢弃改动并请求关闭()
+    {
+        using var harness = new ShellHarness();
+        var settings = harness.Shell.Settings;
+        var closed = 0;
+        settings.CloseRequested += (_, _) => closed++;
+
+        settings.UiRefreshRateHz = 42;
+        settings.CancelCommand.Execute(null);
+
+        settings.UiRefreshRateHz.ShouldBe(60, "取消 = 回到已生效值");
+        harness.Services.GetSettings().UiRefreshRateHz.ShouldBe(60, "取消不得落盘");
+        closed.ShouldBe(1, "取消应请求关闭弹窗");
+    }
+
+    /// <summary>「确认」= 应用 + 请求关闭；**校验失败则不关**（把原因留在状态行）。</summary>
+    [Fact]
+    public void 设置面板_确认应先应用再请求关闭_校验失败不关()
+    {
+        using var harness = new ShellHarness();
+        var settings = harness.Shell.Settings;
+        var closed = 0;
+        settings.CloseRequested += (_, _) => closed++;
+
+        settings.StopTimeoutSeconds = 0;   // 非法（必须为正）
+        settings.ConfirmCommand.Execute(null);
+
+        settings.StatusIsOk.ShouldBeFalse();
+        closed.ShouldBe(0, "校验失败时**不得**关闭 —— 用户要看得见原因");
+        harness.Services.GetSettings().StopTimeoutSeconds.ShouldBe(5);
+
+        settings.StopTimeoutSeconds = 7;
+        settings.ConfirmCommand.Execute(null);
+
+        settings.StatusIsOk.ShouldBeTrue(settings.StatusMessage);
+        harness.Services.GetSettings().StopTimeoutSeconds.ShouldBe(7, "确认 = 应用");
+        closed.ShouldBe(1, "确认 = 应用后关闭");
+    }
+
     // ------------------------------------------------------------ 模块清单弹窗
 
     [Fact]
@@ -84,17 +148,17 @@ public class FrameworkUiTests
         using var harness = new ShellHarness();
         var catalog = harness.Shell.Catalog;
 
-        catalog.PackageDirectory = DataGeneratorPackage;
+        catalog.PackageDirectory = TextSenderPackage;
         catalog.InstallCommand.Execute(null);
 
         catalog.StatusIsOk.ShouldBeTrue(catalog.StatusMessage);
-        catalog.Catalog.ShouldContain(c => c.ModuleId == "hyw/reference-data-generator/1.0.0");
+        catalog.Catalog.ShouldContain(c => c.ModuleId == "hyw/text-sender/1.0.0");
 
-        catalog.SelectedCatalogEntry = catalog.Catalog.Single(c => c.ModuleId == "hyw/reference-data-generator/1.0.0");
+        catalog.SelectedCatalogEntry = catalog.Catalog.Single(c => c.ModuleId == "hyw/text-sender/1.0.0");
         catalog.AddCommand.Execute(null);
 
         catalog.StatusIsOk.ShouldBeTrue(catalog.StatusMessage);
-        harness.Services.GetInstances().ShouldHaveSingleItem().DisplayName.ShouldBe("参考数据发生器");
+        harness.Services.GetInstances().ShouldHaveSingleItem().DisplayName.ShouldBe("文本发送器");
 
         // 实例**不出现在清单里**：每个实例都有自己的窗口（含未声明视图的模块）——"无界面模块"概念已撤销
         catalog.Refresh();
@@ -108,10 +172,10 @@ public class FrameworkUiTests
         using var harness = new ShellHarness();
         var catalog = harness.Shell.Catalog;
 
-        catalog.PackageDirectory = DataGeneratorPackage;
+        catalog.PackageDirectory = TextSenderPackage;
         catalog.InstallCommand.Execute(null);
 
-        catalog.SelectedCatalogEntry = catalog.Catalog.Single(c => c.ModuleId == "hyw/reference-data-generator/1.0.0");
+        catalog.SelectedCatalogEntry = catalog.Catalog.Single(c => c.ModuleId == "hyw/text-sender/1.0.0");
 
         // 视图里的 DoubleTapped 直接调这个方法（不再经过按钮）
         catalog.AddSelected().ShouldBeTrue(catalog.StatusMessage);
@@ -153,9 +217,9 @@ public class FrameworkUiTests
         module.InstanceId.ShouldBe("h1");
         module.Ports.ShouldNotBeEmpty("口仍在，可用于建网");
 
-        var editor = module.Elements.OfType<ConfigurationEditorElementViewModel>().Single();
-        editor.HasFields.ShouldBeFalse("该模块没有配置类型 → 表单为空并说明原因（不假装有字段）");
-        editor.Notice.ShouldNotBeNull().ShouldContain("没有可编辑的配置项");
+        // 【2026-09 用户裁定：删除整个配置框】框架**不再自动补**配置表单 ⇒ 未声明视图的模块窗口
+        // 里没有元素（"每个模块实例都有窗口"不变，但窗口里不再摆一张用户看不懂的表单）。
+        module.Elements.ShouldBeEmpty("未声明视图 ⇒ 窗口里没有元素（配置框已按用户裁定删除自动补那一份）");
 
         // 运行/停用、移除都在它自己的窗口上（不需要任何"实例清单"）
         module.IsEnabled.ShouldBeTrue();
@@ -170,10 +234,10 @@ public class FrameworkUiTests
     }
 
     [Fact]
-    public void 未声明配置编辑元素的模块_窗口内应自动补上配置表单()
+    public void 声明配置编辑元素的模块_窗口内应渲染配置表单()
     {
         using var harness = new ShellHarness();
-        harness.Register("configurable", typeof(ConfigurableModule));
+        harness.Register("configurable", typeof(ConfigurableModuleWithForm));
 
         harness.Services.AddModule("c1", "test/configurable/1.0.0").Succeeded.ShouldBeTrue();
         harness.Shell.Windows.Refresh();
@@ -181,7 +245,7 @@ public class FrameworkUiTests
         var editor = harness.Shell.Windows.Modules.ShouldHaveSingleItem()
             .Elements.OfType<ConfigurationEditorElementViewModel>().Single();
 
-        editor.HasFields.ShouldBeTrue("模块没声明 B1 元素时由框架补一个（C5-4：配置编辑在模块视图内）");
+        editor.HasFields.ShouldBeTrue("模块**显式声明** B1 ⇒ 按声明渲染（框架不再自动补 —— 2026-09 用户裁定）");
         editor.Fields.Select(f => f.Name).ShouldBe(["PeriodMs", "Gain"], ignoreOrder: true);
 
         var period = editor.Fields.Single(f => f.Name == "PeriodMs");
@@ -378,16 +442,25 @@ public class FrameworkUiTests
             {
                 shell.Catalog.Refresh();
 
+                // 归拢目录里有几个包（含 module.json 的目录），就应该装入几个 —— 不写死数量，
+                // 新增模块时这条断言仍表示同一件事：**每一个归拢到的包都被装进来了**。
+                var stagedPackageCount = Directory.GetDirectories(staged)
+                    .Count(dir => File.Exists(Path.Combine(dir, "module.json")));
+                stagedPackageCount.ShouldBeGreaterThanOrEqualTo(4, "归拢的模块包应至少包含四个基础模块（文本发送器/HEX 发送器/数据显示器/HEX 字符串转换器）");
+
                 // **内置模块开箱可用**：启动即扫描内置包目录，用户无需去找路径
-                shell.Catalog.Catalog.Count.ShouldBe(6, "六个参考模块包：发生器/记录器/断言器/手动发送器/信息显示/**多源融合器**");
-                shell.Catalog.Catalog.Select(c => c.ModuleId).ShouldContain("hyw/reference-manual-sender/1.0.0");
-                shell.Catalog.Catalog.Select(c => c.ModuleId).ShouldContain("hyw/reference-monitor/1.0.0");
-                shell.Catalog.Catalog.Select(c => c.ModuleId).ShouldContain("hyw/reference-fuser/1.0.0");
+                shell.Catalog.Catalog.Count.ShouldBe(
+                    stagedPackageCount,
+                    $"归拢目录 {staged} 下的 {stagedPackageCount} 个模块包应全部装入内置根");
+                shell.Catalog.Catalog.Select(c => c.ModuleId).ShouldContain("hyw/text-sender/1.0.0");
+                shell.Catalog.Catalog.Select(c => c.ModuleId).ShouldContain("hyw/hex-sender/1.0.0");
+                shell.Catalog.Catalog.Select(c => c.ModuleId).ShouldContain("hyw/data-monitor/1.0.0");
+                shell.Catalog.Catalog.Select(c => c.ModuleId).ShouldContain("hyw/hex-string-converter/1.0.0");
 
                 // 来源根诊断：内置根在首位且可见（"到底扫了哪里"必须可查）
                 var source = shell.Catalog.Sources.First();
                 source.Directory.ShouldBe(builtIn);
-                source.Summary.ShouldContain("包 6 个");
+                source.Summary.ShouldContain($"包 {stagedPackageCount} 个");
             }
             finally
             {
@@ -654,8 +727,9 @@ public class FrameworkUiTests
     }
 
     /// <summary>带配置的无界面模块（配置兜底走 Schema 表单）。</summary>
+    /// <summary>带配置**并显式声明 B1** 的模块（2026-09 起配置表单只在这一形态下出现）。</summary>
     [ModuleDefinition("test", "configurable", "1.0.0")]
-    public sealed class ConfigurableModule : IModule
+    public sealed class ConfigurableModuleWithForm : IModule
     {
         public void OnRegistered(IModuleContext context)
         {
@@ -665,6 +739,11 @@ public class FrameworkUiTests
                 ContractShape.OfPrimitive(ContractPrimitive.F32)));
 
             context.Configuration.Write(new ModuleConfig());
+
+            // 【2026-09 用户裁定：删除整个配置框】配置表单**只在模块显式声明 B1 时**渲染
+            context.Declaration.DeclareView(new ViewDeclaration(
+                [new ViewElement(ViewElementKind.ConfigurationEditor, title: "参数")],
+                []));
         }
     }
 

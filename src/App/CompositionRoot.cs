@@ -39,9 +39,17 @@ internal static class CompositionRoot
         var services = new ServiceCollection();
 
         // ---- ① Core 构成（L2/L3/L4）----
-        _ = services.AddSingleton(static _ => new ModuleRuntime(
+        // 【2026-09 · decisions.md 7.28/7.31】**视图状态存取面**：唯一实例，三方共用 ——
+        //   ① 模块（经 `IModuleContext.ViewState` 只读回读：当前选中页 / 输入框当前文本 / 显示区文本）
+        //   ② UI（写：切页 / 文本变化 / 追加行；读：元素表重建时恢复未提交的输入）
+        //   ③ L4（创建实例时按实例绑只读面；移除实例时清理）。
+        //   它是**视图状态**（不进组合件、不持久化），故不经 L4 的串行变更入口（输入文本逐键变化）。
+        _ = services.AddSingleton<IViewStateAccess>(static _ => new ViewStateStore());
+
+        _ = services.AddSingleton(static provider => new ModuleRuntime(
             issues: null,
-            carrierOptions: null));
+            carrierOptions: null,
+            viewState: provider.GetRequiredService<IViewStateAccess>()));
 
         _ = services.AddSingleton(static provider => new SettingsService(
             provider.GetRequiredService<ModuleRuntime>(),
@@ -57,7 +65,8 @@ internal static class CompositionRoot
         // ---- ② 外壳视图模型（L5；内含 `Ui` 的模块窗口集控制器）----
         _ = services.AddSingleton(static provider => new ShellViewModel(
             provider.GetRequiredService<IRuntimeQuery>(),
-            provider.GetRequiredService<IRuntimeCommand>()));
+            provider.GetRequiredService<IRuntimeCommand>(),
+            provider.GetRequiredService<IViewStateAccess>()));
 
         var provider = services.BuildServiceProvider();
 

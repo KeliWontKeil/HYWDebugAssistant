@@ -35,6 +35,69 @@
             <Setter Property="BorderBrush" Value="{DynamicResource SemanticError}" />
             <Setter Property="BorderThickness" Value="2" />
         </Style>
+
+        <!--
+          【2026-09】同一失败态用在**文件选择器按钮**上（保存失败 ⇒ 按钮标红）与它的**结果行**（文字标红）。
+          与 `TextBox.invalid` 同一口径：改边框/前景色，不叠背景、不加图标。
+        -->
+        <Style Selector="Button.invalid">
+            <Setter Property="BorderBrush" Value="{DynamicResource SemanticError}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+
+        <Style Selector="TextBlock.invalid">
+            <Setter Property="Foreground" Value="{DynamicResource SemanticError}" />
+        </Style>
+
+        <!--
+          【缺陷修复 · 2026-09】元素模板必须**填满**面板分给它的高度：`ContentPresenter` 默认
+          `VerticalContentAlignment=Top` ⇒ 模板只按自己的期望高度排（实测：面板拿到 338 高，
+          多行输入框却仍停在 60）⇒ 于是"高度不随窗口变化"。这一条是"填满型真的填满"的最后一环。
+        -->
+        <Style Selector="ItemsControl ContentPresenter">
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+
+        <!--
+          【2026-09 用户裁定】**文本框里的文字垂直位置**：单行**居中**、多行**顶端左对齐**
+          （WinForms 的默认观感；多行框从左上角开始编辑才符合直觉）。
+          由 `Classes.multiline` 区分（绑定 `IsMultiline`）。
+        -->
+        <Style Selector="TextBox">
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBox.multiline">
+            <Setter Property="VerticalContentAlignment" Value="Top" />
+        </Style>
+
+        <!--
+          【2026-09】**行距收紧**（用户："所有文本框行间距太大了"）：数据类文本统一按字号 11 排。
+          **`Height=NaN` 是必须的**：全局 `Controls.axaml` 给 `TextBox` 定了固定高（`ControlHeight`）⇒
+          多行输入框**永远长不高**（实测：面板分给它 180 高，它仍停在 60）。这里改回"高度自适应/填满"：
+          单行框仍按内容高（紧凑），多行框与显示区**随窗口拉伸**。
+        -->
+        <Style Selector="TextBox">
+            <Setter Property="Height" Value="NaN" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="4,1" />
+        </Style>
+
+        <!--
+          **输入框的对齐**（2026-09 · 由**模块声明** `ViewElement.Alignment`）：对齐属**视觉组织**，
+          框架不替模块限死（用户原话："如何对齐由模块自己去声明，有利于视觉组织"）。
+          三个类由视图模型的 `IsAlignLeft/Center/Right` 驱动；`Default` ⇒ 三类全 false ⇒ 落框架默认（左）。
+        -->
+        <Style Selector="TextBox.alignLeft">
+            <Setter Property="TextAlignment" Value="Left" />
+        </Style>
+        <Style Selector="TextBox.alignCenter">
+            <Setter Property="TextAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBox.alignRight">
+            <Setter Property="TextAlignment" Value="Right" />
+        </Style>
     </UserControl.Styles>
 
     <!--
@@ -48,10 +111,46 @@
           标记几何（= `DockRule.MarkerCenter` 使用的模块矩形）保持不变。
     -->
     <Grid>
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+        <!--
+          【2026-09 用户裁定 · D1】**上/下预留带**：模块窗口里有两类东西是**叠在内容之上**的覆盖层 ——
+          端口标记（`Tokens.axaml` 的 `PortMarkerWidth = 20`，沿上/下边向内占 20）与左下角的
+          "运行指示"（状态点 + 状态文本，约 17 高）。此前四边内边距一律 20 ⇒ **最后一行内容正好被
+          20 高的端口标记压住**（用户："上下边框存在元素遮盖问题（窗口高度和内容比例不合适）"）。
+          **改这两个数就等于改"内容离边框多远"**（`UI-ADJUST.md` §2.1 的旋钮之一）。
+
+          ⚠ **预留带必须放在 `ScrollViewer` 之外（`Margin`）而不是它的 `Padding`**（2026-09 修的真实缺陷）：
+          `Padding` 算在**视口之内**，而内容面板的 `MinHeight` 绑的是**视口高** ⇒ 内容 = 视口 + 内边距
+          **恒大于**视口 ⇒ **任何模块在默认尺寸下都常驻一条滚动条**（正是用户说的"模块本体出现滚动条
+          = 比例不正确"）。改成 `Margin` 后：视口 = 窗口 − 边框 − 预留带 ⇒ `MinHeight = 视口` 恰好等于可用高度
+          ⇒ 内容装得下时**不再出现滚动条**，装不下时（用户把窗口拖小）才滚 —— 这才是"滚动条是框架能力"的正确用法。
+        -->
+        <ScrollViewer Name="ModuleContentScroll"
+                      HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto"
-                      Padding="20,20,20,20">
-            <ItemsControl ItemsSource="{Binding Elements}">
+                      Margin="20,22,20,24">
+            <!--
+              **`VerticalAlignment="Stretch"`**：`ScrollViewer` 会把"比视口矮的内容"按**拉伸**排到视口高
+              ⇒ 面板拿到剩余高度，**"填满型"（多行输入 / 显示区）才会随窗口变高**
+              （用户反馈："缩放模块时只有宽度随动、高度却不产生变化"）。
+              **为什么不再用 `MinHeight="{Binding #ModuleContentScroll.Viewport.Height}"`**（2026-09 缺陷修复）：
+              那条绑定把面板高度**绑到视口的一次读取值**上 —— 首帧视口还没量出来（=0）时面板按最小高排布，
+              之后绑定更新**不一定**再触发一次 `Arrange` ⇒ **表现就是"默认尺寸下文本框只有一个最小高、
+              把窗口放大一下才对"**（用户实测："我放大模块后就正确了"）。`Stretch` 由 `ScrollViewer`
+              自己在每次布局里算，**没有这个时序缝**。
+              视口更高 ⇒ 面板被拉到视口高 ⇒ 余量分给填满型；内容更高 ⇒ 面板保持最小高、滚动条接管。
+            -->
+            <ItemsControl ItemsSource="{Binding Elements}"
+                          VerticalAlignment="Stretch">
+                <!--
+                  【2026-09 用户裁定】**元素排布面板**：把"填满型"（A5 文本日志 · 多行输入）与"按内容型"
+                  分开 —— 前者分走剩余高度并**内部滚动**（不再随行数把布局撑长），后者高度 = 内容高度。
+                  **间距在这里调**：`Spacing`（位置观感问题改这一个数即可）。
+                -->
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <ctrl:ModuleElementPanel Spacing="2" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="vm:ViewElementViewModel">
                         <ContentControl Content="{Binding}">
@@ -96,9 +195,53 @@
                                     </Border>
                                 </DataTemplate>
 
-                                <!-- A5 文本日志：等宽 + 自动滚到最新（**随窗口拉伸**） -->
+                                <!--
+                                  A5 文本日志 = **唯一一块文本面（`TextSurface`）的"分页窗口"用法**
+                                  〔2026-09 用户裁定：既然这一个控件已经同时支持输入与显示，
+                                  那层"只包一层外壳"的视图就该彻底删掉〕：
+                                    · 观感对齐 WinForms 的只读多行 `TextBox` —— 一整块连续文本面、字符级拖选、
+                                      `Ctrl+A` / `Ctrl+C`、右键复制；
+                                    · 界面只显示**放得下的那几行**（窗口 = 可视页 + 一页余量），更早的内容用
+                                      **右侧自建竖向滚动条**回看（**没得回看时那根条自己收起**）；
+                                    · 长行折行（`TextWrapping=Wrap`，无横向滚动条）；
+                                    · 追加后自动跟到尾；用户上翻回看时不抢他的位置；
+                                    · `↵` 只画在**文本里真有换行字符**处（通道换行不画）；
+                                    · "复制全部（缓冲）"= 整段缓冲进剪贴板（右键 / `Ctrl+Shift+C`），
+                                      取数就在文本面内部（`Lines` 即全量），**不再需要外壳注入回调**。
+                                  本模板只剩**这一块显示区怎么摆**：标题、外框、"已丢弃 N 行"提示。
+                                -->
                                 <DataTemplate DataType="vm:TextLogElementViewModel">
-                                    <views:TextLogView DataContext="{Binding}" />
+                                    <Grid RowDefinitions="Auto,*,Auto" Margin="0,2,0,2">
+                                        <TextBlock Grid.Row="0"
+                                                   FontSize="10"
+                                                   Foreground="{DynamicResource TextMuted}"
+                                                   Text="{Binding Title}" />
+                                        <Border Grid.Row="1"
+                                                MinHeight="88"
+                                                Background="{DynamicResource BgModule}"
+                                                BorderBrush="{DynamicResource BorderDefault}"
+                                                BorderThickness="1"
+                                                CornerRadius="2">
+                                            <!--
+                                              分页窗口用法：`ShowScrollBar=True` ⇒ 自建竖条 + 窗口（数据源 = 模块缓冲的 `Lines`）；
+                                              `IsReadOnly=True` ⇒ 可选中/可复制但不可改；`ShowNewlineMarks=True` ⇒ 数据里**真的有换行字符**
+                                              的地方画 `↵`（而"数据包换行/时间戳"这种**通道换行不是字符** ⇒ 由 `UnmarkedNewlines` 排掉，不画）。
+                                            -->
+                                            <ctrl:TextSurface IsReadOnly="True"
+                                                              IsMultiline="True"
+                                                              ShowScrollBar="True"
+                                                              ShowNewlineMarks="True"
+                                                              Lines="{Binding Lines}" />
+                                        </Border>
+                                        <!-- 到顶丢最旧时**明说**（不静默丢） -->
+                                        <TextBlock Grid.Row="2"
+                                                   Name="DroppedHint"
+                                                   FontSize="10"
+                                                   Margin="0,2,0,0"
+                                                   Foreground="{DynamicResource TextMuted}"
+                                                   IsVisible="{Binding DroppedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                   Text="{Binding DroppedText}" />
+                                    </Grid>
                                 </DataTemplate>
 
                                 <!-- B1 配置表单：按配置 Schema 自动生成（控件固定尺寸，不随窗口拉伸） -->
@@ -113,10 +256,18 @@
                                     · A10 开关：拨动即提交 true/false。
                                 -->
                                 <DataTemplate DataType="vm:TextInputElementViewModel">
-                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,2">
-                                        <TextBlock Grid.Column="0"
-                                                   VerticalAlignment="Center"
-                                                   Margin="0,0,6,0"
+                                    <!--
+                                      【2026-09 用户裁定 · D4 + 第二轮补充】**一律"标题在上、框在下、结果再在下"**：
+                                      · 标题放**左上角、与文本框左对齐**（用户："需要统一文本框标题于左上角，同样与文本框左对齐"）
+                                        —— 此前标题挤在框左侧的 `Auto` 列里：多行框一高，标题就被挤在中间、看着像"被遮盖"；
+                                      · 结果信息在**框下方、与框左对齐**，且**常驻占位**（`MinHeight`）⇒ 显示 / 隐藏都不改布局
+                                        （用户："不显示这行信息也不要改控件布局，空出来的地方让他空着"）；
+                                      · `TextTrimming` + 不换行是**必须的**：文案再长也不许撑大行高或撑宽列。
+                                    -->
+                                    <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="*,Auto" Margin="0,2">
+                                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                                   Margin="0,0,0,2"
+                                                   HorizontalAlignment="Left"
                                                    FontSize="11"
                                                    Foreground="{DynamicResource TextSecondary}"
                                                    Text="{Binding Title}" />
@@ -124,22 +275,56 @@
                                           【G2 · 2026-09】多行输入（`ViewElement.Multiline`）：`AcceptsReturn` + 最小高度。
                                           **提交键不在 XAML 里定** —— 由代码后置按视图模型的档位判定
                                           （`SubmitOnEnter` / `SubmitOnCtrlEnter` / `SubmitOnLostFocus`），档位来自**应用级设置**。
-                                          **不设 `TextWrapping`（不折行）是特性**（用户 2026-09 裁决）：画面上的换行 ⟺ 文本里
-                                          真的有一个换行符 ⇒ 「所见即所发」，长行横向滚动。详见 `02`「多行输入框不自动折行是特性」。
+                                          **自动换行 = 字符超宽自动到下一行**（**2026-09 用户裁定，推翻此前"不折行是特性"的口径**）：
+                                          文本框**不再提供横向滚动条**，长行按字符折行；数据里的换行符仍然是换行符
+                                          （发送内容不受显示折行影响 —— 折行只是**显示**行为）。
                                         -->
-                                        <TextBox Grid.Column="1"
-                                                 FontFamily="{DynamicResource FontData}"
-                                                 Text="{Binding Text, Mode=TwoWay}"
-                                                 AcceptsReturn="{Binding IsMultiline}"
-                                                 MinHeight="{Binding EditorMinHeight}"
-                                                 Classes.invalid="{Binding IsInvalid}"
-                                                 KeyDown="OnInputKeyDown"
-                                                 LostFocus="OnInputLostFocus" />
-                                        <TextBlock Grid.Column="2"
+                                        <!--
+                                          **行末换行标记由绘制层画**（2026-09 用户裁定："我更倾向于自绘层"）：
+                                          `↵` 是**纯装饰**（不进文本、不参与选择、光标跳过、删不掉 —— 与 Word 的 ¶ 同构），
+                                          因此它**不会**影响编辑手感（上一版把标记塞进文本 ⇒ 光标规律不可预测，已被否定）。
+                                          **只有多行 + 纯文本**输入才画（`ShowsNewlineMarks`；HEX 的换行只是排版）。
+                                        -->
+                                        <!--
+                                          **唯一一块文本面**〔2026-09 用户裁定〕：输入框与 A5 日志共用
+                                          `TextSurface`（内部 = 一个 `TextBox` + 一个 `NewlineMarkOverlay`），
+                                          差异**只用属性表达**（此处只读 = false、无自建滚动条 = 内层滚动）。
+                                        -->
+                                        <Grid Grid.Row="1" Grid.Column="0">
+                                            <ctrl:TextSurface Text="{Binding Text, Mode=TwoWay}"
+                                                              IsMultiline="{Binding IsMultiline}"
+                                                              EditorMinHeight="{Binding EditorMinHeight}"
+                                                              ShowNewlineMarks="{Binding ShowsNewlineMarks}"
+                                                              IsInvalid="{Binding IsInvalid}"
+                                                              IsNumeric="{Binding IsNumeric}"
+                                                              IsHex="{Binding IsHex}"
+                                                              IsAlignLeft="{Binding IsAlignLeft}"
+                                                              IsAlignCenter="{Binding IsAlignCenter}"
+                                                              IsAlignRight="{Binding IsAlignRight}" />
+                                        </Grid>
+                                        <!--
+                                          **输入框右侧（框外）：单位标签**。
+                                          单位**不做框内后缀**（用户 2026-09 裁定："容易给人一种'这里单位可以改'的错觉"）
+                                          ⇒ 用**框外标签**呈现，来源 = 数据源声明的 `Unit`（`ViewDataSource.Unit`）——
+                                          模块不为此多声明字段；空则整块不显示（`StringConverters` 是内置转换器）。
+                                        -->
+                                        <TextBlock Grid.Row="1" Grid.Column="1"
                                                    Margin="6,0,0,0"
                                                    VerticalAlignment="Center"
                                                    FontSize="10"
-                                                   Foreground="{DynamicResource TextMuted}"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   IsVisible="{Binding Unit, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                   Text="{Binding Unit}" />
+
+                                        <!-- 结果行：**常驻占位**（`MinHeight`）⇒ 无问题时是空的，且不改变布局 -->
+                                        <TextBlock Grid.Row="2" Grid.Column="0"
+                                                   Margin="0,2,0,0"
+                                                   MinHeight="14"
+                                                   FontSize="10"
+                                                   TextWrapping="NoWrap"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource SemanticError}"
                                                    Text="{Binding LastResult}" />
                                     </Grid>
                                 </DataTemplate>
@@ -162,11 +347,38 @@
                                 </DataTemplate>
 
                                 <DataTemplate DataType="vm:ToggleElementViewModel">
-                                    <Grid ColumnDefinitions="Auto,*" Margin="0,2">
+                                    <!--
+                                      【2026-09 用户裁定 · D5】**开关式滑块**（B7 `ToggleSwitch`）与**勾选框**（B3）
+                                      语义相同、外观不同 ⇒ 同一模板里两个控件**互斥可见**（`IsSwitch` / `IsCheckBox`），
+                                      省掉一个只差视觉的视图模型。用户原话："目前开关类的控件全部用的勾选框，
+                                      我想添加一个开关式的滑块，更美观。"
+                                    -->
+                                    <Grid ColumnDefinitions="Auto,Auto,*" Margin="0,2">
                                         <CheckBox Grid.Column="0"
+                                                  IsVisible="{Binding IsCheckBox}"
                                                   Content="{Binding Title}"
                                                   IsChecked="{Binding IsOn, Mode=TwoWay}" />
-                                        <TextBlock Grid.Column="1"
+                                        <!--
+                                          【2026-09 缺陷修复 · 用户实测"滑块开关变成了一行字"】**文字与滑块必须拆成两个元素**：
+                                          Avalonia 的 `ToggleSwitch` 模板把 `Content` 排在**滑块上方**（竖排）⇒ 把标题当 `Content` 时
+                                          整行要 ~48 高，而模块排布只给它 ~24–32 ⇒ **轨道被排到控件可视区之外**，真机上只剩那行文字
+                                          （无头测试因为不裁剪看不出来 —— 已补"轨道必须落在可视区内"的断言钉住）。
+                                          拆开后：文字自己一列、滑块自带 ~32 高 ⇒ 行高 32、轨道居中可见。
+                                        -->
+                                        <TextBlock Grid.Column="0"
+                                                   IsVisible="{Binding IsSwitch}"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="11"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   Text="{Binding Title}" />
+                                        <ToggleSwitch Grid.Column="1"
+                                                      IsVisible="{Binding IsSwitch}"
+                                                      Margin="6,0,0,0"
+                                                      IsChecked="{Binding IsOn, Mode=TwoWay}"
+                                                      OnContent="{x:Null}"
+                                                      OffContent="{x:Null}"
+                                                      VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="2"
                                                    Margin="6,0,0,0"
                                                    VerticalAlignment="Center"
                                                    FontSize="10"
@@ -200,32 +412,34 @@
                                 </DataTemplate>
 
                                 <!--
-                                  【G4 · 2026-09】B6 文件选择器：标签 + 只读路径框 + 「浏览」按钮。
-                                  弹系统文件对话框在**代码后置**（`OnBrowseClick`）——它需要 `StorageProvider`（UI 概念）；
-                                  选/存的路径经既有输入通道提交给模块（`FileSelectorElementViewModel.Submit`）。
+                                  【G4 · 2026-09】B6 文件选择器：**只有一个按钮**（文案 = 声明标题）。
+                                  【2026-09 用户裁定 · 保存流程改一步】此前是"标签 + 只读路径框 + 「浏览…」"
+                                  再加一个独立的「保存」按钮（两步）；用户："各种控件占位置且有些多此一举，
+                                  更好的方案为只提供一个保存按钮，点击后弹出窗口选择位置 → 选择完成自动保存在此处"。
+                                  ⇒ 路径不再占一行（它在按钮的悬停提示里）；落点确认改由**下方那一行**就地给出
+                                  （成功 = 模块回报的"已保存 …（N 行）"，失败 = 红字原因）。
+                                  弹系统文件对话框在**代码后置**（`OnBrowseClick`）——它需要 `StorageProvider`（UI 概念）。
                                 -->
                                 <DataTemplate DataType="vm:FileSelectorElementViewModel">
-                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,2">
-                                        <TextBlock Grid.Column="0"
-                                                   VerticalAlignment="Center"
-                                                   Margin="0,0,6,0"
-                                                   FontSize="11"
-                                                   Foreground="{DynamicResource TextSecondary}"
-                                                   Text="{Binding Title}" />
-                                        <TextBox Grid.Column="1"
-                                                 FontFamily="{DynamicResource FontData}"
-                                                 Text="{Binding SelectedPath}"
-                                                 IsReadOnly="True" />
-                                        <Button Grid.Column="2"
-                                                Margin="6,0,0,0"
-                                                Padding="8,0"
-                                                Content="浏览…"
+                                    <!--
+                                      结果行**常驻占位**（`MinHeight`）⇒ 有无信息都不改布局（用户 D4 裁定）。
+                                    -->
+                                    <Grid RowDefinitions="Auto,Auto" Margin="0,2">
+                                        <Button Grid.Row="0"
+                                                HorizontalAlignment="Stretch"
+                                                Content="{Binding ButtonText}"
+                                                ToolTip.Tip="{Binding SelectedPath}"
+                                                Classes.invalid="{Binding IsInvalid}"
                                                 Click="OnBrowseClick" />
-                                        <TextBlock Grid.Column="3"
-                                                   Margin="6,0,0,0"
-                                                   VerticalAlignment="Center"
+                                        <TextBlock Grid.Row="1"
+                                                   Margin="0,2,0,0"
+                                                   MinHeight="14"
                                                    FontSize="10"
-                                                   Foreground="{DynamicResource SemanticError}"
+                                                   TextWrapping="NoWrap"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextMuted}"
+                                                   Classes.invalid="{Binding IsInvalid}"
                                                    Text="{Binding LastResult}" />
                                     </Grid>
                                 </DataTemplate>

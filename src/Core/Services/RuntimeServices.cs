@@ -4,6 +4,8 @@ using System.Text.Json.Nodes;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Core.Binding;
 using HYWDebugAssistant.Core.Changes;
+// `Binding` 既是**命名空间**又是**类型名**（与 `ModuleRuntime` 同一手法）：显式别名，避免歧义
+using RuntimeBinding = HYWDebugAssistant.Core.Binding.Binding;
 using HYWDebugAssistant.Core.Composition;
 using HYWDebugAssistant.Core.Diagnostics;
 using HYWDebugAssistant.Core.Persistence;
@@ -179,6 +181,21 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     public IReadOnlyList<ConnectionCandidateView> PreviewConnections(IReadOnlyList<ModuleLayoutView>? provisionalLayouts = null) =>
         [.. _runtime.CollectDockPairs(provisionalLayouts)
             .Select(pair => new ConnectionCandidateView(pair.SourceLiteral, pair.TargetLiteral))];
+
+    /// <inheritdoc />
+    public AnchorDockHintView? SuggestAnchorDock(
+        string instanceId,
+        string portName,
+        HYWDebugAssistant.Sdk.Ports.PortEdge edge,
+        double offset)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(portName);
+
+        return double.IsFinite(offset)
+            ? _runtime.SuggestAnchorDock(instanceId, portName, edge, offset)
+            : null;
+    }
 
     /// <inheritdoc />
     public CommandResult RescanModuleSources()
@@ -521,52 +538,196 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
         foreach (var b in _runtime.Bindings.Bindings)
         {
-            // 【ADR-0050 M2/M7】诊断/绑定的键 = **单源 → 宿子集**（多源网络下**按源归属**）
-            var key = ModuleRuntime.DescribeSourceKey(b.Source, b.Targets);
-            _ = seen.Add(key);
-            var meters = MetersOf(key);
-
-            var payloadSize = b.Metering.PayloadSizeInBytes ?? b.Layout.SizeInBytes;
-
-            views.Add(new BindingDiagnosticView(
-                b.Network.Name,
-                b.Diagnostics.Delivered,
-                b.Diagnostics.Dropped,
-                b.Diagnostics.LastDataTime)
-            {
-                Key = key,
-
-                // 【ADR-0046 D8 / ADR-0050 Q5】丢弃按原因分类（停流未投递 ≠ 传输丢弃）
-                DropStalled = b.Diagnostics.DroppedByReason(DropReason.Stalled),
-                DropQueueFull = b.Diagnostics.DroppedByReason(DropReason.QueueFull),
-                DropNoCarrier = b.Diagnostics.DroppedByReason(DropReason.NoCarrier),
-                DropInvalidPayload = b.Diagnostics.DroppedByReason(DropReason.InvalidPayload),
-
-                // **三类之一：传输丢弃**（队列满 + 无承载 + 载荷非法；不含"停流未投递"）
-                DropTransport = b.Diagnostics.DroppedByReason(DropReason.QueueFull)
-                    + b.Diagnostics.DroppedByReason(DropReason.NoCarrier)
-                    + b.Diagnostics.DroppedByReason(DropReason.InvalidPayload),
-
-                // 【ADR-0046 D8】**四档速率由框架给出**（UI 不得自行差分估算）
-                Published = b.Diagnostics.Published,
-                NetworkKey = ModuleRuntime.DescribeKey(b.Network),
-                UnitRateHz = meters.Unit.Observe(b.Diagnostics.Published, now),
-                BusByteRate = meters.Bus.Observe(b.Diagnostics.Delivered * b.Layout.SizeInBytes, now),
-                PayloadByteRate = meters.Payload.Observe(b.Diagnostics.Published * payloadSize, now),
-                SampleRateHz = meters.Unit.Rate * b.Metering.SamplesPerUnit,
-                ChannelSampleRateHz = meters.Unit.Rate * b.Metering.SamplesPerUnit * b.Metering.ChannelCount,
-                NominalRateHz = b.Metering.NominalRateHz,
-            });
+            var view = BuildDiagnostic(b, now);
+            _ = seen.Add(view.Key);
+            views.Add(view);
         }
 
         // 绑定被重建/删除后，旧键的速率计一并清掉（否则长期运行会积累无主状态）
-        foreach (var stale in _rateMeters.Keys.Where(k => !seen.Contains(k)).ToList())
-        {
-            _ = _rateMeters.Remove(stale);
-        }
+        PruneStaleRateMeters(seen);
 
         return views;
     }
+
+    /// <summary>
+    /// 把 <c>_rateMeters</c> 里**已经不对应任何绑定**的键清掉（长期运行不积累无主状态）。
+    /// </summary>
+    /// <remarks>
+    /// <b>判据必须是"全部绑定的键"</b>（不是"本次查询用到的那些"）：否则按端口查询会把别的端口/别的绑定的
+    /// 速率计一起删掉 ⇒ 那些口下次读到 0 并重建基准（表现为速率莫名归零）。故调用方一律传**全量**键集合。
+    /// </remarks>
+    /// <param name="liveKeys">当前全部绑定的身份键（`源 → 宿子集`）。</param>
+    private void PruneStaleRateMeters(HashSet<string> liveKeys)
+    {
+        foreach (var stale in _rateMeters.Keys.Where(k => !liveKeys.Contains(k)).ToList())
+        {
+            _ = _rateMeters.Remove(stale);
+        }
+    }
+
+    /// <summary>
+    /// 构造**一条绑定**的逐源诊断视图（键 = `单源 → 宿子集`）—— **框架侧唯一的速率 / 丢弃口径实现**。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>为什么抽出来</b>：<see cref="GetDiagnostics"/>（逐源行）与 <see cref="GetPortMetrics"/>
+    ///     （按端口汇总）必须读<b>同一份</b>实现、<b>同一批</b>速率计（<c>_rateMeters</c>）——
+    ///     否则"统一口径"只是换个地方再分叉一次（那正是本次缺陷的成因）；</item>
+    ///   <item><b>四档速率由框架给出</b>【ADR-0046 D8】：UI 不得自行差分估算；</item>
+    ///   <item><b>三类丢弃分开计</b>【ADR-0046 D8 / ADR-0050 Q5】：停流未投递 ≠ 传输丢弃。</item>
+    /// </list>
+    /// </remarks>
+    /// <param name="b">绑定（= 一条"源 → 宿子集"的流）。</param>
+    /// <param name="now">本次观察时刻（<see cref="Stopwatch.GetTimestamp"/>；同一趟刷新共用一个）。</param>
+    private BindingDiagnosticView BuildDiagnostic(RuntimeBinding b, long now)
+    {
+        // 【ADR-0050 M2/M7】诊断/绑定的键 = **单源 → 宿子集**（多源网络下**按源归属**）
+        var key = ModuleRuntime.DescribeSourceKey(b.Source, b.Targets);
+        var meters = MetersOf(key);
+
+        return new BindingDiagnosticView(
+            b.Network.Name,
+            b.Diagnostics.Delivered,
+            b.Diagnostics.Dropped,
+            b.Diagnostics.LastDataTime)
+        {
+            Key = key,
+
+            // 【ADR-0046 D8 / ADR-0050 Q5】丢弃按原因分类（停流未投递 ≠ 传输丢弃）
+            DropStalled = b.Diagnostics.DroppedByReason(DropReason.Stalled),
+            DropQueueFull = b.Diagnostics.DroppedByReason(DropReason.QueueFull),
+            DropNoCarrier = b.Diagnostics.DroppedByReason(DropReason.NoCarrier),
+            DropInvalidPayload = b.Diagnostics.DroppedByReason(DropReason.InvalidPayload),
+
+            // **三类之一：传输丢弃**（队列满 + 无承载 + 载荷非法；不含"停流未投递"）
+            DropTransport = b.Diagnostics.DroppedByReason(DropReason.QueueFull)
+                + b.Diagnostics.DroppedByReason(DropReason.NoCarrier)
+                + b.Diagnostics.DroppedByReason(DropReason.InvalidPayload),
+
+            // 【ADR-0046 D8】**四档速率由框架给出**（UI 不得自行差分估算）
+            Published = b.Diagnostics.Published,
+            NetworkKey = ModuleRuntime.DescribeKey(b.Network),
+            UnitRateHz = meters.Unit.Observe(b.Diagnostics.Published, now),
+            BusByteRate = meters.Bus.Observe(b.Diagnostics.Delivered * b.Layout.SizeInBytes, now),
+
+            // 【2026-09 用户裁定"速率只要有效数据"】第 3 档读的是**累计有效字节**（逐单元读类型声明的
+            // 有效长度字段；未声明 ⇒ 静态 `PayloadSizeInBytes` ?? 契约尺寸）—— 不再拿"发布数 × 静态尺寸"现乘
+            // （那样变长载荷会把补零也算成有效数据）。
+            PayloadByteRate = meters.Payload.Observe(b.Diagnostics.PayloadBytes, now),
+            SampleRateHz = meters.Unit.Rate * b.Metering.SamplesPerUnit,
+            ChannelSampleRateHz = meters.Unit.Rate * b.Metering.SamplesPerUnit * b.Metering.ChannelCount,
+            NominalRateHz = b.Metering.NominalRateHz,
+        };
+    }
+
+    /// <inheritdoc />
+    public PortMetricsView GetPortMetrics(string instanceId, string portName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(portName);
+
+        // **一趟刷新共用一个时刻**：与 GetDiagnostics 同一手法（RateMeter 只认"观察时刻"，
+        // 同一时刻重复观察返回上次速率 ⇒ 本次汇总不会因为多读几次而互相清零）。
+        var now = Stopwatch.GetTimestamp();
+
+        long delivered = 0;
+        long dropped = 0;
+        long stalled = 0;
+        long queueFull = 0;
+        long noCarrier = 0;
+        long invalidPayload = 0;
+        long bytes = 0;
+        long payloadBytes = 0;
+        double bytesPerSecond = 0;
+        double payloadBytesPerSecond = 0;
+        double unitRate = 0;
+        DateTimeOffset? lastData = null;
+        var networkKeys = new HashSet<string>(StringComparer.Ordinal);
+
+        // **全量绑定键**（不只是本口参与的那些）：用于结尾清理陈旧速率计，判据见 PruneStaleRateMeters
+        var liveKeys = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var b in _runtime.Bindings.Bindings)
+        {
+            _ = liveKeys.Add(ModuleRuntime.DescribeSourceKey(b.Source, b.Targets));
+
+            // **"流" = 一条 (源成员 → 宿成员) 绑定**：本口是**源**或**宿**都算参与
+            // ⇒ **宿口按网络把该网络的各源诊断加起来**（缺陷根因就在这里被挡住：
+            //    绝不再拿宿口字面量去查只含"源"键的表）
+            if (!IsPortInvolved(b, instanceId, portName))
+            {
+                continue;
+            }
+
+            var view = BuildDiagnostic(b, now);
+
+            delivered += view.Delivered;
+
+            // **只取"传输丢弃"**：停流未投递是合法状态，单独走 DropStalled（三类不混算）
+            dropped += view.DropTransport;
+            stalled += view.DropStalled;
+            queueFull += view.DropQueueFull;
+            noCarrier += view.DropNoCarrier;
+            invalidPayload += view.DropInvalidPayload;
+
+            // 累计搬运字节与 BusByteRate **同一口径**（Delivered × 该源契约尺寸）
+            bytes += view.Delivered * b.Layout.SizeInBytes;
+
+            // 【2026-09 用户裁定"速率只要有效数据"】界面显示的**速率与累计流量**都取有效口径：
+            // 累计有效字节 = 该绑定逐单元累计的有效字节之和（**按源计**，与 Published 同一次发布累加）。
+            payloadBytes += b.Diagnostics.PayloadBytes;
+
+            // 速率 = 逐源诊断的速率之和（**与角色方块同一批速率计**，不另起第二套）
+            bytesPerSecond += view.BusByteRate;
+            payloadBytesPerSecond += view.PayloadByteRate;
+            unitRate += view.UnitRateHz;
+
+            if (view.LastDataTime is { } time && (lastData is null || time > lastData))
+            {
+                lastData = time;
+            }
+
+            if (view.NetworkKey.Length > 0)
+            {
+                _ = networkKeys.Add(view.NetworkKey);
+            }
+        }
+
+        // 与 `GetDiagnostics` 同一份清理判据（本查询可能**单独**被界面调用 ⇒ 不能依赖别人替它清）
+        PruneStaleRateMeters(liveKeys);
+
+        return new PortMetricsView(delivered, dropped, bytesPerSecond)
+        {
+            DropStalled = stalled,
+            DropQueueFull = queueFull,
+            DropNoCarrier = noCarrier,
+            DropInvalidPayload = invalidPayload,
+            BytesDelivered = bytes,
+            PayloadBytesDelivered = payloadBytes,
+            PayloadBytesPerSecond = payloadBytesPerSecond,
+            UnitRateHz = unitRate,
+            LastDataTime = lastData,
+            NetworkKeys = [.. networkKeys.OrderBy(k => k, StringComparer.Ordinal)],
+        };
+    }
+
+    /// <summary>
+    /// 该口是否**参与**这条绑定（= 它是这条流的**源或宿**）—— "一个端口该读哪些流"的**唯一判据**。
+    /// </summary>
+    /// <param name="binding">一条绑定。</param>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="portName">口名。</param>
+    private static bool IsPortInvolved(RuntimeBinding binding, string instanceId, string portName) =>
+        IsSamePort(binding.Source, instanceId, portName)
+        || binding.Targets.Any(t => IsSamePort(t, instanceId, portName));
+
+    /// <summary>该成员是否就是"该 (实例, 口)"（成员比对**唯一实现**）。</summary>
+    /// <param name="member">网络成员。</param>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="portName">口名。</param>
+    private static bool IsSamePort(NetworkMember member, string instanceId, string portName) =>
+        string.Equals(member.InstanceId, instanceId, StringComparison.Ordinal)
+        && string.Equals(member.PortName, portName, StringComparison.Ordinal);
 
     /// <summary>
     /// **每 (实例, 口) 队列**的深度与吞吐【ADR-0050 Q2 / ADR-0046 D8"水位"】。
@@ -726,7 +887,9 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
             byNetwork.TryGetValue(networkKey, out var sum);
             byNetwork[networkKey] = (
-                sum.Rate + diagnostic.BusByteRate,
+                // 【2026-09 用户裁定"速率只要有效数据"】角色方块显示的是**有效载荷字节速率**
+                // （逐单元读有效长度字段；未声明 ⇒ 静态尺寸）—— 与网络标签同一口径。
+                sum.Rate + diagnostic.PayloadByteRate,
                 sum.Delivered + diagnostic.Delivered,
                 sum.Dropped + diagnostic.DropTransport);
         }
@@ -939,8 +1102,8 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     /// **解析口的有效挂载边**（G5 · C5-7）：用户拖动后的覆盖 &gt; 模块声明的默认边 &gt; 数据流惯例。
     /// </summary>
     /// <remarks>
-    /// 数据流惯例（`Auto`）= **发送口在右边缘、接收口在左边缘** —— 这是**老模块的行为**，也是默认值。
-    /// 解析结果**永远是具体边**（不会是 `Auto`）。
+    /// **转发到 <see cref="Composition.PortEdgeResolution.Resolve"/>**（2026-09）：本规则现在有三个消费者
+    /// （呈现、建网判定、UI 吸附）⇒ 只许有一份实现，这里不再自己写一遍（`implementation/01` 的"来源唯一"）。
     /// </remarks>
     /// <param name="declared">模块声明的默认边（`PortDeclaration.Edge`）。</param>
     /// <param name="overridden">用户在画布上拖动后的覆盖（`PortGeometryView.Edge`；`Auto` = 无覆盖）。</param>
@@ -948,20 +1111,8 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     private static HYWDebugAssistant.Sdk.Ports.PortEdge ResolveEdge(
         HYWDebugAssistant.Sdk.Ports.PortEdge declared,
         HYWDebugAssistant.Sdk.Ports.PortEdge overridden,
-        bool isSend)
-    {
-        if (overridden != HYWDebugAssistant.Sdk.Ports.PortEdge.Auto)
-        {
-            return overridden;   // 用户拖过 ⇒ 优先
-        }
-
-        if (declared != HYWDebugAssistant.Sdk.Ports.PortEdge.Auto)
-        {
-            return declared;     // 模块声明了默认边 ⇒ 用它
-        }
-
-        return isSend ? HYWDebugAssistant.Sdk.Ports.PortEdge.Right : HYWDebugAssistant.Sdk.Ports.PortEdge.Left;
-    }
+        bool isSend) =>
+        Composition.PortEdgeResolution.Resolve(declared, overridden, isSend);
 
     private ModuleInstanceView ToView(Hosting.Instances.ModuleInstance instance)
     {

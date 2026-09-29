@@ -1,0 +1,66 @@
+namespace HYWDebugAssistant.Sdk.Context;
+
+/// <summary>
+/// **模块可读的"视图状态"**（只读快照）〔2026-09 用户裁定 · `decisions.md` 7.28〕。
+/// </summary>
+/// <remarks>
+/// <para>
+/// 用户原话："当前选中页似乎应该是一个**可被感知的属性**，这也有利于 **UI 整体简洁化**"；
+/// 取向是"**符合 winforms 的开发直觉**"（`decisions.md` 7.30）—— 本接口就是 WinForms 里
+/// "**控件属性即状态**"（`textBox.Text` / `tabControl.SelectedIndex`）在本框架的落点。
+/// </para>
+/// <para>
+/// <b>读什么（三样）</b>：① 某 <c>TabPages</c> 的**当前选中页** ② 某输入源的**当前文本**
+/// （含用户**正在编辑、尚未提交**的内容）③ 某文本显示源**当前保留的文本**（显示缓冲的内容）。
+/// </para>
+/// <para>
+/// <b>怎么读</b>：**拉取**（在模块自己的活动体里取快照）—— **不做推送**：输入文本逐键变化，
+/// 推进有界收件箱会被淹没。
+/// </para>
+/// <para>
+/// <b>语义边界（务必按此理解）</b>：
+/// <list type="bullet">
+///   <item><b>只读</b>：模块**不能**通过本接口改 UI 状态（要改就走输入 / 命令通道）；</item>
+///   <item><b>快照</b>：读到的是框架**最近一次写入**的值，不保证与用户此刻的眼睛同步（通常差一个刷新节拍）；</item>
+///   <item><b>不进组合件、不持久化</b>：重启即丢（与"开关不落盘"同一取向）；</item>
+///   <item><b>未知即 null / 空</b>：没声明、没渲染、名字写错 ⇒ 一律返回 <see langword="null"/>（行列表为空），
+///     **不抛异常、不猜**；</item>
+///   <item>**随实例移除清理**（关闭模块即丢，与"不持久化"一致）。</item>
+/// </list>
+/// </para>
+/// <para>
+/// <b>怎么写</b>：模块用声明里的名字寻址 —— 输入源 / 显示源用**数据源名**；容器（如 <c>TabPages</c>）
+/// **没有数据源名** ⇒ 用 <see cref="HYWDebugAssistant.Sdk.Views.ViewElement.StateKey"/>（可选 `init` 属性）。
+/// </para>
+/// </remarks>
+public interface IViewStateReader
+{
+    /// <summary>
+    /// 某 <c>TabPages</c> 的**当前选中页序号**（0 基）。
+    /// </summary>
+    /// <param name="stateKey">容器声明里的 <see cref="HYWDebugAssistant.Sdk.Views.ViewElement.StateKey"/>。</param>
+    /// <returns>选中页序号；未声明该键 / 无此容器 ⇒ <see langword="null"/>。</returns>
+    int? GetSelectedPage(string stateKey);
+
+    /// <summary>
+    /// 某输入源的**当前文本**（含**正在编辑、尚未提交**的内容）。
+    /// </summary>
+    /// <param name="sourceName">输入元素的 <c>DataSource</c> 名（与 <c>SubmitInput</c> 同一名字）。</param>
+    /// <returns>当前文本；未声明该输入 / 从未渲染 ⇒ <see langword="null"/>。</returns>
+    /// <remarks>
+    /// 这是"**所见即所发**"的落点：点按钮时模块读到的就是用户在框里看到的文本，
+    /// 不依赖"用户是否按过回车"（因此不再需要"命令按钮关联输入源"那条机制 —— 见 `decisions.md` 7.27 的撤回）。
+    /// </remarks>
+    string? GetInputText(string sourceName);
+
+    /// <summary>
+    /// 某文本显示源**当前保留的文本**（显示缓冲的**全部内容**，不只是屏幕上可见的那几行）。
+    /// </summary>
+    /// <param name="sourceName">显示元素的 <c>DataSource</c> 名。</param>
+    /// <returns>文本行快照（**调用时复制**；未声明 / 无内容 ⇒ 空列表）。</returns>
+    /// <remarks>
+    /// 用于"**保存显示内容**"这类需求（用户 2026-09："读文本框本身的内存就行"）：
+    /// 缓冲由框架持有（**不清空就一直在**，容量上限后丢最旧），模块**不需要**自己再留一份副本。
+    /// </remarks>
+    IReadOnlyList<string> GetDisplayLines(string sourceName);
+}

@@ -101,6 +101,28 @@ public sealed class ApplicationSettings
     /// </remarks>
     public string MultilineSubmitKey { get; set; } = "CtrlEnter";
 
+
+    /// <summary>
+    /// **界面字体**（2026-09 用户裁定：字体在设置里**显式可调**，读**系统已有字体**）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>作用于**框架自身的界面文字**（外壳、清单、设置页、状态栏等，资源键 <c>FontUi</c>）；</item>
+    ///   <item>默认 <c>Segoe UI, Microsoft YaHei UI</c>（**保持既有观感不变** —— 用户要调的是文本框那一路）；</item>
+    ///   <item>可写**回退列表**（逗号分隔）：拉丁字体在前、中文回退在后，例如 <c>Times New Roman, 宋体</c>；</item>
+    ///   <item>空串 ⇒ 回落默认；设置页给系统字体下拉（**读系统已有字体**，不内置字体文件）。</item>
+    /// </list>
+    /// </remarks>
+    public string UiFontFamily { get; set; } = "Segoe UI, Microsoft YaHei UI";
+
+    /// <summary>
+    /// **数据字体**（2026-09 用户裁定）：作用于**所有输入框与显示框**（模块内容区的文本元素 + 诊断里的数据列）。
+    /// </summary>
+    /// <remarks>
+    /// 默认 <c>Times New Roman, 宋体</c> —— 用户原话："**建议默认中文宋体，英文 times new roman**"。
+    /// 同样是回退列表（拉丁在前、中文在后）；资源键 <c>FontData</c>。
+    /// </remarks>
+    public string DataFontFamily { get; set; } = "Times New Roman, 宋体";
     /// <summary>
     /// **发送方向色**（十六进制，如 <c>#EA580C</c>；**空 = 跟随主题默认值**）【ADR-0044 · 用户第十四轮裁决 D1a】。
     /// </summary>
@@ -182,6 +204,13 @@ public sealed class ApplicationSettings
         BackgroundMode = BackgroundMode,
         BackgroundColor = BackgroundColor,
         MultilineSubmitKey = MultilineSubmitKey,
+        // 【2026-09 缺陷修复 · 用户实测"字体设置不生效且无法保存"】**这两行曾漏掉** ⇒ Clone 是
+        // 写侧（`SettingsService.Update` 的 `Current = settings.Clone()`）与读侧（`RuntimeServices.GetSettings`）
+        // 的**必经之路** ⇒ 字体在任何环节都被静默换成默认值（落盘写默认值、读回默认值、`ThemeApplier` 拿到默认值）。
+        // **颜色能用只是因为它俩不在颜色那一组里**（同一条管线、同一份文件，唯一差别就是这份字段清单）。
+        // 纪律：`Clone` 必须与**全部可持久化属性**一一对应 —— `SettingsServiceTests` 有一条反射式用例钉住它。
+        UiFontFamily = UiFontFamily,
+        DataFontFamily = DataFontFamily,
         DirectionSendColor = DirectionSendColor,
         DirectionReceiveColor = DirectionReceiveColor,
         ShellAspect = ShellAspect,

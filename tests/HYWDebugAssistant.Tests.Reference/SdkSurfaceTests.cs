@@ -1,5 +1,5 @@
 using System.Reflection;
-using HYWDebugAssistant.Modules.Reference.DataGenerator;
+using HYWDebugAssistant.Modules.TextSender;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Context;
@@ -78,20 +78,21 @@ public class SdkSurfaceTests
     }
 
     [Fact]
-    public void 参考桩模块_声明特性应可被加载期读取()
+    public void 正式模块_声明特性应可被加载期读取()
     {
-        var attribute = typeof(DataGeneratorModule).GetCustomAttribute<ModuleDefinitionAttribute>();
+        // 【2026-09 载体变更】原参考桩模块已按用户裁定删除 ⇒ 判据由**正式模块**承载
+        var attribute = typeof(TextSenderModule).GetCustomAttribute<ModuleDefinitionAttribute>();
 
         attribute.ShouldNotBeNull();
-        attribute!.Id.ToString().ShouldBe("hyw/reference-data-generator/1.0.0");
-        attribute.DisplayName.ShouldBe("参考数据发生器");
+        attribute!.Id.ToString().ShouldBe("hyw/text-sender/1.0.0");
+        attribute.DisplayName.ShouldBe("文本发送器");
         attribute.ParticipatesInDataFlow.ShouldBeTrue();
     }
 
     [Fact]
-    public void 参考桩模块_应可实例化并声明口与视图()
+    public void 正式模块_应可实例化并声明口与视图()
     {
-        var module = new DataGeneratorModule();
+        var module = new TextSenderModule();
         module.ShouldBeAssignableTo<IModule>();
         module.ShouldBeAssignableTo<IActivitySource>();
         module.Kind.ShouldBe(ActivityKind.Periodic);
@@ -100,17 +101,27 @@ public class SdkSurfaceTests
         module.OnRegistered(context);
 
         context.DeclaredPorts.Count.ShouldBe(1);
-        context.DeclaredPorts[0].Name.ShouldBe(DataGeneratorModule.OutputPort);
+        context.DeclaredPorts[0].Name.ShouldBe(TextSenderModule.OutPort);
         context.DeclaredPorts[0].Direction.ShouldBe(PortDirection.Send);
-        context.DeclaredPorts[0].Shape.SizeInBytes.ShouldBe(12);
+        context.DeclaredPorts[0].Shape.SizeInBytes.ShouldBe(2 + 1472, "`{ len:u16, data:bytes[1472] }`");
         context.DeclaredPorts[0].ParticipatesInAutoNetwork.ShouldBeTrue();
+        context.DeclaredPorts[0].Edge.ShouldBe(PortEdge.Bottom, "宽 > 高 ⇒ 口默认在下边（与显示器配对）");
+
+        context.DeclaredDataTypes.ShouldHaveSingleItem().TypeId.ShouldBe(TextSenderModule.RawBytesTypeId);
 
         context.DeclaredViews.Count.ShouldBe(1);
-        context.DeclaredViews[0].Elements.Count.ShouldBe(3, "M1-12：数值 + 曲线 + 序号");
-        context.DeclaredViews[0].DataSources.Count.ShouldBe(2);
-        context.DeclaredViews[0].DataSources[0].Name.ShouldBe(DataGeneratorModule.ValueSource);
-        context.DeclaredViews[0].DataSources[0].ValueType.ShouldBe(ContractPrimitive.F32, "UI 解码依据（不猜类型）");
-        context.DeclaredViews[0].DataSources[1].Name.ShouldBe(DataGeneratorModule.SequenceSource);
+
+        // 视图元素 = 标签页 + 发送 + 连续发送 + 间隔 + 已发送（**框架不再补配置表单** —— 2026-09 用户裁定）
+        context.DeclaredViews[0].Elements.Count.ShouldBe(5);
+        context.DeclaredViews[0].Elements[0].Kind.ShouldBe(ViewElementKind.TabPages);
+        context.DeclaredViews[0].Elements[0].StateKey.ShouldBe(TextSenderModule.PagesStateKey);
+
+        // 数据源：每页一个文本源 + 开关 / 间隔 / 计数（数值类必须给出原语 —— UI 不猜类型）
+        context.DeclaredViews[0].DataSources.Count.ShouldBe(TextSenderModule.PageCount + 3);
+        context.DeclaredViews[0].DataSources[0].Name.ShouldBe(TextSenderModule.TextSourceOf(0));
+        context.DeclaredViews[0].DataSources
+            .Single(s => string.Equals(s.Name, TextSenderModule.SentSource, StringComparison.Ordinal))
+            .ValueType.ShouldBe(ContractPrimitive.U64, "UI 解码依据（不猜类型）");
     }
 
     /// <summary>
@@ -147,6 +158,12 @@ public class SdkSurfaceTests
         public IStopSignal StopSignal => null!;
 
         public HYWDebugAssistant.Sdk.Context.IModuleInbox Inbox => null!;
+
+        /// <summary>视图状态回读（2026-09 · 7.28）——本替身不使用。</summary>
+        public HYWDebugAssistant.Sdk.Context.IViewStateReader ViewState => null!;
+
+        /// <summary>显示内容请求面（2026-09）——本替身不使用。</summary>
+        public HYWDebugAssistant.Sdk.Context.IViewDisplayAccess Display => null!;
 
         private sealed class DeclarationSink(
             List<PortDeclaration> ports,
