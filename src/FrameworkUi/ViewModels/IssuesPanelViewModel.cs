@@ -28,10 +28,10 @@ public sealed record IssueRowViewModel(
 }
 
 /// <summary>
-/// Issue 面板（§8.5 / `05` §5.7）：汇总列表 + **按归属对象 / 类别 / 来源 / 严重度过滤**。
+/// Issue 面板：汇总列表 + **按归属对象 / 类别 / 来源 / 严重度过滤**。
 /// </summary>
 /// <remarks>
-/// 默认轻量不打扰：本面板只做"登记与呈现"，不弹模态框、不阻断运行（§8.5）。
+/// 默认轻量不打扰：本面板只做"登记与呈现"，不弹模态框、不阻断运行。
 /// </remarks>
 public sealed partial class IssuesPanelViewModel : ViewModelBase
 {

@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
     开发内环入口（分层验证）：单项目编译 / 单类测试 / 单测试项目 / 完整门禁 / 启动应用。
-    工作流说明见仓库根 DEVELOPMENT.md（**唯一事实源**）。
+    工作流说明见 docs/implementation/07-dev-inner-loop.md（**唯一落点**）。
 
 .DESCRIPTION
     分层验证（避免"每改一行就跑全量"）：

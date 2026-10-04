@@ -4,13 +4,13 @@ using HYWDebugAssistant.Sdk.Context;
 namespace HYWDebugAssistant.Core.Services;
 
 /// <summary>
-/// **视图状态存储**（`IViewStateAccess` 的唯一实现）〔2026-09 用户裁定 · `decisions.md` 7.28/7.31〕。
+/// **视图状态存储**（`IViewStateAccess` 的唯一实现）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>为什么状态不放在元素视图模型里</b>：UI 的**元素表会在运行期重建**（切页 / 改设置 / 重新声明）
-///     ⇒ 状态挂在元素实例上就会"重建即丢"（现状：切页会把**未提交的编辑**丢掉）。用户取向是"**符合 winforms
-///     的开发直觉**"（`decisions.md` 7.30）—— 而 WinForms 里"控件活着，数据就在"⇒ 状态必须**独立于元素表**；</item>
+///     ⇒ 状态挂在元素实例上就会「重建即丢」（切页会把**未提交的编辑**丢掉）。取向是**符合 WinForms
+///     的开发直觉** —— 而 WinForms 里「控件活着，数据就在」⇒ 状态必须**独立于元素表**；</item>
 ///   <item><b>线程</b>：写方 = **UI 线程**（切页 / 文本变化 / 追加行）；读方 = **模块线程**（拉取快照）。
 ///     字典本身用锁保护；<see cref="DisplayBuffer"/> 自带锁；</item>
 ///   <item><b>不持久化</b>：既不入组合件，也不落盘 —— 重启即空（与"开关不落盘"同一取向）。</item>
@@ -53,6 +53,35 @@ public sealed class ViewStateStore : IViewStateAccess
             return _instances.TryGetValue(instanceId, out var state)
                 && state.SelectedPages.TryGetValue(stateKey, out var page)
                     ? page
+                    : null;
+        }
+    }
+
+    /// <inheritdoc />
+    public void SetCollapsed(string instanceId, string stateKey, bool collapsed)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(stateKey);
+
+        lock (_gate)
+        {
+            Get(instanceId).Collapsed[stateKey] = collapsed;
+        }
+    }
+
+    /// <inheritdoc />
+    public bool? GetCollapsed(string instanceId, string stateKey)
+    {
+        if (string.IsNullOrWhiteSpace(instanceId) || string.IsNullOrWhiteSpace(stateKey))
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            return _instances.TryGetValue(instanceId, out var state)
+                && state.Collapsed.TryGetValue(stateKey, out var collapsed)
+                    ? collapsed
                     : null;
         }
     }
@@ -246,6 +275,9 @@ public sealed class ViewStateStore : IViewStateAccess
     private sealed class InstanceState
     {
         public Dictionary<string, int> SelectedPages { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>折叠容器的折叠态（键 = 容器声明的 <c>StateKey</c>；未记录 ⇒ 展开）。</summary>
+        public Dictionary<string, bool> Collapsed { get; } = new(StringComparer.Ordinal);
 
         public Dictionary<string, string> InputTexts { get; } = new(StringComparer.Ordinal);
 

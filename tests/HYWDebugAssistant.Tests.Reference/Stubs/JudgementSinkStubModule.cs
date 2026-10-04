@@ -40,9 +40,9 @@ public sealed class JudgementSinkStubConfig
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>为什么需要它</b>：2026-09 用户裁定删除 6 个参考模块包后，"**模块自己判定 + 按严重度上报 Issue
-///     + 同类问题限流**"这条 SDK 面（`IIssueReporter` / `IssueSeverity` / 上报上限）在四个基础模块里
-///     **没有对应物**（它们的报错走 G3 输入反馈）；框架能力不得删 ⇒ 用测试桩承载；</item>
+///   <item><b>为什么需要它</b>：「**模块自己判定 + 按严重度上报 Issue + 同类问题限流**」这条 SDK 面
+///     （`IIssueReporter` / `IssueSeverity` / 上报上限）在四个基础模块里**没有对应物**
+///     （它们的报错走 G3 输入反馈）⇒ 用测试桩承载；</item>
 ///   <item><b>判据三类</b>：序号单调（乱序即数据流不可还原）· 取值范围（超上下限）· 与期望值的偏差（超容差）；
 ///     三类各自**按类别**限流，互不挤占；</item>
 ///   <item><b>与真实模块的关系</b>：这是"判据/断言"这类模块形态的最小可运行示例，作为**开发参考**保留在
@@ -142,21 +142,6 @@ public sealed class JudgementSinkStubModule : IModule
 
         // 被动接收模式：单元解出 `{ seq, value }` 后逐条判定（测试也可直接调 `Judge`）
         context.Ports.SetReceiveHandler(InPort, payload => Handle(context, payload));
-
-        context.Declaration.DeclareView(new ViewDeclaration(
-            [
-                new ViewElement(ViewElementKind.Numeric, CountSource, "已接收"),
-                new ViewElement(ViewElementKind.Numeric, PassedSource, "通过"),
-                new ViewElement(ViewElementKind.Numeric, FailedSource, "超差"),
-                new ViewElement(ViewElementKind.Numeric, DeviationSource, "偏差"),
-            ],
-            dataSources:
-            [
-                new ViewDataSource(CountSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64),
-                new ViewDataSource(PassedSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64),
-                new ViewDataSource(FailedSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64),
-                new ViewDataSource(DeviationSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.F32),
-            ]));
     }
 
     /// <summary>

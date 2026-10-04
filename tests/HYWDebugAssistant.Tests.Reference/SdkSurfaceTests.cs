@@ -6,7 +6,6 @@ using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
-using HYWDebugAssistant.Sdk.Views;
 using Shouldly;
 using Xunit;
 
@@ -80,7 +79,7 @@ public class SdkSurfaceTests
     [Fact]
     public void 正式模块_声明特性应可被加载期读取()
     {
-        // 【2026-09 载体变更】原参考桩模块已按用户裁定删除 ⇒ 判据由**正式模块**承载
+        // 判据由**正式模块**承载（参考桩模块不承载这条契约）
         var attribute = typeof(TextSenderModule).GetCustomAttribute<ModuleDefinitionAttribute>();
 
         attribute.ShouldNotBeNull();
@@ -90,7 +89,7 @@ public class SdkSurfaceTests
     }
 
     [Fact]
-    public void 正式模块_应可实例化并声明口与视图()
+    public void 正式模块_应可实例化并声明口与数据类型()
     {
         var module = new TextSenderModule();
         module.ShouldBeAssignableTo<IModule>();
@@ -105,23 +104,14 @@ public class SdkSurfaceTests
         context.DeclaredPorts[0].Direction.ShouldBe(PortDirection.Send);
         context.DeclaredPorts[0].Shape.SizeInBytes.ShouldBe(2 + 1472, "`{ len:u16, data:bytes[1472] }`");
         context.DeclaredPorts[0].ParticipatesInAutoNetwork.ShouldBeTrue();
-        context.DeclaredPorts[0].Edge.ShouldBe(PortEdge.Bottom, "宽 > 高 ⇒ 口默认在下边（与显示器配对）");
+
+        // 口的默认边只有一个来源：包内 `view.json`（`PortDeclaration.Edge` 不存在）
+        // ⇒ 这条事实由 `BusinessModulesContractTests.DeclaredEdge` 从包里断言（模块代码里再写会被 AR-18 判红）。
 
         context.DeclaredDataTypes.ShouldHaveSingleItem().TypeId.ShouldBe(TextSenderModule.RawBytesTypeId);
 
-        context.DeclaredViews.Count.ShouldBe(1);
-
-        // 视图元素 = 标签页 + 发送 + 连续发送 + 间隔 + 已发送（**框架不再补配置表单** —— 2026-09 用户裁定）
-        context.DeclaredViews[0].Elements.Count.ShouldBe(5);
-        context.DeclaredViews[0].Elements[0].Kind.ShouldBe(ViewElementKind.TabPages);
-        context.DeclaredViews[0].Elements[0].StateKey.ShouldBe(TextSenderModule.PagesStateKey);
-
-        // 数据源：每页一个文本源 + 开关 / 间隔 / 计数（数值类必须给出原语 —— UI 不猜类型）
-        context.DeclaredViews[0].DataSources.Count.ShouldBe(TextSenderModule.PageCount + 3);
-        context.DeclaredViews[0].DataSources[0].Name.ShouldBe(TextSenderModule.TextSourceOf(0));
-        context.DeclaredViews[0].DataSources
-            .Single(s => string.Equals(s.Name, TextSenderModule.SentSource, StringComparison.Ordinal))
-            .ValueType.ShouldBe(ContractPrimitive.U64, "UI 解码依据（不猜类型）");
+        // 视图（控件树、数据源、命令）**不在模块代码里声明**：整份声明在包内 `view.json`，
+        // 由框架的读取器按 schema 解析 ⇒ 模块作者面到这里为止。
     }
 
     /// <summary>
@@ -129,13 +119,11 @@ public class SdkSurfaceTests
     /// </summary>
     private sealed class DeclarationRecorder : IModuleContext
     {
-        public DeclarationRecorder() => Declaration = new DeclarationSink(DeclaredPorts, DeclaredViews, DeclaredDataTypes);
+        public DeclarationRecorder() => Declaration = new DeclarationSink(DeclaredPorts, DeclaredDataTypes);
 
         public List<PortDeclaration> DeclaredPorts { get; } = [];
 
-        public List<ViewDeclaration> DeclaredViews { get; } = [];
-
-        /// <summary>已声明的数据类型【ADR-0046 D2】。</summary>
+        /// <summary>已声明的数据类型。</summary>
         public List<HYWDebugAssistant.Sdk.Contracts.DataTypeDeclaration> DeclaredDataTypes { get; } = [];
 
         public ModuleId ModuleId => ModuleId.Create("hyw", "test-host", "1.0.0");
@@ -159,15 +147,14 @@ public class SdkSurfaceTests
 
         public HYWDebugAssistant.Sdk.Context.IModuleInbox Inbox => null!;
 
-        /// <summary>视图状态回读（2026-09 · 7.28）——本替身不使用。</summary>
+        /// <summary>视图状态回读——本替身不使用。</summary>
         public HYWDebugAssistant.Sdk.Context.IViewStateReader ViewState => null!;
 
-        /// <summary>显示内容请求面（2026-09）——本替身不使用。</summary>
+        /// <summary>显示内容请求面——本替身不使用。</summary>
         public HYWDebugAssistant.Sdk.Context.IViewDisplayAccess Display => null!;
 
         private sealed class DeclarationSink(
             List<PortDeclaration> ports,
-            List<ViewDeclaration> views,
             List<HYWDebugAssistant.Sdk.Contracts.DataTypeDeclaration> types)
             : IModuleDeclaration
         {
@@ -177,15 +164,13 @@ public class SdkSurfaceTests
 
             public void DeclareRole(HYWDebugAssistant.Sdk.Contracts.RoleDeclaration role)
             {
-                // 测试替身：角色只用于呈现（ADR-0052），本替身不记录
+                // 测试替身：角色只用于呈现，本替身不记录
             }
 
             public void DeclareFlow(FlowDeclaration flow)
             {
-                // 测试替身：内部处理关系只用于呈现（ADR-0049 D13），本替身不记录
+                // 测试替身：内部处理关系只用于呈现，本替身不记录
             }
-
-            public void DeclareView(ViewDeclaration view) => views.Add(view);
         }
     }
 }

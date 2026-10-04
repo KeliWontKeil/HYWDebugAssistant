@@ -24,7 +24,7 @@ public readonly record struct CompatibilityResult(bool IsCompatible, string? Rea
 }
 
 /// <summary>
-/// 契约兼容判定——主文档 §5.4.1；**【ADR-0051 · 用户裁决】直连要求"形状完全一致"**。
+/// 契约兼容判定——主文档 §5.4.1；**直连要求"形状完全一致"**。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -36,7 +36,7 @@ public readonly record struct CompatibilityResult(bool IsCompatible, string? Rea
 ///     ③ **不同标识 → 框架无资格判定二者是否同一种量** ⇒ 默认不兼容；用户**显式确认**后可强连
 ///     （**此时仍要求形状完全一致**——否则字节根本不是一回事）；</item>
 ///   <item><b>任一方未声明类型</b>（旧模块形态）：同样只按**形状完全一致**判定（不再有"接收 ⊇ 发送"的子集判定）；</item>
-///   <item><b>为什么把子集判定也取消</b>【ADR-0051】：子集判定允许"接收方字段更多"，于是**到达的数据报可能短于本口契约**，
+///   <item><b>为什么把子集判定也取消</b>：子集判定允许"接收方字段更多"，于是**到达的数据报可能短于本口契约**，
 ///     接收方按自己的契约读就会抛异常（实测：会让该模块的投递循环整体退出）。要求形状一致后，
 ///     "同一宿口混入不同尺寸的源"**从源头不可能**，"兼容"与"能安全读取"重新合为一件事；</item>
 ///   <item><b>不自动转换</b>：不兼容即不可连 + 明示差异，转换由用户显式插入转换模块（PQ-IF-05 不变）；</item>
@@ -86,7 +86,7 @@ public static class ContractCompatibility
                 "跨语义不判兼容，需要时由模块内部组帧或插入转换模块");
         }
 
-        // 【ADR-0051】**形状必须完全一致**——直连的唯一结构条件（尺寸一致是它的推论）
+        // **形状必须完全一致**——直连的唯一结构条件（尺寸一致是它的推论）
         var sameShape = ContractShape.AreSame(sender, receiver);
 
         if (!sameShape)
@@ -114,7 +114,7 @@ public static class ContractCompatibility
 
         if (from.Version != to.Version)
         {
-            // 【ADR-0051】版本升级属**破坏性**变更：不再有"尾部追加 = 兼容"
+            // 版本升级属**破坏性**变更：不再有"尾部追加 = 兼容"
             return CompatibilityResult.Incompatible(
                 $"数据类型版本不同（{from} → {to}）：**不同版本不视为同一种数据报**（版本升级按破坏性变更处理）" +
                 "——请把两侧升到同一版本，或插入转换模块");

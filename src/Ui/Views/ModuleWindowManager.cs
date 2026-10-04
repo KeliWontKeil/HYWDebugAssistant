@@ -28,7 +28,7 @@ public sealed class ModuleWindowManager : IDisposable
     /// <summary>创建窗口管理器。</summary>
     /// <param name="controller">模块窗口集控制器。</param>
     /// <param name="shell">框架外壳窗口（拼图起点，可被贴靠 —— O-6）。</param>
-    /// <param name="windowGroup">应用窗口组（层级统一：ADR-0036 D5）；为空则以外壳创建。</param>
+    /// <param name="windowGroup">应用窗口组（层级统一）；为空则以外壳创建。</param>
     public ModuleWindowManager(ModuleWindowsViewModel controller, Window shell, AppWindowGroup? windowGroup = null)
     {
         ArgumentNullException.ThrowIfNull(controller);
@@ -122,10 +122,11 @@ public sealed class ModuleWindowManager : IDisposable
 
     private void OnGeometryChanged(object? sender, ModuleWindowGeometryChange e)
     {
-        if (_windows.TryGetValue(e.InstanceId, out var window))
+        if (_windows.TryGetValue(e.InstanceId, out var window)
+            && window.DataContext is ModuleViewViewModel module)
         {
-            // 已有布局（用户拖过/缩过）→ 按模型应用；未摆放 → 只定位置（尺寸用 XAML 默认）
-            ApplyGeometry(window, e, hasLayout: true);
+            // 已有布局（用户拖过/缩过）→ 按模型应用；未摆放 → 也按模型（尺寸来自 json 的 window.default）
+            ApplyGeometry(window, e, module);
         }
     }
 
@@ -171,7 +172,7 @@ public sealed class ModuleWindowManager : IDisposable
         ApplyGeometry(
             window,
             new ModuleWindowGeometryChange(module.InstanceId, module.X, module.Y, module.Width, module.Height),
-            hasLayout: module.HasLayout || module.HasPreferredSize);
+            module);
 
         // 尺寸既非来自布局、也非来自模块声明 → 用 XAML 默认值；打开后把**实际尺寸**写回模型（使布局可持久化）
         if (!module.HasLayout)
@@ -224,16 +225,15 @@ public sealed class ModuleWindowManager : IDisposable
     }
 
     /// <summary>
-    /// 把模型几何应用到窗口；**未摆放过的模块只定位置、尺寸用 XAML 默认值**。
+    /// 把模型几何应用到窗口（位置 + 尺寸，尺寸夹进该模块的有效区间）。
     /// </summary>
     /// <remarks>
-    /// 【用户第九轮反馈 · UI 开发方式】**窗口尺寸的默认值归 XAML**（`ModuleWindow.axaml` 的 `Width`/`Height`）：
-    /// · `layout is null`（首次加入现场）→ **只设 Position**，窗口按 XAML 默认尺寸打开，
-    ///   随后由 <see cref="OnWindowMoved"/> / 尺寸回写把**实际尺寸**写进模型并持久化；
-    /// · 已有布局（用户拖过/缩过，或从组合件恢复）→ 按布局应用（那是"用户的布局"）。
-    /// 这样"信息量"永远不会改变外层容器尺寸，内容排不下由内容区 ScrollViewer 处理。
+    /// **窗口尺寸的唯一来源是模型**（模型里是"用户布局"或"包内
+    /// `view.json` 的 `window.default`"，二者在 <see cref="ModuleViewViewModel"/> 构造时已分好优先级）；
+    /// `ModuleWindow.axaml` 的 `Width`/`Height` 只作设计器里的兜底，不再是运行期事实来源。
+    /// 内容排不下由内容区 ScrollViewer 处理（"信息量"永远不改变外层容器尺寸）。
     /// </remarks>
-    private static void ApplyGeometry(ModuleWindow window, ModuleWindowGeometryChange geometry, bool hasLayout)
+    private static void ApplyGeometry(ModuleWindow window, ModuleWindowGeometryChange geometry, ModuleViewViewModel module)
     {
         var scaling = window.RenderScaling <= 0 ? 1.0 : window.RenderScaling;
 
@@ -245,16 +245,14 @@ public sealed class ModuleWindowManager : IDisposable
             window.Position = position;
         }
 
-        // 【缺陷修复 · 2026-09 用户反馈"模块默认大小不对，信息被遮蔽和覆盖"】
-        // 此前**没有布局记录就直接返回**（尺寸交给 XAML 默认 320×220）⇒ 模块声明的
-        // `PreferredWidth/PreferredHeight` **从来没被应用过**（实测：显示器声明 460×380，窗口却是 320×220，
-        // 内容被挤到要滚动才看得全）。现在：没有布局记录时**按模型里的尺寸开窗** ——
-        // 那里正是"模块声明的首选尺寸 × 屏幕缩放"（`ModuleViewViewModel` 构造时算好）。
-        _ = hasLayout;
-
+        // **默认尺寸必须真正应用**：没有布局记录时也要**按模型里的尺寸开窗**，不能直接返回、把尺寸
+        // 交给 XAML 的默认 320×220 —— 那会让模块声明的默认尺寸从未被应用过
+        // （实测：显示器声明 460×380，窗口却是 320×220，内容被挤到要滚动才看得全）。
+        // 模型里的尺寸 = "包内 `view.json` 的 `window.default` × 屏幕缩放"
+        // （`ModuleViewViewModel` 构造时算好），并夹进该模块的**有效尺寸区间**。
         var size = new Size(
-            Math.Max(ModuleViewViewModel.MinWidth, ScreenPixels.Round(geometry.Width) / scaling),
-            Math.Max(ModuleViewViewModel.MinHeight, ScreenPixels.Round(geometry.Height) / scaling));
+            Fit(module, ScreenPixels.Round(geometry.Width) / scaling, isWidth: true),
+            Fit(module, ScreenPixels.Round(geometry.Height) / scaling, isWidth: false));
 
         if (Math.Abs(window.Width - size.Width) > 0.5)
         {
@@ -265,6 +263,15 @@ public sealed class ModuleWindowManager : IDisposable
         {
             window.Height = size.Height;
         }
+    }
+
+    /// <summary>把 DIP 尺寸夹进模块的有效区间（下限 = max(框架下限, json min)，上限 = json max）。</summary>
+    private static double Fit(ModuleViewViewModel module, double dip, bool isWidth)
+    {
+        var min = isWidth ? module.EffectiveMinWidth : module.EffectiveMinHeight;
+        var max = isWidth ? module.EffectiveMaxWidth : module.EffectiveMaxHeight;
+        var value = Math.Max(dip, min);
+        return max is { } upper ? Math.Min(value, upper) : value;
     }
 
     private void PublishWorkArea()
@@ -370,7 +377,7 @@ public sealed class ModuleWindowManager : IDisposable
     ///   <item>曾改为 <c>PointToScreen(0,0)</c> + <c>ClientSize</c>（**客户区**右边缘）—— 但用户视觉上的"窗口边缘"是
     ///     **可见外框**，两者相差"可见边框（约 1px）" ⇒ **贴上去总有 1px 的缝**（用户第十二轮反馈）；</item>
     ///   <item>现在取 <see cref="WindowFrameProbe"/>（DWM 扩展外框 = 可见外框，物理像素），取不到才回退到客户区；</item>
-    ///   <item><b>取整口径（2026-09 缺陷修复）</b>：曾对 <c>frame.X</c> 与 <c>frame.Width</c> **各自**四舍五入 ⇒
+    ///   <item><b>取整口径</b>：若对 <c>frame.X</c> 与 <c>frame.Width</c> **各自**四舍五入 ⇒
     ///     右边缘拿到的是 <c>Round(X) + Round(Width)</c>，与真实的 <c>X + Width</c> 最多差 1px（两个方向的舍入误差可以叠加），
     ///     表现为"贴上去仍有一条 1px 的缝"（用户复报）。现在改为**先把四条边各自定好，再相减求宽高**；
     ///     且左/上**向下取整**、右/下**向上取整** —— 宁可多覆盖不到 1px（被模块自身边框盖住、看不出来），

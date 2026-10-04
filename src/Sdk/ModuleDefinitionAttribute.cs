@@ -1,7 +1,7 @@
 namespace HYWDebugAssistant.Sdk;
 
 /// <summary>
-/// 模块声明特性：承载 Definition **六项声明**中可在编译期静态表达的部分——ADR-0028 §3.2。
+/// 模块声明特性：承载 Definition **六项声明**中可在编译期静态表达的部分。
 /// </summary>
 /// <remarks>
 /// 声明仅在**模块包加载/注册期读取一次**，随后转为不可变元数据缓存；运行期热路径零反射。

@@ -100,7 +100,7 @@ public class SettingsServiceTests
         var service = new SettingsService(runtime, scope.SettingsPath);
         service.Load();
 
-        // 【ADR-0044】默认空串 = **跟随主题默认值**（深浅两套内置方向色因此都有效）
+        // 默认空串 = **跟随主题默认值**（深浅两套内置方向色因此都有效）
         service.Current.DirectionSendColor.ShouldBeEmpty("默认应为空（跟随主题），不是某个具体色值");
         service.Current.DirectionReceiveColor.ShouldBeEmpty();
 
@@ -178,7 +178,7 @@ public class SettingsServiceTests
     }
 
     /// <summary>
-    /// **字体设置必须真的生效并落盘**（2026-09 用户实测："颜色改成立即生效，字体不仅不生效，也无法保存"）。
+    /// **字体设置必须真的生效并落盘**（改字体必须与改颜色一样立即生效、可保存）。
     /// </summary>
     /// <remarks>
     /// <para>

@@ -6,7 +6,7 @@ using Xunit;
 namespace HYWDebugAssistant.Modules.Tests;
 
 /// <summary>
-/// **模块作者视角的视图状态回读**〔2026-09 · `decisions.md` 7.28〕。
+/// **模块作者视角的视图状态回读**。
 /// </summary>
 /// <remarks>
 /// 模块在自己的测试里用 <see cref="TestModuleContext.ViewState"/> 预置"用户此刻在看/在编辑什么"，

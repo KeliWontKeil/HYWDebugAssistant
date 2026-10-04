@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "frame": {
+    "window": { "width": 460, "height": 500 },
+    "ports": [
+      { "name": "in", "edge": "top", "offset": 0.5 }
+    ]
+  },
+  "sources": [
+    { "name": "log", "kind": "Text" },
+    { "name": "paused", "kind": "Value", "valueType": "Bool" },
+    { "name": "hexView", "kind": "Value", "valueType": "Bool" },
+    { "name": "wrap", "kind": "Value", "valueType": "Bool" },
+    { "name": "timestamp", "kind": "Value", "valueType": "Bool" },
+    { "name": "savePath", "kind": "Text" }
+  ],
+  "views": [
+    {
+      "root": {
+        "kind": "container",
+        "layout": "grid",
+        "columns": ["*", "*", "*"],
+        "rows": ["*", "auto", "auto"],
+        "columnSpacing": 8,
+        "rowSpacing": 6,
+        "children": [
+          {
+            "kind": "textLog",
+            "title": "显示",
+            "data": "log",
+            "feedbackSource": "savePath",
+            "column": 0,
+            "row": 0,
+            "columnSpan": 3,
+            "width": { "fill": true },
+            "height": { "fill": true }
+          },
+          {
+            "kind": "toggleSwitch",
+            "title": "暂停显示",
+            "input": "paused",
+            "column": 0,
+            "row": 1,
+            "width": { "pixels": 128 },
+            "height": { "pixels": 30 }
+          },
+          {
+            "kind": "toggleSwitch",
+            "title": "十六进制显示",
+            "input": "hexView",
+            "column": 1,
+            "row": 1,
+            "width": { "pixels": 128 },
+            "height": { "pixels": 30 }
+          },
+          {
+            "kind": "commandButton",
+            "title": "清空",
+            "command": "clear",
+            "column": 2,
+            "row": 1,
+            "width": { "pixels": 128 },
+            "height": { "pixels": 30 }
+          },
+          {
+            "kind": "toggleSwitch",
+            "title": "数据包换行",
+            "input": "wrap",
+            "column": 0,
+            "row": 2,
+            "width": { "pixels": 128 },
+            "height": { "pixels": 30 }
+          },
+          {
+            "kind": "toggleSwitch",
+            "title": "添加时间戳",
+            "input": "timestamp",
+            "column": 1,
+            "row": 2,
+            "width": { "pixels": 128 },
+            "height": { "pixels": 30 }
+          },
+          {
+            "kind": "fileSelector",
+            "title": "保存",
+            "input": "savePath",
+            "fileMode": "save",
+            "filter": "文本文件 (*.txt)|*.txt",
+            "suggestedFileName": "savetext1.txt",
+            "showInlineResult": false,
+            "column": 2,
+            "row": 2,
+            "width": { "pixels": 128 },
+            "height": { "pixels": 30 }
+          }
+        ]
+      }
+    }
+  ]
+}

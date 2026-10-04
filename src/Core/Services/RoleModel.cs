@@ -6,7 +6,7 @@ using HYWDebugAssistant.Sdk.Ports;
 namespace HYWDebugAssistant.Core.Services;
 
 /// <summary>
-/// **角色**（模块声明的功能分块）的**派生**：`m/n` 与角色间的数据流【ADR-0052】。
+/// **角色**（模块声明的功能分块）的**派生**：`m/n` 与角色间的数据流。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -14,7 +14,7 @@ namespace HYWDebugAssistant.Core.Services;
 ///     ① 每个角色**输入/输出侧连接的对端角色数**（`m` / `n`）；② **角色间的数据流**（哪两个角色之间有投递）；</item>
 ///   <item><b>`m/n` 的口径</b>：去重键 =（对端实例, 对端角色）；**同一条网络里同一对端角色的多个口只算 1**；
 ///     **没有该方向的口 ⇒ <see langword="null"/>**（呈现层写 `--`）；**有口但没连 ⇒ 0**（二者含义不同）；</item>
-///   <item><b>只呈现</b>：本文件产出的东西不参与建网、兼容、停流、投递与计量，也不进组合件（ADR-0048 R9）；</item>
+///   <item><b>只呈现</b>：本文件产出的东西不参与建网、兼容、停流、投递与计量，也不进组合件；</item>
 ///   <item><b>不复制判定</b>：逐对兼容仍走 <c>ModuleRuntime</c> 的**同一入口**（`CheckCompatibility`），
 ///     故角色流与真实绑定不会漂移。</item>
 /// </list>
@@ -95,7 +95,7 @@ internal static class RoleModel
     }
 
     /// <summary>
-    /// 某个角色的**承载网络键集合**（该角色的口参与的全部网络）【ADR-0053】。
+    /// 某个角色的**承载网络键集合**（该角色的口参与的全部网络）。
     /// </summary>
     /// <remarks>
     /// 用途：把**通路维度**的框架诊断（按网络统计的速率 / 投递 / 丢弃）聚合到**角色维度**

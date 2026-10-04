@@ -8,7 +8,7 @@ namespace HYWDebugAssistant.Ui.Runtime;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item>【ADR-0046 D1 ③】**呈现期解码应由模块提供**（<c>ViewDataSource.Type</c> → 类型注册的解码器），
+///   <item>**呈现期解码应由模块提供**（<c>ViewDataSource.Type</c> → 类型注册的解码器），
 ///     框架/UI **只回调**；本类因此**降级为参考实现**：仅用于 **未声明类型的旧模块** 的过渡回退
 ///     （与"结构回退"同一纪律：只为兼容，不作为机制）；</item>
 ///   <item>新模块**应**用 <c>Sdk.Contracts.PrimitiveSampleDecoder</c>（或自己的实现）注册解码器 ——

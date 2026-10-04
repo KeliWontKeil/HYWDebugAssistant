@@ -1,7 +1,7 @@
 namespace HYWDebugAssistant.Ui.Geometry;
 
 /// <summary>
-/// **网络标签（端口锚点）自身的吸附**（2026-09 用户新增诉求："希望添加网络标签与中线对齐能力"）。
+/// **网络标签（端口锚点）自身的吸附**。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">

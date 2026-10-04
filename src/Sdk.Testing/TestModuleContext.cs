@@ -21,7 +21,6 @@ namespace HYWDebugAssistant.Sdk.Testing;
 public sealed class TestModuleContext : IModuleContext, IInputFeedbackReporter
 {
     private readonly List<PortDeclaration> _ports = [];
-    private readonly List<ViewDeclaration> _views = [];
     private readonly List<DataTypeDeclaration> _dataTypes = [];
     private readonly List<FlowDeclaration> _flows = [];
     private readonly List<RoleDeclaration> _roles = [];
@@ -43,7 +42,7 @@ public sealed class TestModuleContext : IModuleContext, IInputFeedbackReporter
 
         InstanceId = instanceId;
         ModuleId = moduleId ?? HYWDebugAssistant.Sdk.ModuleId.Create("test", "under-test", "1.0.0");
-        Declaration = new DeclarationCollector(_ports, _views, _dataTypes, _flows, _roles);
+        Declaration = new DeclarationCollector(_ports, _dataTypes, _flows, _roles);
         Issues = new IssueCollector(ReportedIssues);
         Configuration = new InMemoryConfigurationAccess(_configuration);
         StopSignal = _stopSignal;
@@ -113,7 +112,7 @@ public sealed class TestModuleContext : IModuleContext, IInputFeedbackReporter
     public IModuleInbox Inbox { get; } = new TestInbox();
 
     /// <summary>
-    /// **视图状态回读**（测试可预置）〔2026-09 · `decisions.md` 7.28〕：模块读到的就是这里预置的值
+    /// **视图状态回读**（测试可预置）：模块读到的就是这里预置的值
     /// （框架里由 UI 写，测试里由用例写 —— 语义同一份）。
     /// </summary>
     public TestViewState ViewState { get; } = new();
@@ -184,17 +183,14 @@ public sealed class TestModuleContext : IModuleContext, IInputFeedbackReporter
     /// <summary>已声明的口（按声明顺序；测试断言用）。</summary>
     public IReadOnlyList<PortDeclaration> DeclaredPorts => _ports;
 
-    /// <summary>已声明的**数据类型**（按声明顺序；测试断言用）【ADR-0046 D2】。</summary>
+    /// <summary>已声明的**数据类型**（按声明顺序；测试断言用）。</summary>
     public IReadOnlyList<DataTypeDeclaration> DeclaredDataTypes => _dataTypes;
 
-    /// <summary>已声明的**内部处理关系**（按声明顺序；测试断言用）【ADR-0052】。</summary>
+    /// <summary>已声明的**内部处理关系**（按声明顺序；测试断言用）。</summary>
     public IReadOnlyList<FlowDeclaration> DeclaredFlows => _flows;
 
-    /// <summary>已声明的**角色**（功能分块，按声明顺序；测试断言用）【ADR-0052】。</summary>
+    /// <summary>已声明的**角色**（功能分块，按声明顺序；测试断言用）。</summary>
     public IReadOnlyList<RoleDeclaration> DeclaredRoles => _roles;
-
-    /// <summary>已声明的视图（首个；测试断言用）。</summary>
-    public ViewDeclaration? DeclaredView => _views.Count > 0 ? _views[0] : null;
 
     /// <summary>模块经发送口发出的数据单元（口名 → 字节序列）。</summary>
     public List<(string PortName, byte[] Payload)> Sent { get; } = [];
@@ -239,7 +235,6 @@ public sealed class TestModuleContext : IModuleContext, IInputFeedbackReporter
 
     private sealed class DeclarationCollector(
         List<PortDeclaration> ports,
-        List<ViewDeclaration> views,
         List<DataTypeDeclaration> types,
         List<FlowDeclaration> flows,
         List<RoleDeclaration> roles) : IModuleDeclaration
@@ -251,8 +246,6 @@ public sealed class TestModuleContext : IModuleContext, IInputFeedbackReporter
         public void DeclareRole(RoleDeclaration role) => roles.Add(role);
 
         public void DeclareFlow(FlowDeclaration flow) => flows.Add(flow);
-
-        public void DeclareView(ViewDeclaration view) => views.Add(view);
     }
 
     private sealed class IssueCollector(List<IssueReport> sink) : IIssueReporter

@@ -18,7 +18,7 @@ public class HostingPackageTests
             : "Debug";
 
     /// <summary>业务模块 文本发送器 的构建输出目录（= 它的模块包目录）。</summary>
-    /// <remarks>载体说明：原参考桩模块 `data-generator` 已按 2026-09 用户裁定删除 ⇒ 换成本项目的正式模块。</remarks>
+    /// <remarks>载体说明：用本项目的正式业务模块；参考桩模块 `data-generator` 已不再构建。</remarks>
     private static string TextSenderPackage => Path.Combine(
         RepoRoot, "src", "Modules", "Business", "TextSender", "bin", Configuration, "net10.0");
 

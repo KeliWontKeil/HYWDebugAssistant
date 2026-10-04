@@ -7,12 +7,12 @@ namespace HYWDebugAssistant.Modules.HexSender;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>空白只是排版</b>（用户 2026-09 裁定："HEX 的**换行不作为字符，仅作为排版**"）⇒
-///     空格 / 换行 / 制表符**一律忽略**，用户可按字节、按 16 字节一行随意排版；</item>
-///   <item><b>每字节两位十六进制</b>（用户裁定）⇒ **奇数个半字节无法表达** ⇒ **明确失败**，
-///     不猜、不补零（"宁可不发，也不发半个字节"）；</item>
+///   <item><b>空白只是排版</b>：HEX 的**换行不作为字符，仅作为排版** ⇒
+///     空格 / 换行 / 制表符**一律忽略**，可按字节、按 16 字节一行随意排版；</item>
+///   <item><b>每字节两位十六进制</b> ⇒ **奇数个半字节无法表达** ⇒ **明确失败**，
+///     不猜、不补零（宁可不发，也不发半个字节）；</item>
 ///   <item>**大小写都收**（数据是**字节**，没有大小写概念）；</item>
-///   <item>**不支持 `0x` 前缀**（会让"每字节两位"的规则复杂化；用户未要求）。</item>
+///   <item>**不支持 `0x` 前缀**（会让「每字节两位」的规则复杂化）。</item>
 /// </list>
 /// </remarks>
 internal static class HexTextCodec
@@ -20,7 +20,7 @@ internal static class HexTextCodec
     /// <summary>
     /// 解析十六进制文本为字节序列。
     /// </summary>
-    /// <param name="text">用户输入的十六进制文本（框架已保证非法字符进不了输入框）。</param>
+    /// <param name="text">输入的十六进制文本（框架已保证非法字符进不了输入框）。</param>
     /// <param name="bytes">解析结果（失败时为空）。</param>
     /// <param name="failure">失败原因（成功时为 <see langword="null"/>）—— 由调用方回报到**对应输入框**（红框）。</param>
     /// <returns>解析成功为 <see langword="true"/>。</returns>
@@ -31,7 +31,7 @@ internal static class HexTextCodec
 
         if (string.IsNullOrEmpty(text))
         {
-            // 空 ⇒ **静默不发**（用户裁定 T11：空在各层意义一致）；不报错、不提示
+            // 空 ⇒ **静默不发**（空在各层意义一致）；不报错、不提示
             return true;
         }
 

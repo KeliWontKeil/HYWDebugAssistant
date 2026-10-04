@@ -7,7 +7,7 @@ using HYWDebugAssistant.Sdk.Reporting;
 namespace HYWDebugAssistant.Hosting.Installation;
 
 /// <summary>
-/// 模块安装器：**加载 → 校验 → 注册**的一条链路（ADR-0020 的"显式加载"）。
+/// 模块安装器：**加载 → 校验 → 注册**的一条链路（显式加载）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">

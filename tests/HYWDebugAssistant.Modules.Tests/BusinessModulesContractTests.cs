@@ -5,8 +5,8 @@ using HYWDebugAssistant.Modules.TextSender;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Testing;
-using HYWDebugAssistant.Sdk.Views;
 using Shouldly;
+using System.Text.Json;
 using Xunit;
 
 namespace HYWDebugAssistant.Modules.Tests;
@@ -43,12 +43,13 @@ public class BusinessModulesContractTests
         var type = probe.DataTypes.ShouldHaveSingleItem();
         type.TypeId.ShouldBe("RawBytes");
         type.Version.ShouldBe(1);
-        // 形状比较必须用 `AreSame`（record 的字段集合是引用比较 —— 见 `decisions.md` §2 R1）\n        ContractShape.AreSame(type.Shape, RawBytesShape).ShouldBeTrue("形状 = { len: u16, data: bytes[1472] }（跨模块兼容的前提）");
+        // 形状比较必须用 `AreSame`（record 的字段集合按引用比较）
+        ContractShape.AreSame(type.Shape, RawBytesShape).ShouldBeTrue("形状 = { len: u16, data: bytes[1472] }（跨模块兼容的前提）");
 
         var port = probe.Ports.ShouldHaveSingleItem();
         port.Name.ShouldBe("out");
         port.Direction.ShouldBe(PortDirection.Send);
-        port.Edge.ShouldBe(PortEdge.Bottom, "宽 > 高 ⇒ 口在下边（与显示器的上边配对）");
+        DeclaredEdge("text-sender", "out").ShouldBe("bottom", "宽 > 高 ⇒ 口在下边（与显示器的上边配对）—— 裁决 ③ 之后这条声明在包内 `view.json` 里");
         port.Type.GetValueOrDefault().ShouldBe(new DataTypeRef("RawBytes", 1));
 
         var role = probe.DeclaredRoles.ShouldHaveSingleItem();
@@ -70,15 +71,7 @@ public class BusinessModulesContractTests
         ContractShape.AreSame(type.Shape, RawBytesShape).ShouldBeTrue();
 
         var port = probe.Ports.ShouldHaveSingleItem();
-        port.Edge.ShouldBe(PortEdge.Bottom);
-
-        // 输入框必须声明"只接受 HEX"（否则用户能敲进任意字符，非法输入只在提交后才被拒）
-        var inputs = probe.View!.Elements[0].Children
-            .SelectMany(page => page.Children)
-            .ToList();
-        inputs.Count.ShouldBe(HexSenderModule.PageCount);
-        inputs.ShouldAllBe(e => e.InputKind == TextInputKind.Hex);
-        inputs.ShouldAllBe(e => e.Multiline);
+        DeclaredEdge("hex-sender", "out").ShouldBe("bottom");
     }
 
     [Fact]
@@ -94,27 +87,12 @@ public class BusinessModulesContractTests
         var port = probe.Ports.ShouldHaveSingleItem();
         port.Name.ShouldBe("in");
         port.Direction.ShouldBe(PortDirection.Receive);
-        port.Edge.ShouldBe(PortEdge.Top, "与两个发送器的下边配对 ⇒ 上下叠放即可连");
+        DeclaredEdge("data-monitor", "in").ShouldBe("top", "与两个发送器的下边配对 ⇒ 上下叠放即可连");
 
         var role = probe.DeclaredRoles.ShouldHaveSingleItem();
         role.Id.ShouldBe("monitor");
         role.Inputs.ShouldBe(["in"]);
         role.Outputs.ShouldBeEmpty();
-
-        // 保存走**一步**（2026-09 用户裁定）：界面上**只有**一个文件选择器按钮，选中位置即写盘；
-        // `save` 命令仍声明（程序化/热键入口），但**不再有第二个按钮**。
-        var picker = probe.View!.Elements.Single(e => e.Kind == ViewElementKind.FileSelector);
-        picker.FileMode.ShouldBe(FilePickerMode.Save);
-        picker.FileFilter!.ShouldContain("*.txt");
-        picker.SuggestedFileName.ShouldBe(
-            DataMonitorModule.DefaultSaveFileName,
-            "保存对话框必须预填默认文件名（用户：'文件名应给一个默认文件名…而不是空着'）");
-        picker.Title.ShouldBe("保存", "按钮文案 = 元素标题（界面上就这一个保存按钮）");
-        probe.View.Elements.Count(e => e.Kind == ViewElementKind.CommandButton).ShouldBe(
-            1,
-            "只剩「清空」一个命令按钮（保存不再占第二个按钮）");
-        probe.View.Commands.Select(c => c.Name).ShouldContain(DataMonitorModule.SaveCommand);
-        probe.View.Commands.Select(c => c.Name).ShouldContain(DataMonitorModule.ClearCommand);
     }
 
     [Fact]
@@ -128,15 +106,6 @@ public class BusinessModulesContractTests
         probe.Ports.ShouldBeEmpty();
         probe.DataTypes.ShouldBeEmpty();
         probe.DeclaredRoles.ShouldBeEmpty();
-
-        // 两组标签页各带状态键（模块靠它回读"当前选中页"）+ 两个方向各一个按钮
-        var strips = probe.View!.Elements.Where(e => e.Kind == ViewElementKind.TabPages).ToList();
-        strips.Count.ShouldBe(2);
-        strips[0].StateKey.ShouldBe(HexStringConverterModule.CharPagesKey);
-        strips[1].StateKey.ShouldBe(HexStringConverterModule.HexPagesKey);
-        strips.ShouldAllBe(s => s.Children.Count == HexStringConverterModule.PageCount);
-
-        probe.View.Commands.Count.ShouldBe(2, "两个方向各一个按钮");
     }
 
     // ---------------------------------------------------------------- 四模块的连接前提
@@ -153,9 +122,51 @@ public class BusinessModulesContractTests
         text.DataTypes[0].TypeId.ShouldBe(monitor.DataTypes[0].TypeId);
         ContractShape.AreSame(text.DataTypes[0].Shape, monitor.DataTypes[0].Shape).ShouldBeTrue("形状逐字节一致才能连");
 
-        // ② 口朝向同一接触面（上下叠放：发送口在下、接收口在上）
-        text.Ports[0].Edge.ShouldBe(PortEdge.Bottom);
-        hex.Ports[0].Edge.ShouldBe(PortEdge.Bottom);
-        monitor.Ports[0].Edge.ShouldBe(PortEdge.Top);
+        // ② 口朝向同一接触面（上下叠放：发送口在下、接收口在上）—— 声明在各自包内 `view.json`（裁决 ③）
+        DeclaredEdge("text-sender", "out").ShouldBe("bottom");
+        DeclaredEdge("hex-sender", "out").ShouldBe("bottom");
+        DeclaredEdge("data-monitor", "in").ShouldBe("top");
+    }
+
+    /// <summary>
+    /// 读**包内 `view.json`** 里某个口声明的默认边（裁决 ③：口的默认位置只有这一个来源）。
+    /// </summary>
+    /// <remarks>
+    /// 本项目是"模块作者视角"（只引 `Sdk` + `Sdk.Testing`）⇒ **不引 `Hosting` 的读取器**，
+    /// 直接用 `System.Text.Json` 断包里的原始声明。
+    /// </remarks>
+    private static string DeclaredEdge(string moduleName, string portName) =>
+        ReadPackagedView(moduleName).GetProperty("frame").GetProperty("ports").EnumerateArray()
+            .Single(port => string.Equals(port.GetProperty("name").GetString(), portName, StringComparison.Ordinal))
+            .GetProperty("edge").GetString()!;
+
+    private static JsonElement ReadPackagedView(string moduleName)
+    {
+        var path = Path.Combine(FindRepoRoot(), "artifacts", "modules", moduleName, "view.json");
+        File.Exists(path).ShouldBeTrue($"模块包内应有 view.json：{path}（请先构建模块）");
+
+        // 包内 json 允许注释与尾逗号（框架读取器的口径一致）⇒ 这里必须用同一套选项解析。
+        using var document = JsonDocument.Parse(
+            File.ReadAllText(path),
+            new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+        return document.RootElement.Clone();
+    }
+
+    /// <summary>仓库根（模块包归拢目录在它下面）。</summary>
+    private static string FindRepoRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "HYWDebugAssistant.slnx")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException("找不到仓库根（HYWDebugAssistant.slnx）");
     }
 }

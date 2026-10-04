@@ -24,14 +24,14 @@ public enum SettingsLoadOutcome
 }
 
 /// <summary>
-/// 应用级设置的加载、校验、即时生效与持久化（主文档 §9.5 / ADR-0030 / `04b`）。
+/// 应用级设置的加载、校验、即时生效与持久化（主文档 §9.5）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>载体</b>：应用目录下的单文件 JSON（便携式）；**与组合件完全分离**；</item>
 ///   <item><b>未知字段保留</b>：以 <see cref="JsonObject"/> 为底稿，只更新已知字段 → 未识别字段原样保留（AC-4 同策略）；</item>
 ///   <item><b>原子写</b>：写失败 → **内存态保留**（已生效）+ 提示未持久化；</item>
-///   <item><b>多实例</b>：直接覆写（最后写入获胜）——不做冲突检测（用户裁决）。</item>
+///   <item><b>多实例</b>：直接覆写（最后写入获胜）——不做冲突检测。</item>
 /// </list>
 /// </remarks>
 public sealed class SettingsService
@@ -128,7 +128,7 @@ public sealed class SettingsService
 
     private void ApplyToRuntime(ApplicationSettings settings)
     {
-        // 承载参数：对**新建**队列/后续停止操作生效；既有队列保持创建时容量（04b §6）
+        // 承载参数：对**新建**队列/后续停止操作生效；既有队列保持创建时容量
         _runtime.Carriers.UpdateOptions(new CarrierOptions
         {
             QueueCapacity = settings.InputQueueCapacity,
@@ -136,7 +136,7 @@ public sealed class SettingsService
             StopTimeout = TimeSpan.FromSeconds(settings.StopTimeoutSeconds),
         });
 
-        // 快速建网开关（R0）即时生效
+        // 快速建网开关即时生效
         _runtime.UpdateAlignAutoNetwork(settings.AlignAutoNetworkEnabled);
     }
 
@@ -166,7 +166,7 @@ public sealed class SettingsService
             failures.Add($"诊断提示阈值必须 ≥ 1（当前 {settings.DiagnosticHintThreshold}）");
         }
 
-        // 【ADR-0042 D6】吸附距离：2–8 px（越小越跟手，越大越容易吸上）
+        // 吸附距离：2–8 px（越小越跟手，越大越容易吸上）
         if (settings.SnapDistance is < 2 or > 8)
         {
             failures.Add($"吸附距离必须在 2–8 px 之间（当前 {settings.SnapDistance}）");
@@ -186,7 +186,7 @@ public sealed class SettingsService
         settings.InputQueueCapacity = ReadInt(root, "inputQueueCapacity", settings.InputQueueCapacity);
         settings.UiRefreshRateHz = ReadInt(root, "uiRefreshRateHz", settings.UiRefreshRateHz);
         settings.DiagnosticHintThreshold = ReadInt(root, "diagnosticHintThreshold", settings.DiagnosticHintThreshold);
-        // 语义变更（ADR-0037）：原"快速建网 R0（加入即连）"改为"**对齐自动建网**"；旧键兼容读取
+        // 对齐自动建网：新键优先、旧键（加入即连）兼容读取
         settings.AlignAutoNetworkEnabled = ReadBool(
             root,
             "alignAutoNetwork",
@@ -209,27 +209,27 @@ public sealed class SettingsService
         settings.LogLevel = ReadString(root, "logLevel") ?? settings.LogLevel;
         settings.Hotkeys = ReadStringMap(root, "hotkeys");
 
-        // 数据结构 → 颜色【ADR-0054】：键 = 类型身份，值 = `#RRGGBB`（缺失 = 全部走自动配色）
+        // 数据结构 → 颜色：键 = 类型身份，值 = `#RRGGBB`（缺失 = 全部走自动配色）
         settings.TypeColors = ReadStringMap(root, "typeColors");
 
-        // 外观【M1-16 / ADR-0038 D4】：主题 / 主题色 / 背景档位（非法值回退到默认，不让损坏的设置阻断启动）
+        // 外观：主题 / 主题色 / 背景档位（非法值回退到默认，不让损坏的设置阻断启动）
         settings.Theme = ReadString(root, "theme") ?? settings.Theme;
         settings.AccentColor = ReadString(root, "accentColor") ?? settings.AccentColor;
         settings.BackgroundMode = ReadString(root, "backgroundMode") ?? settings.BackgroundMode;
         settings.BackgroundColor = ReadString(root, "backgroundColor") ?? settings.BackgroundColor;
 
-        // 多行输入提交键【G2 · 2026-09】：非法值回退默认（`Ui` 侧按三档字符串解释，不做校验、不提示）
+        // 多行输入提交键：非法值回退默认（`Ui` 侧按三档字符串解释，不做校验、不提示）
         settings.MultilineSubmitKey = ReadString(root, "multilineSubmitKey") ?? settings.MultilineSubmitKey;
         settings.UiFontFamily = ReadString(root, "uiFontFamily") ?? settings.UiFontFamily;
         settings.DataFontFamily = ReadString(root, "dataFontFamily") ?? settings.DataFontFamily;
 
-        // 方向语义色【ADR-0044】：空串 = 跟随主题默认值（不校验色值：完全尊重用户输入，见裁决 D6）
+        // 方向语义色：空串 = 跟随主题默认值（不校验色值：完全尊重用户输入）
         settings.DirectionSendColor = ReadString(root, "directionSendColor") ?? settings.DirectionSendColor;
         settings.DirectionReceiveColor = ReadString(root, "directionReceiveColor") ?? settings.DirectionReceiveColor;
         settings.ShellAspect = ReadString(root, "shellAspect") ?? settings.ShellAspect;
         settings.ShellFixedSize = ReadBool(root, "shellFixedSize", settings.ShellFixedSize);
 
-        // 交互【ADR-0042 D6】：吸附距离（缺失即默认 4；非法值由值域校验拦下并回退默认）
+        // 交互：吸附距离（缺失即默认 4；非法值由值域校验拦下并回退默认）
         settings.SnapDistance = ReadDouble(root, "snapDistance", settings.SnapDistance);
 
         return settings;
@@ -251,7 +251,7 @@ public sealed class SettingsService
         root["backgroundMode"] = settings.BackgroundMode;
         root["backgroundColor"] = settings.BackgroundColor;
 
-        // 【2026-09 缺陷修复 · 用户实测"字体不能持久化"】**这两项此前只读不写** ⇒ 改完字体一重启就回到默认。
+        // 这两项**必须**在这里写出，否则改完字体一重启就回到默认（只读不写 = 不可持久化）
         root["uiFontFamily"] = settings.UiFontFamily;
         root["dataFontFamily"] = settings.DataFontFamily;
 
@@ -284,7 +284,7 @@ public sealed class SettingsService
 
         root["hotkeys"] = hotkeys;
 
-        // **数据结构 → 颜色**的用户映射【ADR-0054】：只写用户真正覆盖过的条目（缺省 = 自动配色）
+        // **数据结构 → 颜色**的用户映射：只写用户真正覆盖过的条目（缺省 = 自动配色）
         var typeColors = new JsonObject();
         foreach (var (typeKey, color) in settings.TypeColors)
         {

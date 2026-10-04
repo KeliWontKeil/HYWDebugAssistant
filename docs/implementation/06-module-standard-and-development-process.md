@@ -64,7 +64,7 @@
 ### B.1 模块粒度：**分三层回答**（**已裁 · 用户 2026-09**）
 
 > 用户判据（原话）：**"一个功能究竟该成为什么，这个问题不能从代码层面去回答"** —— "功能""角色"都建立在**用户感知层**上。
-> ⇒ **B1 不是一个问题，是三个问题，每层一个**（层号见 §A.1）。本文上一版的"四问"把**层①与层③混在一起**，已按此改写。
+> ⇒ **B1 不是一个问题，是三个问题，每层一个**（层号见 §A.1）。
 
 #### B.1-a｜层①：一个"功能"该成为一个独立模块吗？
 
@@ -96,7 +96,7 @@
 | **两件事**（"先滤波再限幅"） | **2 个角色** + `DeclareFlow` | `02`「声明载体」 |
 
 - SDK 自检已为此给了 **`Advisories`**（角色 >2 口给一条**可忽略**的建议，不进 `Problems`）。
-- **α 的可执行检查已实施**（2026-09）：① **SDK 自检** —— `ModuleContract.CheckRoles` ⇒ 进 **`Problems`**（空 = 合法）；② **加载期** —— `ModuleInstanceFactory.BuildRoles` ⇒ **Issue + 忽略该条**（与其余结构非法同处置）。**口未声明 `Type`（旧模块形态）⇒ 跳过不报**。约束全文与正反写法见 `02`「角色两侧同型（α）」。
+- **α 的可执行检查**：① **SDK 自检** —— `ModuleContract.CheckRoles` ⇒ 进 **`Problems`**（空 = 合法）；② **加载期** —— `ModuleInstanceFactory.BuildRoles` ⇒ **Issue + 忽略该条**（与其余结构非法同处置）。**口未声明 `Type`（旧模块形态）⇒ 跳过不报**。约束全文与正反写法见 `02`「角色两侧同型（α）」。
 
 #### B.1-c｜层④：实现层**不设判据、不分类**
 
@@ -127,8 +127,7 @@
 | ② | **「模块族」的定位** | **降为"功能角色的一个分类维度"**（**开发约定用语，不是框架概念**）—— 用于选模板 / 写模块页 / 检索 |
 | ③ | **粒度关系** | 功能角色是**实例级**（"这个模块是什么"）；模块族是**类级**（"它属于哪一类"） |
 
-> **⚠ 更正登记（2026-09 · 本文上一版的疏漏）**：主文档 **§4.10 ③**（`../../上位机架构设计.md`）**早已有一层"角色分层"**：**功能角色**（这个模块是什么/干什么 → 模块清单 / 模块自身 UI / 帮助）· **数据角色**（怎么处理数据、几种、从哪到哪 → 叠加层与拓扑）。
-> 本文上一版提出「模块族」时**没有发现这一层已存在**，另造了一个同层的词 —— 已按上面①收敛。
+> **角色分层（主文档 §4.10 ③）**：**功能角色**（这个模块是什么/干什么 → 模块清单 / 模块自身 UI / 帮助）· **数据角色**（怎么处理数据、几种、从哪到哪 → 叠加层与拓扑）。
 
 > **约束（已冻结，不受命名影响）**：主文档 §4.3 —— "功能/结构"仅作**用户侧角色描述**，**不构成框架机制**，**框架不维护业务分类**。
 > ⇒ 无论叫什么，都**不进框架、不进 `module.json` 的框架字段**；只出现在**模块页与开发约定**里。载体 = `DisplayName` / `Description` / `Tags`（仅供检索）。
@@ -200,6 +199,7 @@
 src/Modules/Business/<Name>/                     ← 一个模块 = 一个目录 = 一个包
 ├─ HYWDebugAssistant.Modules.<Name>.csproj       ← 只引 Sdk；显式声明 <ModulePackageName>
 ├─ module.json                                   ← 清单（id / entryAssembly / entryType / 依赖 / 资源）
+├─ view.json                                     ← 界面声明（**可选**：控件树 + 语义 + 框架级那几行，见 §C.1′）
 ├─ <Name>Module.cs                               ← 入口：特性 + IModule(+IActivitySource) + 声明 + 钩子 + 接线
 ├─ <Name>Config.cs                               ← 配置类型（公有可读写属性 + [ConfigurationField]）
 ├─ <Name>Types.cs                                ← 数据类型声明（标识 / 版本 / 形状 / 解码器）  [按需]
@@ -212,26 +212,53 @@ docs/modules/<模块标识>.md                        ← 模块页（一模块�
 - **`ModulePackageName` 必须显式写**：默认取项目名最后一个点段（`src/Modules/Directory.Build.targets`），容易得到 `Scope` 这种与用户无关的名字；**包目录名 = 用户看到的名字**。
 - 包产出与发现规则不在本文重复（`02`「模块包与发现」）。
 
+**C.1′ 声明文件 `view.json`（可选 · 现行 · 见 `decisions.md` 7.60）**：**控件的树与语义、以及框架级那几行个性化**都在这里 —— **一个文件、两个顶层段**：**`frame`**（框架级：`window` 尺寸 / 约束 + `ports` 网络标签默认位置；**没有外观键**）与 **`sources` + `views`**（控件级：数据源登记 + 控件树）。**控件结构不再写在 C# 里**（旧的 `DeclareView(new ViewDeclaration(…))` / `new ViewElement(…)` 逐段声明整套删除）。可选 ⇒ 没有该文件的模块**视图为空树**，窗口照出；**不写 = 框架缺省**（单列、满宽、自上而下、间距 2）。**构建规则**：模块工程里**存在 `view.json` 就拷进包** ⇒ 模块工程什么都不用写；`view.json` 是**构建产物**，改声明 = 改**模块工程里的那份**再构建。
+
+**三种排布模式（每个 `container` 自己声明，未声明 = `flow`）**：`flow` = 单列自上而下 · `grid` = 表格式（参考 WinForms `TableLayoutPanel`）· `absolute` = 用 `x`/`y` 定位、两轴必须显式 `pixels`（DIP、相对容器客户区）。**容器共四种**：`container`（带 `layout`/`overflow`）· `group` · `tabs` · `collapsible` —— 后三者是语义包装，公共排布键（`layout`/`overflow`/`padding`/`spacing`/轨道间距）**以 `container` 为基线**，不要在它们身上重复声明。
+
+> **键名 / 缺省 / 非法值的处置 / 每元素尺寸 / `grid` 位置显式化 —— 权威正文见 `../architecture/02-module-sdk.md` 的「视图：模块只声明，框架渲染」小节**（`kind` · `title` · `stateKey` · `width`/`height` · `scaleWithWindow` · `x`/`y` · `column`/`row`/`columnSpan`/`rowSpan`/`auto` · `align`/`verticalAlign` · `layout`/`overflow`/`padding`/`spacing`/`columns`/`rows`/`columnSpacing`/`rowSpacing` · `data`/`input`/`command` · `showInlineResult`/`feedbackSource`，以及各 kind 的专有键）。**本节只登记 `architecture/02` 未展开的几条**：
+
+| 键 | 缺省 | 说明 |
+|---|---|---|
+| `version` | `1` | 与 schema 的 `documentVersion` 一致；别的值 ⇒ 整份忽略 + 一条 Issue |
+| `frame.window.width` / `height` | `320` / `220` | 模块窗口的**标准尺寸**（DIP） |
+| `frame.window.minWidth` / `minHeight` | `180` / `160` | 用户能缩到的最小尺寸。**这两个缺省值就是「框架地板」**（由端口标记沿边长度推出）：声明的下限**只能抬高它**，写小了由读取器**夹到地板并记一条 warning**；`frame.window.max*` 小于有效下限时**该条忽略（= 无上限）+ warning**（`decisions.md` 7.63） |
+| `frame.window.maxWidth` / `maxHeight` | 无上限 | 显式 `null` = 无上限 |
+| `frame.ports[].name` | — | **必填**：与数据面注册的口名一致（对不上 ⇒ 加载时一条警告） |
+| `frame.ports[].edge` | **必填** | 网络标签**挂哪条边**（`left` / `right` / `top` / `bottom`）；**没有 `auto`、没有框架惯例** —— `.json` 写什么就是什么，数据面登记的口缺声明 ⇒ 硬伤（`decisions.md` 7.61）；用户拖动过则以组合件里的用户值为准（有效位置 = 用户拖动覆盖 > 声明值） |
+| `frame.ports[].offset` | `0.5` | 边上的归一化位置（0..1） |
+| `tabs` 的页签标题 | 页节点的 `title` | `tabs` 的每个子节点 = 一页，页签文字取子节点的 `title` |
+| `views[].title` | 空 | 框架当前**只渲染第 0 个视图**；其余 ⇒ 警告并忽略 |
+| `views[].root` | — | **必填**：控件树根节点 |
+| `overflow` | `scroll` | `scroll` = 超出由容器滚动承担 · `clip` = 裁掉且不产生滚动范围；**需要滚动的绝对坐标内容要放进 `overflow: "scroll"` 的容器** |
+| `padding` / `spacing` | `0` / `2` | 负数越出 schema 的 `min` ⇒ 硬伤 |
+| `feedbackSource` | 空 | **角落结果**：把该**输入源名**（如文件选择器的 `savePath`）的处理结果显示在**本元素**的角落信息区（当前只实现在 `textLog` 上） |
+| `showInlineResult` | `true` | `false` = 关掉**就地结果文字行**（改用别处的 `feedbackSource` 接）；**只关文字、失败状态（红框）保留**。整份声明里**没有任何 `feedbackSource`** 却关掉就地结果 ⇒ 警告「结果将无处显示」 |
+
+- **顺序 = 视觉顺序，只有这一处来源**：`children` 数组的顺序就是界面自上而下的顺序（`grid` 里由 `column`/`row` 决定）⇒ **不存在「改了顺序忘了同步另一份文件」的失步风险**（旧的路径键 `v` / `v/0` / `v/0/2` 机制已整体删除）。
+- **每元素尺寸**、**`grid` 位置显式化**、**`grid` 的坑**（声明尺寸即 `*` 轨道的下限；「按钮同尺寸」= 各元素写同样的 `width`/`height`）与**三种模式的写法**，详见 `../architecture/02-module-sdk.md` 的「视图：模块只声明，框架渲染」小节。
+- **坏了会怎样**：**硬伤 = 整份忽略 + 一条 Issue**（不静默）—— `version` 不认识 / JSON 坏 / 未登记的键 / `kind` 未登记 / 角色键缺一个或写了多个 / `data` 引用了未登记的数据源 / 同一轴给了多个尺寸策略 / `absolute` 缺轴或该轴不是 `pixels` / `grid` 里位置没写清或两种写法**混用** / 轨道非法 / 越界 / 数值越出该键在 schema 里的 `min`/`max` / 口名缺失、重名、`edge` 不认识、`offset` 越界。**可降级的只警告**：非 `grid` 容器写轨道、`grid` 里写 `x`/`y`、声明了**尚未渲染**的 kind（`statusLight`/`table`/`hexView`/`gauge`/`image`/`enumSelector`）、没被任何元素引用的数据源、第 0 个以外的视图、口名对不上数据面。**完整清单以 `view.schema.json` 的 `validation.hard` / `validation.warning` 为准**。构建门禁 `tools/verify-module-packages.ps1` 会校验包内**可选**的 `view.json`（能读且版本一致）。
+
 ### C.2 模块主类的**固定四段**（结构约定，比行数更重要）
 
 | 段 | 内容 | **不应出现** |
 |---|---|---|
 | **① 标识与常量** | `[ModuleDefinition]` 特性；口名 / 数据源名 / 命令名的 `const` | 业务数值（入配置） |
-| **② 声明块** | `OnRegistered`：`DeclareDataType` → `DeclarePort` → `DeclareRole`（→ `DeclareFlow`）→ `DeclareView` → `SetReceiveHandler` | 业务计算、IO |
+| **② 声明块** | `OnRegistered`：`DeclareDataType` → `DeclarePort` → `DeclareRole`（→ `DeclareFlow`）→ `SetReceiveHandler`（**视图不在代码里声明** —— 见包内 `view.json` / §C.1′） | 业务计算、IO |
 | **③ 钩子块** | `OnActivated` / `OnDisabled` / `OnEnabled` / `OnConfigurationChanged` / `OnRemoved` | 绕开框架的替代实现 |
 | **④ 接线与业务** | 接收处理 / 活动体 / 收件箱消费 → **调辅助类** | 超过 ~80 行的算法与协议细节（搬 `Codec.cs`） |
 
-**C.2′ 视图声明**按控件分块**（**2026-09 用户裁定**，四个基础模块已按此重排）**：
+**C.2′ 声明按控件分块（已裁 · 用户；落点自 `decisions.md` 7.60 起 = 包内 `view.json`）**：
 
 用户原话："**不行就只在代码中将默认属性按控件分块呈现，便于符合直觉的修改，不用到处翻，最轻量完全不动任何逻辑，只动文本结构。**"
+（**仅落点变更**：7.60 起控件声明只有 `view.json` 一处；下表规则逐条不变。）
 
 | 规则 | 说明 |
 |---|---|
-| **一个控件一段** | `DeclareView` 之前用局部变量逐控件声明：`var xxx = new ViewElement(...)`，每段自带它的**默认属性**（`InputKind`/`Alignment`/`Multiline`/`FileMode`…）；段与段之间空一行 |
-| **紧邻它的数据源** | 该控件的 `ViewDataSource`（含 `unit`）写在**同一段**里 —— 改"单位/类型"不必跳到 `dataSources:` 列表里找 |
-| **段序 = 界面自上而下** | 用户看到什么顺序，代码就什么顺序；对称结构（如转换器两组）按组重复同一形状 |
-| **汇总处只做汇总** | 最后 `DeclareView(new ViewDeclaration([控件1, 控件2, …], dataSources: [源1, 源2, …], …) { PreferredWidth/Height })` **只列名字**，不再写内联的控件构造 |
-| **不许改变行为** | 这是**纯文本结构**重排：控件集合、源集合、顺序、属性值都必须**逐一对应**（`Declaration` 的公开面自检与模块测试即是回归网） |
+| **一个控件一个对象** | `views[].root` 的 `children` 里一个控件一个对象，每个对象自带它的**专有键**（`inputKind` / `textAlign` / `multiline` / `fileMode` / `filter` / `suggestedFileName` / `icon` …） |
+| **绑定就地写** | 角色键（`data` / `input` / `command`）写在**它自己那个对象**上 —— 改"绑哪个源 / 发什么命令"不必去别处翻；`sources` 段只登记源本体（用注释标明它服务哪个控件） |
+| **数组序 = 界面序** | `children` 数组的顺序就是界面自上而下的顺序（`grid` 里由 `column` / `row` 决定）；对称结构（如转换器两组）按组重复同一形状 |
+| **不许改变行为** | 从旧载体迁移时是**纯结构搬运**：控件集合、源集合、顺序、属性值必须**逐一对应**（声明面自检与模块测试即是回归网） |
 
 ### C.3 命名
 
@@ -267,7 +294,7 @@ docs/modules/<模块标识>.md                        ← 模块页（一模块�
 
 | 项 | 建议值 | 校准依据（实测） |
 |---|---|---|
-| **模块主类行数** | 目标 **≤ 300** / 上限 **450** | 现行四个基础模块：`TextSender` **405** · `HexSender` · `DataMonitor` · `HexStringConverter`（另有判据项目内的测试桩 `FusionStub`/`RateSourceStub`/`JudgementSinkStub`）。**历史对照**（已删除的 6 个参考模块）：**255–428 行** —— `DataGenerator` 255 · `Monitor` 327 · `Asserter` 330 · `ManualSender` 351 · `Recorder` 391 · `Fuser` 428（`Fuser` = 2 入 1 出 + 三种合并策略，属"确实复杂"的例子，已贴近上限） |
+| **模块主类行数** | 目标 **≤ 300** / 上限 **450** | 现行四个基础模块（**2026-09 实测**，口径 = 文件总行数含 XML 注释）：`TextSender` **494** · `HexSender` **479** · `DataMonitor` **569** · `HexStringConverter` **342** ⇒ **三个超上限**（其中 `DataMonitor` 主类同时 > 单文件上限 500，理由已按 §D.2 登记在 `modules/hyw-data-monitor.md` §8，改进候选 = 抽"保存/回读"成文件）（另有判据项目内的测试桩 `FusionStub`/`RateSourceStub`/`JudgementSinkStub`）。**历史对照**（已删除的 6 个参考模块）：**255–428 行** —— `DataGenerator` 255 · `Monitor` 327 · `Asserter` 330 · `ManualSender` 351 · `Recorder` 391 · `Fuser` 428（`Fuser` = 2 入 1 出 + 三种合并策略，属"确实复杂"的例子，已贴近上限） |
 | 单个 `.cs` 文件 | ≤ 500 行 | — |
 | 模块的 `.cs` 文件数 | ≤ 8 | 超过 ⇒ 用 B.1-a 判据复查"是不是两个模块" |
 | 口数（入 + 出） | ≤ 8，且**同类口 ≤ 4** | 单角色 >2 口已有 SDK 建议通道（`Advisories`，`02`） |
@@ -347,7 +374,7 @@ docs/modules/<模块标识>.md                        ← 模块页（一模块�
 
 ### E.3 每阶段共同的三条纪律（不重复，只指）
 
-1. **验证层按需选**：`09` §5 选择表 + `DEVELOPMENT.md` §1；**模块轨不跑 T3**，一批模块做完再跑一次（`05` §5）。
+1. **验证层按需选**：`09` §5 选择表 + `07-dev-inner-loop.md` §1；**模块轨不跑 T3**，一批模块做完再跑一次（`05` §5）。
 2. **提交纪律**：一个模块 = 一次提交；提交消息写**跑了哪一层**（T0/T1/T2/T3）；**框架轨改动不与模块轨混在一个提交**（`05` §5）。
 3. **文档与代码同一次改动**：模块页 / `modules/README.md` / `roadmap.md`（`05` §4）。
 
@@ -395,7 +422,7 @@ docs/modules/<模块标识>.md                        ← 模块页（一模块�
 
 ---
 
-## G. 现有模块的处置【**已裁**：验收后归档 —— **已于 2026-09 执行完毕（见 §G.4）**】
+## G. 现有模块的处置【**已裁**：验收后归档 —— **已于 2026-09 执行完毕（原始记录见 `../journal/implementation06-g-archive.md`）**】
 
 ### G.1 用户裁决（2026-09）
 
@@ -414,34 +441,15 @@ docs/modules/<模块标识>.md                        ← 模块页（一模块�
 
 | 事实 | 内容 |
 |---|---|
-| 现有模块（**历史事实 · 已于 2026-09 删除**） | `src/Modules/Reference/` 下曾为 **6 个包**：`data-generator` · `recorder` · `asserter` · `manual-sender` · `monitor` · `fuser`（每个单文件，**255–428 行**）—— 现行包清单 = `src/Modules/Business/` 的 **4 个**（§G.4） |
+| 现有模块（**历史事实 · 已于 2026-09 删除**） | `src/Modules/Reference/` 下曾为 **6 个包**：`data-generator` · `recorder` · `asserter` · `manual-sender` · `monitor` · `fuser` —— 现行包清单 = `src/Modules/Business/` 的 **4 个** |
 | 文档既定定性 | **判据载体，不是业务模块** —— `05` §3；`../modules/README.md` §2.2 同口径 |
-| 谁在依赖它们 | `tests/HYWDebugAssistant.Tests.Reference/`（`AcceptanceCriteriaTests` 616 行 = AC-1~AC-6 · `ModuleContractTests` 451 · `ManualChainTests` 336 · `SdkSurfaceTests` 171 · `MultiSourceChainTests` 162）· `implementation/04` 手工验收清单 · `build.ps1` 的"模块包 6/6"校验 · `roadmap.md` §2（M1-12）· `../modules/README.md` §2.2 |
+| 谁在依赖它们 | `tests/HYWDebugAssistant.Tests.Reference/` 的 AC-1~AC-6 判据项目 · `implementation/04` 手工验收清单 · `build.ps1` 的包清单校验 · `roadmap.md` §2（M1-12）· `../modules/README.md` §2.2 |
 
-### G.3 归档时要动的地方（**清单 —— 2026-09 已逐条执行，见 §G.4**）
+### G.3 / G.4 归档动作与执行记录（**过程流水 · 已迁出**）
 
-| # | 动作 | 执行结果 |
-|---|---|---|
-| 1 | `src/Modules/Reference/` 6 个包移出 `src/`（**搬家不删除**，进归档区并加"⚠ 已归档 + 现行锚点"标记），从 `HYWDebugAssistant.slnx` 移除 | **口径变更**：用户 2026-09 裁定"**完全删除旧的模块和数据结构**" ⇒ **直接删除**（不再是"搬家不删除"）；`slnx` 参考分组已移除 |
-| 2 | `tests/HYWDebugAssistant.Tests.Reference/` 的 AC-1~AC-6 判据**必须换载体**（承载 AC 的公开面判据不能随参考模块一起消失）—— 届时应已由**第一批正式模块**接管；这是归档前的**硬前置** | ✅ **已换载体**：AC-1~6 + 契约/链路判据改由**四个基础模块** + 判据项目内测试桩承载（§G.4） |
-| 3 | `build.ps1` 的"模块包 6/6"校验改为按实际包清单校验 | ✅ 校验脚本**本就按目录遍历**（不写死清单）⇒ 只把脚本名从 `stage-reference-modules.ps1` 改为 `verify-module-packages.ps1`（功能不变），现校验 **4 个包** |
-| 4 | 同步 `implementation/04`（手工验收清单里引用它们的条目）· `../modules/README.md` §2.2 · `05` §3 · `09` 测试资产清单 · `roadmap.md` §2/§5 | ✅ 已同步（另加：`architecture/01`·`03`·`09`·`10`、`src/Ui/Design/*`、`src/App/DragSelfTest.cs`、主测试项目三处包路径与包数断言） |
-
-> **前置检查（归档前必答）**：AC-1~AC-6 与手工验收的判据**是否已由新模块完全接管**？答不上就不归档。 ⇒ **已答"是"**：AC-1~6 逐条在四个基础模块 + 测试桩上跑通（`tests/HYWDebugAssistant.Tests.Reference` **41/41 绿**）。
-
-### G.4 执行记录（2026-09 · 用户裁定"完全删除旧的模块和数据结构"）
-
-**用户原话**："**完全删除旧的模块和数据结构**，新测试全部转入新的四个模块，新的模块完成开发后将可以作为某种**开发参考**（**不删任何的框架能力和接口**）。"
-
-| 项 | 事实 |
-|---|---|
-| 已删除 | `src/Modules/Reference/**`（6 包）· `src/Sdk/Contracts/CommonDataTypes.cs`（`hyw/*` 旧类型库）· `slnx` 参考分组与全部项目引用 · `artifacts\modules\` 与应用输出里的 6 个旧包目录 |
-| 已改名 | `tools/stage-reference-modules.ps1` → **`tools/verify-module-packages.ps1`**（只校验/导出，功能不变） |
-| 现判据载体 | **四个基础模块**（`text-sender` / `hex-sender` / `data-monitor` / `hex-string-converter`）+ **判据项目内测试桩**（`tests/HYWDebugAssistant.Tests.Reference/Stubs/`：`FusionStubModule` 多源融合 · `RateSourceStubModule` 定时定值数据源 · `JudgementSinkStubModule` 判据接收与限流上报）—— 桩**不进产品目录、不打包** |
-| 开发参考 | **四份模块页**（`../modules/hyw-*.md`）+ 模块自身代码；**模板来源仍是第一批正式模块**（§G.1 ④ 未变） |
-| 框架能力 | **一个都没删**（`Sdk`/`Core.Api` 公开面 · `ViewElementKind` 目录 · B1/B6/A5/A6 全部保留）——§G.3 附表列出的引用点全部只做"换载体" |
-| 计数 | 判据项目 43 → **41** 条 · 全量 **452 通过 / 0 失败**（第二轮 UI 反馈后的四批修复 + 端口指标口径统一 + 速率整秒桶）；包 **6 → 4** |
-| 决策记录 | `../decisions.md` **7.36** · `../roadmap.md` §3 第 32 项 |
+> 原 §G.3「归档时要动的地方」与 §G.4「执行记录（2026-09 · 用户裁定"完全删除旧的模块和数据结构"）」属**已执行的过程材料**，原文见 `../journal/implementation06-g-archive.md`（**历史材料 · 不作为依据**）。
+> **现行**：旧 6 个参考模块**已删除**（现行包清单 = `src/Modules/Business/` 的 4 个）；判据载体 = 四个基础模块 + 判据项目内测试桩；框架能力与接口**一个都没删**。
+> **锚点**：`../decisions.md` **7.36** · `../roadmap.md` §3 第 32 项 · `../modules/README.md` §2.2。
 
 ---
 
@@ -457,16 +465,16 @@ docs/modules/<模块标识>.md                        ← 模块页（一模块�
 |---|---|
 | **已渲染（10）** | `Numeric`(A1) · `Curve`(A3) · `TextLog`(A5) · `ConfigurationEditor`(B1) · `CommandButton`(B2) · `ToggleSlider`(B3，勾选框) · **`ToggleSwitch`(B7，开关滑块 —— 2026-09 用户裁定新增并已渲染)** · `TextInput`(B5，**G2 起支持 `Multiline`**) · **`FileSelector`(B6，G4 补齐)** · **`TabPages`(C2，G1 起渲染页签 + 只渲染当前页)** |
 | **未渲染（6）** | `StatusLight`(A2) · `Table`(A4) · `HexView`(A6) · `Gauge`(A7) · `Image`(A8) · **`EnumSelector`(B4)** |
-| **容器** | `Group` / `Collapsible` / `Scroll` 的**子元素展平**显示 |
+| **容器（已真渲染 · 2026-09）** | `group` / `tabs` / `collapsible` 三种语义包装 + **`container`**（真排布容器）自 `decisions.md` **7.56** 起是**真容器**（`group` = 标题边框、不滚动 · `collapsible` = `Expander`，折叠态进 `ViewStateStore` · `tabs` 的页包装按 **`TabPage` 语义**不画框）；容器可声明排布模式 `layout` = `flow` / `grid` / `absolute` 与 `overflow` = `scroll` / `clip`（见 **§C.1′**）；**`decisions.md` 7.60 起滚动不再是一种 kind** —— 由 `container` 的 `overflow: "scroll"` 承担、且它是**绝对坐标越界的承担者**（旧的 `ViewElementKind.Scroll = 17` 成员**已随载体切换删除**；声明面 kind 全集 = 15 原子 + 4 容器 = 19 项） |
 
-**原立项理由（G1–G5 前的取证）**：对"串口调试助手"这类典型正式模块，十六进制视图（A6）· 枚举下拉（B4）· 文件选择（B6）· 状态灯（A2）都是常用件。**当时的四条影响现已收敛为两条半**：
+> **未渲染清单的唯一登记处** = `view.schema.json` 里 `rendered: false` 的 6 项（与本表一致）—— 声明它们**合法**，只给一条警告（`decisions.md` 7.60 的 C-2 裁决；读取面见 §C.1′）。
+
+**未渲染元素的四条影响（历史取证 · 其中三项已随 G1–G5 解除）**：
 
 - 配置里的**枚举字段在界面上没有下拉** ⇒ 要么避开枚举类型，要么接受它不显示（登记：`roadmap.md` G11）—— **仍在**；
 - **看不了原始字节** ⇒ 调试类模块只能看解码后的数值 / 曲线（`HexView` A6）—— **仍在**（影响第一批的 `hyw/data-monitor` 的"切十六进制"，见 `../modules/README.md` §2.1）；
 - **状态灯（A2）未渲染** —— 仍在（影响"要不要用状态灯表达连接/停流"）；
-- ~~选不了文件路径~~ ⇒ ✅ **G4 已补齐 `FileSelector`(B6)**，回放 / 存盘类模块可以让用户选路径；
-- ~~多页只取首页~~ ⇒ ✅ **G1 已补齐 `TabPages`**（页签 + 切换，选中态 = 纯 UI 状态）；
-- ~~多行输入~~ ⇒ ✅ **G2 已补齐 `TextInput.Multiline`**（提交键为应用级设置 `multilineSubmitKey`）。
+- **已补齐**：`FileSelector`(B6) —— 回放 / 存盘类模块可以让用户选路径 · `TabPages`(G1) —— 页签 + 切换（选中态 = 纯 UI 状态）· `TextInput.Multiline`(G2) —— 提交键为应用级设置 `multilineSubmitKey`。
 
 ⇒ **开工前"第一件框架轨工作"已按用户裁定（"框架全做完再出模块页"）完成**：G1–G5 全部落地（`H.5` 路线 ①）。**剩余 6 个未渲染控件不影响第一批 4 个模块**（它们的视图只用 A1/A3/A5/B1/B2/B3/B5/B7）—— **例外**：`hyw/data-monitor` 的"切十六进制"需要 A6（**该模块页须登记为契约扩展或改用别的表达**）。
 
@@ -491,28 +499,20 @@ docs/modules/<模块标识>.md                        ← 模块页（一模块�
 | 项 | 现状 | 含义 |
 |---|---|---|
 | **M1-14 手工验收** | **未开始**（顺延，`roadmap.md` §2） | 框架的"可用"目前只有自动化结论，**没有正式验收结论** |
-| **T3 完整门禁** | 当前生效例外：**暂不跑**（`DEVELOPMENT.md` §2） | 最近一次全绿是历史快照；**当前实数以 `build.ps1` 实跑为准** |
+| **T3 完整门禁** | 当前生效例外：**暂不跑**（`07-dev-inner-loop.md` §2） | **当前实数以 `build.ps1` 实跑为准**（读数见 `../roadmap.md` §6） |
 | **组合件保存 / 打开未接线** | `MainWindow` 有处理函数但**没有控件绑定**（`roadmap.md` G14） | 阶段 5「现场确认」**无法保存现场**，复现要靠手工重连 |
 
 ### H.5 顶层开发路线（**已裁 · 用户 2026-09**）
 
 ```text
-① 框架缺口修复 —— 用户 2026-09 裁定「框架全做完再出模块页」，按序做五项：**已全部完成（2026-09）**
-     G1 TabPages 渲染+页签交互（唯一硬阻塞）                      ✅
-     G2 TextInput 加 Multiline（init 只增）                       ✅
-     G3 输入元素"校验失败"态（红框）                              ✅
-     G4 B6 文件选择渲染（复用已有 StorageProvider + 输入通道）    ✅
-     G5 C5-7 端口锚点一次做完（声明的默认边 + 可拖到任意边 + 全局固定/解锁快捷键）  ✅
-        —— 最大一块，触及 SDK 公开面 + Core.Api + 组合件写入路径 ⇒ 必须 T3（见 §H.5 末条）
+① 框架缺口修复 —— 用户裁定「框架全做完再出模块页」，五项（G1 `TabPages` 渲染 + 页签交互 = 唯一硬阻塞 · G2 `TextInput` 加 `Multiline` · G3 输入元素"校验失败"态（红框）· G4 文件选择渲染 · G5 端口锚点一次做完）**已全部完成**；G5 触及 SDK 公开面 + Core.Api + 组合件写入路径 ⇒ 必须 T3
 ② 第一批最基础的 4 个模块：出模块页（阶段 0）逐份确认 → 阶段 1 起实现（纯文本处理族）  ← **进行中**（`hyw/text-sender` 阶段 0 ✅ 已通过 → 阶段 1；其余 3 份未起草）
-③ ~~归档旧的 6 个参考模块（§G）~~ ⇒ ✅ **已于 2026-09 执行完毕**（直接删除；§G.4）
+③ ~~归档旧的 6 个参考模块（§G）~~ ⇒ ✅ **已于 2026-09 执行完毕**（直接删除；原始记录见 `../journal/implementation06-g-archive.md`）
 ④ 纯框架调整/修复（用户列的 7 项，见下）
 ⑤ 跑最终验收
 ```
 
-> **G5 收口留痕（2026-09）**：五项**已全部落地**，框架缺口清零。G5 的落地要点、回归网与"用户否掉首版视觉实现后重做"的经过见 `../roadmap.md` §3 第 12 项；**形态裁定**（弹出式图标按钮 / 只改光标不放大 / 三态「固定」）见 `../decisions.md` 7.18–7.19，**视觉取值**见 `../architecture/07-overlay-and-visual-baseline.md` 端口标记表。下一步即 ② 的**4 份模块页（阶段 0）**。
-
-> **路线修订留痕（2026-09）**：本条**原为"如果框架缺口严重，那就先做框架"** —— 做出第一批模块草图后，缺口被证实**足以阻塞**（G1 卡 3 个模块；G5 卡模块形态）⇒ 用户裁定**先做完 G1–G5，再出模块页**。五项的范围、成本与裁定依据见 `../roadmap.md` §3 第 12 项与 §4 **G16**。
+> **形态与取值**：G5 的**形态裁定**（弹出式图标按钮 / 只改光标不放大 / 三态「固定」）见 `../decisions.md` 7.18–7.19，**视觉取值**见 `../architecture/07-overlay-and-visual-baseline.md` 端口标记表。下一步即 ② 的**4 份模块页（阶段 0）**。
 
 **第一批 4 个基础模块**（清单与状态唯一落点 = `../modules/README.md` §2.1）：
 
@@ -570,7 +570,7 @@ docs/modules/<模块标识>.md                        ← 模块页（一模块�
 | **E** | 外部 IO"活动体同步阻塞"是否强制 | ✅ **已裁 = a（强制）** | 违反须 `// ARCH-EXCEPTION` 登记 → §E.2 |
 | **F1** | 是否另建空模板 `src/Modules/Templates/` | 【待评估】 | 用户：**模板来源 = 第一批正式模块**（旧 6 个不作模板）—— 且**第一个模块完成后回抽模板**比现在凭空造更准 |
 | **F′** | `VisualSnapshots` 在 `-AllTests` 下的并发假失败 | ✅ **已裁 = b · 已实施** | **`dev.ps1` 与 `build.ps1` 改为逐个串行跑测试项目、快照项目最后单独进程跑**（按目录发现，新增测试项目零改动） |
-| **G** | 现有 6 个参考模块处置 | ✅ **已裁 · 已执行**（2026-09） | **直接删除**（用户裁定"完全删除旧的模块和数据结构"）**并**开发**新的符合要求的模块**（可投产 + 标准样板 = 四个基础模块）；前置 = AC-1~AC-6 判据已由新载体接管 ⇒ **已满足**（执行记录见 **§G.4**） |
+| **G** | 现有 6 个参考模块处置 | ✅ **已裁 · 已执行**（2026-09） | **直接删除**（用户裁定"完全删除旧的模块和数据结构"）**并**开发**新的符合要求的模块**（可投产 + 标准样板 = 四个基础模块）；前置 = AC-1~AC-6 判据已由新载体接管 ⇒ **已满足**（执行记录见 `../journal/implementation06-g-archive.md`） |
 | **H** | 顶层开发路线 | ✅ **已裁（顶层参考）** | 框架缺口 → **第一批 4 个基础模块** → 归档旧 6 个 → 纯框架修复 7 项 → 验收；**顺序与拆分待细化**（§H.5） |
 | **H′** | 第 ① 步补哪些 UI 元素 / 第 ④ 步 7 项的拆分与顺序 | 【待细化】 | 见 §H.5 末 |
 | **J** | 文档编辑 / 归档工作流 | ✅ **已裁 · 已落地** | 落点 = `../DOC-WORKFLOW.md`（`docs` 根）· 归档区 = `docs/archive/modules-<年-月>/` · 审计**挂进 `build.ps1` 第 1/5 步** · 三处重复规则收敛为一处 → 见 §J.0 |
@@ -598,24 +598,16 @@ docs/modules/<模块标识>.md                        ← 模块页（一模块�
 | 产物 | 内容 |
 |---|---|
 | `../DOC-WORKFLOW.md`（新建 · 现行） | §1 三原则 · **§2 改动→同步文件唯一对照表** · §3 归档规程（含 `modules-<年-月>/`）· §4 审计门禁（含"挂进 `build.ps1`"与 FAIL 处置）· §5 标记体系（`【待裁】`/`【待评估】`/`【待细化】`/`〔源:〕`/`⚠ 历史材料`/`ARCH-EXCEPTION` 各自的生命周期）· §6 提案→裁决→回写循环 · §7 收敛记录 |
-| `../README.md` §4 | 原先的 11 条维护规则 → **收敛为指针** |
-| `../architecture/00-architecture-index.md` §3/§4 | 原先的状态唯一源说明 + 7 条纪律 + 改动同步表 → **收敛为指针** |
-| `implementation/03` §4 | 原先的文档同步表 → **收敛为指针** |
+| `../README.md` §4 · `../architecture/00-architecture-index.md` §3/§4 · `implementation/03` §4 | 各自的维护规则 / 状态唯一源说明 / 文档同步表 → **收敛为指针** |
 | `build.ps1` | 新增 **第 1/5 步「文档机械审计」** + `-SkipDocAudit` 开关（只跳过、不静默） |
 
-**顺带修掉的**：`docs/skills/` → **仓库根 `.dsh/skills/`** 的路径漂移（`README` / `architecture/00` / `roadmap` 引用 + `tools/audit-docs.ps1` 的期望清单与扫描路径）；`roadmap.md` §2 的"M1-14 清单 111 条"更正为实测 **113 条（其中 39 条仅人工可判）**。
+**顺带收敛的**：`tools/audit-docs.ps1` 的期望清单与扫描路径已指向**仓库根 `.dsh/skills/`**（`docs/skills/` 为旧路径）；`roadmap.md` §2 的 M1-14 清单更正为实测 **113 条（其中 39 条仅人工可判）**。
 
-### J.1 本次已经执行的同步（**无需再裁**）
+### J.1 本次已经执行的同步（**已执行 · 无需再裁**）
 
-| 文档 | 已改 |
-|---|---|
-| `../README.md` | 文档树加入本文件；「写一个新模块」阅读顺序改为 `06` → `05` → `architecture/…`，并注明**不从参考模块抄**；维护规则新增 §4.11（旧文档路径失效更正） |
-| `../architecture/00-architecture-index.md` | §2 阅读路径"写一个新模块"加入本文件；§4 改动同步表"加/改模块"一行加入本文件指针 |
-| `../modules/README.md` | 顶部加入本文指针；§2.2 参考模块加两条约束（不作模板 · 归档时点） |
-| `../modules/README.md` §2.1 | 登记用户给出的**三批正式模块清单**（状态 = 未开始） |
-| `../roadmap.md` | §3 加入顶层开发路线；§5 模块开发状态表更新 |
+`../README.md`（文档树 + 阅读顺序 + 维护规则 §4.11）· `../architecture/00-architecture-index.md` §2/§4 · `../modules/README.md`（顶部指针 + §2.2 两条约束 + §2.1 三批模块清单）· `../roadmap.md` §3/§5 —— 均已同步；本次改动的回写落点对照表见 `../DOC-WORKFLOW.md` §2。
 
-### J.2 生效后要跟进的动作（**部分已执行**）
+### J.2 生效后要跟进的动作（**未完成项**）
 
 | 文档 | 状态 |
 |---|---|

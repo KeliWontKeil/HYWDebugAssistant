@@ -14,8 +14,8 @@ internal readonly record struct MonitorFormat(bool Hex, bool Timestamp, bool Lin
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>不再有"定宽 96 字节"这回事</b>〔2026-09 用户裁定〕："一行必须 96 字节：不应该规定一行多少字节，
-///     **一行多少是由文本框的宽度决定的**" ⇒ 本类**只做"字节 → 文本"**，不切块、不补齐、不截断、
+///   <item><b>没有「定宽 96 字节」这回事</b>：一行多少字节**不应该由模块规定**，
+///     **一行多少是由文本框的宽度决定的** ⇒ 本类**只做「字节 → 文本」**，不切块、不补齐、不截断、
 ///     不加任何标记 —— 数据一个字节都不丢；</item>
 ///   <item><b>换行不由文本表达</b>：要不要换行是**通道调用**的事（见 <see cref="BreakAfterPacket"/> 与
 ///     `IViewDisplayAccess.AppendText` / `AppendLine`）—— 通道引进的换行**不是字符**，
@@ -31,7 +31,7 @@ internal sealed class MonitorLineFormatter(MonitorFormat format)
     /// 本包文本之后，换行是否**由通道**补（= 「数据包换行」或「时间戳」开着）。
     /// </summary>
     /// <remarks>
-    /// 二者都为**关**时：数据**直接追加在后面**、不做任何标记（用户裁定原文），因此不换行；
+    /// 二者都为**关**时：数据**直接追加在后面**、不做任何标记，因此不换行；
     /// 于是"行"只由**文本框宽度**（自动折行）和数据里真有的换行字符决定。
     /// 时间戳必然带来换行：它是"每一包/每一行一个"的前缀，不换行的话第二包的时间戳会挤在上一包末尾。
     /// </remarks>

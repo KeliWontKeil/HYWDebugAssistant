@@ -5,7 +5,7 @@ using HYWDebugAssistant.Ui.Geometry;
 namespace HYWDebugAssistant.Ui.ViewModels;
 
 /// <summary>
-/// **角色信息行**（纯文字，画在角色方块周围；**不画文本框**）【用户第三十四轮】。
+/// **角色信息行**（纯文字，画在角色方块周围；**不画文本框**）。
 /// </summary>
 /// <param name="Text">文本（空串不参与绘制）。</param>
 /// <param name="FontSize">字号（第一行 11px，其余 10px）。</param>
@@ -13,7 +13,7 @@ namespace HYWDebugAssistant.Ui.ViewModels;
 public readonly record struct RoleInfoLine(string Text, double FontSize, bool Primary);
 
 /// <summary>
-/// **角色方块** = 模块的一个**功能分块**（左入右出的处理块）【ADR-0052】。
+/// **角色方块** = 模块的一个**功能分块**（左入右出的处理块）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -109,22 +109,22 @@ public sealed class RoleBoxViewModel
     public bool HasOutput => Outputs.Count > 0;
 
     /// <summary>
-    /// **方块宽度**（按文本自适应）【ADR-0053 · 用户第三十四轮："中心块太大了……建议使用文本自适应宽度"】。
+    /// **方块宽度**（按文本自适应）。
     /// </summary>
     /// <remarks>纯函数估算（<see cref="RoleTextMetrics"/>）⇒ 两端窗算出的宽度一致，连线锚点因而不会错位。</remarks>
     public double BoxWidth => RoleTextMetrics.BoxWidth(Title, RoleCountText);
 
     /// <summary>
-    /// **角色自身的信息行**（画在方块**上方**的纯文字，**左对齐、不画文本框**）【ADR-0053 · 用户第三十四轮】：
+    /// **角色自身的信息行**（画在方块**上方**的纯文字，**左对齐、不画文本框**）：
     /// ①**速率**（大字，该角色自身的发送/接收速率）· ②`输入 m / 输出 n`（该角色的**口数**）· ③`类型：xxx`（**短标签**）。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
     ///   <item>**这是角色维度的量**（"这块功能自己在跑多快"），与端口标记上的**通路维度**（"这条网络在跑多快"）
-    ///     是两个维度：读同一份框架诊断，但表达对象不同（用户裁定：不能因为底层同源就当作一个维度）；</item>
-    ///   <item>用户对排布的要求："文本**左对齐**、**字体更大**一些、**禁止 UI 外显过长描述**（当前第三行太长了）"
+    ///     是两个维度：读同一份框架诊断，但表达对象不同（底层同源不等于同一个维度）；</item>
+    ///   <item>排布要求：文本**左对齐**、**字体更大**一些、**禁止 UI 外显过长描述**（第三行放不下）
     ///     ⇒ 速率用大字号（<see cref="RoleTextMetrics.RateFontSize"/>），第三行只放**第一个语义标签**并截断；</item>
-    ///   <item>②行的 `m/n` 是**口数**（与方块上的连接数 `m/n` 不同）：用户草图写的是 `输入0/输出1`。</item>
+    ///   <item>②行的 `m/n` 是**口数**（与方块上的连接数 `m/n` 不同）：呈现形如 `输入0/输出1`。</item>
     /// </list>
     /// </remarks>
     public IReadOnlyList<RoleInfoLine> InfoLines
@@ -170,15 +170,15 @@ public sealed class RoleBoxViewModel
 }
 
 /// <summary>
-/// **角色间数据流**（叠加层的一条线 = 一次"角色 → 角色"的流动）【ADR-0052】。
+/// **角色间数据流**（叠加层的一条线 = 一次"角色 → 角色"的流动）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item>已按（本端角色, 方向, 对端实例, 对端角色）聚合；<see cref="PortPairCount"/> = 口对数（**不在线上标注条数**、
 ///     **不标网络名** —— 接口层信息不进叠加层）；</item>
-///   <item>线两端锚点 = **两个角色方块的中心**（用户第三十四轮裁定："连线从角色方块中心出发"），
+///   <item>线两端锚点 = **两个角色方块的中心**（连线从角色方块中心出发），
 ///     两侧用同一套布局算，故两段**严格共线**；</item>
-///   <item>线本身**不承载指标**（用户第三十四轮裁定）：角色维度信息画在**角色方块**上、
+///   <item>线本身**不承载指标**：角色维度信息画在**角色方块**上、
 ///     通路维度信息画在**端口标记**上 —— 两个维度各有一处出处，不在这条线上再写一遍。</item>
 /// </list>
 /// </remarks>
@@ -223,10 +223,10 @@ public sealed class RoleLinkViewModel
     public int PortPairCount { get; }
 
     /// <summary>
-    /// 线的**瞄准点**（本窗局部坐标）= **对端角色方块的中心**【ADR-0053 · 用户第三十四轮】。
+    /// 线的**瞄准点**（本窗局部坐标）= **对端角色方块的中心**。
     /// </summary>
     /// <remarks>
-    /// 用户裁定："**连线从角色方块中心出发**"。本端那端也以**本端方块中心**为端点，
+    /// **连线从角色方块中心出发**：本端那端也以**本端方块中心**为端点，
     /// 绘制时裁掉落在方块内部的那一段（见 <c>ConnectionOverlay.LinkSegment</c>）⇒
     /// 视觉上从方块中心方向出发，且不会在方块里留下一道淡线、也不会横穿方块。
     /// </remarks>
@@ -244,7 +244,7 @@ public sealed class RoleLinkViewModel
 }
 
 /// <summary>
-/// **模块内部处理顺序**（`角色 → 角色`）【ADR-0052】：细实线 + 中性色 + **不流动**（结构 ≠ 流量）。
+/// **模块内部处理顺序**（`角色 → 角色`）：细实线 + 中性色 + **不流动**（结构 ≠ 流量）。
 /// </summary>
 public sealed class RoleOrderViewModel
 {
@@ -273,12 +273,12 @@ public sealed class RoleOrderViewModel
 }
 
 /// <summary>
-/// 叠加层**信息区**的内容【ADR-0049 D18 · ADR-0052】。
+/// 叠加层**信息区**的内容。
 /// </summary>
 /// <param name="Identity">左上：`实例 · 模块名`（12px）。</param>
 /// <param name="Notice">
 /// 左上第二行（10px，仅在**需要说明**时非空）：无数据口 ⇒ `无数据口`；有数据口但**未声明角色** ⇒ 提示作者补声明。
-/// （**不再**用文字重复"几个角色/几个口"——那是图上可见的事实，用户第三十三轮明确要求去掉。）
+/// （**不**用文字重复"几个角色/几个口"——那是图上可见的事实。）
 /// </param>
 public readonly record struct RoleOverlayInfo(string Identity, string Notice);
 

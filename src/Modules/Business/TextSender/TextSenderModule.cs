@@ -10,17 +10,17 @@ using HYWDebugAssistant.Sdk.Views;
 namespace HYWDebugAssistant.Modules.TextSender;
 
 /// <summary>
-/// **文本发送器**（第一批 #1 · 功能角色「文本发送器」）——发送一串文本；单次点击 + 连续发送（开关 + 间隔）。
+/// **文本发送器**：发送一串文本；单次点击 + 连续发送（开关 + 间隔）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>模块页</b>：`docs/modules/hyw-text-sender.md`（阶段 0/1/2 ✅ · 本文件 = 阶段 3 实现）；</item>
-///   <item><b>字节口径</b>（用户 2026-09 裁定"与 C 里面的约定对齐"）：`len` = **字节数**（`strlen` 同口径）·
+///   <item><b>模块页</b>：`docs/modules/hyw-text-sender.md`；</item>
+///   <item><b>字节口径</b>（与 C 里面的约定对齐）：`len` = **字节数**（`strlen` 同口径）·
 ///     文本编码 **UTF-8**（ASCII 部分单字节兼容）· **`0x00` 是合法数据、不是终止符** · 协议层**不碰字符**；</item>
-///   <item><b>多页消息 + 回读</b>（2026-09 · `decisions.md` 7.28）：输入区是 `TabPages`（各页一个输入框，源名
-///     `text1…text3`），**只有一个「发送」按钮** —— 点它时模块**回读**"当前选中页 + 该页的当前文本"
+///   <item><b>多页消息 + 回读</b>：输入区是 `TabPages`（各页一个输入框，源名
+///     `text1…text5`），**只有一个「发送」按钮** —— 点它时模块**回读**「当前选中页 + 该页的当前文本」
 ///     （含用户**尚未提交**的编辑）⇒ **所见即所发**，且 UI 上不必每页重复一套控件；</item>
-///   <item><b>结构约定</b>：本类按 `implementation/06` §C.2 的**固定四段**写 —— ① 标识与常量 ② 声明块
+///   <item><b>结构约定</b>：本类按**固定四段**写 —— ① 标识与常量 ② 声明块
 ///     ③ 钩子块 ④ 接线与业务。</item>
 /// </list>
 /// </remarks>
@@ -52,9 +52,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// 消息页数（每页一个输入框）。
     /// </summary>
     /// <remarks>
-    /// 【2026-09 用户裁定】**3 → 5 页**：用户原话"**tabpages 的标签数量增加为 5 个**"。
-    /// 此前压在 3 页是因为 `implementation/06` §D.1 有一条"视图元素 ≤ 12"的约定（4 页会到 13 ⇒ 超限）；
-    /// 该约定已按用户裁定**取消数量上限**（"12 个太少了，建议不设上限…无意义的约束不符合逻辑"）⇒ 页数可自由取。
+    /// 页数取 5（`tabpages` 的标签数量为 5 个）；视图元素数量不设上限 ⇒ 页数可自由取。
     /// </remarks>
     public const int PageCount = 5;
 
@@ -73,16 +71,16 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// <summary>数据源：已发送计数。</summary>
     public const string SentSource = "sent";
 
-    /// <summary>活动周期（`implementation/06` §E.2：20 ms — 人工操作无感，也让收件箱及时被消费）。</summary>
+    /// <summary>活动周期（20 ms — 人工操作无感，也让收件箱及时被消费）。</summary>
     public static readonly TimeSpan ActivityInterval = TimeSpan.FromMilliseconds(1);
 
     /// <summary>
-    /// 数据类型标识 —— **PascalCase 短名**（`03` §6 的新范式；旧式 `hyw/*` 已冻结）。
+    /// 数据类型标识 —— **PascalCase 短名**（新范式；`hyw/*` 形式的旧式标识已冻结）。
     /// </summary>
     /// <remarks>
     /// 这个类型的本质是**一段带长度的字节区**（0–1472 字节）——**文本（UTF-8）与 HEX 字节都只是它的用法**。
     /// 文本发送器、HEX 发送器与数据监视器**共用同一标识**才能**开箱即连**
-    /// （兼容规则：**不同标识默认不兼容**，要用户显式强连 —— `ADR-0051` · `decisions.md` 7.26）。
+    /// （兼容规则：**不同标识默认不兼容**，要显式强连）。
     /// </remarks>
     public const string RawBytesTypeId = "RawBytes";
 
@@ -90,11 +88,11 @@ public sealed class TextSenderModule : IModule, IActivitySource
     public const int RawBytesVersion = 1;
 
     /// <summary>
-    /// **单条文本的字节上限**（= `data` 字节区的长度；**一个完整 UDP 载荷**，用户 2026-09 裁定）。
+    /// **单条文本的字节上限**（= `data` 字节区的长度；**一个完整 UDP 载荷**）。
     /// </summary>
     /// <remarks>
     /// 契约**只定长**（`03` §2）⇒ 每个数据单元**永远搬 `2 + 1472 = 1474` 字节**（就算只发 1 个字符）。
-    /// 超过 1472 的文本由本模块**内部拆成多个数据包**发送（用户裁定：契约不上调；接收侧因此表现为多条）。
+    /// 超过 1472 的文本由本模块**内部拆成多个数据包**发送（契约不上调；接收侧因此表现为多条）。
     /// </remarks>
     public const int TextCapacity = 1472;
 
@@ -127,7 +125,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
             RawBytesVersion,
             RawBytesShape)
         {
-            // 【2026-09 用户裁定"速率只要有效数据"】`len` 就是**有效字节数**（0–1472，尾部补零不算）
+            // 「速率只要有效数据」：`len` 就是**有效字节数**（0–1472，尾部补零不算）
             // ⇒ 声明它 ⇒ 框架逐单元读这个字段累计有效字节，第 3 档速率才是**真实**有效速率
             //（未声明时框架只能按"契约尺寸"算，把补零也算成有效数据）。
             Metering = new MeteringBlock { PayloadLengthField = "len" },
@@ -136,10 +134,6 @@ public sealed class TextSenderModule : IModule, IActivitySource
         context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, RawBytesShape)
         {
             Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
-
-            // **默认边 = 下边**（用户草图："由于宽 > 高，因此网络标签横置在下边处"）：
-            // 与 `hyw/data-monitor` 的"上边"配对 ⇒ 上下叠放即可连（`05` §2 七条判定的第 ② 条）。
-            Edge = Sdk.Ports.PortEdge.Bottom,
         });
 
         // 纯源角色：**只有输出口** ⇒ α（两侧同型）天然满足；单角色 ⇒ 不声明 DeclareFlow
@@ -149,68 +143,11 @@ public sealed class TextSenderModule : IModule, IActivitySource
             OutPort,
             "发送"));
 
-        // ---------------------------------------------------------------- 视图（**按控件分块**）
-        //
-        // 约定（2026-09 用户裁定）：视图声明**一个控件一段**，每段自带它的默认属性 + 它的数据源 ——
-        // 改观感/默认值时**只看自己那一段**，不用在一条大表达式里到处翻。
-        // 段序 = 界面自上而下的顺序；段内顺序 = ①控件 ②它的输入/数据源 ③（必要时）该控件的说明。
-
-        // ① 分页输入区（C2 `TabPages`）：每页一个多行输入框（可存多条消息；不持久化）
-        var pages = new ViewElement(
-            ViewElementKind.TabPages,
-            children:
-            [
-                .. Enumerable.Range(0, PageCount).Select(page => (ViewElement)new ViewElement(
-                    ViewElementKind.Group,
-                    title: $"{page + 1}",
-                    children:
-                    [
-                        new ViewElement(ViewElementKind.TextInput, TextSourceOf(page), "内容")
-                        {
-                            Multiline = true,   // 多行：用户裁定 T4（提交键走**应用级**设置）
-                        },
-                    ])),
-            ])
-        {
-            StateKey = PagesStateKey,   // 模块靠它回读"当前选中页"（7.28）
-        };
-
-        // ①-源：每页一个**文本**数据源（源名 = `text1…text5`，见 `TextSourceOf`）
-        var pageSources = Enumerable.Range(0, PageCount)
-            .Select(page => new ViewDataSource(TextSourceOf(page), kind: ViewDataSourceKind.Text))
-            .ToArray();
-
-        // ② 发送按钮（B2 `CommandButton`）：**只有一个** —— 发哪一页由模块**回读**当前选中页（7.28）
-        var sendButton = new ViewElement(ViewElementKind.CommandButton, SendCommand);
-
-        // ③ 连续发送开关（B7 `ToggleSwitch`，滑块外观）：`true/false` 走输入通道
-        var continuousSwitch = new ViewElement(ViewElementKind.ToggleSwitch, ContinuousSource, "连续发送");
-        var continuousSource = new ViewDataSource(ContinuousSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.Bool);
-
-        // ④ 间隔输入（B5 `TextInput`）：单位 `ms` 走**框外单位标签**（不做框内后缀）
-        var intervalInput = new ViewElement(ViewElementKind.TextInput, IntervalSource, "间隔")
-        {
-            InputKind = TextInputKind.Number,     // 只放行数字写法（范围校验归模块 + 输入反馈）
-            Alignment = ViewAlignment.Right,      // 对齐由**模块声明**（框架不限死）
-        };
-
-        // 「间隔」是**文本输入**（用户敲的是数字字符、经文本通道投递 ⇒ `SubmitInput` 签名是 string）——
-        // "这是数字"由元素声明的 `InputKind = Number` 表达，**不是**数据源类型。
-        var intervalSource = new ViewDataSource(IntervalSource, unit: "ms", kind: ViewDataSourceKind.Text);
-
-        // ⑤ 已发送计数（A1 `Numeric`）：只读数值，值由模块发布
-        var sentCounter = new ViewElement(ViewElementKind.Numeric, SentSource, "已发送");
-        var sentSource = new ViewDataSource(SentSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64);
-
-        context.Declaration.DeclareView(new ViewDeclaration(
-            [pages, sendButton, continuousSwitch, intervalInput, sentCounter],
-            dataSources: [.. pageSources, continuousSource, intervalSource, sentSource],
-            commands: [new ViewCommand(SendCommand, "发送")])
-        {
-            // 尺寸按**实测**定（2026-09 第四批反馈后重定：内容最小高 233 + 上下预留带 48 + 填满型余量）
-            PreferredWidth = 340,
-            PreferredHeight = 340,
-        });
+        // ---------------------------------------------------------------- 视图
+        // 界面形态**不在代码里声明**：控件树、数据源、命令、窗口尺寸与端口默认边都在
+        // 包内 `view.json`（唯一事实源），由框架读取并按 schema 补齐默认值。
+        // 本模块的数据源名（`text1…text5` / `continuous` / `interval` / `sent`）与命令名（`send`）
+        // 必须与 `view.json` 一致；「间隔」是文本输入，"这是数字" 由声明文件的 `inputKind` 表达。
     }
 
     // ---------------------------------------------------------------- ③ 钩子块
@@ -222,7 +159,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
     public TimeSpan Interval => ActivityInterval;
 
     // 六个钩子里**只实现需要的**（其余有默认空实现）：
-    //   · `OnConfigurationChanged` —— 本模块**没有配置**（用户裁定 T2/T3：不追加行尾、间隔不做配置字段）；
+    //   · `OnConfigurationChanged` —— 本模块**没有配置**（不追加行尾、间隔不做配置字段）；
     //   · `OnRemoved` —— 能力 = `None`，没有需要释放的外部资源；
     //   · `OnDisabled` / `OnEnabled` —— 框架停/启活动体即可（连续发送随之停/恢复，无需额外状态）。
 
@@ -265,7 +202,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
                 {
                     due = true;
 
-                    // 【2026-09 缺陷修复 · 用户实测"配置了值后静默不发送 / 不配置值却按未知频率猛发"】
+                    // 【缺陷修复 · 表现为"配置了值后静默不发送 / 不配置值却按未知频率猛发"】
                     // 旧写法是**每轮循环都 `nextTick += interval`**（本循环每 20 ms 跑一轮）⇒
                     //   · 间隔 > 20 ms ⇒ `nextTick` 每轮都往前跳、**永远追不上** ⇒ **一条都不发**；
                     //   · 间隔 = 0（未配置时的默认值）⇒ 每轮都到期 ⇒ **每 20 ms 发一条**（"未知频率"）。
@@ -301,7 +238,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
 
     /// <summary>
     /// **未设置间隔时的取值**（0）——连续发送**必须有间隔**：没设置就**显式报错、绝不硬发**
-    /// （用户 2026-09 裁定："**留空应该显式报错而不是硬发**"）。
+    /// （**留空应该显式报错而不是硬发**）。
     /// </summary>
     public const int UnsetIntervalMs = 0;
 
@@ -340,7 +277,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
                 var on = string.Equals(text, "true", StringComparison.OrdinalIgnoreCase);
                 Volatile.Write(ref _continuous, on ? 1 : 0);
 
-                // 【2026-09 用户裁定】开关**打开时**必须**当场校验**，缺什么就报什么（G3 就地反馈：红框 + 原因）：
+                // 开关**打开时**必须**当场校验**，缺什么就报什么（G3 就地反馈：红框 + 原因）：
                 //   · 当前页没有内容 ⇒ 报错；· **还没有设置间隔** ⇒ 报错（"留空应该显式报错而不是硬发"）。
                 // 两条都不满足时才真正开始连续发送；**不硬发**（T11 语义不变：空内容不发）。
                 var missing = string.IsNullOrEmpty(CurrentPageText(context))
@@ -431,7 +368,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// <param name="context">模块上下文。</param>
     /// <param name="text">要发送的文本（原样，不做规范化）。</param>
     /// <param name="packets">实际投递的数据包个数。</param>
-    /// <returns>是否真的发了（**空文本 ⇒ false 且什么都不做** —— 用户裁定 T11）。</returns>
+    /// <returns>是否真的发了（**空文本 ⇒ false 且什么都不做**）。</returns>
     public bool Send(IModuleContext context, string text, out int packets)
     {
         ArgumentNullException.ThrowIfNull(context);

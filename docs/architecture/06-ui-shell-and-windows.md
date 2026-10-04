@@ -1,6 +1,6 @@
 # 06 · 外壳与窗口
 
-> 状态：**现行**（本轮收敛重写；来源见各节标记）
+> 状态：**现行**（来源见各节标记）
 > 适用范围：外壳（主窗口）形态与侧边栏结构 · 拼图式多窗口与模块窗口交互 · 窗口层级与置顶 · 人机操作三通道（命令/输入/配置）· 快捷键 · 设置页分区 · 本域明确不做的事。
 > 与主文档的关系：主文档 `上位机架构设计.md` 是验收唯一事实源；本文件是其实现层分册，冲突时以主文档为准。
 
@@ -36,9 +36,9 @@
 | A 区活动栏 | 宽 **44 px**；6 个入口，自上而下：**模块清单 · 交互** ｜（分隔线）**拓扑诊断 · Issue（有错误时显示计数徽标）· 设置 · 帮助**；按钮 40×36、间距 2；选中态 = **最左 3 px 主色滑块（独占一列，与图标分列不重合）+ 浅底**；图标用**系统图标字体**（`FontIcons` = Segoe Fluent Icons / Segoe MDL2 Assets + `Glyph*` 码位表） |
 | B 区侧边界面 | **模块清单**与**交互**为**常驻竖向页面**（不是弹窗）；其余入口一律开 `DialogWindow` 弹窗 |
 | 顶部菜单 | **撤销**（文件/视图/窗口/帮助）：动作全部改由 A 区入口 + B 区页面 + 弹窗承担 |
-| 状态栏 | 固定高 **28**；左 = 状态文本（11 px、次要色、超长省略；内容 = `模块 N · 叠加层开/关 · 吸附开/关 · 刷新 N Hz [· 已锁定] · Issue N[（错误 M）]`），**右 = 临时提示**（独占一列、`TextBlock.notice`（错误态 `.error`），最长 240、超长自己省略，**8 秒自动过期**）；内边距左 10 / 右 10。〔**2026-09 用户实测修复**〕① **删掉尾部那个「Issue N」按钮** —— 活动栏已有 Issue 图标 + 错误计数 ⇒ 那是**重复入口**、标签又与摘要里的 `· Issue N` 重复（用户："建议直接删掉最尾部的 ISSUE 入口点"）；② **提示不再拼进摘要**：主窗口只有 396 宽，摘要占满后提示被截成"拖动…"（用户："似乎是未完成显示的信息"）⇒ 摘要先省略、提示优先完整；③ 提示原先**永不过期**（只有下一条提示才替换它）⇒ 现在到点由外壳刷新节拍清（`ShellViewModel.DefaultNoticeLifetime`，可经构造参数覆盖以复用真实外壳做用例） |
+| 状态栏 | 固定高 **28**；左 = 状态文本（11 px、次要色、超长省略；内容 = `模块 N · 叠加层开/关 · 吸附开/关 · 刷新 N Hz [· 已锁定] · Issue N[（错误 M）]`），**右 = 临时提示**（独占一列、`TextBlock.notice`（错误态 `.error`），最长 240、超长自己省略，**8 秒自动过期**）；内边距左 10 / 右 10。〔**2026-09 用户实测修复**〕① **删掉尾部那个「Issue N」按钮** —— 活动栏已有 Issue 图标 + 错误计数 ⇒ 那是**重复入口**、标签又与摘要里的 `· Issue N` 重复（用户："建议直接删掉最尾部的 ISSUE 入口点"）；② **提示不再拼进摘要**：主窗口只有 396 宽，摘要占满后提示被截成"拖动…"（用户："似乎是未完成显示的信息"）⇒ 摘要先省略、提示优先完整；③ 提示原先**永不过期**（只有下一条提示才替换它）⇒ 现在到点由外壳刷新节拍清 |
 | 窗口尺寸 | 默认 **396×858**（= 9:19.5），默认值**写在 `MainWindow.axaml`**；**现行最小尺寸 = 360×360**（`MainWindow.axaml` 的 `MinWidth=360` / `MinHeight=360`）；设置 `shellAspect`（9:19.5 / 9:16 / 16:9 / 自定义）与 `shellFixedSize`（默认 **true** = 不可缩放）**只在用户显式改过时**覆盖；换算集中一处（`ShellLayout`），换比例只改一处 〔源: 代码 `src/FrameworkUi/Views/MainWindow.axaml`（`Width=396 Height=858 MinWidth=360 MinHeight=360`）+ `MainWindow.axaml.cs` `ApplyShellSizeFromSettings`〕 |
-| 弹窗宿主 | 外层尺寸**固定 780×620**、可手动缩放（Min 560×320 / Max 1080×880）、**不按内容撑高**；每个弹窗根都有 `ScrollViewer` ⇒ **外层固定 + 子区滚动**（取代 ADR-0038 D3 的"按内容自适应"）。**四个种类（模块清单 / Issue / 设置 / 拓扑诊断）尺寸一致**〔**2026-09 用户实测修复**：`DialogWindow.axaml.cs` 原先**按种类覆盖**尺寸（清单 720×520 · Issue 900×520 · 设置与拓扑 520×460），与 XAML 里"尺寸固定"的声明**直接矛盾** ⇒ 三种大小、观感不一致（用户："需要一致化…观感不好"）⇒ 覆盖已删除，**尺寸只有 XAML 一处来源**，`ShellChromeTests.弹窗_四个种类的默认尺寸必须一致` 把它钉住〕 |
+| 弹窗宿主 | 外层尺寸**固定 780×620**、可手动缩放（Min 560×320 / Max 1080×880）、**不按内容撑高**；每个弹窗根都有 `ScrollViewer` ⇒ **外层固定 + 子区滚动**（取代 ADR-0038 D3 的"按内容自适应"）。**四个种类（模块清单 / Issue / 设置 / 拓扑诊断）尺寸一致**〔**2026-09 用户实测修复**：原先按种类覆盖尺寸，与 XAML 里"尺寸固定"的声明**直接矛盾** ⇒ 覆盖已删除，**尺寸只有 XAML 一处来源**，`ShellChromeTests.弹窗_四个种类的默认尺寸必须一致` 把它钉住〕 |
 | 主题跟随 | 外壳、模块窗口、弹窗、叠加层走**同一套角色 token**（`Ui/Styles/Tokens.axaml`）；设置里改主题/主题色/背景**即时生效**（机制 = 改写主题字典 + 快照还原；放进合并字典会被内置 token 盖住） |
 | 调色板窗口 | `ColorPickerDialog` **可复用**：主题色 · 自定义背景色 · 发送色 · 接收色 4 个设置色块 + 「数据结构 · 颜色」表内色块，**5 个取色点全走它**；设置页内联取色 `Flyout` 已删除 ⇒ 全应用一种选色交互 |
 
@@ -60,6 +60,8 @@
 **页面级约定**〔源: architecture/14 §10-3/§12-2/§12-3/§12-4〕：说明性文字**一律不占版面**—走悬停提示或**问号按钮 + `Flyout` 弹窗**（弹窗式、右对齐、右边距统一 4 px、内容只有文字）；各分区**一律带边框**（`Border.pane`）并有分区标题；布局紧凑（内边距 10、行距 6）。
 
 「占位实例」（未能锚定/无实现的实例）**不在本页**：归**拓扑诊断弹窗**（属诊断；经 `TopologyViewModel.Catalog` 复用同一份数据，不复制状态）。〔源: architecture/14 §11-4〕
+
+**拓扑诊断的刷新**〔**2026-09 缺陷修复**〕：弹窗是**非模态**的，内容必须由**外壳刷新节拍**驱动 —— `ShellViewModel.Refresh()` 里依次刷 `Windows` / `Catalog` / `Issues` / **`Topology`**。**`Topology` 那一行原先漏了** ⇒ 拓扑视图模型从来没被刷新过（只有设计时样例与测试里手工调用）⇒ 打开弹窗后**表恒为空、摘要恒"网络 0"**，且**与是否建网无关**（用户："网络拓扑诊断器没有任何作用，无论是否建网，都没有东西"）。回归网 = `ShellStatusAndSettingsTests.拓扑诊断_外壳刷新后必须真的有内容`（真建网 → 刷一次外壳 → 表必须有行）。
 
 ---
 
@@ -107,7 +109,7 @@
 | 选中 / 取消选中 | 点**边框带**选中；点内容区、点外壳或本应用其他窗口 → **取消选中**；锁定态不可选中 |
 | 边框交互带 | **6 px**：边中点/角点 = 缩放，其余 = 拖动；**内容区点击不选中**（不与模块内控件抢事件） |
 | 缩放手柄 | **6×6**；**仅选中或悬停时可命中**（未选中时 `IsHitTestVisible=false`）⇒ 不再压住端口标记 |
-| 默认/最小尺寸 | `ModuleWindow.axaml` 写死 **320×220**、最小 **180×160**（**2026-09：最小高由 120 抬到 160** —— 端口标记沿边长度加到 150 后，窗口比它短会把标记裁掉一截；见 `PortMarkerMetrics.MinWindowExtent`）；模块可用 `ViewDeclaration.PreferredWidth/PreferredHeight`（**`init` 属性**）声明自己的默认尺寸，未声明回退 320×220；**现行四个正式模块的声明值**：文本发送器 **340×340** · HEX 发送器 **340×340** · 数据监视器 **460×500** · HEX 字符串转换器 **520×600**（**2026-09 第二轮 UI 反馈后按实测重定**：预留带 + 开关滑块 + 结果行占位一起算）（原参考模块的 330×330 / 360×460 已随其载体于 2026-09 删除） |
+| 默认/最小尺寸 | **尺寸字面量的唯一来源 = 包声明 schema**（`view.schema.json` 的 `window.width`/`height` 缺省 **320×220**、`window.minWidth`/`minHeight` 缺省 **180×160**）：模块在**包内 `view.json`** 的 `frame.window`（`width`/`height`/`minWidth`/`minHeight`/`maxWidth`/`maxHeight`）里声明自己的默认尺寸与约束，**省略即取上述缺省**。**最小尺寸 = 框架地板**（**2026-09：最小高由 120 抬到 160** —— 端口标记沿边长度加到 150 后，窗口比它短会把标记裁掉一截；几何依据 = `PortMarkerMetrics.MinWindowExtent`）：声明的下限**只能抬高地板**，写小了由读取器**夹到地板并记 warning**，渲染侧不再夹、也不自带字面量（`decisions.md` 7.63）。`ModuleWindow.axaml` 里**没有** `MinWidth`/`MinHeight`（原先那对字面量已删；且因 `CanResize="False"` 它们对用户本就毫无约束作用 —— 真实约束走模型的 `EffectiveMin*` → `ModuleWindowManager.Fit`）。**四个正式模块的现行声明值见 `07`「模块窗口视觉规范」的默认尺寸行**（不在本表复述数值，避免第二份事实源） |
 | 尺寸归属 | **尺寸归 XAML**：`ApplyContentDrivenSize` 与"元素→高度表"已删除——**信息量不得改变外层容器尺寸**，排不下由内容区滚动条处理；未摆放模块只分配**位置**，窗口按 XAML 尺寸打开后由 `PublishActualSize` 把实际尺寸读回落盘 |
 | 默认摆放 | 起点 = **外壳右边缘 + 12 px**，与已有模块逐个相交检查，**一列到底自动换右列**（上限 256 次兜底）⇒ 新窗口不压住主窗口、不互相堆叠 |
 | 隐藏 / 关闭 | 隐藏 = 窗口不可见、**模块继续运行**并写回布局（恢复入口 = 交互页「显示全部」）；关闭 = **移除该实例**（要回来从模块清单重新加入） |
@@ -162,8 +164,8 @@
 
 | 通道 | 声明面 | 写入面（公开面） | 提交时机 | 失败处理 |
 |---|---|---|---|---|
-| **命令**（B2 命令按钮） | `ViewCommand(name, title, icon)` + `ViewDeclaration.Commands` | `IRuntimeCommand.SendCommand(instanceId, commandName)` → `SendCommandOperation`（Prepare 校验"该命令是否已声明"） | 点击按钮 | **未声明即拒绝、不静默**；执行失败/未知命令转 **Issue（`ModuleError`）**，不逸出 |
-| **输入**（B5 文本输入） | `ViewElementKind.TextInput` + 视图数据源（**多行** = `ViewElement.Multiline`，`init` 只增） | `IRuntimeCommand.SubmitInput(instanceId, source, text)` → `SubmitInputOperation`（同样 Prepare 校验） | **单行**：回车 / 失焦一次提交（**不逐字符写入**）；**多行**：提交键由**应用级设置** `multilineSubmitKey` 决定（`CtrlEnter` 默认 = 回车换行 / Ctrl+Enter 提交 / **失焦不提交**；`Enter` = 回车提交 / Shift+Enter 换行；`None` = 只用按钮）——见 `08` §2〔**G2 · 2026-09**〕。UI 给"未提交 / 已写入"可辨识状态 | 类型/范围不合法 → **就地报错 + 保留输入**，不静默丢值 |
+| **命令**（B2 命令按钮） | 按钮节点自带 **`command` 角色键**（`title` 缺省时取命令名；**没有独立的命令表**） | `IRuntimeCommand.SendCommand(instanceId, commandName)` → `SendCommandOperation`（Prepare 校验"该命令是否已声明"） | 点击按钮 | **未声明即拒绝、不静默**；执行失败/未知命令转 **Issue（`ModuleError`）**，不逸出 |
+| **输入**（B5 文本输入） | `ViewElementKind.TextInput` + 视图数据源（**多行** = schema 键 `multiline`，缺省 `false`） | `IRuntimeCommand.SubmitInput(instanceId, source, text)` → `SubmitInputOperation`（同样 Prepare 校验） | **单行**：回车 / 失焦一次提交（**不逐字符写入**）；**多行**：提交键由**应用级设置** `multilineSubmitKey` 决定（`CtrlEnter` 默认 = 回车换行 / Ctrl+Enter 提交 / **失焦不提交**；`Enter` = 回车提交 / Shift+Enter 换行；`None` = 只用按钮）——见 `08` §2〔**G2 · 2026-09**〕。UI 给"未提交 / 已写入"可辨识状态 | 类型/范围不合法 → **就地报错 + 保留输入**，不静默丢值 |
 
 **多行输入框「不自动折行」= 特性**（用户 2026-09 裁决）：输入框里**画面上的换行 ⟺ 文本里真的有一个换行符**（长行横向滚动）⇒ **所见即所发**，发送内容完整，用户不必猜"这是自动折行还是换行符"。
 **框架对提交的文本不做任何规范化**（不折 CRLF/LF、不去尾、不追加）；行尾用 `CR`/`LF`/`CRLF` **属模块语义**（模块自己的配置项）。
@@ -219,28 +221,119 @@
 
 ---
 
-## 9. UI 开发方式约定（本域硬规则）〔源: architecture/14 §13.1/§13.2/§10 + 代码仓库 `UI-ADJUST.md` §0〕
+## 9. UI 开发方式与调参地图（本域硬规则）〔源: architecture/14 §13.1/§13.2/§10/§7 + 05 §5.19 + 已收敛的仓库根 `UI-ADJUST.md`〕
 
-1. **尺寸默认值写在 XAML**（`Width/Height/MinWidth/MinHeight`）；**信息量变化不得改变外层容器尺寸**；排不下 ⇒ 加子区 `ScrollViewer`。
-2. **不在运行时用代码算布局**（元素→高度表这类做法已删除）；样式与尺寸一律走全局样式与 token（`Ui/Styles/Tokens.axaml`、`Ui/Styles/Controls.axaml`）。
-3. **允许留在代码里的只有三处**（已登记，非遗漏）：① 用户拖动/缩放过的几何（随组合件恢复 —— 那是"用户的布局"）；② 外壳比例设置（"设置覆盖 XAML 默认值"）；③ 端口标记 / 叠加连线 / 参考线的**自绘**（贴在预留带内的领域标准件，不是通用布局）。
-4. **视图必须有设计时数据**（`d:DataContext` + `d:DesignWidth/Height`；`Ui/Design/DesignData.cs`、`FrameworkUi/Design/ShellDesignData.cs`），保证在 VS 设计器里能直接预览与调样式。
-5. **说明文本不占版面**：教程式段落改为悬停提示，或**问号按钮 + `Flyout` 弹窗**（不改变布局）；分区一律带边框。
+### 9.1 约定（六条原则 · 两条硬规则 · 三处例外）
 
-**文件 → 界面部位对照**（改哪里 = 改哪个文件）〔源: architecture/14 §7 + 05 §5.19〕：
-
-| 界面部位 | 文件 |
+| 原则 | 具体含义 |
 |---|---|
-| 外壳（活动栏 + 侧边界面 + 状态栏） | `src/FrameworkUi/Views/MainWindow.axaml(.cs)` · VM：`FrameworkUi/ViewModels/ShellViewModel.cs` |
-| 弹窗宿主（尺寸/标题栏） | `src/FrameworkUi/Views/DialogWindow.axaml` |
-| 模块清单页 / 交互页 / 设置页 / Issue 页 / 拓扑页 | `src/FrameworkUi/Views/{ModuleCatalogView,InteractionView,SettingsView,IssuesView,TopologyView}.axaml`（VM 在同名 `ViewModels/*`） |
-| 调色板窗口（取色，可复用） | `src/FrameworkUi/Views/ColorPickerDialog.axaml` |
-| 模块窗口（边框、按钮簇、运行指示、口标记、叠加层） | `src/Ui/Views/ModuleWindow.axaml(.cs)` |
-| 模块窗口内容与配置表单 | `src/Ui/Views/{ModuleContentView,ConfigurationFormView,TextSurface}.axaml` |
-| 视觉 token（颜色/字体/控件高度/圆角/图标字形） | `src/Ui/Styles/Tokens.axaml` · `src/Ui/Styles/Controls.axaml` |
-| 模块自己的界面 | **不是 XAML**：模块在 C# 里声明（`OnRegistered → DeclareView`），由框架模板渲染 |
+| **① 尺寸默认值写在 XAML** | 窗口/控件的默认尺寸、最小尺寸、内边距、间距**全部写在 axaml 里**（如 `ModuleWindow.axaml` 的 `Width/Height/MinWidth/MinHeight`、`DialogWindow.axaml` 的 `Width/Height`）。代码里**没有**"按内容估算尺寸"的逻辑。 |
+| **② 外层容器尺寸固定** | 外层窗口尺寸**不随信息量变化**。内容排不下 → **子容器的 ScrollViewer 出滚动条**（不是把窗口撑大）。 |
+| **③ 按钮排版固定** | 按钮行/工具栏的位置与排列是静态布局，不因内容增删而移动。 |
+| **④ 设计时可预览** | 每个视图都有 `d:DataContext`（设计时样例数据）→ **VS 设计器里能看到有内容的界面**并直接调样式。 |
+| **⑤ 代码只管"事实"，不管"外观"** | 代码只做三件事：把**用户拖过的**几何从组合件恢复、把**设置里选的**比例/主题应用上、把**领域标准件**（端口标记/连线/参考线）画出来。其余一切外观都在 XAML。 |
+| **⑥ 帮助一律弹窗、区域一律有边框**（第十轮） | 帮助 = 小号**带边框**问号按钮（`Button.helpIcon`，16×16）+ `Flyout` 文本弹窗——**不展开、不改变布局**，各分区**右侧/右下角且 X 对齐**；列表/分区用 `Border.pane` / `ListBox` 的 1 px 边框表达边界。 |
 
-> 源码级调参指南（token 表 · 加设置项步骤 · 逐轮改动位置 · 验证档位）见代码仓库 `HYWDebugAssistant/UI-ADJUST.md`。
+**由此得到的两条硬规则（改代码时也要守）**：
+1. 想改"某个屏幕上的尺寸" → 改 **XAML 里的字面值**，不要在 C# 里算；
+2. 数据多到放不下 → 加 `ScrollViewer`，不要把外层改大。
+
+> 例外（**必须**留在代码里的三处，已在文档登记）：① 用户拖动/缩放过的几何（随组合件保存）；② 外壳比例设置（你要求做成设置项）；③ 端口标记/叠加连线/参考线的自绘（贴在预留带内的领域标准件）。
+
+> 原 §9 硬规则里只此两处的交叉引用，随本节保留：模块窗口的尺寸与约束一律由包内 `view.json` 的 `frame.window` 声明、缺省与地板由 schema 给出（`ModuleWindow.axaml` 只剩 `Width`/`Height`/`d:DesignWidth`/`d:DesignHeight` 供设计器预览，**不再有 `MinWidth`/`MinHeight`**，`../decisions.md` 7.63）；**地板数值也不在代码里** —— 它是 schema 的 `window.min*` 缺省，`PortMarkerMetrics.MinWindowExtent` 只是它的几何依据。
+### 9.2 文件 → 界面部位对照（改哪里 = 改哪个文件）
+
+| 界面部位 | 文件 | 备注 |
+|---|---|---|
+| **外壳主窗口**（活动栏 A + 侧边界面 B + 状态栏） | `src/FrameworkUi/Views/MainWindow.axaml`（+ `.axaml.cs`） | 活动栏按钮样式在该文件的 `Window.Styles`（`Button.rail`、`Rectangle.railMark`） |
+| 外壳视图模型（当前页、比例、开关、状态栏文本） | `src/FrameworkUi/ViewModels/ShellViewModel.cs` | 状态栏文案在 `UpdateStatus()` |
+| **交互页**（显示/交互/窗口三组开关） | `src/FrameworkUi/Views/InteractionView.axaml` | 就 20 行，随便改 |
+| **模块清单页**（缩略图 + 加入现场 + 加载 + 来源诊断） | `src/FrameworkUi/Views/ModuleCatalogView.axaml` | 单列自上而下；缩略图占位在列表项模板里 |
+| **设置弹窗**（七类） | `src/FrameworkUi/Views/SettingsView.axaml` | 左分类样式在文件顶部 `UserControl.Styles`（字号 12 / 行高 28 / 宽 132） |
+| **拓扑诊断 / Issue / 帮助** 弹窗 | `src/FrameworkUi/Views/{TopologyView,IssuesView}.axaml` + `DialogWindow.axaml` | **弹窗尺寸固定写在 `DialogWindow.axaml`（780×620，`SizeToContent="Manual"`）**，四个种类**共用这一组**、代码后置**不再按种类覆盖**（2026-09 统一）；子内容排不下由各自的 `ScrollViewer` 滚动 |
+| **模块窗口**（边框、按钮簇、运行指示、端口标记、叠加层） | `src/Ui/Views/ModuleWindow.axaml`（+ `.axaml.cs`） | 窗口级样式在该文件 `Window.Styles`（`handle`、`Cluster`、`Frame.selected`） |
+| **模块窗口内容**（数值/曲线/日志/命令/输入/开关的模板） | `src/Ui/Views/ModuleContentView.axaml` | 每种元素一个 `DataTemplate`；**元素之间的间距 = 该文件里 `ModuleElementPanel` 的 `Spacing`**（现为 `2`）；**内容四周留白 = 外层 `ScrollViewer` 的 `Margin="20,22,20,24"`**（上 22 给按钮簇、下 24 给状态行，左右 20 = 端口标记预留带；**必须是 `Margin` 不能是 `Padding`**——`Padding` 会把端口标记带算进客户区，实测踩过）。这两处是"布局紧不紧凑"直接可调的旋钮 |
+| **模块内容的"高度分配"**（谁随窗口拉伸、谁按内容高） | `src/Ui/Controls/ModuleElementPanel.cs` | **填满型** = A5 文本日志 + 多行输入（分走剩余高度、内部滚动）；**按内容型** = 其余元素。填满型的**最小高度**：日志 `LogMinHeight = 88`、多行输入取 `TextInputElementViewModel.EditorMinHeight`（60） |
+| 配置表单（字段行、控件类型） | `src/Ui/Views/ConfigurationFormView.axaml` | **框架不再自动补**这张表单（2026-09 用户裁定"删除整个配置框"）：只有模块**显式声明** B1 才渲染 |
+| 文本日志（显示区） | `src/Ui/Controls/TextSurface.axaml` | 只读虚拟化行列表；**行距/字号**在该文件顶部的 `ListBoxItem` / `SelectableTextBlock` 样式里 |
+| **文本框字体**（输入框 + 显示框） | **设置 → 外观与显示 → 「界面字体」/「数据字体」**（设置模型 `ApplicationSettings.UiFontFamily` / `DataFontFamily`；资源键 `FontUi` / `FontData`，落在 `src/Ui/Styles/Tokens.axaml`） | 默认：界面 `Segoe UI, Microsoft YaHei UI`；**数据 `Times New Roman, 宋体`**。下拉读**系统已有字体**、可手输回退列表（逗号分隔）；改动即时生效 |
+| 输入框的**光标/文字垂直位置** | `src/Ui/Views/ModuleContentView.axaml` 顶部的 `TextBox` 样式 | **单行垂直居中、多行顶端左对齐**（`Classes.multiline` 区分） |
+| 曲线绘制 | `src/Ui/Controls/CurveControl.cs` | 纯绘制代码 |
+| **端口标记排布**（贴边、边感知、预留带） | `src/Ui/Controls/PortMarkerPanel.cs` | `BandThickness=20`、`EdgeInset=-1`（标记压到窗口外框上） |
+| **对齐参考线 / 缩放高亮** | `src/Ui/Controls/GuideOverlay.cs` | 坐标换算：屏幕物理像素 ÷ `RenderScaling` |
+| **叠加信息层**（连接线/流向/对端标签） | `src/Ui/Controls/ConnectionOverlay.cs` | 连线色/箭头色在 `ModuleWindow.axaml` 里绑 `AccentSecondary`/`AccentPrimary` |
+| 模块**视图声明**（发送器这类模块长什么样） | `src/Modules/Business/TextSender/TextSenderModule.cs` 的 `OnRegistered` → `DeclareView(...)` | **不是 XAML**：模块只声明元素，框架按模板渲染；**模块默认尺寸**也在同一个调用里（`{ PreferredWidth = 340, PreferredHeight = 230 }`，见 `src/Sdk/Views/ViewDeclaration.cs`） |
+| **「还原」范围确认弹窗** | `src/Ui/Views/ResetModuleDialog.axaml`（+ `.axaml.cs`）· `src/Ui/ViewModels/ModuleResetScope.cs` | 三选一（只还原尺寸 / 尺寸和配置都还原 / 取消）；按钮簇在 `ModuleWindow.axaml` 的 `ResetButton` |
+| 设置页与主界面的**同名开关** | `src/FrameworkUi/ViewModels/SettingsPanelViewModel.cs`（`Owner` 委托外壳） | 改开关行为只改 `ShellViewModel` 那一处，两个界面自动一致 |
+| 活动栏/窗口图标字体可用性 | `src/Ui/Styles/Tokens.axaml` 的注释表 | 若某个字形显示成方块，把对应 `Glyph*` 改成注释表里的其他码位 |
+
+### 9.3 界面文本的三种写法
+
+| 场景 | 写法 | 示例 |
+|---|---|---|
+| 一句短语（≤ 12 字） | 直接显示 | `<CheckBox Content="几何吸附" .../>` |
+| 一句解释（一句话说清） | **悬停提示**，不占版面 | `<CheckBox Content="几何吸附" ToolTip.Tip="拖动时…" />` |
+| 长说明（多句 / 教程） | **问号按钮 + 弹窗**（第十轮起：不再就地展开） | `Button.helpIcon` + `Button.Flyout` |
+
+**问号按钮 + 弹窗文本**（纯 XAML，**不需要改视图模型**，且关闭后不留痕）：
+
+```xml
+<Grid ColumnDefinitions="*,Auto">
+    <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="分区标题" />
+    <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="说明">
+        <Button.Flyout>
+            <Flyout Placement="TopEdgeAlignedRight">
+                <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11" Text="这里是说明文本……" />
+            </Flyout>
+        </Button.Flyout>
+    </Button>
+</Grid>
+```
+
+要点：
+- `Classes="helpIcon"`（`Controls.axaml`）：16×16、圆角、**1 px 边框**、内容自动是 `?`、悬停变主色；
+- 放在分区的**右侧/右下角**，右边距保持 4 px → 各按钮 **X 坐标一致**；
+- 弹窗内容**只放文字**（不放控件、不放会改变布局的东西）。
+- `Classes="note"` = 10 px 弱化色 + 自动换行的说明文本样式。
+
+### 9.4 模块清单页的结构
+
+`src/FrameworkUi/Views/ModuleCatalogView.axaml` —— **自上而下 6 段**（改顺序/高度/间距都在这个文件的 `RowDefinitions` 与各段里）：
+
+| 段 | 内容 | 关键约束 |
+|---|---|---|
+| ① | 搜索框 | 整行宽 |
+| ② | **分类标签**（`Button.tab`，`Width=64` 固定，图标 + 数量） | **固定宽度** → 切换分类不推动其它控件 |
+| ③ | **模块列表**（`Border.pane` + `ListBox`，占 `*` 行） | **区域固定**、内部滚动；底行左「加入现场」右帮助 |
+| ④ | 目录操作行：添加目录… / 删除选中 / 重新加载 | 显式在页面上（不藏帮助里） |
+| ⑤ | **来源根列表**（`Border.pane`，`Height=120` 固定；一行一个、路径中间省略、行尾小按钮打开目录） | 高度固定；全路径在悬停提示里 |
+| ⑥ | 加载模块包（输入框 + 选择… + 加载） | 显式在页面上 |
+
+| 想改什么 | 改哪里 |
+|---|---|
+| 分类项（图标 / 名称 / 顺序） | `src/FrameworkUi/ViewModels/ModuleCatalogViewModel.cs` 的 `ModuleCategories.Definitions`（键 · MDL2 字形 · 悬停说明） |
+| 标签 → 分类的映射规则 | 同文件的 `ModuleCategories.FromTags(...)`；**模块侧**在 `ModuleDefinitionAttribute(Tags = [...])` 里声明 |
+| 分类标签外观 / 宽度 | `ModuleCatalogView.axaml` 第 ② 段（`Width="64"`、样式 `Button.tab` 在 `Controls.axaml`） |
+| 列表/来源区高度 | 同文件 `RowDefinitions`（列表 = `*`；来源区 = `Height="120"`） |
+| 搜索匹配范围 | `ModuleCatalogViewModel.ApplyFilter()`（当前匹配 展示名 + 描述，忽略大小写） |
+| 路径省略规则 | `ModuleSourceRowViewModel.Display`（层级 ≤ 3 原样，否则 `…\倒数第二级\末级`） |
+
+> 分类标签**只用图标 + 数量**（悬停显示名称），列表项**只显示名称**（描述在悬停提示里）——"首屏信息量小、面积给列表、尺寸不随内容变"。
+
+### 9.5 弹窗尺寸与换行
+
+- `DialogWindow.axaml`：**宽度固定 780** + `SizeToContent="Height"`（高度随内容），`MaxHeight=880`（超出时内容区滚动）。
+- **为什么不能都自适应**：`SizeToContent="WidthAndHeight"` 会让带 `TextWrapping` 的文本拿到"无限可用宽度"→ **永不换行**（只有手动缩小窗口才换行）。若你希望某个弹窗更宽/更窄，改这里的 `Width` 即可。
+
+### 9.6 想加一个"设置项"或"图标入口"
+
+1. **字段**：`src/Core.Api/ApplicationSettings.cs` 加属性（**只增不改 = 兼容扩展**）；
+2. **读写**：`src/Core/Settings/SettingsService.cs` 的 `FromJson` / `MergeInto` 各加一行（新键优先、旧键可回退）；
+3. **面板**：`src/FrameworkUi/ViewModels/SettingsPanelViewModel.cs` 加 `[ObservableProperty]` + 在 `Load()`/`Apply()`/回读处各一行；
+4. **界面**：`SettingsView.axaml` 对应分类里加控件；
+5. **生效**：若要在界面即时生效，参考 `SettingsPanelViewModel.ApplyAppearance()` 的写法。
+
+> 布局旋钮现值与 token 键名对应见 `07-overlay-and-visual-baseline.md` §「取值纪律」；逐轮 UI 反馈的**改动位置档案**见 `../journal/ui-adjust-rounds.md`（历史材料 · 不作为依据）；**验证档位**见 `../implementation/07-dev-inner-loop.md` §1/§2 与 `09-test-and-gate.md` §5。
 
 ---
 
@@ -271,6 +364,5 @@
 
 - **人机操作通道 = 收件箱拉取式（已裁定）**：模块从 `IModuleContext.Inbox`（`IModuleInbox.TryDequeueCommand` / `TryDequeueInput`）自己取，**框架不跨线程调模块**；**推送式 `IModule.OnCommand` / `OnInput` 作废**，**ADR-0040 的推送式条款（D1/D2）已不适用**（历史见归档）。本文件 §7 即按此写。仍有效的语义：**失败转 Issue、输入一次提交、开关松手写入**〔源: 用户裁定 + 05 §5.20 + `ModuleContext.BoundedInbox`〕。
 - **取色器形态 = 取色窗口提供 HSV 分量页签（已裁定）**：**以已落地的调色板窗口为准** —— `ColorPickerDialog` 内的 `ColorView` 自带"**光谱 / 分量 / 十六进制**"页签，**分量页签含 HSV 滑块**（`IsColorComponentsVisible` + `IsComponentSliderVisible`，光谱 = `HueSaturation`）⇒ **ADR-0041 D5 的"不做 HSV 滑杆"已不适用**（历史见归档；仍不做取色环 / 屏幕吸管）〔源: 用户裁定 + 代码 `src/FrameworkUi/Views/ColorPickerDialog.axaml`（L34–L48）+ ADR-0054〕。
-- **外壳最小尺寸 = 360×360（以代码为准）**：实现 `MainWindow.axaml` = **默认 `396×858`、最小 `360×360`**（`MinWidth=360` / `MinHeight=360`）；模块窗 `ModuleWindow.axaml` = **默认 320×220、最小 180×160**（**2026-09：最小高 120 → 160**，由端口标记长度推出；模块可用 `ViewDeclaration.PreferredWidth/PreferredHeight` 覆盖默认值）。**ADR-0038 的"最小 360×640"与实现不一致（历史值，见归档）**〔源: 用户裁定 + 代码 `src/FrameworkUi/Views/MainWindow.axaml` L14–L15、`src/Ui/Views/ModuleWindow.axaml` L18–L19、`src/Ui/ViewModels/ModuleViewViewModel.cs`（`DefaultWidth=320` / `DefaultHeight=220` / `MinHeight=PortMarkerMetrics.MinWindowExtent`）〕。**附带发现（遗留）**：`ShellLayout.cs` 声明 `MinWidth=360` / `MinHeight=480`，但**全仓无任何引用**（有效最小值只来自 XAML 的 360×360）⇒ 两处常量不一致，建议后续二选一收口。
+- **外壳最小尺寸 = 360×360（以代码为准）**：实现 `MainWindow.axaml` = **默认 `396×858`、最小 `360×360`**（`MinWidth=360` / `MinHeight=360`）；模块窗 = **默认 320×220、最小 180×160**（**2026-09：最小高 120 → 160**，由端口标记长度推出）——**这四个数现在只写在包声明 schema 里**（`view.schema.json` 的 `window.*` 缺省值 = 模块窗的默认与地板），模块可在包内 `view.json` 的 `frame.window` 里抬高下限，渲染侧不留字面量（`decisions.md` 7.63）。**ADR-0038 的"最小 360×640"与实现不一致（历史值，见归档）**〔源: 用户裁定 + 代码 `src/FrameworkUi/Views/MainWindow.axaml` L14–L15、`src/Hosting/Packages/schema/view.schema.json`（`window` 段缺省）、`src/Ui/ViewModels/ModuleViewViewModel.cs`（尺寸全部取自声明 `window`，无默认字面量）、`src/Ui/Geometry/PortMarkerMetrics.cs`（`MinWindowExtent` = 地板的几何依据）〕。**附带发现（遗留 · G12）**：`ShellLayout.cs` 声明 `MinWidth=360` / `MinHeight=480`，但**全仓无任何引用**（有效最小值只来自 XAML 的 360×360）⇒ 两处常量不一致，建议后续二选一收口。
 
-> 上述三条均已在 `.reorg/conflicts.md` 登记对应条目，本轮按本节的裁定收口。

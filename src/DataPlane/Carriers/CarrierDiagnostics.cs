@@ -7,8 +7,8 @@ namespace HYWDebugAssistant.DataPlane.Carriers;
 /// </summary>
 /// <remarks>
 /// 这些数据**只在框架侧**用于诊断呈现（主文档 §5.4.2：框架不把元信息写入数据面）。
-/// **【ADR-0050 Q6(c)】** 薄旁路头只在多源网络上存在 ⇒ <see cref="Headered"/> 在单源网络上**恒为 0**
-/// （这也正是"单源零附加"的可断言证据）。
+/// 薄旁路头只在多源网络上存在 ⇒ <see cref="Headered"/> 在单源网络上**恒为 0**
+/// （这也正是「单源零附加」的可断言证据）。
 /// </remarks>
 public sealed class CarrierDiagnostics
 {
@@ -31,7 +31,7 @@ public sealed class CarrierDiagnostics
     public long Dropped => Interlocked.Read(ref _dropped);
 
     /// <summary>
-    /// **带薄旁路头投递的数据报数**【ADR-0050 Q6(c)】：**仅多源网络**会上报；单源网络恒为 0。
+    /// **带薄旁路头投递的数据报数**：**仅多源网络**会上报；单源网络恒为 0。
     /// </summary>
     public long Headered => Interlocked.Read(ref _headered);
 

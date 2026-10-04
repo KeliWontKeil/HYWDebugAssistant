@@ -3,7 +3,7 @@ using HYWDebugAssistant.Core.Composition;
 namespace HYWDebugAssistant.Core.Binding;
 
 /// <summary>
-/// 绑定集：**不可变快照**，投递路径读快照、管理路径原子替换（ADR-0029 §4.2）。
+/// 绑定集：**不可变快照**，投递路径读快照、管理路径原子替换。
 /// </summary>
 /// <remarks>
 /// 为什么用不可变快照：投递发生在模块线程、增删发生在管理线程；快照替换让**投递无锁**且始终看到一致视图。

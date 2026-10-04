@@ -7,7 +7,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// **"整体测试单元"的端到端验收**〔2026-09 用户裁定："四个模块组成了最基础的**整体测试单元**"〕。
+/// **「整体测试单元」的端到端验收**：四个模块组成最基础的**整体测试单元**。
 /// </summary>
 /// <remarks>
 /// <para>
@@ -53,8 +53,8 @@ public class BusinessModulesIntegrationTests
         services.AddModule("m1", MonitorId).Succeeded.ShouldBeTrue();
         services.AddModule("c1", ConverterId).Succeeded.ShouldBeTrue();
 
-        // ② 建网：给三个口**同一个标签** ⇒ 框架建出**一条多源网络**（ADR-0050：多源是合法的一等组合）
-        // —— 这也正是界面上用户的做法（改端口标签），比逐条 Connect 更贴近真实用法。
+        // ② 建网：给三个口**同一个标签** ⇒ 框架建出**一条多源网络**（多源是合法的一等组合）
+        // —— 这也正是界面上的做法（改端口标签），比逐条 Connect 更贴近真实用法。
         SetLabel(runtime, "t1", "out", "bus");
         SetLabel(runtime, "h1", "out", "bus");
         SetLabel(runtime, "m1", "in", "bus");
@@ -68,7 +68,7 @@ public class BusinessModulesIntegrationTests
         viewState.SetInputText("t1", "text1", "Hello 整体测试单元");
         services.SendCommand("t1", "send").Succeeded.ShouldBeTrue();
 
-        // ④ 数据真的到了显示器的**显示区**〔2026-09 用户裁定：通道只增 `AppendText`/`AppendLine`〕。
+        // ④ 数据真的到了显示器的**显示区**：通道只增 `AppendText`/`AppendLine`。
         // 读法与 UI 完全相同：显示缓冲由框架持有，模块经 `IViewDisplayAccess` 追加、UI 在刷新节拍里落地，
         // 而"回读"这条路径（模块保存用的就是它）会把**还没被 UI 取走的追加**一起叠进来 ⇒ 无 UI 也能读到。
         var shown = WaitForDisplayLines(viewState, "m1", "log", text => text.Contains("Hello", StringComparison.Ordinal));
@@ -93,7 +93,7 @@ public class BusinessModulesIntegrationTests
     /// **声明在容器里的输入也要能被提交**（框架缺陷回归网）。
     /// </summary>
     /// <remarks>
-    /// 背景：`SubmitInput` 的校验原先把"模块声明了哪些输入"**只看顶层元素** ⇒ 宣言在 `TabPages` 页内
+    /// 背景：`SubmitInput` 的校验**只看顶层元素**就会漏掉宣言在 `TabPages` 页内
     /// （四个基础模块正是这种形态：多页输入框）的输入一律被判"**模块未声明该输入**"而拒绝
     /// —— 现象 = 在页内输入框里回车**没有任何反应**。修法 = 校验前**展平**元素树。
     /// 本用例用一个"输入在容器里"的最小模块把这个坑钉住（与 G4 的 `FileSelector` 漏判同类）。
@@ -115,7 +115,7 @@ public class BusinessModulesIntegrationTests
             null,
             true,
             typeof(NestedInputModule),
-            string.Empty,
+            NestedInputPackage,
             string.Empty);
 
         services.Registry.TryRegister(definition, out var failure).ShouldBeTrue(failure);
@@ -129,6 +129,32 @@ public class BusinessModulesIntegrationTests
         services.SubmitInput("n1", "不存在", "x").Succeeded.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// 桩模块的包目录：页内输入的声明**只在包内 `view.json`**（代码侧不再声明视图）。
+    /// </summary>
+    private static readonly string NestedInputPackage = TempViewPackage.Create(
+        "business-nested-input",
+        """
+        {
+          "version": 1,
+          "sources": [ { "name": "nested1", "kind": "Text" } ],
+          "views": [
+            {
+              "root": {
+                "kind": "tabs",
+                "children": [
+                  {
+                    "kind": "group",
+                    "title": "第 1 页",
+                    "children": [ { "kind": "textInput", "title": "内容", "input": "nested1" } ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+        """);
+
     /// <summary>测试夹具：输入声明在 `TabPages` 页内的最小模块。</summary>
     [HYWDebugAssistant.Sdk.ModuleDefinition("test", "nested-input", "1.0.0")]
     public sealed class NestedInputModule : HYWDebugAssistant.Sdk.Lifecycle.IModule
@@ -138,29 +164,11 @@ public class BusinessModulesIntegrationTests
 
         /// <inheritdoc />
         public void OnRegistered(HYWDebugAssistant.Sdk.Context.IModuleContext context) =>
-            context.Declaration.DeclareView(new HYWDebugAssistant.Sdk.Views.ViewDeclaration(
-                [
-                    new HYWDebugAssistant.Sdk.Views.ViewElement(
-                        HYWDebugAssistant.Sdk.Views.ViewElementKind.TabPages,
-                        children:
-                        [
-                            new HYWDebugAssistant.Sdk.Views.ViewElement(
-                                HYWDebugAssistant.Sdk.Views.ViewElementKind.Group,
-                                title: "第 1 页",
-                                children:
-                                [
-                                    new HYWDebugAssistant.Sdk.Views.ViewElement(
-                                        HYWDebugAssistant.Sdk.Views.ViewElementKind.TextInput,
-                                        NestedSource,
-                                        "内容"),
-                                ]),
-                        ]),
-                ],
-                dataSources: [new HYWDebugAssistant.Sdk.Views.ViewDataSource(NestedSource, kind: HYWDebugAssistant.Sdk.Views.ViewDataSourceKind.Text)]));
+            ArgumentNullException.ThrowIfNull(context);
     }
 
     /// <summary>
-    /// 显示器**清空**：模块请求 ⇒ 框架执行（模块不留副本 ⇒ 只能请求；`decisions.md` 7.32）。
+    /// 显示器**清空**：模块请求 ⇒ 框架执行（模块不留副本 ⇒ 只能请求）。
     /// </summary>
     [Fact]
     public void 整体测试单元_显示器的清空应真的把显示缓冲清掉()

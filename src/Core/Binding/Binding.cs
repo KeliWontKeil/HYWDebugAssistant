@@ -4,14 +4,14 @@ using HYWDebugAssistant.Sdk.Contracts;
 namespace HYWDebugAssistant.Core.Binding;
 
 /// <summary>
-/// **未投递原因**（ADR-0046 D8 / ADR-0050 Q5：丢弃必须分类，不得混算）。
+/// **未投递原因**（丢弃必须分类，不得混算）。
 /// </summary>
 public enum DropReason
 {
     /// <summary>**停流未投递**：上游挂起（`Disabled`）或网络停流 —— **合法状态，不是故障**。</summary>
     Stalled = 0,
 
-    /// <summary>**队列满**：目标实例输入队列已满（best-effort 丢弃，ADR-0050 D1）。</summary>
+    /// <summary>**队列满**：目标实例输入队列已满（best-effort 丢弃）。</summary>
     QueueFull = 1,
 
     /// <summary>**无承载**：目标的承载（线程/队列）不存在或未就绪。</summary>
@@ -26,7 +26,7 @@ public enum DropReason
 /// </summary>
 /// <remarks>
 /// 这些数据只在框架侧用于诊断呈现，**不进数据面**（主文档 §5.4.2）。
-/// **【ADR-0050 Q5】** 丢弃**按原因分类**（`DroppedByReason`）：`停流未投递` 与 `传输丢弃` 不得混算；
+/// 丢弃**按原因分类**（`DroppedByReason`）：`停流未投递` 与 `传输丢弃` 不得混算；
 /// `Dropped` 保留为**总数**（向后兼容，等于各原因之和）。
 /// </remarks>
 public sealed class BindingDiagnostics
@@ -45,8 +45,8 @@ public sealed class BindingDiagnostics
     /// **该源发布的数据报数**（**每个数据报一次**——与按宿计的 <see cref="Delivered"/> 区分）。
     /// </summary>
     /// <remarks>
-    /// 【ADR-0046 D8】"**单元速率（按源计）**"的分母即本计数（**多播不会把它放大**）；
-    /// 【ADR-0050 Q6(c)】**多源网络薄旁路头的序号来源**（序号按源递增，1 起）。
+    /// "**单元速率（按源计）**"的分母即本计数（**多播不会把它放大**）；
+    /// **多源网络薄旁路头的序号来源**（序号按源递增，1 起）。
     /// </remarks>
     public long Published => Interlocked.Read(ref _published);
 
@@ -79,7 +79,7 @@ public sealed class BindingDiagnostics
     /// </summary>
     /// <param name="payloadBytes">
     /// 本次数据报的**有效字节数**（业务数据；由 <see cref="Binding.PayloadBytesOfUnit"/> 给出）——
-    /// 第 3 档速率（有效载荷字节速率）的分子即本累计值（2026-09 用户裁定"速率只要有效数据"）。
+    /// 第 3 档速率（有效载荷字节速率）的分子即本累计值（速率只计有效数据）。
     /// </param>
     /// <remarks>
     /// 在宿循环**之前**调用，故它不受多播放大、也不因某个宿满队而漏计（与"按源计"的口径一致）。
@@ -126,7 +126,7 @@ public sealed class BindingDiagnostics
 /// <list type="bullet">
 ///   <item><b>数据直通</b>：绑定把单元直接写入目标实例的输入队列，Core **不经手数据**（§7.2/P2/E1）；</item>
 ///   <item><b>1:N 多播</b>：目标列表逐个写入，无转发对象；</item>
-///   <item><b>契约</b>：以源口的契约为准（目标契约已在建网时校验为"接收 ⊇ 发送"）；</item>
+///   <item><b>契约</b>：以源口的契约为准（目标契约已在建网时校验为"形状 + 类型身份一致"）；</item>
 ///   <item><b>生命周期</b>：绑定随网络存在；网络删除即绑定销毁（`Disabled` 时保留但停流，见数据面队列）。</item>
 /// </list>
 /// </remarks>
@@ -141,7 +141,7 @@ public sealed class Binding
     }
 
     /// <summary>
-    /// 创建绑定（**逐源**）【ADR-0050 M2/M7】：多源网络为**每个源各建一条绑定**，
+    /// 创建绑定（**逐源**）：多源网络为**每个源各建一条绑定**，
     /// 绑定携带**它自己的源**与**该源可用的宿子集**（逐 (源,宿) 对兼容过滤的结果）。
     /// </summary>
     /// <param name="network">对应的网络声明。</param>
@@ -150,7 +150,7 @@ public sealed class Binding
     /// <param name="layout">该源口的契约布局。</param>
     /// <param name="metering">
     /// 源口**类型声明的计量块**（未声明类型 ⇒ <see langword="null"/> = 用缺省：有效载荷 = 契约尺寸、
-    /// 每单元 1 样本 1 通道、无标称速率）【ADR-0046 D8】。
+    /// 每单元 1 样本 1 通道、无标称速率）。
     /// </param>
     public Binding(
         Network network,
@@ -192,12 +192,12 @@ public sealed class Binding
     public ContractLayout Layout { get; }
 
     /// <summary>
-    /// **计量块**（来自源口类型的声明；未声明类型 ⇒ 缺省值）【ADR-0046 D8】。
+    /// **计量块**（来自源口类型的声明；未声明类型 ⇒ 缺省值）。
     /// </summary>
     /// <remarks>
     /// 框架据它**机械**给出四档速率（零解析）：有效载荷字节速率 · 样本 / 通道样本速率；
     /// 缺省语义：`PayloadSizeInBytes` 空 ⇒ 取 <see cref="Layout"/> 的契约尺寸；
-    /// 声明了 `PayloadLengthField` ⇒ **逐单元**读那个字段（变长载荷的真实有效字节，2026-09 用户裁定）。
+    /// 声明了 `PayloadLengthField` ⇒ **逐单元**读那个字段（变长载荷的真实有效字节）。
     /// </remarks>
     public MeteringBlock Metering { get; }
 
@@ -205,7 +205,7 @@ public sealed class Binding
     public BindingDiagnostics Diagnostics { get; } = new();
 
     /// <summary>
-    /// **一个数据单元的"有效字节数"**（有效载荷字节速率的分子；2026-09 用户裁定"速率只要有效数据"）。
+    /// **一个数据单元的"有效字节数"**（有效载荷字节速率的分子；速率只计有效数据）。
     /// </summary>
     /// <param name="unit">数据单元字节（长度已由调用方校验 ≥ 契约尺寸）。</param>
     /// <remarks>

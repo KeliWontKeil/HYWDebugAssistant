@@ -12,7 +12,7 @@ using HYWDebugAssistant.Ui.ViewModels;
 namespace HYWDebugAssistant.Ui.Views;
 
 /// <summary>
-/// **拼图式模块窗口**（ADR-0034 §2）：无边框、自定义拖动/缩放、锁定与按钮簇。
+/// **拼图式模块窗口**：无边框、自定义拖动/缩放、锁定与按钮簇。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -23,7 +23,7 @@ namespace HYWDebugAssistant.Ui.Views;
 ///   <item>锁定（O-3）：按住边框也**不拖动、不缩放、不选中**（内容照常刷新）；</item>
 ///   <item><b>口标记的标签编辑在本类</b>（M1-17 后修复）：标记层是窗口级覆盖层、压在交互带之上，
 ///     控制器在**手势发生时**直接取（不再依赖"装载时把控制器传给内容视图"那种时序交接——
-///     此前 <c>DataContext</c> 先于 <c>Controller</c> 赋值，交接拿到的永远是 <c>null</c>，
+///     <c>DataContext</c> 若先于 <c>Controller</c> 赋值，交接拿到的永远是 <c>null</c>，
 ///     于是提交被静默取消：弹窗一关、什么都没发生）。</item>
 /// </list>
 /// </remarks>
@@ -62,10 +62,10 @@ public partial class ModuleWindow : Window
     /// 没有它，标记会在拖动第一帧"跳"到指针中心（抓端部时能跳半个标记长）；跨边后作废重算
     /// （不同轴的归一化位置没有可比性）。
     /// <para>
-    /// <b>必须用"按下时"的指针位置来算</b>（2026-09 缺陷）：曾用**当前这次移动**的指针位置 ⇒
+    /// <b>必须用"按下时"的指针位置来算</b>：若改用**当前这次移动**的指针位置 ⇒
     /// <c>Δ = 偏移×长度 − 指针轴</c>，代回去得到 <c>新偏移 ≡ 旧偏移</c> ——
     /// **同一条边内的拖动永远原地不动**；跨边时因换轴会把 Δ 清零，才"看起来能动"，把这个缺陷藏住了。
-    /// 用户实测报"解锁了但拖不动"，用例当时只跨边拖 ⇒ 漏掉。
+    /// 只跨边拖的用例漏掉了这条路径，表现为「解锁了但拖不动」。
     /// </para>
     /// </remarks>
     private double _anchorDelta;
@@ -410,7 +410,7 @@ public partial class ModuleWindow : Window
 
         var proposed = Math.Clamp((axis + _anchorDelta) / extent, 0, 1);
 
-        // 【G5 追加 · 用户 2026-09】"连接对齐"吸附：模块已拼在一起、两个口只差对齐时，
+        // "连接对齐"吸附：模块已拼在一起、两个口只差对齐时，
         // 把标记吸到**能连上**的位置并高亮两侧（判据在 Core，复用建网判定 ⇒ 吸得上就一定连得上）。
         marker.Offset = Module is { } module && Controller is { } controller
             ? controller.SnapAnchorToConnection(module, marker, edge, proposed)
@@ -447,7 +447,7 @@ public partial class ModuleWindow : Window
     }
 
     /// <summary>
-    /// 编辑框**挂到可视树之后**再取焦点：此前同步 <c>Focus()</c> 时 DataTemplate 还没实例化，
+    /// 编辑框**挂到可视树之后**再取焦点：同步 <c>Focus()</c> 时 DataTemplate 还没实例化，
     /// 拿不到 TextBox → 用户输入落空。
     /// </summary>
     private void OnLabelEditorAttached(object? sender, VisualTreeAttachmentEventArgs e)
@@ -553,7 +553,7 @@ public partial class ModuleWindow : Window
     {
         if (Module is not { } module || Controller is not { } controller)
         {
-            // **不许静默**：控制器缺失是内部接线错误，就地报出来（此前这里静默取消 → "改标签没反应"）
+            // **不许静默**：控制器缺失是内部接线错误，必须就地报出来（静默取消会表现为「改标签没反应」）
             marker.EditError = "内部错误：未连接到运行时，标签未提交";
             marker.IsEditing = true;
             return;
@@ -588,10 +588,10 @@ public partial class ModuleWindow : Window
     // ---------------------------------------------------------------- 按钮簇
 
     /// <summary>
-    /// 内容区按下 → **取消选中**【M1-16 / ADR-0039 D1】。
+    /// 内容区按下 → **取消选中**。
     /// </summary>
     /// <remarks>
-    /// 用户第六轮反馈："当鼠标点击别处时（比如点击主窗口）取消选中，现在无法取消选中模块"。
+    /// 点击本应用任何别处（含主窗口）都应取消选中。
     /// 边框带按下 = 选中（由拖动路径负责），内容区按下 = 取消选中 → 二者互补，任何点击都有明确结果。
     /// </remarks>
     private void OnContentPressed(object? sender, PointerPressedEventArgs e) =>

@@ -62,7 +62,7 @@ public sealed record ModuleSourceRowViewModel
     public string Directory { get; }
 
     /// <summary>
-    /// **紧凑显示路径**（用户第十轮反馈："一行一个目录，由于空间限制只显示几级，不显示的用省略号"）。
+    /// **紧凑显示路径**（一行一个目录，由于空间限制只显示几级，不显示的用省略号）。
     /// </summary>
     /// <remarks>
     /// 规则：层级 ≤ 3 → 原样；否则 `…\<倒数第二级>\<末级>`（形如 `…\model\modelA`），
@@ -93,14 +93,14 @@ public sealed record ModuleSourceRowViewModel
 }
 
 /// <summary>
-/// 设置面板（应用级设置，ADR-0030 / 04b；界面属 `FrameworkUi`，C4b-2）。
+/// 设置面板（应用级设置；界面属 `FrameworkUi`）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>与"模块配置"严格区分</b>：本面板改的是**应用行为偏好**（跨组合件、不入组合件）；
-///     模块实例的参数在"模块"页里改（§5.6）；</item>
-///   <item><b>即时生效</b>：应用后立刻作用于运行时（§9.5）；校验失败**整体拒绝**并显示原因；</item>
-///   <item>键位/吸附模式等 UI 偏好项暂未纳入（Gate C 定稿，`10` §5）。</item>
+///     模块实例的参数在"模块"页里改；</item>
+///   <item><b>即时生效</b>：应用后立刻作用于运行时；校验失败**整体拒绝**并显示原因；</item>
+///   <item>键位/吸附模式等 UI 偏好项暂未纳入。</item>
 /// </list>
 /// </remarks>
 public sealed partial class SettingsPanelViewModel : ViewModelBase
@@ -148,24 +148,24 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     public partial int UiRefreshRateHz { get; set; } = 60;
 
     /// <summary>
-    /// **吸附距离**（px，2–8，默认 4）——【ADR-0042 D6 / 用户裁决】拖动时的"磁吸半径"：
+    /// **吸附距离**（px，2–8，默认 4）——拖动时的「磁吸半径」：
     /// 越小越跟手（最多滞后一个容差就松手），越大越容易吸上；贴合（相邻边接触）用它的 2 倍。
     /// </summary>
     [ObservableProperty]
     public partial double SnapDistance { get; set; } = 4;
 
     /// <summary>
-    /// **外壳视图模型**（这些"开关类"设置的**唯一事实源**）——【用户第十一轮反馈】
-    /// 交互页与设置页必须**完全联动**（此前设置页各自持有一份副本，两边可以不一致 = "冲突"）。
+    /// **外壳视图模型**（这些「开关类」设置的**唯一事实源**）——
+    /// 交互页与设置页必须**完全联动**（各自持一份副本会让两边不一致 = 冲突）。
     /// </summary>
     public ShellViewModel? Owner { get; set; }
 
-    /// <summary>无 <see cref="Owner"/> 时的回退值（**默认关闭** —— ADR-0045 D1）。</summary>
+    /// <summary>无 <see cref="Owner"/> 时的回退值（**默认关闭**）。</summary>
     private bool _showInfoOverlayFallback;
     private bool _appTopmostFallback;
 
     /// <summary>
-    /// 是否显示**叠加信息层**（ADR-0039 D5）——**与交互页同一个开关**：有 <see cref="Owner"/> 时以它为准。
+    /// 是否显示**叠加信息层**——**与交互页同一个开关**：有 <see cref="Owner"/> 时以它为准。
     /// </summary>
     public bool ShowInfoOverlay
     {
@@ -196,7 +196,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         }
     }
 
-    /// <summary>应用整体置顶（ADR-0036 D5）——**与交互页同一个开关**。</summary>
+    /// <summary>应用整体置顶——**与交互页同一个开关**。</summary>
     public bool AppTopmost
     {
         get => Owner?.AppTopmost ?? _appTopmostFallback;
@@ -237,7 +237,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         _ = _command.UpdateSettings(settings);
     }
 
-    /// <summary>主题（Light / Dark / System）——改动**即时生效**（ADR-0038 D4）。</summary>
+    /// <summary>主题（Light / Dark / System）——改动**即时生效**。</summary>
     [ObservableProperty]
     public partial string Theme { get; set; } = "Light";
 
@@ -254,27 +254,27 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     public partial string BackgroundColor { get; set; } = "#F3F4F6";
 
     /// <summary>
-    /// **界面字体**（2026-09 用户裁定）：框架自身界面文字用的字体族（资源键 `FontUi`）。
+    /// **界面字体**：框架自身界面文字用的字体族（资源键 `FontUi`）。
     /// </summary>
     /// <remarks>可写**回退列表**（逗号分隔，如 <c>Times New Roman, 宋体</c>）；改动即时生效。</remarks>
     [ObservableProperty]
     public partial string UiFontFamily { get; set; } = DefaultUiFontFamily;
 
     /// <summary>
-    /// **数据字体**（2026-09 用户裁定）：**所有输入框与显示框**用的字体族（资源键 `FontData`）。
+    /// **数据字体**：**所有输入框与显示框**用的字体族（资源键 `FontData`）。
     /// </summary>
     [ObservableProperty]
     public partial string DataFontFamily { get; set; } = DefaultDataFontFamily;
 
     /// <summary>
-    /// **系统已有字体**（下拉候选项）——"**读系统已有字体即可**"（用户原话）。
+    /// **系统已有字体**（下拉候选项）——直接读系统已有字体即可。
     /// </summary>
     /// <remarks>
     /// <para>取 Avalonia 的 <c>FontManager.Current.SystemFonts</c>；无字体服务时（无头环境）回落到默认两项。</para>
     /// <para>
-    /// <b>2026-09 缺陷修复</b>（用户实测"设置界面的字体选择框为空"）：候选表里**先是系统字体名（单个名字）**，
-    /// 而设置值是**回退列表**（`Segoe UI, Microsoft YaHei UI` / `Times New Roman, 宋体`）⇒ 非编辑下拉框的
-    /// `SelectedItem` 匹配不到任何一项 ⇒ **显示为空**（用户从列表里选了一个单名保存后就不再出现，正是这个原因）。
+    /// 候选表若**只有系统字体名（单个名字）**，而设置值是**回退列表**
+    /// （`Segoe UI, Microsoft YaHei UI` / `Times New Roman, 宋体`）⇒ 非编辑下拉框的
+    /// `SelectedItem` 匹配不到任何一项 ⇒ **显示为空**。
     /// ⇒ ① 两条**默认回退列表**排在最前面（写回默认值时也选得中）；② 下拉框改为**可编辑**（`IsEditable`）并绑
     /// `Text` ⇒ 任何值都显示得出来、也能手输回退列表。
     /// </para>
@@ -316,11 +316,11 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
 
     partial void OnDataFontFamilyChanged(string value) { /* 同上 */ }
 
-    /// <summary>外壳窗口比例档位（ADR-0038 D2）。</summary>
+    /// <summary>外壳窗口比例档位。</summary>
     [ObservableProperty]
     public partial string ShellAspect { get; set; } = "9:19.5";
 
-    /// <summary>外壳尺寸是否固定（ADR-0038 D2；默认固定）。</summary>
+    /// <summary>外壳尺寸是否固定（默认固定）。</summary>
     [ObservableProperty]
     public partial bool ShellFixedSize { get; set; } = true;
 
@@ -335,11 +335,11 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         [ThemeApplier.BackgroundTheme, ThemeApplier.BackgroundLightGray, ThemeApplier.BackgroundDarkGray, ThemeApplier.BackgroundCustom];
 
     /// <summary>
-    /// **多行文本输入的提交键**（G2 · 2026-09）——三档字符串（值域与 `ApplicationSettings` 一致）。
+    /// **多行文本输入的提交键**——三档字符串（值域与 `ApplicationSettings` 一致）。
     /// </summary>
     /// <remarks>
-    /// 用户 2026-09 裁决："换行是一个极其常见的行为，且**不同用户习惯不一样**" ⇒ 做成**框架级可配置项**，
-    /// 而**不是**模块声明（模块只声明"我要多行"）。**只影响多行输入框**；单行输入仍"回车 / 失焦一次提交"（ADR-0040 D-5）。
+    /// 换行是极常见的行为，且**不同用户习惯不一样** ⇒ 做成**框架级可配置项**，
+    /// 而**不是**模块声明（模块只声明「我要多行」）。**只影响多行输入框**；单行输入仍「回车 / 失焦一次提交」。
     /// </remarks>
     [ObservableProperty]
     public partial string MultilineSubmitKey { get; set; } = "CtrlEnter";
@@ -364,14 +364,14 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
             ? new Avalonia.Media.SolidColorBrush(color)
             : Avalonia.Media.Brushes.Transparent;
 
-    // ---- 方向语义色【ADR-0044】----
+    // ---- 方向语义色 ----
 
     /// <summary>
     /// **发送方向色**（十六进制；**空 = 跟随主题默认值**）。
     /// </summary>
     /// <remarks>
     /// 语义 = 「发送」这一**稳定方向**，消费者：网络标签箭头 / 网络标签边框 / 建网预览描边 / 叠加层流向箭头。
-    /// 与「主题色」**完全解耦**（用户第十四轮 D1a）：主题色只管选中/聚焦/活动等框架性交互。
+    /// 与「主题色」**完全解耦**：主题色只管选中/聚焦/活动等框架性交互。
     /// </remarks>
     [ObservableProperty]
     public partial string DirectionSendColor { get; set; } = string.Empty;
@@ -406,11 +406,10 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
             : Avalonia.Media.Brushes.Transparent;
     }
 
-    // 【2026-09 用户裁定 · 设置生效机制改常规做法】外观改动**不再"改即生效"**：
-    // 这些回调只更新**本页内的色片预览**；真正生效统一走「应用 / 确认」按钮
-    // （用户原话："设置界面建议显式添加确认/取消/应用按钮，修改机制，不使用当前的'修改即应用'机制，
-    //   而是常见的设置更改生效机制"）。⇒ `ApplyAppearance` 已删除（连带 `_appearanceReady` 字段）。
-    // 注意：主题切换后**方向色片要重读资源**（未自定义时取的是"当前主题的有效值"）⇒ 仍在这里发通知。
+    // 外观改动**不是「改即生效」**：这些回调只更新**本页内的色片预览**；
+    // 真正生效统一走「应用 / 确认」按钮。
+    // ⇒ 不再保留 `ApplyAppearance`（连带 `_appearanceReady` 字段）。
+    // 注意：主题切换后**方向色片要重读资源**（未自定义时取的是「当前主题的有效值」）⇒ 仍在这里发通知。
     partial void OnThemeChanged(string value)
     {
         OnPropertyChanged(nameof(DirectionSendBrush));
@@ -421,7 +420,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
 
     partial void OnBackgroundColorChanged(string value) => OnPropertyChanged(nameof(BackgroundBrush));
 
-    // 方向色【ADR-0044】：**不做任何合法性/对比度提示**（裁决 D6：完全尊重用户选择）
+    // 方向色：**不做任何合法性/对比度提示**（完全尊重用户选择）
     partial void OnDirectionSendColorChanged(string value)
     {
         OnPropertyChanged(nameof(DirectionSendBrush));
@@ -452,7 +451,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     // ---- 模块来源 / 日志 ----
 
     /// <summary>
-    /// 模块来源**根列表**（有序；ADR-0036 D1）。内置包目录（应用目录 `modules\`）**始终在首位**、不在此列表中显示为可编辑项。
+    /// 模块来源**根列表**（有序）。内置包目录（应用目录 `modules\`）**始终在首位**、不在此列表中显示为可编辑项。
     /// </summary>
     public ObservableCollection<string> ModuleSourceDirectories { get; } = [];
 
@@ -470,7 +469,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     // ---- 窗口与交互 ----
     // 注：「应用整体置顶」与「叠加信息层」定义为**联动属性**（见文件上方），此处不再声明本地字段。
 
-    // ---- 快捷键（ADR-0036 D7） ----
+    // ---- 快捷键 ----
 
     /// <summary>快捷键行（动作 · 当前绑定 · 修改/重置）。</summary>
     public ObservableCollection<HotkeyRowViewModel> Hotkeys { get; } = [];
@@ -554,7 +553,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
 
     /// <summary>当前生效的快捷键绑定（供外壳重建绑定；空绑定 = 不绑定，值为空串）。</summary>
     /// <summary>
-    /// 当前设置里的**数据结构 → 颜色**映射（键 = 类型身份，值 = `#RRGGBB`）【ADR-0054】。
+    /// 当前设置里的**数据结构 → 颜色**映射（键 = 类型身份，值 = `#RRGGBB`）。
     /// </summary>
     /// <returns>用户覆盖过的条目（缺省的类型走自动配色，不在此表里）。</returns>
     public IReadOnlyDictionary<string, string> TypeColorOverrides() =>
@@ -646,7 +645,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// **全局恢复默认**（2026-09 用户裁定：一键还原**所有**设置，含快捷键与外观，做成全局式按钮）。
+    /// **全局恢复默认**（一键还原**所有**设置，含快捷键与外观，做成全局式按钮）。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
@@ -799,8 +798,8 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     /// <summary>
     /// **确认**：应用并关闭弹窗（校验失败 ⇒ **不关**，把原因留在状态行）。
     /// </summary>
-    /// <remarks>【2026-09 用户裁定】设置生效机制改为常规三键：**确认 / 取消 / 应用**
-    /// （不再是"改一下即时生效"）。三者语义：
+    /// <remarks>设置生效机制是常规三键：**确认 / 取消 / 应用**
+    /// （不是「改一下即时生效」）。三者语义：
     /// <list type="bullet">
     ///   <item><b>应用</b> = 校验 → 生效 → 落盘，**弹窗留着**（继续改）；</item>
     ///   <item><b>确认</b> = 应用 + 关闭；失败则不关（用户能看见原因）；</item>
@@ -885,9 +884,9 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
             Theme = current.Theme;
             AccentColor = current.AccentColor;
             BackgroundMode = current.BackgroundMode;
-            // 【2026-09 缺陷修复】字体也必须回读：缺这两行时，界面上显示的是"你刚选的"，而实际生效的是默认值
-            // （用户实测"改了字体没反应"；真因在 `ApplicationSettings.Clone` 漏字段，但这里不同步回读会让
-            //  "界面显示 = 实际生效值" 这条纪律再破一次）。
+            // 字体也必须回读：缺这两行时，界面上显示的是「你刚选的」，而实际生效的是默认值
+            // （真因可能是 `ApplicationSettings.Clone` 漏字段，但这里不同步回读会让
+            //  「界面显示 = 实际生效值」这条纪律再破一次）。
             UiFontFamily = current.UiFontFamily;
             DataFontFamily = current.DataFontFamily;
             BackgroundColor = current.BackgroundColor;

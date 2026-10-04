@@ -1,7 +1,7 @@
 namespace HYWDebugAssistant.Hosting.Installation;
 
 /// <summary>
-/// 框架兼容范围校验：模块声明其兼容的框架版本区间，加载时判定是否满足（ADR-0020/0028）。
+/// 框架兼容范围校验：模块声明其兼容的框架版本区间，加载时判定是否满足。
 /// </summary>
 /// <remarks>
 /// <para><b>当前框架版本</b>：<see cref="CurrentFrameworkVersion"/>（对应顶层基线 v1.0 的能力面）。</para>

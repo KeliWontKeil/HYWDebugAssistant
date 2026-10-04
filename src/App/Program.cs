@@ -16,6 +16,6 @@ internal sealed class Program
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
             // 注：模板默认在 DEBUG 下调用 .WithDeveloperTools()，该 API 来自 AvaloniaUI.DiagnosticsSupport
-            // （Avalonia Accelerate 商业线，超出许可约束）——已按 ADR-0024 移除；开发期诊断改用日志与 VS 调试。
+            // （Avalonia Accelerate 商业线，超出许可约束）——故移除该调用；开发期诊断改用日志与 VS 调试。
             .LogToTrace();
 }

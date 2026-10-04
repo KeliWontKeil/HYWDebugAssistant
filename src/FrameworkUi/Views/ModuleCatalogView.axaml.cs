@@ -19,7 +19,7 @@ public partial class ModuleCatalogView : UserControl
     }
 
     /// <summary>
-    /// **双击列表项 = 直接加入现场**【用户第十六轮反馈】。
+    /// **双击列表项 = 直接加入现场**。
     /// </summary>
     /// <remarks>
     /// 只在**确实双击到某一项**时生效（双击空白处不动作、也不报"请先选择"）。

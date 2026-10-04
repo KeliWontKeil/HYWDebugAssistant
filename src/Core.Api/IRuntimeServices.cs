@@ -42,16 +42,16 @@ public interface IRuntimeQuery
     IReadOnlyList<BindingDiagnosticView> GetDiagnostics();
 
     /// <summary>
-    /// **每 (实例, 口) 队列**的深度与吞吐（水位 + 按宿计的搬运字节速率）【ADR-0050 Q2 / ADR-0046 D8】。
+    /// **每 (实例, 口) 队列**的深度与吞吐（水位 + 按宿计的搬运字节速率）。
     /// </summary>
     IReadOnlyList<PortQueueDepthView> GetQueueDepths();
 
     /// <summary>
-    /// **按端口取指标**（用户 2026-09 裁定"统一宿口取数口径"）—— 一个端口的指标的**唯一来源**。
+    /// **按端口取指标**：一个端口的指标的**唯一来源**。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item><b>为什么要有它</b>：界面此前按"两次字典查找 + 猜键"取数（先查网络身份键、再拿口字面量查逐源表），
+    ///   <item><b>为什么要有它</b>：按「两次字典查找 + 猜键」取数会出错（先查网络身份键、再拿口字面量查逐源表），
     ///     而逐源表的键是**源**键 ⇒ **宿口永远匹配不上** ⇒ 宿口标记的投递/丢弃/速率**静默为 0**。
     ///     本查询把"一个端口该读哪些流"这件事**放回框架**（它才知道网络成员关系），界面只格式化；</item>
     ///   <item><b>口径</b>：发送口 = 以它为源的全部绑定之和；接收口 = 以它为宿的全部绑定之和；
@@ -71,7 +71,7 @@ public interface IRuntimeQuery
     IReadOnlyList<ModuleCatalogEntryView> GetModuleCatalog();
 
     /// <summary>
-    /// **预览建网**（ADR-0037）：按"接触且对齐"规则算出**将会建立**的连接（不产生任何副作用）。
+    /// **预览建网**：按「接触且对齐」规则算出**将会建立**的连接（不产生任何副作用）。
     /// </summary>
     /// <remarks>
     /// 供 UI 在**拖动过程中**高亮"即将自动建网"的端口标记——判定规则与真正建网**同一份实现**（L4），
@@ -81,7 +81,7 @@ public interface IRuntimeQuery
     IReadOnlyList<ConnectionCandidateView> PreviewConnections(IReadOnlyList<ModuleLayoutView>? provisionalLayouts = null);
 
     /// <summary>
-    /// **拖动网络标签时的"连接对齐"建议**（G5 追加 · 用户 2026-09）：把某个口拖到指定**边 + 偏移**时，
+    /// **拖动网络标签时的「连接对齐」建议**：把某个口拖到指定**边 + 偏移**时，
     /// 若它与某个**面对面**的口已满足"接触且对齐"的建网条件（只差对齐），返回**应对齐到的偏移**。
     /// </summary>
     /// <remarks>
@@ -99,7 +99,7 @@ public interface IRuntimeQuery
     AnchorDockHintView? SuggestAnchorDock(string instanceId, string portName, Sdk.Ports.PortEdge edge, double offset);
 
     /// <summary>
-    /// **模块来源根的扫描结果**（ADR-0036 D1）：上次扫描（启动或「立即重扫」）时每个根的
+    /// **模块来源根的扫描结果**：上次扫描（启动或「立即重扫」）时每个根的
     /// 路径 · 是否存在 · 扫到/跳过/失败的包数 · 逐包结果。
     /// </summary>
     IReadOnlyList<ModuleSourceView> GetModuleSources();
@@ -114,11 +114,11 @@ public interface IRuntimeQuery
     IReadOnlyList<SubscriptionSourceView> GetSubscriptionSources();
 
     /// <summary>
-    /// 某实例的**角色**（功能分块）清单【ADR-0052】：一种数据类型 + 其输入口/输出口 + **`m/n`**（连了几个角色）。
+    /// 某实例的**角色**（功能分块）清单：一种数据类型 + 其输入口/输出口 + **`m/n`**（连了几个角色）。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item><b>只读、只用于呈现</b>：不参与建网、兼容、停流、投递与计量（ADR-0048 R9）；</item>
+    ///   <item><b>只读、只用于呈现</b>：不参与建网、兼容、停流、投递与计量；</item>
     ///   <item>顺序 = 模块**声明顺序**（稳定，便于 UI 逐块摆放）；</item>
     ///   <item>**未声明角色 ⇒ 空列表**（叠加层不画方块；**运行期不报**，由 SDK 自检给一条建议 —— B5 裁定）；</item>
     ///   <item>`m/n` 由框架从网络成员关系派生（**不是模块自报**）：无该方向的口 ⇒ null，有口未连 ⇒ 0。</item>
@@ -128,7 +128,7 @@ public interface IRuntimeQuery
     IReadOnlyList<RoleView> GetRoles(string instanceId);
 
     /// <summary>
-    /// 某实例各**输入元素**的**最近一次处理结果**（G3 · 用户 2026-09 裁决）。
+    /// 某实例各**输入元素**的**最近一次处理结果**（G3）。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
@@ -145,14 +145,14 @@ public interface IRuntimeQuery
     IReadOnlyList<InputFeedbackView> GetInputFeedback(string instanceId);
 
     /// <summary>
-    /// 某实例参与的**角色间数据流**清单【ADR-0052】：已按（本端角色, 对端实例, 对端角色）**聚合**并给出口对数。
+    /// 某实例参与的**角色间数据流**清单：已按（本端角色, 对端实例, 对端角色）**聚合**并给出口对数。
     /// </summary>
     /// <remarks>只读、只用于呈现；线两端锚点（输出侧/输入侧）与几何由 UI 决定。</remarks>
     /// <param name="instanceId">实例 ID（不存在 / 占位实例 ⇒ 空列表）。</param>
     IReadOnlyList<RoleFlowView> GetRoleFlows(string instanceId);
 
     /// <summary>
-    /// 某实例**声明的内部处理顺序**（`角色 → 角色`）【ADR-0052】：**零声明 ⇒ 空**（框架不猜）。
+    /// 某实例**声明的内部处理顺序**（`角色 → 角色`）：**零声明 ⇒ 空**（框架不猜）。
     /// </summary>
     /// <remarks>只读、只用于呈现；不参与任何判定，也不进组合件。</remarks>
     /// <param name="instanceId">实例 ID（不存在 / 占位实例 ⇒ 空列表）。</param>
@@ -207,7 +207,7 @@ public interface IRuntimeCommand
     CommandResult InstallModulePackage(string packageDirectory);
 
     /// <summary>
-    /// **重扫模块来源根**（ADR-0036 D1）：按设置里的根列表（内置目录在首位）重新扫描，
+    /// **重扫模块来源根**：按设置里的根列表（内置目录在首位）重新扫描，
     /// 装入**新增**的模块包并刷新诊断结果。
     /// </summary>
     /// <remarks>
@@ -230,7 +230,7 @@ public interface IRuntimeCommand
     /// <param name="targets">宿端口（1:N）。</param>
     /// <param name="name">网络名（空 = 匿名）。</param>
     /// <param name="allowUnverifiedTypeMatch">
-    /// 用户是否已**显式确认**允许"**数据类型标识不同**"的强连【ADR-0046 D6】（默认 <see langword="false"/> = 拒绝）。
+    /// 是否已**显式确认**允许「**数据类型标识不同**」的强连（默认 <see langword="false"/> = 拒绝）。
     /// </param>
     CommandResult Connect(
         PortRef source,
@@ -260,7 +260,7 @@ public interface IRuntimeCommand
     CommandResult UpdatePortGeometry(string instanceId, PortGeometryView geometry);
 
     /// <summary>
-    /// 设置端口的**网络标签**（ADR-0034：用户可见的**唯一建网机制**）——
+    /// 设置端口的**网络标签**（用户可见的**唯一建网机制**）——
     /// 同名标签的发送口与接收口自动连成一条命名网络；传空即清除标签（退出该网络）。
     /// </summary>
     /// <param name="instanceId">实例 ID。</param>
@@ -269,7 +269,7 @@ public interface IRuntimeCommand
     CommandResult UpdatePortNetwork(string instanceId, string portName, string? networkName);
 
     /// <summary>
-    /// 投递一个**模块命令**（用户点了模块视图里的命令按钮）【M1-16 / ADR-0040 D1】。
+    /// 投递一个**模块命令**（用户点了模块视图里的命令按钮）。
     /// </summary>
     /// <remarks>
     /// 语义：**投递**而非"执行完成"——命令进入该实例的人机操作收件箱，由模块在**自身线程**上消费。
@@ -280,7 +280,7 @@ public interface IRuntimeCommand
     CommandResult SendCommand(string instanceId, string commandName);
 
     /// <summary>
-    /// 写入一个**文本输入值**（用户在输入元素上回车/失焦提交）【M1-16 / ADR-0040 D2】。
+    /// 写入一个**文本输入值**（用户在输入元素上回车/失焦提交）。
     /// </summary>
     /// <remarks>与命令同样只**入队**；文本由模块在自己的线程上解析（非法值由模块上报 Issue）。</remarks>
     /// <param name="instanceId">实例 ID。</param>
@@ -289,7 +289,7 @@ public interface IRuntimeCommand
     CommandResult SubmitInput(string instanceId, string source, string text);
 
     /// <summary>
-    /// **还原模块配置**到模块默认值【用户第十一轮反馈 · 模块窗口的「还原」按钮】。
+    /// **还原模块配置**到模块默认值（模块窗口的「还原」按钮）。
     /// </summary>
     /// <remarks>
     /// 丢弃该实例已保存的配置对象（模块下次读取时按"读即登记"重新登记默认值），并触发一次配置变更通知，

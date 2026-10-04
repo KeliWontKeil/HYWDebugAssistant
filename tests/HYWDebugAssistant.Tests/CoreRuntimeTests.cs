@@ -50,7 +50,7 @@ public class CoreRuntimeTests
         binding.Diagnostics.Published.ShouldBe(1, "**发布计数 = 每个数据报一次**（按源）");
         binding.Diagnostics.LastDataTime.ShouldNotBeNull();
 
-        // 【ADR-0050 Q6(c）】**单源网络零附加**：不带薄旁路头（也不构造）
+        // **单源网络零附加**：不带薄旁路头（也不构造）
         runtime.Carriers.TryGet("r1", out var carrier).ShouldBeTrue();
         carrier!.Diagnostics.Headered.ShouldBe(0, "单源网络**不带**薄旁路头");
         carrier.Diagnostics.LastHeaderSequence.ShouldBe(0);
@@ -59,7 +59,7 @@ public class CoreRuntimeTests
     [Fact]
     public void 多源网络_应带薄旁路头且序号按源递增_单源网络零附加()
     {
-        // 【ADR-0050 Q6(c)】薄旁路头**只在多源网络**上带：源标识 + **按源序号** + 接收时刻；
+        // 薄旁路头**只在多源网络**上带：源标识 + **按源序号** + 接收时刻；
         // **旁路元数据、不进 payload**（字节守恒不变），由**观测面**消费（承载诊断记录最近序号/时刻）。
         using var runtime = new ModuleRuntime();
         var services = new RuntimeServices(runtime);
@@ -285,7 +285,7 @@ public class CoreRuntimeTests
         runtime.Content.TryGetInstance("r1", out var receiver).ShouldBeTrue();
         receiver!.State.ShouldBe(ModuleInstanceState.Active, "移除其他实例不应影响本实例");
     }
-    // ------------------------------------------------------------ 对齐建网（ADR-0037："接触且对齐"）
+    // ------------------------------------------------------------ 对齐建网（"接触且对齐"）
 
     [Fact]
     public void 对齐建网_接触且标记对齐时应自动连上()
@@ -478,7 +478,7 @@ public class CoreRuntimeTests
     [Fact]
     public void 诊断_丢弃应按原因分类且停流不计入传输丢弃()
     {
-        // 【ADR-0046 D8 / ADR-0050 Q5】丢弃必须分类：**停流未投递 ≠ 传输丢弃**（前者是合法状态）。
+        // 丢弃必须分类：**停流未投递 ≠ 传输丢弃**（前者是合法状态）。
         using var runtime = new ModuleRuntime();
         var services = new RuntimeServices(runtime);
 
@@ -521,7 +521,7 @@ public class CoreRuntimeTests
         diagnostics.Dropped.ShouldBe(3, "总数 = 1（传输）+ 2（停流）");
     }
 
-    // ------------------------------------------------------------ 多源网络（ADR-0050 M1/M2/M5/M6/M7）
+    // ------------------------------------------------------------ 多源网络
 
     /// <summary>多源测试用接收模块（两个接收口，同契约）。</summary>
     [ModuleDefinition("test", "dual-receiver", "1.0.0")]
@@ -542,7 +542,7 @@ public class CoreRuntimeTests
     [Fact]
     public void 多源网络_同名标签多个发送端应建成一条网络且逐源投递()
     {
-        // 【ADR-0050 M1/M2/M7】多源 = **合法的一等组合**（旧"整条拒绝"已作废）；
+        // 多源 = **合法的一等组合**（不得因源不止一个就整条拒绝）；
         // 每个源各一条绑定 ⇒ 各源数据都能到达宿，且**计数按源归属**。
         using var runtime = new ModuleRuntime();
         var services = new RuntimeServices(runtime);
@@ -587,11 +587,11 @@ public class CoreRuntimeTests
     [Fact]
     public void 宿口指标_多源网络下必须等于各源诊断之和而不是零()
     {
-        // 【用户 2026-09 裁定"统一宿口取数口径，关系到整个数据来源的一致性"】
-        // **根因（旧实现）**：取数按"两次字典查找 + 猜键"——先按**网络身份键**（`源集合 → 宿集合`）查，
+        // **统一宿口取数口径**（关系到整个数据来源的一致性）：
+        // 取数不得靠"两次字典查找 + 猜键"——先按**网络身份键**（`源集合 → 宿集合`）查，
         // 失败再拿**口字面量**去查**逐源诊断表**（键 = `单源 → 宿子集`，是**源**键）。
         // 宿口在后一个键空间里根本不存在 ⇒ **宿口的投递/丢弃/速率静默为 0**
-        // （1:1 单源单宿时两个键恰好字面相等，所以这个缺陷一直没被看见）。
+        // （1:1 单源单宿时两个键恰好字面相等，所以这个缺陷不容易被看见）。
         // 本用例就是那盏灯：宿口必须按**网络**把该网络各源的诊断加起来。
         using var runtime = new ModuleRuntime();
         var services = new RuntimeServices(runtime);
@@ -668,9 +668,9 @@ public class CoreRuntimeTests
     [Fact]
     public void 端口指标_单源单宿时源口与宿口必须读到同一个速率()
     {
-        // 【用户 2026-09 裁定"统一口径"，"同一根线两侧不得显示不同的数"】
+        // **同一根线两侧不得显示不同的数**：
         // 源口与宿口读的是**同一份**逐源诊断、**同一批**框架速率计（`_rateMeters` 按绑定身份键索引）。
-        // 旧实现里接收侧走"每 (实例, 口) 队列"的速率计、发送侧走绑定速率计 ⇒ 两套口径、两侧可能不同数。
+        // 接收侧走"每 (实例, 口) 队列"的速率计、发送侧走绑定速率计就会变成两套口径 ⇒ 两侧可能不同数。
         using var runtime = new ModuleRuntime();
         var services = new RuntimeServices(runtime);
 
@@ -729,7 +729,7 @@ public class CoreRuntimeTests
     [Fact]
     public void 多源网络_逐对契约兼容_每个源只投递到自己兼容的宿()
     {
-        // 【ADR-0050 M6/M7】兼容判定**逐 (源,宿) 对**：一个源**只**投向契约兼容的宿；
+        // 兼容判定**逐 (源,宿) 对**：一个源**只**投向契约兼容的宿；
         // 多源网络里每个源各一条绑定 ⇒ **诊断按源归属**（键 = `单源 → 它的宿子集`）。
         using var runtime = new ModuleRuntime();
         var services = new RuntimeServices(runtime);
@@ -828,7 +828,7 @@ public class CoreRuntimeTests
     private static ModuleDefinition TestDefinition(string name, Type entryType) =>
         new(ModuleId.Create("test", name, "1.0.0"),
             name, string.Empty, [], ModuleCapability.None, [], null, true,
-            entryType, string.Empty, string.Empty);
+            entryType, TestViewPackages.For(entryType), string.Empty);
 
     private static void AddModule(ModuleRuntime runtime, string instanceId, string name, Type entryType) =>
         runtime.Apply(ChangeSet.OfOne(new AddModuleOperation(instanceId, TestDefinition(name, entryType))))

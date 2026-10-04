@@ -28,7 +28,7 @@ public sealed record ModuleCatalogRowViewModel(
 }
 
 /// <summary>
-/// **模块分类**【M1-16 后 · 用户第七轮反馈】：按模块**声明的标签**归类（不声明归"其他"）。
+/// **模块分类**：按模块**声明的标签**归类（不声明归"其他"）。
 /// </summary>
 /// <remarks>
 /// 分类是**界面组织方式**，不改机制；标签来自 `ModuleDefinitionAttribute.Tags`（模块作者声明）。
@@ -118,19 +118,19 @@ public sealed partial class ModuleCategoryViewModel(string key, string glyph, st
     public partial bool IsSelected { get; set; }
 }
 
-/// <summary>占位实例行（模块定义缺失/版本不兼容 → 可指定替代模块，§9.3）。</summary>
+/// <summary>占位实例行（模块定义缺失/版本不兼容 → 可指定替代模块）。</summary>
 /// <param name="InstanceId">实例 ID。</param>
 /// <param name="ModuleId">原模块标识字面量（占位信息，诊断用）。</param>
 public sealed record PlaceholderRowViewModel(string InstanceId, string ModuleId);
 
 /// <summary>
-/// **模块清单弹窗**（R-3 / `11` §4）：可用模块 · 加入现场 · 显式加载 · 占位实例补救。
+/// **模块清单弹窗**：可用模块 · 加入现场 · 显式加载 · 占位实例补救。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>没有"连接管理"</b>（R-4 删除）：建网唯一机制 = 模块窗口里口上的网络标签；</item>
+///   <item><b>没有"连接管理"</b>：建网唯一机制 = 模块窗口里口上的网络标签；</item>
 ///   <item><b>没有实例清单</b>：**每个模块实例都有自己的窗口**（未声明视图的模块同样开窗，窗内给出配置表单）——
-///     "无界面模块"这一例外概念已按用户裁决撤销；模块的运行/停用/隐藏/移除都在**它自己的窗口**上操作；</item>
+///     「无界面模块」不是例外：模块的运行/停用/隐藏/移除都在**它自己的窗口**上操作；</item>
 ///   <item><b>没有 JSON 编辑</b>：配置一律走 **Schema 生成表单**（与模块窗口内同一份定义）；
 ///     界面不出现配置类型完整名等代码化标识。</item>
 /// </list>
@@ -290,8 +290,8 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
     /// </summary>
     /// <returns>是否成功加入。</returns>
     /// <remarks>
-    /// 【用户第十六轮反馈】原交互只有"单击选中 → 再点「加入现场」"；双击列表项直接加入更符合直觉
-    /// （列表项的常见惯例），故把动作抽成公开方法，两个入口共用同一实现（不复制逻辑）。
+    /// 加入现场有两个入口：单击选中 → 再点「加入现场」，以及双击列表项直接加入（列表项的常见惯例）。
+    /// 故把动作抽成公开方法，两个入口共用同一实现（不复制逻辑）。
     /// </remarks>
     public bool AddSelected()
     {
@@ -327,13 +327,13 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
         Refresh();
     }
 
-    /// <summary>来源根扫描诊断（ADR-0036 D1：让用户看到"到底扫了哪些目录、每个目录发生了什么"）。</summary>
+    /// <summary>来源根扫描诊断（让用户看到扫了哪些目录、每个目录发生了什么）。</summary>
     public ObservableCollection<ModuleSourceRowViewModel> Sources { get; } = [];
 
     /// <summary>请求在文件管理器里打开某个来源根（由视图实现）。</summary>
     public event EventHandler<string>? OpenSourceDirectoryRequested;
 
-    /// <summary>待添加的来源根（输入框；用户第十轮反馈：来源管理**显式放在外面**）。</summary>
+    /// <summary>待添加的来源根（输入框；来源管理**显式放在外面**）。</summary>
     [ObservableProperty]
     public partial string? NewSourceDirectory { get; set; }
 
@@ -458,7 +458,7 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
         RebuildCategories();
         ApplyFilter();
 
-        // 选中项：保持原选择；原先没有选择时不自动选中（避免"扫一眼列表就被选中"的错觉）
+        // 选中项：保持原选择；没有选择时不自动选中（避免「扫一眼列表就被选中」的错觉）
         if (selectedModuleId is { Length: > 0 })
         {
             SelectedCatalogEntry = Catalog.FirstOrDefault(c => string.Equals(c.ModuleId, selectedModuleId, StringComparison.Ordinal));

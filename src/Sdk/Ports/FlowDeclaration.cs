@@ -1,7 +1,7 @@
 namespace HYWDebugAssistant.Sdk.Ports;
 
 /// <summary>
-/// 模块**内部处理顺序**的声明（`角色 → 角色`）【ADR-0052 · 修订 ADR-0049 D13】。
+/// 模块**内部处理顺序**的声明（`角色 → 角色`）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">

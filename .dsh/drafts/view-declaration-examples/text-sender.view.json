@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "frame": {
+    "window": { "width": 340, "height": 340 },
+    "ports": [
+      { "name": "out", "edge": "bottom", "offset": 0.5 }
+    ]
+  },
+  "sources": [
+    { "name": "text1", "kind": "Text" },
+    { "name": "text2", "kind": "Text" },
+    { "name": "text3", "kind": "Text" },
+    { "name": "text4", "kind": "Text" },
+    { "name": "text5", "kind": "Text" },
+    { "name": "continuous", "kind": "Value", "valueType": "Bool" },
+    { "name": "interval", "kind": "Text", "unit": "ms" },
+    { "name": "sent", "kind": "Value", "valueType": "U64" }
+  ],
+  "views": [
+    {
+      "root": {
+        "kind": "container",
+        "children": [
+          {
+            "kind": "tabs",
+            "stateKey": "text-pages",
+            "children": [
+              { "kind": "group", "title": "1", "children": [ { "kind": "textInput", "title": "内容", "input": "text1", "multiline": true } ] },
+              { "kind": "group", "title": "2", "children": [ { "kind": "textInput", "title": "内容", "input": "text2", "multiline": true } ] },
+              { "kind": "group", "title": "3", "children": [ { "kind": "textInput", "title": "内容", "input": "text3", "multiline": true } ] },
+              { "kind": "group", "title": "4", "children": [ { "kind": "textInput", "title": "内容", "input": "text4", "multiline": true } ] },
+              { "kind": "group", "title": "5", "children": [ { "kind": "textInput", "title": "内容", "input": "text5", "multiline": true } ] }
+            ]
+          },
+          { "kind": "commandButton", "title": "发送", "command": "send" },
+          { "kind": "toggleSwitch", "title": "连续发送", "input": "continuous" },
+          { "kind": "textInput", "title": "间隔", "input": "interval", "inputKind": "number", "textAlign": "right" },
+          { "kind": "numeric", "title": "已发送", "data": "sent" }
+        ]
+      }
+    }
+  ]
+}

@@ -6,7 +6,7 @@ using HYWDebugAssistant.Ui.ViewModels;
 namespace HYWDebugAssistant.FrameworkUi.ViewModels;
 
 /// <summary>
-/// 拓扑诊断的一行（**只读调试信息**，R-4）：网络 → 成员（<c>实例ID.口名</c>）· 方向 · 状态 ·
+/// 拓扑诊断的一行（**只读调试信息**）：网络 → 成员（<c>实例ID.口名</c>）· 方向 · 状态 ·
 /// 投递/丢弃计数 · 最后数据时间。
 /// </summary>
 /// <remarks>
@@ -31,7 +31,7 @@ public sealed record TopologyRowViewModel(
     string LastDataTime);
 
 /// <summary>
-/// **拓扑诊断弹窗**（R-4 / `11` §3）：只读列出网络与成员，替代"跨窗口长连线"的 v1 表达。
+/// **拓扑诊断弹窗**：只读列出网络与成员，替代"跨窗口长连线"的 v1 表达。
 /// </summary>
 /// <remarks>本视图只读：不提供建立/断开网络的操作（建网唯一机制 = 口上的网络标签）。</remarks>
 public sealed partial class TopologyViewModel : ViewModelBase
@@ -52,7 +52,7 @@ public sealed partial class TopologyViewModel : ViewModelBase
     /// <summary>
     /// **模块清单视图模型**（占位实例属**诊断**，其列表与"指定替代"命令由它提供）。
     /// </summary>
-    /// <remarks>【修正 · 用户第六轮反馈】占位实例从"模块清单"页移到本弹窗，故这里引用它而不复制数据。</remarks>
+    /// <remarks>占位实例归本弹窗所有（不属「模块清单」页），故这里引用它而不复制数据。</remarks>
     public ModuleCatalogViewModel? Catalog { get; set; }
 
     /// <summary>摘要（网络数 / 成员数 / 停流数）。</summary>
@@ -80,7 +80,7 @@ public sealed partial class TopologyViewModel : ViewModelBase
                 ? "停流"
                 : (network.UnresolvedMembers?.Count ?? 0) > 0 ? "悬空" : "正常";
 
-            // 【统一口径 · 用户 2026-09 裁定"统一宿口取数口径"】源行的指标 = **该网络各源端口指标之和**
+            // 统一取数口径：源行的指标 = **该网络各源端口指标之和**
             // （端口指标由框架的**唯一**查询 `GetPortMetrics` 给出：该口参与的全部"流"之和）。
             //
             // **旧写法错在哪**（本行就是缺陷现场）：它拿 `network.Key`（= `源集合 → 宿集合`）去查
@@ -127,8 +127,8 @@ public sealed partial class TopologyViewModel : ViewModelBase
     /// <remarks>
     /// <list type="bullet">
     ///   <item>端口字面量一律按**最后一个 `.`** 拆成（实例, 口）——与本仓库其余字面量解析同一约定；</item>
-    ///   <item><see cref="PortMetricsView.Dropped"/> 只含**传输丢弃**（停流未投递是合法状态，按 ADR-0046 D8
-    ///     不得混算），故本表的"丢弃"列不再把停流未投递算进去；</item>
+    ///   <item><see cref="PortMetricsView.Dropped"/> 只含**传输丢弃**（停流未投递是合法状态，
+    ///     不得混算），故本表的「丢弃」列不把停流未投递算进去；</item>
     ///   <item>悬空/停流的源口由框架给出全 0（它不在任何流上）——这正是本表该显示的降级事实。</item>
     /// </list>
     /// </remarks>

@@ -5,7 +5,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// T1（ADR-0046 D8）：**速率计**——框架侧唯一的速率口径（UI 不得自行差分估算）。
+/// T1：**速率计**——框架侧唯一的速率口径（UI 不得自行差分估算）。
 /// </summary>
 /// <remarks>用**显式时基**做判定，完全不依赖真实时间（确定性、无 flake）。</remarks>
 public class RateMeterTests
@@ -71,9 +71,9 @@ public class RateMeterTests
     [Fact]
     public void 同一次刷新里的重复读取_必须给出同一个数()
     {
-        // 【ADR-0053 实测补】一次 UI 刷新会对**每个模块**各读一遍诊断（标记 / 角色信息 / 角色连线…）：
-        // 若每次都重算"自上次观察以来"的增量，第一遍之后增量恒为 0 ⇒ 除第一个消费者外全都读到 0
-        // （现场表现：角色的速率**恒显示占位符** —— 用户实测："角色本身速率无法显示，一直是---"）。
+        // 一次 UI 刷新会对**每个模块**各读一遍诊断（标记 / 角色信息 / 角色连线…）：
+        // 若每次都重算「自上次观察以来」的增量，第一遍之后增量恒为 0 ⇒ 除第一个消费者外全都读到 0
+        // （现场表现：角色的速率**恒显示占位符**，一直是 `---`）。
         var meter = new RateMeter();
 
         _ = meter.Observe(total: 0, timestamp: 0, frequency: 1000);

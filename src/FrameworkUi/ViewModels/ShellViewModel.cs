@@ -9,10 +9,10 @@ using HYWDebugAssistant.Ui.ViewModels;
 namespace HYWDebugAssistant.FrameworkUi.ViewModels;
 
 /// <summary>
-/// 侧边界面（B 区）的页标识【M1-16 / ADR-0038 D1】。
+/// 侧边界面（B 区）的页标识。
 /// </summary>
 /// <remarks>
-/// 模块清单与"交互"是**常驻侧边页面**；设置 / 拓扑诊断 / Issue / 帮助仍为弹窗（D1 裁决）。
+/// 模块清单与「交互」是**常驻侧边页面**；设置 / 拓扑诊断 / Issue / 帮助仍为弹窗。
 /// </remarks>
 public static class ShellPages
 {
@@ -23,7 +23,7 @@ public static class ShellPages
     public const string Interaction = "interaction";
 }
 
-/// <summary>要打开的弹窗种类（R-3：Issue / 设置 / 模块清单 / 拓扑诊断一律弹窗）。</summary>
+/// <summary>要打开的弹窗种类（Issue / 设置 / 模块清单 / 拓扑诊断一律弹窗）。</summary>
 public enum DialogKind
 {
     /// <summary>模块清单 / 加载 / 管理。</summary>
@@ -40,15 +40,15 @@ public enum DialogKind
 }
 
 /// <summary>
-/// **框架外壳**视图模型（`FrameworkUi` = 外层主窗口，ADR-0034 R-2）：
+/// **框架外壳**视图模型（`FrameworkUi` = 外层主窗口）：
 /// 菜单/工具栏/状态栏 + 四个弹窗的编排 + 模块窗口集的控制入口。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item>外壳**不画模块**：模块各自是独立的无边框窗口（`Ui` 的模块窗口集负责）；
 ///     外壳自身是可被贴靠的一块（拼图"起始点"）；</item>
-///   <item>开关按**用途分组**（意见 4 的修正）：显示（口标记）/ 交互（几何吸附）/ 窗口（锁定全部）；</item>
-///   <item>一切读写只经 <c>Core.Api</c>（C4-4）；本类不含机制逻辑。</item>
+///   <item>开关按**用途分组**：显示（口标记）/ 交互（几何吸附）/ 窗口（锁定全部）；</item>
+///   <item>一切读写只经 <c>Core.Api</c>；本类不含机制逻辑。</item>
 /// </list>
 /// </remarks>
 public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
@@ -60,7 +60,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     /// <param name="query">查询面。</param>
     /// <param name="command">命令面。</param>
     /// <param name="viewState">
-    /// **视图状态存取面**〔2026-09 · `decisions.md` 7.28/7.31〕：透传给模块窗口集
+    /// **视图状态存取面**：透传给模块窗口集
     /// （切页选中态 / 输入框未提交文本 / 显示缓冲）。`null` ⇒ 回落今天的行为。
     /// </param>
     /// <param name="noticeLifetime">
@@ -97,15 +97,15 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         Settings = new SettingsPanelViewModel(query, command);
         Topology = new TopologyViewModel(query);
 
-        // 占位实例属**诊断**（用户第六轮反馈）→ 其列表与"指定替代"命令由模块清单视图模型提供，在拓扑诊断弹窗里呈现
+        // 占位实例属**诊断** → 其列表与"指定替代"命令由模块清单视图模型提供，在拓扑诊断弹窗里呈现
         Topology.Catalog = Catalog;
 
-        // 【用户第十一轮反馈】开关类设置（叠加信息层 / 应用置顶）**以本视图模型为唯一事实源**，
-        // 设置页与交互页因此完全联动（此前设置页各持一份副本 → 两边可不一致）。
+        // 开关类设置（叠加信息层 / 应用置顶）**以本视图模型为唯一事实源**，
+        // 设置页与交互页因此完全联动（各持一份副本会让两边不一致）。
         Settings.Owner = this;
     }
 
-    /// <summary>应用内快捷键服务（挂到本应用每一个窗口上；ADR-0036 D7）。</summary>
+    /// <summary>应用内快捷键服务（挂到本应用每一个窗口上）。</summary>
     public HotkeyService Hotkeys { get; }
 
     /// <summary>模块窗口集（模块区 = 一批独立窗口）。</summary>
@@ -124,7 +124,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     public TopologyViewModel Topology { get; }
 
     /// <summary>
-    /// **数据结构 → 颜色** 映射表（交互页）【ADR-0054 · 用户第三十四轮】。
+    /// **数据结构 → 颜色** 映射表（交互页）。
     /// </summary>
     /// <remarks>
     /// 行 = 当前现场出现过的**类型身份**（`标识@v版本`）；点色块可改色、可"恢复自动"。
@@ -173,8 +173,8 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
         var overrides = Settings.TypeColorOverrides();
 
-        // **就地更新**（用户第三十四轮实测："鼠标指到色块上时不停的闪烁"）：
-        // 旧实现每次刷新都 `Clear()` + 重建整张表 ⇒ 半个刷新周期换一批控件，正在打开的取色弹窗
+        // **就地更新**（否则鼠标指到色块上时不停闪烁）：
+        // 每次刷新都 `Clear()` + 重建整张表 ⇒ 半个刷新周期换一批控件，正在打开的取色弹窗
         // 目标被销毁 ⇒ 反复开关 = 闪烁（也让人以为"改不了色"）。
         // ⇒ 行对象**只在类型集合变化时**增删；其余情况就地改值（集合稳定 ⇒ 弹窗不会被拆掉）。
         var existing = DataTypeColors.Rows.ToDictionary(row => row.TypeKey, StringComparer.Ordinal);
@@ -265,7 +265,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     public event EventHandler? RaiseAllWindowsRequested;
 
     /// <summary>
-    /// **应用整体置顶**（ADR-0036 D5）：为 <see langword="true"/> 时本应用**全部**窗口
+    /// **应用整体置顶**：为 <see langword="true"/> 时本应用**全部**窗口
     /// （外壳 + 模块窗口 + 弹窗，含之后新开的）一起置顶——**不提供单窗口置顶**，
     /// 避免"一部分被覆盖、一部分置顶"的混合状态。由视图落到窗口组上。
     /// </summary>
@@ -274,10 +274,10 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
     /// <summary>最近一次面向用户的提示（建网结果、端口标签提交结果等；空 = 无）。</summary>
     /// <remarks>
-    /// <b>2026-09 缺陷修复</b>：这条提示原先**没有任何过期机制**（只有下一条提示才会替换它）⇒
+    /// 这条提示若**没有任何过期机制**（只有下一条提示才会替换它）⇒
     /// 一条陈旧提示会长期占据状态栏；又因为它被拼在摘要文本**末尾**、而主窗口只有 396 宽，
-    /// 摘要占满后提示被 `TextTrimming` 截成"拖动…" ⇒ 用户看到的是"**未完成显示的信息**"。
-    /// 现在：<b>独占一列</b>（摘要先省略，见 `MainWindow.axaml` 状态栏）+ <b>到点自动过期</b>。
+    /// 摘要占满后提示被 `TextTrimming` 截成「拖动…」⇒ 看起来是**未完成显示的信息**。
+    /// ⇒ 提示必须<b>独占一列</b>（摘要先省略，见 `MainWindow.axaml` 状态栏）+ <b>到点自动过期</b>。
     /// </remarks>
     [ObservableProperty]
     public partial string? StatusNotice { get; set; }
@@ -286,8 +286,8 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     /// **临时提示的默认存活时长**（8 秒；到点由 <see cref="Refresh"/> 清掉）。
     /// </summary>
     /// <remarks>
-    /// 旧实现**没有过期机制**（只有下一条提示才会替换它）⇒ 一条陈旧提示会长期占据状态栏
-    /// （2026-09 用户实测："这里的'拖动'似乎是未完成显示的信息"）。
+    /// 提示若**没有过期机制**（只有下一条提示才会替换它）⇒ 一条陈旧提示会长期占据状态栏
+    /// （被截断时看起来像未完成显示的信息）。
     /// </remarks>
     public static readonly TimeSpan DefaultNoticeLifetime = TimeSpan.FromSeconds(8);
 
@@ -335,7 +335,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
     partial void OnErrorIssueCountChanged(int value) => OnPropertyChanged(nameof(HasErrors));
 
-    /// <summary>显示组：是否显示**叠加信息层**（窗内连接线；端口标记本身常显 —— ADR-0039 D5）。</summary>
+    /// <summary>显示组：是否显示**叠加信息层**（窗内连接线；端口标记本身常显）。</summary>
     public bool ShowInfoOverlay
     {
         get => Windows.ShowInfoOverlay;
@@ -369,7 +369,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         }
     }
 
-    // ---- 侧边栏形态【M1-16 / ADR-0038 D1/D2】 ----
+    // ---- 侧边栏形态 ----
 
     /// <summary>当前侧边界面页：<c>catalog</c>（模块清单，默认）· <c>interaction</c>（交互）。</summary>
     [ObservableProperty]
@@ -466,9 +466,8 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         Catalog.Refresh();
         Issues.Refresh();
 
-        // 【2026-09 缺陷修复 · 用户实测"拓扑诊断器无论是否建网都没有任何东西"】
-        // 真因：这里**漏了拓扑** —— 拓扑视图模型从来没有被刷新过（只有设计时样例与测试里手工调用）
-        // ⇒ 弹窗打开后表格恒为空、摘要恒为"网络 0"（与是否建网无关）。
+        // 拓扑**必须在这里一起刷新**：漏掉它时拓扑视图模型只被设计时样例与测试手工调用过
+        // ⇒ 弹窗打开后表格恒为空、摘要恒为「网络 0」（与是否建网无关）。
         Topology.Refresh();
 
         RefreshDataTypeColors();
@@ -484,14 +483,14 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     /// </summary>
     /// <remarks>
     /// 工具栏上的"显示/交互"开关是**会话内的视图开关**（不写回设置）；设置弹窗里的对应项是偏好，
-    /// 启动时生效（`11` §3 的分组原则：显示、交互、窗口三类互不混淆）。
+    /// 启动时生效（分组原则：显示、交互、窗口三类互不混淆）。
     /// </remarks>
     public void LoadSettings()
     {
         Settings.Load();
         Windows.ShowInfoOverlay = Settings.ShowInfoOverlay;
 
-        // **数据结构 → 颜色**：把设置里的映射灌进色板（启动即生效；色板是唯一色彩来源）【ADR-0054】
+        // **数据结构 → 颜色**：把设置里的映射灌进色板（启动即生效；色板是唯一色彩来源）
         PacketTypePalette.ClearOverrides();
         foreach (var (typeKey, hex) in Settings.TypeColorOverrides())
         {
@@ -503,7 +502,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
         RefreshDataTypeColors();
 
-        // 外观与外壳尺寸随设置刷新（ADR-0038 D2/D4）
+        // 外观与外壳尺寸随设置刷新
         OnPropertyChanged(nameof(ShellAspect));
         OnPropertyChanged(nameof(ShellFixedSize));
         OnPropertyChanged(nameof(ShellWidth));
@@ -591,12 +590,12 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         }
     }
 
-    /// <summary>保存当前全部内容为一个组合件文件（"保存全部内容"，§9.2）。</summary>
+    /// <summary>保存当前全部内容为一个组合件文件（"保存全部内容"）。</summary>
     /// <param name="filePath">目标文件路径。</param>
     /// <returns>命令结果。</returns>
     public CommandResult SaveAll(string filePath)
     {
-        // 【用户第十二轮第四轮】先把"整体平移"的待提交位置落盘，否则刚移动完外壳就保存会丢掉最后一段位移
+        // 先落盘"整体平移"的待提交位置，否则刚移动完外壳就保存会丢掉最后一段位移
         _ = Windows.CommitSceneTranslation();
         return _command.SaveComposite(filePath);
     }
@@ -613,8 +612,8 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         var locked = AllLocked ? " · 已锁定" : string.Empty;
         var issues = ErrorIssueCount > 0 ? $" · Issue {IssueCount}（错误 {ErrorIssueCount}）" : $" · Issue {IssueCount}";
 
-        // 【2026-09】提示**不再拼进摘要**（那样会被截成"拖动…"）⇒ 摘要只放长期事实，提示另占一列。
-        // Issue 计数留在摘要里（信息），**入口**只剩活动栏那个图标（状态栏右侧那个按钮已按用户要求删除）。
+        // 提示**不拼进摘要**（那样会被截成「拖动…」）⇒ 摘要只放长期事实，提示另占一列。
+        // Issue 计数留在摘要里（信息），**入口**只剩活动栏那个图标（状态栏右侧那个按钮不保留）。
         StatusText = $"模块 {Windows.ModuleCount} · {links} · {snap} · 刷新 {Windows.RefreshRateHz} Hz{locked}{issues}";
     }
 }

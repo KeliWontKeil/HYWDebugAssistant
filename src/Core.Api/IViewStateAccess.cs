@@ -3,11 +3,11 @@ using HYWDebugAssistant.Sdk.Context;
 namespace HYWDebugAssistant.Core.Api;
 
 /// <summary>
-/// **视图状态存取面**（UI 侧）〔2026-09 用户裁定 · `decisions.md` 7.28/7.31〕。
+/// **视图状态存取面**（UI 侧）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>谁写</b>：**UI**（切页 ⇒ 选中页；输入框文本变化 ⇒ 当前文本；日志追加 ⇒ 显示缓冲）；</item>
+///   <item><b>谁写</b>：**UI**（切页 ⇒ 选中页；折叠区展开/收起 ⇒ 折叠态；输入框文本变化 ⇒ 当前文本；日志追加 ⇒ 显示缓冲）；</item>
 ///   <item><b>谁读</b>：① **模块**经 <see cref="IViewStateReader"/>（只读快照，模块在活动体里拉取）
 ///     ② **UI 自己**（元素表重建时把用户**未提交**的文本恢复回输入框 —— 修掉"切页即丢编辑"）；</item>
 ///   <item><b>为什么不经变更入口</b>：这是**视图状态**（UI 的、不进组合件、不持久化），
@@ -40,6 +40,18 @@ public interface IViewStateAccess
     /// <param name="text">当前文本（含未提交内容）。</param>
     void SetInputText(string instanceId, string sourceName, string? text);
 
+    /// <summary>写入"某容器是否折叠"（UI 展开/收起折叠区时调用）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="stateKey">容器的 <c>ViewElement.StateKey</c>。</param>
+    /// <param name="collapsed">是否折叠。</param>
+    void SetCollapsed(string instanceId, string stateKey, bool collapsed);
+
+    /// <summary>读取"某容器是否折叠"（UI 重建元素表时恢复折叠态）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="stateKey">容器的 <c>ViewElement.StateKey</c>。</param>
+    /// <returns>是否折叠；未知 ⇒ <see langword="null"/>（⇒ 用默认：展开）。</returns>
+    bool? GetCollapsed(string instanceId, string stateKey);
+
     /// <summary>读取"某输入源当前文本"（UI 重建元素表时恢复输入框）。</summary>
     /// <param name="instanceId">实例 ID。</param>
     /// <param name="sourceName">输入源名。</param>
@@ -59,7 +71,7 @@ public interface IViewStateAccess
     void RemoveInstance(string instanceId);
 
     /// <summary>
-    /// **模块请求"清空某显示源"**〔2026-09〕：进 L4 的挂起表，等 **UI 在刷新节拍里取走并执行**
+    /// **模块请求「清空某显示源」**：进 L4 的挂起表，等 **UI 在刷新节拍里取走并执行**
     /// （与"UI 拉取"同一模型：框架不跨线程碰 UI）。
     /// </summary>
     /// <param name="instanceId">实例 ID。</param>
@@ -75,7 +87,7 @@ public interface IViewStateAccess
     bool TryTakeClear(string instanceId, out string? sourceName);
 
     /// <summary>
-    /// **模块请求"往某显示源追加文本"**〔2026-09 用户裁定 · WinForms 模型〕。
+    /// **模块请求「往某显示源追加文本」**（WinForms 模型）。
     /// </summary>
     /// <remarks>
     /// 与 <see cref="RequestClear"/> 同一模型：**模块线程只入队，UI 在刷新节拍里落地**

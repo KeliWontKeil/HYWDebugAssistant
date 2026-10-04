@@ -11,7 +11,7 @@ using CommunityToolkit.Mvvm.Input;
 namespace HYWDebugAssistant.Ui.Controls;
 
 /// <summary>
-/// **唯一一块文本面**〔2026-09 用户裁定："两者行为基本一致，只是数据写入者/只读属性和滚动条行为不同"〕。
+/// **唯一一块文本面**：输入与日志行为基本一致，只在数据写入者 / 只读属性 / 滚动条行为上不同。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -24,7 +24,7 @@ namespace HYWDebugAssistant.Ui.Controls;
 ///     画在**同格的只读绘制层**里（不进文本、不参与选择、光标跳过 —— 与 Word 的 ¶ 同构）；</item>
 ///   <item><b>一行多长由文本框宽度决定</b>（自动换行、**无横向滚动条**）—— 数据侧不再规定字节数；
 ///     数据里**真的有换行字符**的地方才画 `↵`（通道换行不是字符，见 <see cref="NewlineMarkOverlay.UnmarkedNewlines"/>）。</item>
-///   <item><b>A5 不再有自己的外壳视图</b>：原先那层"标题 + 外框 + 丢弃提示 + 复制全部回调"的壳
+///   <item><b>A5 不再有自己的外壳视图</b>：那层"标题 + 外框 + 丢弃提示 + 复制全部回调"的壳
 ///     （`TextLogView`）在该控件同时支持输入与显示之后**整个删掉**，日志那一块现在就是
 ///     `ModuleContentView.axaml` 里 A5 的 `DataTemplate` 直接放一个本控件；
 ///     "复制全部"的取数也就地收回本类（<see cref="Lines"/> 对分页窗口而言**就是整段缓冲**）。</item>
@@ -166,8 +166,8 @@ public sealed partial class TextSurface : UserControl
         _marks.Editor = _editor;
         _marks.IsActive = false;
 
-        // 标记口径与"这一块面是只读还是可写"对齐（构造时先对一次；`IsReadOnly` 变化时再对一次）
-        _marks.MergeEmptyLineMarks = IsReadOnly;
+        // 标记口径**只有一套（¶）**，与只读/可写无关（输入框与日志面是同一个控件，
+        // 逻辑表现必须完全相同）⇒ 这里不按 `IsReadOnly` 切换任何东西。
 
         _copyAllCommand = new RelayCommand(() => _ = CopyAllToClipboardAsync());
 
@@ -317,10 +317,6 @@ public sealed partial class TextSurface : UserControl
         {
             var readOnly = change.GetNewValue<bool>();
             _editor.IsReadOnly = readOnly;
-
-            // **空行的标记口径按"哪一块面"分工**（两条都是用户裁定，见 `NewlineMarkOverlay.MergeEmptyLineMarks`）：
-            // 只读面 = A5 日志 ⇒ 连续换行的标记并到上一行末尾；可写面 = 模块文本输入框 ⇒ 空行自己显示 `↵`。
-            _marks.MergeEmptyLineMarks = readOnly;
             return;
         }
 
@@ -495,8 +491,8 @@ public sealed partial class TextSurface : UserControl
     /// **自建竖条的可见性判据**：分页模式 **且** 缓冲比窗口长（`Maximum &gt; 0`）。
     /// </summary>
     /// <remarks>
-    /// 2026-09 用户实测缺陷修复：此前竖条只按"是不是分页模式"显示 ⇒ **没得可滚时也常驻一根**，
-    /// 用户读成"这根条没用"（日志现在是流式追加，绝大多数时候确实没什么可回看的）。
+    /// 竖条若只按"是不是分页模式"显示 ⇒ **没得可滚时也常驻一根**，
+    /// 会被读成"这根条没用"（日志是流式追加，绝大多数时候确实没什么可回看的）。
     /// 判据就用 <see cref="ScrollBar.Maximum"/> 本身（= 总行数 − 窗口行数，唯一事实源），
     /// 不另存一个"能不能滚"的标志 ⇒ 两个来源迟早各说一套。
     /// </remarks>
@@ -596,7 +592,7 @@ public sealed partial class TextSurface : UserControl
     /// 用户是否正在与文本框交互 ⇒ 窗口内容不得被重写。
     /// </summary>
     /// <remarks>
-    /// <b>2026-09 用户裁定：判据收窄为"有选区"</b>。此前把"有键盘焦点"也算交互 ⇒ 用户点一下日志框
+    /// <b>判据收窄为"有选区"</b>：若把"有键盘焦点"也算交互 ⇒ 点一下日志框
     /// （哪怕一个字都没选）日志就**永不刷新**，看起来像"卡住了"。而重写窗口**只有"把选区抽走"这一个真实副作用**
     /// ⇒ 判据就只剩它。
     /// </remarks>
@@ -780,7 +776,7 @@ public sealed partial class TextSurface : UserControl
         var builder = new StringBuilder();
 
         // **通道换行的偏移**：窗口文本是用 `\n` 把"行"拼起来的，这些 `\n` 是**通道换行**（不是数据里的字符）
-        // ⇒ 显示层据此**不画** `↵`（用户裁定："通道引进的换行不是字符，永远不该有 ↵"）。
+        // ⇒ 显示层据此**不画** `↵`（通道引进的换行不是字符，永远不该有 ↵）。
         var channelBreaks = new List<int>(Math.Max(0, count - 1));
 
         for (var i = 0; i < count; i++)
@@ -878,7 +874,7 @@ public sealed partial class TextSurface : UserControl
     /// <para>
     /// 取数**就是那一刻现读** <see cref="Lines"/>（不是开机时的快照）：缓冲一直在长，
     /// 菜单点下去的时候读到的必须是最新的全量。文本面因此**不需要外部再传一个取数回调**
-    /// （旧版由外壳视图注入 `Func&lt;string&gt;`，外壳删掉后就地收回来，见下）。
+    /// （不再由外壳视图注入 `Func&lt;string&gt;`——外壳已删掉，取数就地收在本类，见下）。
     /// </para>
     /// <para>
     /// Avalonia 12 的剪贴板是**数据包**口径（<c>SetDataAsync(IDataTransfer)</c>，没有 <c>SetTextAsync</c>）：

@@ -116,7 +116,7 @@
           端口标记（`Tokens.axaml` 的 `PortMarkerWidth = 20`，沿上/下边向内占 20）与左下角的
           "运行指示"（状态点 + 状态文本，约 17 高）。此前四边内边距一律 20 ⇒ **最后一行内容正好被
           20 高的端口标记压住**（用户："上下边框存在元素遮盖问题（窗口高度和内容比例不合适）"）。
-          **改这两个数就等于改"内容离边框多远"**（`UI-ADJUST.md` §2.1 的旋钮之一）。
+          **改这两个数就等于改"内容离边框多远"**（旋钮现值见 docs/architecture/07-overlay-and-visual-baseline.md §「取值纪律」）。
 
           ⚠ **预留带必须放在 `ScrollViewer` 之外（`Margin`）而不是它的 `Padding`**（2026-09 修的真实缺陷）：
           `Padding` 算在**视口之内**，而内容面板的 `MinHeight` 绑的是**视口高** ⇒ 内容 = 视口 + 内边距
@@ -140,15 +140,25 @@
               视口更高 ⇒ 面板被拉到视口高 ⇒ 余量分给填满型；内容更高 ⇒ 面板保持最小高、滚动条接管。
             -->
             <ItemsControl ItemsSource="{Binding Elements}"
+                          Margin="{Binding RootContentMargin}"
                           VerticalAlignment="Stretch">
                 <!--
                   【2026-09 用户裁定】**元素排布面板**：把"填满型"（A5 文本日志 · 多行输入）与"按内容型"
                   分开 —— 前者分走剩余高度并**内部滚动**（不再随行数把布局撑长），后者高度 = 内容高度。
                   **间距在这里调**：`Spacing`（位置观感问题改这一个数即可）。
+                  【2026-09 · `decisions.md` 7.56】根作用域的排布模式与间距来自包内 `view.json`
+                  （`RootLayoutMode` / `RootOverflow` / `RootSpacing` / `RootContentMargin`）；
+                  未声明时它们是框架缺省值（流式 + 间距 2 + 留白 0）⇒ **旧模块逐像素不变**。
                 -->
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <ctrl:ModuleElementPanel Spacing="2" />
+                        <ctrl:ModuleElementPanel Spacing="{Binding RootSpacing}"
+                                                 Columns="{Binding RootColumns}"
+                                                 Rows="{Binding RootRows}"
+                                                 ColumnSpacing="{Binding RootColumnSpacing}"
+                                                 RowSpacing="{Binding RootRowSpacing}"
+                                                 LayoutMode="{Binding RootLayoutMode}"
+                                                 Overflow="{Binding RootOverflow}" />
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
@@ -233,14 +243,37 @@
                                                               ShowNewlineMarks="True"
                                                               Lines="{Binding Lines}" />
                                         </Border>
-                                        <!-- 到顶丢最旧时**明说**（不静默丢） -->
-                                        <TextBlock Grid.Row="2"
-                                                   Name="DroppedHint"
-                                                   FontSize="10"
-                                                   Margin="0,2,0,0"
-                                                   Foreground="{DynamicResource TextMuted}"
-                                                   IsVisible="{Binding DroppedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                                   Text="{Binding DroppedText}" />
+                                        <!--
+                                          左下角信息区〔2026-09 试点 · `decisions.md` 7.57〕：**保存到哪儿了 / 为什么没生效**
+                                          就近显示在文本框左下角（用户裁定"换一个位置显示，放到文本框的左下角"）；
+                                          同一行右侧仍是"已丢弃 N 行"（两个信息源互不遮挡，且都没有时整行高为 0）。
+                                        -->
+                                        <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="0,2,0,0">
+                                            <!-- 非错误态（`BoolConverters.Not`：错误时这一块让位给下面红色的那一块） -->
+                                            <TextBlock Grid.Column="0"
+                                                       Name="CornerStatus"
+                                                       FontSize="10"
+                                                       VerticalAlignment="Center"
+                                                       IsVisible="{Binding CornerIsError, Converter={x:Static BoolConverters.Not}}"
+                                                       Foreground="{DynamicResource TextMuted}"
+                                                       Text="{Binding CornerStatus}" />
+                                            <TextBlock Grid.Column="0"
+                                                       Name="CornerStatusError"
+                                                       FontSize="10"
+                                                       VerticalAlignment="Center"
+                                                       IsVisible="{Binding CornerIsError}"
+                                                       Foreground="{DynamicResource SemanticError}"
+                                                       Text="{Binding CornerStatus}" />
+                                            <!-- 到顶丢最旧时**明说**（不静默丢） -->
+                                            <TextBlock Grid.Column="1"
+                                                       Name="DroppedHint"
+                                                       FontSize="10"
+                                                       HorizontalAlignment="Right"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource TextMuted}"
+                                                       IsVisible="{Binding DroppedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                       Text="{Binding DroppedText}" />
+                                        </Grid>
                                     </Grid>
                                 </DataTemplate>
 
@@ -305,7 +338,7 @@
                                         <!--
                                           **输入框右侧（框外）：单位标签**。
                                           单位**不做框内后缀**（用户 2026-09 裁定："容易给人一种'这里单位可以改'的错觉"）
-                                          ⇒ 用**框外标签**呈现，来源 = 数据源声明的 `Unit`（`ViewDataSource.Unit`）——
+                                          ⇒ 用**框外标签**呈现，来源 = 数据源声明里的 `unit`（`ViewSourceDeclaration.Unit`）——
                                           模块不为此多声明字段；空则整块不显示（`StringConverters` 是内置转换器）。
                                         -->
                                         <TextBlock Grid.Row="1" Grid.Column="1"
@@ -330,10 +363,17 @@
                                 </DataTemplate>
 
                                 <DataTemplate DataType="vm:CommandElementViewModel">
-                                    <Grid ColumnDefinitions="Auto,Auto,*" Margin="0,2">
+                                    <!--
+                                      【2026-09 用户裁定 · 7.58】**尺寸只由声明决定**：命令按钮不再"按内容宽"
+                                      （那会让同一列的两个按钮一大一小），而是**撑满面板分给它的矩形**
+                                      （`width: fill` ⇒ 同列等宽；`pixels` ⇒ 由面板定死）。错误文字占右列 `auto`。
+                                    -->
+                                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="*" Margin="0,2">
                                         <Button Grid.Column="0"
                                                 Padding="10,0"
-                                                Content="{Binding Command.Title}"
+                                                HorizontalAlignment="Stretch"
+                                                VerticalAlignment="Stretch"
+                                                Content="{Binding Title}"
                                                 Command="{Binding InvokeCommand}"
                                                 ToolTip.Tip="{Binding Tooltip}" />
                                         <TextBlock Grid.Column="1"
@@ -422,9 +462,11 @@
                                 -->
                                 <DataTemplate DataType="vm:FileSelectorElementViewModel">
                                     <!--
-                                      结果行**常驻占位**（`MinHeight`）⇒ 有无信息都不改布局（用户 D4 裁定）。
+                                      结果行**常驻占位**（`MinHeight`）⇒ 有无信息都不改布局（用户 D4 裁定）；
+                                      结果行被 `showInlineResult: false` 关掉时（或本来就没信息），**按钮占满整个声明高度**
+                                      （行 0 是 `*`）—— 于是它与同列的「清空」按钮像素同尺寸〔2026-09 用户裁定 · 7.58〕。
                                     -->
-                                    <Grid RowDefinitions="Auto,Auto" Margin="0,2">
+                                    <Grid RowDefinitions="*,Auto" Margin="0,2">
                                         <Button Grid.Row="0"
                                                 HorizontalAlignment="Stretch"
                                                 Content="{Binding ButtonText}"
@@ -438,10 +480,90 @@
                                                    TextWrapping="NoWrap"
                                                    TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center"
+                                                   IsVisible="{Binding ShowInlineResult}"
                                                    Foreground="{DynamicResource TextMuted}"
                                                    Classes.invalid="{Binding IsInvalid}"
                                                    Text="{Binding LastResult}" />
                                     </Grid>
+                                </DataTemplate>
+
+                                <!--
+                                  【2026-09 用户裁定 · 7.56】**容器**（`Group`）：自己占一块区域并画出**标题 + 边框**，
+                                  子元素收在**内部独立排布**（参考 WinForms 的 `GroupBox`：标题在框内左上、子控件在框内布局）。
+                                  内层复用同一个 `ctrl:ModuleElementPanel`（流式、自上而下、余量给填满型）⇒ **嵌套天然可用**，
+                                  且"容器内含多行输入 / 日志"时余量会被正确分配到最内层（填满性透传，见 `ModuleElementPanel`）。
+                                  内层 `ItemsControl` **不需要自己的 DataTemplates**：隐式模板由外层 `ContentControl.DataTemplates`
+                                  沿逻辑树提供（外层自身就是这么派发到具体元素模板的）。
+                                -->
+                                <!-- 分组容器：标题 + 边框 + 内层流式排布（WinForms `GroupBox` 思想） -->
+                                <DataTemplate DataType="vm:GroupElementViewModel">
+                                    <Border Margin="0,2"
+                                            Padding="6,4,6,6"
+                                            BorderBrush="{DynamicResource BorderDefault}"
+                                            BorderThickness="1"
+                                            CornerRadius="2">
+                                        <Grid RowDefinitions="Auto,*">
+                                            <TextBlock Grid.Row="0"
+                                                       FontSize="10"
+                                                       Foreground="{DynamicResource TextMuted}"
+                                                       Text="{Binding Title}" />
+                                            <ItemsControl Grid.Row="1"
+                                                          Margin="{Binding ContentMargin}"
+                                                          VerticalAlignment="Stretch"
+                                                          ItemsSource="{Binding Children}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <ctrl:ModuleElementPanel Spacing="{Binding Spacing}" Columns="{Binding Columns}" Rows="{Binding Rows}" ColumnSpacing="{Binding ColumnSpacing}" RowSpacing="{Binding RowSpacing}" LayoutMode="{Binding LayoutMode}" Overflow="{Binding Overflow}" />
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                            </ItemsControl>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+
+                                <!-- 可折叠容器：收起时只剩标题行（WinForms `Panel` + 展开按钮 思想）。
+                                     `IsExpanded` 双向绑定 ⇒ 用户点标题行时写回视图模型 ⇒ 折叠态进视图状态存储。 -->
+                                <DataTemplate DataType="vm:CollapsibleElementViewModel">
+                                    <Expander Margin="0,2"
+                                              HorizontalAlignment="Stretch"
+                                              IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
+                                        <Expander.Header>
+                                            <TextBlock FontSize="10"
+                                                       Foreground="{DynamicResource TextMuted}"
+                                                       Text="{Binding Title}" />
+                                        </Expander.Header>
+                                        <ItemsControl Margin="{Binding ContentMargin}"
+                                                      VerticalAlignment="Stretch"
+                                                      ItemsSource="{Binding Children}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <ctrl:ModuleElementPanel Spacing="{Binding Spacing}" Columns="{Binding Columns}" Rows="{Binding Rows}" ColumnSpacing="{Binding ColumnSpacing}" RowSpacing="{Binding RowSpacing}" LayoutMode="{Binding LayoutMode}" Overflow="{Binding Overflow}" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                        </ItemsControl>
+                                    </Expander>
+                                </DataTemplate>
+
+                                <!--
+                                  排布容器（C4）：**只负责排布、不画语义外壳**（分组框 / 标签条 / 折叠区各由别的容器承担）。
+                                  存在的理由：`grid` 这类排布本身可能要多一层嵌套（"左边一列控件、右边一片日志"），
+                                  那层嵌套不该被迫画出一个分组框或标题条。
+                                  `overflow: scroll` ⇒ 内容超出时出滚动条、不撑大外层（WinForms `Panel.AutoScroll` 思想）；
+                                  `clip` ⇒ 由面板把上报高度夹住（不出现滚动条）。
+                                -->
+                                <DataTemplate DataType="vm:LayoutContainerElementViewModel">
+                                    <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                                  VerticalScrollBarVisibility="Auto">
+                                        <ItemsControl Margin="{Binding ContentMargin}"
+                                                      VerticalAlignment="Stretch"
+                                                      ItemsSource="{Binding Children}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <ctrl:ModuleElementPanel Spacing="{Binding Spacing}" Columns="{Binding Columns}" Rows="{Binding Rows}" ColumnSpacing="{Binding ColumnSpacing}" RowSpacing="{Binding RowSpacing}" LayoutMode="{Binding LayoutMode}" Overflow="{Binding Overflow}" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                        </ItemsControl>
+                                    </ScrollViewer>
                                 </DataTemplate>
 
                                 <!-- 其余元素：明确标注"未渲染"，不假装支持 -->

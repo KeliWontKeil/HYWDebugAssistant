@@ -8,7 +8,7 @@ namespace HYWDebugAssistant.Hosting.Registry;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>版本维度</b>：同 ID 的多个版本**共存注册**（ADR-0020 §11.2）；键为完整三元组字面量。</item>
+///   <item><b>版本维度</b>：同 ID 的多个版本**共存注册**；键为完整三元组字面量。</item>
 ///   <item><b>重复注册</b>：同 ID 同版本重复 → 拒绝（返回原因），**不覆盖**。</item>
 ///   <item><b>移除</b>：注销注册项；已实例化的在用实例**不强制卸载**（进入缺失态由上层处理）。</item>
 /// </list>

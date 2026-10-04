@@ -13,7 +13,7 @@ namespace HYWDebugAssistant.ArchitectureTests;
 /// 源码类（AR-13~AR-16）：源码扫描（命名空间一致性、业务词汇、排除清单、公开签名）。
 /// </para>
 /// <para>
-/// <b>目标程序集缺失即失败</b>——禁止"无对象则跳过"：规则静默失效比误报更危险（ADR-0032 §6.3）。
+/// <b>目标程序集缺失即失败</b>——禁止「无对象则跳过」：规则静默失效比误报更危险。
 /// 因此本测试要求产品程序集已构建（<c>build.ps1</c> 的顺序已满足）。
 /// </para>
 /// </summary>
@@ -47,14 +47,14 @@ public class ArchitectureRulesTests
     private static readonly string[] UiLayers =
         ["HYWDebugAssistant.Ui", "HYWDebugAssistant.FrameworkUi", "HYWDebugAssistant.App"];
 
-    /// <summary>AR-13：框架核心层不得出现的具体业务词汇（P1/P2/P13、ADR-0003）。</summary>
+    /// <summary>AR-13：框架核心层不得出现的具体业务词汇（P1/P2/P13）。</summary>
     private static readonly string[] BusinessWords =
         ["Uart", "UART", "Foc", "FOC", "Plotter", "SerialPort", "Modbus", "CanBus", "串口", "波特率", "电机"];
 
     private static readonly string[] BusinessLayers =
         ["HYWDebugAssistant.Core", "HYWDebugAssistant.Hosting", "HYWDebugAssistant.DataPlane"];
 
-    /// <summary>AR-15：ADR-0024 排除清单（第三方组件命名空间前缀）。</summary>
+    /// <summary>AR-15：排除清单（第三方组件命名空间前缀）。</summary>
     private static readonly string[] ForbiddenNamespaces =
     [
         "AvaloniaUI.DiagnosticsSupport", "Avalonia.Accelerate", "Avalonia.Diagnostics",
@@ -479,5 +479,269 @@ public class ArchitectureRulesTests
         }
 
         violations.ShouldBeEmpty(string.Join(Environment.NewLine, violations));
+    }
+
+    /// <summary>
+    /// **AR-17：用户数据路径必须只有一处来源**（P5/P6）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 纪律：所有需要持久化的数据**全部进 data**。落盘路径若散落多处（组合根 / 服务 / 设置 / 读取点…）
+    /// ⇒ 「用户数据在哪」就没有单一答案（`architecture/10` 甚至并存两套互相矛盾的包根说法）。
+    /// </para>
+    /// <para>
+    /// 本用例把这条纪律变成**可执行检查**：`settings.json` 这个文件名**只允许**出现在路径解析器里
+    /// （`StoragePaths`）—— 谁再在别处拼一份，这里当场红。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void AR17_用户数据文件名必须只有一处来源()
+    {
+        var allowed = Path.Combine("Infrastructure", "Storage", "StoragePaths.cs");
+        var offenders = new List<string>();
+
+        foreach (var file in SourceFiles())
+        {
+            if (file.EndsWith(allowed, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var lineNumber = 0;
+            foreach (var line in File.ReadAllLines(file))
+            {
+                lineNumber++;
+                if (line.Contains("\"settings.json\"", StringComparison.Ordinal))
+                {
+                    offenders.Add($"{Path.GetRelativePath(RepoRoot, file)}:{lineNumber} 自己拼了设置文件名");
+                }
+            }
+        }
+
+        offenders.ShouldBeEmpty(
+            "用户数据路径只能从 `StoragePaths` 取（AR-17）：" + Environment.NewLine + string.Join(Environment.NewLine, offenders));
+    }
+
+    /// <summary>
+    /// **AR-18：模块的窗口尺寸与端口默认位置只有包内 `view.json` 一个来源**。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 口径：默认尺寸 / 最小尺寸 / 最大尺寸**全部进包内 `view.json`**，「网络标签在哪条边」这类位置也都可改
+    /// ⇒ **json 为唯一来源**，代码里不留 `Edge` / `AnchorDraggable` 这类声明。
+    /// </para>
+    /// <para>
+    /// 本用例把这条纪律变成**可执行检查**：模块源码里再出现尺寸常量或端口位置常量，这里当场红
+    /// （框架侧的 `PortDeclaration.Edge` / `AnchorDraggable` 与 `ViewDeclaration.PreferredWidth` / `PreferredHeight`
+    /// 已经删掉 —— 这些标识只剩"包内 json"一条通路）。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void AR18_模块尺寸与端口位置必须只来自包内view_json()
+    {
+        string[] forbidden =
+        [
+            "PreferredWidth",
+            "PreferredHeight",
+            "AnchorDraggable",
+            "Edge = Sdk.Ports.PortEdge.",
+            "Edge = PortEdge.",
+        ];
+
+        var offenders = new List<string>();
+
+        foreach (var file in SourceFiles())
+        {
+            if (!file.Contains($"{Separator}Modules{Separator}", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var lineNumber = 0;
+            foreach (var line in File.ReadAllLines(file))
+            {
+                lineNumber++;
+                foreach (var token in forbidden)
+                {
+                    if (line.Contains(token, StringComparison.Ordinal))
+                    {
+                        offenders.Add($"{Path.GetRelativePath(RepoRoot, file)}:{lineNumber} 出现 '{token}'");
+                    }
+                }
+            }
+        }
+
+        offenders.ShouldBeEmpty(
+            "模块的尺寸 / 端口默认位置只能写在包内 `view.json` 里（AR-18）："
+            + Environment.NewLine + string.Join(Environment.NewLine, offenders));
+    }
+
+    /// <summary>
+    /// **AR-19：源码注释只承载"为什么 / 不变量 / 坑"**。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 注释是给读者理解**当前**代码用的：说清为什么这么写、必须守住什么不变量、哪里踩过坑就够了。
+    /// 时间标记、决定编号、逐字引语、变更叙述、测试统计与仓库内路径清单都另有唯一落点，
+    /// 抄进注释只会多出一份会过期的事实（同一件事两处各写一遍，改一次要改两处）。
+    /// </para>
+    /// <para>
+    /// 例外：确有必要保留的注释，在同行或紧邻上一行写 `ARCH-EXCEPTION` 加理由，并到例外登记处登记；
+    /// 本用例只认这个标记，不做人工判断。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void AR19_源码注释必须只承载为什么_不得携带日期与决定编号与用户原话与读数()
+    {
+        var forbidden = new (string Label, Regex Pattern)[]
+        {
+            ("日期", new Regex(@"\d{4}-\d{2}")),
+            ("决定编号", new Regex(@"decisions\.md|ADR-\d|(?<![.\d])7\.\d{2}(?![.\d])")),
+            ("用户原话", new Regex(@"用户原话|用户裁定|用户裁决|用户明示|用户要求|用户清单|用户追问")),
+            ("变更叙述", new Regex(@"原先|此前|曾经|旧版|当时|本来|一度|历史记录")),
+            ("测试读数", new Regex(@"\d+\s*/\s*\d+\s*(通过|失败)|(通过|失败)\s*[：:]\s*\d+|0\s*警告|警告\s*0")),
+            ("仓库内路径清单", new Regex(@"(src|tests)[\\/]")),
+        };
+
+        const int reportLimit = 60;
+        var offenders = new List<string>();
+        var total = 0;
+        var roots = new[] { Path.Combine(RepoRoot, "src"), Path.Combine(RepoRoot, "tests") };
+
+        foreach (var file in roots.Where(Directory.Exists)
+                     .SelectMany(r => Directory.EnumerateFiles(r, "*.cs", SearchOption.AllDirectories))
+                     .Where(p => !p.Contains($"{Separator}obj{Separator}") && !p.Contains($"{Separator}bin{Separator}")))
+        {
+            var lines = File.ReadAllLines(file);
+            var inBlockComment = false;
+
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var line = lines[i];
+                var trimmed = line.TrimStart();
+                var isComment = inBlockComment
+                    || trimmed.StartsWith("//", StringComparison.Ordinal)
+                    || trimmed.StartsWith("/*", StringComparison.Ordinal);
+
+                // 注释边界只在"去掉字符串与字符字面量之后"的文本上判定：字面量里的 `/*`
+                // （例如 "*.slnx/*.sln"）不是注释起点，误判会让整段代码被当成注释。
+                var code = StripLiterals(line);
+                if (code.Contains("/*", StringComparison.Ordinal) && !code.Contains("*/", StringComparison.Ordinal))
+                {
+                    inBlockComment = true;
+                }
+                else if (inBlockComment && code.Contains("*/", StringComparison.Ordinal))
+                {
+                    inBlockComment = false;
+                }
+
+                if (!isComment || line.Contains("ARCH-EXCEPTION", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                foreach (var (label, pattern) in forbidden)
+                {
+                    if (!pattern.IsMatch(line))
+                    {
+                        continue;
+                    }
+
+                    total++;
+                    if (offenders.Count < reportLimit)
+                    {
+                        offenders.Add($"{Path.GetRelativePath(RepoRoot, file)}:{i + 1} 注释里有{label}");
+                    }
+                }
+            }
+        }
+
+        offenders.ShouldBeEmpty(
+            $"注释只写为什么 / 不变量 / 坑（AR-19），共 {total} 处（先列前 {reportLimit} 处）；"
+            + "例外请写 ARCH-EXCEPTION 标记并登记："
+            + Environment.NewLine + string.Join(Environment.NewLine, offenders));
+    }
+
+    /// <summary>
+    /// 去掉字符串与字符字面量的内容，只留代码骨架。
+    /// </summary>
+    /// <remarks>
+    /// 注释边界不能靠字面量里的字符判断：`"*.slnx/*.sln"` 里的 `/*` 不是块注释起点，
+    /// 误判会让后面的整段代码都被当成注释。
+    /// </remarks>
+    private static string StripLiterals(string line)
+    {
+        var buffer = new char[line.Length];
+        var length = 0;
+        var inString = false;
+        var inChar = false;
+        var verbatim = false;
+
+        for (var i = 0; i < line.Length; i++)
+        {
+            var c = line[i];
+
+            if (inString)
+            {
+                if (verbatim)
+                {
+                    if (c == '"')
+                    {
+                        if (i + 1 < line.Length && line[i + 1] == '"')
+                        {
+                            i++;
+                        }
+                        else
+                        {
+                            inString = false;
+                        }
+                    }
+
+                    continue;
+                }
+
+                if (c == '\\')
+                {
+                    i++;
+                }
+                else if (c == '"')
+                {
+                    inString = false;
+                }
+
+                continue;
+            }
+
+            if (inChar)
+            {
+                if (c == '\\')
+                {
+                    i++;
+                }
+                else if (c == '\'')
+                {
+                    inChar = false;
+                }
+
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = true;
+                verbatim = i > 0 && line[i - 1] == '@';
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                inChar = true;
+                continue;
+            }
+
+            buffer[length++] = c;
+        }
+
+        return new string(buffer, 0, length);
     }
 }

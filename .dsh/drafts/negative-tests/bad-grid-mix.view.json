@@ -1,0 +1,4 @@
+{ "version": 1, "frame": { "window": { "width": 320, "height": 220 } }, "sources": [ { "name": "s", "kind": "Text" } ],
+  "views": [ { "root": { "kind": "container", "layout": "grid", "columns": ["*","*"], "rows": ["auto"], "children": [
+      { "kind": "textLog", "data": "s", "column": 0, "row": 0 },
+      { "kind": "textLog", "data": "s", "auto": true } ] } } ] }

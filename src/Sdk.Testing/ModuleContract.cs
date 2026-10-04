@@ -2,27 +2,28 @@ using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
-using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Testing;
 
 /// <summary>契约探针结果：声明面 + 问题清单 + 建议清单。</summary>
 /// <param name="EntryType">模块入口类型。</param>
 /// <param name="Ports">已声明的口。</param>
-/// <param name="View">已声明的视图（无 UI 模块为 <see langword="null"/>）。</param>
 /// <param name="Problems">契约问题（空 = 合法）；面向作者的**具体、可定位**描述。</param>
 /// <param name="Flows">已声明的**内部处理顺序**（角色 → 角色）。</param>
 /// <param name="Roles">已声明的**角色**（模块的功能分块）。</param>
 /// <param name="Advice">
-/// **建议**（不是错误）【ADR-0052 Q3】：与 <paramref name="Problems"/> **分通道**——
-/// `Problems` 的语义是"空 = 合法"（`IsValid`/`CheckAll`/门禁用例都按它写），
-/// 建议放进去会把"能跑但有话说"变成"不合法"。运行期**不产生**这类提示（不能在自家正确模块的 Issue 中心里报警）。
+/// **建议**（不是错误）：与 <paramref name="Problems"/> **分通道**——
+/// `Problems` 的语义是「空 = 合法」（`IsValid`/`CheckAll`/门禁用例都按它写），
+/// 建议放进去会把「能跑但有话说」变成「不合法」。运行期**不产生**这类提示（不能在自家正确模块的 Issue 中心里报警）。
 /// </param>
+/// <remarks>
+/// **不含界面声明**：控件树、数据源与命令都在包内 `view.json`，由框架的读取器按 schema 解析，
+/// 与模块代码无关（要看声明面请用 `ViewDeclarationReader` 读包目录）。
+/// </remarks>
 public sealed record ContractProbeResult(
     Type EntryType,
     IReadOnlyList<PortDeclaration> Ports,
     IReadOnlyList<DataTypeDeclaration> DataTypes,
-    ViewDeclaration? View,
     IReadOnlyList<string> Problems,
     IReadOnlyList<FlowDeclaration>? Flows = null,
     IReadOnlyList<RoleDeclaration>? Roles = null,
@@ -31,10 +32,10 @@ public sealed record ContractProbeResult(
     /// <summary>契约是否合法。</summary>
     public bool IsValid => Problems.Count == 0;
 
-    /// <summary>已声明的**内部处理顺序**（`角色 → 角色`）【ADR-0052】。</summary>
+    /// <summary>已声明的**内部处理顺序**（`角色 → 角色`）。</summary>
     public IReadOnlyList<FlowDeclaration> DeclaredFlows => Flows ?? [];
 
-    /// <summary>已声明的**角色**（功能分块；叠加层画出来的方块就是它们）【ADR-0052】。</summary>
+    /// <summary>已声明的**角色**（功能分块；叠加层画出来的方块就是它们）。</summary>
     public IReadOnlyList<RoleDeclaration> DeclaredRoles => Roles ?? [];
 
     /// <summary>**建议**（空 = 没有可说的）；**不影响 <see cref="IsValid"/>**。</summary>
@@ -62,7 +63,7 @@ public static class ModuleContract
 
         if (!typeof(IModule).IsAssignableFrom(entryType))
         {
-            return new ContractProbeResult(entryType, [], [], null, [$"入口类型未实现 IModule：{entryType.FullName}"]);
+            return new ContractProbeResult(entryType, [], [], [$"入口类型未实现 IModule：{entryType.FullName}"]);
         }
 
         if (entryType.GetConstructor(Type.EmptyTypes) is null)
@@ -72,7 +73,7 @@ public static class ModuleContract
 
         if (entryType.IsAbstract || entryType.IsInterface)
         {
-            return new ContractProbeResult(entryType, [], [], null, [$"入口类型不可实例化：{entryType.FullName}"]);
+            return new ContractProbeResult(entryType, [], [], [$"入口类型不可实例化：{entryType.FullName}"]);
         }
 
         TestModuleContext probeContext;
@@ -85,21 +86,19 @@ public static class ModuleContract
         catch (Exception ex)
         {
             problems.Add($"OnRegistered 抛出异常：{ex.GetType().Name} — {ex.Message}");
-            return new ContractProbeResult(entryType, [], [], null, problems);
+            return new ContractProbeResult(entryType, [], [], problems);
         }
 
         CheckPorts(probeContext.DeclaredPorts, problems);
-        CheckDataTypes(probeContext.DeclaredDataTypes, probeContext.DeclaredPorts, probeContext.DeclaredView, problems);
+        CheckDataTypes(probeContext.DeclaredDataTypes, probeContext.DeclaredPorts, problems);
         CheckRoles(probeContext.DeclaredRoles, probeContext.DeclaredPorts, probeContext.DeclaredDataTypes, problems, advice);
         CheckFlows(probeContext.DeclaredFlows, probeContext.DeclaredRoles, problems);
-        CheckView(probeContext.DeclaredView, problems);
         CheckConfiguration(entryType, problems);
 
         return new ContractProbeResult(
             entryType,
             probeContext.DeclaredPorts,
             probeContext.DeclaredDataTypes,
-            probeContext.DeclaredView,
             problems,
             probeContext.DeclaredFlows,
             probeContext.DeclaredRoles,
@@ -110,7 +109,7 @@ public static class ModuleContract
     /// <param name="entryTypes">模块入口类型集合。</param>
     /// <remarks>
     /// **只汇总问题、不含建议**：调用方（门禁用例、模块作者的"声明面应无问题"断言）按"空 = 合法"使用它；
-    /// 建议经 <see cref="Probe"/> 的 <see cref="ContractProbeResult.Advisories"/> 单独取用（ADR-0052 Q3）。
+    /// 建议经 <see cref="Probe"/> 的 <see cref="ContractProbeResult.Advisories"/> 单独取用。
     /// </remarks>
     public static IReadOnlyList<string> CheckAll(params Type[] entryTypes)
     {
@@ -203,13 +202,12 @@ public static class ModuleContract
     }
 
     /// <summary>
-    /// 校验**数据类型声明**【ADR-0046 D2】：标识/版本合法、同（标识,版本）不重复、引用都能在本模块解析、
+    /// 校验**数据类型声明**：标识/版本合法、同（标识,版本）不重复、引用都能在本模块解析、
     /// 计量块自洽（否则兼容判定会退化成结构比较，作者应当**现在**就知道）。
     /// </summary>
     private static void CheckDataTypes(
         IReadOnlyList<DataTypeDeclaration> types,
         IReadOnlyList<PortDeclaration> ports,
-        ViewDeclaration? view,
         List<string> problems)
     {
         var known = new HashSet<DataTypeRef>();
@@ -252,9 +250,9 @@ public static class ModuleContract
                     $"数据类型 {type.Reference} 的 PayloadSizeInBytes = {payload} 不合理（应 > 0 且 ≤ 契约尺寸 {type.SizeInBytes}）");
             }
 
-            // 【2026-09 用户裁定"速率只要有效数据"】**有效长度字段声明**必须真的能读：
+            // **有效长度字段声明**必须真的能读（速率只统计有效数据）：
             // 名字要能在本类型的**顶层字段**里找到，且必须是**整型原语**（小端读出来当字节数用）。
-            // 只声明不校验 ⇒ 框架运行期读到 0 ⇒ "有效速率恒为 0"这种**静默归零**（比误报危险得多）。
+            // 只声明不校验 ⇒ 框架运行期读到 0 ⇒ 「有效速率恒为 0」这种**静默归零**（比误报危险得多）。
             if (type.Metering.PayloadLengthField is { Length: > 0 } lengthField)
             {
                 var layout = ContractLayout.FromShape(type.Shape);
@@ -286,19 +284,10 @@ public static class ModuleContract
                 problems.Add($"口 '{port.Name}' 引用了本模块未声明的数据类型 {reference}——该口将回退为**结构**兼容判定");
             }
         }
-
-        foreach (var source in view?.DataSources ?? [])
-        {
-            if (source.Type is { } reference && !known.Contains(reference))
-            {
-                problems.Add(
-                    $"数据源 '{source.Name}' 引用了本模块未声明的数据类型 {reference}——呈现层将拿不到模块解码器");
-            }
-        }
     }
 
     /// <summary>
-    /// 校验**角色声明**（功能分块）【ADR-0052】：Id 唯一 · 类型可在本模块解析 · 口存在且方向相符 ·
+    /// 校验**角色声明**（功能分块）：Id 唯一 · 类型可在本模块解析 · 口存在且方向相符 ·
     /// **一个口最多属于一个角色** · **输入口与输出口同型（α）** · 至少一个口；
     /// **口数 &gt; 2 时给建议**（进 <paramref name="advice"/>，**不是问题**）。
     /// </summary>
@@ -308,9 +297,9 @@ public static class ModuleContract
     /// **口数不设上限**（2 入 1 出的融合块是合法且最常见的多口形态）；该建议只提醒作者"多数分块只有一入一出"，
     /// 并明说"多入一出/一入多出不必拆"，避免把一件功能硬拆成两块。
     /// <para>
-    /// <b>两侧同型（2026-09 补充裁定 α）</b>：角色的输入口与输出口必须承载**同一种**数据类型（= 角色的
-    /// <c>Type</c>）—— ADR-0052 Q2 已裁"一个角色只有一种数据类型"，α 裁的是**两侧是否同型**。
-    /// ⇒ 类型转换 = **两个数据角色** + <c>DeclareFlow</c>；**口未声明类型时不校验**（旧模块形态）。
+    /// <b>两侧同型</b>：角色的输入口与输出口必须承载**同一种**数据类型（= 角色的
+    /// <c>Type</c>）—— 一个角色只有一种数据类型，本条约束的是**两侧是否同型**。
+    /// ⇒ 类型转换 = **两个数据角色** + <c>DeclareFlow</c>；**口未声明类型时不校验**（可声明 ≠ 必须声明的模块形态）。
     /// </para>
     /// </remarks>
     private static void CheckRoles(
@@ -379,10 +368,10 @@ public static class ModuleContract
                     continue;
                 }
 
-                // 【2026-09 补充裁定 α】角色的**输入口与输出口必须承载同一种数据类型**（= 角色的 Type）：
-                // ADR-0052 Q2 已裁"一个角色只有一种数据类型"，α 裁的是它没裁的那半 —— **两侧是否同型**。
-                // ⇒ **类型转换 = 两个数据角色**（"收 A" + "发 B"）+ DeclareFlow；叠加层上表现为两个方块。
-                // 口**未声明类型**（旧模块形态，"可声明 ≠ 必须声明"）⇒ 无可比对象，**跳过不报**。
+                // 角色的**输入口与输出口必须承载同一种数据类型**（= 角色的 Type）：
+                // 一个角色只有一种数据类型，本条约束的是**两侧是否同型**。
+                // ⇒ **类型转换 = 两个数据角色**（「收 A」+「发 B」）+ DeclareFlow；叠加层上表现为两个方块。
+                // 口**未声明类型**（可声明 ≠ 必须声明的模块形态）⇒ 无可比对象，**跳过不报**。
                 if (port.Type is { } portType && portType != role.Type)
                 {
                     problems.Add(
@@ -405,9 +394,9 @@ public static class ModuleContract
             validRoleCount++;
         }
 
-        // 【B5 · 2026-09 裁定】"口 → 角色归属"的完整性**只给建议、不进 Problems、运行期不报**：
-        // 与"口数 > 2 只给建议"同一口径（ADR-0052 Q3）—— 在自家正确模块的 Issue 中心报警，
-        // 用户会以为模块写错了；而 ADR-0052 的措辞是"**应当**"（不是"必须"），故不得升级为错误。
+        // 「口 → 角色归属」的完整性**只给建议、不进 Problems、运行期不报**：
+        // 与「口数 > 2 只给建议」同一口径 —— 在自家正确模块的 Issue 中心报警，
+        // 用户会以为模块写错了；且该要求是「**应当**」而非「必须」，故不得升级为错误。
         // 两条规则分别对应：① 有数据口却零（有效）角色 ⇒ 叠加层不画任何功能块；
         //                   ② 有角色，但某些口没有归属 ⇒ 那些口在叠加层上没有方块。
         if (ports.Count > 0 && validRoleCount == 0)
@@ -433,7 +422,7 @@ public static class ModuleContract
     }
 
     /// <summary>
-    /// 校验**内部处理顺序声明**（`角色 → 角色`）【ADR-0052】：两端角色必须已声明、不得自环、同（起点, 终点）不重复。
+    /// 校验**内部处理顺序声明**（`角色 → 角色`）：两端角色必须已声明、不得自环、同（起点, 终点）不重复。
     /// </summary>
     private static void CheckFlows(
         IReadOnlyList<FlowDeclaration> flows,
@@ -466,74 +455,6 @@ public static class ModuleContract
             if (!seen.Add((flow.FromRoleId, flow.ToRoleId)))
             {
                 problems.Add($"内部处理顺序重复声明：{flow}");
-            }
-        }
-    }
-
-    private static void CheckView(ViewDeclaration? view, List<string> problems)
-    {
-        if (view is null)
-        {
-            // 无 UI 模块合法（主文档 §10.4）：不是问题
-            return;
-        }
-
-        if (view.Elements.Count == 0)
-        {
-            problems.Add("视图声明了但没有根元素（不声明视图请完全省略 DeclareView）");
-        }
-
-        var sources = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var source in view.DataSources)
-        {
-            if (!sources.Add(source.Name))
-            {
-                problems.Add($"数据源名重复：'{source.Name}'（模块内唯一）");
-            }
-
-            // 只有**数值类**数据源（值 / 序列）才要求给出原语：文本 / 字节块 / 行集 / 帧本来就按字节呈现
-            if (source.Kind is ViewDataSourceKind.Value or ViewDataSourceKind.Sequence && source.ValueType is null)
-            {
-                problems.Add($"数据源 '{source.Name}' 声明为 {source.Kind} 但未给出 ValueType——UI 无法解码其数值");
-            }
-        }
-
-        foreach (var element in Flatten(view.Elements))
-        {
-            // **交互控制类元素**（B 类）绑定的是**命令 / 输入源名**，不是数据源（ADR-0040 D1）：
-            // 它们的名字由 ViewCommand / 输入源声明承担，不能拿数据源表去校验
-            if (IsInteractive(element.Kind))
-            {
-                continue;
-            }
-
-            if (element.DataSource is { Length: > 0 } name && !sources.Contains(name))
-            {
-                problems.Add($"元素 {element.Kind} 绑定了未声明的数据源：'{name}'");
-            }
-        }
-    }
-
-    /// <summary>是否为**交互控制类元素**（B 类：绑定命令/输入，而非数据源）。</summary>
-    /// <remarks>B7 `ToggleSwitch`（2026-09 新增的开关滑块）与 B3 同属"开关 ⇒ 输入"，必须列在这里，
-    /// 否则契约自检会把它当成绑定数据源的元素而报"未声明的数据源"。</remarks>
-    private static bool IsInteractive(ViewElementKind kind) => kind is
-        ViewElementKind.ConfigurationEditor
-        or ViewElementKind.CommandButton
-        or ViewElementKind.ToggleSlider
-        or ViewElementKind.ToggleSwitch
-        or ViewElementKind.EnumSelector
-        or ViewElementKind.TextInput
-        or ViewElementKind.FileSelector;
-
-    private static IEnumerable<ViewElement> Flatten(IReadOnlyList<ViewElement> elements)
-    {
-        foreach (var element in elements)
-        {
-            yield return element;
-            foreach (var child in Flatten(element.Children))
-            {
-                yield return child;
             }
         }
     }

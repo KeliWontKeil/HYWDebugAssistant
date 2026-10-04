@@ -22,13 +22,13 @@ public class BusinessModulesBehaviorTests
     // ---------------------------------------------------------------- 文本发送器
 
     /// <summary>
-    /// **连续发送的节拍 = 配置的间隔**（2026-09 用户实测两个真缺陷的回归网）。
+    /// **连续发送的节拍 = 配置的间隔**（两个真缺陷的回归网）。
     /// </summary>
     /// <remarks>
-    /// 旧实现的调度是"**每轮循环都 `nextTick += 间隔`**"（活动循环每 20 ms 一轮）⇒
-    /// 间隔大于 20 ms 时 `nextTick` 每轮往前跳、**永远追不上** ⇒ **一条都不发**（"配置了值后静默不发送"）；
-    /// 间隔 = 0（未配置时的默认）⇒ 每轮都到期 ⇒ **每 20 ms 发一条**（"未知频率"）。
-    /// 现在：只在真正发出去之后才推进 `nextDue`；**没设置间隔则显式报错、绝不硬发**（用户 2026-09 裁定）。
+    /// 活动循环每 20 ms 一轮：调度若按「**每轮循环都 `nextTick += 间隔`**」推进 ⇒
+    /// 间隔大于 20 ms 时 `nextTick` 每轮往前跳、**永远追不上** ⇒ **一条都不发**（表现为「配置了值后静默不发送」）；
+    /// 间隔 = 0（未配置时的默认）⇒ 每轮都到期 ⇒ **每 20 ms 发一条**（表现为「未知频率」）。
+    /// 因此：只在真正发出去之后才推进 `nextDue`；**没设置间隔则显式报错、绝不硬发**。
     /// </remarks>
     [Fact]
     public void 连续发送_应按配置的间隔发送_未配置间隔时应报错且不发送()
@@ -80,12 +80,12 @@ public class BusinessModulesBehaviorTests
     }
 
     /// <summary>
-    /// **文本里不再有任何标记**〔2026-09 用户裁定〕："文本框里看到的文本是什么样，保存就是什么样，并去除标记"
+    /// **文本里不得有任何标记**：文本框里显示成什么样，存下来就是什么样
     /// —— `↵` 只由**显示层**画，模块产出的文本里一个都不能有；数据里真有的换行字符**原样保留**。
     /// </summary>
     /// <remarks>
-    /// 这条钉住的是"标记从哪里来"：老实现把 `↵` **拼进文本**（`MonitorLineFormatter.MarkNewlines`），
-    /// 于是保存出来的 `.txt` 里也带着 `↵`。现在标记是显示层的装饰 ⇒ 文本层必须**一个标记都没有**。
+    /// 这条钉住的是「标记从哪里来」：若把 `↵` **拼进文本**（`MonitorLineFormatter.MarkNewlines`），
+    /// 保存出来的 `.txt` 里也会带着 `↵`。标记只是显示层的装饰 ⇒ 文本层必须**一个标记都没有**。
     /// </remarks>
     [Fact]
     public void 数据显示器_产出的文本里不得含任何标记_数据里的换行字符原样保留()
@@ -107,10 +107,10 @@ public class BusinessModulesBehaviorTests
     }
 
     /// <summary>
-    /// **「数据包换行」/「时间戳」都关时：追加数据直接接在后面，不做任何标记**（用户裁定原文）。
+    /// **「数据包换行」/「时间戳」都关时：追加数据直接接在后面，不做任何标记**。
     /// </summary>
     /// <remarks>
-    /// 这是"一行必须 96 字节"被删除之后的核心行为：**没有定宽、没有补齐、没有通道换行** ⇒
+    /// 核心行为：**没有定宽、没有补齐、没有通道换行** ⇒
     /// 收到的两段数据在显示区里就是**同一条**（长度由数据自己决定），而不是"各占一条 96 字节的行"。
     /// </remarks>
     [Fact]
@@ -223,7 +223,7 @@ public class BusinessModulesBehaviorTests
         var module = new TextSenderModule();
         module.OnRegistered(context);
 
-        // 0 = 每个活动周期都投递（用户裁定"不预设用户需求"）；u32 最大值 = 上限
+        // 0 = 每个活动周期都投递（不预设用户需求）；u32 最大值 = 上限
         context.EnqueueInput(TextSenderModule.IntervalSource, "0");
         module.PumpOnce(context);
         module.IntervalMilliseconds.ShouldBe(0);
@@ -304,7 +304,7 @@ public class BusinessModulesBehaviorTests
         var module = new HexSenderModule();
         module.OnRegistered(context);
 
-        // 奇数个半字节 ⇒ 失败（用户裁定"每字节两位" ⇒ 奇数写法不合法）
+        // 奇数个半字节 ⇒ 失败（一个字节两位 ⇒ 奇数写法不合法）
         module.Send(context, "0D 0", HexSenderModule.HexSourceOf(0), out _).ShouldBeFalse();
         context.Sent.ShouldBeEmpty();
 
@@ -350,8 +350,8 @@ public class BusinessModulesBehaviorTests
     [Fact]
     public void 数据显示器_收到定长载荷时必须按len切片_不能把填充当数据()
     {
-        // 【回归网 · 端到端用例抓出的真缺陷】接收路径原先把**整个定长载荷**（2 + 1472）喂给格式化器
-        // ⇒ 1472 字节的填充被当成数据。正确行为：**先按 `len` 切片**，只显示真实内容。
+        // 回归网：接收路径若把**整个定长载荷**（2 + 1472）喂给格式化器 ⇒ 1472 字节的填充被当成数据。
+        // 正确行为：**先按 `len` 切片**，只显示真实内容。
         var context = new TestModuleContext();
         var module = new DataMonitorModule();
         module.OnRegistered(context);
@@ -375,8 +375,8 @@ public class BusinessModulesBehaviorTests
     /// 渲染形态（文本 / 十六进制 / 时间戳）——**不再有"定宽 96 字节"这一条**。
     /// </summary>
     /// <remarks>
-    /// 2026-09 用户裁定："一行必须 96 字节：不应该规定一行多少字节，**一行多少是由文本框的宽度决定的**" ⇒
-    /// 断言从"每行 96 字节"改成"文本就是数据本身的样子"（模板产出的文本长度 = 数据决定的长度）。
+    /// 一行多少字节**由文本框的宽度决定**，不预设固定列宽 ⇒
+    /// 判据 = 文本就是数据本身的样子（模板产出的文本长度 = 数据决定的长度）。
     /// </remarks>
     [Fact]
     public void 数据显示器_应产出数据本身的形态_不再有定宽与补齐()
@@ -393,7 +393,7 @@ public class BusinessModulesBehaviorTests
         var stamped = DataMonitorModule.FormatLines(bytes, hex: true, timestamp: true, perPacket: true, at);
         stamped.ShouldHaveSingleItem().ShouldStartWith("21:53:00.000  ");
 
-        // **没有定宽这回事**：三段文本的字节数各自等于数据本身的长度（旧实现一律 96）
+        // **没有定宽这回事**：三段文本的字节数各自等于数据本身的长度
         Encoding.UTF8.GetByteCount(textLines[0]).ShouldBe(3);
         Encoding.UTF8.GetByteCount(stamped[0]).ShouldBe(22, "时间戳 12 字符 + 两空格（14）+ `41 42 43`（8）");
         textLines.Concat(hexLines).Concat(stamped)
@@ -401,7 +401,7 @@ public class BusinessModulesBehaviorTests
     }
 
     /// <summary>
-    /// **通道换行 = 换行由调用表达，文本里没有标记**〔2026-09 用户裁定〕。
+    /// **通道换行 = 换行由调用表达，文本里没有标记**。
     /// </summary>
     /// <remarks>
     /// 「数据包换行」开着时，换行来自 `IViewDisplayAccess.AppendLine`（**通道**），不是文本里的字符 ⇒
@@ -430,7 +430,7 @@ public class BusinessModulesBehaviorTests
         lines.ShouldAllBe(line => !line.Contains('\n'), "换行也不该被塞进文本（它由通道表达）");
     }
 
-    /// <summary>**保存出来的 .txt 里既没有 `↵` 标记、也没有任何补齐**（用户裁定"并去除标记"）。</summary>
+    /// <summary>**保存出来的 .txt 里既没有 `↵` 标记、也没有任何补齐**。</summary>
     /// <remarks>
     /// 断言写的是**磁盘上的字节**（不是内存里的字符串）：`↵` 只有这一个来源会漏出去，
     /// 而定宽补齐/`0x00` 填充同样是"所见即所存"的破口 —— 三者一起钉住。
@@ -442,7 +442,7 @@ public class BusinessModulesBehaviorTests
         var module = new DataMonitorModule();
         module.OnRegistered(context);
 
-        // 混着来：数据里真有的换行字符 + 通道换行 + 一个短包（旧实现会给它补空格到 96 字节）
+        // 混着来：数据里真有的换行字符 + 通道换行 + 一个短包（定宽补齐会把它补到 96 字节）
         context.EnqueueInput(DataMonitorModule.LineBreakSource, "true");
         module.PumpOnce(context);
 
@@ -480,11 +480,10 @@ public class BusinessModulesBehaviorTests
     }
 
     /// <summary>
-    /// **保存改一步**（2026-09 用户裁定）：用户选完位置就**当场写盘**，并把落点/失败**回报给界面**。
+    /// **保存只有一步**：选完位置就**当场写盘**，并把落点/失败**回报给界面**。
     /// </summary>
     /// <remarks>
-    /// 用户原话："更好的方案为只提供一个保存按钮，点击后弹出窗口选择位置 → **选择完成自动保存在此处**"。
-    /// 本用例**只投路径、不发 `save` 命令** —— 这正是界面上那个按钮做的事；旧实现此时 `SaveCount` 会是 0。
+    /// 本用例**只投路径、不发 `save` 命令** —— 这正是界面上那个按钮做的事；要求再发 `save` 命令的实现，此时 `SaveCount` 会是 0。
     /// 落点确认必须由**模块**给出（写盘成没成功只有模块知道），界面只负责显示 ⇒ 断言回报内容。
     /// </remarks>
     [Fact]

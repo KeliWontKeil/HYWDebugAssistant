@@ -4,7 +4,7 @@ using HYWDebugAssistant.Sdk.Views;
 namespace HYWDebugAssistant.Ui.ViewModels;
 
 /// <summary>
-/// 标签条上的**一个页签**（只承载标题、选中态与"切到我这页"的命令）——G1 · 2026-09。
+/// 标签条上的**一个页签**（只承载标题、选中态与"切到我这页"的命令）。
 /// </summary>
 /// <remarks>
 /// **只呈现**：标签是框架侧的**纯 UI 状态**，不进组合件、不下发模块（与"视图声明由框架渲染"同一口径）。
@@ -42,25 +42,25 @@ public sealed partial class TabPageItemViewModel : ViewModelBase
 }
 
 /// <summary>
-/// **C2 标签页**的标签条 —— G1 · 2026-09。
+/// **C2 标签页**的标签条。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>为什么要它</b>：`ViewElementKind.TabPages` 早在 v1 元素目录内（C2），但此前**只取首页子元素**、
-///     页签条与切换**从未实现** ⇒ 模块声明的多页只能看到第 1 页（G1 缺口，见 `roadmap.md` §4）；</item>
-///   <item><b>与既有约定一致</b>：容器本身不画、由框架渲染（`Group`/`Collapsible`/`Scroll` 的子元素**展平**显示）；
-///     标签页按同一约定展开为「**标签条**（本类）+ **当前页的子元素**」，因此不需要嵌套模板；</item>
+///   <item><b>为什么要它</b>：`ViewElementKind.TabPages` 需要页签条 + 切换才算完整 ——
+///     只取首页子元素的话，模块声明的多页只能看到第 1 页；</item>
+///   <item><b>页节点按 `TabPage` 语义</b>：`TabPages` 的每个子节点**自身不渲染、不画框**，
+///     `Title` 只作页签文字，子元素即页内容；页内容里的 `Group` 等容器**各自成为真容器**（不被展平成一行子元素）；</item>
 ///   <item><b>只呈现</b>：标签条不参与建网/投递/计量，也不进组合件；未声明的页不出现。</item>
 /// </list>
 /// </remarks>
 public sealed class TabStripElementViewModel : ViewElementViewModel
 {
     /// <summary>创建标签条。</summary>
-    /// <param name="title">标签条标题（可空；来自 `TabPages` 元素声明）。</param>
+    /// <param name="node">`tabs` 节点（标题、几何、选中态键都取自它）。</param>
     /// <param name="pages">页签清单（顺序 = 声明顺序）。</param>
     /// <param name="selectedIndex">当前页序号。</param>
-    public TabStripElementViewModel(string? title, IReadOnlyList<TabPageItemViewModel> pages, int selectedIndex)
-        : base(ViewElementKind.TabPages, title, dataSourceName: null)
+    public TabStripElementViewModel(ViewNode node, IReadOnlyList<TabPageItemViewModel> pages, int selectedIndex)
+        : base(node)
     {
         ArgumentNullException.ThrowIfNull(pages);
 

@@ -14,7 +14,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// ADR-0034：**"同名标签即连"** —— 命名网络由端口标签派生（用户可见的唯一建网机制）。
+/// **"同名标签即连"** —— 命名网络由端口标签派生（用户可见的唯一建网机制）。
 /// </summary>
 public class PortNetworkLabelTests
 {
@@ -98,8 +98,8 @@ public class PortNetworkLabelTests
     [Fact]
     public void 多个发送端同名_应建成一条多源网络()
     {
-        // 【ADR-0050 M1/M2 · 用户裁定：多源是一等设计】旧规则"网络只能有一个源、否则整条不建网"
-        // **已作废**；现在同名标签的多个发送端同属**一条多源网络**，并**逐源**建立绑定。
+        // 多源是一等设计：同名标签的多个发送端同属**一条多源网络**，并**逐源**建立绑定；
+        // 「网络只能有一个源、否则整条不建网」的规则**已作废**。
         using var harness = new LabelHarness();
         harness.Add("s1", "sender");
         harness.Add("s2", "sender");
@@ -135,7 +135,7 @@ public class PortNetworkLabelTests
         harness.Runtime.Issues.Recent(20).ShouldContain(e => e.Issue.Message.Contains("不兼容", StringComparison.Ordinal));
     }
 
-    // 【ADR-0037】原"命名口自动从匿名直连中摘出"的用例随"加入即连"整体移除：
+    // 「命名口自动从匿名直连中摘出」的用例随「加入即连」整体移除：
     // 新规则下**显式建立的网络一律不动**（用户意图优先），命名口只是不参与"对齐建网"。
 
 
@@ -159,7 +159,7 @@ public class PortNetworkLabelTests
                 issues: null,
                 carrierOptions: null);
 
-            // 对齐自动建网（ADR-0037）：标签测试默认关闭，避免几何对齐干扰"仅标签"的判定
+            // 对齐自动建网：标签测试默认关闭，避免几何对齐干扰"仅标签"的判定
             Runtime.UpdateAlignAutoNetwork(alignAutoNetwork);
 
             Services = new RuntimeServices(Runtime);

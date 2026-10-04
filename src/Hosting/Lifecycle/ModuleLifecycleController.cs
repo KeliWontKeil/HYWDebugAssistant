@@ -10,7 +10,7 @@ namespace HYWDebugAssistant.Hosting.Lifecycle;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>权威</b>：状态由框架维护（模块不得自定状态，ADR-0014）；</item>
+///   <item><b>权威</b>：状态由框架维护（模块不得自定状态）；</item>
 ///   <item><b>异常边界</b>：钩子异常一律捕获 → Issue，**不中断框架流程**、不影响其他模块（AC-2）；</item>
 ///   <item><b>非法转换</b>：按状态机拒绝并报 Issue（例如对已移除的实例再激活）；</item>
 ///   <item><b>线程</b>：由调用方（L4 变更流程）在管理线程上调用；M1-5 起模块活动体在实例专属线程上运行。</item>

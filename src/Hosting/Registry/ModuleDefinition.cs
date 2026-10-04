@@ -8,7 +8,7 @@ namespace HYWDebugAssistant.Hosting.Registry;
 /// </summary>
 /// <remarks>
 /// 对应基线 §4.4 的"模块提供者的不可变能力发布物"：用户不可修改、不感知底层实现；
-/// 内置模块与外部模块**共用同一模型**（ADR-0002）。
+/// 内置模块与外部模块**共用同一模型**。
 /// <para>声明在**加载期读取一次**，此后只读；运行期热路径不使用本类型。</para>
 /// </remarks>
 public sealed class ModuleDefinition

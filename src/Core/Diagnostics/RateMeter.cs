@@ -7,10 +7,10 @@ namespace HYWDebugAssistant.Core.Diagnostics;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>为什么要有它</b>【ADR-0046 D8】：此前"速率"是 **UI 自己差分估算**的（拿两次刷新的计数相减）
+///   <item><b>为什么要有它</b>：把"速率"交给 UI 自己差分估算（拿两次刷新的计数相减）
 ///     ⇒ 同一事实有多种口径、且 UI 慢一点数字就漂。现在统一由框架算，UI 只显示；</item>
 ///   <item><b>无时间戳依赖</b>：只用**单调计数**（<see cref="Stopwatch.GetTimestamp"/>），与墙钟/时区无关；</item>
-///   <item><b>口径 = 整秒桶</b>【**2026-09 用户裁定**】："**算一秒的积累量**（短时间窗口推整秒在断续数据下不准）"
+///   <item><b>口径 = 整秒桶</b>：**算一秒的积累量**（短时间窗口推整秒在断续数据下不准）
 ///     ⇒ 速率 = **上一个 ≥1 秒窗口内的增量**（除以该窗口的真实秒数）。窗口**锚定在第一次观察**，
 ///     与 UI 刷新节拍（30 帧 ≈ 0.5 s）**解耦**：同一份数据在 30 fps / 60 fps 节拍下读数一致。
 ///     <para>
@@ -28,7 +28,7 @@ public sealed class RateMeter
     /// <summary>
     /// **整秒桶的窗口长度（秒）**：窗口未满 ⇒ 返回上一次算出的速率（不重算、不换基准）。
     /// </summary>
-    /// <remarks>取值依据：用户裁定"算一秒的积累量"—— 1 秒既能让断续数据读数平滑、又不至于滞后太久。</remarks>
+    /// <remarks>取值依据：**算一秒的积累量**—— 1 秒既能让断续数据读数平滑、又不至于滞后太久。</remarks>
     public const double WindowSeconds = 1.0;
 
     private long _windowStartTotal = -1;

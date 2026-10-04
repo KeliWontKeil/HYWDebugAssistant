@@ -3,12 +3,12 @@ using HYWDebugAssistant.DataPlane.Queues;
 namespace HYWDebugAssistant.DataPlane.Carriers;
 
 /// <summary>
-/// 承载参数（默认值来自应用级设置——ADR-0030；此处为 v1 过渡默认值）。
+/// 承载参数（默认值来自应用级设置；此处为 v1 过渡默认值）。
 /// </summary>
 public sealed record CarrierOptions
 {
     /// <summary>
-    /// 输入队列容量（单元数）——**【ADR-0050 Q2】按 (实例, 口) 计**，不是按实例计。
+    /// 输入队列容量（单元数）——**按 (实例, 口) 计**，不是按实例计。
     /// </summary>
     /// <remarks>
     /// 每个接收口各有一条独立队列、各自享有本容量 ⇒ 一个口满载**不会**占用其它口的缓冲额度

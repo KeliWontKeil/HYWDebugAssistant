@@ -14,10 +14,10 @@ namespace HYWDebugAssistant.Ui.Views;
 /// <remarks>
 /// 【缺陷修复 · M1-17 后】口标记与标签编辑已上移到 <see cref="ModuleWindow"/>：
 /// 标记必须压在 6 px 拖动带与缩放手柄之上，否则双击标记会被边缘中点手柄吃掉（详见该类的说明）。
-/// 【M1-16 / ADR-0040】单行文本输入：**回车 / 失焦一次提交**（D-5 裁决），不逐字符写入。
-/// 【G2 · 2026-09】多行文本输入：提交键由**应用级设置**决定（`CtrlEnter` 默认 / `Enter` / `None`），
+/// 单行文本输入：**回车 / 失焦一次提交**，不逐字符写入。
+/// 多行文本输入：提交键由**应用级设置**决定（`CtrlEnter` 默认 / `Enter` / `None`），
 /// 判定依据全部来自 <see cref="TextInputElementViewModel"/> 的三个只读标志 —— XAML 里不写任何策略。
-/// 【2026-09】**数值输入**（`ViewElement.InputKind = Number`）：只**放行数字写法**（见 <see cref="NumberPattern"/>），
+/// **数值输入**（`ViewElement.InputKind = Number`）：只**放行数字写法**（见 <see cref="NumberPattern"/>），
 /// 挂在 `TextInput` 事件的**隧道**阶段拦截字符 —— 与"提交策略在 KeyDown 里判"同一处、同一风格。
 /// </remarks>
 public partial class ModuleContentView : UserControl
@@ -40,16 +40,17 @@ public partial class ModuleContentView : UserControl
     /// **十六进制输入放行的文本形态**（`InputKind = Hex`）：只允许十六进制数字**与空白**。
     /// </summary>
     /// <remarks>
-    /// **空白是排版**（用户 2026-09 裁定："HEX 的换行不作为字符，仅作为排版"）⇒ 框架允许用户用空格/换行
+    /// **空白是排版**（HEX 的换行不作为字符，仅作为排版）⇒ 框架允许用户用空格/换行
     /// 自行分组；**分组怎么解读、每几个字符一个字节，由模块解析时定**（框架只保证"非空白字符都是 hex 数字"）。
     /// </remarks>
     private static readonly Regex HexPattern = new(@"^[0-9A-Fa-f\s]*$", RegexOptions.Compiled);
 
     /// <summary>按输入类型取**放行规则**（`null` = 不限制字符）。</summary>
-    private static Regex? PatternOf(TextInputKind kind) => kind switch
+    /// <param name="inputKind">声明面的输入类型字面量（`text` / `number` / `hex`；缺省由 schema 补 `text`）。</param>
+    private static Regex? PatternOf(string inputKind) => inputKind switch
     {
-        TextInputKind.Number => NumberPattern,
-        TextInputKind.Hex => HexPattern,
+        TextInputElementViewModel.NumberInputKind => NumberPattern,
+        TextInputElementViewModel.HexInputKind => HexPattern,
         _ => null,
     };
 
@@ -61,10 +62,9 @@ public partial class ModuleContentView : UserControl
         // 数值输入的**字符放行**：隧道阶段拦在 TextBox 处理之前（`TextInput` 事件带来"将插入的文本"）
         AddHandler(TextInputEvent, OnInputTextInput, RoutingStrategies.Tunnel);
 
-        // 【2026-09 · 批次 1 合并到 `TextSurface` 后】**提交策略改挂在本层**：
-        // 输入框内部的那一个 `TextBox` 现在由 `TextSurface` 拥有 ⇒ 不能再在模板里给它写 `KeyDown=`/`LostFocus=`；
+        // **提交策略挂在本层**：输入框内部的那一个 `TextBox` 由 `TextSurface` 拥有 ⇒ 不能再在模板里给它写 `KeyDown=`/`LostFocus=`；
         // 改为在本控件（输入框的祖先）上按**隧道**阶段接 `KeyDown`（多行框自己会吃掉回车 ⇒ 冒泡阶段根本到不了这里）、
-        // 按冒泡阶段接 `LostFocus`。两者都用 `e.Source` 找那个输入框 —— **可见行为与从前逐字一致**。
+        // 按冒泡阶段接 `LostFocus`。两者都用 `e.Source` 找那个输入框 —— **可见行为逐字不变**。
         AddHandler(KeyDownEvent, OnInputKeyDown, RoutingStrategies.Tunnel);
         AddHandler(LostFocusEvent, OnInputLostFocus);
     }
@@ -134,7 +134,7 @@ public partial class ModuleContentView : UserControl
     }
 
     /// <summary>
-    /// **B6 文件选择器**的「浏览」点击（G4 · 2026-09）：弹**系统文件对话框**，把选/存的路径提交给模块。
+    /// **B6 文件选择器**的「浏览」点击：弹**系统文件对话框**，把选/存的路径提交给模块。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
@@ -162,7 +162,16 @@ public partial class ModuleContentView : UserControl
             var filter = BuildFileType(picker.Filter);
             string? path;
 
-            if (picker.Mode == FilePickerMode.Open)
+            if (picker.IsFolder)
+            {
+                var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
+                {
+                    Title = picker.Title,
+                    AllowMultiple = false,
+                });
+                path = folders is { Count: > 0 } ? folders[0].TryGetLocalPath() : null;
+            }
+            else if (picker.IsOpen)
             {
                 var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
                 {
@@ -178,7 +187,7 @@ public partial class ModuleContentView : UserControl
                 {
                     Title = picker.Title,
 
-                    // 【2026-09 用户裁定】"文件名应给一个默认文件名（如 savetext1.txt）而不是空着"
+                    // 保存对话框默认预填一个文件名（如 savetext1.txt），不空着
                     // ⇒ 模块在元素声明里给一句建议名；用户仍可改成任何名字 / 换目录（框架不代替用户决定路径）。
                     SuggestedFileName = picker.SuggestedFileName,
                     DefaultExtension = ExtensionOf(picker.Filter),

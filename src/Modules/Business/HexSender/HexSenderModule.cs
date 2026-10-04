@@ -10,17 +10,17 @@ using HYWDebugAssistant.Sdk.Views;
 namespace HYWDebugAssistant.Modules.HexSender;
 
 /// <summary>
-/// **HEX 发送器**（第一批 #2 · 功能角色「十六进制发送器」）——把十六进制文本解析成字节发出去。
+/// **HEX 发送器**：把十六进制文本解析成字节发出去。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>模块页</b>：`docs/modules/hyw-hex-sender.md`（阶段 0 ✅ · 本文件 = 阶段 1/3 实现）；</item>
-///   <item><b>与 `hyw/text-sender` 是"同形态的两兄弟"</b>：视图结构、活动形态、拆包口径完全一致，
-///     **唯一差别 = 输入解析**（那边按 UTF-8 编码文本，这边按"每字节两位十六进制"解析字节）；
-///     **两边声明同一个类型标识 `RawBytes`@v1** ⇒ 与 `hyw/data-monitor` **开箱即连**（`decisions.md` 7.26）；</item>
-///   <item><b>多页消息 + 回读</b>（`decisions.md` 7.28）：`TabPages` 各页一个输入框（源名 `hex1…hex3`），
+///   <item><b>模块页</b>：`docs/modules/hyw-hex-sender.md`；</item>
+///   <item><b>与 `hyw/text-sender` 是「同形态的两兄弟」</b>：视图结构、活动形态、拆包口径完全一致，
+///     **唯一差别 = 输入解析**（那边按 UTF-8 编码文本，这边按「每字节两位十六进制」解析字节）；
+///     **两边声明同一个类型标识 `RawBytes`@v1** ⇒ 与 `hyw/data-monitor` **开箱即连**；</item>
+///   <item><b>多页消息 + 回读</b>：`TabPages` 各页一个输入框（源名 `hex1…hex3`），
 ///     **只有一个「发送」按钮** —— 点它时模块**回读**当前选中页与那一页的当前文本；</item>
-///   <item><b>结构约定</b>：按 `implementation/06` §C.2 的固定四段写（①标识与常量 ②声明块 ③钩子块 ④接线与业务）。</item>
+///   <item><b>结构约定</b>：按 ①标识与常量 ②声明块 ③钩子块 ④接线与业务 的固定四段写。</item>
 /// </list>
 /// </remarks>
 [ModuleDefinition(
@@ -50,7 +50,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// <summary>
     /// 消息页数（每页一个输入框）。
     /// </summary>
-    /// <remarks>【2026-09 用户裁定】**3 → 5 页**（"tabpages 的标签数量增加为 5 个"）；原先压在 3 页是因为 `implementation/06` §D.1 的"视图元素 ≤ 12"约定，该约定已按用户裁定**取消数量上限**。</remarks>
+    /// <remarks>页数取 5（`tabpages` 的标签数量为 5 个）；视图元素数量不设上限，页数可自由取。</remarks>
     public const int PageCount = 5;
 
     /// <summary>第 n 页输入源名（<c>hex1</c> … <c>hex5</c>）。</summary>
@@ -97,7 +97,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
             RawBytesVersion,
             RawBytesShape)
         {
-            // 【2026-09 用户裁定"速率只要有效数据"】同文本发送器：`len` = 有效字节数 ⇒ 声明它，
+            // 「速率只要有效数据」同文本发送器：`len` = 有效字节数 ⇒ 声明它，
             // 框架逐单元读它累计有效字节（否则补零会被算进"有效速率"）。
             Metering = new MeteringBlock { PayloadLengthField = "len" },
         });
@@ -105,9 +105,6 @@ public sealed class HexSenderModule : IModule, IActivitySource
         context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, RawBytesShape)
         {
             Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
-
-            // **默认边 = 下边**（用户草图："宽 > 高 ⇒ 网络标签横置在下边处"），与显示器"上边"配对
-            Edge = Sdk.Ports.PortEdge.Bottom,
         });
 
         context.Declaration.DeclareRole(RoleDeclaration.Output(
@@ -116,66 +113,11 @@ public sealed class HexSenderModule : IModule, IActivitySource
             OutPort,
             "发送"));
 
-        // ---------------------------------------------------------------- 视图（**按控件分块**）
-        // 约定见 `TextSenderModule`：**一个控件一段**（控件 + 它的数据源），改默认值只看自己那一段。
-
-        // ① 分页输入区（C2 `TabPages`）：每页一个多行 HEX 输入框
-        var pages = new ViewElement(
-            ViewElementKind.TabPages,
-            children:
-            [
-                .. Enumerable.Range(0, PageCount).Select(page => (ViewElement)new ViewElement(
-                    ViewElementKind.Group,
-                    title: $"{page + 1}",
-                    children:
-                    [
-                        // **`InputKind = Hex`**（用户裁定 D2）：框架只放行 0-9/A-F/a-f 与空白，
-                        // 空白**仅排版**；"是否成对、是不是合法字节序列"归模块（失败 ⇒ 红框）
-                        new ViewElement(ViewElementKind.TextInput, HexSourceOf(page), "十六进制")
-                        {
-                            Multiline = true,
-                            InputKind = TextInputKind.Hex,
-                        },
-                    ])),
-            ])
-        {
-            StateKey = PagesStateKey,
-        };
-
-        // ①-源：每页一个**文本**数据源（源名 = `hex1…hex5`）
-        var pageSources = Enumerable.Range(0, PageCount)
-            .Select(page => new ViewDataSource(HexSourceOf(page), kind: ViewDataSourceKind.Text))
-            .ToArray();
-
-        // ② 发送按钮（B2）：一个，发哪一页由模块回读
-        var sendButton = new ViewElement(ViewElementKind.CommandButton, SendCommand);
-
-        // ③ 连续发送开关（B7 滑块）
-        var continuousSwitch = new ViewElement(ViewElementKind.ToggleSwitch, ContinuousSource, "连续发送");
-        var continuousSource = new ViewDataSource(ContinuousSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.Bool);
-
-        // ④ 间隔输入（B5）：单位 `ms` 走框外标签
-        var intervalInput = new ViewElement(ViewElementKind.TextInput, IntervalSource, "间隔")
-        {
-            InputKind = TextInputKind.Number,
-            Alignment = ViewAlignment.Right,
-        };
-
-        var intervalSource = new ViewDataSource(IntervalSource, unit: "ms", kind: ViewDataSourceKind.Text);
-
-        // ⑤ 已发送计数（A1）
-        var sentCounter = new ViewElement(ViewElementKind.Numeric, SentSource, "已发送");
-        var sentSource = new ViewDataSource(SentSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64);
-
-        context.Declaration.DeclareView(new ViewDeclaration(
-            [pages, sendButton, continuousSwitch, intervalInput, sentCounter],
-            dataSources: [.. pageSources, continuousSource, intervalSource, sentSource],
-            commands: [new ViewCommand(SendCommand, "发送")])
-        {
-            // 尺寸按**实测**定（2026-09 第四批反馈后重定）：与文本发送器同形
-            PreferredWidth = 340,
-            PreferredHeight = 340,
-        });
+        // ---------------------------------------------------------------- 视图
+        // 界面形态**不在代码里声明**：控件树、数据源、命令、窗口尺寸与端口默认边都在
+        // 包内 `view.json`（唯一事实源），由框架读取并按 schema 补齐默认值。
+        // 本模块的数据源名（`hex1…hex5` / `continuous` / `interval` / `sent`）与命令名（`send`）
+        // 必须与 `view.json` 一致；「只放行 16 进制写法」由声明文件的 `inputKind` 表达。
     }
 
     // ---------------------------------------------------------------- ③ 钩子块
@@ -253,7 +195,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
     private int _intervalMs;
 
     /// <summary>
-    /// **未设置间隔时的取值**（0）——连续发送**必须有间隔**：没设置就**显式报错、绝不硬发**（用户 2026-09 裁定）。
+    /// **未设置间隔时的取值**（0）——连续发送**必须有间隔**：没设置就**显式报错、绝不硬发**。
     /// </summary>
     public const int UnsetIntervalMs = 0;
 
@@ -299,7 +241,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
                 var on = string.Equals(text, "true", StringComparison.OrdinalIgnoreCase);
                 Volatile.Write(ref _continuous, on ? 1 : 0);
 
-                // 【2026-09 用户裁定】开关打开时**当场校验**：缺什么报什么（与文本发送器同口径，且**不硬发**）。
+                // 开关打开时**当场校验**：缺什么报什么（与文本发送器同口径，且**不硬发**）。
                 var missing = string.IsNullOrEmpty(CurrentPageText(context))
                     ? "当前页没有内容"
                     : _intervalMs <= UnsetIntervalMs
@@ -384,7 +326,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
 
         if (!HexTextCodec.TryParse(text, out var bytes, out var failure))
         {
-            // **解析失败 ⇒ 就地反馈（红框）**（用户裁定：范围/合法性归模块；框架只判"格式"）
+            // **解析失败 ⇒ 就地反馈（红框）**（范围/合法性归模块；框架只判「格式」）
             context.InputFeedback.Report(source, succeeded: false, message: failure);
             return false;
         }
@@ -437,7 +379,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
         return payload;
     }
 
-    /// <summary>解析「间隔」（0 – u32 最大值；用户裁定"不预设用户需求"）。</summary>
+    /// <summary>解析「间隔」（0 – u32 最大值；不预设上限需求）。</summary>
     /// <param name="text">输入文本。</param>
     /// <param name="milliseconds">解析结果。</param>
     /// <returns>成功为 <see langword="true"/>。</returns>

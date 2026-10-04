@@ -5,14 +5,14 @@ using HYWDebugAssistant.Ui.Geometry;
 namespace HYWDebugAssistant.Ui.ViewModels;
 
 /// <summary>
-/// 口上的**标记块**（ADR-0034 §2.3：网络表现依附于口）——
+/// 口上的**标记块**（网络表现依附于口）——
 /// 口名 · 网络名 · 方向 · 连接状态 · **累计投递量与估算字节数**。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item>标记块是**唯一**的用户建网入口：填写"网络名"即设置端口标签（同名自动连成一条网络）；</item>
-///   <item>只承担视觉 + 输入，改标签经 <c>IRuntimeCommand.UpdatePortNetwork</c> 提交（C4-4）；</item>
-///   <item>发送口在右边缘、接收口在左边缘（与数据流方向一致，05 §C5-2）；标记块画在**预留带**内，不覆盖内容；</item>
+///   <item>只承担视觉 + 输入，改标签经 <c>IRuntimeCommand.UpdatePortNetwork</c> 提交；</item>
+///   <item>发送口在右边缘、接收口在左边缘（与数据流方向一致）；标记块画在**预留带**内，不覆盖内容；</item>
 ///   <item>投递量/字节数是**网络粒度**（框架诊断按网络统计）——同一网络的所有成员显示同一组数字，
 ///     界面以工具提示说明，不假装是"按宿口"的精确值（字节 = 投递数 × 发送方契约尺寸的估算）。</item>
 /// </list>
@@ -27,11 +27,11 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     /// <param name="offset">在所属边缘上的归一化位置（0–1）。</param>
     /// <param name="typeText">端口的**信息类型**描述（如 <c>f32</c>；null = 未知 → 显示占位符）。</param>
     /// <param name="typeKey">
-    /// 端口的**类型身份**（`标识@v版本`；未声明类型 ⇒ 结构描述）——**色板键**【ADR-0049 D6】：
+    /// 端口的**类型身份**（`标识@v版本`；未声明类型 ⇒ 结构描述）——**色板键**：
     /// 颜色按身份映射，才能与角色方块同色、且不把"不同标识同形状"混为一色。
     /// </param>
     /// <remarks>
-    /// **不接收连接状态/停流状态**（用户裁定"数据指标来源唯一"）：二者由
+    /// **不接收连接状态/停流状态**（"数据指标来源唯一"）：二者由
     /// <c>ModuleWindowsViewModel.RefreshMarkerStatus</c> 按网络成员关系**唯一生产**，
     /// 构造时一律为初始值（未连、非停流）。
     /// </remarks>
@@ -52,9 +52,10 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
         InstanceId = instanceId;
         PortName = portName;
         IsSend = isSend;
-        Edge = edge == PortEdge.Auto
-            ? isSend ? PortEdge.Right : PortEdge.Left   // 兜底：调用方应给**已解析**的具体边
-            : edge;
+        // **不按惯例兜底**：边只来自包内声明（或用户拖动）。
+        // 传进来的 <c>Auto</c> 只可能出现在"声明缺失 ⇒ 已判硬伤、整份忽略"的实例上 ——
+        // 那正是"未声明就没有位置"的呈现，**不能**在这里改写成"发送右 / 接收左"。
+        Edge = edge;
         IsAnchorFixed = isAnchorFixed;
         Label = string.IsNullOrWhiteSpace(label) ? null : label;
         Offset = Math.Clamp(offset, 0, 1);
@@ -69,7 +70,7 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     /// <summary>口名。</summary>
     public string PortName { get; }
 
-    /// <summary>是否发送口（决定所在边缘与箭头方向）。</summary>
+    /// <summary>是否发送口（决定箭头朝向与朝向判定）。</summary>
     public bool IsSend { get; }
 
     /// <summary>网络标签（**建网唯一机制**：同名即连）。</summary>
@@ -117,21 +118,21 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     public partial bool IsDockCandidate { get; set; }
 
     /// <summary>
-    /// **通路速率**（**通路维度**）【ADR-0053 · 用户第三十四轮】：文本**常驻**显示在标记上
-    /// （用户："速率显示**常驻**于网络标签上，**它不属于叠加层**"）；未入网/无流量 = 占位符。
+    /// **通路速率**（**通路维度**）：文本**常驻**显示在标记上
+    /// （速率**常驻**于网络标签上，**不属于叠加层**）；未入网/无流量 = 占位符。
     /// </summary>
     /// <remarks>
     /// 与角色方块上的"角色自身速率"是**两个维度**（读同一份框架诊断，表达对象不同）——
-    /// 详情见 ADR-0053 §2 D5。这里只存文本，数值由 <c>ModuleWindowsViewModel.RefreshMarkerStatus</c> 填。
+    /// 这里只存文本，数值由 <c>ModuleWindowsViewModel.RefreshMarkerStatus</c> 填。
     /// </remarks>
     [ObservableProperty]
     public partial string RateText { get; set; } = "---";
 
     /// <summary>标记宽度（标准尺寸：左右边缘 20、上下边缘 150 —— 所有标记占地统一）。</summary>
     /// <remarks>
-    /// 【M1-16 / ADR-0039 D3】原先长度 76 → 114（为名称/速率/箭头/灯预留空间，使信息变化不引起排版抖动）；
-    /// 【2026-09 用户实测】114 下名称只剩约 10px（「（直连）」被速率吃掉）⇒ 再加长到
-    /// <see cref="PortMarkerMetrics.Length"/>（**唯一来源**，不再写第二份在 Tokens 里）。
+    /// 长度取 <see cref="PortMarkerMetrics.Length"/>（**唯一来源**，不在 Tokens 里写第二份）：
+    /// 它必须给名称/速率/箭头/灯留够空间（信息变化不引起排版抖动），
+    /// 短了名称会被速率吃掉（长度 114 时「（直连）」只剩约 10px）。
     /// </remarks>
     public double MarkerWidth => IsVertical ? PortMarkerMetrics.Width : PortMarkerMetrics.Length;
 
@@ -152,18 +153,17 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     public partial string TypeText { get; set; } = "—";
 
     /// <summary>
-    /// 端口**类型身份**（色板键）【ADR-0049 D6】：已声明类型 ⇒ `标识@v版本`；未声明 ⇒ 结构描述；未知 ⇒ null。
+    /// 端口**类型身份**（色板键）：已声明类型 ⇒ `标识@v版本`；未声明 ⇒ 结构描述；未知 ⇒ null。
     /// </summary>
-    /// <remarks>颜色**按身份**映射（不是按呈现文本）：与角色方块同色，且不会把"不同标识同形状"混为一色（ADR-0051）。</remarks>
+    /// <remarks>颜色**按身份**映射（不是按呈现文本）：与角色方块同色，且不会把"不同标识同形状"混为一色。</remarks>
     public string? TypeKey { get; }
 
     /// <summary>
-    /// **工具提示**用的对端信息（`实例.口名`；空 = 无对端或对端未装入）【M1-16 / ADR-0039 D5】。
+    /// **工具提示**用的对端信息（`实例.口名`；空 = 无对端或对端未装入）。
     /// </summary>
     /// <remarks>
-    /// 【来源唯一】叠加层的**连线**不再读标记的对端方位（改由**角色对**驱动，ADR-0049 D4）——
-    /// 这里只服务**悬停提示**这一个消费者。曾经的 `PeerSide` / `PeerAdjacent` / `HasLink` 三个字段
-    /// 已随叠加层改造**删除**（它们与角色对是同一事实的第二个来源）。
+    /// 【来源唯一】叠加层的**连线**不读标记的对端方位（改由**角色对**驱动）——
+    /// 这里只服务**悬停提示**这一个消费者（对端方位字段与角色对是同一事实的第二个来源，故不留）。
     /// </remarks>
     [ObservableProperty]
     public partial string? PeerText { get; set; }
@@ -184,21 +184,20 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     public string DirectionText => IsSend ? "发送" : "接收";
 
     /// <summary>
-    /// **方向箭头字形**（2026-09 用户裁定："在上下两条边时箭头方向仍为左/右式，希望箭头方向**不要写死**，
-    /// 而是根据**网络标签位置**和**输入输出关系**推"）。
+    /// **方向箭头字形**（箭头方向**不写死**，由**所在边**与**输入输出关系**推出）。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
     ///   <item><b>语义</b>：发送 = **朝外**（数据从本模块出去）、接收 = **朝内**（数据进本模块）
-    ///     ⇒ 屏幕方向由「所在边」+「发送/接收」唯一确定，不再假设"数据流恒为左→右"；</item>
+    ///     ⇒ 屏幕方向由「所在边」+「发送/接收」唯一确定，不假设"数据流恒为左→右"；</item>
     ///   <item><b>为什么两个分支可以共用一张字形表</b>：竖排分支外面套了 −90° 旋转
     ///     （内容 <c>(x,y)</c> → 屏幕 <c>(y,−x)</c>：内容 `↓` 在屏幕上才呈 `→`），
     ///     而"低侧边（上/左）朝外"与"高侧边（下/右）朝内"在这套映射下**恰好都对应内容字形 `↑`**
     ///     ⇒ 同一个公式对两种形态都成立（各写一张表迟早会漂，正是本项目反复踩过的坑）；</item>
     ///   <item><b>默认边上的表现</b>：发送器默认在**下边**、显示器默认在**上边**（业务模块声明）
     ///     ⇒ 发送显示 `↓`（朝外向下）、接收显示 `↓`（朝内向下）—— 都由"数据向下流"这一事实推出，
-    ///     不再是写死的 `→`；</item>
-    ///   <item>【用户第十三轮反馈】箭头"过小看不清" → 字号由标记字号（11）提到 **18**
+    ///     不是写死的 `→`；</item>
+    ///   <item>箭头太小时看不清 ⇒ 字号由标记字号（11）提到 **18**
     ///     （见 `Tokens.axaml` 的 `PortMarkerArrowFontSize`）。</item>
     /// </list>
     /// </remarks>
@@ -209,7 +208,7 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
         ? Edge is PortEdge.Top or PortEdge.Left
         : Edge is PortEdge.Bottom or PortEdge.Right;
 
-    /// <summary>连接状态文本（**只用于工具提示**；标记本身不显示连接状态 —— 指示灯已经表达，用户第十三轮反馈）。</summary>
+    /// <summary>连接状态文本（**只用于工具提示**；标记本身不显示连接状态 —— 指示灯已经表达）。</summary>
     public string StateText => IsStalled
         ? "停流"
         : IsConnected ? "已连接" : "未连接";
@@ -218,7 +217,7 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     /// 标记上显示的网络名（**标签优先**）。
     /// </summary>
     /// <remarks>
-    /// 【用户第十三轮反馈】① **不再追加"（未连）"** —— 没连上时**指示灯会灭**，文字再说一遍既冗余又抢宽度；
+    /// ① **不追加"（未连）"** —— 没连上时**指示灯会灭**，文字再说一遍既冗余又抢宽度；
     /// ② 无标签但已连上（接触即连的匿名网络）显示 <c>（直连）</c>，既未连也无标签显示 <c>无网络</c> ——
     /// 这两个是**网络名占位**，不是连接状态提示。
     /// </remarks>
@@ -226,14 +225,16 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
         ? label
         : IsConnected ? "（直连）" : "无网络";
 
-    /// <summary>状态语义（连接状态点用；颜色 + 形状双重编码，09 §7）。</summary>
+    /// <summary>状态语义（连接状态点用；颜色 + 形状双重编码）。</summary>
     public StateVisual State => IsStalled ? StateVisual.Dangling : IsConnected ? StateVisual.Active : StateVisual.Idle;
 
     /// <summary>
-    /// **所在边缘**（G5 · C5-7）——来自 `PortView.Edge` 的**有效边**（用户拖动覆盖 &gt; 模块声明的默认边 &gt; 数据流惯例）。
+    /// **所在边缘**——来自 `PortView.Edge` 的**有效边**（用户拖动覆盖 &gt; 包内 `view.json` 声明的边）。
     /// </summary>
     /// <remarks>
-    /// 此前是写死的 `IsSend ? Right : Left`；现在**模块可以声明默认边、用户可以把标记拖到任意边**（C5-7）。
+    /// 不是写死的 `IsSend ? Right : Left`：**模块在包内声明边、用户可以把标记拖到任意边**。
+    /// **没有惯例回退**：`Auto` 只会出现在"声明缺失 ⇒ 已判硬伤"的实例上（= 这个口没有位置），
+    /// 界面按"未声明"呈现，框架不替它猜方向。
     /// **可变**：拖动过程中就地更新形成预览；松手时由 <c>ModuleWindowsViewModel.MovePortAnchor</c> 提交，
     /// 失败则回滚（提交是唯一写入方，本地值只是"待提交的意图"）。
     /// </remarks>
@@ -241,16 +242,20 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     public partial PortEdge Edge { get; set; }
 
     /// <summary>
-    /// 锚点是否「**固定**」（G5）——固定 ⇒ **不可拖动**。
+    /// 锚点是否「**固定**」——固定 ⇒ **不可拖动**。
     /// </summary>
     /// <remarks>
-    /// **与「模块窗口锁定」区分**：后者是整个模块不可移动、不可缩放（ADR-0041 D1）。
-    /// 用词一律「固定」，不用「锁定」（用户 2026-09 裁定，见 `decisions.md` 7.14）。
+    /// **与「模块窗口锁定」区分**：后者是整个模块不可移动、不可缩放。
+    /// 用词一律「固定」，不用「锁定」（避免与「模块窗口锁定」混为一谈）。
     /// </remarks>
     [ObservableProperty]
     public partial bool IsAnchorFixed { get; set; }
 
     /// <summary>所在边缘（视图用的枚举；与 <see cref="Edge"/> 同源）。</summary>
+    /// <remarks>
+    /// <see cref="PortEdge.Auto"/> 落到 <see cref="PortSide.Left"/> 只是**渲染兜底**：它只出现在
+    /// "包内声明缺失 ⇒ 已判硬伤、整份忽略"的实例上（那个口没有位置），不参与建网判定与吸附。
+    /// </remarks>
     public PortSide Side => Edge switch
     {
         PortEdge.Right => PortSide.Right,
@@ -263,7 +268,7 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     public bool IsDraggable => !IsAnchorFixed;
 
     /// <summary>
-    /// **指针是否悬停在本标记上**（G5）——「固定 / 解锁」按钮的显隐条件。
+    /// **指针是否悬停在本标记上**——「固定 / 解锁」按钮的显隐条件。
     /// </summary>
     /// <remarks>
     /// 按钮在**另一层**（位置由 `PortMarkerPanel` 排布）⇒ 样式选择器够不到"悬停标记 ⇒ 显示按钮"，
@@ -273,14 +278,14 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     public partial bool IsMarkerHovered { get; set; }
 
     /// <summary>
-    /// **固定 / 解锁**按钮的悬停提示（G5 · C5-7）——按钮本身就是该口的开关，提示必须说清"按下去会怎样"。
+    /// **固定 / 解锁**按钮的悬停提示——按钮本身就是该口的开关，提示必须说清"按下去会怎样"。
     /// </summary>
     public string AnchorToggleTip => IsAnchorFixed
         ? "锚点已固定：点击解锁，之后可沿边缘拖动或拖到别的边"
         : "锚点可拖动：点击固定，之后不可拖动（模块拉伸时按比例重排）";
 
     /// <summary>
-    /// **正在被拖动**（G5）——拖动期间本地 <see cref="Edge"/>/<see cref="Offset"/> 是"待提交的意图"，
+    /// **正在被拖动**——拖动期间本地 <see cref="Edge"/>/<see cref="Offset"/> 是"待提交的意图"，
     /// 刷新节拍的 <c>SyncPorts</c> **不得**用框架权威值覆盖它（否则拖到一半会被拽回原位）。
     /// </summary>
     /// <remarks>
@@ -294,20 +299,20 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     public bool IsVertical => Side is PortSide.Left or PortSide.Right;
 
     /// <summary>
-    /// **窄颜色条 = 数据包类型**（用户第十三轮反馈）：
-    /// 颜色按**类型身份**（<see cref="TypeKey"/>）查 <see cref="PacketTypePalette"/>【ADR-0049 D6】——
+    /// **窄颜色条 = 数据包类型**：
+    /// 颜色按**类型身份**（<see cref="TypeKey"/>）查 <see cref="PacketTypePalette"/>——
     /// 与叠加层的**角色方块填充色同源**（同一键 ⇒ 同一色，两处永远一致）；
-    /// 身份未知时回落类型文本（旧路径），再未知则占位色。
+    /// 身份未知时回落类型文本，再未知则占位色。
     /// </summary>
     public Avalonia.Media.IBrush TypeBrush => PacketTypePalette.For(TypeKey ?? TypeText);
 
     /// <summary>
     /// **类型颜色改了 ⇒ 让绑定的 <see cref="TypeBrush"/> 重新求值**（色板是静态单例，不经过本视图模型）。
     /// </summary>
-    /// <remarks>由"数据结构 → 颜色"映射表在改色后统一调用（用户第三十四轮新增该表）。</remarks>
+    /// <remarks>由"数据结构 → 颜色"映射表在改色后统一调用。</remarks>
     public void RefreshTypeBrush() => OnPropertyChanged(nameof(TypeBrush));
 
-    /// <summary>编辑框的帮助文本（**收进问号按钮的弹窗**，用户第十三轮反馈："提示信息收入帮助按钮"）。</summary>
+    /// <summary>编辑框的帮助文本（**收进问号按钮的弹窗**，不占标记宽度）。</summary>
     public string Hint => IsSend
         ? "发送口：填网络名后，同名接收口自动连上（一个网络只能有一个发送端）"
         : "接收口：填网络名后，同名发送口自动连上；没有同名发送端时只保留标签并提示";
@@ -316,7 +321,7 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     /// 完整信息（**工具提示**）。
     /// </summary>
     /// <remarks>
-    /// 【用户第十三轮反馈】① **不再显示"上次操作"**（那个字段也不再保存）；② 标记本身不显示类型，
+    /// ① **不显示"上次操作"**（那个字段也不保存）；② 标记本身不显示类型，
     /// 但**允许在悬停里显式给出数据包类型**（信息量大、只在需要时出现）。
     /// </remarks>
     public string Tooltip

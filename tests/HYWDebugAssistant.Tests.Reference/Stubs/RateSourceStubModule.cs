@@ -27,11 +27,10 @@ public sealed class RateSourceStubConfig
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>为什么需要它</b>：2026-09 用户裁定删除 6 个参考模块包后，"**不需要人来戳就能持续出数**"
-///     这条能力（`IActivitySource` 周期活动体 + 订阅写入 + 定长单元发送，原数据发生器承载）
-///     在四个基础模块里**没有对应物** —— 发送器要么等人点、要么等输入文本（而文本属视图状态、按裁定
-///     **不持久化**）⇒ 保存/加载类判据（AC-3/AC-4/AC-5）无法用发送器承载。
-///     用户："**不删任何的框架能力与接口**" ⇒ 用测试桩承载；</item>
+///   <item><b>为什么需要它</b>：「**不需要人来戳就能持续出数**」这条能力（`IActivitySource` 周期活动体
+///     + 订阅写入 + 定长单元发送）在四个基础模块里**没有对应物** —— 发送器要么等人点、要么等输入文本
+///     （而文本属视图状态、**不持久化**）⇒ 保存/加载类判据（AC-3/AC-4/AC-5）无法用发送器承载
+///     ⇒ 用测试桩承载；</item>
 ///   <item><b>与真实模块的关系</b>：载荷口径与四个正式模块**逐字相同**（`RawBytes` = `{ len:u16, data:bytes[1472] }`）
 ///     ⇒ 可与 `hyw/data-monitor` 直接连通，也能喂给融合桩；数值另外写一份 `value`（F32）订阅样本；</item>
 ///   <item><b>配置热生效</b>：`OnConfigurationChanged` 只置脏标记，活动体下一轮 `Read` 新配置
@@ -123,17 +122,6 @@ public sealed class RateSourceStubModule : IModule, IActivitySource
 
         // 单口单块（与两个发送器同一形态）——框架不派生角色，模块自己声明
         context.Declaration.DeclareRole(RoleDeclaration.Output(RoleId, new DataTypeRef(RawBytesTypeId, RawBytesVersion), OutPort, "发数"));
-
-        context.Declaration.DeclareView(new ViewDeclaration(
-            [
-                new ViewElement(ViewElementKind.Numeric, ValueSource, "当前值"),
-                new ViewElement(ViewElementKind.Numeric, TickSource, "已发条数"),
-            ],
-            dataSources:
-            [
-                new ViewDataSource(ValueSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.F32),
-                new ViewDataSource(TickSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64),
-            ]));
     }
 
     /// <inheritdoc />

@@ -79,7 +79,7 @@ public partial class SettingsView : UserControl
 
     // ------------------------------------------------------------ 调色板窗口（统一取色入口）
 
-    /// <summary>主题色：打开调色板窗口【ADR-0054："调色板窗口可被所有颜色选择相关位置复用"】。</summary>
+    /// <summary>主题色：打开调色板窗口（调色板窗口可被所有颜色选择相关位置复用）。</summary>
     private async void OnPickAccentColor(object? sender, RoutedEventArgs e) =>
         await PickAsync(
             current: Settings?.AccentColor,

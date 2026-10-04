@@ -1,12 +1,12 @@
 namespace HYWDebugAssistant.Sdk.Context;
 
 /// <summary>
-/// **模块可读的"视图状态"**（只读快照）〔2026-09 用户裁定 · `decisions.md` 7.28〕。
+/// **模块可读的「视图状态」**（只读快照）。
 /// </summary>
 /// <remarks>
 /// <para>
-/// 用户原话："当前选中页似乎应该是一个**可被感知的属性**，这也有利于 **UI 整体简洁化**"；
-/// 取向是"**符合 winforms 的开发直觉**"（`decisions.md` 7.30）—— 本接口就是 WinForms 里
+/// 当前选中页应当是**可被模块感知的属性**，这有利于 **UI 整体简洁化**；
+/// 取向是**符合 winforms 的开发直觉**—— 本接口对应 WinForms 里
 /// "**控件属性即状态**"（`textBox.Text` / `tabControl.SelectedIndex`）在本框架的落点。
 /// </para>
 /// <para>
@@ -49,7 +49,7 @@ public interface IViewStateReader
     /// <returns>当前文本；未声明该输入 / 从未渲染 ⇒ <see langword="null"/>。</returns>
     /// <remarks>
     /// 这是"**所见即所发**"的落点：点按钮时模块读到的就是用户在框里看到的文本，
-    /// 不依赖"用户是否按过回车"（因此不再需要"命令按钮关联输入源"那条机制 —— 见 `decisions.md` 7.27 的撤回）。
+    /// 不依赖「用户是否按过回车」（因此不需要「命令按钮关联输入源」那条机制）。
     /// </remarks>
     string? GetInputText(string sourceName);
 
@@ -59,7 +59,7 @@ public interface IViewStateReader
     /// <param name="sourceName">显示元素的 <c>DataSource</c> 名。</param>
     /// <returns>文本行快照（**调用时复制**；未声明 / 无内容 ⇒ 空列表）。</returns>
     /// <remarks>
-    /// 用于"**保存显示内容**"这类需求（用户 2026-09："读文本框本身的内存就行"）：
+    /// 用于「**保存显示内容**」这类需求（读文本框本身的内存即可）：
     /// 缓冲由框架持有（**不清空就一直在**，容量上限后丢最旧），模块**不需要**自己再留一份副本。
     /// </remarks>
     IReadOnlyList<string> GetDisplayLines(string sourceName);

@@ -13,7 +13,7 @@ public enum CarrierStopResult
     /// <summary>超过期限未停止——线程成为**孤儿**（框架放弃等待，由调用方报 Issue）。</summary>
     TimedOut = 1,
 
-    /// <summary>此前已停止。</summary>
+    /// <summary>已处于停止状态。</summary>
     AlreadyStopped = 2,
 }
 
@@ -25,7 +25,7 @@ public enum CarrierEnqueueResult
     /// <summary>已入队（可能同时按策略丢弃了某个旧单元）。</summary>
     Accepted = 0,
 
-    /// <summary>目标口的队列**满**（best-effort 丢弃，ADR-0050 D1）。</summary>
+    /// <summary>目标口的队列**满**（best-effort 丢弃）。</summary>
     QueueFull = 1,
 
     /// <summary>**目标口不存在**（未声明/已移除）⇒ 该口没有队列承载。</summary>
@@ -40,19 +40,19 @@ public enum CarrierEnqueueResult
     /// <remarks>
     /// 与 <see cref="Accepted"/> 分开表达是**记账诚实**的要求：新单元确实进了队列（该次投递成立），
     /// 但**被挤掉的那个旧单元实际没有到达消费方** ⇒ 调用方应把它计入"队列满丢弃"，
-    /// 否则"投递数"会把从未被消费的单元也算成成功（ADR-0046 D8：丢弃不得混算、也不得漏算）。
+    /// 否则「投递数」会把从未被消费的单元也算成成功（丢弃不得混算、也不得漏算）。
     /// </remarks>
     QueueFullEvicted = 4,
 }
 
 /// <summary>
-/// 模块承载者：**一个 Active 实例一个专属线程 + 每 (实例, 口) 一条有界输入队列**（ADR-0029 Q4-1 · ADR-0050 Q2）。
+/// 模块承载者：**一个 Active 实例一个专属线程 + 每 (实例, 口) 一条有界输入队列**。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>承载模式</b>：模块实现自发活动（<see cref="ICarrierTarget.HasActivity"/>）时运行其活动体（可阻塞）；
 ///         否则由框架运行投递循环（出队 → 调用接收处理）。</item>
-///   <item><b>队列粒度 = 每 (实例, 口)</b>【ADR-0050 Q2】：每个接收口**各有一条**有界 FIFO 队列，
+///   <item><b>队列粒度 = 每 (实例, 口)</b>：每个接收口**各有一条**有界 FIFO 队列，
 ///         容量按**口**计（<see cref="CarrierOptions.QueueCapacity"/>）。⇒ 某个口满载/慢速**不会堵住同实例的其它口**
 ///         （消除跨口队头阻塞）；同口内仍是严格 FIFO（M4b"同 (源,宿) 对 FIFO 强保证"由此保证）。</item>
 ///   <item><b>公平调度</b>：投递循环按**轮转**在非空口之间取单元（每轮每口至多一个），保证任一口都不会被饿死。</item>
@@ -177,7 +177,7 @@ public sealed class ModuleCarrier : IDisposable
         TryEnqueue(targetPort, buffer, header: null);
 
     /// <summary>
-    /// 投递一个数据单元到目标口，并可选携带**薄旁路头**【ADR-0050 Q6(c)】。
+    /// 投递一个数据单元到目标口，并可选携带**薄旁路头**。
     /// </summary>
     /// <param name="targetPort">目标接收口名。</param>
     /// <param name="buffer">数据单元缓冲（所有权随入队移交）。</param>
@@ -271,7 +271,7 @@ public sealed class ModuleCarrier : IDisposable
     /// 停止协议：置停止信号 → 有界等待 → 超时则标记孤儿并放弃队列缓冲。
     /// </summary>
     /// <remarks>
-    /// 超时路径的资源处置（ADR-0029 §4.1）：队列/缓冲**标记弃用且不归还池**（孤儿线程可能仍会写它们），
+    /// 超时路径的资源处置：队列/缓冲**标记弃用且不归还池**（孤儿线程可能仍会写它们），
     /// 仅由 GC 回收——保证"孤儿线程的后续写不会破坏框架或其他模块"。
     /// </remarks>
     public CarrierStopResult Stop(TimeSpan timeout)

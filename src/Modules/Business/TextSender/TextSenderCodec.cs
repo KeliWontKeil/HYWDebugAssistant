@@ -7,13 +7,13 @@ namespace HYWDebugAssistant.Modules.TextSender;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>编码 = UTF-8</b>（用户 2026-09 裁定 · `decisions.md` 7.25）：ASCII 1 字节 · 中文 3 字节 ·
-///     补充平面 4 字节；**ASCII 部分与"仅支持 ASCII"时代字节完全一致**（只增）；</item>
-///   <item><b>`len` = 字节数**（不是字符数），与 C 的 `strlen` 同口径；`data` 尾部**补零**只是定长填充，
+///   <item><b>编码 = UTF-8</b>：ASCII 1 字节 · 中文 3 字节 ·
+///     补充平面 4 字节；**ASCII 部分与「仅支持 ASCII」时代字节完全一致**（只增）；</item>
+///   <item><b>`len` = 字节数</b>（不是字符数），与 C 的 `strlen` 同口径；`data` 尾部**补零**只是定长填充，
 ///     **`0x00` 是合法数据、不是终止符**（收方必须按 `len` 切片，禁止 NUL 截断）；</item>
-///   <item><b>超长拆包</b>（用户裁定 T13/T14）：超过 <paramref name="capacity"/> 字节时**模块内部**拆成多个
+///   <item><b>超长拆包</b>：超过 <paramref name="capacity"/> 字节时**模块内部**拆成多个
 ///     数据包（**契约不上调**），且**只按字符边界切**（绝不切在多字节序列中间）；</item>
-///   <item><b>空内容静默不发</b>（T11）：编码后长度为 0 ⇒ 返回空序列（调用方什么都不做，不报错、不提示）。</item>
+///   <item><b>空内容静默不发</b>：编码后长度为 0 ⇒ 返回空序列（调用方什么都不做，不报错、不提示）。</item>
 /// </list>
 /// </remarks>
 internal static class TextSenderCodec
@@ -88,7 +88,7 @@ internal static class TextSenderCodec
     }
 
     /// <summary>
-    /// 解析「间隔」输入（毫秒）。用户裁定："范围可以 0-数据类型最大值，**这里不预设用户需求**"。
+    /// 解析「间隔」输入（毫秒）。范围 0 – 数据类型最大值，不预设上限需求。
     /// </summary>
     /// <param name="text">输入文本（框架只保证"是数字写法"，**范围归模块**）。</param>
     /// <param name="milliseconds">解析结果（毫秒）。</param>

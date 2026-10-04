@@ -32,4 +32,28 @@
     <Message Importance="high" Text="[module-pkg] $(ModulePackageName) → $(ModulePackageDirectory)" />
   </Target>
 
+  <!--
+    布局描述文件（`view.json`，2026-09 试点 · `decisions.md` 7.57）：与 `module.json` 并列在包根，
+    声明模块内容区的排布（flow / absolute / grid）。**有就拷进输出与包、没有就什么都不做** ——
+    没写的模块逐像素保持旧行为（P3：未声明 = 流式）。
+    规则写在这里（而不是每个模块 csproj 各写一行）：与"新增模块项目零改动"的约定一致，
+    模块作者只要在项目目录里放一个 view.json 即可。
+  -->
+  <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)\view.json')">
+    <None Update="view.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!--
+    包声明文件登记进**过期判定**（2026-10 缺陷修复）：
+    这两个文件是模块包的输入，但它们不参与编译，MSBuild 与 VS 的"是否最新"判定**看不见它们**
+    ⇒ 只改了 view.json 而点"重新生成解决方案"时，模块项目被判"最新"、Build 目标不跑、
+    归拢（AfterTargets="Build"）与拷贝都不发生 ⇒ 改动**永远进不了** artifacts\modules 与应用输出的
+    modules\（表现为"改了声明却怎么生成都不生效"）。登记成 UpToDateCheckInput 后，
+    它们的改动会让模块项目重新被判过期，归拢自动跟上 —— 这正是本文件开头"包永远是新的"那句的设计意图。
+  -->
+  <ItemGroup>
+    <UpToDateCheckInput Include="module.json" Condition="Exists('$(MSBuildProjectDirectory)\module.json')" />
+    <UpToDateCheckInput Include="view.json" Condition="Exists('$(MSBuildProjectDirectory)\view.json')" />
+  </ItemGroup>
+
 </Project>

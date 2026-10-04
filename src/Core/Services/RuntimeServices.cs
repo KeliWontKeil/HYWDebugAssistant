@@ -14,6 +14,7 @@ using HYWDebugAssistant.Core.Settings;
 using HYWDebugAssistant.Core.Workspace;
 using HYWDebugAssistant.Hosting.Installation;
 using HYWDebugAssistant.Hosting.Registry;
+using HYWDebugAssistant.Infrastructure.Storage;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
@@ -41,7 +42,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     /// <summary>模块标识字面量 → 装入它的来源根与包目录（诊断用）。</summary>
     private readonly Dictionary<string, ModulePackageOrigin> _modulePackages = new(StringComparer.Ordinal);
 
-    /// <summary>绑定的速率计（键 = 绑定身份键）——**框架侧唯一的速率口径来源**（ADR-0046 D8）。</summary>
+    /// <summary>绑定的速率计（键 = 绑定身份键）——**框架侧唯一的速率口径来源**。</summary>
     private readonly Dictionary<string, BindingRateMeters> _rateMeters = new(StringComparer.Ordinal);
 
     /// <summary>每 (实例, 口) 队列的速率计（键 = `实例.口名`）。</summary>
@@ -70,18 +71,18 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     /// <summary>上次来源根扫描的结果（`GetModuleSources` 的数据源）。</summary>
     private IReadOnlyList<ModuleSourceView> _moduleSources = [];
 
-    /// <summary>本进程启动时刻（判定"包在本次启动后重新构建过"用 —— ADR-0036 D4）。</summary>
+    /// <summary>本进程启动时刻（判定「包在本次启动后重新构建过」用）。</summary>
     private readonly DateTime _processStartUtc = DateTime.UtcNow;
 
     /// <summary>创建服务。</summary>
     /// <param name="runtime">运行时。</param>
-    /// <param name="settings">设置服务（缺省：应用目录下的 <c>settings.json</c>，未加载时使用默认值）。</param>
+    /// <param name="settings">设置服务（缺省：用户数据层下的 `settings.json`，见 `StoragePaths`；未加载时使用默认值）。</param>
     public RuntimeServices(ModuleRuntime runtime, SettingsService? settings = null)
     {
         ArgumentNullException.ThrowIfNull(runtime);
 
         _runtime = runtime;
-        _settings = settings ?? new SettingsService(runtime, Path.Combine(AppContext.BaseDirectory, "settings.json"));
+        _settings = settings ?? new SettingsService(runtime, StoragePaths.SettingsFile);
         _installer = new ModuleInstaller(_registry, runtime.Issues);
         _composites = new CompositeService(runtime, _registry, runtime.Issues);
     }
@@ -109,7 +110,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     }
 
     /// <summary>
-    /// 扫描**模块来源根列表**并装入其中的模块包（ADR-0036 D1）。
+    /// 扫描**模块来源根列表**并装入其中的模块包。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
@@ -200,7 +201,14 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     /// <inheritdoc />
     public CommandResult RescanModuleSources()
     {
-        var roots = NormalizeRoots([.. _settings.Current.ModuleSourceDirectories]);
+        // 点「重新加载」后模块来源目录消失、也没重扫 —— 真因：**「扫哪些根」有两个来源**：
+        // 启动路径（组合根）扫 `内置 modules\ + 设置里的根`，而这里只扫 `设置里的根`；
+        // 偏偏组合根**刻意把内置目录排除在设置之外**（它「不可移除、不显示为可编辑项」）
+        // ⇒ 用户没有自配来源根时（默认情形）这里的根列表是**空的** ⇒ 扫描结果表被覆盖成空表
+        // ⇒ 「模块来源目录」列表**清空**（看起来像「目录被清掉了」），而且**什么都没重扫**。
+        // 两条路径**共用同一个根列表**（`ResolveScanRoots`）⇒ 重扫永远不会丢掉内置根。
+        // 本方法**不删任何文件**，消失的只是「列表内容」。
+        var roots = ResolveScanRoots();
         var installed = ScanModuleSources(roots);
 
         var failed = _moduleSources.Sum(s => s.FailedPackages);
@@ -210,6 +218,36 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
         return CommandResult.Ok(failed > 0 ? [$"{message}；{failed} 个包装入失败（见 Issue）"] : [message]);
     }
+
+    /// <summary>
+    /// **本次进程扫描的根列表**（唯一来源）：内置包目录（若已注入）**排首位**，其后是设置里的用户根。
+    /// </summary>
+    /// <remarks>
+    /// 启动与「重新加载」**必须**都走这里 —— 各写一份 ⇒ 重扫会把内置根丢掉（见
+    /// <see cref="RescanModuleSources"/> 的说明）。
+    /// </remarks>
+    public IReadOnlyList<string> ResolveScanRoots()
+    {
+        var roots = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(BuiltInModuleDirectory))
+        {
+            roots.Add(BuiltInModuleDirectory);
+        }
+
+        roots.AddRange(_settings.Current.ModuleSourceDirectories);
+
+        return NormalizeRoots(roots);
+    }
+
+    /// <summary>
+    /// **内置包目录**（应用目录下的 `modules\`）——由**组合根**在启动时注入。
+    /// </summary>
+    /// <remarks>
+    /// 由外部注入而不是写在这里：Core **不认识**"应用目录"（那是交付形态的事），
+    /// 而"内置目录永远参与扫描"这条语义必须在**扫描侧**（本类）兑现。
+    /// </remarks>
+    public string? BuiltInModuleDirectory { get; set; }
 
     /// <summary>
     /// 单一来源目录扫描（兼容入口）：等价于把该目录作为唯一根扫描。
@@ -523,8 +561,8 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             // 【P40】**网络身份键**：视图层靠它配对（网络名不唯一：匿名网络名为空串）
             Key = ModuleRuntime.DescribeKey(n),
 
-            // 【ADR-0050 M2/M5】多源是一等组合：暴露**全部声明的源**（在场的在前 + 悬空的声明在后，
-            // 各组内字典序稳定）；**在场与否**看 IsStalled 与逐源诊断（R6 呈现时再细分）
+            // 多源是一等组合：暴露**全部声明的源**（在场的在前 + 悬空的声明在后，
+            // 各组内字典序稳定）；**在场与否**看 IsStalled 与逐源诊断（呈现时再细分）
             Sources = [.. n.Sources.Select(s => s.ToString()).OrderBy(s => s, StringComparer.Ordinal),
                        .. n.UnresolvedSources.Select(s => s.ToString()).OrderBy(s => s, StringComparer.Ordinal)],
         })];
@@ -573,15 +611,15 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     ///   <item><b>为什么抽出来</b>：<see cref="GetDiagnostics"/>（逐源行）与 <see cref="GetPortMetrics"/>
     ///     （按端口汇总）必须读<b>同一份</b>实现、<b>同一批</b>速率计（<c>_rateMeters</c>）——
     ///     否则"统一口径"只是换个地方再分叉一次（那正是本次缺陷的成因）；</item>
-    ///   <item><b>四档速率由框架给出</b>【ADR-0046 D8】：UI 不得自行差分估算；</item>
-    ///   <item><b>三类丢弃分开计</b>【ADR-0046 D8 / ADR-0050 Q5】：停流未投递 ≠ 传输丢弃。</item>
+    ///   <item><b>四档速率由框架给出</b>：UI 不得自行差分估算；</item>
+    ///   <item><b>三类丢弃分开计</b>：停流未投递 ≠ 传输丢弃。</item>
     /// </list>
     /// </remarks>
     /// <param name="b">绑定（= 一条"源 → 宿子集"的流）。</param>
     /// <param name="now">本次观察时刻（<see cref="Stopwatch.GetTimestamp"/>；同一趟刷新共用一个）。</param>
     private BindingDiagnosticView BuildDiagnostic(RuntimeBinding b, long now)
     {
-        // 【ADR-0050 M2/M7】诊断/绑定的键 = **单源 → 宿子集**（多源网络下**按源归属**）
+        // 诊断/绑定的键 = **单源 → 宿子集**（多源网络下**按源归属**）
         var key = ModuleRuntime.DescribeSourceKey(b.Source, b.Targets);
         var meters = MetersOf(key);
 
@@ -593,7 +631,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         {
             Key = key,
 
-            // 【ADR-0046 D8 / ADR-0050 Q5】丢弃按原因分类（停流未投递 ≠ 传输丢弃）
+            // 丢弃按原因分类（停流未投递 ≠ 传输丢弃）
             DropStalled = b.Diagnostics.DroppedByReason(DropReason.Stalled),
             DropQueueFull = b.Diagnostics.DroppedByReason(DropReason.QueueFull),
             DropNoCarrier = b.Diagnostics.DroppedByReason(DropReason.NoCarrier),
@@ -604,14 +642,14 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 + b.Diagnostics.DroppedByReason(DropReason.NoCarrier)
                 + b.Diagnostics.DroppedByReason(DropReason.InvalidPayload),
 
-            // 【ADR-0046 D8】**四档速率由框架给出**（UI 不得自行差分估算）
+            // **四档速率由框架给出**（UI 不得自行差分估算）
             Published = b.Diagnostics.Published,
             NetworkKey = ModuleRuntime.DescribeKey(b.Network),
             UnitRateHz = meters.Unit.Observe(b.Diagnostics.Published, now),
             BusByteRate = meters.Bus.Observe(b.Diagnostics.Delivered * b.Layout.SizeInBytes, now),
 
-            // 【2026-09 用户裁定"速率只要有效数据"】第 3 档读的是**累计有效字节**（逐单元读类型声明的
-            // 有效长度字段；未声明 ⇒ 静态 `PayloadSizeInBytes` ?? 契约尺寸）—— 不再拿"发布数 × 静态尺寸"现乘
+            // 第 3 档读的是**累计有效字节**（逐单元读类型声明的
+            // 有效长度字段；未声明 ⇒ 静态 `PayloadSizeInBytes` ?? 契约尺寸）—— 不能拿「发布数 × 静态尺寸」现乘
             // （那样变长载荷会把补零也算成有效数据）。
             PayloadByteRate = meters.Payload.Observe(b.Diagnostics.PayloadBytes, now),
             SampleRateHz = meters.Unit.Rate * b.Metering.SamplesPerUnit,
@@ -673,7 +711,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             // 累计搬运字节与 BusByteRate **同一口径**（Delivered × 该源契约尺寸）
             bytes += view.Delivered * b.Layout.SizeInBytes;
 
-            // 【2026-09 用户裁定"速率只要有效数据"】界面显示的**速率与累计流量**都取有效口径：
+            // 界面显示的**速率与累计流量**都取有效口径：
             // 累计有效字节 = 该绑定逐单元累计的有效字节之和（**按源计**，与 Published 同一次发布累加）。
             payloadBytes += b.Diagnostics.PayloadBytes;
 
@@ -730,7 +768,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         && string.Equals(member.PortName, portName, StringComparison.Ordinal);
 
     /// <summary>
-    /// **每 (实例, 口) 队列**的深度与吞吐【ADR-0050 Q2 / ADR-0046 D8"水位"】。
+    /// **每 (实例, 口) 队列**的深度与吞吐（框架速率计的「水位」）。
     /// </summary>
     /// <remarks>搬运字节速率**按宿计**（第 2 档）：只有每口一条队列才能给出这个口径。</remarks>
     public IReadOnlyList<PortQueueDepthView> GetQueueDepths()
@@ -838,7 +876,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                     buffer.Overwritten,
                     buffer.Dropped)
                 {
-                    // 【ADR-0046 D1 ③】解码器句柄随视图交给呈现层（框架只回调，不内建解码）
+                    // 解码器句柄随视图交给呈现层（框架只回调，不内建解码）
                     Decoder = buffer.Decoder,
                     DataType = buffer.DataType,
                 });
@@ -872,7 +910,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
         var networks = _runtime.Content.Networks.ToList();
 
-        // **按网络聚合的通路诊断**（键 = `NetworkKey`）——角色维度的速率/投递/丢弃由它聚合而来（ADR-0053）。
+        // **按网络聚合的通路诊断**（键 = `NetworkKey`）——角色维度的速率/投递/丢弃由它聚合而来。
         // 【实测踩坑】`BindingDiagnosticView.Key` 是**逐源键**（`源 → 宿子集`，多源下按源归属），
         // 与 **`NetworkKey`**（= `DescribeKey(网络)`）**不是同一个键**：早先按 `Key` 建表、用网络键查 ⇒ 永远查不到
         // ⇒ 角色的速率恒为 0（界面上恒显示占位符）。⇒ 这里一律用 `NetworkKey` 建表（一个网络把所有源加起来）。
@@ -887,7 +925,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
             byNetwork.TryGetValue(networkKey, out var sum);
             byNetwork[networkKey] = (
-                // 【2026-09 用户裁定"速率只要有效数据"】角色方块显示的是**有效载荷字节速率**
+                // 角色方块显示的是**有效载荷字节速率**
                 // （逐单元读有效长度字段；未声明 ⇒ 静态尺寸）—— 与网络标签同一口径。
                 sum.Rate + diagnostic.PayloadByteRate,
                 sum.Delivered + diagnostic.Delivered,
@@ -1098,22 +1136,6 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
     // ---------------------------------------------------------------- 内部
 
-    /// <summary>
-    /// **解析口的有效挂载边**（G5 · C5-7）：用户拖动后的覆盖 &gt; 模块声明的默认边 &gt; 数据流惯例。
-    /// </summary>
-    /// <remarks>
-    /// **转发到 <see cref="Composition.PortEdgeResolution.Resolve"/>**（2026-09）：本规则现在有三个消费者
-    /// （呈现、建网判定、UI 吸附）⇒ 只许有一份实现，这里不再自己写一遍（`implementation/01` 的"来源唯一"）。
-    /// </remarks>
-    /// <param name="declared">模块声明的默认边（`PortDeclaration.Edge`）。</param>
-    /// <param name="overridden">用户在画布上拖动后的覆盖（`PortGeometryView.Edge`；`Auto` = 无覆盖）。</param>
-    /// <param name="isSend">是否发送口（决定 `Auto` 解析成右还是左）。</param>
-    private static HYWDebugAssistant.Sdk.Ports.PortEdge ResolveEdge(
-        HYWDebugAssistant.Sdk.Ports.PortEdge declared,
-        HYWDebugAssistant.Sdk.Ports.PortEdge overridden,
-        bool isSend) =>
-        Composition.PortEdgeResolution.Resolve(declared, overridden, isSend);
-
     private ModuleInstanceView ToView(Hosting.Instances.ModuleInstance instance)
     {
         var ports = new List<PortView>(instance.Ports.Count);
@@ -1121,7 +1143,11 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         {
             var connected = IsPortConnected(instance.InstanceId, port.Name);
             var stalled = IsPortStalled(instance.InstanceId, port.Name);
-            var geometry = _runtime.Content.Layout.GetPort(instance.InstanceId, port.Name);
+            // **端口几何**：用户拖动覆盖 > 包内 `view.json` 声明（没有惯例回退）。
+            // `recorded` 区分"工作区里有这个口的记录"与"从没动过"（后者才用 json 的 offset/label 缺省）。
+            var recorded = _runtime.Content.Layout.TryGetPort(instance.InstanceId, port.Name, out var stored);
+            var geometry = Composition.PortGeometryResolution.Resolve(
+                instance.View.Frame, port.Name, stored, recorded);
             ports.Add(new PortView(
                 port.Name,
                 port.Direction.ToString(),
@@ -1130,15 +1156,15 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 stalled,
                 geometry.Offset,
                 // 【G5 · C5-7】**有效「固定」态**：用户设置过（三态里的具体值）优先；
-                // 没设置过 ⇒ 由**模块声明** `AnchorDraggable`（默认 false = 固定）决定 ⇒ 老模块零改动、行为不变。
-                geometry.IsAnchorFixed ?? !port.Declaration.AnchorDraggable,
+                // 没设置过 ⇒ 框架固定项（锚点默认固定）。
+                Composition.PortGeometryResolution.ResolveAnchorFixed(geometry.IsAnchorFixed),
                 geometry.Label,
                 port.Declaration.Shape.Describe())
             {
-                // 【G5 · C5-7】**有效挂载边**：用户拖动后的覆盖优先，否则模块声明的默认边
-                // （`Auto` = 数据流惯例 ⇒ 发送右 / 接收左 —— 老模块行为不变）。
-                Edge = ResolveEdge(port.Declaration.Edge, geometry.Edge, isSend: string.Equals(port.Direction.ToString(), "Send", StringComparison.Ordinal)),
-                // 【ADR-0048 R2 / ADR-0049 D6】**类型身份**（色板键）：已声明 ⇒ `标识@v版本`；未声明 ⇒ 结构描述。
+                // 【G5 · C5-7】**有效挂载边**：用户拖动覆盖 > 包内声明（没有惯例回退）；
+                // 已在上面一次解析完，这里直接用。
+                Edge = geometry.Edge,
+                // **类型身份**（色板键）：已声明 ⇒ `标识@v版本`；未声明 ⇒ 结构描述。
                 // 与角色键**同一来源**（`DescribePortTypeKey`）⇒ 端口标记的窄色条与角色方块填充色永远一致。
                 TypeKey = _runtime.DescribePortTypeKey(instance.InstanceId, port),
             });
@@ -1149,7 +1175,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             instance.Definition.Id.ToString(),
             instance.Definition.DisplayName,
             instance.State.ToString(),
-            instance.View is not null,
+            instance.View.Views.Count > 0,
             ports,
             IsPlaceholder: false,
             instance.View);
@@ -1166,12 +1192,12 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             IsPlaceholder: true);
 
     /// <summary>
-    /// 口是否**已加入网络**（ADR-0048/0049 的**唯一来源** = 网络成员关系）。
+    /// 口是否**已加入网络**（**唯一来源** = 网络成员关系）。
     /// </summary>
     /// <remarks>
-    /// **为什么不用绑定**：停流网络（全部源未锚定）**不建立绑定**，但它在**声明上仍然是"连着"的**
-    /// —— 用户需要看到"本来连给谁"（ADR-0050 M5）。用绑定判会出现"停流 ⇒ 显示未连"，与 UI
-    /// （按 `GetNetworks()` 判定）**两处口径不一致**；用户裁定"**所有数据指标必须保证来源唯一**"
+    /// **为什么不用绑定**：停流网络（全部源未锚定）**不建立绑定**，但它在**声明上仍然是「连着」的**
+    /// —— 界面需要看到「声明上连给谁」。用绑定判会出现「停流 ⇒ 显示未连」，与 UI
+    /// （按 `GetNetworks()` 判定）**两处口径不一致**；**所有数据指标必须来源唯一**
     /// ⇒ 统一到**网络成员关系**这一处。
     /// </remarks>
     /// <param name="instanceId">实例 ID。</param>

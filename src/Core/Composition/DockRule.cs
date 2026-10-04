@@ -12,7 +12,7 @@ namespace HYWDebugAssistant.Core.Composition;
 /// <param name="Shape">端口契约形状。</param>
 /// <param name="Semantics">端口传输语义。</param>
 /// <param name="Edge">
-/// 端口的**有效挂载边**（已按"用户覆盖 &gt; 模块声明 &gt; 惯例"解析；见 <see cref="PortEdgeResolution"/>）。
+/// 端口的**有效挂载边**（已按"用户覆盖 &gt; 包内声明"解析，没有惯例回退；见 <see cref="PortEdgeResolution"/>）。
 /// </param>
 public readonly record struct DockEnd(
     string InstanceId,
@@ -37,7 +37,7 @@ public readonly record struct DockPair(DockEnd Source, DockEnd Target)
 }
 
 /// <summary>
-/// **"接触且对齐"建网判定**（ADR-0037）——纯几何 + 契约判定，**没有副作用**。
+/// **"接触且对齐"建网判定**——纯几何 + 契约判定，**没有副作用**。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -64,9 +64,9 @@ public static class DockRule
     /// <param name="ends">参与判定的端口端（调用方决定取哪些实例/端口、用真实还是临时矩形）。</param>
     /// <returns>候选列表（同一发送端可对应多个接收端；严格判定下通常一对一）。</returns>
     /// <remarks>
-    /// <b>2026-09 缺陷修复 · 方向不再由"谁在左/上"决定</b>（用户实测："网络标签解锁并换边拖动后，
-    /// 网络标签吸附无效了，只有在默认边才能吸附"）：旧实现把**左/上那个模块直接当成发送端**
-    /// （<c>var sender = aIsLeftOrTop ? a : b;</c>），只在它里面找发送口 ⇒ 只要发送端不在左/上
+    /// <b>缺陷修复 · 方向不再由"谁在左/上"决定</b>（症状：网络标签解锁并换边拖动后吸附失效，
+    /// 只有在默认边才能吸附）：旧实现把**左/上那个模块直接当成发送端**，
+    /// 只在它里面找发送口 ⇒ 只要发送端不在左/上
     /// （恰恰是"把标签拖到另一条边 + 反着摆"的情形），候选**恒为空** ⇒ 吸附与建网同时静默失效。
     /// 现在改为：由**接触几何**算出"两侧各自朝向接触面的那条边"，然后**双向各试一次**
     /// （发送口在哪一侧都行）。物理事实不变：两个口必须各自冲着对方。

@@ -3,7 +3,7 @@ using HYWDebugAssistant.Sdk.Context;
 namespace HYWDebugAssistant.Sdk.Lifecycle;
 
 /// <summary>
-/// 模块实现基元：**接口实现**（不继承框架基类）——ADR-0028 Q3-3。
+/// 模块实现基元：**接口实现**（不继承框架基类）。
 /// </summary>
 /// <remarks>
 /// <para>六个生命周期钩子对应框架状态机 <c>Registered → Active ⇄ Disabled → Removed</c>（主文档 §8.4）：</para>
@@ -17,7 +17,7 @@ namespace HYWDebugAssistant.Sdk.Lifecycle;
 /// </list>
 /// <para>
 /// <b>异常纪律</b>：钩子中的异常不得逸出边界——框架受控捕获并转 Issue（AC-2）。
-/// <b>线程</b>：钩子由框架在**该实例的专属线程**上调用；模块不得自建线程（ADR-0013/ADR-0029）。
+/// <b>线程</b>：钩子由框架在**该实例的专属线程**上调用；模块不得自建线程。
 /// </para>
 /// </remarks>
 public interface IModule
@@ -70,7 +70,7 @@ public enum ActivityKind
 /// 框架为该实例分配专属线程并调用 <see cref="RunActivity"/>；
 /// 实现内部**可以阻塞、循环、做同步 IO**（Q4-5 允许阻塞），但必须响应
 /// <see cref="IModuleContext.StopSignal"/>（收到停止信号后尽快返回）。
-/// 模块**不得自建线程或定时器**（ADR-0013）。
+/// 模块**不得自建线程或定时器**（框架承担线程分配，模块只在该线程上做自发活动）。
 /// </remarks>
 public interface IActivitySource
 {

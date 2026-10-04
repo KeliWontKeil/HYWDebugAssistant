@@ -14,16 +14,16 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// **"接触且对齐"建网判定**（<c>DockRule</c>）的回归网 —— 2026-09 补上。
+/// **"接触且对齐"建网判定**（<c>DockRule</c>）的回归网。
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>为什么专门写这个文件</b>：`DockRule` 是"接触即连"的**唯一判据**（真正的建网与拖动中的
-/// "连接对齐"吸附预览都读它），而它此前**没有任何直接用例** —— 别处的注释还引用过一个
-/// 从不存在的 `DockRuleTests`。后果是 2026-09 用户实测出的这个缺陷无人能拦：
+/// "连接对齐"吸附预览都读它），缺了直接用例就没有任何东西拦得住它的退化（别处的注释若引用一个
+/// 不存在的 `DockRuleTests`，等于没有护栏）⇒ 下面这条缺陷无人能拦：
 /// </para>
 /// <para>
-/// <b>被钉住的缺陷</b>（用户原话："网络标签解锁并换边拖动后，网络标签吸附无效了，**只有在默认边才能吸附**"）：
+/// <b>被钉住的缺陷</b>：网络标签解锁并换边拖动后，网络标签吸附无效，**只有在默认边才能吸附**：
 /// 旧实现把**左/上那个模块直接当成发送端**（`var sender = aIsLeftOrTop ? a : b;`），只在它里面找发送口
 /// ⇒ 只要发送端不在左/上（恰恰是"反着摆 + 把标签拖到另一边"的情形），候选**恒为空** ⇒ 建网与吸附同时静默失效。
 /// 现在方向由**端口自己**（`IsSend`）+ **接触几何**（谁朝谁）共同决定，**四种摆法都成立**。
@@ -84,10 +84,10 @@ public class DockRuleTests
     }
 
     /// <summary>
-    /// **口不朝接触面 ⇒ 不建网**（2026-09 已修的误判，必须有护栏，否则"放宽方向"会把旧缺陷放回来）。
+    /// **口不朝接触面 ⇒ 不建网**（必须有护栏，否则"放宽方向"会把这类误判放回来）。
     /// </summary>
     /// <remarks>
-    /// 用户当时实测的原话是"**明明对齐的下侧却导致左右两侧的吸附**"：上下相邻的两个模块，
+    /// 误判形态是"**明明对齐的下侧却导致左右两侧的吸附**"：上下相邻的两个模块，
     /// 若一个把口挂在下边、另一个挂在上边之外的方向（各自冲着别的方向），两个标记**永远不会真的接触**
     /// ⇒ 判定必须拒绝，且容差再宽也不行。
     /// </remarks>
@@ -215,9 +215,9 @@ public class DockRuleTests
     private static ModuleDefinition TestDefinition(string name, Type entryType) =>
         new(ModuleId.Create("test", name, "1.0.0"),
             name, string.Empty, [], ModuleCapability.None, [], null, true,
-            entryType, string.Empty, string.Empty);
+            entryType, TestViewPackages.For(entryType), string.Empty);
 
-    /// <summary>发送模块（f32 输出口；<c>Edge</c> 不声明 ⇒ 有效边由"用户覆盖 &gt; 惯例"决定）。</summary>
+    /// <summary>发送模块（f32 输出口；边在包内声明里给出 ⇒ 有效边由"用户覆盖 &gt; 声明值"决定）。</summary>
     [ModuleDefinition("test", "sender", "1.0.0")]
     public sealed class SenderModule : IModule
     {

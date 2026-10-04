@@ -26,7 +26,6 @@ namespace HYWDebugAssistant.Hosting.Context;
 public sealed class ModuleContext : IModuleContext
 {
     private readonly List<PortDeclaration> _ports = [];
-    private readonly List<ViewDeclaration> _views = [];
     private readonly List<DataTypeDeclaration> _dataTypes = [];
     private readonly List<FlowDeclaration> _flows = [];
     private readonly List<RoleDeclaration> _roles = [];
@@ -48,7 +47,7 @@ public sealed class ModuleContext : IModuleContext
         InstanceId = instanceId;
         ModuleId = moduleId;
 
-        Declaration = new DeclarationCollector(_ports, _views, _dataTypes, _flows, _roles);
+        Declaration = new DeclarationCollector(_ports, _dataTypes, _flows, _roles);
         Issues = new IssueReporter(issues, _objectPath);
         Log = new NullModuleLogger();
         State = new NullBusinessStateReporter();
@@ -98,7 +97,7 @@ public sealed class ModuleContext : IModuleContext
     public IModuleInbox Inbox { get; }
 
     /// <summary>
-    /// **视图状态回读**（只读快照）〔2026-09 用户裁定 · `decisions.md` 7.28〕——由 L4 在创建实例时注入
+    /// **视图状态回读**（只读快照）——由 L4 在创建实例时注入
     /// （按实例绑定的只读适配器）；未注入时回落到"全部未知"的空实现（**不抛异常**）。
     /// </summary>
     public IViewStateReader ViewState { get; private set; } = EmptyViewState.Instance;
@@ -115,7 +114,7 @@ public sealed class ModuleContext : IModuleContext
 
     /// <summary>
     /// **显示内容的请求面**（模块 → 框架的"请求"方向）：目前只有"清空某个显示源"
-    /// 〔2026-09 · 为 `hyw/data-monitor` 的「清空」而只增〕。未注入 ⇒ 请求被忽略（**不抛异常**）。
+    /// 〔为 `hyw/data-monitor` 的「清空」而只增〕。未注入 ⇒ 请求被忽略（**不抛异常**）。
     /// </summary>
     public IViewDisplayAccess Display { get; private set; } = EmptyViewDisplay.Instance;
 
@@ -130,17 +129,14 @@ public sealed class ModuleContext : IModuleContext
     /// <summary>已声明的口（按声明顺序）。</summary>
     public IReadOnlyList<PortDeclaration> DeclaredPorts => _ports;
 
-    /// <summary>已声明的**数据类型**（按声明顺序）【ADR-0046 D2】。</summary>
+    /// <summary>已声明的**数据类型**（按声明顺序）。</summary>
     public IReadOnlyList<DataTypeDeclaration> DeclaredDataTypes => _dataTypes;
 
-    /// <summary>已声明的**内部处理关系**（按声明顺序）【ADR-0052】——合法性由工厂在成员实例化后统一校验。</summary>
+    /// <summary>已声明的**内部处理关系**（按声明顺序）——合法性由工厂在成员实例化后统一校验。</summary>
     public IReadOnlyList<FlowDeclaration> DeclaredFlows => _flows;
 
-    /// <summary>已声明的**角色**（按声明顺序）【ADR-0052】——合法性由工厂在成员实例化后统一校验。</summary>
+    /// <summary>已声明的**角色**（按声明顺序）——合法性由工厂在成员实例化后统一校验。</summary>
     public IReadOnlyList<RoleDeclaration> DeclaredRoles => _roles;
-
-    /// <summary>已声明的视图（取首个）。</summary>
-    public ViewDeclaration? DeclaredView => _views.Count > 0 ? _views[0] : null;
 
     /// <summary>
     /// 替换投递面实现（**由 L4 运行时在承载启动前调用**；模块作者不使用本方法）。
@@ -255,7 +251,6 @@ public sealed class ModuleContext : IModuleContext
 
     private sealed class DeclarationCollector(
         List<PortDeclaration> ports,
-        List<ViewDeclaration> views,
         List<DataTypeDeclaration> types,
         List<FlowDeclaration> flows,
         List<RoleDeclaration> roles) : IModuleDeclaration
@@ -284,11 +279,6 @@ public sealed class ModuleContext : IModuleContext
             flows.Add(flow);
         }
 
-        public void DeclareView(ViewDeclaration view)
-        {
-            ArgumentNullException.ThrowIfNull(view);
-            views.Add(view);
-        }
     }
 
     private sealed class IssueReporter(IIssueSink sink, string objectPath) : IIssueReporter
@@ -329,7 +319,7 @@ public sealed class ModuleContext : IModuleContext
     }
 
     /// <summary>
-    /// **人机操作收件箱**实现【M1-16 / ADR-0040】：有界（<see cref="Capacity"/>），满时**丢最旧**并计数。
+    /// **人机操作收件箱**实现：有界（<see cref="Capacity"/>），满时**丢最旧**并计数。
     /// </summary>
     /// <remarks>
     /// 并发：投递方是**管理线程**（变更提交），消费方是**模块线程**（活动体）→ 用锁保护；
@@ -427,9 +417,9 @@ public sealed class ModuleContext : IModuleContext
         /// 等待一段时间（**等待 + 自旋补偿混合**，见 <see cref="PreciseWait"/>）。
         /// </summary>
         /// <remarks>
-        /// 【2026-09 用户裁定】此前是裸 `Thread.Sleep(timeout)` ⇒ 受 Windows 系统计时器粒度限制
+        /// 若退化成裸 `Thread.Sleep(timeout)`，就受 Windows 系统计时器粒度限制
         /// （实测 1–15 ms）⇒ 模块声明 1 ms 的周期拿不到 1 ms 的精度，定时发送/接收的时序被拉粗。
-        /// 现在统一走框架侧唯一的等待实现（默认精确模式；可切粗粒度对照）。
+        /// 为此统一走框架侧唯一的等待实现（默认精确模式；可切粗粒度对照）。
         /// </remarks>
         public bool Wait(TimeSpan timeout) => PreciseWait.Wait(timeout, () => _stopRequested);
 

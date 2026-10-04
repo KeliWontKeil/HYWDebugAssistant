@@ -31,7 +31,7 @@ public sealed record SetModuleEnabledOperation(string InstanceId, bool Enabled) 
 /// <param name="Targets">宿成员（必须是接收口；1:N 多播）。</param>
 /// <param name="Name">网络名（为空 = 匿名网络）。</param>
 /// <param name="AllowUnverifiedTypeMatch">
-/// 用户是否已**显式确认**允许"**数据类型标识不同**"的强连【ADR-0046 D6】：默认 <see langword="false"/> = 拒绝
+/// 用户是否已**显式确认**允许"**数据类型标识不同**"的强连：默认 <see langword="false"/> = 拒绝
 /// （框架**无资格**判定不同标识是否同一种量，即使结构相同）；显式确认后放行，但**结构仍必须覆盖**，并留一条警示说明。
 /// </param>
 public sealed record ConnectNetworkOperation(
@@ -67,7 +67,7 @@ public sealed record UpdateModuleLayoutOperation(Api.ModuleLayoutView Layout) : 
 public sealed record UpdatePortGeometryOperation(string InstanceId, Api.PortGeometryView Geometry) : ChangeOperation;
 
 /// <summary>
-/// 设置端口的**网络标签**（ADR-0034：用户可见的唯一建网机制）——
+/// 设置端口的**网络标签**（用户可见的唯一建网机制）——
 /// 提交时按"**同名标签即连**"重算命名网络；空标签 = 退出该网络。
 /// </summary>
 /// <param name="InstanceId">实例 ID。</param>
@@ -76,7 +76,7 @@ public sealed record UpdatePortGeometryOperation(string InstanceId, Api.PortGeom
 public sealed record UpdatePortNetworkOperation(string InstanceId, string PortName, string? NetworkName) : ChangeOperation;
 
 /// <summary>
-/// 投递一个**模块命令**【M1-16 / ADR-0040 D1】：用户点了模块视图里的命令按钮。
+/// 投递一个**模块命令**：用户点了模块视图里的命令按钮。
 /// </summary>
 /// <remarks>
 /// 提交阶段**只入队**（模块的人机操作收件箱），命令在**模块线程**上被执行 —— 框架不跨线程直接调模块。
@@ -87,7 +87,7 @@ public sealed record UpdatePortNetworkOperation(string InstanceId, string PortNa
 public sealed record SendCommandOperation(string InstanceId, string CommandName) : ChangeOperation;
 
 /// <summary>
-/// 写入一个**文本输入值**【M1-16 / ADR-0040 D2】：用户在某输入元素上回车/失焦提交。
+/// 写入一个**文本输入值**：用户在某输入元素上回车/失焦提交。
 /// </summary>
 /// <remarks>与命令同样**只入队**；模块在自己的线程上解析文本（非法值由模块上报 Issue）。</remarks>
 /// <param name="InstanceId">实例 ID。</param>

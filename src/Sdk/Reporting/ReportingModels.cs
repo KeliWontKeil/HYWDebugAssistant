@@ -1,7 +1,7 @@
 namespace HYWDebugAssistant.Sdk.Reporting;
 
 /// <summary>
-/// Issue 类别（七类）——主文档 §8.2 / ADR-0015。框架管理**系统级**故障，不理解具体业务语义。
+/// Issue 类别（七类）——主文档 §8.2。框架管理**系统级**故障，不理解具体业务语义。
 /// </summary>
 public enum IssueCategory
 {

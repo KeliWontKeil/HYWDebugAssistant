@@ -10,7 +10,6 @@ using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
-using HYWDebugAssistant.Sdk.Views;
 using Shouldly;
 using Xunit;
 
@@ -23,7 +22,7 @@ public class NetworkAndResourceRulesTests
 {
     // ------------------------------------------------------------ T2 · 契约兼容矩阵
 
-    /// <summary>契约兼容判定：**形状完全一致**（ADR-0051：不再有"接收 ⊇ 发送"的子集判定）。</summary>
+    /// <summary>契约兼容判定：**形状完全一致**（不得用「接收 ⊇ 发送」的子集判定）。</summary>
     public static TheoryData<string, ContractShape, ContractShape, TransferSemantics, TransferSemantics, bool> CompatibilityCases => new()
     {
         // 单原语：类型与尺寸必须一致
@@ -86,8 +85,7 @@ public class NetworkAndResourceRulesTests
     };
 
 
-    // 【ADR-0037】原"快速建网 R0–R6"（加入模块即自动连线）已**整体移除**（用户裁决：反直觉，不利学习与探索）；
-    // 其判据由"**接触且对齐**"的对齐建网取代 —— 新判定的表驱动测试见 `DockRuleTests` 与 `NetworkingReconcileTests`。
+    // 建网只由「**接触且对齐**」判定：加入模块**不**自动连线（隐式连线反直觉，不利学习与探索）。
 
     [Fact]
     public void 移除实例_应释放承载与订阅且不影响其他实例()
@@ -104,7 +102,10 @@ public class NetworkAndResourceRulesTests
 
         runtime.Carriers.Carriers.Count.ShouldBe(3, "每个实例一个承载（专属线程）");
         runtime.Subscriptions.Count.ShouldBe(3, "每个实例一套订阅缓冲");
-        services.GetSubscriptionSources().ShouldContain(s => s.InstanceId == "s1" && s.DataSourceName == "value");
+        var diagnosticSources = services.GetSubscriptionSources();
+        diagnosticSources.ShouldContain(
+            s => s.InstanceId == "s1" && s.DataSourceName == "value",
+            "声明里的数据源应建立订阅缓冲");
 
         // 移除 s1：级联清理网络 + 释放承载与订阅
         services.RemoveModule("s1").Succeeded.ShouldBeTrue();
@@ -117,7 +118,9 @@ public class NetworkAndResourceRulesTests
 
         // 其他实例不受影响
         runtime.Content.Instances.Single(i => i.InstanceId == "s2").State.ShouldBe(ModuleInstanceState.Active);
-        runtime.Issues.Recent(50).ShouldNotContain(i => i.ObjectPath.Contains("s2", StringComparison.Ordinal));
+        runtime.Issues.Recent(50).ShouldNotContain(
+            i => i.ObjectPath.Contains("s2", StringComparison.Ordinal),
+            "其余实例不应因为另一个实例被移除而报问题");
     }
 
     [Fact]
@@ -201,7 +204,7 @@ public class NetworkAndResourceRulesTests
             null,
             true,
             entryType,
-            string.Empty,
+            TestViewPackages.For(entryType),
             string.Empty);
 
         if (!services.Registry.TryResolve(definition.Id, out _))
@@ -279,16 +282,11 @@ public class NetworkAndResourceRulesTests
         }
     }
 
-    /// <summary>带视图的发送模块（资源生命周期测试用）。</summary>
+    /// <summary>资源生命周期测试用的发送模块（**无界面**：界面声明不再由代码给出）。</summary>
     [ModuleDefinition("test", "view-sender", "1.0.0")]
     public sealed class ViewSenderModule : IModule
     {
-        public void OnRegistered(IModuleContext context)
-        {
+        public void OnRegistered(IModuleContext context) =>
             context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, F32));
-            context.Declaration.DeclareView(new ViewDeclaration(
-                [new ViewElement(ViewElementKind.Numeric, "value", "值")],
-                [new ViewDataSource("value", unit: null, format: null, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.F32)]));
-        }
     }
 }

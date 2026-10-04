@@ -16,7 +16,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// T1（ADR-0046 D6）：**接收方的读取纪律**——"兼容"不等于"能按自己的契约整块读"。
+/// T1：**接收方的读取纪律**——「兼容」不等于「能按自己的契约整块读」。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -75,8 +75,8 @@ public class ContractReadDisciplineTests
     [Fact]
     public void 形状不一致_应拒绝直连_且不产生任何投递()
     {
-        // 【ADR-0051】v1 源（12B）→ v2 接收方（16B，尾部追加）**不再兼容**：
-        // 版本升级按破坏性变更处理 ⇒ 拒绝直连（这正是"不让接收方拿到短于自己契约的数据报"的根治办法）
+        // v1 源（12B）→ v2 接收方（16B，尾部追加）**不兼容**：
+        // 版本升级按破坏性变更处理 ⇒ 拒绝直连（这是「不让接收方拿到短于自己契约的数据报」的根治办法）
         using var runtime = new ModuleRuntime();
         var services = new RuntimeServices(runtime);
         PrefixReceiver.Reset();
@@ -101,9 +101,9 @@ public class ContractReadDisciplineTests
     [Fact]
     public void 多源同口混入不同版本_应只保留形状一致的那一路_同一口上永不出现两种长度()
     {
-        // 【ADR-0051 + ADR-0050 M5/M6】**同名标签但版本/形状不同**的两个发布者：
+        // **同名标签但版本/形状不同**的两个发布者：
         // 形状不一致的那一路**不建立该 (源,宿) 对的投递**（其余源照常），
-        // ⇒ 同一宿口上**永远不会**混入不同长度的数据报（这正是本规则要买的东西）。
+        // ⇒ 同一宿口上**永远不会**混入不同长度的数据报。
         using var runtime = new ModuleRuntime();
         var services = new RuntimeServices(runtime);
         PrefixReceiver.Reset();

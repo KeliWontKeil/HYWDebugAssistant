@@ -1,7 +1,7 @@
 namespace HYWDebugAssistant.Sdk.Contracts;
 
 /// <summary>
-/// **样本解码器**：把一段定长样本字节解成可显示的数值（呈现期解码）——ADR-0046 D1 ③。
+/// **样本解码器**：把一段定长样本字节解成可显示的数值（呈现期解码）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -16,7 +16,7 @@ namespace HYWDebugAssistant.Sdk.Contracts;
 public delegate bool SampleDecoder(ReadOnlySpan<byte> sample, out double value);
 
 /// <summary>
-/// **数据类型的引用**（口 / 数据源指向一个已声明的数据类型）——ADR-0046 D2。
+/// **数据类型的引用**（口 / 数据源指向一个已声明的数据类型）。
 /// </summary>
 /// <param name="TypeId">类型标识（建议带模块/作者前缀，如 <c>hyw/f32</c>、<c>acme/temp.v2</c>）。</param>
 /// <param name="Version">类型版本（同标识不同版本走版本规则）。</param>
@@ -27,7 +27,7 @@ public readonly record struct DataTypeRef(string TypeId, int Version)
 }
 
 /// <summary>
-/// **计量块**（随类型声明，全字段可选）——ADR-0046 D8：框架据此**机械**给出四档速率，零解析。
+/// **计量块**（随类型声明，全字段可选）：框架据此**机械**给出四档速率，零解析。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -61,7 +61,7 @@ public sealed record MeteringBlock
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item><b>解决什么</b>（用户 2026-09 裁定："速率只要有效数据，截断的不应该算在有效数据里面"）：
+    ///   <item><b>解决什么</b>（速率只统计有效数据，被截断的部分不应算进有效数据）：
     ///     定长契约里的**变长载荷**（典型：<c>{ len: u16, data: bytes[1472] }</c>，尾部补零）用一个静态尺寸
     ///     表达不出"这一个单元真正有多少业务字节" ⇒ 声明**哪个字段写着有效长度**，框架逐单元读它、
     ///     夹到 <c>[0, 契约尺寸]</c> 后累计 ⇒ 第 3 档（有效载荷字节速率）给出**真实**有效速率；</item>
@@ -81,14 +81,14 @@ public sealed record MeteringBlock
 }
 
 /// <summary>
-/// **数据类型声明**（模块声明并注册）——ADR-0046 D2：标识 + 版本 + 尺寸（定长）+ 传输语义 + 计量块 + 解码器。
+/// **数据类型声明**（模块声明并注册）：标识 + 版本 + 尺寸（定长）+ 传输语义 + 计量块 + 解码器。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>类型身份归模块</b>：框架只持**机械镜像**（标识/版本/尺寸/语义/计量/解码器句柄），
 ///         不理解"这是什么量"（"可声明 ≠ 可判定"）；</item>
 ///   <item><b>尺寸属于传输</b>（定长，v1 不变长）、**语义属于模块**；<see cref="Shape"/> 是尺寸的唯一来源；</item>
-///   <item><b>兼容三层</b>（ADR-0046 D6）：同标识同版本 = 兼容；同标识不同版本 = 版本规则（**尾部增字段 = 兼容**）；
+///   <item><b>兼容三层</b>：同标识同版本 = 兼容；同标识不同版本 = 版本规则（**尾部增字段 = 兼容**）；
 ///         **不同标识 = 框架无资格判定 ⇒ 默认不兼容**（结构相同也不自动认，需显式确认强连）；</item>
 ///   <item><b>解码器可选</b>：不提供 ⇒ 呈现层显示"未声明解码器 + 字节数"，**不猜**；</item>
 ///   <item>旧模块不声明类型 ⇒ 端口按<b>结构</b>回退判定（向后兼容）。</item>

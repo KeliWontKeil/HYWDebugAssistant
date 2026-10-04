@@ -8,16 +8,15 @@ using Xunit;
 namespace HYWDebugAssistant.Tests.Reference;
 
 /// <summary>
-/// **多源链路判据**（原 `MultiSourceChainTests` · 2026-09 载体换成"两个正式发送器 + 融合测试桩"）。
+/// **多源链路判据**（载体 = 两个正式发送器 + 融合测试桩）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item>这条链验证"**多源是合法的一等组合**"：两个发布者各自成网进入下游的**两个口**，
-///     下游模块自己决定合并策略（框架**永不仲裁**，ADR-0050 M3/Q4），再作为**新的发布者**把结果发给更下游；</item>
+///     下游模块自己决定合并策略（框架**永不仲裁**），再作为**新的发布者**把结果发给更下游；</item>
 ///   <item>来源**用口区分**（M4：来源不进数据面）；</item>
-///   <item><b>载体变更</b>：两端的发布者用**正式模块**（`text-sender` / `hex-sender`），中间的"两入一出"
-///     用**本项目内的测试桩**（原参考融合器已按用户裁定删除；框架能力"两入一出 + 多源 + 角色分块"
-///     必须继续被覆盖 ⇒ 由桩承载）。</item>
+///   <item><b>载体</b>：两端的发布者用**正式模块**（`text-sender` / `hex-sender`），中间的「两入一出」
+///     用**本项目内的测试桩**（框架能力「两入一出 + 多源 + 角色分块」必须继续被覆盖 ⇒ 由桩承载）。</item>
 /// </list>
 /// </remarks>
 public class MultiSourceChainTests
@@ -44,7 +43,7 @@ public class MultiSourceChainTests
 
         composition.Services.GetNetworks().Count.ShouldBe(3, "两条入网 + 一条出网");
 
-        // 【ADR-0052/0053】角色与"角色间数据流"经公开查询面暴露：桩**自己声明**一块"两入一出"的功能分块
+        // 角色与「角色间数据流」经公开查询面暴露：桩**自己声明**一块「两入一出」的功能分块
         var fuse = composition.Services.GetRoles("fuser").ShouldHaveSingleItem();
         fuse.RoleId.ShouldBe(FusionStubModule.RoleId);
         fuse.Inputs.Count.ShouldBe(2, "两路输入属于**同一块**功能（合成一路是一件事）");
@@ -106,8 +105,8 @@ public class MultiSourceChainTests
         composition.WaitUntilDisplayText("monitor", DataMonitorModule.LogSource, "4.25")
             .ShouldBeTrue("下游看到的显示内容 = 融合值");
 
-        // ⑤ **角色维度的速率/投递必须真的取到框架诊断**【ADR-0053】
-        // ⚠ 速率口径 = **整秒桶**（2026-09 用户裁定）：上一个 ≥1 秒窗口的积累量 ⇒ 断言前必须**等满一个窗口**，
+        // ⑤ **角色维度的速率/投递必须真的取到框架诊断**
+        // ⚠ 速率口径 = **整秒桶**（上一个 ≥1 秒窗口的积累量）⇒ 断言前必须**等满一个窗口**，
         //    否则读到的是"首个窗口未满"的 0（这不是回归，是口径本身）。
         composition.Services.GetRoles("fuser");   // 先观察一次，建立窗口基准
         Thread.Sleep(1200);

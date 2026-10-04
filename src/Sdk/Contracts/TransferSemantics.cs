@@ -1,7 +1,7 @@
 namespace HYWDebugAssistant.Sdk.Contracts;
 
 /// <summary>
-/// 契约的**传递语义标注**（契约三层能力之①）——ADR-0008 / 主文档 §5.4.1。
+/// 契约的**传递语义标注**（契约三层能力之①）。
 /// </summary>
 /// <remarks>
 /// 跨语义**不判兼容**（需要时由模块内部自行组帧）；该标注参与兼容判定与 UI 呈现。

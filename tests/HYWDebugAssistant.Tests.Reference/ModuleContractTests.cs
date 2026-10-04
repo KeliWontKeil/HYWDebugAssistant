@@ -11,7 +11,6 @@ using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Testing;
-using HYWDebugAssistant.Sdk.Views;
 using HYWDebugAssistant.Tests.Reference.Stubs;
 using Shouldly;
 using Xunit;
@@ -30,11 +29,10 @@ namespace HYWDebugAssistant.Tests.Reference;
 ///   <item><b>行为自检</b>：<see cref="TestModuleContext"/> 注入上下文，直接驱动模块的钩子与逻辑。</item>
 /// </list>
 /// <para>
-/// <b>载体变更（2026-09 用户裁定"完全删除旧的模块…新测试全部转入新的四个模块"）</b>：原来的六个参考模块
-/// （数据发生器 / 记录器 / 断言器 / 手动发送器 / 显示模块 / 融合器）已删除 ⇒
+/// <b>载体 = 四个正式模块 + 本项目内的测试桩</b>：
 /// </para>
 /// <list type="bullet">
-///   <item><b>声明面与数据契约</b>的载体换成**四个正式模块**（`text-sender` / `hex-sender` /
+///   <item><b>声明面与数据契约</b>的载体是**四个正式模块**（`text-sender` / `hex-sender` /
 ///     `data-monitor` / `hex-string-converter`）——它们只引 SDK、只凭声明接入，正是本文件的示例对象；</item>
 ///   <item>框架能力（多源合并 / 定时出数 / 判据上报）**一个都没删**：由本项目内的**测试桩**承载
 ///     （见 <c>Stubs/</c>，桩不进产品模块目录、不打包）；</item>
@@ -64,7 +62,7 @@ public class ModuleContractTests
     [Fact]
     public void 业务模块应各自声明角色_融合桩一块两入一出_且都不声明内部顺序()
     {
-        // 【ADR-0052】角色 = 模块声明的**功能分块**（一种数据类型 + 输入口/输出口），**框架不派生**。
+        // 角色 = 模块声明的**功能分块**（一种数据类型 + 输入口/输出口），**框架不派生**。
         // 四个业务模块都是"单块"：两个发送器 = 纯源，显示器 = 纯汇，转换器 = 零口；
         // 融合桩 = **一块两入一出**（这正是"允许 >2 个口"的具体理由：合成一路是**一件事**）。
         var fusion = ModuleContract.Probe(typeof(FusionStubModule));
@@ -81,7 +79,7 @@ public class ModuleContractTests
 
         fusion.DeclaredFlows.ShouldBeEmpty("单块模块没有「角色 → 角色」的内部顺序 ⇒ 零声明零线");
 
-        // 【ADR-0052 Q3】多口块只得到**建议**（走 `Advisories`），**不是问题**：它可能在说
+        // 多口块只得到**建议**（走 `Advisories`），**不是问题**：它可能在说
         // "两件事挤成一块"（该拆），也可能就是"多路合成一路"（不必拆）——框架判不了，故只说、不判定。
         fusion.Advisories.ShouldContain(
             a => a.Contains("3 个口", StringComparison.Ordinal) && a.Contains("不必拆", StringComparison.Ordinal),
@@ -112,7 +110,7 @@ public class ModuleContractTests
     [Fact]
     public void 内部处理顺序写错_契约自检应当场报出来()
     {
-        // 【ADR-0052】内部处理顺序 = 「**角色 → 角色**」：两端角色必须已声明、不得自环、同（起点, 终点）不得重复。
+        // 内部处理顺序 = 「**角色 → 角色**」：两端角色必须已声明、不得自环、同（起点, 终点）不得重复。
         var problems = ModuleContract.CheckAll(typeof(BrokenFlowModule)).ToList();
 
         problems.ShouldContain(p => p.Contains("不得自环", StringComparison.Ordinal));
@@ -123,7 +121,7 @@ public class ModuleContractTests
     [Fact]
     public void 角色声明写错_契约自检应当场报出来()
     {
-        // 【ADR-0052 §3 R3′】SDK 侧自检与框架侧（运行期忽略 + Issue）**同一套规则**：
+        // SDK 侧自检与框架侧（运行期忽略 + Issue）**同一套规则**：
         // Id 唯一 · 类型可在本模块解析 · 口存在且方向相符 · 一个口最多属于一个角色 · 至少一个口。
         var problems = ModuleContract.CheckAll(typeof(BrokenRoleModule)).ToList();
 
@@ -133,7 +131,7 @@ public class ModuleContractTests
         problems.ShouldContain(p => p.Contains("方向应为", StringComparison.Ordinal));
         problems.ShouldContain(p => p.Contains("一个口最多属于一个角色", StringComparison.Ordinal));
 
-        // **口数不设上限**（ADR-0052 Q3）：3 个输出的角色是合法形态（融合块就是 2 入 1 出）⇒ 只给**建议**，不进 Problems
+        // **口数不设上限**：3 个输出的角色是合法形态（融合块就是 2 入 1 出）⇒ 只给**建议**，不进 Problems
         var probe = ModuleContract.Probe(typeof(BrokenRoleModule));
         probe.DeclaredRoles.ShouldContain(r => r.Id == "many" && r.Outputs.Count == 3, "多口角色照常成立");
         probe.Advisories.ShouldContain(a => a.Contains("3 个口", StringComparison.Ordinal), "三输出应当得到一条建议");
@@ -143,8 +141,8 @@ public class ModuleContractTests
     [Fact]
     public void 角色两侧口类型不一致_契约自检应报出并指向拆成两个角色()
     {
-        // 【2026-09 补充裁定 α】一个角色的**输入口与输出口必须同一种数据类型**（= 角色的 Type）。
-        // ADR-0052 Q2 只裁了"一个角色只有一种数据类型"，α 裁的是**两侧是否同型**。
+        // 一个角色的**输入口与输出口必须同一种数据类型**（= 角色的 Type）：
+        // 「一个角色只有一种数据类型」不含**两侧是否同型**，故两侧同型单独判。
         var problems = ModuleContract.CheckAll(typeof(MixedTypeRoleModule)).ToList();
 
         problems.ShouldContain(
@@ -156,8 +154,8 @@ public class ModuleContractTests
     [Fact]
     public void 有效长度字段写错_契约自检应当场报出来()
     {
-        // 【2026-09 用户裁定"速率只要有效数据"】`MeteringBlock.PayloadLengthField` 是"逐单元读哪个字段"
-        // 的声明 ⇒ 只在运行期"读不到就静默算静态值"是不行的（表现为"有效速率恒等于搬运速率"，无人察觉）
+        // `MeteringBlock.PayloadLengthField` 是「逐单元读哪个字段」
+        // 的声明 ⇒ 只在运行期「读不到就静默算静态值」是不行的（表现为「有效速率恒等于搬运速率」，无人察觉）
         // ⇒ 加载期的契约自检必须把两种写错**明确报出来**。
         var problems = ModuleContract.CheckAll(typeof(BrokenMeteringModule)).ToList();
 
@@ -198,8 +196,8 @@ public class ModuleContractTests
     [Fact]
     public void 有数据口却零角色_应给一条建议而不是问题()
     {
-        // 【B5 · 2026-09 裁定】"口 → 角色归属"的完整性**只给建议、不进 Problems、运行期不报**：
-        // 与"口数 > 2 只给建议"同口径（ADR-0052 Q3）；ADR-0052 的措辞是"**应当**"（不是"必须"）⇒ 不得升级为错误。
+        // 「口 → 角色归属」的完整性**只给建议、不进 Problems、运行期不报**：
+        // 与「口数 > 2 只给建议」同口径；契约的措辞是「**应当**」（不是「必须」）⇒ 不得升级为错误。
         var probe = ModuleContract.Probe(typeof(NoRoleModule));
 
         probe.Advisories.ShouldContain(
@@ -223,7 +221,7 @@ public class ModuleContractTests
     [Fact]
     public void 业务模块_应声明同一个数据类型且形状一致()
     {
-        // 【ADR-0046 D2/D6】四个业务模块与两个"接数据面"的桩都声明 `RawBytes@1` ⇒ 兼容判定走"**同标识同版本**"层；
+        // 四个业务模块与两个「接数据面」的桩都声明 `RawBytes@1` ⇒ 兼容判定走「**同标识同版本**」层；
         // 若谁的形状写歪了，这里立刻暴露（否则现场表现为"莫名其妙连不上"）。
         var expected = TextSenderModule.RawBytesShape;
 
@@ -247,13 +245,11 @@ public class ModuleContractTests
     }
 
     [Fact]
-    public void 契约自检_应能发现重复口名与未声明数据源()
+    public void 契约自检_应能发现重复口名()
     {
         var problems = ModuleContract.CheckAll(typeof(BrokenModule)).ToList();
 
         problems.ShouldContain(p => p.Contains("口名重复", StringComparison.Ordinal));
-        problems.ShouldContain(p => p.Contains("未声明的数据源", StringComparison.Ordinal));
-        problems.ShouldContain(p => p.Contains("未给出 ValueType", StringComparison.Ordinal));
     }
 
     // ------------------------------------------------------------ 行为自检（模块级，无需框架）
@@ -275,7 +271,7 @@ public class ModuleContractTests
 
         var fused = context.Published[FusionStubModule.FusedSource];
         fused.ShouldNotBeEmpty();
-        BitConverter.ToSingle(fused[^1], 0).ShouldBe(1.5f, "Latest 策略下第 1 路的到达即成为当前融合值");
+        BitConverter.ToDouble(fused[^1], 0).ShouldBe(1.5d, "Latest 策略下第 1 路的到达即成为当前融合值");
     }
 
     [Fact]
@@ -322,7 +318,6 @@ public class ModuleContractTests
         module.OnRegistered(context);
 
         context.DeclaredPorts.ShouldHaveSingleItem().Name.ShouldBe(JudgementSinkStubModule.InPort);
-        context.DeclaredView.ShouldNotBeNull();
 
         context.SetConfiguration(new JudgementSinkStubConfig
         {
@@ -470,14 +465,10 @@ public class ModuleContractTests
 
             context.Declaration.DeclarePort(new PortDeclaration("dup", PortDirection.Send, shape));
             context.Declaration.DeclarePort(new PortDeclaration("dup", PortDirection.Receive, shape));
-
-            context.Declaration.DeclareView(new ViewDeclaration(
-                [new ViewElement(ViewElementKind.Numeric, "missing", "缺失的数据源")],
-                [new ViewDataSource("series", unit: null, format: null, kind: ViewDataSourceKind.Sequence, valueType: null)]));
         }
     }
 
-    /// <summary>内部处理顺序写错的模块（ADR-0052 §3 R4′）：自环 / 引用了未声明的角色 / 重复。</summary>
+    /// <summary>内部处理顺序写错的模块：自环 / 引用了未声明的角色 / 重复。</summary>
     [ModuleDefinition("test", "broken-flow", "1.0.0")]
     public sealed class BrokenFlowModule : IModule
     {
@@ -501,7 +492,7 @@ public class ModuleContractTests
         }
     }
 
-    /// <summary>角色声明写错的模块（ADR-0052 §3 R3′）：重复 Id / 类型未声明 / 口不存在 / 方向不符 / 口被两个角色占 / 3 个口。</summary>
+    /// <summary>角色声明写错的模块：重复 Id / 类型未声明 / 口不存在 / 方向不符 / 口被两个角色占 / 3 个口。</summary>
     [ModuleDefinition("test", "broken-role", "1.0.0")]
     public sealed class BrokenRoleModule : IModule
     {
@@ -602,7 +593,7 @@ public class ModuleContractTests
             context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { Type = type });
             context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { Type = type });
 
-            // 刻意不声明任何角色（ADR-0052 的措辞是"应当"⇒ 只给建议）
+            // 刻意不声明任何角色（契约的措辞是「应当」⇒ 只给建议）
         }
     }
 

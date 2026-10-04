@@ -226,7 +226,7 @@ public class DataPlaneCarrierTests
     [Fact]
     public void 无承载的口_入队应被拒绝并立即计入丢弃()
     {
-        // 【ADR-0050 Q2】**每口一条队列** ⇒ 口不存在就**没有队列可入**："无承载"是**入队即失败**，
+        // **每口一条队列** ⇒ 口不存在就**没有队列可入**：「无承载」是**入队即失败**，
         // 而不是"入队后在投递循环里丢掉"（后者会把两种性质不同的事混成一个数）。
         using var host = new CarrierHost();
         var target = new TestTarget("nohandler") { PortExists = false };
@@ -268,12 +268,12 @@ public class DataPlaneCarrierTests
         }
     }
 
-    // ------------------------------------------------------------ 每 (实例, 口) 队列（ADR-0050 Q2）
+    // ------------------------------------------------------------ 每 (实例, 口) 队列
 
     [Fact]
     public void 每口一条队列_满载的口不得挤占其它口的缓冲额度()
     {
-        // 【ADR-0050 Q2 核心回归】容量**按口计**：一个口被塞满，不得让另一个口的入队被拒。
+        // 容量**按口计**：一个口被塞满，不得让另一个口的入队被拒。
         // 用**丢新**策略做判据：若两口共用一条容量 1 的队列，fast 的入队必然被拒（返回 QueueFull）；
         // 每口一条队列时应为 Accepted，且**丢弃按口归属**（slow 有丢弃、fast 一个都不丢）。
         using var host = new CarrierHost(options: new CarrierOptions
@@ -365,12 +365,12 @@ public class DataPlaneCarrierTests
         host.Buffers.Rented.ShouldBe(host.Buffers.Returned, "全部缓冲应已归还池（无泄漏）");
     }
 
-    // ------------------------------------------------------------ 薄旁路头（ADR-0050 Q6(c)）
+    // ------------------------------------------------------------ 薄旁路头
 
     [Fact]
     public void 薄旁路头_应随数据单元送达并由观测面记录_不带头的单元不留痕()
     {
-        // 【ADR-0050 Q6(c)】头是**旁路元数据**：随单元走（不必进 payload），由**观测面**消费
+        // 头是**旁路元数据**：随单元走（不必进 payload），由**观测面**消费
         // （承载诊断记录最近序号/接收时刻）。**单源网络传 null ⇒ 零附加、不留任何痕迹**。
         using var host = new CarrierHost();
         var target = new TestTarget("hdr");

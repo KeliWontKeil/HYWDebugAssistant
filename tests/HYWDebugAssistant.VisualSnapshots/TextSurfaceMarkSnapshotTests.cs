@@ -10,17 +10,16 @@ using Xunit;
 namespace HYWDebugAssistant.VisualSnapshots;
 
 /// <summary>
-/// **文本面换行标记（`↵`）的两种口径 —— 在真实布局下的"真出像素"自检**。
+/// **文本面换行标记（`↵`）—— 在真实布局下的"真出像素"自检**。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>为什么要有它</b>：主测试项目的无头会话是**空绘制**的 —— 实测它的 `TextLine.Width` **恒为 0**
 ///     ⇒ 所有标记的 x 都是"内边距 + 间距"，"标记在**行末**还是在**行首**"这件事**在那里量不出来**
 ///     （无头用例只能钉"个数与行号"）。真实布局（Skia）才有真的行宽，本用例补的正是这一格。</item>
-///   <item><b>钉的口径</b>（两条都是用户裁定，见 `NewlineMarkOverlay.MergeEmptyLineMarks`）：
-///     ① **可写面（输入框）= ¶ 口径**：空行自己显示 `↵` ⇒ `甲⏎⏎乙` 的两个标记落在**两行**上，
-///        且空行那个在**行首**（x 小）、`甲` 那个在**行末**（x 大）；
-///     ② **只读面（A5 日志）= 合并口径**：连续换行的标记都挂到上一行末尾 ⇒ **同一个 Y**、x 依次排开。</item>
+///   <item><b>钉的口径</b>（**只有一套**：¶ 口径 —— 输入框与输出框的逻辑表现必须完全相同）：
+///     空行自己显示 `↵` ⇒ `甲⏎⏎乙` 的两个标记落在**两行**上，且空行那个在**行首**（x 小）、
+///     `甲` 那个在**行末**（x 大）。只读面与可写面**必须同表现**（本类两块面各钉一条）。</item>
 ///   <item><b>产物</b>：两张 PNG（<c>%TEMP%\hyw-textsurface-mark-snapshot\</c>）——调这块时直接打开看。</item>
 /// </list>
 /// </remarks>
@@ -30,7 +29,7 @@ public class TextSurfaceMarkSnapshotTests
     /// <summary>快照输出目录（本类自持一份；别的类会清自己的目录，别共用）。</summary>
     private static string OutputDirectory => Path.Combine(Path.GetTempPath(), "hyw-textsurface-mark-snapshot");
 
-    /// <summary>可写面（输入框）用 ¶ 口径：空行自己显示 `↵`（两个标记落在**两行**上）。</summary>
+    /// <summary>可写面（输入框）：空行自己显示 `↵`（两个标记落在**两行**上）。</summary>
     [Fact]
     public async Task 可写面_空行的换行标记应在真实布局下落在那一个空行上()
     {
@@ -43,8 +42,6 @@ public class TextSurfaceMarkSnapshotTests
             {
                 var surface = new TextSurface { IsMultiline = true, ShowNewlineMarks = true, Text = "甲\r\n\r\n乙" };
                 var window = Show(surface);
-
-                surface.Marks.MergeEmptyLineMarks.ShouldBeFalse("可写面（输入框）用 ¶ 口径");
 
                 var marks = surface.Marks.Marks;
                 marks.Count.ShouldBe(2, "两个真换行 ⇒ 两个标记");
@@ -65,13 +62,13 @@ public class TextSurfaceMarkSnapshotTests
         File.Exists(editableFile).ShouldBeTrue($"应留下快照：{editableFile}");
     }
 
-    /// <summary>只读面（A5 日志）用合并口径：连续换行的标记都挂在上一行末尾（**同一个 Y**、x 依次排开）。</summary>
+    /// <summary>只读面（A5 日志）用**同一套** ¶ 口径：空行的标记也留在空行自己那一行（与输入框同表现）。</summary>
     [Fact]
-    public async Task 只读面_连续换行的标记应在真实布局下并到上一行末尾()
+    public async Task 只读面_空行的换行标记也应落在空行自己那一行()
     {
         using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
 
-        var logFile = Prepare() is { } directory ? Path.Combine(directory, "log-merged.png") : string.Empty;
+        var logFile = Prepare() is { } directory ? Path.Combine(directory, "log-para.png") : string.Empty;
 
         await session.Dispatch(
             () =>
@@ -87,7 +84,6 @@ public class TextSurfaceMarkSnapshotTests
 
                 var window = Show(surface);
 
-                surface.Marks.MergeEmptyLineMarks.ShouldBeTrue("只读面（A5 日志）用合并口径");
                 TextLines(surface.Editor.Text ?? string.Empty).ShouldBe(
                     ["line-0000", "甲", "", "乙", "line-0002"],
                     "窗口里确实有一个**真实的连续换行**（通道换行不参与标记）");
@@ -95,10 +91,14 @@ public class TextSurfaceMarkSnapshotTests
                 var marks = surface.Marks.Marks;
                 marks.Count.ShouldBe(2, "数据里那两个真换行 ⇒ 两个标记（一个都不能少）");
 
-                marks.Select(m => Math.Round(m.Position.Y, 1)).Distinct().Count()
-                    .ShouldBe(1, "合并口径：两个标记都挂在上一行末尾（**同一水平线**）");
+                var rows = marks.Select(m => Math.Round(m.Position.Y, 1)).Distinct().ToArray();
+                rows.Length.ShouldBe(
+                    2,
+                    "¶ 口径（与输入框同表现）：一个标记在 `甲` 那行的行末，另一个在**空行**上（同一 Y 就是又被并到上一行去了）");
 
-                marks[0].Position.X.ShouldBeLessThan(marks[1].Position.X, "两个标记按先后依次排开，不叠在一起");
+                marks[0].Position.X.ShouldBeGreaterThan(
+                    marks[1].Position.X,
+                    "**真实行宽下才量得出来**：`甲` 那行的标记在行末（x 大），空行那个没有可依附的文字 ⇒ 在行首（x 小）");
 
                 Save(window, logFile);
             },

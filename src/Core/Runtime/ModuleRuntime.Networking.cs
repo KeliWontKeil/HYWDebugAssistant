@@ -6,7 +6,7 @@ using HYWDebugAssistant.Sdk.Reporting;
 namespace HYWDebugAssistant.Core.Runtime;
 
 /// <summary>
-/// **建网推导**（ADR-0037：完全重写，取代旧的"加入模块即连"）——框架派生的网络只有两类，由本文件一次性重算。
+/// **建网推导**——框架派生的网络只有两类，由本文件一次性重算。
 /// </summary>
 /// <remarks>
 /// <list type="number">
@@ -25,7 +25,7 @@ public sealed partial class ModuleRuntime
     /// <param name="notices">面向用户的提示（连通/待命名等）。</param>
     /// <param name="alignAutoNetwork">是否启用"对齐自动建网"（设置项；关 = 只做命名网络）。</param>
     /// <remarks>
-    /// <b>2026-09 缺陷修复 · 偶发静默丢单元</b>：旧写法"**先把全部派生网络移除，再按现场重建**"——
+    /// <b>缺陷修复 · 偶发静默丢单元</b>：旧写法"**先把全部派生网络移除，再按现场重建**"——
     /// 而"移除网络"会**同时移除它的绑定**，"重建"才把绑定加回来 ⇒ 两步之间有一个**该网络没有绑定的空窗**，
     /// 模块线程恰在此刻发送 ⇒ 单元被**静默丢弃**（无丢弃计数、无 Issue）。
     /// 本推导**每次变更提交都跑**（拖动/输入/配置/增删启停）⇒ 窗口被反复打开。
@@ -135,8 +135,8 @@ public sealed partial class ModuleRuntime
                 continue;
             }
 
-            // 【ADR-0050 M1/M2】**多源 = 合法的一等组合**：同名标签的多个发送端同属**一条多源网络**
-            //（旧行为"整条拒绝 + CompositionError"已作废）。宿集合 = **与任一源兼容**的接收口之并集；
+            // **多源 = 合法的一等组合**：同名标签的多个发送端同属**一条多源网络**（不整条拒绝）。
+            // 宿集合 = **与任一源兼容**的接收口之并集；
             // **逐 (源,宿) 对**的兼容过滤在建立绑定时完成（`AddNetworkCore`）⇒ 不兼容者只排除那一对。
             var sources = new List<NetworkMember>();
             var targets = new List<NetworkMember>();
@@ -239,7 +239,11 @@ public sealed partial class ModuleRuntime
             foreach (var port in instance.Ports)
             {
                 var isSend = port.Direction == PortDirection.Send;
-                var geometry = Content.Layout.GetPort(instance.InstanceId, port.Name);
+                // **端口几何**：用户覆盖 > 包内 `view.json` 声明（没有惯例回退）
+                // （与呈现同源 ⇒ 一次解析出有效边/偏移/标签）。
+                var recorded = Content.Layout.TryGetPort(instance.InstanceId, port.Name, out var stored);
+                var geometry = PortGeometryResolution.Resolve(
+                    instance.View.Frame, port.Name, stored, recorded);
 
                 ends.Add(new DockEnd(
                     instance.InstanceId,
@@ -249,8 +253,8 @@ public sealed partial class ModuleRuntime
                     geometry,
                     port.Declaration.Shape,
                     port.Declaration.Semantics,
-                    // 【G5 · C5-7】**有效边**：用户覆盖 > 模块声明 > 惯例（与呈现同源，见 `PortEdgeResolution`）
-                    PortEdgeResolution.Resolve(port.Declaration.Edge, geometry.Edge, isSend)));
+                    // 有效边：上面那一次解析已经算完（`PortEdgeResolution` 仍是唯一实现）。
+                    geometry.Edge));
             }
         }
 
@@ -258,7 +262,7 @@ public sealed partial class ModuleRuntime
     }
 
     /// <summary>
-    /// **拖动网络标签时的"连接对齐"建议**（G5 追加 · 用户 2026-09）。
+    /// **拖动网络标签时的"连接对齐"建议**。
     /// </summary>
     /// <param name="instanceId">本口所属实例。</param>
     /// <param name="portName">本口名。</param>
@@ -289,7 +293,9 @@ public sealed partial class ModuleRuntime
             foreach (var port in instance.Ports)
             {
                 var isSend = port.Direction == PortDirection.Send;
-                var geometry = Content.Layout.GetPort(instance.InstanceId, port.Name);
+                var recorded = Content.Layout.TryGetPort(instance.InstanceId, port.Name, out var stored);
+                var geometry = PortGeometryResolution.Resolve(
+                    instance.View.Frame, port.Name, stored, recorded);
 
                 var isMine = string.Equals(instance.InstanceId, instanceId, StringComparison.Ordinal)
                     && string.Equals(port.Name, portName, StringComparison.Ordinal);
@@ -310,7 +316,7 @@ public sealed partial class ModuleRuntime
                     port.Declaration.Semantics,
                     isMine
                         ? edge
-                        : PortEdgeResolution.Resolve(port.Declaration.Edge, geometry.Edge, isSend));
+                        : geometry.Edge);
 
                 if (isMine)
                 {
@@ -369,9 +375,9 @@ public sealed partial class ModuleRuntime
     /// </summary>
     /// <remarks>
     /// 【P40】**对外也用同一个键**：<c>RuntimeServices.GetNetworks()</c> 把它填进 `NetworkView.Key`。
-    /// 【ADR-0050 M2】键含**全部源**（多源网络的身份 = 源集合 + 宿集合）。
-    /// 【M5】**用"声明的源"而非"在场的源"**：身份是**声明**的属性——两条都停流的网络不得因"在场源为空"
-    /// 而撞同一个键。**诊断/绑定**的键用 <see cref="DescribeSourceKey"/>（逐源，见 M7"按源归属"）。
+    /// 键含**全部源**（多源网络的身份 = 源集合 + 宿集合）。
+    /// **用"声明的源"而非"在场的源"**：身份是**声明**的属性——两条都停流的网络不得因"在场源为空"
+    /// 而撞同一个键。**诊断/绑定**的键用 <see cref="DescribeSourceKey"/>（逐源，按源归属）。
     /// </remarks>
     internal static string DescribeKey(Network network) =>
         string.Join(",", network.DeclaredSources.Select(s => s.ToString()).OrderBy(s => s, StringComparer.Ordinal))

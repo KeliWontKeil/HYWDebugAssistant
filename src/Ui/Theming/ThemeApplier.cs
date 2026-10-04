@@ -9,7 +9,7 @@ using HYWDebugAssistant.Core.Api;
 namespace HYWDebugAssistant.Ui.Theming;
 
 /// <summary>
-/// **主题与配色的应用器**【M1-16 / ADR-0038 D4 · ADR-0039 D6】：把应用级设置里的
+/// **主题与配色的应用器**：把应用级设置里的
 /// 主题（浅/深/跟随系统）· 主题色 · 背景色**落到角色 token 上**。
 /// </summary>
 /// <remarks>
@@ -20,8 +20,8 @@ namespace HYWDebugAssistant.Ui.Theming;
 ///     **主题字典 → 自身条目 → 合并字典（后加者优先）** —— 把覆盖放进"合并字典"会被主题字典里的
 ///     内置值盖住（实测：覆盖了也读不到）。故本类**直接改写主题字典中的键值**，并在每次应用前
 ///     **把上一次的覆盖恢复**（快照 → 还原），从而不污染内置 token；</item>
-///   <item><b>不引入图片背景</b>（D-6 裁决）：背景只支持"跟随主题 / 浅灰 / 深灰 / 自定义纯色"。</item>
-///   <item><b>方向语义色独立于主题色</b>【ADR-0044 · 用户第十四轮 D1a】：<c>DirectionSend</c>/<c>DirectionReceive</c>
+///   <item><b>不引入图片背景</b>：背景只支持"跟随主题 / 浅灰 / 深灰 / 自定义纯色"。</item>
+///   <item><b>方向语义色独立于主题色</b>：<c>DirectionSend</c>/<c>DirectionReceive</c>
 ///     由 <c>directionSendColor</c>/<c>directionReceiveColor</c> 单独驱动，**不再从主题色派生**，且
 ///     **默认值为空 = 跟随主题默认**（深浅两套各自的内置方向色因此都有效）；主题色只表达"选中/聚焦/活动"
 ///     等**框架性交互**语义。</item>
@@ -122,15 +122,14 @@ public static class ThemeApplier
             ApplyToThemeDictionaries(app.Resources, overrides);
         }
 
-        // 【2026-09 缺陷修复 · 用户反馈"字体修改不生效"】**字体必须独立于颜色覆盖**：
-        // 此前这一句写在 `overrides.Count == 0 ⇒ return` 之后 ⇒ 只要用户没设主题色/背景色/方向色
-        // （= 默认"全部跟随主题"），**字体改动就被整段跳过**（改了下拉框却毫无变化）。
+        // **字体必须独立于颜色覆盖**：这一句若写在 `overrides.Count == 0 ⇒ return` 之后，则只要没设
+        // 主题色/背景色/方向色（= 默认"全部跟随主题"），**字体改动就被整段跳过**（改了下拉框却毫无变化）。
         // 现在无论颜色是否有覆盖，字体都照常应用。
         ApplyFonts(app, settings);
     }
 
     /// <summary>
-    /// **字体覆盖**（2026-09 用户裁定："字体在设置里**显式可调**，读系统已有字体"）：
+    /// **字体覆盖**（字体在设置里**显式可调**，读系统已有字体）：
     /// <c>FontUi</c>（界面文字）/ <c>FontData</c>（**所有输入框与显示框**）。
     /// </summary>
     /// <remarks>
@@ -193,7 +192,7 @@ public static class ThemeApplier
     /// <remarks>
     /// 角色 token 由 `Tokens.axaml` 提供，而它是**合并**进 `Application.Resources` 的，
     /// 因此主题字典挂在合并字典里、不在 <c>Application.Resources.ThemeDictionaries</c> 顶层
-    /// （实测：只看顶层会一条都改不到）。只改"本来就有该键"的字典，避免误伤其他字典。
+    /// （实测：只看顶层会一条都改不到）。只改**已含该键**的字典，避免误伤其他字典。
     /// </remarks>
     private static void ApplyToThemeDictionaries(
         IResourceDictionary root,
@@ -273,7 +272,7 @@ public static class ThemeApplier
             overrides["BgChrome"] = new ImmutableSolidColorBrush(palette.Chrome);
         }
 
-        // 方向语义色【ADR-0044】：**独立于主题色**，只在用户显式填色时覆盖
+        // 方向语义色：**独立于主题色**，只在用户显式填色时覆盖
         // （空 = 跟随主题默认值 ⇒ 深浅两套主题各自的内置方向色都保住，不会被"默认值"盖死）
         if (Parse(settings.DirectionSendColor) is { } sendDirection)
         {
@@ -301,9 +300,9 @@ public static class ThemeApplier
 
     /// <summary>次色 = 主题色的邻近色（避免"一片蓝"，又不引入第二个用户输入）。</summary>
     /// <remarks>
-    /// 【ADR-0044】方向语义（发送/接收）**已不再使用本派生色**（改用独立的 `DirectionSend`/`DirectionReceive`）。
-    /// 当前消费者只剩：叠加信息层**连线**（D4 保留，待"叠加层专项"重设计）与模块内容曲线（D7：应改为模块自定色，
-    /// 待"数据-颜色专项"）。因此本派生色**不再代表任何"方向"语义**。
+    /// 方向语义（发送/接收）**不使用本派生色**（用独立的 `DirectionSend`/`DirectionReceive`）。
+    /// 当前消费者只剩：叠加信息层**连线**（待"叠加层专项"重设计）与模块内容曲线（**应改为模块自定色**，
+    /// 待"数据-颜色专项"）。因此本派生色**不代表任何"方向"语义**。
     /// </remarks>
     private static Color Secondary(Color accent) => Color.FromRgb(
         (byte)Math.Clamp((accent.R * 0.35) + (accent.B * 0.65), 0, 255),

@@ -10,7 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace HYWDebugAssistant.App;
 
 /// <summary>
-/// **临时自检**（用户第十二轮第二轮反馈："两个窗口靠很近时中线对齐才会抖，远一点就不抖"）。
+/// **临时自检**（复现场景：两个窗口靠很近时中线对齐才会抖，远一点就不抖）。
 /// </summary>
 /// <remarks>
 /// 纯几何扫描已排除吸附决策层、指针换算已改系统光标仍抖 ⇒ 需要在**真实窗口 + 真实 DPI** 下拿到逐帧事实。
@@ -128,7 +128,7 @@ internal static class DragSelfTest
     }
 
     /// <summary>
-    /// 脚本化拖动 A → 靠近 B → 在"中线附近"用 ±1px 抖动来回抖 40 次（用户描述的场景）。
+    /// 脚本化拖动 A → 靠近 B → 在"中线附近"用 ±1px 抖动来回抖 40 次（复现该场景）。
     /// </summary>
     private static void Drag(ModuleWindowsViewModel windows, IClassicDesktopStyleApplicationLifetime desktop)
     {

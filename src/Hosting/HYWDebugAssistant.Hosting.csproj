@@ -9,4 +9,13 @@
     <ProjectReference Include="..\Infrastructure\HYWDebugAssistant.Infrastructure.csproj" />
   </ItemGroup>
 
+  <!--
+    界面声明面的 schema：全部默认值与约束的唯一事实源。
+    它嵌进本程序集而不是散落到各消费方的输出目录 —— 只有一份、跟着读它的代码走，
+    也就不会出现"某处少拷了一份、于是那里偷偷用了代码里的默认值"。
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="Packages\schema\view.schema.json" />
+  </ItemGroup>
+
 </Project>

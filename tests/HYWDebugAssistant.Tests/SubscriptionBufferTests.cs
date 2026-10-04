@@ -2,7 +2,6 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using HYWDebugAssistant.Core.Views;
 using HYWDebugAssistant.Sdk.Contracts;
-using HYWDebugAssistant.Sdk.Views;
 using Shouldly;
 using Xunit;
 
@@ -18,15 +17,27 @@ public class SubscriptionBufferTests
     [Fact]
     public void 形态_数值类元素用最新值槽_曲线类元素用环形缓冲()
     {
-        var view = new ViewDeclaration(
-            [
-                new ViewElement(ViewElementKind.Numeric, "value"),
-                new ViewElement(ViewElementKind.Curve, "wave"),
-            ],
-            [
-                new ViewDataSource("value", "V", "F2", ViewDataSourceKind.Value, ContractPrimitive.F32),
-                new ViewDataSource("wave", null, null, ViewDataSourceKind.Sequence, ContractPrimitive.F32),
-            ]);
+        var view = TestView.Read(
+            """
+            {
+              "version": 1,
+              "sources": [
+                { "name": "value", "kind": "Value", "unit": "V", "valueType": "F64" },
+                { "name": "wave", "kind": "Sequence", "valueType": "F64" }
+              ],
+              "views": [
+                {
+                  "root": {
+                    "kind": "container",
+                    "children": [
+                      { "kind": "numeric", "data": "value" },
+                      { "kind": "curve", "data": "wave" }
+                    ]
+                  }
+                }
+              ]
+            }
+            """);
 
         var set = new SubscriptionSet("m1", view);
 
@@ -34,7 +45,7 @@ public class SubscriptionBufferTests
         set.TryGet("value", out var value).ShouldBeTrue();
         value!.Form.ShouldBe(SubscriptionBufferForm.LatestSlot, "A1 数值 = 最新值槽（容量 1）");
         value.Capacity.ShouldBe(1);
-        value.ValueType.ShouldBe(ContractPrimitive.F32);
+        value.ValueType.ShouldBe(ContractPrimitive.F64);
 
         set.TryGet("wave", out var wave).ShouldBeTrue();
         wave!.Form.ShouldBe(SubscriptionBufferForm.Ring, "A3 曲线 = 环形缓冲");
@@ -44,9 +55,16 @@ public class SubscriptionBufferTests
     [Fact]
     public void 形态_声明为序列的即使绑到数值元素也用环形缓冲()
     {
-        var view = new ViewDeclaration(
-            [new ViewElement(ViewElementKind.Numeric, "seq")],
-            [new ViewDataSource("seq", null, null, ViewDataSourceKind.Sequence, ContractPrimitive.F64)]);
+        var view = TestView.Read(
+            """
+            {
+              "version": 1,
+              "sources": [ { "name": "seq", "kind": "Sequence", "valueType": "F64" } ],
+              "views": [
+                { "root": { "kind": "numeric", "data": "seq" } }
+              ]
+            }
+            """);
 
         var set = new SubscriptionSet("m1", view);
 
@@ -66,9 +84,16 @@ public class SubscriptionBufferTests
     [Fact]
     public void 未声明的数据源_丢弃并只提示一次()
     {
-        var view = new ViewDeclaration(
-            [new ViewElement(ViewElementKind.Numeric, "value")],
-            [new ViewDataSource("value", null, null, ViewDataSourceKind.Value, ContractPrimitive.F32)]);
+        var view = TestView.Read(
+            """
+            {
+              "version": 1,
+              "sources": [ { "name": "value", "kind": "Value", "valueType": "F64" } ],
+              "views": [
+                { "root": { "kind": "numeric", "data": "value" } }
+              ]
+            }
+            """);
 
         var set = new SubscriptionSet("m1", view);
         var sample = new byte[4];
@@ -221,7 +246,7 @@ public class SubscriptionBufferTests
     [Fact]
     public void 并发写入_稳态不应产生分配()
     {
-        // 稳态零分配（ADR-0029 Q4-2）：槽尺寸只在首次写入时确定，之后只做 memcpy。
+        // 稳态零分配：槽尺寸只在首次写入时确定，之后只做 memcpy。
         // 断言方式：**写入次数翻倍不增加分配**（排除 JIT/首次调用的一次性开销，这类噪声与写入次数无关）。
         var buffer = new SubscriptionBuffer("m1", "wave", SubscriptionBufferForm.Ring, capacity: 256, ContractPrimitive.F32);
         var payload = new byte[4];

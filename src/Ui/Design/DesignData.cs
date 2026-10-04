@@ -1,7 +1,7 @@
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Contracts;
+using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Views;
-using HYWDebugAssistant.Ui.Design;
 using HYWDebugAssistant.Ui.ViewModels;
 
 namespace HYWDebugAssistant.Ui.Design;
@@ -33,24 +33,32 @@ public static class DesignData
             new("out", "Send", 12, IsConnected: true, IsStalled: false, 0.6, false, "bus1", "{seq:u64, value:f32}"),
         };
 
-        var view = new ViewDeclaration(
+        // 声明面样例：**结构、尺寸、显示口径全在文档里**（与包内 `view.json` 是同一套形状），
+        // 这样设计器预览看到的排布/尺寸取值与真实模块一致（Ui 侧不再有第二份默认值）。
+        var view = new ViewDocument
+        {
+            Version = 1,
+            Frame = new ViewFrame
+            {
+                Window = new ViewWindowDeclaration { Width = 340, Height = 340, MinWidth = 180, MinHeight = 160 },
+                Labels =
+                [
+                    new ViewNetworkLabel("in", PortEdge.Left, 0.35),
+                    new ViewNetworkLabel("out", PortEdge.Right, 0.6),
+                ],
+            },
+            Sources =
             [
-                new ViewElement(ViewElementKind.Numeric, "value", "待发送值"),
-                new ViewElement(ViewElementKind.Numeric, "sent", "已发送"),
-                new ViewElement(ViewElementKind.Curve, "wave", "波形"),
-                new ViewElement(ViewElementKind.TextLog, "log", "接收日志"),
-                new ViewElement(ViewElementKind.TextInput, "valueInput", "值"),
-                new ViewElement(ViewElementKind.CommandButton, "send"),
-                new ViewElement(ViewElementKind.ToggleSlider, "auto", "自动发送"),
-                new ViewElement(ViewElementKind.ConfigurationEditor, title: "显示"),
+                new ViewSourceDeclaration("value", ViewDataSourceKind.Value, ContractPrimitive.F32, "V"),
+                new ViewSourceDeclaration("sent", ViewDataSourceKind.Value, ContractPrimitive.U64, null),
+                new ViewSourceDeclaration("wave", ViewDataSourceKind.Sequence, ContractPrimitive.F32, null),
+                new ViewSourceDeclaration("log", ViewDataSourceKind.Text, null, null),
             ],
+            Views =
             [
-                new ViewDataSource("value", format: "F3", kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.F32),
-                new ViewDataSource("sent", kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64),
-                new ViewDataSource("wave", kind: ViewDataSourceKind.Sequence, valueType: ContractPrimitive.F32),
-                new ViewDataSource("log", kind: ViewDataSourceKind.Text),
+                new ViewDefinition("文本发送器", Root()),
             ],
-            [new ViewCommand("send", "发送", icon: "play", description: "按当前值发送一个数据单元")]);
+        };
 
         var instance = new ModuleInstanceView(
             "sender-1",
@@ -68,12 +76,69 @@ public static class DesignData
                 "sender-1",
                 0,
                 0,
-                ModuleViewViewModel.DefaultWidth,
-                ModuleViewViewModel.DefaultHeight),
+                view.Frame.Window.Width,
+                view.Frame.Window.Height),
             EmptyRuntime.Instance,
             EmptyRuntime.Instance,
             scale: 1.0,
             fallbackX: 0,
             fallbackY: 0);
     }
+
+    /// <summary>样例视图的根（流式排布、随窗口填满 —— 与真实模块声明的缺省一致）。</summary>
+    private static ViewNode Root() => new()
+    {
+        Kind = ViewElementKind.Container.DeclarationName(),
+        Title = "文本发送器",
+        Width = new AxisLayout { Fill = true },
+        Height = new AxisLayout { Fill = true },
+        Layout = "flow",
+        Overflow = "scroll",
+        Columns = [],
+        Rows = [],
+        Unit = string.Empty,
+        InputKind = "text",
+        TextAlign = "default",
+        FileMode = "open",
+        Warnings = [],
+        Children =
+        [
+            Element(ViewElementKind.Numeric, "待发送值", source: "value"),
+            Element(ViewElementKind.Numeric, "已发送", source: "sent"),
+            Element(ViewElementKind.Curve, "波形", source: "wave"),
+            Element(ViewElementKind.TextLog, "接收日志", source: "log", height: new AxisLayout { Fill = true }),
+            Element(ViewElementKind.TextInput, "值", input: "value"),
+            Element(ViewElementKind.CommandButton, "发送", command: "send"),
+            Element(ViewElementKind.ToggleSlider, "自动发送", input: "auto"),
+            Element(ViewElementKind.ConfigurationEditor, "显示"),
+        ],
+    };
+
+    /// <summary>样例元素节点（把与示例无关的必填键一次填好，只留真正要区分的角色键）。</summary>
+    private static ViewNode Element(
+        ViewElementKind kind,
+        string title,
+        string? source = null,
+        string? command = null,
+        string? input = null,
+        AxisLayout? height = null) => new()
+    {
+        Kind = kind.DeclarationName(),
+        Title = title,
+        Width = new AxisLayout { Fill = true },
+        Height = height ?? new AxisLayout { Adaptive = true },
+        Layout = "flow",
+        Overflow = "scroll",
+        Columns = [],
+        Rows = [],
+        Unit = string.Empty,
+        InputKind = "text",
+        TextAlign = "default",
+        FileMode = "open",
+        Warnings = [],
+        Children = [],
+        DataSource = source,
+        Command = command,
+        Input = input,
+    };
 }

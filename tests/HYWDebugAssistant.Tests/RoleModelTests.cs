@@ -14,7 +14,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// T1【ADR-0052 判据 1–4】：**角色 = 模块声明的功能分块**——声明、`m/n` 派生、非法声明与"不参与判定"。
+/// T1【判据 1–4】：**角色 = 模块声明的功能分块**——声明、`m/n` 派生、非法声明与「不参与判定」。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -109,8 +109,8 @@ public class RoleModelTests
     [Fact]
     public void 判据3b_口数不设上限_多口角色照常生效且不报警()
     {
-        // 【ADR-0052 修订】框架**不对角色的口数设限、也不给建议**：它分不清"2 路合成 1 路"（多源融合器，
-        // 已裁定的合法形态）与"两件不相关的事" ⇒ 说不了的就不说（与"声明 ≠ 证明"一致）。
+        // 框架**不对角色的口数设限、也不给建议**：它分不清「2 路合成 1 路」（多源融合器，
+        // 合法形态）与「两件不相关的事」 ⇒ 说不了的就不说（与「声明 ≠ 证明」一致）。
         using var runtime = new ModuleRuntime();
         var services = new RuntimeServices(runtime);
 

@@ -13,7 +13,7 @@ public readonly record struct FieldLayout(string Name, int Offset, ContractShape
 /// </summary>
 /// <remarks>
 /// <para>这是"数据单元可扁平化"的关键：定长形状在**加载/声明期**即可算出每字段的固定偏移，
-/// 运行期读写只做偏移寻址，无反射、无分配（ADR-0029 Q4-2）。</para>
+/// 运行期读写只做偏移寻址，无反射、无分配。</para>
 /// <para><b>v1 范围</b>：只提供**顶层字段**偏移；嵌套结构的字段访问由作者按整体字节块自行解析
 /// （嵌套访问器的加载期生成属 R 项优化）。</para>
 /// </remarks>

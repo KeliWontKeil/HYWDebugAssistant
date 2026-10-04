@@ -9,37 +9,36 @@ using Avalonia.VisualTree;
 namespace HYWDebugAssistant.Ui.Controls;
 
 /// <summary>
-/// **行末换行标记（`↵`）的绘制层**（2026-09 用户裁定："我更倾向于自绘层"）。
+/// **行末换行标记（`↵`）的绘制层**。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>它解决什么</b>：用户要在输入框里看见"哪里有换行符"（与显示区同一口径）。上一版把 `↵`
-///     **塞进文本**（显示文本 ↔ 真实文本映射）⇒ 连带接管光标，实测"光标变化规律难以预测"，被用户否定。
+///   <item><b>它解决什么</b>：要在输入框里看见"哪里有换行符"（与显示区同一口径）。把 `↵`
+///     **塞进文本**（显示文本 ↔ 真实文本映射）会连带接管光标，且光标变化规律难以预测 ⇒ 不可取。
 ///     本控件把 `↵` 画成**纯装饰**：**不进文本、不参与选择、光标直接跳过、删不掉** —— 与 Word 的 ¶ 同构。</item>
 ///   <item><b>怎么定位</b>：目标 `TextBox` 的可视树里有 `PART_TextPresenter`，其 `TextLayout` 公开可读、
 ///     `TextLines` 给出逐行几何。**实测注意**：本版本 `TextLine.Start` **恒为 0**（不可用于定位）⇒
 ///     逐行内容用**累计 `Length` + 源文本**自算；`Length` **含行末换行符**、**折行续行不含**。</item>
 ///   <item>
-///     <b>标记挂在哪：两种口径按"哪一块面"分工</b>（都由 <see cref="MergeEmptyLineMarks"/> 表达，
-///     见该属性的说明与用户裁定原文）：
+///     <b>标记挂在哪：只有一套口径（¶）</b>——**每一行因换行符结束就在它自己的行末画一个 `↵`**，
+///     空行也一样（空行没有宽度 ⇒ 画在行首，即 Word 里空段落的 ¶ 位置）。
 ///     <list type="bullet">
-///       <item><b>只读面（A5 日志）⇒ 合并口径</b>：连续换行的标记**一起挂到上一行末尾**
-///         （数据 `甲\n\n乙` 显示成 `甲↵↵` / `乙`）；只有文本**以换行开头**（前面没有可挂靠的内容行）时，
-///         那一串标记画在首个空行的行首。用户 7.45："↵ 应该在文本末尾而不是另起一行"。</item>
-///       <item><b>可写面（模块文本输入框）⇒ ¶ 口径</b>：空行是用户敲出来的**真实可编辑的一行**，
-///         标记留在**它自己结束的那一行**（`甲↵` / `↵` / `乙`）。用户 2026-09 实测：
-///         "如果文本输入框的一行没有东西就换行（纯换行），它就不显示换行符"。</item>
+///       <item>数据 `甲\n\n乙` ⇒ `甲↵` / `↵` / `乙`。</item>
+///       <item>**只有数据里真有的换行符才画**：显示层把多行拼成一块连续文本时插进去的"通道换行"
+///         由 <see cref="UnmarkedNewlines"/> 排除，永远不画 `↵`（通道引进的换行
+///         **不是字符**）。</item>
+///       <item>**输入框与输出框必须同源同口径**：按"只读面 / 可写面"分成**合并口径**（`甲↵↵` / `乙`）
+///         与 **¶ 口径**两套，会让输出差一个换行符 ⇒ 只能有一套（同一控件、同源）。</item>
 ///     </list>
 ///   </item>
 ///   <item><b>不改编辑行为</b>：本控件 `IsHitTestVisible=false` 且不参与布局（与文本框同格、同层），
 ///     任何鼠标/键盘事件都落到下面的文本框上。</item>
-///   <item><b>跟着文本框内部滚动走</b>【2026-09 用户实测缺陷修复】：文本框的正文由模板里的
+///   <item><b>跟着文本框内部滚动走</b>：文本框的正文由模板里的
 ///     `ScrollViewer`（`PART_ScrollViewer`）承载 ⇒ 它一滚，**呈现器就平移、而本层不会自己收到通知**
-///     ⇒ 标记会**留在旧坐标上**（用户："只读框的换行标记不会随着滚动窗口而变化，引发标记错位，
-///     每次重新把焦点移上去后，会刷新一次"）。修法两条**缺一不可**：
+///     ⇒ 标记会**留在旧坐标上**（表现为标记错位，要把焦点重新移上去才会刷新一次）。修法两条**缺一不可**：
 ///     ① 订阅内层 `ScrollViewer.ScrollChanged`（偏移与范围变化都要重绘），并在模板后到时补挂
 ///        （本层在构造函数里就拿到文本框，那时模板还没应用 ⇒ 一次性查找必然拿不到内层滚动条）；
-///     ② 位置**一律在 <see cref="Render"/> 里按呈现器当时的平移重算**（本层不缓存任何"上次的几何"）。</item>
+///     ② 位置**一律在 <see cref="Render"/> 里按呈现器当前的平移重算**（本层不缓存任何"上次的几何"）。</item>
 /// </list>
 /// </remarks>
 public sealed class NewlineMarkOverlay : Control
@@ -65,33 +64,14 @@ public sealed class NewlineMarkOverlay : Control
     /// **不该画 `↵` 的换行符偏移**（文本里的字符下标）——即"**通道换行**"那批。
     /// </summary>
     /// <remarks>
-    /// 2026-09 用户裁定："通道引进的换行**不是字符**，因此永远不该有 `↵`"。
+    /// 通道引进的换行**不是字符**，因此永远不该有 `↵`。
     /// 显示层把"行"拼成一块连续文本时**必须**插入真正的 `\n`（否则文本框不会断行），
     /// 于是这些 `\n` 看上去和数据里真有的 `\n` 一模一样 ⇒ 用这张偏移表把两者分开：
     /// **表里的不画，表外（= 数据里真的有换行字符）的画**。
-    /// 输入框场景没有通道换行 ⇒ 恒为 <see langword="null"/> ⇒ 行为与从前逐字一致。
+    /// 输入框场景没有通道换行 ⇒ 恒为 <see langword="null"/> ⇒ 行为与没有通道换行时逐字一致。
     /// </remarks>
     public static readonly StyledProperty<IReadOnlyCollection<int>?> UnmarkedNewlinesProperty =
         AvaloniaProperty.Register<NewlineMarkOverlay, IReadOnlyCollection<int>?>(nameof(UnmarkedNewlines));
-
-    /// <summary>
-    /// **空行的标记是否并到上一行末尾**（`true` = 合并口径；`false` = ¶ 口径）。
-    /// </summary>
-    /// <remarks>
-    /// 两种口径**都来自用户裁定**，按"这是哪一块面"分工，不要合并成一套：
-    /// <list type="bullet">
-    ///   <item><b>`true`（只读面 = A5 日志）</b>：连续换行的标记**一起挂到上一行末尾**
-    ///     （数据 `甲\n\n乙` 显示成 `甲↵↵` / `乙`）—— 用户 7.45 明确要的，`decisions.md` 有记；
-    ///     当时抱怨的原话是"多了一个奇怪的自动换行"（标记自己占了一行）。</item>
-    ///   <item><b>`false`（可写面 = 模块文本输入框）</b>：空行是**用户敲出来的、真实可编辑的一行**，
-    ///     标记留在**它自己结束的那一行**（`甲↵` / `↵` / `乙`，Word 的 ¶ 口径）—— 用户 2026-09 实测反馈
-    ///     "如果文本输入框的一行没有东西就换行（纯换行），它就不显示换行符"。</item>
-    /// </list>
-    /// 默认 <see langword="false"/>（¶ 口径 = 更字面的一种）；由 <see cref="TextSurface"/> 按
-    /// "只读 / 可写"显式设定。
-    /// </remarks>
-    public static readonly StyledProperty<bool> MergeEmptyLineMarksProperty =
-        AvaloniaProperty.Register<NewlineMarkOverlay, bool>(nameof(MergeEmptyLineMarks));
 
     private HashSet<int>? _unmarked;
     private TextBox? _subscribed;
@@ -131,13 +111,6 @@ public sealed class NewlineMarkOverlay : Control
         set => SetValue(UnmarkedNewlinesProperty, value);
     }
 
-    /// <summary>空行的标记是否并到上一行末尾（`true` = 只读面/A5 日志的合并口径；见该属性的说明）。</summary>
-    public bool MergeEmptyLineMarks
-    {
-        get => GetValue(MergeEmptyLineMarksProperty);
-        set => SetValue(MergeEmptyLineMarksProperty, value);
-    }
-
     /// <summary>
     /// 当前应当画出的标记（**供测试与调试读取**）：位置在**本控件的坐标系**里，`Text` 是标记文字。
     /// </summary>
@@ -158,12 +131,6 @@ public sealed class NewlineMarkOverlay : Control
         }
 
         if (change.Property == IsActiveProperty)
-        {
-            InvalidateVisual();
-            return;
-        }
-
-        if (change.Property == MergeEmptyLineMarksProperty)
         {
             InvalidateVisual();
             return;
@@ -209,7 +176,7 @@ public sealed class NewlineMarkOverlay : Control
         }
 
         var font = MarkFormatted(editor);
-        var marks = MarkLines(layout, text, _unmarked, MergeEmptyLineMarks);
+        var marks = MarkLines(layout, text, _unmarked);
         var top = origin.Y;
 
         for (var index = 0; index < layout.TextLines.Count; index++)
@@ -221,7 +188,8 @@ public sealed class NewlineMarkOverlay : Control
             {
                 // 一律画在**该行的行末**：内容行 ⇒ 文本末尾之后；空行（纯换行造出来的）没有宽度
                 // ⇒ 自然落在行首 —— 这正是 Word 里空段落的 ¶ 位置。
-                // 合并口径下一个宿主行会摊到多个标记（`甲↵↵`）⇒ 按标记自身宽度依次排开。
+                // **只有一套口径**（输入框与输出框的逻辑表现必须完全相同）：一个视觉行至多
+                // 以一个换行符结束 ⇒ 每行至多一个标记；`count` 循环只是防御性写法。
                 var x = origin.X + line.Width + MarkGap;
                 var y = top + ((height - font.Height) / 2);
 
@@ -246,9 +214,6 @@ public sealed class NewlineMarkOverlay : Control
     /// <param name="layout">文本框的文本布局（逐行几何）。</param>
     /// <param name="text">文本框的源文本（**真实文本**，不含任何标记）。</param>
     /// <param name="unmarked">**通道换行**的偏移表（这些 `\n` **不画** `↵`）；<see langword="null"/> = 一个都不排除。</param>
-    /// <param name="mergeEmptyLineMarks">
-    /// 空行的标记是否并到上一行末尾：`true` = 只读面（A5 日志）的合并口径；`false` = 可写面（输入框）的 ¶ 口径。
-    /// </param>
     /// <returns>行号 → 该行要画的标记个数。</returns>
     /// <remarks>
     /// <list type="bullet">
@@ -256,22 +221,20 @@ public sealed class NewlineMarkOverlay : Control
     ///   <item><b>`Length` 含行末换行符、折行续行不含</b>（实测）⇒ "这一行是不是因换行符结束"由切片**末字符**判定；
     ///     一个视觉行**最多以一个换行符结束** ⇒ ¶ 口径下每行至多一个标记；</item>
     ///   <item>
-    ///     <b>两种口径分工见 <see cref="MergeEmptyLineMarksProperty"/></b>：只读面（A5 日志）合并到上一行末尾
-    ///     （`甲\n\n乙` ⇒ `甲↵↵` / `乙`，用户 7.45）；可写面（输入框）留在空行自己身上
-    ///     （`甲↵` / `↵` / `乙`，用户 2026-09 实测："一行没有东西就换行 ⇒ 不显示换行符"）。
+    ///     <b>空行画在它自己那一行</b>（¶ 口径）：输入框与日志面是同一个控件，
+    ///     逻辑表现**必须完全相同** —— 数据 `甲\n\n乙` 显示成 `甲↵` / `↵` / `乙`（不把空行的 `↵`
+    ///     并到上一行末尾——合并口径会让输出差一个换行符）。
     ///   </item>
-    ///   <item><b>通道换行不画</b>（2026-09 用户裁定）：那些 `\n` 是显示层拼行时插进去的，不是数据里的字符
+    ///   <item><b>通道换行不画</b>：那些 `\n` 是显示层拼行时插进去的，不是数据里的字符
     ///     —— 端口/通道引进的换行**永远不该有 `↵`**（只有数据里真的有换行字符才画）。</item>
     /// </list>
     /// </remarks>
     private static Dictionary<int, int> MarkLines(
         Avalonia.Media.TextFormatting.TextLayout layout,
         string text,
-        HashSet<int>? unmarked,
-        bool mergeEmptyLineMarks)
+        HashSet<int>? unmarked)
     {
         var marks = new Dictionary<int, int>();
-        var host = -1;      // 合并口径：最近一个**可挂靠**的行（内容行；起始空行则用它自己）
         var offset = 0;
 
         for (var index = 0; index < layout.TextLines.Count; index++)
@@ -300,29 +263,9 @@ public sealed class NewlineMarkOverlay : Control
                 continue;
             }
 
-            // 去掉行末 `\r\n` 之后还有字符吗（空行 = 纯换行造出来的那一行）
-            var hasContent = slice[..^1].TrimEnd('\r').Length > 0;
-
-            if (hasContent)
-            {
-                Add(index);
-                host = index;
-                continue;
-            }
-
-            if (!mergeEmptyLineMarks)
-            {
-                Add(index);     // ¶ 口径：空行自己的标记留在**空行**上（它没有宽度 ⇒ 画在行首）
-                continue;
-            }
-
-            // 合并口径：并到上一行末尾；文本以换行开头（没有可挂靠的内容行）⇒ 首个空行自己当宿主
-            Add(host >= 0 ? host : index);
-
-            if (host < 0)
-            {
-                host = index;
-            }
+            // **每一行因换行符结束 ⇒ 都有一个 `↵`**，空行也画在它自己那一行（¶ 口径）：空行是真实存在的
+            // 一行，它的 `↵` 属于它自己（该行没有宽度 ⇒ 画在行首，与输入框逐行一致）；内容行 ⇒ 画在文本末尾之后。
+            Add(index);
         }
 
         return marks;

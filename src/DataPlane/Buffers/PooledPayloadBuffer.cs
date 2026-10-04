@@ -61,7 +61,7 @@ internal sealed class PooledPayloadBuffer : PayloadBuffer
 public delegate void PayloadFill(Span<byte> payload);
 
 /// <summary>
-/// 数据单元缓冲池：按契约布局的定长尺寸借还缓冲（ADR-0029 Q4-2 的"扁平 + 池化"）。
+/// 数据单元缓冲池：按契约布局的定长尺寸借还缓冲（扁平 + 池化）。
 /// </summary>
 /// <remarks>
 /// 用 <see cref="ArrayPool{T}"/> 而非自研池：成熟实现、线程安全、零额外维护成本。

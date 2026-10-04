@@ -1,8 +1,7 @@
 # 实现前置约束：三条验证边界纪律（00）
 
-> 状态：**现行**（2026-09 文档收敛：压缩去重、序号重排、引用指向现行分册）
+> 状态：**现行**
 > 本文件只保留**用户确立的三条验证边界纪律 C1–C3**（"实现前必须守住的边界"）。它们是长期纪律，被 `docs/architecture/09-test-and-gate.md` 以"**纪律 C1 / C2 / C3**"回指（§6 测试与验证纪律、§10.2 推进方式）。
-> 原 §2（环境就绪后的议程）· §3（「代码风格与开发约束」议题清单）· §4（当时状态）属历史：已由 `implementation/01`、`docs/decisions.md` 与 `docs/architecture/` 各分册逐条兑现，**原文已归档**（不进现行路径）。
 > 依据：`docs/decisions.md` 7.2（工程纪律）/ 7.4（测试分层与门禁）· `docs/architecture/09-test-and-gate.md` §1–§3/§6/§10 · 原 ADR-0021 / ADR-0025 / ADR-0032（原文见 `docs/archive/adr/`）。
 
 ---
@@ -15,7 +14,7 @@
 | **为什么** | 框架的风险在**接缝**（登记 / 绑定 / 投递 / 重建 / 持久化），单函数级用例覆盖不到；参考组合是 AC-1~AC-6 的**实证载体**（**现行载体 = 四个正式模块 + 判据项目内测试桩**，见 `docs/architecture/09-test-and-gate.md` §2）。 |
 | **违反的后果** | 用例全绿但机制不通；"设计这么定、实现做反了"只能靠用户手工发现——问题被推迟到验收现场。 |
 | **怎么自查** | 改了 Core 机制 ⇒ 有没有一条**参考组合级**用例（数据源 → 变换 → 记录/判据汇）？只加了单函数用例 = **未验证**。 |
-| **现行落点** | `docs/architecture/09-test-and-gate.md` §1（AC-1~AC-6）· §2（判据落地与现行判据载体表）· §3（T1/T6 与承载项目）；代码 `tests/HYWDebugAssistant.Tests.Reference` + 契约套件 `HYWDebugAssistant.Sdk.Testing`。 |
+| **现行落点** | `docs/architecture/09-test-and-gate.md` §1（AC-1~AC-6）· §2（判据落地与现行判据载体表）· §3（T1/T6 与承载项目）。 |
 
 ## C2｜最小可验证形态才可开始验证
 
@@ -43,4 +42,4 @@
 
 - **"具体怎么做"**（判据、分层、门禁时点）：`docs/architecture/09-test-and-gate.md`。
 - **"为什么这么定"**：`docs/decisions.md` 7.2 / 7.4。
-- **"怎么写代码"**：`docs/implementation/01-coding-style-and-dev-conventions.md`；**"工程怎么跑"**：工程仓 `D:\project\c# project\HYWDebugAssistant\DEVELOPMENT.md`。
+- **"怎么写代码"**：`docs/implementation/01-coding-style-and-dev-conventions.md`；**"工程怎么跑"**：`07-dev-inner-loop.md`（命令的权威实现 = 工程根 `.\tools\dev.ps1`）。

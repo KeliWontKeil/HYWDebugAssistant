@@ -114,10 +114,10 @@ public abstract class LayerControlBase : Control
         set => SetValue(MutedTextBrushProperty, value);
     }
 
-    // 【2026-09 缺陷修复 · 用户实测"改了数据字体没反应"】**删除**了这里原先的 `CreateText(...)`
-    // 辅助方法：它把字体**写死**成 `Cascadia Mono, Consolas…` / `FontFamily.Default`，而
+    // 这里**不提供** `CreateText(...)` 这类辅助方法：它会把字体**写死**成 `Cascadia Mono, Consolas…` /
+    // `FontFamily.Default`，而
     // ① 它**没有任何调用者**（自绘层的活路径是 `ConnectionOverlay.Format`，用的是 `Typeface.Default`）
     // ② 留着它就等于给自绘层留了**第二个字体来源**（"尺寸/字体只能有一个来源"）。
     // 正确的做法是像颜色一样由 XAML 用 `{DynamicResource FontData}` 注入（见 `ConnectionOverlay.DataFontFamily`），
-    // 故这里不再提供"自带字体的排版工厂"。
+    // 故这里不提供"自带字体的排版工厂"。
 }

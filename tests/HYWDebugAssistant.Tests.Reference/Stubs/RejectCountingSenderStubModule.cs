@@ -99,17 +99,6 @@ public sealed class RejectCountingSenderStubModule : IModule, IActivitySource
         });
 
         context.Declaration.DeclareRole(RoleDeclaration.Output(RoleId, new DataTypeRef(RawBytesTypeId, RawBytesVersion), OutPort, "发数"));
-
-        context.Declaration.DeclareView(new ViewDeclaration(
-            [
-                new ViewElement(ViewElementKind.Numeric, SentSource, "被接受次数"),
-                new ViewElement(ViewElementKind.Numeric, RejectedSource, "被拒绝次数"),
-            ],
-            dataSources:
-            [
-                new ViewDataSource(SentSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64),
-                new ViewDataSource(RejectedSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64),
-            ]));
     }
 
     /// <inheritdoc />

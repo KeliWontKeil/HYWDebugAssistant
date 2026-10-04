@@ -71,7 +71,7 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     /// <inheritdoc />
     public PortMetricsView GetPortMetrics(string instanceId, string portName)
     {
-        // 设计时样例：两个口同在 bus1 上 ⇒ **两侧读到同一组数**（"统一口径"本来的样子：同一条线两侧同数）
+        // 设计时样例：两个口同在 bus1 上 ⇒ **两侧读到同一组数**（"统一口径"即同一条线两侧同数）
         var literal = $"{instanceId}.{portName}";
 
         return literal is "sender-1.out" or "monitor-1.in"
@@ -80,7 +80,7 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
                 DropQueueFull = 2,
                 BytesDelivered = 1234L * 12,
 
-                // 界面显示的是**有效载荷**口径（2026-09 用户裁定"速率只要有效数据"）⇒ 设计时也要给有效值，
+                // 界面显示的是**有效载荷**口径（速率只要有效数据）⇒ 设计时也要给有效值，
                 // 否则设计器里看到的是"搬迁有数、有效为零"的假象。
                 PayloadBytesDelivered = 1234L * 6,
                 PayloadBytesPerSecond = 7404,
@@ -110,7 +110,7 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     public IReadOnlyList<RoleView> GetRoles(string instanceId) => instanceId switch
     {
         // 设计时样例：发送器 = 一个纯源功能块；显示器 = 一个纯汇功能块（`m/n` 用 `--` 表示"没有那一侧"）。
-        // 速率/投递/丢弃 = **角色维度**的聚合值（ADR-0053，UI 只格式化）。
+        // 速率/投递/丢弃 = **角色维度**的聚合值（UI 只格式化）。
         "sender-1" => [new("sender-1/text-send", "text-send", "文本发送", "RawBytes@1",
             "{ len:u16, data:bytes[1472] }", [], ["out"], null, 1, "文本按 UTF-8 编码，len = 字节数", null,
             PayloadRateBytesPerSecond: 7404, Delivered: 1234, Dropped: 2)],
@@ -149,7 +149,7 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     /// <inheritdoc />
     public IReadOnlyList<ModuleSourceView> GetModuleSources() =>
     [
-        new(AppContext.BaseDirectory + "modules", Exists: true, PackagesFound: 4, SkippedDirectories: 0, FailedPackages: 0, Messages: []),
+        new(Path.Combine(AppContext.BaseDirectory, "modules"), Exists: true, PackagesFound: 4, SkippedDirectories: 0, FailedPackages: 0, Messages: []),
     ];
 
     /// <inheritdoc />
@@ -269,15 +269,4 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
 
     /// <inheritdoc />
     public CommandResult UpdateConfigurationJson(string instanceId, string json) => CommandResult.Ok();
-
-    /// <summary>预览用的示例视图声明（设计器里能看到最小模块视图长什么样）。</summary>
-    public static ViewDeclaration PreviewView => new(
-        [
-            new ViewElement(ViewElementKind.Numeric, "value", "当前值"),
-            new ViewElement(ViewElementKind.Curve, "wave", "波形"),
-        ],
-        [
-            new ViewDataSource("value", "V", "F2", ViewDataSourceKind.Value, Sdk.Contracts.ContractPrimitive.F32),
-            new ViewDataSource("wave", null, null, ViewDataSourceKind.Sequence, Sdk.Contracts.ContractPrimitive.F32),
-        ]);
 }

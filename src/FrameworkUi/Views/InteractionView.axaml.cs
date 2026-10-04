@@ -5,8 +5,8 @@ using HYWDebugAssistant.FrameworkUi.ViewModels;
 namespace HYWDebugAssistant.FrameworkUi.Views;
 
 /// <summary>
-/// 交互页（B 区侧边界面）【M1-16 / ADR-0038 D1】：显示 / 交互 / 窗口 / 快捷键分区，
-/// 以及底部 **数据结构 · 颜色映射表**【ADR-0054】。
+/// 交互页（B 区侧边界面）：显示 / 交互 / 窗口 / 快捷键分区，
+/// 以及底部 **数据结构 · 颜色映射表**。
 /// </summary>
 public partial class InteractionView : UserControl
 {
@@ -14,7 +14,7 @@ public partial class InteractionView : UserControl
     public InteractionView() => InitializeComponent();
 
     /// <summary>
-    /// 点某一行的**色块** ⇒ 打开**调色板窗口**（可任选颜色 / 恢复自动色）【ADR-0054 · 用户第三十四轮】。
+    /// 点某一行的**色块** ⇒ 打开**调色板窗口**（可任选颜色 / 恢复自动色）。
     /// </summary>
     /// <param name="sender">被点的色块按钮（其 `DataContext` = 该行）。</param>
     /// <param name="e">事件参数。</param>

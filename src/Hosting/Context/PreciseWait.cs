@@ -3,11 +3,11 @@ using System.Diagnostics;
 namespace HYWDebugAssistant.Hosting.Context;
 
 /// <summary>
-/// **定时等待模式**（2026-09 用户裁定）：等待类操作（模块活动体每轮、投递循环空闲）的精度取舍。
+/// **定时等待模式**：等待类操作（模块活动体每轮、投递循环空闲）的精度取舍。
 /// </summary>
 /// <remarks>
-/// 用户原话："**等待 + 自旋补偿混合需要进行**，由于上位机通常具有较强的时序需求（特别是针对有定时发送/接收等
-/// 明确时序过程时），因此**不是很能接受粗粒度的解析**…如果确实支持多种模式，那就按你的做。"
+/// 上位机通常有较强的时序需求（定时发送/接收这类有明确时序过程的操作），
+/// **不能接受粗粒度的解析** ⇒ 提供「等待 + 自旋补偿混合」的精确模式，同时保留粗粒度模式备选。
 /// </remarks>
 public enum ActivityTimingMode
 {
@@ -22,12 +22,12 @@ public enum ActivityTimingMode
     /// `Thread.SpinWait` 自旋补偿 ⇒ 亚毫秒级落点。
     /// </summary>
     /// <remarks>代价 = 每个周期末尾 <see cref="PreciseWait.SpinWindow"/>（默认 **2 ms**）的自旋 CPU 占用；
-    /// 对上位机这种"低负载但强时序"的场景可接受（用户已确认："之前评估的开销并不严重"）。</remarks>
+    /// 对上位机这种「低负载但强时序」的场景可接受。</remarks>
     Precise = 1,
 }
 
 /// <summary>
-/// **等待 + 自旋补偿**（2026-09 用户裁定 · 框架轨）。
+/// **等待 + 自旋补偿**。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">

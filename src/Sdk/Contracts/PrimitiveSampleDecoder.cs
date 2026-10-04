@@ -7,7 +7,7 @@ namespace HYWDebugAssistant.Sdk.Contracts;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>这是"参考实现"，不是框架内建解码</b>（ADR-0046 D1 ③）：呈现期解码**应由模块提供**
+///   <item><b>这是「参考实现」，不是框架内建解码</b>：呈现期解码**应由模块提供**
 ///         （<see cref="DataTypeDeclaration.Decoder"/>），框架只回调。本类存在的意义有二：
 ///         ① 给模块一个**可以直接拿去用**的实现（<c>Decoder = PrimitiveSampleDecoder.For(f32)</c>）；
 ///         ② 给**尚未声明类型的旧模块**一个过渡回退（回退路径与"结构回退"同一纪律：只为兼容，不作为机制）；</item>

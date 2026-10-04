@@ -8,14 +8,14 @@ namespace HYWDebugAssistant.Hosting.Instances;
 /// <remarks>
 /// <para>连接锚定为 <c>实例ID.口名</c>（重锚依据，主文档 §9.3）。</para>
 /// <para>
-/// <b>【纪律 · 数据指标来源唯一】**本类型**不持有**任何"当前状态"字段</b>（曾有过 `IsConnected` / `IsStalled` 两个
-/// 布尔量，二者都**没有任何写入方**、恒为 <c>false</c>，却被读进 `PortView` ⇒ 同一事实有第二个来源）。
-/// 按用户裁定（"所有数据指标必须保证来源唯一"）全部删除：
+/// <b>【纪律 · 数据指标来源唯一】**本类型**不持有**任何「当前状态」字段</b>（`IsConnected` / `IsStalled` 这类
+/// 布尔量**没有任何写入方**、恒为 <c>false</c>，一旦被读进 `PortView`，同一事实就有了第二个来源）。
+/// 因此全部删除：
 /// <list type="bullet">
 ///   <item><b>连接状态</b>：唯一来源 = **网络成员关系**（<c>Network.Members</c> ⇒ `PortView.IsConnected`）；</item>
 ///   <item><b>停流状态</b>：唯一来源 = **该口所在网络是否停流**（<c>Network.IsStalled</c>，其本身又是
 ///     `Sources.Count == 0` 的派生量 ⇒ 不存在"标志与成员不一致"）；</item>
-///   <item>口实例只回答"我是谁、什么方向、什么契约"——**"我现在怎么样"一律从网络/绑定派生**。</item>
+///   <item>口实例只回答「我是谁、什么方向、什么契约」——**「我现在怎么样」一律从网络/绑定派生**。</item>
 /// </list>
 /// </para>
 /// </remarks>

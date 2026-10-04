@@ -13,21 +13,20 @@ using HYWDebugAssistant.Sdk.Views;
 namespace HYWDebugAssistant.Modules.DataMonitor;
 
 /// <summary>
-/// **数据显示器**（第一批 #3 · 功能角色「数据显示器」）——把收到的字节显示出来（文本 / 十六进制），
+/// **数据显示器**：把收到的字节显示出来（文本 / 十六进制），
 /// 可暂停、按包换行、加时间戳、清空、保存为 `.txt`。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>模块页</b>：`docs/modules/hyw-data-monitor.md`（阶段 0 ✅ · 本文件 = 阶段 1/3 实现）；</item>
-///   <item><b>显示缓冲由框架持有</b>（`decisions.md` 7.31）：显示文本**不清空就一直在**（容量 20 000 行、
-///     到顶丢最旧并计数），**模块不自己留副本** —— 保存时**回读**显示区内容（`decisions.md` 7.29）；</item>
-///   <item><b>「暂停」= 收下即弃</b>（用户原话："直接丢弃接收到的数据，**而不是一种在内存里存着**"）⇒
-///     暂停时**继续排空接收队列并丢弃**，否则队列会积压到满（那是用户明确不要的行为）；</item>
-///   <item><b>换行归通道</b>〔2026-09 用户裁定 · WinForms 模型〕：本模块经
+///   <item><b>模块页</b>：`docs/modules/hyw-data-monitor.md`；</item>
+///   <item><b>显示缓冲由框架持有</b>：显示文本**不清空就一直在**（容量 20 000 行、
+///     到顶丢最旧并计数），**模块不自己留副本** —— 保存时**回读**显示区内容；</item>
+///   <item><b>「暂停」= 收下即弃</b>：暂停时**继续排空接收队列并丢弃**，不在内存里留副本，
+///     否则队列会积压到满；</item>
+///   <item><b>换行归通道</b>：本模块经
 ///     `IModuleContext.Display.AppendText`（**不换行**，数据直接接在后面）/
 ///     `AppendLine`（「数据包换行」或「时间戳」开着 ⇒ 换行**由通道调用**表达）写显示区；
 ///     **一行多长由文本框宽度决定**，模块侧不规定字节数、不补齐、不加任何标记（`↵` 只由显示层画）；</item>
-///   <item><b>结构约定</b>：按 `implementation/06` §C.2 的固定四段写。</item>
 /// </list>
 /// </remarks>
 [ModuleDefinition(
@@ -67,7 +66,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     public const string SavePathSource = "savePath";
 
     /// <summary>
-    /// **保存对话框的默认文件名**（2026-09 用户裁定："文件名应给一个默认文件名…而不是空着"）。
+    /// **保存对话框的默认文件名**（预填一个名字，不留空）。
     /// </summary>
     /// <remarks>
     /// 一句**建议**：框架把它填进保存对话框，用户可改成任何名字或换目录（模块**不**替用户决定路径）。
@@ -112,7 +111,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
             RawBytesVersion,
             RawBytesShape)
         {
-            // 【2026-09 用户裁定"速率只要有效数据"】三个模块同口径：`len` = 有效字节数。
+            // 「速率只要有效数据」三个模块同口径：`len` = 有效字节数。
             // 本模块是**宿**（速率按源计 ⇒ 实际取发送器声明的计量块），但本模块自己作为**类型所有者**
             // 也声明同一份 —— 否则"同一种数据类型在不同模块里说两套计量口径"。
             Metering = new MeteringBlock { PayloadLengthField = "len" },
@@ -121,9 +120,6 @@ public sealed class DataMonitorModule : IModule, IActivitySource
         context.Declaration.DeclarePort(new PortDeclaration(InPort, PortDirection.Receive, RawBytesShape)
         {
             Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
-
-            // **默认边 = 上边**：与两个发送器的"下边"配对 ⇒ 上下叠放即可连（`05` §2 第七条第②项）
-            Edge = Sdk.Ports.PortEdge.Top,
         });
 
         context.Declaration.DeclareRole(RoleDeclaration.Input(
@@ -132,79 +128,11 @@ public sealed class DataMonitorModule : IModule, IActivitySource
             InPort,
             "显示"));
 
-        // ---------------------------------------------------------------- 视图（**按控件分块**）
-        // 约定见 `TextSenderModule`：**一个控件一段**（控件 + 它的数据源），改默认值只看自己那一段。
-
-        // ① 显示区（A5 `TextLog`）：**尽量大** —— 用户："显示模块要大一点以显示更多的消息"
-        var log = new ViewElement(ViewElementKind.TextLog, LogSource, "显示");
-        var logSource = new ViewDataSource(LogSource, kind: ViewDataSourceKind.Text);
-
-        // ② 暂停显示开关（B7 滑块）
-        var pausedSwitch = new ViewElement(ViewElementKind.ToggleSwitch, PausedSource, "暂停显示");
-        var pausedSource = new ViewDataSource(PausedSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.Bool);
-
-        // ③ 接收换行开关（**关**时数据**直接接在后面**：不切块、不补齐、不插任何标记，
-        //    一行多长由**文本框宽度**决定 —— 见 `MonitorLineFormatter` 与 `IViewDisplayAccess`）
-        var lineBreakSwitch = new ViewElement(ViewElementKind.ToggleSwitch, LineBreakSource, "数据包换行");
-        var lineBreakSource = new ViewDataSource(LineBreakSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.Bool);
-
-        // ④ 十六进制显示开关
-        var hexViewSwitch = new ViewElement(ViewElementKind.ToggleSwitch, HexViewSource, "十六进制显示");
-        var hexViewSource = new ViewDataSource(HexViewSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.Bool);
-
-        // ⑤ 添加时间戳开关
-        var timestampSwitch = new ViewElement(ViewElementKind.ToggleSwitch, TimestampSource, "添加时间戳");
-        var timestampSource = new ViewDataSource(TimestampSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.Bool);
-
-        // ⑥ 清空按钮（B2）：模块请求框架清掉**显示缓冲**（`IModuleContext.Display`）
-        var clearButton = new ViewElement(ViewElementKind.CommandButton, ClearCommand);
-
-        // ⑦ 保存（B6 `FileSelector`，**保存模式**）——**就这一个按钮**：
-        //    点它 → 系统保存对话框（预填默认文件名 `savetext1.txt`）→ **选中位置即当场写盘**。
-        //    【2026-09 用户裁定】取消"先选位置、再点另一个「保存」按钮"的两步：用户原话
-        //    "各种控件占位置且有些多此一举，更好的方案为只提供一个保存按钮，点击后弹出窗口选择位置
-        //     → **选择完成自动保存在此处**，同时文件名应给一个默认文件名（如：savetext1.txt）而不是空着"。
-        var saveButton = new ViewElement(ViewElementKind.FileSelector, SavePathSource, "保存")
-        {
-            FileMode = FilePickerMode.Save,
-            FileFilter = "文本文件 (*.txt)|*.txt",
-            SuggestedFileName = DefaultSaveFileName,
-        };
-
-        var savePathSource = new ViewDataSource(SavePathSource, kind: ViewDataSourceKind.Text);
-
-        context.Declaration.DeclareView(new ViewDeclaration(
-            [
-                log,
-                pausedSwitch,
-                lineBreakSwitch,
-                hexViewSwitch,
-                timestampSwitch,
-                clearButton,
-                saveButton,
-            ],
-            dataSources:
-            [
-                logSource,
-                pausedSource,
-                lineBreakSource,
-                hexViewSource,
-                timestampSource,
-                savePathSource,
-            ],
-            commands:
-            [
-                new ViewCommand(ClearCommand, "清空"),
-
-                // `save` 命令**保留**（模块仍受理），但**界面上不再有它的按钮** —— 保存由文件选择器一步完成；
-                // 留着它是给"程序化/热键/测试"用的入口，不是给用户点的第二个按钮。
-                new ViewCommand(SaveCommand, "保存"),
-            ])
-        {
-            // 尺寸按**实测**定（2026-09 第四批反馈后重定：4 个滑块 + 结果行/标题占位 + 填满型余量）
-            PreferredWidth = 460,
-            PreferredHeight = 500,
-        });
+        // ---------------------------------------------------------------- 视图
+        // 界面形态**不在代码里声明**：控件树、数据源、命令、窗口尺寸与端口默认边都在
+        // 包内 `view.json`（唯一事实源），由框架读取并按 schema 补齐默认值。
+        // 本模块的数据源名（`log` / `paused` / `hexView` / `wrap` / `timestamp` / `savePath`）与
+        // 命令名（`clear`）必须与 `view.json` 一致；改名要同时改声明文件。
     }
 
     // ---------------------------------------------------------------- ③ 钩子块
@@ -235,7 +163,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
                         _ = HandlePacket(context, buffer.Span);
                     }
 
-                    // 暂停：什么都不做 —— 但**必须继续排空**（否则队列积压 ⇒ 正是用户不要的"存在内存里"）
+                    // 暂停：什么都不做 —— 但**必须继续排空**（否则队列积压到满）
                 }
                 finally
                 {
@@ -243,9 +171,8 @@ public sealed class DataMonitorModule : IModule, IActivitySource
                 }
             }
 
-            // 【2026-09 用户裁定 · 删除"空闲断行"】此处原先还有一段 `else if (now - lastDataAt >= IdleFlushAfter)
-            // FlushPending(...)`：它是"按字节流填 96 字节定宽行"的**必要补充**（不这么办，短包在 OFF 模式下
-            // 永远看不到）。定宽行本身已被删除 ⇒ 半行/pending tail 不复存在，**收到即落地**，这一段随之消失。
+            // 空闲断行在这里没有位置：它只是「按字节流填 96 字节定宽行」的补充（不这么办，短包在 OFF 模式下
+            // 永远看不到）。定宽行本身不存在 ⇒ 没有半行/pending tail，**收到即落地**。
             _ = context.StopSignal.Wait(ActivityInterval);
         }
     }
@@ -345,8 +272,8 @@ public sealed class DataMonitorModule : IModule, IActivitySource
             {
                 _savePath = text;
 
-                // 【2026-09 用户裁定 · 保存改一步】用户选完位置**当场保存**（不再等 `save` 命令）：
-                // 界面上的"保存"就是那个文件选择器按钮，所以"选完就存"才是用户期望的一步操作。
+                // 选完位置**当场保存**（不再等 `save` 命令）：
+                // 界面上的「保存」就是那个文件选择器按钮，选完就存才是一步操作。
                 SaveAndReport(context);
                 continue;
             }
@@ -360,7 +287,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     /// <param name="payload">到达的**定长载荷**（`{ len, data }`；用 <see cref="BuildPayload"/> 可构造）。</param>
     /// <returns>实际追加到显示区的**条数**（0 或 1）。</returns>
     /// <remarks>
-    /// <b>2026-09 用户裁定 · 换行归通道</b>：本方法要么 <see cref="IViewDisplayAccess.AppendText"/>
+    /// <b>换行归通道</b>：本方法要么 <see cref="IViewDisplayAccess.AppendText"/>
     /// （数据**直接追加在后面**，不做任何标记），要么 <see cref="IViewDisplayAccess.AppendLine"/>
     /// （「数据包换行」/「时间戳」开着 ⇒ 换行**由通道调用**表达）。
     /// 两条路都**不往文本里塞任何标记**：数据里的换行字符原样保留，通道换行则连字符都不是。
@@ -490,9 +417,9 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     /// <param name="context">模块上下文。</param>
     /// <returns>是否保存成功。</returns>
     /// <remarks>
-    /// <b>2026-09 用户裁定</b>："文本框里看到的文本是什么样，保存就是什么样，**并去除标记**（保存的 .txt
-    /// 文件无需标记）"。标记现在**只由显示层画**、根本不进文本 ⇒ 落盘的内容天然既没有 `↵`、也没有任何补齐
-    /// （定宽那条路已删）。换行就是**真的换行**：显示区的"条"之间写成行分隔符，数据里真有的换行字符原样保留。
+    /// <b>所见即所存</b>："文本框里看到的文本是什么样，保存就是什么样，**并去除标记**（保存的 .txt
+    /// 文件无需标记）"。标记**只由显示层画**、根本不进文本 ⇒ 落盘的内容天然既没有 `↵`、也没有任何补齐
+    /// （定宽那条路不存在）。换行就是**真的换行**：显示区的「条」之间写成行分隔符，数据里真有的换行字符原样保留。
     /// </remarks>
     public bool Save(IModuleContext context)
     {

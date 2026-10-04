@@ -14,7 +14,7 @@ namespace HYWDebugAssistant.FrameworkUi.Views;
 /// <remarks>
 /// <list type="bullet">
 ///   <item>本窗口**不承载模块**：模块由 <see cref="ModuleWindowManager"/> 开成独立无边框窗口；</item>
-///   <item>快捷键（Gate C 定稿前为临时取值）：<c>M</c> 模块清单 · <c>I</c> Issue · <c>S</c> 设置 ·
+///   <item>快捷键（临时取值）：<c>M</c> 模块清单 · <c>I</c> Issue · <c>S</c> 设置 ·
 ///     <c>T</c> 拓扑诊断 · <c>L</c> 口标记 · <c>G</c> 吸附 · <c>Ctrl+L</c> 全部锁定；</item>
 ///   <item>Esc 在拖动中取消由模块窗口自行处理（各窗口独立）。</item>
 /// </list>
@@ -29,7 +29,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        // 点外壳 = 点"别处" → **清除模块选中**【M1-16 / ADR-0039 D1】（用户反馈：此前无法取消选中）
+        // 点外壳 = 点「别处」 → **清除模块选中**（否则点空白处无法取消选中）
         AddHandler(PointerPressedEvent, OnShellPressed, RoutingStrategies.Tunnel);
 
         _refreshTimer.Tick += (_, _) => Shell?.Refresh();
@@ -71,7 +71,7 @@ public partial class MainWindow : Window
     /// 按设置里的「主窗口比例」覆盖窗口尺寸（**默认值在 XAML**，此处只在设置与默认不一致时才改）。
     /// </summary>
     /// <remarks>
-    /// 【用户第九轮反馈 · UI 开发方式】外层容器尺寸**必须固定**：默认值写在 `MainWindow.axaml`；
+    /// 外层容器尺寸**必须固定**：默认值写在 `MainWindow.axaml`；
     /// 设置只承载"用户显式选择的比例档"；**不存在任何按内容计算尺寸的逻辑**。
     /// </remarks>
     private void ApplyShellSizeFromSettings()
@@ -155,7 +155,7 @@ public partial class MainWindow : Window
 
         dialog.Closed += (_, _) => _ = _dialogs.Remove(kind);
 
-        // 【2026-09 用户裁定 · 设置三键】「确认 / 取消」由视图模型发起关闭请求 ⇒ 关掉这个弹窗
+        // 设置三键里的「确认 / 取消」由视图模型发起关闭请求 ⇒ 关掉这个弹窗
         //（订阅在弹窗关闭时摘掉：视图模型是**长生命周期**的，不摘会随每次打开累积）
         if (kind == DialogKind.Settings)
         {

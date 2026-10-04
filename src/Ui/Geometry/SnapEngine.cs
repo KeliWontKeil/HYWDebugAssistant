@@ -10,7 +10,7 @@ public readonly record struct GuideLine(bool IsVertical, double Position, double
 /// <summary>
 /// **吸附级别**（跨级不比较：级别高的候选永远优先，同级才比偏移大小）。
 /// </summary>
-/// <remarks>【ADR-0042 D3】级别由「参照线的来源 + 交叉轴条件」派生，不再另写一套判断。</remarks>
+/// <remarks>级别由「参照线的来源 + 交叉轴条件」派生，不另写一套判断。</remarks>
 public enum SnapKind
 {
     /// <summary>边缘对齐（左/右/上/下分别对齐）——最低级；**与距离无关**（跨屏对齐用它）。</summary>
@@ -26,7 +26,7 @@ public enum SnapKind
     Flush = 3,
 }
 
-/// <summary>参照线的来源（ADR-0042 D2）。</summary>
+/// <summary>参照线的来源。</summary>
 public enum SnapLineSource
 {
     /// <summary>其他模块的**外框边**：吸上后可能是贴合（交叉轴有重叠、且是朝外那条边），否则是边缘对齐。</summary>
@@ -43,7 +43,7 @@ public enum SnapLineSource
 }
 
 /// <summary>
-/// **吸附参照线**（ADR-0042 D1/D2）——一条竖线（约束 X）或横线（约束 Y）。
+/// **吸附参照线**——一条竖线（约束 X）或横线（约束 Y）。
 /// </summary>
 /// <param name="AlignsX">true = 竖线，约束 X 坐标；false = 横线，约束 Y 坐标。</param>
 /// <param name="Coordinate">线所在坐标（竖线为 X，横线为 Y）。</param>
@@ -62,21 +62,21 @@ public readonly record struct SnapLine(
     bool IsOwnerLow = false);
 
 /// <summary>
-/// **外部参照线**（调用方用来表达"只暴露一条边的对象"，如外壳的右边缘 —— ADR-0038 D5）。
+/// **外部参照线**（调用方用来表达"只暴露一条边的对象"，如外壳的右边缘）。
 /// </summary>
 /// <param name="IsVertical">true = 竖线（X 恒定）。</param>
 /// <param name="Position">线的坐标。</param>
 /// <param name="Start">线段起点（用于"沿线重叠"判定与辅助线长度）。</param>
 /// <param name="End">线段终点。</param>
 /// <remarks>
-/// 【ADR-0042 D2】它**不是**一条特殊通道：由 <see cref="SnapEngine.LineOf"/> 转成
+/// 它**不是**一条特殊通道：由 <see cref="SnapEngine.LineOf"/> 转成
 /// <see cref="SnapLineSource.ShellEdge"/> 的 <see cref="SnapLine"/>，与模块外框线进同一张表。
 /// 之所以不复用矩形：零宽矩形会被 <see cref="CanvasRect.IsValid"/>（要求正尺寸）过滤掉（P25）。
 /// </remarks>
 public readonly record struct SnapReferenceLine(bool IsVertical, double Position, double Start, double End);
 
 /// <summary>
-/// **端口锚点对**（ADR-0042 D2/D4）：被拖模块的某个口 ↔ 对方某个口。
+/// **端口锚点对**：被拖模块的某个口 ↔ 对方某个口。
 /// </summary>
 /// <param name="AlignsX">对齐轴是否约束 X（**由端口所在的边决定**：左/右边的口 → 约束 Y；上/下边的口 → 约束 X）。</param>
 /// <param name="OtherCoordinate">对方端口在**该对齐轴**上的坐标。</param>
@@ -102,7 +102,7 @@ public readonly record struct SnapResult(
     IReadOnlyList<GuideLine> Guides);
 
 /// <summary>
-/// **几何吸附**（ADR-0042：候选统一为「参照线」模型；Q5-1 / C5-2 / C5-1）——
+/// **几何吸附**（候选统一为「参照线」模型）——
 /// 纯几何、**纯函数**，不依赖任何框架对象，可独立测试。
 /// </summary>
 /// <remarks>
@@ -112,8 +112,8 @@ public readonly record struct SnapResult(
 ///     **外壳 = 只暴露一条边的对象**（不是特殊通道，同样进线表）；</item>
 ///   <item><b>级别由「线来源 + 交叉轴条件」派生</b>：贴合 &gt; 端口锚点 &gt; 中心线 &gt; 边缘对齐；</item>
 ///   <item><b>同坐标候选去重</b>：两条候选位置相差 ≤1px 时只保留级别最高的 ——
-///     消除"端口在 0.5 与模块中心线"这类**重复登记**（用户第十二轮质疑的正是这类重复）；</item>
-///   <item><b>不做网格吸附</b>（用户裁决）；<b>调用方决定"何时用"</b>（当前 = 拖动中实时吸附）；</item>
+///     消除"端口在 0.5 与模块中心线"这类**重复登记**（同一坐标只登记一次，级别最高的那条胜出）；</item>
+///   <item><b>不做网格吸附</b>；<b>调用方决定"何时用"</b>（当前 = 拖动中实时吸附）；</item>
 ///   <item><b>组关系由位置派生</b>（C5-1）：只保存位置，不单独存储（见 <see cref="FindGroups"/>）。</item>
 /// </list>
 /// </remarks>
@@ -131,7 +131,7 @@ public static class SnapEngine
     /// <summary>判定"沿线重叠/交叉轴重叠"的最小值（px）。</summary>
     public const double MinOverlap = 4;
 
-    /// <summary>两条候选位置相差不超过该值时视为"同坐标"，只保留级别最高的（ADR-0042 D3 去重）。</summary>
+    /// <summary>两条候选位置相差不超过该值时视为"同坐标"，只保留级别最高的。</summary>
     private const double DuplicateEpsilon = 1;
 
     /// <summary>辅助线在两端各外伸的长度（视觉取值，Gate C 微调）。</summary>
@@ -172,7 +172,7 @@ public static class SnapEngine
         ];
     }
 
-    /// <summary>由**外壳参照线**生成（外壳只暴露一条边 —— ADR-0038 D5）。</summary>
+    /// <summary>由**外壳参照线**生成（外壳只暴露一条边）。</summary>
     /// <param name="line">外壳边（竖线或横线 + 线段范围）。</param>
     /// <returns>一条 <see cref="SnapLineSource.ShellEdge"/> 参照线。</returns>
     public static SnapLine LineOf(SnapReferenceLine line) =>
@@ -383,7 +383,7 @@ public static class SnapEngine
         }
     }
 
-    /// <summary>端口锚点候选：只用**被拖模块自己的那个口**去对（ADR-0042 D2/D4），且两模块要接近。</summary>
+    /// <summary>端口锚点候选：只用**被拖模块自己的那个口**去对，且两模块要接近。</summary>
     private static void CollectPortAnchor(CanvasRect moving, PortAnchorPair pair, List<Candidate> xs, List<Candidate> ys, double reach)
     {
         if (!pair.Other.IsValid)
@@ -438,7 +438,7 @@ public static class SnapEngine
         ? Math.Min(moving.Bottom, line.End) - Math.Max(moving.Top, line.Start)
         : Math.Min(moving.Right, line.End) - Math.Max(moving.Left, line.Start);
 
-    /// <summary>同坐标去重（ADR-0042 D3）：位置相差 ≤1px 的候选只留级别最高的。</summary>
+    /// <summary>同坐标去重：位置相差 ≤1px 的候选只留级别最高的。</summary>
     private static List<Candidate> Deduplicate(List<Candidate> candidates)
     {
         if (candidates.Count < 2)

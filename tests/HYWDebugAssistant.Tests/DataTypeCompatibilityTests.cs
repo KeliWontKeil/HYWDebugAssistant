@@ -16,7 +16,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// T1（ADR-0046 D2/D6）：**数据类型注册表 + 兼容三层判据 + 解码器注册**。
+/// T1：**数据类型注册表 + 兼容三层判据 + 解码器注册**。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -51,7 +51,7 @@ public class DataTypeCompatibilityTests
     [Fact]
     public void 同标识不同版本_应不兼容_版本升级按破坏性变更处理()
     {
-        // 【ADR-0051】**版本不同 = 不是同一种数据报**：直连拒绝（不再有"尾部追加 = 兼容"）。
+        // **版本不同 = 不是同一种数据报**：直连拒绝（没有"尾部追加 = 兼容"这一说）。
         // 用**形状完全相同、仅版本不同**的一对，才能单独验证"版本"这一条规则
         // （形状本身不同时，先被形状检查拦下——那也是对的，但测不到版本规则）。
         using var runtime = new ModuleRuntime();
@@ -201,46 +201,12 @@ public class DataTypeCompatibilityTests
         type.Decoder(new byte[2], out _).ShouldBeFalse("样本长度不足 = 解码失败，不回退推断");
     }
 
-    // ------------------------------------------------------------ 解码器注册（D1 ③）
-
-    [Fact]
-    public void 数据源引用已声明类型_框架应交出模块的解码器()
-    {
-        // 【ADR-0046 D1 ③】呈现期解码**由模块提供**：数据源引用类型 ⇒ 框架把该类型的解码器句柄交出去
-        using var runtime = new ModuleRuntime();
-        var services = new Core.Services.RuntimeServices(runtime);
-
-        AddModule(runtime, "ui1", "typed-view-module", typeof(TypedViewModule));
-
-        var sources = services.GetSubscriptionSources();
-        sources.Count.ShouldBe(3, "三个数据源各一个订阅缓冲");
-
-        var typed = sources.Single(s => s.DataSourceName == "value");
-        typed.Decoder.ShouldNotBeNull("引用已声明类型 ⇒ 解码器由模块提供");
-        typed.DataType.ShouldBe(new DataTypeRef(TypedViewModule.TypeId, 1), "视图应暴露类型身份");
-
-        // 回调一次：模块解出的是**它自己的语义**（此处 = 原语 f32 的字节）
-        var sample = new byte[sizeof(float)];
-        _ = BitConverter.TryWriteBytes(sample, 2.5f);
-        typed.Decoder!(sample, out var decoded).ShouldBeTrue();
-        decoded.ShouldBe(2.5);
-
-        // 旧形态（只声明原语、不引用类型）⇒ 不给句柄（呈现层走参考实现回退）
-        var legacy = sources.Single(s => s.DataSourceName == "legacy");
-        legacy.Decoder.ShouldBeNull("未引用类型 ⇒ 无模块解码器（UI 走参考实现回退）");
-        legacy.ValueType.ShouldBe(ContractPrimitive.F32);
-
-        // 引用了**未声明**的类型 ⇒ 同样不给句柄（不猜）
-        var dangling = sources.Single(s => s.DataSourceName == "dangling");
-        dangling.Decoder.ShouldBeNull("引用未声明类型 ⇒ 无解码器（呈现层显示占位，不猜）");
-    }
-
     // ------------------------------------------------------------ 四档速率 / 三类丢弃 / 水位（R4-3）
 
     [Fact]
     public void 四档速率_应由框架机械给出且各档含义不同()
     {
-        // 【ADR-0046 D8】**四档并列**且**分母不同**：单元（按源）· 搬运字节（按宿）· 有效载荷字节 · 样本/通道样本
+        // **四档并列**且**分母不同**：单元（按源）· 搬运字节（按宿）· 有效载荷字节 · 样本/通道样本
         using var runtime = new ModuleRuntime();
         var services = new Core.Services.RuntimeServices(runtime);
 
@@ -281,8 +247,8 @@ public class DataTypeCompatibilityTests
     }
 
     /// <summary>
-    /// **有效载荷字节速率：逐单元读"有效长度字段"**（2026-09 用户裁定"速率只要有效数据，截断的不应该算在
-    /// 有效数据里面，整个数据包大小速率是底层协议，用户想知道的肯定是有效速率"）。
+    /// **有效载荷字节速率：逐单元读"有效长度字段"**（速率只算有效数据：截断的不算在
+    /// 有效数据里面，整个数据包大小是底层协议的口径）。
     /// </summary>
     /// <remarks>
     /// 契约 18B、每个数据报只带 **3 字节**业务数据 ⇒ 两档必须**各说各的数**：
@@ -372,7 +338,7 @@ public class DataTypeCompatibilityTests
         using var runtime = new ModuleRuntime();
         var services = new Core.Services.RuntimeServices(runtime);
 
-        // 容量**按口计**（ADR-0050 Q2）：把每口容量压到 8，便于稳定制造"队满"
+        // 容量**按口计**：把每口容量压到 8，便于稳定制造"队满"
         runtime.Carriers.UpdateOptions(new HYWDebugAssistant.DataPlane.Carriers.CarrierOptions { QueueCapacity = 8 });
 
         AddModule(runtime, "s1", "sender", typeof(CoreRuntimeTests.SenderModule));
@@ -797,39 +763,7 @@ public class DataTypeCompatibilityTests
     }
 
     /// <summary>
-    /// 三个数据源：**引用已声明类型** / **只声明原语（旧形态）** / **引用未声明类型**。
-    /// </summary>
-    [ModuleDefinition("test", "typed-view-module", "1.0.0")]
-    public sealed class TypedViewModule : IModule
-    {
-        public const string TypeId = "test/sample";
-
-        public void OnRegistered(IModuleContext context)
-        {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration(
-                TypeId, 1, ContractShape.OfPrimitive(ContractPrimitive.F32))
-            {
-                Decoder = PrimitiveSampleDecoder.For(ContractPrimitive.F32),
-            });
-
-            context.Declaration.DeclareView(new ViewDeclaration(
-                [new ViewElement(ViewElementKind.Numeric, "value")],
-                [
-                    new ViewDataSource("value", valueType: ContractPrimitive.F32)
-                    {
-                        Type = new DataTypeRef(TypeId, 1),
-                    },
-                    new ViewDataSource("legacy", valueType: ContractPrimitive.F32),
-                    new ViewDataSource("dangling", valueType: ContractPrimitive.F32)
-                    {
-                        Type = new DataTypeRef("nobody/declared-this", 1),
-                    },
-                ]));
-        }
-    }
-
-    /// <summary>
-    /// 计量用发送模块：契约 16B，但**声明的有效载荷只有 4B**、每单元 **8 样本 × 4 通道**、标称 **2000 Hz**。
+     /// 计量用发送模块：契约 16B，但**声明的有效载荷只有 4B**、每单元 **8 样本 × 4 通道**、标称 **2000 Hz**。
     /// </summary>
     /// <remarks>刻意让四档**各不相同**，否则"四档"就退化成同一个数（测不出分母差异）。</remarks>
     [ModuleDefinition("test", "metered-sender", "1.0.0")]

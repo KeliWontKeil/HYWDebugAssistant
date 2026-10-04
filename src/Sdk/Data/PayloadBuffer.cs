@@ -99,9 +99,9 @@ public readonly ref struct PayloadWriter
 ///   <item>ref struct：零分配、不跨 await/线程存活；</item>
 ///   <item><b>构造会校验长度</b>：数据报短于布局即抛 <see cref="ArgumentException"/>。
 ///     这在**多源 / 版本升级**场景下是真实风险 —— 见 <see cref="TryCreate"/> 的说明；</item>
-///   <item><b>接收方的读取纪律</b>【ADR-0046 D6】：兼容只保证"你声明的字段集**覆盖**发送方"，
+///   <item><b>接收方的读取纪律</b>：兼容只保证「你声明的字段集**覆盖**发送方」，
 ///     **不保证你能按自己的契约整块读**。版本升级（尾部追加字段）时到达的数据报长度 = **发送方**的契约尺寸，
-///     尾部字段**根本不在**；把新版本接收口接到旧版本发送口上，必须用 <see cref="TryCreate"/> 或先判长度。</item>
+///     尾部字段**根本不在**；把新版本接收口接到更早版本的发送口上，必须用 <see cref="TryCreate"/> 或先判长度。</item>
 /// </list>
 /// </remarks>
 public readonly ref struct PayloadReader
@@ -131,7 +131,7 @@ public readonly ref struct PayloadReader
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item><b>什么时候需要它</b>：接收口的版本**高于**发送方（尾部追加升级，ADR-0046 D6 判为兼容），
+    ///   <item><b>什么时候需要它</b>：接收口的版本**高于**发送方（尾部追加升级，判为兼容），
     ///     或多源网络里**不同版本**的发布者投到同一个口 —— 这两种情况下到达的数据报长度可能小于本口的契约尺寸，
     ///     硬构造会抛异常；**实测后果**：异常会让该模块的**投递循环整体退出**，表现为"模块莫名不再收数"
     ///     （只留一条 Issue，且文案写的是"活动体异常"，容易误导）；</item>

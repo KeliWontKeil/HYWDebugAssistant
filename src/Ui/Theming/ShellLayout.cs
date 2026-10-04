@@ -8,10 +8,10 @@ using HYWDebugAssistant.Core.Api;
 namespace HYWDebugAssistant.Ui.Theming;
 
 /// <summary>
-/// **外壳窗口比例**【M1-16 / ADR-0038 D2】：把"档位字符串"换算为具体尺寸。
+/// **外壳窗口比例**：把"档位字符串"换算为具体尺寸。
 /// </summary>
 /// <remarks>
-/// 用户裁决：比例与"是否固定"都做成设置项（默认 <c>9:19.5</c> + 固定）；将来换比例只改这里。
+/// 比例与"是否固定"都是设置项（默认 <c>9:19.5</c> + 固定）；将来换比例只改这里。
 /// </remarks>
 public static class ShellLayout
 {

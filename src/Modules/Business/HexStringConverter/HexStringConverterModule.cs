@@ -12,14 +12,13 @@ namespace HYWDebugAssistant.Modules.HexStringConverter;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>模块页</b>：`docs/modules/hyw-hex-string-converter.md`（阶段 0 ✅ · 本文件 = 阶段 1/3 实现）；</item>
+///   <item><b>模块页</b>：`docs/modules/hyw-hex-string-converter.md`；</item>
 ///   <item><b>不交换数据</b>：**没有任何端口** ⇒ 不进拓扑、不参与建网；数据只走**视图输入 / 数据源**通道
 ///     （契约层已核实：零口零角色**合法且不出建议**）；</item>
-///   <item><b>结构与触发</b>（用户裁定 D4）：char 组与 hex 组**各一个 `TabPages`**（各 3 页，可存多条消息、
+///   <item><b>结构与触发</b>：char 组与 hex 组**各一个 `TabPages`**（各 5 页，可存多条消息、
 ///     **不持久化**）；**每个方向一个按钮**；**点按钮或敲回车**都能触发 —— 两者都靠
-///     **回读"当前选中页 + 该页当前文本"**（`decisions.md` 7.28）实现，UI 上不必每页重复控件；</item>
-///   <item><b>失败 ⇒ 该输入框红框</b>（用户原话："如果转换失败，将文本框边框显著标红"⇒ G3 的就地反馈）；</item>
-///   <item><b>结构约定</b>：按 `implementation/06` §C.2 的固定四段写。</item>
+///     **回读「当前选中页 + 该页当前文本」**实现，UI 上不必每页重复控件；</item>
+///   <item><b>失败 ⇒ 该输入框红框</b>（「如果转换失败，将文本框边框显著标红」⇒ G3 的就地反馈）；</item>
 /// </list>
 /// </remarks>
 [ModuleDefinition(
@@ -50,8 +49,7 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     /// 每组页数。
     /// </summary>
     /// <remarks>
-    /// 原裁定 C2 = 3 页（当时受 `implementation/06` §D.1 的"视图元素 ≤ 12"约束：N=4 正好到 12 上限）；
-    /// 【2026-09 用户裁定】**3 → 5 页**（"tabpages 的标签数量增加为 5 个"），该约束已**取消数量上限**。
+    /// 页数取 5（`tabpages` 的标签数量为 5 个）；视图元素数量不设上限。
     /// </remarks>
     public const int PageCount = 5;
 
@@ -86,88 +84,11 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
         ArgumentNullException.ThrowIfNull(context);
 
         // **零口零角色**：不声明数据类型、不声明口、不声明角色（契约层核实过：合法且不出建议）
-        // ---------------------------------------------------------------- 视图（**按控件分块**）
-        // 约定见 `TextSenderModule`：**一个控件一段**（控件 + 它的数据源），改默认值只看自己那一段。
-        // 本模块是"两组对称的小工具" ⇒ 段序 = char 组（输入页 → 按钮 → 结果）→ hex 组（同构）。
-
-        // ① char 组：多页**字符**输入（每页一个多行输入框）
-        var charPages = new ViewElement(
-            ViewElementKind.TabPages,
-            title: "字符",
-            children:
-            [
-                .. Enumerable.Range(0, PageCount).Select(page => (ViewElement)new ViewElement(
-                    ViewElementKind.Group,
-                    title: $"{page + 1}",
-                    children:
-                    [
-                        new ViewElement(ViewElementKind.TextInput, CharSourceOf(page), "字符")
-                        {
-                            Multiline = true,
-                        },
-                    ])),
-            ])
-        {
-            StateKey = CharPagesKey,
-        };
-
-        var charSources = Enumerable.Range(0, PageCount)
-            .Select(page => new ViewDataSource(CharSourceOf(page), kind: ViewDataSourceKind.Text))
-            .ToArray();
-
-        // ②「转成 HEX」按钮（B2）：转换哪一页由模块回读当前页
-        var toHexButton = new ViewElement(ViewElementKind.CommandButton, ToHexCommand);
-
-        // ③ hex 组：多页**十六进制**输入
-        var hexPages = new ViewElement(
-            ViewElementKind.TabPages,
-            title: "十六进制",
-            children:
-            [
-                .. Enumerable.Range(0, PageCount).Select(page => (ViewElement)new ViewElement(
-                    ViewElementKind.Group,
-                    title: $"{page + 1}",
-                    children:
-                    [
-                        new ViewElement(ViewElementKind.TextInput, HexSourceOf(page), "十六进制")
-                        {
-                            Multiline = true,
-                            InputKind = TextInputKind.Hex,   // 只放行 0-9/A-F/a-f 与空白（空白仅排版）
-                        },
-                    ])),
-            ])
-        {
-            StateKey = HexPagesKey,
-        };
-
-        var hexSources = Enumerable.Range(0, PageCount)
-            .Select(page => new ViewDataSource(HexSourceOf(page), kind: ViewDataSourceKind.Text))
-            .ToArray();
-
-        // ④「转成字符」按钮（B2）
-        var toTextButton = new ViewElement(ViewElementKind.CommandButton, ToTextCommand);
-
-        // ⑤ HEX 结果区（A5 只读显示；**不清空就一直在**，容量由框架缓冲给）
-        var hexResult = new ViewElement(ViewElementKind.TextLog, HexResultSource, "HEX 结果");
-        var hexResultSource = new ViewDataSource(HexResultSource, kind: ViewDataSourceKind.Text);
-
-        // ⑥ 字符结果区（同上）
-        var charResult = new ViewElement(ViewElementKind.TextLog, CharResultSource, "字符结果");
-        var charResultSource = new ViewDataSource(CharResultSource, kind: ViewDataSourceKind.Text);
-
-        context.Declaration.DeclareView(new ViewDeclaration(
-            [charPages, toHexButton, hexPages, toTextButton, hexResult, charResult],
-            dataSources: [.. charSources, .. hexSources, hexResultSource, charResultSource],
-            commands:
-            [
-                new ViewCommand(ToHexCommand, "转成 HEX"),
-                new ViewCommand(ToTextCommand, "转成字符"),
-            ])
-        {
-            // **按实测重定（2026-09 第四批反馈后）**：内容最小高 432 + 预留带 48 + 两个填满型余量
-            PreferredWidth = 520,
-            PreferredHeight = 600,
-        });
+        // ---------------------------------------------------------------- 视图
+        // 界面形态**不在代码里声明**：控件树、数据源、命令与窗口尺寸都在包内 `view.json`
+        // （唯一事实源），由框架读取并按 schema 补齐默认值。
+        // 本模块的数据源名（`char1…char5` / `hex1…hex5` / `hexResult` / `charResult`）与
+        // 命令名（`to-hex` / `to-text`）必须与 `view.json` 一致。
     }
 
     // ---------------------------------------------------------------- ③ 钩子块
@@ -228,7 +149,7 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
 
         while (context.Inbox.TryDequeueInput(out var source, out var text))
         {
-            // **回车 / 失焦提交**也触发转换（用户裁定 D4 ③：点按钮**或**敲回车）
+            // **回车 / 失焦提交**也触发转换（点按钮**或**敲回车均可）
             if (IsCharSource(source))
             {
                 Convert(context, text, toHex: true, source);
@@ -273,7 +194,7 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
 
         if (!ok)
         {
-            // **失败 ⇒ 该输入框红框**（用户原话）；结果区**不动**
+            // **失败 ⇒ 该输入框红框**；结果区**不动**
             LastFailure = failure;
             LastResult = null;
             context.InputFeedback.Report(source, succeeded: false, message: failure);

@@ -8,7 +8,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// T1【ADR-0052 判据 5–7 + ADR-0049】：叠加层的**投影几何**——功能块布局、`m/n` 文本、
+/// T1：叠加层的**投影几何**——功能块布局、`m/n` 文本、
 /// **线段共线**（"两根错位的线"的回归网）、信息卡内容与信息区。
 /// </summary>
 /// <remarks>全部是**纯几何 / 纯视图模型**判据：不起窗口（真实观感由 `HYWDebugAssistant.VisualSnapshots` 的 PNG 覆盖）。</remarks>
@@ -105,8 +105,8 @@ public class RoleProjectionTests
     [Fact]
     public void 判据5d_线以两个角色方块中心为端点_且绘制方向恒为数据流方向()
     {
-        // 【ADR-0053 · 用户第三十四轮】"我希望连线从角色方块中心出发" + "虚线的流动方向有问题，
-        // 现在输入/输出均为中心块向外" ⇒ 线以**两个方块中心**为端点；绘制的那一段按**数据流方向**排列
+        // 线从角色方块中心出发；输入/输出均为中心块向外
+        // ⇒ 线以**两个方块中心**为端点；绘制的那一段按**数据流方向**排列
         // （发送：方块 → 窗外；接收：窗外 → 方块），因此两侧虚线看起来一外一内。
         var window = new Rect(0, 0, 320, 220);
         var box = new Rect(96, 93, 128, 34);              // 本端方块（局部坐标）
@@ -212,7 +212,7 @@ public class RoleProjectionTests
         roles[1].RoleCountText.ShouldBe("3/--", "没有输出口 ⇒ `--`（与「有口未连 = 0」含义不同）");
         roles[0].Title.ShouldBe("融合", "第一行 = 功能名");
 
-        // 【ADR-0053 · 用户第三十四轮】宽度**随文本自适应**（不再是固定 128），块高统一且比原来矮
+        // 宽度**随文本自适应**（不是固定 128），块高统一且更矮
         layout.Boxes[0].Box.Width.ShouldBe(roles[0].BoxWidth, 0.001, "块宽 = 该角色自己的文本估算宽度");
         layout.Boxes[0].Box.Height.ShouldBe(ConnectionOverlay.RoleBoxHeight, 0.001);
         layout.Boxes[1].Box.Width.ShouldBe(roles[1].BoxWidth, 0.001);
@@ -286,7 +286,7 @@ public class RoleProjectionTests
         link.PeerRoleKey.ShouldBe("b/show");
         link.PortPairCount.ShouldBe(2, "同一角色对之间的口对数是派生量（线上不标网络名与条数）");
 
-        // 【ADR-0053 · 用户第三十四轮】"这些信息表达的不是'数据通路信息'，而是'角色本身速率信息'"
+        // 这些信息表达的不是「数据通路信息」，而是「角色本身速率信息」
         // ⇒ 指标画在**角色方块**上（每个块显示其自身的信息），线只表达"有这条流动"。
         link.PeerText.ShouldBeNull("刷新前不标对端名");
         link.PeerAdjacent.ShouldBeFalse("刷新前一律按未拼接处理（宁可多画一个断口，也不假装已拼接）");

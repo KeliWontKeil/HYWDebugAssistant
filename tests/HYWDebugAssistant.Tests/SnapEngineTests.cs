@@ -5,7 +5,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// **吸附引擎（参照线模型 · 纯函数）的回归网** —— ADR-0042。
+/// **吸附引擎（参照线模型 · 纯函数）的回归网**。
 /// </summary>
 /// <remarks>
 /// <para>

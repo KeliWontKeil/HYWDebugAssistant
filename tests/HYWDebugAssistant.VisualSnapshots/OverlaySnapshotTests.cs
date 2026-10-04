@@ -21,7 +21,7 @@ using Xunit;
 namespace HYWDebugAssistant.VisualSnapshots;
 
 /// <summary>
-/// **叠加层渲染冒烟 + 观感快照**（ADR-0049 · 用户第三十三轮）：
+/// **叠加层渲染冒烟 + 观感快照**：
 /// 在**真实渲染栈（Skia）**下把带叠加层的模块窗口画成 PNG。
 /// </summary>
 /// <remarks>
@@ -104,7 +104,7 @@ public class OverlaySnapshotTests
     [Fact]
     public async Task 虚线偏移的符号约定_正偏移把图案推向起点_且单位是笔宽倍数()
     {
-        // 【ADR-0053 · 用户第三十四轮："虚线的流动方向有问题，现在输入/输出均为中心块向外"】
+        // 虚线流动方向**输入/输出均为中心块向外**（流向取反是实测过的缺陷）：
         // 这条把 Avalonia/Skia 的 `DashStyle.Offset` 语义**实测出来**（不靠文档、不靠注释）：
         // ① **偏移增大 ⇒ 图案整体朝几何起点移动**（因此"沿绘制方向前进"必须取**负**相位）；
         // ② 偏移的**单位是笔宽的倍数**（不是 DIP）—— 见 `OverlayAnimationClock.DashOffset` 里为什么要除以线宽。
@@ -298,10 +298,6 @@ public class OverlaySnapshotTests
 
             context.Declaration.DeclareRole(RoleDeclaration.Output(
                 "send", new DataTypeRef(TypeId, 1), "out", "发送"));
-
-            context.Declaration.DeclareView(new ViewDeclaration(
-                [new ViewElement(ViewElementKind.Numeric, "value", "值")],
-                [new ViewDataSource("value", unit: null, format: "F3", kind: ViewDataSourceKind.Value)]));
         }
     }
 
@@ -323,35 +319,7 @@ public class OverlaySnapshotTests
             context.Declaration.DeclareRole(RoleDeclaration.Input(
                 "show", new DataTypeRef(SnapshotSenderModule.TypeId, 1), "in", "显示"));
 
-            context.Declaration.DeclareView(new ViewDeclaration(
-                [new ViewElement(ViewElementKind.Numeric, "value", "值")],
-                [new ViewDataSource("value", unit: null, format: "F3", kind: ViewDataSourceKind.Value)]));
-
             context.Ports.SetReceiveHandler("in", _ => { });
-        }
-    }
-
-    /// <summary>
-    /// 快照用"锚点可拖动"模块（**G5 · C5-7**）：一个发送口，声明 <c>AnchorDraggable = true</c>。
-    /// </summary>
-    /// <remarks>
-    /// 用来给「**固定**」徽标的"真出像素"服务：固定前后各渲一帧，**像素必须不同**
-    /// （徽标是纯 `IsVisible` 绑定的叠加块，样式/模板写错时不会报错，只是什么都不画）。
-    /// 声明 `AnchorDraggable = true` ⇒ **未固定**是初始态，这样"固定后多出一块徽标"才可比较。
-    /// </remarks>
-    [ModuleDefinition("test", "snapshot-anchor", "1.0.0")]
-    public sealed class SnapshotAnchorModule : IModule
-    {
-        /// <inheritdoc />
-        public void OnRegistered(IModuleContext context)
-        {
-            context.Declaration.DeclarePort(new PortDeclaration(
-                "out",
-                PortDirection.Send,
-                ContractShape.OfPrimitive(ContractPrimitive.F32))
-            {
-                AnchorDraggable = true,
-            });
         }
     }
 
@@ -359,41 +327,18 @@ public class OverlaySnapshotTests
     /// 快照用"多页标签页"模块（**G1**）：3 页，**每页内容文字不同** ⇒ 切页后画面必须真的变。
     /// </summary>
     /// <remarks>
-    /// 声明结构 = `TabPages > [页节点 …]`，每个页节点的子元素是该页内容（`ViewElement.children` 的语义）。
+    /// 视图在**包内 `view.json`**（`SnapshotViewPackages.Tabs`）：`container` 根 → `tabs` → 3 个 `group`，
+    /// 每个 `group` 里一个 `textInput`。模块代码只声明数据面 —— 与正式模块同构。
     /// 无端口、无角色 —— 标签页与叠加层无关，本条只为"真出像素"服务。
     /// </remarks>
     [ModuleDefinition("test", "snapshot-tabs", "1.0.0")]
     public sealed class SnapshotTabsModule : IModule
     {
         /// <inheritdoc />
-        public void OnRegistered(IModuleContext context) =>
-            context.Declaration.DeclareView(new ViewDeclaration(
-                [
-                    new ViewElement(
-                        ViewElementKind.TabPages,
-                        title: "消息",
-                        children:
-                        [
-                            new ViewElement(
-                                ViewElementKind.Group,
-                                title: "第 1 页",
-                                children: [new ViewElement(ViewElementKind.TextInput, "page0", "第一页输入")]),
-                            new ViewElement(
-                                ViewElementKind.Group,
-                                title: "第 2 页",
-                                children: [new ViewElement(ViewElementKind.TextInput, "page1", "第二页输入")]),
-                            new ViewElement(
-                                ViewElementKind.Group,
-                                title: "第 3 页",
-                                children: [new ViewElement(ViewElementKind.TextInput, "page2", "第三页输入")]),
-                        ]),
-                ],
-                dataSources:
-                [
-                    new ViewDataSource("page0"),
-                    new ViewDataSource("page1"),
-                    new ViewDataSource("page2"),
-                ]));
+        public void OnRegistered(IModuleContext context)
+        {
+            _ = context;
+        }
     }
 
     /// <summary>
@@ -418,10 +363,10 @@ public class OverlaySnapshotTests
             Services = new HYWDebugAssistant.Core.Services.RuntimeServices(Runtime);
             Windows = new ModuleWindowsViewModel(Services, Services);
 
-            Register("snapshot-sender", typeof(SnapshotSenderModule));
-            Register("snapshot-sink", typeof(SnapshotSinkModule));
-            Register("snapshot-tabs", typeof(SnapshotTabsModule));
-            Register("snapshot-anchor", typeof(SnapshotAnchorModule));
+            // 视图（含端口位置）只有一个来源 = 包内 `view.json`；代码里已无视图声明 API。
+            Register("snapshot-sender", typeof(SnapshotSenderModule), SnapshotViewPackages.Sender);
+            Register("snapshot-sink", typeof(SnapshotSinkModule), SnapshotViewPackages.Sink);
+            Register("snapshot-tabs", typeof(SnapshotTabsModule), SnapshotViewPackages.Tabs);
         }
 
         public HYWDebugAssistant.Core.Runtime.ModuleRuntime Runtime { get; }
@@ -437,9 +382,6 @@ public class OverlaySnapshotTests
         /// <summary>加入一个"多页标签页"模块（G1 快照用）。</summary>
         public void AddTabs(string instanceId, double x, double y) => Add(instanceId, "test/snapshot-tabs/1.0.0", x, y);
 
-        /// <summary>加入一个"锚点可拖动"的模块（**G5** 锚点「固定」徽标快照用）。</summary>
-        public void AddAnchor(string instanceId, double x, double y) => Add(instanceId, "test/snapshot-anchor/1.0.0", x, y);
-
         public ModuleWindow OpenWindow(ModuleViewViewModel module)
         {
             var window = new ModuleWindow { DataContext = module, Controller = Windows };
@@ -449,19 +391,25 @@ public class OverlaySnapshotTests
 
         public void Dispose() => Runtime.Dispose();
 
+        /// <summary>布局用的初始尺寸（这些夹具包没有在 `frame.window` 里声明尺寸 ⇒ 用 schema 缺省 320×220）。</summary>
+        private const double InitialWindowWidth = 320;
+
+        /// <summary>布局用的初始高度（同 <see cref="InitialWindowWidth"/>）。</summary>
+        private const double InitialWindowHeight = 220;
+
         private void Add(string instanceId, string moduleIdLiteral, double x, double y)
         {
             Services.AddModule(instanceId, moduleIdLiteral).Succeeded.ShouldBeTrue();
             Windows.Refresh();
 
             Services.UpdateModuleLayout(new ModuleLayoutView(
-                instanceId, x, y, ModuleViewViewModel.DefaultWidth, ModuleViewViewModel.DefaultHeight))
+                instanceId, x, y, InitialWindowWidth, InitialWindowHeight))
                 .Succeeded.ShouldBeTrue();
 
             Windows.Refresh();
         }
 
-        private void Register(string name, Type entryType)
+        private void Register(string name, Type entryType, string packageDirectory)
         {
             var definition = new ModuleDefinition(
                 ModuleId.Create("test", name, "1.0.0"),
@@ -473,10 +421,83 @@ public class OverlaySnapshotTests
                 null,
                 true,
                 entryType,
-                string.Empty,
+                packageDirectory,
                 string.Empty);
 
             Services.Registry.TryRegister(definition, out var failure).ShouldBeTrue(failure);
+        }
+    }
+
+    /// <summary>夹具用的临时包目录（**视图只有一个来源 = 包内 `view.json`**，与正式模块同构）。</summary>
+    /// <remarks>`frame.ports[].edge` 必填（标记几何与可拖动性都是框架固定项，声明面没有开关）。</remarks>
+    internal static class SnapshotViewPackages
+    {
+        /// <summary>发送模块的包（一个 `numeric` 显示 `value`）。</summary>
+        public static string Sender { get; } = Write(
+            "hyw-snapshot-sender-package",
+            """
+            {
+              "version": 1,
+              "frame": { "ports": [ { "name": "out", "edge": "right", "offset": 0.5 } ] },
+              "sources": [ { "name": "value", "kind": "Value", "valueType": "F64" } ],
+              "views": [
+                { "root": { "kind": "container", "children": [ { "kind": "numeric", "title": "值", "data": "value" } ] } }
+              ]
+            }
+            """);
+
+        /// <summary>接收模块的包（一个 `numeric` 显示 `value`）。</summary>
+        public static string Sink { get; } = Write(
+            "hyw-snapshot-sink-package",
+            """
+            {
+              "version": 1,
+              "frame": { "ports": [ { "name": "in", "edge": "left", "offset": 0.5 } ] },
+              "sources": [ { "name": "value", "kind": "Value", "valueType": "F64" } ],
+              "views": [
+                { "root": { "kind": "container", "children": [ { "kind": "numeric", "title": "值", "data": "value" } ] } }
+              ]
+            }
+            """);
+
+        /// <summary>标签页模块的包（`tabs` 3 页，每页一个 `textInput`，内容文字不同）。</summary>
+        public static string Tabs { get; } = Write(
+            "hyw-snapshot-tabs-package",
+            """
+            {
+              "version": 1,
+              "sources": [
+                { "name": "page0", "kind": "Text" },
+                { "name": "page1", "kind": "Text" },
+                { "name": "page2", "kind": "Text" }
+              ],
+              "views": [
+                {
+                  "root": {
+                    "kind": "container",
+                    "children": [
+                      {
+                        "kind": "tabs",
+                        "title": "消息",
+                        "children": [
+                          { "kind": "group", "title": "第 1 页", "children": [ { "kind": "textInput", "title": "第一页输入", "input": "page0" } ] },
+                          { "kind": "group", "title": "第 2 页", "children": [ { "kind": "textInput", "title": "第二页输入", "input": "page1" } ] },
+                          { "kind": "group", "title": "第 3 页", "children": [ { "kind": "textInput", "title": "第三页输入", "input": "page2" } ] }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+            """);
+
+        private static string Write(string directoryName, string document)
+        {
+            var directory = Path.Combine(Path.GetTempPath(), directoryName);
+            _ = System.IO.Directory.CreateDirectory(directory);
+            File.WriteAllText(Path.Combine(directory, "view.json"), document);
+            return directory;
         }
     }
 }

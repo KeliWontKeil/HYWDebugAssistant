@@ -1,6 +1,6 @@
 # 代码风格与开发约束
 
-> 状态：**现行**（2026-09 文档收敛：压缩去重、序号重排、引用指向现行分册）——实现阶段的强制约束（用户裁决 · 议程 ②）
+> 状态：**现行** —— 实现阶段的强制约束（用户裁决）
 > 依据：`上位机架构设计.md` v1.0（顶层基线，验收唯一事实源）· `docs/decisions.md` 7.2（工程纪律 8 项 + 已裁决开关 5 项，本文件来源）· 2.1/2.2（分层与依赖方向）· 7.3/7.4（架构规则集与测试分层）· `docs/architecture/01-layering-and-projects.md`（七层 L0–L6）· `docs/architecture/09-test-and-gate.md`（AR-0~AR-16 / AC-1~6 / T1–T8）
 > 效力：与 `docs/architecture/*`、`docs/decisions.md` 或主文档冲突时，**以后者为准**；本文件只规定"怎么写"，不重复规定"依赖怎么走"（见 §2）。
 > 追溯：原 ADR-0025/0026/0032 正文见 `docs/archive/adr/`。
@@ -60,7 +60,7 @@
 |---|---|
 | 分支 | **单人直提 `main`**（开关 S4）；`main` 始终保持可构建、可测试 |
 | 提交信息 | **Conventional Commits**：`feat:` `fix:` `docs:` `refactor:` `test:` `chore:` `perf:`（正文说明"为什么"） |
-| 提交前门禁 | 运行 `build.ps1`（清理 `Platform` 变量 → 依赖许可审计 → 构建 → 测试含架构规则）全绿 |
+| 提交前门禁 | 运行 `build.ps1` 全绿 |
 | 变更自查清单 | ① 是否违反 v1.0 冻结结论？② 是否新增依赖（过许可门禁 + 记录）？③ 是否触碰热路径（分配检查）？④ 是否需要 ADR（§5 六种情形）？⑤ 文档/注释是否同步？ |
 
 ## 5. 文档要求
@@ -92,7 +92,7 @@
 
 新增依赖必须同时满足：① **许可** ∈ {MIT, Apache-2.0, BSD}（构建期门禁自动检查，含传递依赖）；② 说明**不可替代性**（自研成本 vs 收益）；③ 记录到 ADR 或 `docs/decisions.md`；④ 在 `Directory.Packages.props` **锁定版本**。
 **禁止**：GPL/LGPL、任何需采购/登录授权的组件、**无许可声明**的包（首例已拦截：`AvaloniaUI.DiagnosticsSupport`）。
-> 门禁实现与白名单例外登记方式见 `docs/architecture/10-delivery-and-ops.md` §3（现行豁免 1 条：`xunit.abstractions` 2.0.3，登记在工程仓 `tools/license-allowlist.json`）。
+> 门禁实现与白名单例外登记方式见 `docs/architecture/10-delivery-and-ops.md` §3。
 
 ## 8. 例外与豁免
 

@@ -14,6 +14,47 @@
 - token 类型必须与消费者的属性类型一致（`ModuleCornerRadius` 必须是 `<CornerRadius>` 而非 `<x:Double>`，否则运行时才抛 `InvalidCastException`），同类错误由无头测试拦住。
 - 设置键名与默认值以 `08-application-settings.md` 为唯一来源；本文件只写与视觉/手感直接相关的取值。
 
+### token 键名对应（改观感 = 改哪个 token）
+
+| 想改什么 | 改这个文件 | 关键键名 |
+|---|---|---|
+| **全部配色**（浅/深主题、语义色、背景层次） | `src/Ui/Styles/Tokens.axaml` → `ThemeDictionaries`（Light / Dark 各一套） | `BgWorkspace`（工作区/缩略图底）· `BgModule`（模块底）· `BgChrome`（外壳/工具区）· `BorderDefault`/`BorderStrong` · `TextPrimary`/`TextSecondary`/`TextMuted` · `AccentPrimary`/`AccentSecondary` · `SemanticOk`/`Warn`/`Error`/`Idle` |
+| **字体** | 同上 | `FontUi`（界面对话字体）· `FontData`（数据/日志等宽字体） |
+| **控件高度（输入框/按钮）** | 同上 | `ControlHeight`（当前 **27**）· `ControlFontSize`（12） |
+| **模块窗口尺寸相关** | 同上 | `ModuleHandleSize`（缩放手柄 **6**）· `ModuleBandThickness`（拖动带 **6**）· `ModuleCornerRadius`（圆角，类型必须是 `CornerRadius`！） |
+| **端口标记规格**（尺寸的**唯一来源**） | `src/Ui/Geometry/PortMarkerMetrics.cs`（**2026-09 起**；`Tokens.axaml` 的 `PortMarkerWidth`/`PortMarkerLength` 是**死资源** —— 真正生效的一直是视图模型那份 —— 已删除） | `Width`(**20**，= 预留带厚度) · `Length`(**150**，沿边长度；由 114 加长以容下「（直连）」+ 速率) · `FixedChrome`(49，固定槽位合计) · `MinWindowExtent`(160，窗口最小边长由它推出来)。**标记内元素尺寸仍看 `Tokens.axaml`**：`PortMarkerFontSize`(11) · `PortMarkerArrowFontSize`(18) · `PortMarkerLampSize`(8) · `PortMarkerStripWidth`(6) · `PortMarkerRateFontSize`(10) |
+| **图标（字形）** | `src/Ui/Styles/Tokens.axaml` 的 `FontIcons` + `Glyph*` | 图标用**系统图标字体**（Segoe Fluent Icons / Segoe MDL2 Assets），码位见该处注释表；换图标 = 改 `Glyph*` 一行 |
+| **全局控件样式**（输入框内边距、图标按钮大小、活动栏图标字号） | `src/Ui/Styles/Controls.axaml` | `TextBox`/`ComboBox`/`Button`/`ToggleButton`/`CheckBox` 样式；`TextBlock.icon`；`Button.icon`；`Button.rail` |
+
+> **改颜色/尺寸只改这两处**；如果某个界面写死了数值，那是我该修的地方——指给我即可。
+
+### 可调旋钮现值（布局紧凑度与位置 —— "告诉我去哪调"）
+
+| 想改什么 | 改哪里 | 现值 |
+|---|---|---|
+| 模块内**元素之间的间距** | `src/Ui/Views/ModuleContentView.axaml` → `<ctrl:ModuleElementPanel Spacing="2" />` | **2** |
+| 模块内容**四周留白 / 上·下预留带** | 同文件 → 外层 `<ScrollViewer Margin="20,22,20,24">` | **左右 20 · 上 22 · 下 24** |
+| 显示区（日志）**行距 / 字号** | `src/Ui/Controls/TextSurface.axaml` → `TextBox#LogEditor` 的 `LineHeight` / `FontSize`（**必须与 `TextSurface.axaml.cs` 的 `LineHeightDip` 一致**：窗口行数按它算） | 行高 **14** / 字号 **11** |
+| 显示区**分页窗口**的规模与节拍 | `src/Ui/Controls/TextSurface.cs`（**输入框与显示区共用的那一个文本面控件**）→ `MinWindowLines`（20）· `MaxWindowLines`（200）· 刷新节拍（50 ms = 20 Hz）· 滚轮行数（3） | 窗口 = 视口行数 × 2，夹在 **[20, 200]**；**调大窗口 = 每次重排更贵**（实测 ≈ 0.47 ms/行） |
+| 现实：**不再有"一行多少字节"这回事** | 显示模块只做"字节 → 文本"（`MonitorLineFormatter`）；**没有 96 字节定宽行、没有填充、没有空闲断行** | 一行多少由**文本框宽度**决定（用户 2026-09 裁定："请不要抛开成熟方案去自创方案"） |
+| 显示区**最小高度** | `src/Ui/Controls/ModuleElementPanel.cs` → `LogMinHeight` | **88** |
+| 多行输入框**最小高度** | `src/Ui/ViewModels/ViewElementViewModels.cs` → `TextInputElementViewModel.MultilineEditorMinHeight` | **60** |
+| **输入结果行**（失败提示那一行）的**常驻高度** | `src/Ui/Views/ModuleContentView.axaml` 的 `TextInput` / `FileSelector` 模板 → 结果 `TextBlock` 的 `MinHeight` | **14**（常驻占位 ⇒ 有无信息都不改布局） |
+| **开关滑块**（B7）的行高与排布 | 同文件 → `ToggleSwitch`（**不要写 `Content`**，文字用旁边独立的 `TextBlock`） | 行高 **32**（模板自带）；**写 `Content` 会让它涨到 ~48 并把轨道挤出可视区** ⇒ 真机上只剩一行文字（2026-09 实测缺陷） |
+| 文本框**标题**的位置 | 同文件 → `TextInput` / `FileSelector` 模板的第 0 行 | **标题在左上、与框左对齐**（用户 2026-09："需要统一文本框标题于左上角，同样与文本框左对齐"） |
+| **文本框字体** | 设置 → 外观与显示（或 `ApplicationSettings` 的 `UiFontFamily` / `DataFontFamily`） | 数据 = `Times New Roman, 宋体` |
+| 输入框**行末换行标记 `↵`** 的观感 | `src/Ui/Controls/NewlineMarkOverlay.cs` → `MarkGap`（与文本末尾的间距）、`MarkFontScale`（相对正文的字号比例，现值 **0.85**） | 标记是**绘制层装饰**（不进文本、不参与选择、光标跳过）；**不要**改回"把标记塞进文本"（2026-09 实测：光标规律不可预测，已被用户否定） |
+| **标签页数量** | 该模块源码的 `PageCount`（`TextSender` / `HexSender` / `HexStringConverter`） | **5**（2026-09 用户裁定；增删页**不影响窗口尺寸**，只显示当前页） |
+| 某个模块的**默认尺寸** | 该模块源码 `OnRegistered` 里的 `PreferredWidth/PreferredHeight`（模块页 §3 有算式）；调完同步模块页 | 文本/HEX 发送器 **340×340** · 数据显示器 **460×500** · 转换器 **520×600** |
+
+> 原则（2026-09 用户裁定）：**能靠 `.axaml` / 声明调好的位置与间距问题，由开发者自己调**；框架侧只保证"不遮蔽、不覆盖、随窗口伸缩、内容增长只出内部滚动条"。
+>
+> ⚠ **改设置页的生效机制**：设置弹窗走 **确认 / 取消 / 应用** 三键（`SettingsView.axaml` 底部三键条 + `SettingsPanelViewModel` 的 `ConfirmCommand`/`CancelCommand`/`ApplyCommand`）——**不要再加"改一下就即时生效"的字段回调**（2026-09 用户裁定撤销了旧口径）。
+> 
+> ⚠ **"填满型"（多行输入 / A5 日志）的高度由 `ScrollViewer` 拉伸给**：内容比视口矮时，`ScrollViewer` 会把 `ItemsControl`（`VerticalAlignment="Stretch"`）拉到视口高 ⇒ `ModuleElementPanel` 才有多余空间分给填满型。**不要改回 `MinHeight="{Binding Viewport.Height}"`**（首帧视口=0 ⇒ 框只有一个最小高，放大窗口才对；2026-09 实测缺陷）。填满型**最小高**见 `ModuleElementPanel.LogMinHeight` / `TextInputElementViewModel.MultilineEditorMinHeight`。
+> 
+> ⚠ **上/下预留带必须写成 `ScrollViewer` 的 `Margin`（不能写成它的 `Padding`）**：`Padding` 算在**视口之内**，而内容面板的 `MinHeight` 绑的是**视口高** ⇒ 内容恒比视口高一点点 ⇒ **默认尺寸下常驻一条滚动条**（2026-09 第二轮反馈修掉的真实缺陷）。
+
 ---
 
 ## 设计原则 〔源: 09 §1〕
@@ -34,7 +75,7 @@
 
 | 面 | 单位 | 口径 |
 |---|---|---|
-| 模型几何（`ModuleLayoutView` / `ModuleViewViewModel` 的 `X/Y/Width/Height`） | **整数物理像素** | 由唯一量化点 `Ui.Geometry.ScreenPixels`（`Round` = `MidpointRounding.AwayFromZero`、`ToPixel`）产出；在**构造（含 `PreferredWidth × 缩放`）/ 读布局 / 拖动 / 缩放 / 跟随外壳 / 还原**处一律取整 |
+| 模型几何（`ModuleLayoutView` / `ModuleViewViewModel` 的 `X/Y/Width/Height`） | **整数物理像素** | 由唯一量化点 `Ui.Geometry.ScreenPixels`（`Round` = `MidpointRounding.AwayFromZero`、`ToPixel`）产出；在**构造（含「声明宽度 × 缩放」）/ 读布局 / 拖动 / 缩放 / 跟随外壳 / 还原**处一律取整 |
 | 窗口落位 | DIP | `ModuleWindowManager.ApplyGeometry` 位置**直接用整数模型值**（不再各自 `Math.Round`）、尺寸 = **整数 ÷ `scaling`**；`PublishActualSize` / `PublishShellRect` 一并量化 |
 | 叠加层（`ConnectionOverlay`，Avalonia 自绘控件） | **DIP** | 换算**只允许发生在两处**：`CanvasWidth/CanvasHeight`（= 尺寸 ÷ `Scale`）与 `ToDip(...)`；**别处一律不乘除缩放** |
 | 画布尺寸的唯一事实源 | —— | `ModuleViewViewModel.Width/Height`（叠加层经同名 `CanvasWidth/CanvasHeight` 绑定接收，`Bounds` **只兜底**）；对端锚点用同一对数字算 ⇒ 两端得到同一布局 |
@@ -57,13 +98,15 @@
 | 运行指示 | **左下角**：状态点 **7 px** + 状态文本 **10 px** 弱化色 |
 | 按钮簇 | **右上角 · 纯图标**：**还原 · 锁定/解锁 · 隐藏 · 关闭**（原"运行/停用"已删除——模块没有"暂停"语义）；图标按钮 **20×20**、图标为 **12×12 填充几何**（token `GlyphReset`/`IconLock`/`IconUnlock`/`IconHide`/`IconClose`；换图标包**只改 token**）；悬停或选中时淡入 |
 | 「还原」语义 | 弹确认框三选一：**只还原默认尺寸 / 尺寸和配置都还原 / 取消** |
-| 缩放手柄 | **6×6**（原 12×12），**仅在选中或悬停时可命中** —— 防抢端口标记的点击 |
+| 缩放手柄 | **6×6**，**仅在选中或悬停时可命中** —— 防抢端口标记的点击 |
 | 窗口交互带 | **6 px** 边框热区：边中点 / 角点为缩放；其余为拖动；锁定 / 隐藏 / 关闭按钮簇同处（右上角） |
+| 内容区排布（`decisions.md` 7.55 · 7.56 · 7.57 · 7.58） | **未声明布局时 = 框架默认的单列**：内容逐个 `Arrange(0, y, 满宽, 高)` —— 自上而下、一律满宽；**「谁能拉伸」由代码判定**（文本日志 A5 / 多行输入；含填满型的**容器会跟着一起拉伸**，见「容器」行）；元素间距与内容留白的**现值**见上文「可调旋钮现值」（上 22 给按钮簇、下 24 给状态行、左右 20 = 端口标记预留带；**必须是 `Margin` 不是 `Padding`**）都是默认值（`Spacing` 可被容器声明覆盖）。**布局声明**（`view.json`：`Flow` / `Absolute` / `Grid` 三种模式、每轴尺寸对象、位置显式化与回退口径）见 `architecture/02`「视图」，写法见 `implementation/06` §C.1′。**绝对模式的两条纪律**：① 元素**按各自声明尺寸有限测量** —— 无限高会让日志虚拟化失效；② **越界由容器承担**：`overflow` 默认 `scroll`，`clip` 则裁掉且不产生滚动范围；**未声明几何的元素流式接在「已声明区域的底边」之下**（不隐形不重叠）；**需要滚动的绝对坐标内容请放进 `Scroll` 容器**。**尺寸来源唯一**：模板**不再自决**尺寸（否则同一个声明会出两种像素）。**不做**在线调布局、**不叠**用户覆盖层。**已知限制**：`TabPages` 只渲染当前页 ⇒ 各页元素路径**互相重合**，布局声明按「**当前页**」统一生效（做不了「每页不同排布」）。 |
+| 容器（声明面口径见 `decisions.md` 7.60；本行只记视觉基线） | **`container`** 是唯一**自带排布键**的容器（`layout` = `flow` / `grid` / `absolute`；`overflow` = `scroll` / `clip` —— **滚动就是它，不再有独立的滚动控件**）；**`group`** = 1 px 边框 + 圆角 2 + 标题 **10 px 弱化色** + 内容内缩（`padding` 可声明，标题与内容间隔 **4 px**）；**`collapsible`** = Avalonia `Expander`（标题同 `group` 口径、`IsExpanded` 双向绑定；**收起后高度塌到标题行**，且**不参与父层余量分配**）。**`tabs` 的页节点按 `TabPage` 语义**：子节点自身**不参与渲染、不画框**，`title` 只作页签文字，子元素即页内容 ⇒ 把 `group` 当页包装的模块**逐像素不变**。**填满性透传**：容器内含填满型 ⇒ 容器自身也参与父层余量分配（多个填满型**等分**），内部再分配。参考 **WinForms** 的成熟模型（`GroupBox` / `Panel.AutoScroll` / 可展开面板 / `FlowLayoutPanel(TopDown)` / `Location+Size+Anchor` / `Dock=Fill`）；**不做**分栏、四边停靠、换行流；**网格（`TableLayoutPanel`）已于 2026-09 补齐**（`grid` 模式 · `decisions.md` 7.60）。 |
 | 取消选中 | 点内容区 / 点外壳 / 点本应用其他窗口 → `ClearSelection()`；**内容区点击不选中**（避免与模块内控件抢事件） |
-| 默认尺寸 | 未声明 `PreferredWidth/PreferredHeight` 时回退 **320×220 DIP**；**现行四个正式模块的声明值**：文本发送器 **340×340** · HEX 发送器 **340×340** · 数据监视器 **460×500** · HEX 字符串转换器 **520×600**（**2026-09 第二轮 UI 反馈后按实测重定**：预留带 + 开关滑块 + 结果行占位一起算）（原参考模块的 手动发送器 **330×330** / 信息显示模块 **360×460** 已随其载体于 2026-09 删除） |
-| 最小尺寸 | **180×160 DIP**〔源: 代码 `src/Ui/Views/ModuleWindow.axaml`（`MinWidth="180"` / `MinHeight="160"`）+ `src/Ui/ViewModels/ModuleViewViewModel.cs`（`MinWidth = 180` / `MinHeight = PortMarkerMetrics.MinWindowExtent`，注释声明与 axaml 一致）〕—— **2026-09：最小高 120 → 160**（端口标记沿边长度 150 装得下才不被裁，见「端口标记」节的"标记尺寸"行）——`09` §5 的 M1-15 小尺寸取值（150×70）**已被 ADR-0039 定稿段取代**，现行值以代码为准 |
+| 默认尺寸 | 包内 `view.json` 的 `frame.window.width`/`height` 未声明时取 schema 缺省 **320×220 DIP**；**现行四个正式模块的声明值**（以包内 `view.json` 与各模块页为准）：文本发送器 **450×340** · HEX 发送器 **450×340** · 数据监视器 **400×500** · HEX 字符串转换器 **450×600** |
+| 最小尺寸 | **180×160 DIP** —— **最小高 120 → 160**（端口标记沿边长度 150 装得下才不被裁，见「端口标记」的「标记尺寸」行）；`09` §5 的 M1-15 取值（150×70）**已被 ADR-0039 定稿段取代**，现行值以代码为准。**这两个数现在只写在包声明 schema 里**（`view.schema.json` 的 `window.minWidth`/`minHeight` 缺省值 = **框架地板**；`decisions.md` 7.63）：模块在包内 `view.json` 的 `frame.window` 里声明的下限**只能抬高它**，写小了由读取器**夹到地板并记一条 warning**；渲染侧不再自带任何地板字面量。**四个模块的 min 声明**：文本发送器 **380×260** · HEX 发送器 **380×260** · 数据监视器 **260×360** · HEX 字符串转换器 **400×420** |
 
-### C2 标签页的标签条（G1 · 2026-09）〔源: 用户裁决"框架全做完再出模块页"· `roadmap.md` §3 第 12 项 · 代码 `Ui/Views/ModuleContentView.axaml`〕
+### C2 标签页的标签条（G1）〔源: 用户裁决"框架全做完再出模块页"· `roadmap.md` §3 第 12 项〕
 
 | 项 | 规范 |
 |---|---|
@@ -86,9 +129,11 @@
 | **语义（对齐 WinForms）** | A5 = 一个**只增的文本缓冲**：**不清空就一直在**（`Clear` 命令才清）；**界面只显示放得下的那部分**，更早的内容**用滚动条回看** —— 与 `TextBox`（多行 + 竖向滚动条 + `AppendText`）的语义一致 |
 | **状态归属** | 缓冲**由框架持有**（视图状态存储），**独立于元素表重建**（切页 / 设置变更不丢内容）—— 见 `02`「视图状态回读」 |
 | **容量** | **20 000 条**（`decisions.md` 7.31）——**注意"条"≠"行"**：纯流模式（两个开关都关）下缓冲里只有**一条在不断变长**，容量上限约束不到它 ⇒ **单条增长护栏待裁**（`roadmap.md` §3 第 41 项） |
-| **到顶策略** | **丢弃最旧 + 元素上提示"已丢弃 N 条"**（监视场景保留最新数据；不静默丢） |\n| **渲染（现行 · 2026-09 用户裁定 · `decisions.md` 7.51）** | **一个文本面控件** `Ui.Controls.TextSurface`（内部恰好一个 `TextBox` + 一个 `NewlineMarkOverlay`，可选自管竖条 + 分页窗口）——**输入框与 A5 都用它**，差异只有 `IsReadOnly` / 数据来源 / 滚动模式。A5 = **流式追加**：收到即追加（**不存在"尾巴"**）、**按文本框宽度折行**、`↵` 由绘制层**只画在"文本里真有换行符"处**（"数据包换行/时间戳"是**通道换行**，永不标）。**已撤销**（我此前自创、用户明确否定）：96 字节定宽行 · 定长填充 · 空闲断行 · 模块侧的 `↵` 文本标记 |
+| **到顶策略** | **丢弃最旧 + 元素上提示「已丢弃 N 条」**（监视场景保留最新数据；不静默丢） |
+| **渲染（现行 · `decisions.md` 7.51）** | **一个文本面控件** `TextSurface`——**输入框与 A5 都用它**，差异只有只读性 / 数据来源 / 滚动模式。A5 = **流式追加**：收到即追加（**不存在「尾巴」**）、**按文本框宽度折行**、`↵` 由绘制层**只画在「文本里真有换行符」处**（「数据包换行/时间戳」是**通道换行**，永不标）。**已撤销**：96 字节定宽行 · 定长填充 · 空闲断行 · 模块侧的 `↵` 文本标记 |
 | **通道（SDK 只增）** | `IViewDisplayAccess.AppendText(源名, 文本)`（**不换行**）/ `AppendLine(源名, 文本)`（通道换行）：**断行由调用方式表达**，不在文本里塞任何约定字符；老成员零改动。追加是**请求**（L4），UI 在刷新节拍落地 ⇒ 缓冲唯一写者仍是 UI 线程 |
-| **通道边界（不是文本框的锅）** | 订阅环 **512 样本/数据源** + UI **60 Hz** 全量取（不抽样）⇒ 无损吞吐 ≈ **3 万行/秒**；超出由框架丢最旧并计数（`04` 的"UI 慢永不阻塞模块"） |\n| **容量不做设置项** | 先常量 + 提示；需要时再开应用级设置项（`decisions.md` 7.31⑤） |
+| **通道边界（不是文本框的锅）** | 订阅环 **512 样本/数据源** + UI **60 Hz** 全量取（不抽样）⇒ 无损吞吐 ≈ **3 万行/秒**；超出由框架丢最旧并计数（`04` 的「UI 慢永不阻塞模块」） |
+| **容量不做设置项** | 先常量 + 提示；需要时再开应用级设置项（`decisions.md` 7.31⑤） |
 
 **实测记录（2026-09 · 决定"文本框 → 虚拟化列表"的那组数字）**〔源: 无头真实窗口 + 真实布局，20 000 行规模〕：
 
@@ -117,7 +162,7 @@
 
 **自绘"段落标记"层的可行性（同次实测）**：`TextBox` 的可视树里有 `PART_TextPresenter`（类型 `Avalonia.Controls.Presenters.TextPresenter`），其 **`TextLayout` 公开可读**、`TextLines` 可枚举并给出逐行 `Length / Width / Height / Baseline` ⇒ 在**同格的只读绘制层**里按"累计偏移 + 源文本"判断"该视觉行是否以换行结束"，即可把 `↵` 画成**不可编辑的装饰**（光标/选择/文本内容完全不受影响，与 Word 的 ¶ 同构）。
 | **自动滚到底** | 追加后跟随末尾；**用户手动向上回看时不抢滚动位置**，回到底部后恢复跟随（`decisions.md` 7.31⑥）。现行实现：窗口起点 + `_followTail`，拖条/滚轮改起点即"回看"（`decisions.md` 7.50） |
-| **长行** | **折行（`TextWrapping=Wrap`）、无横向滚动条**（`decisions.md` 7.44/7.51：**一行多少由文本框宽度决定**，"规定一行多少字节"已被用户明确否定）——推翻 7.31④ 的"横向滚动、不折行"与 7.44 之前的"96 字节定宽行" |
+| **长行** | **折行（`TextWrapping=Wrap`）、无横向滚动条**（`decisions.md` 7.44/7.51：**一行多少由文本框宽度决定**，"规定一行多少字节"已被用户明确否定）——推翻 7.31④ 的「横向滚动、不折行」 |
 | **与输入框的关系（2026-09 已统一为一个控件）** | **同一个 `TextSurface`**：折行口径、`↵` 标记绘制、字符级选择/复制**只有一份实现、一套用例**；差异只有"只读 vs 可写 / 数据来源 / 滚动模式"。`↵` 一律**只表示"文本里真有换行符"**（输入框与显示区同一条规则）；通道换行（每包一行 / 时间戳）**不标** |
 
 **窗口内层级（自下而上）**：`内容 → 交互带/手柄 → 端口标记 → 遮罩 → 连线/角色层 → 运行指示/按钮簇`。
@@ -135,18 +180,19 @@
 
 | 项 | 规范 |
 |---|---|
-| 尺寸 | 竖排 **20×150** / 横排 **150×20** —— **唯一来源 = `PortMarkerMetrics`**（跨轴 20 = 预留带厚度；沿边 150 = 2026-09 由 114 加长，见下节"标记尺寸"行）；与模块**外边框完全重合**（`PortMarkerPanel.EdgeInset = 0`） |
-| 挂载边 | **有效边 = 用户覆盖 > 模块声明的默认边 > 数据流惯例**（发送右 / 接收左）。模块用 `PortDeclaration.Edge` 声明默认边（`Auto` = 沿用惯例 ⇒ 老模块零改动）；用户可把标记**拖到任意边**（C5-7 · G5），结果随组合件保存 |
+| 尺寸 | 竖排 **20×150** / 横排 **150×20** —— **唯一来源 = `PortMarkerMetrics`**（跨轴 20 = 预留带厚度；沿边 150 见下节「标记尺寸」行）；与模块**外边框完全重合**（`PortMarkerPanel.EdgeInset = 0`） |
+| 挂载边 | **有效边 = 用户覆盖 > 模块在包内 `view.json` 的 `frame.ports[]` 里声明的边**（**没有框架惯例** —— `edge` 必填、`left`/`right`/`top`/`bottom` 四选一，数据面登记的口缺声明即硬伤；**2026-09 复裁**，见 `decisions.md` 7.61）；用户可把标记**拖到任意边**（C5-7 · G5），结果随组合件保存 |
 | 锚点位置 | 沿边缘**按端口数等分**（`(i+1)/(n+1)`）；用户在组合件里调整过的端口用其偏移；固定锚点在模块拉伸时**按比例重排**（`Offset` 归一化，天然如此） |
-| 锚点「固定」 | **三态**：用户设置 > 模块声明 `PortDeclaration.AnchorDraggable`（默认 `false` = 固定）（`decisions.md` 7.19）。**入口**：① 标记**同一条边的预留带里、标记长度之外**浮出的**图标按钮**（`GlyphUnlock` E785 / `GlyphLock` E72E，平时 `Opacity=0`、**悬停该标记时 120ms 淡入**，**点击 = 固定/解锁该口**）② 全局快捷键 **Ctrl+P**（一次切换全部模块的所有口） |
+| 锚点「固定」 | **两态**：用户设置 > 框架缺省（**固定**）。**可拖动性与标记几何属框架固定项，模块不再声明**（旧 `PortDeclaration.AnchorDraggable` 随载体切换删除）；用户侧事实随组合件保存。**入口**：① 标记**同一条边的预留带里、标记长度之外**浮出的**图标按钮**（`GlyphUnlock` E785 / `GlyphLock` E72E，平时 `Opacity=0`、**悬停该标记时 120ms 淡入**，**点击 = 固定/解锁该口**）② 全局快捷键 **Ctrl+P**（一次切换全部模块的所有口） |
 | 「固定」按钮的落位 | **带内、标记长度之外**（`PortMarkerPanel` 的 `AnchorButton` 层排布；**与标记共用同一份定位算法** `AlongEdgeSpan`）：优先放标记**之后**（沿边正方向）→ 否则放**之前** → 两端都不够（窗口接近最小尺寸）⇒ 贴**色条端**并允许压住色条，**永不压指示灯端**（**用户 2026-09 同意**该退化规则）。**为什么不能放"内侧"**：预留带与内容区的 20px 内边距**是同一块地方**（实测内容区右缘 298、标记带 [299,319]）⇒ 内侧没有空白，放那儿就是压内容（用户实测报过"落在了内侧遮挡 UI"） |
 | 悬停反馈 | **只改鼠标指针**：可拖 = `SizeAll`、已固定 = 默认箭头（**不做悬停放大** —— 用户 2026-09 裁定，`decisions.md` 7.18）。「固定」按钮的显隐另由**标记悬停**驱动（`IsMarkerHovered`，视图在 `PointerEntered/Exited` 写回模型；按钮自身 `:pointerover` 保底 ⇒ 鼠标从标记滑到按钮上不会闪掉） |
-| 槽位 | **四段固定槽位**（信息变化不引起排版抖动）：① **类型窄色条** `PortMarkerStripWidth = 6` ② **网络名**（**名称优先**：拿自己需要的宽度，上限 = 标记长度 − 固定槽位）③ **方向箭头**（槽 20、`PortMarkerArrowFontSize = 18`）④ **连接状态灯**（`PortMarkerLampSize = 8`）。**「固定」按钮不在槽位里**（浮在标记之外 ⇒ 不占长度、不挤名称）。**2026-09 改版**：此前名称列是 `*`、速率列是 `Auto` ⇒ 速率（`0.00 KB/s` ≈54px）先把宽度吃光，名称只剩约 10px，「（直连）」必被截（用户："一半的文字被后面的速率遮住了"）⇒ 现在**名称优先、速率吃剩余（不够就省略）** |
-| 标记尺寸 | **唯一来源 = `Ui/Geometry/PortMarkerMetrics.cs`**：跨轴宽 **20**（= 预留带厚度，同一块地方）· 沿边长度 **150**（**2026-09 由 114 加长**：114 下名称只剩约 10px；加长的代价是窗口 `MinHeight` 必须 ≥ `MinWindowExtent = 160`，否则标记被面板夹到起点并溢出被裁）。**注意**：`Tokens.axaml` 的 `PortMarkerWidth`/`PortMarkerLength` 曾与视图模型各写一份、且 token 无人引用（死资源）⇒ **已删除**，改尺寸请看这个文件 |
+| 槽位 | **四段固定槽位**（信息变化不引起排版抖动）：① **类型窄色条** `PortMarkerStripWidth = 6` ② **网络名**（**名称优先**：拿自己需要的宽度，上限 = 标记长度 − 固定槽位）③ **方向箭头**（槽 20、`PortMarkerArrowFontSize = 18`）④ **连接状态灯**（`PortMarkerLampSize = 8`）。**「固定」按钮不在槽位里**（浮在标记之外 ⇒ 不占长度、不挤名称）。**为什么名称优先**：速率（`0.00 KB/s` ≈54px）会先把宽度吃光、名称只剩约 10px（「（直连）」必被截）⇒ **速率吃剩余（不够就省略）**并**右对齐**（见下条「速率位置」） |
+| 标记尺寸 | **唯一来源 = `PortMarkerMetrics`**：跨轴宽 **20**（= 预留带厚度，同一块地方）· 沿边长度 **150**（**2026-09 由 114 加长**：114 下名称只剩约 10px；加长的代价是窗口最小高**必须 ≥** `MinWindowExtent = 160`，否则标记被面板夹到起点并溢出被裁 —— 该常量即**框架地板的几何依据**，地板的数值本身只写在包声明 schema 的 `window.minHeight` 缺省值里，`decisions.md` 7.63）。**注意**：`Tokens.axaml` 的 `PortMarkerWidth`/`PortMarkerLength` 曾与视图模型各写一份、且 token 无人引用（死资源）⇒ **已删除**，改尺寸请看这个文件 |
+| 速率位置（**2026-09 用户实测**） | 用户原话："**箭头贴边，看起来不在中间；速率显示建议靠近箭头**" ⇒ 速率块改**右对齐**（`HorizontalAlignment="Right"`）：空档从"速率左边"挪到「名称—速率」之间，**速率贴住箭头**；同时给指示灯补 **4 px 左边距** ⇒ 「速率→箭头」与「箭头→灯」都是 **5 px**，箭头在两段空档里**居中**。回归网 = `ModuleWindowVisualTests.网络标签_速率应贴箭头_且箭头在速率与灯之间居中`（直接量两段间距并断言相等） |
 | 名称字号 | **11 px**（超长省略） |
 | 读数顺序 | 竖排分支整体旋转 **−90°**（`(x,y) → (y,−x)`）⇒ 内容 `x` 小的一端落到屏幕**下方**（文字自下而上读）⇒ **灯在上端、色条在下端**。由无头测试 `ModuleWindowVisualTests` 钉住 |
 | 箭头语义（**2026-09 改版**） | **由「所在边」+「发送/接收」推出**：发送 = **朝外**（数据从本模块出去）、接收 = **朝内**。用户原话："在上下两条边时箭头方向仍为左/右式，希望箭头方向**不要写死**，而是根据**网络标签位置**和**输入输出关系**推"。实现：字形 = `↑` 当（朝外的那一侧在屏幕上是上/左）否则 `↓` —— 竖排分支外面套的 −90° 旋转把"低侧边朝外 / 高侧边朝内"都映射到 `↑` ⇒ **两个分支共用一张表**（各写一张迟早会漂）。**默认边上的表现**：发送器在下边 ⇒ `↓`、显示器在上边 ⇒ `↓`（都由"数据向下流"推出，不再是写死的 `→`）。回归网 = `PortMarkerAppearanceTests` 的 8 格表 |
-| 灯的位置 | 8×8；**离端部留 5 px**（不再贴到端部）；竖排箭头 `Margin = 0,0,0,4`（字形墨迹回中线） |
+| 灯的位置 | 8×8；**离端部留 5 px**（不再贴到端部；**2026-09 另加 4 px 左边距**用于让箭头在两段空档里居中，见"速率位置"）；竖排箭头 `Margin = 0,0,0,4`（字形墨迹回中线） |
 | 边框着色 | 标记边框 = **方向色**（`Border.portMarker` 默认接收色 / `.send` 发送色），与箭头同色 |
 | 显示文本 | **只有网络名**：`NetworkText` = **标签名** / 已连但无标签 **`（直连）`** / 无标签未连 **`无网络`**。后两者是**网络名占位**，不是状态提示 |
 | 不显示 | **不写连接状态文本**（删"（未连）"，状态只由灯表达）；**不写数据包类型文本**（标签名通常很长，放不下） |
@@ -208,7 +254,7 @@
 | 命中 | **方块 v1 不参与命中**（详情仍在端口标记悬停与拓扑诊断里） |
 | 红线 | 角色 **不参与**建网 / 兼容判定 / 停流 / 投递 / 计量，且**不进组合件**（持久化里不得出现任何角色字段）；**框架不内置任何角色类型枚举 / 图标 / 业务词**（只有"标识 + 名字 + 类型 + 口集合"） |
 
-现行声明面（各 1 个角色）：`hyw/text-sender` / `hyw/hex-sender` = 纯源（`--/n`）· `hyw/data-monitor` = 纯汇（`m/--`）· `hyw/hex-string-converter` = **零口零角色**。判据项目内测试桩同为单块：`FusionStubModule` = **一块两入一出**（`fuse`，输入 `in1`+`in2` / 输出 `out`，`m/n` 的 m 可为 2）。（原参考模块的"数据发生器 / 手动发送器 = 纯源 · 信息显示 / 记录器 / 断言器 = 纯汇 · 多源融合器 = 两入一出"**已于 2026-09 按用户裁定删除**。）
+现行声明面（各 1 个角色）：`hyw/text-sender` / `hyw/hex-sender` = 纯源（`--/n`）· `hyw/data-monitor` = 纯汇（`m/--`）· `hyw/hex-string-converter` = **零口零角色**。判据项目内测试桩同为单块：`FusionStubModule` = **一块两入一出**（`fuse`，输入 `in1`+`in2` / 输出 `out`，`m/n` 的 m 可为 2）。
 
 ---
 
@@ -244,7 +290,7 @@
 
 - 声明面：`FlowDeclaration(FromRoleId, ToRoleId, Label)`（**角色 → 角色**——角色自身已含 in/out，只表达**块与块之间**的顺序）；经 `ModuleInstanceFactory` 校验（必须"存在的接收角色 → 存在的发送角色"，重复去重，**非法报 Issue 并忽略该条**）。
 - 画法：**细实线 + 中性低对比色 token `OverlayFlow` + 不参与流动**；**零声明 ⇒ 不画**（框架不猜）。
-- 现行四个正式模块都是单块 ⇒ 零声明零线（`hyw/hex-string-converter` 零口零角色）；**原参考模块的融合器范例（`in1→out` / `in2→out`）已于 2026-09 按用户裁定删除**。
+- 现行四个正式模块都是单块 ⇒ 零声明零线（`hyw/hex-string-converter` 零口零角色）。
 - 它**只呈现**，不参与建网 / 兼容 / 停流 / 投递 / 计量，也不进组合件。
 
 ---
@@ -304,58 +350,58 @@
 | 布局（一屏全见） | **左 = 取色器**（两页签：**光谱** / **分量**＝RGB·HSV 滑块 + **十六进制输入**；底部当前色预览条）+ **右 = 常驻 8 个推荐色**（= `ThemeApplier.Presets`，与设置页"主题色"同一套，不必切页签就能点） |
 | 精简 | **关掉**控件自带的"色板"页签（`IsColorPaletteVisible=False` ⇒ 推荐色**唯一来源**）与强调色增减压块（`IsAccentColorsVisible=False`）；**不做**自定义色格；**不带透明度**（本工程取色均为不透明色） |
 | 按钮与语义 | `ColorPickerDialog.ShowAsync(owner, initial, title, resetText, hint)` ⇒ `ColorPickerResult(Confirmed, Color, Reset)`；**调用方自己解释 Reset**（类型色 = 移除覆盖；方向色 = 置空跟随主题） |
-| 已接入点（5/5） | ① 表内色块 ② 主题色 ③ 自定义背景色 ④ 发送色 ⑤ 接收色。原先这 4 处各自内联"预设色片 + 十六进制输入框"的 `Flyout` **全部删除**（连同只服务它们的命令）⇒ **全应用一种选色交互** |
+| 已接入点（5/5） | ① 表内色块 ② 主题色 ③ 自定义背景色 ④ 发送色 ⑤ 接收色。**全应用一种选色交互** |
 | 不做 | 不做**指标面板**（颜色表**只做图例**，不加速率/流量列）；不做主题联动校验（不提示两色相同/低对比） |
 | 布局纪律 | 标题**只由窗口标题栏给**（窗口内不重复写）；提示文字**整行独占 + 自动换行**；按钮**单独一行右对齐**；窗口 `SizeToContent="WidthAndHeight"` |
 | 模板（必做） | `ColorView` 的模板在**它自己的程序集**里、`FluentTheme` **不含** ⇒ 必须在 `App.axaml`（及快照项目 `SnapshotApp`）显式挂 `avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml`。**不挂不报错，只是什么都不画**（窗口只剩标题 + 提示 + 按钮）；回归网 = `ColorPickerDialogSnapshotTests`（真实 Skia 出像素 + 数"不同颜色数"） |
 
 ---
 
-## 颜色角色 token 与色板 〔源: 09 §2.1/§2.2/§10 C9-2/C9-3 + 05 §5.19 + ADR-0038 D4〕
+## 颜色 token 与色板 〔源: 09 §2.1/§2.2/§10 C9-2/C9-3 + 05 §5.19 + ADR-0038 D4〕
 
-所有颜色以**角色 token** 引用（不直接写死色值）；主题切换时**只替换 token 值**。
+所有颜色以 **token 键**引用（不直接写死色值）；主题切换时**只替换 token 值**。
 
-| 角色 | 用途 |
+| token 键（`Tokens.axaml` 的 `x:Key`） | 用途 |
 |---|---|
-| `bg.workspace` | 工作区层背景（**默认纯色、无背景图**）。多窗口形态下模块区**不存在框架背景**（桌面即背景），该 token 现仅用于弹窗内的预览区 / 空态占位 |
-| `bg.module` / `bg.chrome` | 模块视图背景 / 框架 UI 面板背景 |
-| `border.default` / `border.strong` | 模块与面板边框（悬停 = `border.strong`） |
-| `text.primary` / `text.secondary` / `text.muted` | 文本三级 |
-| `accent.primary` | 主色（**冷色**）：选中、聚焦、主按钮 |
-| `accent.secondary` | 次强调（青）：信息类层区分 |
-| `direction.send` / `direction.receive` | **方向语义色**，与 `accent.*` **完全解耦**（见上一节消费者表） |
-| `semantic.ok` / `warn` / `error` / `idle` | 语义色：正常 / 告警 / 故障 / 空闲·停流（**不开放自定义**） |
-| `overlay.selection` / `overlay.highlight` | 选中与聚焦高亮的半透明叠加 |
-| `overlay.scrim` / `overlay.ink` / `overlay.inkMuted` | 叠加层遮罩（"灰玻璃"浓度）/ 叠层主文字 / 叠层次文字 |
-| `overlay.flow` | **模块内部处理顺序线**的中性低对比色（细实线、不流动） |
+| `BgWorkspace` | 工作区层背景（**默认纯色、无背景图**）。多窗口形态下模块区**不存在框架背景**（桌面即背景），该 token 现仅用于弹窗内的预览区 / 空态占位 |
+| `BgModule` / `BgChrome` | 模块视图背景 / 框架 UI 面板背景 |
+| `BorderDefault` / `BorderStrong` | 模块与面板边框（悬停 = `BorderStrong`） |
+| `TextPrimary` / `TextSecondary` / `TextMuted` | 文本三级 |
+| `AccentPrimary` | 主色（**冷色**）：选中、聚焦、主按钮 |
+| `AccentSecondary` | 次强调（青）：信息类层区分 |
+| `DirectionSend` / `DirectionReceive` | **方向语义色**，与 `Accent*` **完全解耦**（见上一节消费者表） |
+| `SemanticOk` / `SemanticWarn` / `SemanticError` / `SemanticIdle` | 语义色：正常 / 告警 / 故障 / 空闲·停流（**不开放自定义**） |
+| `OverlaySelection` / `OverlayHighlight` | 选中与聚焦高亮的半透明叠加 |
+| `OverlayScrim` / `OverlayInk` / `OverlayInkMuted` | 叠加层遮罩（"灰玻璃"浓度）/ 叠层主文字 / 叠层次文字 |
+| `OverlayFlow` | **模块内部处理顺序线**的中性低对比色（细实线、不流动） |
 | `portMarker` 速率字号 token（`PortMarkerRateFontSize`） | 叠加层里端口标记上的通路速率字号（取值见「端口标记」节） |
 
 **深色主题**
 
-| 角色 | 值 |
+| token 键（`Tokens.axaml` 的 `x:Key`） | 值 |
 |---|---|
-| `bg.workspace` | `#1E1E1E` |
-| `bg.module` / `bg.chrome` | `#252526` |
-| `border.default` / `border.strong` | `#3F3F46` / `#52525B` |
-| `text.primary` / `secondary` / `muted` | `#E6E6E6` / `#A1A1AA` / `#71717A` |
-| `accent.primary` | `#3B82F6`（蓝） |
-| `accent.secondary` | `#22D3EE`（青） |
-| `direction.send` / `direction.receive` | `#F59E0B`（橙）/ `#22D3EE`（青） |
-| `semantic.ok` / `warn` / `error` / `idle` | `#22C55E` / `#F59E0B` / `#EF4444` / `#6B7280` |
-| `overlay.selection` / `highlight` | `#3B82F6` @20% / @12% |
+| `BgWorkspace` | `#1E1E1E` |
+| `BgModule` / `BgChrome` | `#252526` |
+| `BorderDefault` / `BorderStrong` | `#3F3F46` / `#52525B` |
+| `TextPrimary` / `TextSecondary` / `TextMuted` | `#E6E6E6` / `#A1A1AA` / `#71717A` |
+| `AccentPrimary` | `#3B82F6`（蓝） |
+| `AccentSecondary` | `#22D3EE`（青） |
+| `DirectionSend` / `DirectionReceive` | `#F59E0B`（橙）/ `#22D3EE`（青） |
+| `SemanticOk` / `SemanticWarn` / `SemanticError` / `SemanticIdle` | `#22C55E` / `#F59E0B` / `#EF4444` / `#6B7280` |
+| `OverlaySelection` / `OverlayHighlight` | `#3B82F6` @20% / @12% |
 
 **浅色主题**
 
-| 角色 | 值 |
+| token 键（`Tokens.axaml` 的 `x:Key`） | 值 |
 |---|---|
-| `bg.workspace` | `#F3F4F6` |
-| `bg.module` / `bg.chrome` | `#FFFFFF` / `#FAFAFA` |
-| `border.default` / `border.strong` | `#D4D4D8` / `#A1A1AA` |
-| `text.primary` / `secondary` / `muted` | `#18181B` / `#52525B` / `#A1A1AA` |
-| `accent.primary` | `#2563EB` |
-| `accent.secondary` | `#0891B2` |
-| `direction.send` / `direction.receive` | `#EA580C`（暖橙）/ `#0891B2`（冷青） |
-| `semantic.ok` / `warn` / `error` / `idle` | `#16A34A` / `#D97706` / `#DC2626` / `#9CA3AF` |
+| `BgWorkspace` | `#F3F4F6` |
+| `BgModule` / `BgChrome` | `#FFFFFF` / `#FAFAFA` |
+| `BorderDefault` / `BorderStrong` | `#D4D4D8` / `#A1A1AA` |
+| `TextPrimary` / `TextSecondary` / `TextMuted` | `#18181B` / `#52525B` / `#A1A1AA` |
+| `AccentPrimary` | `#2563EB` |
+| `AccentSecondary` | `#0891B2` |
+| `DirectionSend` / `DirectionReceive` | `#EA580C`（暖橙）/ `#0891B2`（冷青） |
+| `SemanticOk` / `SemanticWarn` / `SemanticError` / `SemanticIdle` | `#16A34A` / `#D97706` / `#DC2626` / `#9CA3AF` |
 
 **主题机制**：内置**深浅两套 token**（`Tokens.axaml` 的 `ThemeDictionaries`，**默认浅色**，由 `App.axaml` 合并进应用资源）；用户可切换、**可跟随系统**、**可替换背景色与色系**（替换 = 覆盖 token 值，不改结构）。实现 = **改写主题字典并快照还原**（Avalonia 资源查找顺序为"主题字典 → 自身条目 → 合并字典"，覆盖放到合并字典会被内置 token 盖住）；设置页改动**即时生效**，模块窗口 / 弹窗 / 叠加层一并跟随。背景 = 纯色 4 档、**v1 无图片背景**。
 
@@ -394,13 +440,13 @@
 
 | 状态 | 颜色 | 形状 / 图标 | 含义 |
 |---|---|---|---|
-| 正常 / Active | `semantic.ok` | 实心点 | 参与数据流 |
-| Disabled | `semantic.idle` | 空心点 | 保留拓扑、暂停数据流 |
-| 停流（上游无输入） | `semantic.idle` | 空心点 + 灰线 | **合法状态**，非错误 |
-| 无数据流（方向不匹配） | `semantic.warn` | 三角 | 连接存在但无数据 |
-| 悬空（口消失） | `semantic.warn` | 断续边框 | 保留声明 + Issue |
-| 异常停机 | `semantic.error` | 叉 / 惊叹 | 模块活动体异常退出 |
-| Issue 标注 | `semantic.error` / `warn` | 角标 | 归属对象 + 汇总列表 |
+| 正常 / Active | `SemanticOk` | 实心点 | 参与数据流 |
+| Disabled | `SemanticIdle` | 空心点 | 保留拓扑、暂停数据流 |
+| 停流（上游无输入） | `SemanticIdle` | 空心点 + 灰线 | **合法状态**，非错误 |
+| 无数据流（方向不匹配） | `SemanticWarn` | 三角 | 连接存在但无数据 |
+| 悬空（口消失） | `SemanticWarn` | 断续边框 | 保留声明 + Issue |
+| 异常停机 | `SemanticError` | 叉 / 惊叹 | 模块活动体异常退出 |
+| Issue 标注 | `SemanticError` / `SemanticWarn` | 角标 | 归属对象 + 汇总列表 |
 
 **状态色的第二来源禁止**：连接 / 停流状态统一由**网络成员关系**（`FindPortNetwork`）派生（不看绑定 ⇒ 停流网络口径一致），UI 侧连接状态**只由一处生产**、结构一变**当帧刷新**（拓扑签名）。
 
@@ -410,8 +456,8 @@
 
 | 交互 | 反馈 |
 |---|---|
-| 悬停模块 | 边框转 `border.strong` |
-| 选中模块 | 主色边框 + `overlay.selection` 叠加 |
+| 悬停模块 | 边框转 `BorderStrong` |
+| 选中模块 | 主色边框 + `OverlaySelection` 叠加 |
 | 聚焦 / 高亮相关者 | 相关模块与连线提升不透明度；其余降透明度（**不隐藏**） |
 | 拖动 | 被拖对象半透明；**吸附命中时显示对齐辅助线** |
 | 拼接命中 | 端口标记**描边** = 该口的**方向色**、线宽 **2**（常态 1）——颜色不再区分"预览 vs 常态"，由**线宽**区分 |
@@ -420,8 +466,8 @@
 | **输入处理失败**（G3 · 2026-09） | 该输入框边框 → **`SemanticError`**、**线宽 2**（常态 1）——"**显著标红**"（用户草图原文）。**做减法**：不叠背景色、不加图标、不弹提示；原因文本仍走该输入框右侧的**就地提示**位。**只在模块回报失败时出现**；**下一次提交即刷新**（框架在投递入队时清旧结果） |
 | **数值输入**（2026-09） | 声明 `InputKind = Number` 的输入框：**非法字符根本不进框**（隧道阶段吞掉，用户不会"先写错再被拒"）；其余视觉与文本输入**完全一致**（不加 spinner、不加图标 —— 需要时再说） |
 | **十六进制输入**（2026-09 · 见 `decisions.md` 7.26） | 声明 `InputKind = Hex` 的输入框：**只进 `0-9A-Fa-f` 与空白**（空格/换行/制表符），其余字符在隧道阶段吞掉；**空白仅排版**（"HEX 里的换行不是字符"）。**视觉与文本输入完全一致**（**不做**等宽字体、**不做**自动两两分组、**不做**大小写规范化 —— 需要时再评估；"做减法"与 G3 同一取向） |
-| **输入框对齐**（2026-09） | 由**模块声明**（`ViewElement.Alignment`），样式类 `TextBox.alignLeft/alignCenter/alignRight`；`Default` ⇒ 落框架默认（左）。**框架不替模块限死对齐**（用户裁定："有利于视觉组织"） |
-| **输入框单位**（2026-09） | **不做框内后缀**（用户裁定："容易给人一种'这里单位可以改'的错觉"）⇒ 单位是**输入框右侧的框外标签**，色 `TextSecondary`、字号 10，来源 = `ViewDataSource.Unit`；空则不显示。该位置与 G3 的**就地提示**同处一列（单位在前、提示在后） |
+| **输入框对齐**（2026-09） | 由**模块声明**（schema 键 `textAlign`，取值 `default`/`left`/`center`/`right`，缺省 `default`），样式类 `TextBox.alignLeft/alignCenter/alignRight`；`default` ⇒ 落框架默认（左）。**框架不替模块限死对齐**（用户裁定："有利于视觉组织"） |
+| **输入框单位**（2026-09） | **不做框内后缀**（用户裁定："容易给人一种'这里单位可以改'的错觉"）⇒ 单位是**输入框右侧的框外标签**，色 `TextSecondary`、字号 10，来源 = 该输入源在 `view.json` 的 `sources[]` 里声明的 `unit`；空则不显示。该位置与 G3 的**就地提示**同处一列（单位在前、提示在后） |
 | 诊断提示（轻量） | 图标 + 短文本，**低饱和度**（不打扰）；位于模块窗口内或诊断弹窗 |
 
 ---
@@ -544,7 +590,7 @@
 
 ## 来源与主文档同步状态 〔源: 主文档 §10.1-4/§10.4 + 主文档修订表 v1.0.9/1.0.10/1.0.11/1.0.12/1.0.13/1.0.14/1.0.28/1.0.29/1.0.30/1.0.31〕
 
-- 本文件的叠加层信息设计（两个信息维度、角色方块、线的端点/流向、做减法、通路速率常驻、坐标系唯一事实源）以 **ADR-0052 + ADR-0053（含 §5 二次修正）** 为准；主文档**修订表 v1.0.28 / v1.0.29 已登记**这些修订，但主文档 **§10.1-4 的正文仍停留在更早的 ADR-0049 版**（仍写着"中心角色方块 / `N 口 · M 连` / 分侧摆放 / 信息卡只由发送侧画一次 / 接口层降权"等已被现行条款替换的表述）。按权威层级，**以主文档为准**——上述差异应回写主文档 §10.1-4。
+- 本文件的叠加层信息设计（两个信息维度、角色方块、线的端点/流向、做减法、通路速率常驻、坐标系唯一事实源）以 **ADR-0052 + ADR-0053（含 §5 二次修正）** 为准；主文档**修订表 v1.0.28 / v1.0.29 已登记**这些修订，但主文档 **§10.1-4 的正文仍停留在更早的 ADR-0049 版**（仍写着"中心角色方块 / `N 口 · M 连` / 分侧摆放 / 信息卡只由发送侧画一次 / 接口层降权"等已被现行条款替换的表述）。**读现行口径以本文件 + ADR 为准**；这是主文档正文的**措辞级落后**（不改变基线验收结论），按修订规则（主文档 §0.4 第 4 条 → `docs/DOC-WORKFLOW.md` §2）**不回写主文档正文**。
 - 模块窗口视觉规范（§10.4）、端口标记规格（含 ADR-0043 修订）、默认尺寸（ADR-0041 D6）、设置项（§9.5）在主文档中均为现行表述，与本文件一致。
 - **遮罩浓度**以 `ADR-0053` §5.1 的 **0.60** 为准（其明文写"`OverlayScrim` 0.85 → 0.60，浅/深两套都改"）；`architecture/05` §5.25 记录的"浅 `#0F172A`@55% / 深 `#000000`@45%"是更早的 ADR-0045 取值，读旧分册时不要采信该浓度。
 - **动画时钟频率**以 ADR-0053 的"**60 Hz 时间相位**"为准；`05` §5.25 与 `18` §8.12 的"共享 20 Hz 时钟"是被取代的帧计数口径。
@@ -603,7 +649,7 @@
 
 **代码证据**
 
-- 模型几何是**物理像素的小数**：`Width = PreferredWidth * _scale`（`ModuleViewViewModel.cs:99`）、拖动目标 `targetX = pointerX - _dragPointerOffsetX`（`ModuleWindowsViewModel.cs:471`）都是 double。
+- 模型几何是**物理像素的小数**：`Width = 声明宽度 * _scale`（`ModuleViewViewModel.cs:99`）、拖动目标 `targetX = pointerX - _dragPointerOffsetX`（`ModuleWindowsViewModel.cs:471`）都是 double。
 - 窗口落位 / 落尺寸时才取整：`position = new PixelPoint((int)Math.Round(geometry.X), …)`、`window.Width = geometry.Width / scaling`（`ModuleWindowManager.cs:224-247`）。**位置与尺寸各自独立取整**，没有任何"回写对齐"。
 - 本机实测 DPI：`HKCU\Control Panel\Desktop\LogPixels = 120` ⇒ **缩放 125%**。于是
   - 参考模块"手动数据发送器"声明 330×330 DIP ⇒ **模型 412.5 × 412.5 px（小数）**（**该载体已于 2026-09 按用户裁定删除**，数据保留为当时的实测证据）；外壳 858 DIP 高 ⇒ 1072.5 px（小数）；

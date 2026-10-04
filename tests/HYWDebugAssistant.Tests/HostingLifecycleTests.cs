@@ -46,7 +46,10 @@ public class HostingLifecycleTests
         instance.Ports[0].Name.ShouldBe("out");
         instance.Ports[0].Direction.ShouldBe(PortDirection.Send);
         instance.View.ShouldNotBeNull();
-        instance.View!.Elements.Count.ShouldBe(5, "文本发送器声明 5 个顶层元素（分页输入区 / 发送 / 连续发送 / 间隔 / 已发送）");
+        instance.View!.Views.Count.ShouldBe(1, "整份声明只渲染第 0 个视图");
+        instance.View!.Views[0].Root.Children.Count.ShouldBe(
+            5,
+            "文本发送器声明 5 个顶层元素（分页输入区 / 发送 / 连续发送 / 间隔 / 已发送）");
         instance.ActivitySource.ShouldNotBeNull();
     }
 

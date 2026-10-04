@@ -47,6 +47,28 @@ public sealed class WorkspaceLayout
             ? geometry
             : new PortGeometryView(portName);
 
+    /// <summary>
+    /// 取某端口的几何，并告知**用户是否调整过它**。
+    /// </summary>
+    /// <remarks>
+    /// 用途：包内 `view.json` 声明的 `ports[].default.offset` / `label` 只是"**用户没动过时的缺省**"，
+    /// 所以消费侧必须能区分"有记录"与"没记录"——<see cref="GetPort"/> 把两者都归成缺省值，区分不开。
+    /// </remarks>
+    /// <param name="instanceId">实例 id。</param>
+    /// <param name="portName">口名。</param>
+    /// <param name="geometry">取到的几何（没有记录时为缺省值，不是 <see langword="null"/>）。</param>
+    public bool TryGetPort(string instanceId, string portName, out PortGeometryView geometry)
+    {
+        if (_ports.TryGetValue(instanceId, out var ports) && ports.TryGetValue(portName, out var stored))
+        {
+            geometry = stored;
+            return true;
+        }
+
+        geometry = new PortGeometryView(portName);
+        return false;
+    }
+
     /// <summary>设置某端口的几何。</summary>
     internal void SetPort(string instanceId, PortGeometryView geometry)
     {

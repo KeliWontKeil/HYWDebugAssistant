@@ -4,14 +4,14 @@ using Avalonia.Threading;
 namespace HYWDebugAssistant.Ui.Controls;
 
 /// <summary>
-/// **叠加信息层的共享动画时钟**【ADR-0045 · 第十五轮】。
+/// **叠加信息层的共享动画时钟**。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>为什么共享</b>：叠加层的"流动虚线"要随时间推进，但**不能**每个模块窗口各起一个定时器
 ///     （N 个窗口 = N 条时间线，还可能因相位不同看起来各不相同）。这里只维护**一个** 20 Hz 时钟，
 ///     所有**可见**的 <see cref="ConnectionOverlay"/> 共用同一个 tick ⇒ 全屏虚线**同相流动**；</item>
-///   <item><b>什么时候不跑</b>：叠加层本身是**默认关闭**的调试层（ADR-0045 D1）。关闭时对应的
+///   <item><b>什么时候不跑</b>：叠加层本身是**默认关闭**的调试层。关闭时对应的
 ///     <see cref="ConnectionOverlay"/> 会把自己退订 ⇒ **没有订阅者就不跑表**（不白烧 CPU）；
 ///     订阅者存在但窗口被隐藏（`IsEffectivelyVisible == false`）时，tick 里**跳过重绘**；</item>
 ///   <item><b>相位与方向</b>：<see cref="DashOffset"/> 给出虚线偏移量；线的几何**恒按数据流方向**绘制
@@ -24,7 +24,7 @@ public static class OverlayAnimationClock
     /// 时钟间隔（毫秒）：**16 ms ≈ 60 Hz**（时间相位下这只是"多久重绘一次"）。
     /// </summary>
     /// <remarks>
-    /// 【用户第三十四轮实测反馈："虚线流动**一卡一卡**……像一根匀速旋转的指针，转到 270° 突然跳回 0°"】
+    /// 虚线流动"**一卡一卡**"（像一根匀速旋转的指针，转到 270° 突然跳回 0°）有两个成因，分开看：
     /// 两个问题分开看：① **帧率**（旧实现 20 Hz、每 tick 跳 1.2 px）⇒ 提到 60 Hz；
     /// ② **真正的"跳一下"是相位环绕点算错了**（见 <see cref="Period"/> 的说明）—— 平滑一段后**周期性跳**正是环绕不连续的典型症状。
     /// </remarks>
@@ -69,7 +69,7 @@ public static class OverlayAnimationClock
     public static double PhaseAt(double seconds) => ((seconds * SpeedDipsPerSecond) % Period + Period) % Period;
 
     /// <summary>
-    /// 虚线偏移量（**两侧共用一个值**）【ADR-0053 · 用户第三十四轮修正】——取**当前相位**。
+    /// 虚线偏移量（**两侧共用一个值**）——取**当前相位**。
     /// </summary>
     public static double DashOffset => DashOffsetAt(Phase);
 

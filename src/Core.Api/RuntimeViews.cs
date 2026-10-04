@@ -11,18 +11,19 @@ namespace HYWDebugAssistant.Core.Api;
 /// <param name="AnchorOffset">端口在所属边缘上的归一化位置（0–1；**端口几何**，随组合件保存）。</param>
 /// <param name="IsAnchorFixed">
 /// 锚点是否「**固定**」—— 固定 ⇒ **不可拖动**（模块拉伸时按比例重排；`Offset` 归一化，天然如此）。
-/// **与「模块窗口锁定」不是一回事**（后者是整个模块不可移动、不可缩放）⇒ 用词一律「固定」（用户 2026-09 裁定）。
+/// **与「模块窗口锁定」不是一回事**（后者是整个模块不可移动、不可缩放）⇒ 用词一律「固定」。
 /// <para>
 /// 这里是**已解析的有效值**（G5 · C5-7）：<c>PortGeometryView.IsAnchorFixed</c>（用户设置）优先，
-/// 未设置 ⇒ 取模块声明的 <c>PortDeclaration.AnchorDraggable</c>（默认 <see langword="false"/> = 固定）。
+/// 未设置 ⇒ 框架固定项（**锚点默认固定** = 不可拖动）；
+/// 解析唯一实现 = <c>Core.Composition.PortGeometryResolution.ResolveAnchorFixed</c>）。
 /// 界面只读这一个值 —— **不要再**自己去合流两个来源（那就是"同一事实两个来源"）。
 /// </para>
 /// </param>
 /// <param name="NetworkLabel">
-/// 端口**网络标签**（ADR-0034：用户可见的唯一建网机制）；同名标签的发送口与接收口自动连成命名网络。
+/// 端口**网络标签**（用户可见的唯一建网机制）；同名标签的发送口与接收口自动连成命名网络。
 /// </param>
 /// <param name="ContractText">
-/// 端口**信息类型**的可读描述【新增 · M1-16 / ADR-0039 D4】（如 <c>f32</c> · <c>{seq:u64, value:f32}</c>）。
+/// 端口**信息类型**的可读描述（如 <c>f32</c> · <c>{seq:u64, value:f32}</c>）。
 /// 由 <c>ContractShape.Describe()</c> 渲染；null = 未知（界面显示占位符）。
 /// </param>
 public sealed record PortView(
@@ -37,26 +38,27 @@ public sealed record PortView(
     string? ContractText = null)
 {
     /// <summary>
-    /// 该口的**有效挂载边**（G5 · C5-7）——**永远是具体边**，不会是 <c>Auto</c>。
+    /// 该口的**有效挂载边**（G5 · C5-7）——来自**包内声明**（或用户在画布上拖动后的覆盖）。
     /// </summary>
     /// <remarks>
-    /// 取值优先级：**用户在画布上拖动后的覆盖**（`PortGeometryView.Edge`）优先于**模块声明的默认边**
-    /// （`PortDeclaration.Edge`，`Auto` 时按数据流惯例解析为"发送右 / 接收左"）；解析见 `PortEdgeResolution`（唯一实现）。
+    /// 取值优先级：**用户在画布上拖动后的覆盖**（`PortGeometryView.Edge`）优先于**包内声明的默认边**
+    /// （`frame.ports[].edge`）；**没有惯例回退** —— 每个数据面口都必须在声明里显式给出 edge，
+    /// 缺条目 / 缺 edge 按硬伤报（未声明就没有位置，框架不替它猜）；解析见 `PortEdgeResolution`（唯一实现）。
     /// <para>
     /// <b>参与两件事</b>：① **呈现**（标记贴哪条边、横排还是竖排）；② **建网判定**（"接触且对齐"要求端口挂在
-    /// **朝向接触面**的那条边上 —— 2026-09 增补，见 `05` §2 的七条表）。**不参与**兼容 / 停流 / 投递 / 计量。
+    /// **朝向接触面**的那条边上）。**不参与**兼容 / 停流 / 投递 / 计量。
     /// </para>
     /// </remarks>
     public HYWDebugAssistant.Sdk.Ports.PortEdge Edge { get; init; } = HYWDebugAssistant.Sdk.Ports.PortEdge.Left;
     /// <summary>
-    /// **该口声明的类型身份**（`标识@版本`；未声明或引用不可解析 ⇒ <see langword="null"/>）【ADR-0048 R2】。
+    /// **该口声明的类型身份**（`标识@版本`；未声明或引用不可解析 ⇒ <see langword="null"/>）。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
     ///   <item>与 <see cref="ContractText"/> 的分工：**本字段 = 身份**（用于配对/色板映射/角色键），
     ///     <see cref="ContractText"/> = **呈现文本**（给人看）；</item>
     ///   <item>**为什么不能用呈现文本代替**：`f32` 这个文本无法区分"声明了 `hyw/f32@1`"与"声明了别的标识但形状相同"，
-    ///     而 ADR-0051 明确二者**不是同一种量** ⇒ 用文本会把两种角色错误合并；</item>
+    ///     而二者**不是同一种量** ⇒ 用文本会把两种角色错误合并；</item>
     ///   <item>未声明类型的旧模块：身份回落为**结构描述**（= <see cref="ContractText"/>）。</item>
     /// </list>
     /// </remarks>
@@ -65,7 +67,7 @@ public sealed record PortView(
 
 
 /// <summary>
-/// **角色视图**（模块的一个**功能分块**）【ADR-0052】。
+/// **角色视图**（模块的一个**功能分块**）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -74,7 +76,7 @@ public sealed record PortView(
 ///   <item><b>`m/n` 是框架派生量</b>（不是模块自报）：<see cref="InboundRoleCount"/> = **输入侧连接的对端角色数**、
 ///     <see cref="OutboundRoleCount"/> = **输出侧连接的对端角色数**；去重键 =（对端实例, 对端角色）；
 ///     **没有该方向的口 ⇒ <see langword="null"/>**（呈现层写 `--`）；**有口但没连 ⇒ 0**（两者含义不同）；</item>
-///   <item><b>只用于呈现</b>：不参与建网、兼容、停流、投递与计量，也不进组合件（ADR-0048 R9）。</item>
+///   <item><b>只用于呈现</b>：不参与建网、兼容、停流、投递与计量，也不进组合件。</item>
 /// </list>
 /// </remarks>
 /// <param name="Key">角色键（= `实例ID/角色Id`，稳定、可供 UI 配对）。</param>
@@ -92,13 +94,13 @@ public sealed record PortView(
 /// </param>
 /// <param name="NominalRateHz">该类型的**标称速率**（Hz；未声明 ⇒ null）——有了它才能看"掉速"。</param>
 /// <param name="PayloadRateBytesPerSecond">
-/// **该角色自身的有效载荷字节速率**（B/s）【ADR-0053 · 用户第三十四轮；口径 2026-09 修正】：
+/// **该角色自身的有效载荷字节速率**（B/s）：
 /// 取该角色**产出侧**所承载网络的**有效载荷字节速率**之和（有输出口 ⇒ 输出网络；纯汇分块 ⇒ 输入网络）。
 /// 这是**角色维度**的量（"这块功能自己在跑多快"），与端口标记上的**通路速率**（"这条网络在跑多快"）
-/// 是两个维度——两者读**同一份**框架诊断，但表达的对象不同（用户裁定：不能因为底层同源就当成一个维度）。
+/// 是两个维度——两者读**同一份**框架诊断，但表达的对象不同（底层同源不等于同一个维度）。
 /// <para>
-/// **为什么是"有效载荷"而不是"搬运"**（用户 2026-09 裁定："速率只要有效数据，截断的不应该算在有效数据里面，
-/// 整个数据包大小速率是底层协议，用户想知道的肯定是**有效速率**"）⇒ 本字段取第 3 档
+/// **为什么是「有效载荷」而不是「搬运」**（速率只要有效数据，截断的不应算在有效数据里面；
+/// 整个数据包大小速率是底层协议，要知道的肯定是**有效速率**）⇒ 本字段取第 3 档
 /// （<see cref="BindingDiagnosticView.PayloadByteRate"/>：逐单元读类型声明的有效长度字段），
 /// 不是含补零/对齐填充的 <see cref="BindingDiagnosticView.BusByteRate"/>。
 /// </para>
@@ -122,7 +124,7 @@ public sealed record RoleView(
     long Dropped = 0);
 
 /// <summary>
-/// **角色间数据流视图**（一条线 = 一次"角色 → 角色"的流动）【ADR-0052】。
+/// **角色间数据流视图**（一条线 = 一次「角色 → 角色」的流动）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -139,7 +141,7 @@ public sealed record RoleView(
 /// <param name="PortPairCount">聚合的口对数（该角色对之间实际建立投递的口对个数）。</param>
 /// <param name="NetworkKeys">
 /// 承载这些连接的网络身份键（去重、有序）。**只用于取指标**（速率/投递/丢弃按网络查诊断）——
-/// **不要在界面上显示网络名**：网络标签是**接口层**概念，与角色不是同一层级（ADR-0052）。
+/// **不要在界面上显示网络名**：网络标签是**接口层**概念，与角色不是同一层级。
 /// </param>
 public sealed record RoleFlowView(
     string LocalRoleKey,
@@ -150,7 +152,7 @@ public sealed record RoleFlowView(
     IReadOnlyList<string> NetworkKeys);
 
 /// <summary>
-/// **模块内部处理顺序视图**（`角色 → 角色`）【ADR-0052】。
+/// **模块内部处理顺序视图**（`角色 → 角色`）。
 /// </summary>
 /// <remarks>来源 = 模块**声明**（`DeclareFlow`）；**零声明 ⇒ 空**（框架不猜）。只呈现，不参与任何判定，不进组合件。</remarks>
 /// <param name="FromRoleKey">起点角色键。</param>
@@ -173,7 +175,10 @@ public static class RuntimeStateNames
 /// <param name="HasView">是否声明了视图（false = 无 UI 模块）。</param>
 /// <param name="Ports">口视图。</param>
 /// <param name="IsPlaceholder">是否占位实例（模块定义缺失/版本不兼容：无活动、只保留配置与网络成员声明，§9.3）。</param>
-/// <param name="View">视图声明（<see langword="null"/> = 无 UI 模块；框架按声明渲染，模块不提供 View 类型）。</param>
+/// <param name="View">
+/// 视图声明（包内 <c>view.json</c> 的解析结果）：**界面形态的唯一事实源**，框架按它渲染，
+/// 模块不提供 View 类型；`View.Views` 为空 = 这个实例没有任何控件。
+/// </param>
 public sealed record ModuleInstanceView(
     string InstanceId,
     string ModuleId,
@@ -182,10 +187,10 @@ public sealed record ModuleInstanceView(
     bool HasView,
     IReadOnlyList<PortView> Ports,
     bool IsPlaceholder = false,
-    HYWDebugAssistant.Sdk.Views.ViewDeclaration? View = null);
+    HYWDebugAssistant.Sdk.Views.ViewDocument? View = null);
 
 /// <summary>
-/// 某个**输入元素**的最近一次**处理结果**（G3 · 用户 2026-09 裁决；经 <c>IRuntimeQuery.GetInputFeedback</c> 取得）。
+/// 某个**输入元素**的最近一次**处理结果**（G3；经 <c>IRuntimeQuery.GetInputFeedback</c> 取得）。
 /// </summary>
 /// <param name="SourceName">输入元素的数据源名（= 视图声明里该元素的 <c>DataSource</c>）。</param>
 /// <param name="Succeeded">是否处理成功（false ⇒ UI 渲染失败态）。</param>
@@ -201,7 +206,7 @@ public sealed record InputFeedbackView(string SourceName, bool Succeeded, string
 /// <param name="IsAnonymous">是否匿名（直连）。</param>
 /// <param name="IsAutoGenerated">是否由快速建网自动生成。</param>
 /// <param name="IsStalled">
-/// 是否停流（**全部源未锚定**，加载降级态）。**部分源未锚定不算停流**（ADR-0050 M5）。
+/// 是否停流（**全部源未锚定**，加载降级态）。**部分源未锚定不算停流**。
 /// </param>
 /// <param name="Source">
 /// **主源**（`实例ID.口名` = <see cref="Sources"/> 的第一个；**停流时为首个未锚定的声明源**）。
@@ -227,7 +232,7 @@ public sealed record NetworkView(
     /// 现场同时存在两条匿名网络时，用 <c>Name</c> 当字典键会直接抛
     /// <c>ArgumentException: An item with the same key has already been added. Key: </c>（**空键**）。
     /// 故：**凡"把网络配对/索引"的地方，一律用本键，不要用 Name**。
-    /// **【ADR-0050 M5】** 键含**全部声明的源**（网络身份 = 声明的源集合 + 宿集合；两条都停流的网络
+    /// 键含**全部声明的源**（网络身份 = 声明的源集合 + 宿集合；两条都停流的网络
     /// 不得因"在场源为空"而撞键）；逐源的绑定/诊断键另见
     /// <see cref="BindingDiagnosticView.Key"/>（= `单源 → 宿子集`）。
     /// </remarks>
@@ -235,12 +240,12 @@ public sealed record NetworkView(
 
     /// <summary>
     /// **全部声明的源成员**（`实例.口名`；**在场的在前、悬空的后**，各组内有序）
-    /// **【ADR-0050 M2】多源是一等组合**：同名标签的多个发送端同属一条网络。
+    /// **多源是一等组合**：同名标签的多个发送端同属一条网络。
     /// </summary>
     /// <remarks>
     /// 单源网络为 1 个元素；位置参数 `Source` = 主源（= 本列表第一个）保留兼容。
     /// **在场与否**：<see cref="IsStalled"/> 回答"还有没有活着的源"，逐源归属看
-    /// <see cref="BindingDiagnosticView.Key"/>（每个在场的源一条诊断，ADR-0050 M7）。
+    /// <see cref="BindingDiagnosticView.Key"/>（每个在场的源一条诊断）。
     /// </remarks>
     public IReadOnlyList<string> Sources { get; init; } = [];
 }
@@ -270,21 +275,20 @@ public sealed record ModuleLayoutView(
 /// <param name="Offset">在所属边缘上的归一化位置（0–1）。</param>
 /// <param name="IsAnchorFixed">
 /// **用户对锚点「固定」的覆盖**（G5 · C5-7）：固定 ⇒ **不可拖动**（模块拉伸时锚点按比例重排 —— `Offset` 是归一化的，天然如此）。
-/// **与「模块窗口锁定」不是一回事**：后者是整个模块不可移动、不可缩放（ADR-0041 D1）。
-/// 用词一律「固定」，不用「锁定」（用户 2026-09 裁定，见 `decisions.md` 7.14）。
+/// **与「模块窗口锁定」不是一回事**：后者是整个模块不可移动、不可缩放。
+/// 用词一律「固定」，不用「锁定」。
 /// <para>
 /// <b>三态</b>（与 <see cref="Edge"/> 的 <c>Auto</c> 同一手法 —— 只是布尔没有哨兵值，故用 <see langword="null"/>）：
 /// <list type="bullet">
-///   <item><see langword="null"/> = **用户没设置过** ⇒ 该口是否可拖由**模块声明**
-///     <c>PortDeclaration.AnchorDraggable</c>（默认 <see langword="false"/> = 固定）决定；**缺省不写**；</item>
-///   <item>具体值 = **用户设过**（拖动 / 全局「固定 / 解锁端口锚点」快捷键）⇒ 覆盖模块声明，随组合件保存。</item>
+///   <item><see langword="null"/> = **用户没设置过** ⇒ 框架固定项（**锚点默认固定** = 不可拖动）；**缺省不写**；</item>
+///   <item>具体值 = **用户设过**（拖动 / 全局「固定 / 解锁端口锚点」快捷键）⇒ 覆盖缺省，随组合件保存。</item>
 /// </list>
-/// 少了"未设置"这一态，全局快捷键就无法解锁"模块声明为固定"的口（要么快捷键说谎，要么模块声明失效）——
+/// 少了"未设置"这一态，全局快捷键就无法解锁"包内声明为固定"的口（要么快捷键说谎，要么包内声明失效）——
 /// 两种坏结果都真实存在，故必须三态。
 /// </para>
 /// </param>
 /// <param name="Label">
-/// **端口网络标签**（ADR-0034：用户可见的唯一建网机制）——
+/// **端口网络标签**（用户可见的唯一建网机制）——
 /// 同名标签的发送口与接收口**自动连成一条命名网络**；空 = 未命名（不参与命名网络）。
 /// </param>
 /// <param name="Edge">
@@ -325,7 +329,7 @@ public sealed record SubscriptionSourceView(
     long Dropped)
 {
     /// <summary>
-    /// **模块提供的样本解码器**【ADR-0046 D1 ③】：呈现期解码由模块做，框架**只回调**。
+    /// **模块提供的样本解码器**：呈现期解码由模块做，框架**只回调**。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
@@ -362,7 +366,7 @@ public sealed record BindingDiagnosticView(
     public string Key { get; init; } = string.Empty;
 
     /// <summary>
-    /// **停流未投递**次数【ADR-0046 D8 / **ADR-0050 Q5**】—— 上游挂起/网络停流期间的发送：
+    /// **停流未投递**次数 —— 上游挂起/网络停流期间的发送：
     /// **合法状态，不是故障**，因此**不得**与"传输丢弃"混算。
     /// </summary>
     public long DropStalled { get; init; }
@@ -377,7 +381,7 @@ public sealed record BindingDiagnosticView(
     public long DropInvalidPayload { get; init; }
 
     /// <summary>
-    /// **传输丢弃**合计【ADR-0046 D8 三类之一】= 队列满 + 无承载 + 载荷非法。
+    /// **传输丢弃**合计 = 队列满 + 无承载 + 载荷非法。
     /// </summary>
     /// <remarks>
     /// **三类丢弃**必须分开看：**停流未投递**（<see cref="DropStalled"/>，合法状态）·
@@ -393,7 +397,7 @@ public sealed record BindingDiagnosticView(
     public string NetworkKey { get; init; } = string.Empty;
 
     /// <summary>
-    /// **单元速率**（数据报 / 秒；**按源计**）【ADR-0046 D8 第 1 档】——由框架的速率计给出，UI **不得**自行差分估算。
+    /// **单元速率**（数据报 / 秒；**按源计**）——由框架的速率计给出，UI **不得**自行差分估算。
     /// </summary>
     public double UnitRateHz { get; init; }
 
@@ -422,7 +426,7 @@ public sealed record BindingDiagnosticView(
 }
 
 /// <summary>
-/// **每 (实例, 口) 队列的深度与吞吐**（可观测性 L4；ADR-0050 Q2 + ADR-0046 D8"水位"）。
+/// **每 (实例, 口) 队列的深度与吞吐**（可观测性 L4；框架速率计的「水位」）。
 /// </summary>
 /// <param name="InstanceId">实例 ID。</param>
 /// <param name="PortName">接收口名。</param>
@@ -455,8 +459,8 @@ public sealed record PortQueueDepthView(
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>立项原因（用户 2026-09 裁定"统一宿口取数口径，关系到整个数据来源的一致性"）</b>：
-/// 此前界面按"两次字典查找 + 猜键"取数 —— 先按<b>网络身份键</b>（`源集合 → 宿集合`）查、查不到再拿
+/// <b>为什么统一宿口取数口径（关系到整个数据来源的一致性）</b>：
+/// 按「两次字典查找 + 猜键」取数会出错 —— 先按<b>网络身份键</b>（`源集合 → 宿集合`）查、查不到再拿
 /// <b>口字面量</b>去查<b>逐源诊断表</b>（键 = `单源 → 宿子集`，是<b>源</b>键）。宿口永远匹配不上后一张表
 /// ⇒ <b>宿口的投递/丢弃/速率静默为 0</b>（多源网络、加载期有未锚定源、宿被逐对兼容过滤时必现；
 /// 1:1 单源单宿时两个键恰好相等，所以一直看不出来）。
@@ -492,11 +496,11 @@ public sealed record PortQueueDepthView(
 /// （那会让同一根线的两侧显示不同的数）。
 /// <para>
 /// <see cref="BytesPerSecond"/>（搬运口径）**保留为 API 事实**，但**界面不再显示它**——
-/// 用户 2026-09 裁定："速率只要有效数据，截断的不应该算在有效数据里面"。
+/// 界面只要有效数据（截断的不应算在有效数据里面）。
 /// </para>
 /// </para>
 /// <para>
-/// <b>三类丢弃不混算</b>【ADR-0046 D8 / ADR-0050 Q5】：<see cref="Dropped"/> 只装
+/// <b>三类丢弃不混算</b>：<see cref="Dropped"/> 只装
 /// **传输丢弃**（队列满 + 无承载 + 载荷非法，= <see cref="BindingDiagnosticView.DropTransport"/>）；
 /// **停流未投递**是合法状态，单独放 <see cref="DropStalled"/>，**不并进** <see cref="Dropped"/>；
 /// **模块内部丢弃**（样本覆盖/丢弃）是模块自己的口径，不经网络诊断，故不在本视图内。
@@ -517,7 +521,7 @@ public sealed record PortQueueDepthView(
 public sealed record PortMetricsView(long Delivered, long Dropped, double BytesPerSecond)
 {
     /// <summary>
-    /// **停流未投递**次数【ADR-0046 D8 / ADR-0050 Q5】——上游挂起 / 网络停流期间的发送：
+    /// **停流未投递**次数 —— 上游挂起 / 网络停流期间的发送：
     /// **合法状态，不是故障**，因此**不得**与 <see cref="Dropped"/>（传输丢弃）混算，故单独给。
     /// </summary>
     public long DropStalled { get; init; }
@@ -544,7 +548,7 @@ public sealed record PortMetricsView(long Delivered, long Dropped, double BytesP
     /// **累计有效载荷字节**（= 各条流**逐单元读有效长度字段**累加的有效字节之和；**按源计**）。
     /// </summary>
     /// <remarks>
-    /// 【2026-09 用户裁定"速率只要有效数据"】与 <see cref="PayloadBytesPerSecond"/> **同一口径的累计量**
+    /// 与 <see cref="PayloadBytesPerSecond"/> **同一口径的累计量**（界面只要有效数据）
     /// （界面显示的"流量约 X"取它，不再取含补零的 <see cref="BytesDelivered"/>）。
     /// </remarks>
     public long PayloadBytesDelivered { get; init; }
@@ -553,7 +557,7 @@ public sealed record PortMetricsView(long Delivered, long Dropped, double BytesP
     /// **有效载荷字节速率**（字节 / 秒；**按源计**）——界面（网络标签 / 角色方块）显示的那一个速率。
     /// </summary>
     /// <remarks>
-    /// 【2026-09 用户裁定"速率只要有效数据"】= 逐源诊断 <see cref="BindingDiagnosticView.PayloadByteRate"/> 之和
+    /// = 逐源诊断 <see cref="BindingDiagnosticView.PayloadByteRate"/> 之和
     /// （逐单元读类型声明的有效长度字段；未声明 ⇒ 静态 `PayloadSizeInBytes` ?? 契约尺寸）。
     /// 与 <see cref="BytesPerSecond"/>（搬运字节，含补零/对齐）**是两个口径**：后者保留为 API 事实，
     /// **界面不再显示它**。
@@ -597,7 +601,7 @@ public sealed record IssueView(
 /// <param name="Capabilities">能力声明（如 <c>Network, File</c>）。</param>
 /// <param name="SourceDirectory">装入该模块的来源根（内置包目录或用户配置的根）；未知为 null。</param>
 /// <param name="NeedsRestart">
-/// 是否"在本次进程启动后被重新构建过"（ADR-0036 D4）：为 <see langword="true"/> 时该包**必须重启应用**才生效
+/// 是否「在本次进程启动后被重新构建过」：为 <see langword="true"/> 时该包**必须重启应用**才生效
 /// （程序集已载入且不可卸载；框架**不实现**热重载）。
 /// </param>
 /// <param name="Tags">
@@ -614,14 +618,14 @@ public sealed record ModuleCatalogEntryView(
     IReadOnlyList<string>? Tags = null);
 
 /// <summary>
-/// **建网候选**（ADR-0037）：发送端 → 接收端，**即将**因"接触且对齐"而连上。
+/// **建网候选**：发送端 → 接收端，**即将**因「接触且对齐」而连上。
 /// </summary>
 /// <param name="SourceLiteral">发送端口字面量（<c>实例ID.口名</c>）。</param>
 /// <param name="TargetLiteral">接收端口字面量（<c>实例ID.口名</c>）。</param>
 public sealed record ConnectionCandidateView(string SourceLiteral, string TargetLiteral);
 
 /// <summary>
-/// **拖动网络标签时的"连接对齐"建议**（G5 追加 · 用户 2026-09）。
+/// **拖动网络标签时的「连接对齐」建议**（G5）。
 /// </summary>
 /// <param name="InstanceId">本口所属实例。</param>
 /// <param name="PortName">本口名。</param>
@@ -646,7 +650,7 @@ public sealed record AnchorDockHintView(
     double Offset);
 
 /// <summary>
-/// **模块来源根的扫描结果**（ADR-0036 D1）——供「模块清单」弹窗做诊断：
+/// **模块来源根的扫描结果** —— 供「模块清单」弹窗做诊断：
 /// "到底扫了哪些目录、每个目录发生了什么"。
 /// </summary>
 /// <param name="Directory">根目录路径。</param>

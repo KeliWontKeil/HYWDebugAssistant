@@ -1,7 +1,7 @@
 namespace HYWDebugAssistant.Sdk.Context;
 
 /// <summary>
-/// **模块对自己发布的显示内容的请求面**〔2026-09 · 为 `hyw/data-monitor` 的「清空」而只增〕。
+/// **模块对自己发布的显示内容的请求面**。
 /// </summary>
 /// <remarks>
 /// <para>
@@ -11,8 +11,8 @@ namespace HYWDebugAssistant.Sdk.Context;
 /// 模块**读得到**界面事实，但**改不了**用户的选中页与编辑内容；这里能动的是**模块自己发布出去的那份显示内容**。
 /// </para>
 /// <para>
-/// <b>为什么不能靠"再发一行空行"代替</b>：显示缓冲的语义是"**不清空就一直在**"
-/// （用户 2026-09 裁定 · `decisions.md` 7.31）⇒ 只有**真正的清空**才能把它变空；
+/// <b>为什么不能靠「再发一行空行」代替</b>：显示缓冲的语义是「**不清空就一直在**」
+/// ⇒ 只有**真正的清空**才能把它变空；
 /// 而缓冲由**框架持有**（模块不留副本），所以模块够不到它 —— 必须由模块**请求**、框架执行。
 /// </para>
 /// <para>
@@ -20,9 +20,9 @@ namespace HYWDebugAssistant.Sdk.Context;
 /// 框架不跨线程碰 UI）。**不进组合件、不持久化**。
 /// </para>
 /// <para>
-/// <b>只增历史</b>：①〔2026-09〕`Clear`（为「清空」而加）；②〔2026-09 用户裁定 · WinForms 模型〕
-/// <see cref="AppendText"/> / <see cref="AppendLine"/>（把"换行归谁表达"从**文本里的标记**改成**通道调用**）。
-/// 两次都是**只增**：既有模块零改动（老的"发布定长样本"路径照常工作）。
+/// <b>只增</b>：<c>Clear</c> 与 <see cref="AppendText"/> / <see cref="AppendLine"/> 都是新增成员
+/// （后者把「换行归谁表达」从**文本里的标记**改成**通道调用**）；
+/// 两者都保证既有模块零改动（老的「发布定长样本」路径照常工作）。
 /// </para>
 /// </remarks>
 public interface IViewDisplayAccess
@@ -34,8 +34,8 @@ public interface IViewDisplayAccess
     /// <param name="text">要追加的文本（已经是显示形态：文本或 `AA BB CC`）。</param>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item><b>2026-09 用户裁定（WinForms 模型）</b>："如果不开换行或是时间戳，追加数据应**直接追加在后面**，
-    ///     不做任何标记，保证数据的完整性" ⇒ 这一条就是那句"直接追加在后面"；</item>
+    ///   <item><b>追加语义</b>：不开换行或时间戳时，追加数据应**直接追加在后面**、
+    ///     不做任何标记，以保证数据的完整性。</item>
     ///   <item><b>它不表示换行</b>：一行多长由**文本框宽度**（自动折行）决定，数据侧不规定任何字节数
     ///     —— 于是不存在"半行/pending tail"：数据**到达即落地**；</item>
     ///   <item><b>换行是"通道的事"</b>：数据里真的有换行**字符**时，那些字符就在 <paramref name="text"/> 里；
@@ -54,7 +54,7 @@ public interface IViewDisplayAccess
     /// <param name="text">本行的文本（不含任何标记）。</param>
     /// <remarks>
     /// 与 <see cref="AppendText"/> 的差别**只在换行归谁表达**：这里由**通道调用**表达换行，而不是往文本里塞换行字符
-    /// ⇒ 显示层据此**不画 `↵`**（用户裁定："通道引进的换行不是字符，永远不该有 ↵"）。
+    /// ⇒ 显示层据此**不画 `↵`**（通道引进的换行不是字符，永远不该有 ↵）。
     /// </remarks>
     void AppendLine(string dataSourceName, string text);
 

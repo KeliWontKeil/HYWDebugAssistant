@@ -11,18 +11,15 @@ using Xunit;
 namespace HYWDebugAssistant.Tests.Reference;
 
 /// <summary>
-/// **人机操作链路判据**（原 `ManualChainTests` · 2026-09 判据载体换成四个基础模块）。
+/// **人机操作链路判据**（判据载体 = 四个基础模块）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item>覆盖"人来戳"的完整链路：**文本输入（B5）+ 命令按钮（B2）+ 开关（B3）+ 数值输入** →
 ///     投递到模块线程的收件箱 → 模块活动体消费 → **网络** → 数据显示器（A5 显示源）；</item>
-///   <item>**载体变更**：原先用手工验收的参考模块（手动发送器 / 信息显示模块）承载；按用户 2026-09 裁定
-///     "完全删除旧的模块…新测试全部转入新的四个模块" ⇒ 改为 **`hyw/text-sender` → `hyw/data-monitor`**；
-///   </item>
-///   <item>**口径变更一处**：非法输入原先断言"上报 Issue"，现在是 **G3 输入处理反馈**（用户裁定
-///     "范围与业务合法性归模块 ⇒ 打到对应输入框上（红框）"）⇒ 断言改为"**失败必须可见**"（反馈通道），
-///     与 `decisions.md` 7.16/7.24 一致；</item>
+///   <item>**链路载体**：**`hyw/text-sender` → `hyw/data-monitor`**（手工验收的参考模块不再是载体）；</item>
+///   <item>**非法输入的可见性**：范围与业务合法性归模块 ⇒ 打到对应输入框上（红框）⇒
+///     断言只需「**失败必须可见**」（G3 输入处理反馈，不要求上报 Issue）；</item>
 ///   <item>框架能力**一个都没删**（仲裁 / 阈值断言 / 文件记录等参考模块独有的能力，见本项目顶部"能力 → 载体"对照）。</item>
 /// </list>
 /// </remarks>
@@ -69,7 +66,7 @@ public class BusinessChainTests
     }
 
     /// <summary>
-    /// **已连通的网络上，发送一次都不许被静默拒绝**（2026-09 缺陷修复的回归网 · 偶发静默丢单元）。
+    /// **已连通的网络上，发送一次都不许被静默拒绝**（偶发静默丢单元的回归网）。
     /// </summary>
     /// <remarks>
     /// <b>被钉住的缺陷</b>：派生网络**每次变更提交**都会重算，而旧实现是"**先把该网络的绑定全部移除、再重建**"
@@ -145,7 +142,7 @@ public class BusinessChainTests
         composition.Services.UpdatePortNetwork("monitor", DataMonitorModule.InPort, "bus").Succeeded.ShouldBeTrue();
 
         composition.Type("sender", TextSenderModule.TextSourceOf(0), "tick");
-        // 【2026-09 用户裁定】间隔 **0 = 未设置** ⇒ 连续发送**显式报错且不发** ⇒ 本用例必须给一个真实间隔
+        // 间隔 **0 = 未设置** ⇒ 连续发送**显式报错且不发** ⇒ 本用例必须给一个真实间隔
         // （要测的是"按间隔发送 + 关掉即停"，不是"没设置也硬发"）。
         composition.Submit("sender", TextSenderModule.IntervalSource, "20").Succeeded.ShouldBeTrue();
         composition.Submit("sender", TextSenderModule.ContinuousSource, "true").Succeeded.ShouldBeTrue();
@@ -164,8 +161,8 @@ public class BusinessChainTests
     }
 
     /// <summary>
-    /// **有效速率 = 真实业务字节**（2026-09 用户裁定："速率只要有效数据，截断的不应该算在有效数据里面，
-    /// 整个数据包大小速率是底层协议，用户想知道的肯定是**有效速率**"）。
+    /// **有效速率 = 真实业务字节**（截断 / 补零的字节不算有效数据；
+    /// 整个数据包大小的速率是底层协议口径）。
     /// </summary>
     /// <remarks>
     /// <para>
@@ -201,7 +198,7 @@ public class BusinessChainTests
         composition.WaitForCount("sender", TextSenderModule.SentSource, atLeast: 10)
             .ShouldBeTrue(Diagnose(composition, "sender", TextSenderModule.SentSource));
 
-        // 速率口径 = **整秒桶**（用户 2026-09 裁定）⇒ 先观察一次建基准，再等满一个窗口
+        // 速率口径 = **整秒桶**（上一个 ≥1 秒窗口的积累量）⇒ 先观察一次建基准，再等满一个窗口
         composition.Services.GetPortMetrics("sender", TextSenderModule.OutPort);
         Thread.Sleep(1200);
 
@@ -222,10 +219,10 @@ public class BusinessChainTests
     }
 
     /// <summary>
-    /// **连续发送读的是"当前选中页"**（2026-09 用户实测"输入了内容反而发不了"的针对性回归网）。
+    /// **连续发送读的是「当前选中页」**（针对「输入了内容反而发不了」的回归网）。
     /// </summary>
     /// <remarks>
-    /// 发送器的发送路径是**回读**："当前选中页 + 该页当前文本"（`decisions.md` 7.28）。本用例刻意**不用第 1 页**：
+    /// 发送器的发送路径是**回读**：「当前选中页 + 该页当前文本」。本用例刻意**不用第 1 页**：
     /// 在第 2 页（索引 1）打字并**把选中页切到第 2 页**，再打开「连续发送」⇒ 必须真的发出且计数增长。
     /// 这样一旦"页回读"坏了（例如永远读第 1 页），本用例立刻红。
     /// </remarks>
@@ -306,8 +303,8 @@ public class BusinessChainTests
     /// **数据显示器**：收到的内容进**显示区**，文本就是**数据本身**（不再有定宽 96 字节与补齐）。
     /// </summary>
     /// <remarks>
-    /// 2026-09 用户裁定："一行必须 96 字节：不应该规定一行多少字节，**一行多少是由文本框的宽度决定的**" ⇒
-    /// 判据从"发布 96 字节的定长样本"改成"显示区里的文本 = 数据（不切块、不补齐、无标记）"。
+    /// 一行多少字节**由文本框的宽度决定**，不预设固定列宽 ⇒
+    /// 判据 = 显示区里的文本就是数据本身（不切块、不补齐、无标记）。
     /// </remarks>
     [Fact]
     public void 数据显示器_应把收到的内容原样追加到显示区()
@@ -355,7 +352,7 @@ public class BusinessChainTests
         composition.Services.AddModule("hex", HexSenderModuleId).Succeeded.ShouldBeTrue();
         composition.Services.AddModule("monitor", MonitorModuleId).Succeeded.ShouldBeTrue();
 
-        // 三个口写同一个标签 ⇒ 一条**多源网络**（ADR-0050）
+        // 三个口写同一个标签 ⇒ 一条**多源网络**
         composition.Services.UpdatePortNetwork("text", TextSenderModule.OutPort, "bus").Succeeded.ShouldBeTrue();
         composition.Services.UpdatePortNetwork("hex", HexSenderModule.OutPort, "bus").Succeeded.ShouldBeTrue();
         composition.Services.UpdatePortNetwork("monitor", DataMonitorModule.InPort, "bus").Succeeded.ShouldBeTrue();
@@ -411,7 +408,7 @@ public class BusinessChainTests
     {
         public Composition()
         {
-            // **必须带视图状态存储**：发送器的"点按钮发送"是**回读**"当前页 + 该页文本"（`decisions.md` 7.28），
+            // **必须带视图状态存储**：发送器的「点按钮发送」是**回读**「当前页 + 该页文本」，
             // 而无头测试里没有 UI 去写它 ⇒ 夹具要像 UI 那样**打字**（见 `Type` 助手），否则命令路径读不到内容。
             ViewState = new HYWDebugAssistant.Core.Services.ViewStateStore();
             Runtime = new ModuleRuntime(viewState: ViewState);
@@ -458,7 +455,7 @@ public class BusinessChainTests
                 null,
                 true,
                 entryType,
-                string.Empty,
+                TestViewPackages.For(entryType),
                 string.Empty);
 
             Services.Registry.TryRegister(definition, out var failure).ShouldBeTrue(failure);
@@ -526,7 +523,7 @@ public class BusinessChainTests
             WaitUntil(() => Written(instanceId, dataSourceName) >= atLeast, TimeSpan.FromSeconds(5));
 
         /// <summary>
-        /// **显示区当前保留的文本条**〔2026-09 用户裁定：显示区改由 `IViewDisplayAccess.AppendText/AppendLine` 追加〕。
+        /// **显示区当前保留的文本条**（显示区由 `IViewDisplayAccess.AppendText/AppendLine` 追加）。
         /// </summary>
         /// <remarks>
         /// 读法与**模块保存**完全相同（`IViewStateReader.GetDisplayLines`）：框架持有的显示缓冲 + 还没被 UI
@@ -563,7 +560,7 @@ public class BusinessChainTests
                 TimeSpan.FromSeconds(5));
 
         /// <summary>
-        /// 读某数据源的最新样本：**优先走模块注册的解码器**【ADR-0046 D1 ③】，未提供时按原语走参考实现。
+        /// 读某数据源的最新样本：**优先走模块注册的解码器**，未提供时按原语走参考实现。
         /// </summary>
         /// <remarks>这样 T2 顺带覆盖"框架交出解码器句柄 → 呈现层回调"这条链路，而不只是原语回退路径。</remarks>
         private double ReadLatest(Core.Api.SubscriptionSourceView source)

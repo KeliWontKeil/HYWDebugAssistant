@@ -3,7 +3,7 @@ using HYWDebugAssistant.Sdk.Context;
 namespace HYWDebugAssistant.Sdk.Testing;
 
 /// <summary>
-/// **模块级测试用的视图状态**（T6 契约测试套件）〔2026-09 · `decisions.md` 7.28〕。
+/// **模块级测试用的视图状态**（T6 契约测试套件）。
 /// </summary>
 /// <remarks>
 /// 模块作者在自己的测试里验证"模块读视图状态"这条路径：**可写**（测试预置值）**+ 可读**（模块读同一份）。
@@ -52,8 +52,8 @@ public sealed class TestViewState : IViewStateReader
     }
 
     /// <summary>
-    /// **追加文本到某显示源**〔2026-09 用户裁定 · WinForms 模型〕：与框架侧的拼装规则**逐字一致**
-    /// （"追加数据应直接追加在后面，不做任何标记"）。
+    /// **追加文本到某显示源**：与框架侧的拼装规则**逐字一致**
+    /// （追加数据直接接在后面，不做任何标记）。
     /// </summary>
     /// <param name="sourceName">显示源名。</param>
     /// <param name="text">文本（原样）。</param>

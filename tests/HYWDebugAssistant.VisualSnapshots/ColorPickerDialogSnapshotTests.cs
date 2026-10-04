@@ -13,11 +13,11 @@ using Xunit;
 namespace HYWDebugAssistant.VisualSnapshots;
 
 /// <summary>
-/// **调色板窗口的渲染冒烟 + 观感快照**（ADR-0054 §2.1 · 用户第三十四轮实测缺陷）。
+/// **调色板窗口的渲染冒烟 + 观感快照**。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>它为什么存在</b>：第三十四轮实测报回"调色板窗口只剩标题+提示+按钮，像个**复位提示**" ——
+///   <item><b>它为什么存在</b>：实测缺陷是「调色板窗口只剩标题+提示+按钮，像个**复位提示**」 ——
 ///     根因不是布局写错，而是**控件没有模板**：`Avalonia.Controls.ColorPicker` 的 `ColorView` **自带模板但要显式挂载**
 ///     （`FluentTheme` 不含它的样式）。这类缺陷**任何 XAML 编译与单元断言都看不见**（XAML 编译通过、绑定也没错，
 ///     只是"没画出东西"），只有**真实渲染出像素**才看得见 —— 与 P39（箭头从未 `DrawGeometry`）同一类。</item>

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Avalonia;
 using CommunityToolkit.Mvvm.ComponentModel;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Views;
@@ -7,82 +8,96 @@ using HYWDebugAssistant.Ui.Geometry;
 namespace HYWDebugAssistant.Ui.ViewModels;
 
 /// <summary>
-/// 模块视图视图模型：**一个模块 = 一个无边框顶层窗口**（ADR-0034 §2）——
+/// 模块视图视图模型：**一个模块 = 一个无边框顶层窗口**——
 /// 屏幕位置/尺寸/锁定 + 按声明渲染的元素 + 口上的标记块。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>视图 = 实例的派生物</b>（主文档 §10.1）：实例出现即出现、实例移除即移除，可独立隐藏（不影响运行）；</item>
+///   <item><b>视图 = 实例的派生物</b>：实例出现即出现、实例移除即移除，可独立隐藏（不影响运行）；</item>
 ///   <item><b>坐标单位 = 物理像素（屏幕坐标）</b>：窗口位置本身是 <c>PixelPoint</c>，用同一单位做吸附比较才自洽；
-///     窗口的宽高属性（DIP）由窗口管理器按各自缩放换算（多显示器不同 DPI 见 `11` §2.1 风险点）；</item>
-///   <item><b>没有"工作区"容器</b>（§10.1-3）：本类不持有画布、不做边界钳制——背景就是用户桌面；</item>
-///   <item><b>锁定</b>（O-3）= 不可拖动 / 不可缩放 / 不可选中（仍显示数据）；锁定**不持久化**（属会话内交互状态）。</item>
+///     窗口的宽高属性（DIP）由窗口管理器按各自缩放换算（多显示器不同 DPI 是风险点）；</item>
+///   <item><b>没有"工作区"容器</b>：本类不持有画布、不做边界钳制——背景就是用户桌面；</item>
+///   <item><b>锁定</b> = 不可拖动 / 不可缩放 / 不可选中（仍显示数据）；锁定**不持久化**（属会话内交互状态）。</item>
 /// </list>
 /// </remarks>
 public sealed partial class ModuleViewViewModel : ViewModelBase
 {
     /// <summary>
-    /// 新模块窗口的默认尺寸（DIP）——**与 `ModuleWindow.axaml` 的 `Width`/`Height` 保持一致**。
+    /// 最小宽（DIP；缩放下限）—— **框架地板**：声明面的 <c>frame.window.minWidth</c> 只能把它抬高。
     /// </summary>
     /// <remarks>
-    /// 【用户第九轮反馈 · UI 开发方式修正】**尺寸的默认值由 XAML 拥有**，这里只是"与 XAML 同步的常量"，
-    /// 用于：① 未摆放模块的摆放阶梯计算；② 测试里造确定几何。
-    /// **不再有任何"按内容估算尺寸"的逻辑**（内容排不下由内容区滚动条处理）。
+    /// <para>
+    /// 地板与缺省**都不是这里的字面量**：唯一来源是包声明 schema 的 <c>window.minWidth</c> 缺省值，
+    /// 读取器在读 <c>view.json</c> 时就已把小于地板的声明**夹到地板**（并记一条 warning），
+    /// 故这里直接采用 <see cref="ViewWindowDeclaration.EffectiveMinWidth"/>。
+    /// 实例连声明都没有时（整份被忽略）宿主给的是 <see cref="ViewDocument.Fallback"/>，
+    /// 其窗口同样已按地板填好 ⇒ 本类**不需要、也不允许**再自带一份地板字面量。
+    /// </para>
+    /// <para>
+    /// **地板为什么存在**：端口标记沿边长度 150（<see cref="PortMarkerMetrics.Length"/>），
+    /// 窗口比它短就会把标记**裁掉一截**（面板把起点夹到 0 并让它溢出）
+    /// ⇒ 地板由标记长度推出来（<see cref="PortMarkerMetrics.MinWindowExtent"/> = 160），不能是随手取的一个数。
+    /// </para>
+    /// <para>
+    /// 这里**没有"默认尺寸"常量**：默认尺寸的唯一来源是包内 `view.json` 的 `frame.window`
+    /// （缺省值由 schema 补齐），框架只在"整个实例没有任何可用声明"时按地板兜底。
+    /// 代码里也**没有"按内容估算尺寸"的逻辑**（内容排不下由内容区滚动条处理）。
+    /// </para>
     /// </remarks>
-    public const double DefaultWidth = 320;
+    public double MinWidth { get; }
 
-    /// <summary>新模块窗口的默认高（DIP；与 `ModuleWindow.axaml` 一致）。</summary>
-    public const double DefaultHeight = 220;
-
-    /// <summary>最小宽（DIP；缩放下限，与 `ModuleWindow.axaml` 的 `MinWidth` 一致）。</summary>
-    public const double MinWidth = 180;
+    /// <summary>最小高（DIP；缩放下限）—— **框架地板**，含义与 <see cref="MinWidth"/> 完全相同。</summary>
+    public double MinHeight { get; }
 
     /// <summary>
-    /// 最小高（DIP；与 `ModuleWindow.axaml` 的 `MinHeight` 一致）。
+    /// 本模块**声明面给出的**默认窗口尺寸（DIP）——新窗口按它开，「还原」也回到它。
     /// </summary>
     /// <remarks>
-    /// 【2026-09】120 → <see cref="PortMarkerMetrics.MinWindowExtent"/>：标记沿边长度加到 150 之后，
-    /// 窗口比标记短就会把标记**裁掉一截**（面板把起点夹到 0 并让它溢出）⇒ 下限必须由标记长度推出来，
-    /// 不再是随手取的 120。
-    /// </remarks>
-    public const double MinHeight = PortMarkerMetrics.MinWindowExtent;
-
-    /// <summary>
-    /// 本模块声明（或框架兜底）的**首选窗口尺寸**（DIP）——「还原」回到这个尺寸。
-    /// </summary>
-    /// <remarks>
-    /// 【用户第十一轮反馈】尺寸**由模块声明**（`ViewDeclaration.PreferredWidth/Height`），不按元素类型猜；
-    /// 模块没声明就用框架默认（与 `ModuleWindow.axaml` 的 `Width/Height` 一致）。
+    /// 尺寸的唯一来源是**声明面**（包内 `view.json` 的 `frame.window.width`，缺省由 schema 补齐）；
+    /// 模块代码里**不声明** <c>PreferredWidth/PreferredHeight</c>。实例连声明都没有（整份被忽略）时
+    /// 由宿主按框架地板给一份兜底声明（<see cref="ViewDocument.Fallback"/>）。
     /// </remarks>
     public double PreferredWidth { get; }
 
-    /// <summary>首选窗口高度（DIP）。</summary>
+    /// <summary>默认窗口高度（DIP；同上来自 `frame.window.height`）。</summary>
     public double PreferredHeight { get; }
 
-    /// <summary>模块是否**声明了**首选尺寸（用于判断"未摆放的新窗口要不要按声明尺寸开"）。</summary>
-    public bool HasPreferredSize { get; }
+    /// <summary>
+    /// **有效最小宽**（DIP）= <c>max(框架地板, 声明的 `window.minWidth`)</c> —— 读取器已夹好，这里等于声明值。
+    /// </summary>
+    /// <remarks>声明的最小尺寸只用于**约束用户缩放**；框架地板永远在（标记长度推出来的那条）。</remarks>
+    public double EffectiveMinWidth { get; }
+
+    /// <summary>**有效最小高**（DIP）= <c>max(框架地板, 声明的 `window.minHeight`)</c> —— 读取器已夹好，这里等于声明值。</summary>
+    public double EffectiveMinHeight { get; }
+
+    /// <summary>**有效最大宽**（DIP；<see langword="null"/> = 无上限 = 声明面没给）。</summary>
+    public double? EffectiveMaxWidth { get; }
+
+    /// <summary>**有效最大高**（DIP；<see langword="null"/> = 无上限）。</summary>
+    public double? EffectiveMaxHeight { get; }
 
     private readonly IRuntimeQuery _query;
     private readonly IRuntimeCommand _command;
     private readonly double _scale;
 
-    /// <summary>【G1】标签页选中态（键 = 声明树路径如 <c>v/0</c>）——**纯 UI 状态，不进组合件**。</summary>
+    /// <summary>标签页选中态（键 = 声明树路径如 <c>v/0</c>）——**纯 UI 状态，不进组合件**。</summary>
     private readonly Dictionary<string, int> _tabSelection = new(StringComparer.Ordinal);
     private readonly IViewStateAccess? _viewState;
 
     /// <summary>声明树路径 → 容器的 `StateKey`（切页时用它把选中态写进视图状态存储）。</summary>
     private readonly Dictionary<string, string> _tabStateKeys = new(StringComparer.Ordinal);
 
-    /// <summary>【G1】最近一次重建用的实例视图（切换标签后需要按同一声明重建元素表）。</summary>
+    /// <summary>最近一次重建用的实例视图（切换标签后需要按同一声明重建元素表）。</summary>
     private ModuleInstanceView? _lastView;
 
     /// <summary>
-    /// **多行文本输入的提交键**（G2 · 2026-09）——由 <see cref="ModuleWindowsViewModel"/> 从应用级设置下发。
+    /// **多行文本输入的提交键**——由 <see cref="ModuleWindowsViewModel"/> 从应用级设置下发。
     /// </summary>
     /// <remarks>
     /// 三档：<c>CtrlEnter</c>（默认：回车换行 / Ctrl+Enter 提交 / **失焦不提交** —— 否则"点按钮 ⇒ 先失焦提交 ⇒ 按钮又发"会双发）·
     /// <c>Enter</c>（回车提交 / Shift+Enter 换行）· <c>None</c>（键盘都不提交）。
-    /// **只影响多行输入**；单行输入保持"回车 / 失焦一次提交"（ADR-0040 D-5）。
+    /// **只影响多行输入**；单行输入保持"回车 / 失焦一次提交"。
     /// 变更后需要**重建输入元素**才能生效 ⇒ 由 <see cref="ModuleWindowsViewModel"/> 在刷新时重设并触发重新渲染。
     /// </remarks>
     public string MultilineSubmitKey
@@ -117,9 +132,9 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <param name="fallbackX">未摆放时的默认 X（物理像素）。</param>
     /// <param name="fallbackY">未摆放时的默认 Y（物理像素）。</param>
     /// <param name="viewState">
-    /// **视图状态存取面**〔2026-09 · `decisions.md` 7.28/7.31〕：切页的选中态、输入框**未提交**的文本、
-    /// 文本显示的共享缓冲都放在这里 —— 元素表重建（切页 / 改设置）**不再丢内容**（对齐 WinForms"控件活着，数据就在"）。
-    /// `null`（设计期 / 旧调用点）⇒ 回落今天的行为（选中态只记在本地、显示用各自的本地缓冲）。
+    /// **视图状态存取面**：切页的选中态、输入框**未提交**的文本、
+    /// 文本显示的共享缓冲都放在这里 —— 元素表重建（切页 / 改设置）**不丢内容**（对齐 WinForms"控件活着，数据就在"）。
+    /// `null`（设计期 / 未接线的调用点）⇒ 回落为：选中态只记在本地、显示用各自的本地缓冲。
     /// </param>
     public ModuleViewViewModel(
         ModuleInstanceView view,
@@ -140,21 +155,48 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         _viewState = viewState;
         _scale = scale <= 0 ? 1.0 : scale;
 
-        // 尺寸来源优先级：① 组合件里的布局（用户拖过）② **模块声明的首选尺寸** ③ 框架默认（= XAML 默认）
-        HasPreferredSize = view.View is { PreferredWidth: > 0, PreferredHeight: > 0 };
-        PreferredWidth = HasPreferredSize ? view.View!.PreferredWidth : DefaultWidth;
-        PreferredHeight = HasPreferredSize ? view.View!.PreferredHeight : DefaultHeight;
+        // 尺寸来源优先级：① 组合件里的布局（用户拖过）② **包内 `view.json` 的 `frame.window`**
+        // ③ 框架地板（schema 的 `window.minWidth`/`minHeight` 缺省值，由端口标记长度推出）。
+        // 三者的缺省都在读取侧就位：读取器保证 `frame.window` 恒有值、且小于地板的 min 已被**夹到地板**；
+        // 整份声明被忽略时宿主给的是 `ViewDocument.Fallback`（窗口 = 地板）
+        // ⇒ 本类不再自带任何尺寸字面量，也不再自己夹一次地板。
+        var window = view.View?.Frame.Window;
+        MinWidth = window?.EffectiveMinWidth ?? 0;
+        MinHeight = window?.EffectiveMinHeight ?? 0;
+        PreferredWidth = window is { Width: > 0 } declaredWidth ? declaredWidth.Width : MinWidth;
+        PreferredHeight = window is { Height: > 0 } declaredHeight ? declaredHeight.Height : MinHeight;
+
+        // 有效下限 = 声明的 min（已在读取侧夹过地板）；有效上限 = 声明的 max（缺省 = 无上限）。
+        // 声明的上限若小于有效下限（例如写了 100）就**整条忽略** —— 声明自相矛盾时不该给用户造出一个 min > max 的死区。
+        EffectiveMinWidth = MinWidth;
+        EffectiveMinHeight = MinHeight;
+        EffectiveMaxWidth = window?.MaxWidth is { } maxWidth && maxWidth >= EffectiveMinWidth ? maxWidth : null;
+        EffectiveMaxHeight = window?.MaxHeight is { } maxHeight && maxHeight >= EffectiveMinHeight ? maxHeight : null;
 
         InstanceId = view.InstanceId;
         Title = view.DisplayName;
         IsPlaceholder = view.IsPlaceholder;
         HasLayout = layout is not null;
 
-        // 尺寸与位置一律**整数物理像素**（唯一量化口径，见 `ScreenPixels`；用户第十二轮反馈）
+        // 尺寸与位置一律**整数物理像素**（唯一量化口径，见 `ScreenPixels`）
         X = ScreenPixels.Round(layout?.X ?? fallbackX);
         Y = ScreenPixels.Round(layout?.Y ?? fallbackY);
-        Width = ScreenPixels.Round(layout is { Width: > 0 } sized ? sized.Width : PreferredWidth * _scale);
-        Height = ScreenPixels.Round(layout is { Height: > 0 } sizedHeight ? sizedHeight.Height : PreferredHeight * _scale);
+
+        // 尺寸再夹一层有效区间（DIP 上下限 × 缩放；组合件里的值是物理像素）
+        double ClampToBounds(double pixels, double minDip, double? maxDip)
+        {
+            var value = Math.Max(pixels, minDip * _scale);
+            return maxDip is { } upper ? Math.Min(value, upper * _scale) : value;
+        }
+
+        Width = ScreenPixels.Round(ClampToBounds(
+            layout is { Width: > 0 } sized ? sized.Width : PreferredWidth * _scale,
+            EffectiveMinWidth,
+            EffectiveMaxWidth));
+        Height = ScreenPixels.Round(ClampToBounds(
+            layout is { Height: > 0 } sizedHeight ? sizedHeight.Height : PreferredHeight * _scale,
+            EffectiveMinHeight,
+            EffectiveMaxHeight));
         IsViewVisible = layout?.IsViewVisible ?? true;
 
         ApplyState(view.State);
@@ -164,7 +206,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <summary>实例 ID（工作现场内唯一、稳定）。</summary>
     public string InstanceId { get; }
 
-    /// <summary>展示名（内容区顶部一行轻量文本，09 §5 修订）。</summary>
+    /// <summary>展示名（内容区顶部一行轻量文本）。</summary>
     public string Title { get; private set; }
 
     /// <summary>是否占位实例（模块定义缺失/版本不兼容）。</summary>
@@ -193,7 +235,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     [ObservableProperty]
     public partial string StateText { get; set; } = "Active";
 
-    /// <summary>状态语义（颜色 + 形状双重编码，09 §7）。</summary>
+    /// <summary>状态语义（颜色 + 形状双重编码）。</summary>
     [ObservableProperty]
     public partial StateVisual State { get; set; } = StateVisual.Active;
 
@@ -204,11 +246,11 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <summary>是否处于运行态（Active）；false = 已停用（保留实例/拓扑/配置，只停流）。</summary>
     public bool IsEnabled => string.Equals(StateText, "运行中", StringComparison.Ordinal);
 
-    /// <summary>是否隐藏视图（false 时窗口关闭但模块仍在运行，§10.1）。</summary>
+    /// <summary>是否隐藏视图（false 时窗口关闭但模块仍在运行）。</summary>
     [ObservableProperty]
     public partial bool IsViewVisible { get; set; } = true;
 
-    /// <summary>是否锁定（不可拖动/缩放/选中；仍显示数据 —— O-3）。</summary>
+    /// <summary>是否锁定（不可拖动/缩放/选中；仍显示数据）。</summary>
     [ObservableProperty]
     public partial bool IsLocked { get; set; }
 
@@ -226,7 +268,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
     /// <summary>
     /// 是否显示**叠加信息层**（窗内连线 + 中心类型方块 + 信息；由控制器按应用级设置同步写入）。
-    /// **默认关闭**【ADR-0045 D1：它是调试/观测层，不进常驻界面】。
+    /// **默认关闭**：它是调试/观测层，不进常驻界面。
     /// </summary>
     [ObservableProperty]
     public partial bool ShowInfoOverlay { get; set; }
@@ -238,7 +280,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     public ObservableCollection<ViewElementViewModel> Elements { get; } = [];
 
     /// <summary>
-    /// **角色方块**清单（叠加层画功能分块与 `m/n` 的依据）【ADR-0052】。
+    /// **角色方块**清单（叠加层画功能分块与 `m/n` 的依据）。
     /// </summary>
     /// <remarks>
     /// **只读投影**：由 <c>IRuntimeQuery.GetRoles</c> 派生（Core 算、UI 只画），顺序 = 模块**声明顺序**。
@@ -277,7 +319,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 叠加层**信息区**（左上身份 + 必要时一行说明）【ADR-0049 D18 · ADR-0052】。
+    /// 叠加层**信息区**（左上身份 + 必要时一行说明）。
     /// </summary>
     /// <remarks>**由视图模型算**（它才知道声明了几个角色/几个口），叠加层只负责画。文字层次：身份 12px / 说明 10px。</remarks>
     public RoleOverlayInfo OverlayInfo
@@ -327,7 +369,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// **叠加层画布宽（DIP）** = <see cref="Width"/> ÷ <see cref="Scale"/> —— 叠加层几何的**唯一尺寸来源**。
     /// </summary>
     /// <remarks>
-    /// <b>为什么必须有它</b>（用户第三十四轮："连线仍然没有对齐……多套坐标系相互冲突，请确定唯一事实源"）：
+    /// <b>为什么必须有它</b>（多套坐标系相互冲突会让连线错位，必须确定唯一事实源）：
     /// 模型几何（<see cref="X"/>/<see cref="Y"/>/<see cref="Width"/>/<see cref="Height"/>）的单位是**物理像素**
     /// （窗口位置本身就是 <c>PixelPoint</c>，见 `ModuleWindowManager`），而叠加层是 Avalonia 控件、绘制单位是 **DIP**。
     /// 在缩放 ≠ 100% 的屏幕上，两者相差一个 <see cref="Scale"/> 因子 ⇒ 若把 px 当 DIP 用，
@@ -355,7 +397,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         ApplyState(view.State);
         SyncPorts(view);
 
-        // 【G3 · 2026-09】把"模块回报的输入处理结果"分发到对应输入元素（失败态 = 红框）。
+        // 把"模块回报的输入处理结果"分发到对应输入元素（失败态 = 红框）。
         // 这里在**每刷新节拍**都会走到（`Refresh → SyncModules → Apply`）⇒ 失败态是**在线**出现的。
         ApplyInputFeedback();
 
@@ -364,7 +406,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 把查询面里的**输入处理结果**（G3）分发到对应输入元素。
+    /// 把查询面里的**输入处理结果**分发到对应输入元素。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
@@ -376,24 +418,28 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// </remarks>
     private void ApplyInputFeedback()
     {
-        var hasInput = false;
-        foreach (var element in Elements)
+        var flat = new List<ViewElementViewModel>();
+        CollectElements(Elements, flat);
+
+        var hasTarget = false;
+        foreach (var element in flat)
         {
-            if (element is TextInputElementViewModel or FileSelectorElementViewModel)
+            if (element is TextInputElementViewModel or FileSelectorElementViewModel
+                || (element is TextLogElementViewModel && element.FeedbackSource is { Length: > 0 }))
             {
-                hasInput = true;
+                hasTarget = true;
                 break;
             }
         }
 
-        if (!hasInput)
+        if (!hasTarget)
         {
             return;
         }
 
         var feedback = _query.GetInputFeedback(InstanceId);
 
-        foreach (var element in Elements)
+        foreach (var element in flat)
         {
             // 收哪个源名的反馈（输入框与文件选择器走**同一条**通道：都是"提交了一串文本"）
             var source = element switch
@@ -403,18 +449,16 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
                 _ => null,
             };
 
-            if (source is null)
-            {
-                continue;
-            }
-
             InputFeedbackView? hit = null;
-            foreach (var candidate in feedback)
+            if (source is { Length: > 0 })
             {
-                if (string.Equals(candidate.SourceName, source, StringComparison.Ordinal))
+                foreach (var candidate in feedback)
                 {
-                    hit = candidate;
-                    break;
+                    if (string.Equals(candidate.SourceName, source, StringComparison.Ordinal))
+                    {
+                        hit = candidate;
+                        break;
+                    }
                 }
             }
 
@@ -424,7 +468,9 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
             {
                 case TextInputElementViewModel input:
                     input.IsInvalid = invalid;
-                    if (invalid && hit!.Message is { Length: > 0 } message)
+
+                    // `showInlineResult: false` ⇒ 结果不挂在框上（改由声明的角落去接）。
+                    if (input.ShowInlineResult && invalid && hit!.Message is { Length: > 0 } message)
                     {
                         input.LastResult = message;
                     }
@@ -432,18 +478,65 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
                     break;
 
                 case FileSelectorElementViewModel picker:
-                    // 【2026-09】文件选择器的**成功也显示**（弹过系统对话框 ⇒ 给一次落点确认；
+                    // 文件选择器的**成功也显示**（弹过系统对话框 ⇒ 给一次落点确认；
                     // 保存类操作尤其需要——"存到哪儿了"必须看得见）。失败则同色标红。
                     picker.IsInvalid = invalid;
-                    if (hit is { Message: { Length: > 0 } pickerMessage })
+                    if (picker.ShowInlineResult && hit is { Message: { Length: > 0 } pickerMessage })
                     {
                         picker.LastResult = pickerMessage;
                     }
 
                     break;
 
+                // 文本日志的**左下角**：接声明了 `feedbackSource` 的那条源的结果。
+                case TextLogElementViewModel log when log.FeedbackSource is { Length: > 0 }:
+                    ApplyCornerStatus(log, feedback);
+                    break;
+
                 default:
                     break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 把某条输入源的反馈写到日志的**左下角**（命中 ⇒ 显示模块自己的文案、失败标红；查不到该源 ⇒ 清空）。
+    /// </summary>
+    /// <remarks>
+    /// **文案原样透传**：模块的失败文案（如"保存失败：…"）本身就是给用户看的，框架不套"未生效"前缀 ——
+    /// 失败与否走 <see cref="TextLogElementViewModel.CornerIsError"/>，不从字符串推断。
+    /// </remarks>
+    private static void ApplyCornerStatus(TextLogElementViewModel log, IReadOnlyList<InputFeedbackView> feedback)
+    {
+        foreach (var candidate in feedback)
+        {
+            if (!string.Equals(candidate.SourceName, log.FeedbackSource, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            log.CornerIsError = !candidate.Succeeded;
+            log.CornerStatus = candidate.Message is { Length: > 0 } message
+                ? message
+                : candidate.Succeeded ? null : "未生效";
+
+            return;
+        }
+
+        log.CornerIsError = false;
+        log.CornerStatus = null;
+    }
+
+    /// <summary>把元素树摊平（容器成了真容器 ⇒ 反馈分派必须看得见容器内部的元素）。</summary>
+    private static void CollectElements(IEnumerable<ViewElementViewModel> source, List<ViewElementViewModel> flat)
+    {
+        foreach (var element in source)
+        {
+            flat.Add(element);
+
+            if (element is ContainerElementViewModel container)
+            {
+                CollectElements(container.Children, flat);
             }
         }
     }
@@ -455,8 +548,8 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
         X = ScreenPixels.Round(layout.X);
         Y = ScreenPixels.Round(layout.Y);
-        Width = ScreenPixels.Round(layout.Width > 0 ? layout.Width : DefaultWidth * _scale);
-        Height = ScreenPixels.Round(layout.Height > 0 ? layout.Height : DefaultHeight * _scale);
+        Width = ScreenPixels.Round(layout.Width > 0 ? layout.Width : PreferredWidth * _scale);
+        Height = ScreenPixels.Round(layout.Height > 0 ? layout.Height : PreferredHeight * _scale);
         IsViewVisible = layout.IsViewVisible;
         HasLayout = true;
     }
@@ -506,6 +599,49 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsEnabled));
     }
 
+    /// <summary>
+    /// 模块内容**根**（声明树路径 <c>v</c>）—— 声明面里的根节点；<see langword="null"/> = 这个实例没有任何声明
+    /// （整份被忽略 / 无声明文件），此时渲染面**不补任何缺省**。
+    /// </summary>
+    /// <remarks>布局是**加载时的一次性声明**：随实例的视图声明一起来，模块运行期不提供在线的排布调整。</remarks>
+    public ViewNode? RootLayout { get; private set; }
+
+    /// <summary>根作用域的排布模式（声明面的值；无声明 ⇒ 流式）。</summary>
+    public ViewLayoutMode RootLayoutMode => RootLayout is { } root
+        ? ViewLayoutModeExtensions.Parse(root.Layout, ViewLayoutMode.Flow)
+        : ViewLayoutMode.Flow;
+
+    /// <summary>根作用域的越界处理（声明面的值；无声明 ⇒ 交给外层内容区滚动）。</summary>
+    public ViewLayoutOverflow RootOverflow => RootLayout is { } root
+        ? ViewLayoutOverflowExtensions.Parse(root.Overflow, ViewLayoutOverflow.Scroll)
+        : ViewLayoutOverflow.Scroll;
+
+    /// <summary>根作用域的元素间距（声明面的值；无声明 ⇒ 框架自己的默认间距）。</summary>
+    public double RootSpacing => RootLayout is { } root
+        ? Math.Max(0, root.Spacing)
+        : HYWDebugAssistant.Ui.Controls.ModuleElementPanel.DefaultSpacing;
+
+    /// <summary>
+    /// 根作用域的内容留白（声明面的值；无声明 ⇒ 0）。
+    /// </summary>
+    /// <remarks>
+    /// **不含**框架自己的内容区留白（`20,22,20,24` 在 `ModuleContentView.axaml` 的 `ScrollViewer` 上，
+    /// 那是"预留带"的一部分，不归模块声明管）。
+    /// </remarks>
+    public Thickness RootContentMargin => new(RootLayout is { Padding: > 0 } root ? root.Padding : 0);
+
+    /// <summary>根作用域的网格列规格（声明面的值；无声明 ⇒ 单列满宽；仅网格模式用得上）。</summary>
+    public IReadOnlyList<GridTrack>? RootColumns => RootLayout is { Columns.Count: > 0 } root ? root.Columns : null;
+
+    /// <summary>根作用域的网格行规格（声明面的值；无声明 ⇒ 行数由元素推断、每行按内容）。</summary>
+    public IReadOnlyList<GridTrack>? RootRows => RootLayout is { Rows.Count: > 0 } root ? root.Rows : null;
+
+    /// <summary>根作用域的网格列间距（声明面的值；未给 ⇒ 用 <see cref="RootSpacing"/>）。</summary>
+    public double RootColumnSpacing => RootLayout is { ColumnSpacing: > 0 } root ? root.ColumnSpacing : double.NaN;
+
+    /// <summary>根作用域的网格行间距（声明面的值；未给 ⇒ 用 <see cref="RootSpacing"/>）。</summary>
+    public double RootRowSpacing => RootLayout is { RowSpacing: > 0 } root ? root.RowSpacing : double.NaN;
+
     private void Rebuild(ModuleInstanceView view)
     {
         Elements.Clear();
@@ -514,91 +650,106 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         // 标签页选中态是**纯 UI 状态**（不进组合件）：重建时要拿得到当前视图声明 ⇒ 留一份引用
         _lastView = view;
 
-        // **每个模块实例都有一个窗口**（用户裁决 M1-15）：声明了视图就按声明渲染；
+        // 声明面：整个实例的根节点（框架只渲染第一个视图）+ 它引用的数据源声明。
+        // 元素树 = 根节点的子节点；每个节点的尺寸/位置/排布键都随节点一起来（**没有第二份布局**）。
+        var document = view.View;
+        var definition = document?.Views.Count > 0 ? document.Views[0] : null;
+        RootLayout = definition?.Root;
+
+        OnPropertyChanged(nameof(RootLayout));
+        OnPropertyChanged(nameof(RootLayoutMode));
+        OnPropertyChanged(nameof(RootOverflow));
+        OnPropertyChanged(nameof(RootSpacing));
+        OnPropertyChanged(nameof(RootContentMargin));
+        OnPropertyChanged(nameof(RootColumns));
+        OnPropertyChanged(nameof(RootRows));
+        OnPropertyChanged(nameof(RootColumnSpacing));
+        OnPropertyChanged(nameof(RootRowSpacing));
+
+        // **每个模块实例都有一个窗口**：声明了视图就按声明渲染；
         // 未声明视图的模块也照常开窗（至少显示模块名行），不引入"无界面模块"这一例外概念。
-        if (view.View is not null)
+        if (document is not null && definition is not null)
         {
-            var dataSources = view.View.DataSources.ToDictionary(s => s.Name, StringComparer.Ordinal);
-            foreach (var item in Expand(view.View.Elements, "v"))
+            var sources = document.Sources.ToDictionary(s => s.Name, StringComparer.Ordinal);
+            foreach (var element in BuildElements(definition.Root.Children, "v", sources))
             {
-                // 【G1】标签条：容器本身由框架渲染（与其他容器"展平"同一约定，只是它自己要画一条页签）
-                if (item is TabStripElementViewModel strip)
-                {
-                    Elements.Add(strip);
-                    continue;
-                }
-
-                var element = (ViewElement)item;
-
-                // 【M1-16 / ADR-0040 D1】命令按钮：元素只负责**位置**，标题/图标/说明来自命令声明；
-                // 元素引用了未声明的命令 → 走"未渲染"占位（不假装支持，也不静默）。
-                if (element.Kind == ViewElementKind.CommandButton)
-                {
-                    var declared = view.View.Commands.FirstOrDefault(
-                        c => string.Equals(c.Name, element.DataSource, StringComparison.Ordinal));
-
-                    Elements.Add(declared is null
-                        ? new UnsupportedElementViewModel(element.Kind, element.Title)
-                        : CreateCommand(declared));
-                    continue;
-                }
-
-                Elements.Add(CreateElement(element, dataSources));
+                Elements.Add(element);
             }
         }
 
-        // 【2026-09 用户裁定：**删除整个配置框**】此前这里在"模块没声明 B1"时由**框架补一个**配置表单
-        // （理由曾是"否则配置在界面上无处可改"）。用户否掉了这条：
-        //   · "有哪些配置项"这类**细节表单用户不应了解、也不应显示给用户看**；
-        //   · "哪些值需要作为配置保存"由**模块作者声明**、**用户隐式感知**；
-        //   · 表单里那个「还原」按钮与左上角已有入口重复，也不需要。
-        // ⇒ 框架**不再自动补**；**配置能力完全保留**：模块若显式声明 B1（`ViewElementKind.ConfigurationEditor`），
+        // **框架不自动补配置表单**：模块没声明 B1 时不替它生成一个 ——
+        // 否则"有哪些配置项"这类**细节表单会显示给用户看**，"哪些值需要作为配置保存"也变成
+        // 框架规定而非**模块作者声明**；而且表单里那个「还原」按钮与左上角已有入口重复。
+        // ⇒ 框架**不自动补**；**配置能力完全保留**：模块若显式声明 B1（`ViewElementKind.ConfigurationEditor`），
         //    仍按声明渲染（下面 `CreateElement` 的分支照旧）。
         ReloadConfigurationForms();
 
-        // **窗口尺寸不由内容计算**【用户第九轮反馈 · UI 开发方式修正】：
-        // 未摆放的新窗口用 **XAML 里声明的默认尺寸**（`ModuleWindow.axaml` 的 Width/Height），
-        // 内容排不下时由内容区的 ScrollViewer 滚动 —— 不再在代码里按"元素类型 → 高度表"估算尺寸
-        // （那样等于把布局写死在代码里，用户无法在设计器/XAML 里调整）。
+        // **窗口尺寸不由内容计算**：
+        // 默认尺寸来自**声明面**（包内 `view.json` 的 `frame.window`，缺省由 schema 补齐），
+        // 内容排不下时由内容区的 ScrollViewer 滚动 —— 代码里不按"元素类型 → 高度表"估算尺寸
+        // （那样等于把布局写死在代码里，模块作者无法在声明文件里调整）。
+    }
+
+    /// <summary>读"某容器是否折叠"（容器声明了 `StateKey` 才读写；未知 ⇒ <see langword="null"/> ⇒ 展开）。</summary>
+    private bool? ReadCollapsedState(string? stateKey) =>
+        stateKey is { Length: > 0 } ? _viewState?.GetCollapsed(InstanceId, stateKey) : null;
+
+    /// <summary>写"某容器是否折叠"（未声明 `StateKey` ⇒ 什么都不做：折叠态只是本次会话的便利，不是模块状态）。</summary>
+    private void WriteCollapsedState(string? stateKey, bool collapsed)
+    {
+        if (stateKey is { Length: > 0 })
+        {
+            _viewState?.SetCollapsed(InstanceId, stateKey, collapsed);
+        }
     }
 
     /// <summary>
-    /// 声明元素 → **可渲染项**序列（`ViewElement` 或 <see cref="TabStripElementViewModel"/>）。
+    /// 声明元素 → **可渲染元素表**（容器类元素带自己的子元素，形成与声明树同构的树）。
     /// </summary>
     /// <remarks>
     /// <para>
-    /// 容器按既有约定**不自己画**：`Group` / `Collapsible` / `Scroll` 的子元素**展平**显示。
+    /// <b>容器不展平</b>：`Group` / `Collapsible` / `Scroll` 都是**真容器** ——
+    /// 各自渲染出自己的外壳（分组框 / 可折叠区 / 独立滚动区）+ 内部独立排布，子元素收在它内部
+    /// （与 WinForms 的 `GroupBox` / 带展开按钮的 `Panel` / `Panel.AutoScroll` 同一思想）。
     /// </para>
     /// <para>
-    /// <b>【G1 · 2026-09】`TabPages` 展开为「标签条 + <u>当前页</u>的子元素」</b>：
-    /// 此前它对 `TabPages` **只取第一页**、页签条与切换从未实现 ⇒ 模块声明的多页只能看到第 1 页
-    /// （缺口登记见 `docs/roadmap.md` §4 G16 邻项与 §3 第 12 项）。现在：
+    /// <b>页节点按 `TabPage` 语义</b>：`TabPages` 的每个子节点**自身不渲染、不画框**，`Title` 只作页签文字，
+    /// 它的子元素就是页内容（WinForms 的 `TabPage` 同构：页只是"当前页内容"的容器，标签控件由 `TabControl` 提供）。
+    /// ⇒ 内置模块把 `Group` 当页包装用的写法**逐像素不变**。
+    /// </para>
+    /// <para>
+    /// <b>`TabPages` 展开为「标签条 + <u>当前页</u>的子元素」</b>：
     /// ① 页签条由 <see cref="TabStripElementViewModel"/> 渲染；② **只渲染当前页**；
     /// ③ 页序号用**声明路径**（`v/0` 这类）作键 —— 与"每次重建元素表"一致，且**纯 UI 状态、不进组合件**。
     /// </para>
     /// <para>
-    /// **已知限制**：切换标签会**重建整个元素表**（`Elements.Clear()` + 重填）⇒ 其他元素的焦点/滚动位置会重置。
+    /// **已知限制**：切换标签会**重建整棵元素表**（`Elements.Clear()` + 重填）⇒ 其他元素的焦点/滚动位置会重置。
     /// v1 接受；若将来需要保留，改为"标签页用独立宿主 + 只换内容"（需把元素模板抽成共享资源字典）。
     /// </para>
     /// </remarks>
-    /// <param name="elements">声明元素（根层或某容器的子元素）。</param>
+    /// <param name="nodes">声明节点（根层的子节点，或某容器的子节点）。</param>
     /// <param name="path">本层在声明树里的路径（用于标签页选中态的稳定键）。</param>
-    private IEnumerable<object> Expand(IReadOnlyList<ViewElement> elements, string path)
+    /// <param name="sources">按名字索引的数据源声明。</param>
+    private IEnumerable<ViewElementViewModel> BuildElements(
+        IReadOnlyList<ViewNode> nodes,
+        string path,
+        Dictionary<string, ViewSourceDeclaration> sources)
     {
         var index = 0;
 
-        foreach (var element in elements)
+        foreach (var element in nodes)
         {
             var childPath = $"{path}/{index++}";
+            var kind = ViewElementKindExtensions.Parse(element.Kind);
 
-            if (element.Kind == ViewElementKind.TabPages)
+            if (kind == ViewElementKind.TabPages)
             {
                 if (element.Children.Count == 0)
                 {
                     continue;   // 零页 ⇒ 什么都不画（不假装支持）
                 }
 
-                // 【2026-09 · 7.28】声明了 `StateKey` ⇒ 选中态读**视图状态存储**（模块也能回读；元素表重建后仍在）；
+                // 声明了 `StateKey` ⇒ 选中态读**视图状态存储**（模块也能回读；元素表重建后仍在）；
                 // 未声明 ⇒ 沿用本地字典（今天的行为，老模块零变化）。
                 var stateKey = element.StateKey ?? string.Empty;
                 _tabStateKeys[childPath] = stateKey;
@@ -608,23 +759,24 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
                 for (var page = 0; page < element.Children.Count; page++)
                 {
+                    var pageTitle = element.Children[page].Title;
                     pages.Add(new TabPageItemViewModel(
                         page,
-                        element.Children[page].Title ?? $"{page + 1}",
+                        pageTitle is { Length: > 0 } title ? title : $"{page + 1}",
                         page == selected,
                         target => SelectTab(childPath, target)));
                 }
 
-                yield return new TabStripElementViewModel(element.Title, pages, selected);
+                yield return new TabStripElementViewModel(element, pages, selected);
 
                 // 页内容：页节点**带子元素**时用子元素；**页节点本身就是内容元素**时用它自己
-                //（沿用旧 `Flatten` 对首页的同一条兜底 —— 两种声明写法都容忍，否则表现为"切过去是空白页"）。
+                //（两种声明写法都容忍 —— 兜底一下，否则表现为"切过去是空白页"）。
                 var pageNode = element.Children[selected];
                 var pageContent = pageNode.Children.Count > 0
                     ? pageNode.Children
-                    : (IReadOnlyList<ViewElement>)[pageNode];
+                    : (IReadOnlyList<ViewNode>)[pageNode];
 
-                foreach (var nested in Expand(pageContent, childPath))
+                foreach (var nested in BuildElements(pageContent, childPath, sources))
                 {
                     yield return nested;
                 }
@@ -632,19 +784,68 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
                 continue;
             }
 
-            if (element.Children.Count > 0
-                && element.Kind is ViewElementKind.Group or ViewElementKind.Collapsible or ViewElementKind.Scroll)
+            // 四类容器都是**真容器**：不展平子元素，而是渲染出自己的外壳 + 内部独立排布。
+            // 空容器也照此处理（渲染出一个空的壳）—— "有内容才画"那种约定会让空容器在界面上凭空消失。
+            if (kind.IsContainer())
             {
-                foreach (var nested in Expand(element.Children, childPath))
+                var children = BuildElements(element.Children, childPath, sources).ToList();
+
+                // 显式声明目标类型：switch 表达式在 C# 里不会为几个兄弟类型"发明"共同基类。
+                ContainerElementViewModel container = kind switch
                 {
-                    yield return nested;
+                    // 折叠态**存到外部**（元素表会整体重建）：声明面的 `expanded` 是缺省，用户拨过就以用户为准。
+                    ViewElementKind.Collapsible => new CollapsibleElementViewModel(
+                        element,
+                        children,
+                        isExpanded: ReadCollapsedState(element.StateKey) is { } collapsed
+                            ? !collapsed
+                            : element.Expanded,
+                        collapsedChanged: value => WriteCollapsedState(element.StateKey, value)),
+                    ViewElementKind.Group => new GroupElementViewModel(element, children),
+                    _ => new LayoutContainerElementViewModel(element, children),
+                };
+
+                Declare(container);
+                yield return container;
+
+                continue;
+            }
+
+            // 命令按钮：元素只负责**位置**，标题/图标/说明来自命令声明；
+            // 元素引用了未声明的命令 → 走"未渲染"占位（不假装支持，也不静默）。
+            if (kind == ViewElementKind.CommandButton)
+            {
+                if (element.Command is not { Length: > 0 })
+                {
+                    yield return new UnsupportedElementViewModel(element);
+                }
+                else
+                {
+                    var command = CreateCommand(element);
+                    Declare(command);
+                    yield return command;
                 }
 
                 continue;
             }
 
-            yield return element;
+            var created = CreateElement(element, sources);
+            Declare(created);
+            yield return created;
         }
+    }
+
+    /// <summary>
+    /// 把声明面里**渲染期只读**的开关写进元素视图模型：
+    /// 反馈来源（谁的处理结果显示在这个元素的角落）与是否就地显示结果行。
+    /// </summary>
+    /// <param name="viewModel">元素视图模型（节点已由构造函数带入）。</param>
+    private static void Declare(ViewElementViewModel viewModel)
+    {
+        ArgumentNullException.ThrowIfNull(viewModel);
+
+        viewModel.FeedbackSource = viewModel.Node.FeedbackSource ?? string.Empty;
+        viewModel.ShowInlineResult = viewModel.Node.ShowInlineResult;
     }
 
     /// <summary>切换标签页（**纯 UI 状态**：只记在本视图模型里，不进组合件、不下发模块）并重建元素表。</summary>
@@ -654,8 +855,8 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     {
         _tabSelection[path] = page;
 
-        // 【2026-09 · 7.28】把选中页写进**视图状态存储**：① 模块可回读（"当前选中页可被感知"）
-        // ② 元素表重建后仍记得（切页不再丢状态）。**仍不进组合件、不持久化**（重启即丢）。
+        // 把选中页写进**视图状态存储**：① 模块可回读（"当前选中页可被感知"）
+        // ② 元素表重建后仍记得（切页不丢状态）。**仍不进组合件、不持久化**（重启即丢）。
         if (_viewState is not null
             && _tabStateKeys.TryGetValue(path, out var stateKey)
             && stateKey.Length > 0)
@@ -675,7 +876,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <remarks>
     /// 连接状态 / 停流状态 / 投递量 / 速率都是**指标**，唯一生产者是
     /// <see cref="ModuleWindowsViewModel"/> 的标记刷新（按 `GetNetworks()` 与框架诊断）。
-    /// 这里曾也写一遍 ⇒ "谁最后跑谁赢"，且口径不同（按绑定 vs 按网络）——已按"来源唯一"删除。
+    /// 这里**不许再写一遍**：两处都写会变成"谁最后跑谁赢"，且口径不同（按绑定 vs 按网络）。
     /// </remarks>
     private void SyncPorts(ModuleInstanceView view)
     {
@@ -692,13 +893,13 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
                     port.AnchorOffset,
                     typeText: port.ContractText,
                     typeKey: port.TypeKey,
-                    // 【G5 · C5-7】边的**有效值**（Core 已按"用户覆盖 > 模块声明的默认边 > 数据流惯例"解析）
+                    // 边的**有效值**（Core 已按"用户覆盖 > 模块声明的默认边 > 数据流惯例"解析）
                     edge: port.Edge,
                     isAnchorFixed: port.IsAnchorFixed));
                 continue;
             }
 
-            // 【G5 · C5-7】拖动中：本地 `Edge`/`Offset` 是**待提交的意图** ⇒ 节拍同步不得覆盖
+            // 拖动中：本地 `Edge`/`Offset` 是**待提交的意图** ⇒ 节拍同步不得覆盖
             // （与 `IsEditing` 保护 `Label` 同一纪律；否则拖到一半会被框架权威值拽回原位）
             if (!existing.IsDraggingAnchor)
             {
@@ -709,7 +910,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
                 existing.Edge = port.Edge;
             }
 
-            // 【G5】「固定」是可变的呈现事实（模块声明 + 全局快捷键都会改它）⇒ 每次同步都跟一遍
+            // 「固定」是可变的呈现事实（模块声明 + 全局快捷键都会改它）⇒ 每次同步都跟一遍
             existing.IsAnchorFixed = port.IsAnchorFixed;
 
             if (!existing.IsEditing && !string.Equals(existing.Label, port.NetworkLabel, StringComparison.Ordinal))
@@ -728,30 +929,30 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         }
     }
 
-    private ViewElementViewModel CreateElement(ViewElement element, Dictionary<string, ViewDataSource> dataSources)
+    private ViewElementViewModel CreateElement(ViewNode element, Dictionary<string, ViewSourceDeclaration> sources)
     {
-        ViewDataSource? source = null;
+        ViewSourceDeclaration? source = null;
         if (element.DataSource is { Length: > 0 } name)
         {
-            _ = dataSources.TryGetValue(name, out source);
+            _ = sources.TryGetValue(name, out source);
         }
 
-        return element.Kind switch
+        return ViewElementKindExtensions.Parse(element.Kind) switch
         {
-            ViewElementKind.Numeric => new ValueElementViewModel(element.Title, source),
-            ViewElementKind.Curve => new CurveElementViewModel(element.Title, source),
+            ViewElementKind.Numeric => new ValueElementViewModel(element, source),
+            ViewElementKind.Curve => new CurveElementViewModel(element, source),
 
-            // 【2026-09 · 7.31】A5 文本日志：**共享文本缓冲**（"不清空就一直在"）——
+            // A5 文本日志：**共享文本缓冲**（"不清空就一直在"）——
             // 同一份给 UI 渲染与模块回读（`IModuleContext.ViewState.GetDisplayLines`）；未接线 ⇒ 本地缓冲。
             ViewElementKind.TextLog => new TextLogElementViewModel(
-                element.Title,
+                element,
                 source,
                 DisplayFor(element.DataSource)),
 
-            // 【M1-16 / ADR-0040】人机操作三通道：命令按钮 / 文本输入 / 开关 —— 全部**投递到模块线程**
-            // 【G2 · 2026-09】文本输入：把**应用级**的多行提交键档位传进去（多行提交键不属模块声明）
-            // 【2026-09】再传数据源：只为取"**框外单位标签**"（`ViewDataSource.Unit`）与数值输入的字符放行
-            // 【2026-09 · 7.28】并把"当前文本"落到**视图状态存储**（元素表重建后恢复；模块可回读）
+            // 人机操作三通道：命令按钮 / 文本输入 / 开关 —— 全部**投递到模块线程**
+            // 文本输入：把**应用级**的多行提交键档位传进去（多行提交键不属模块声明）
+            // 再传数据源：只为取"**框外单位标签**"（数据源声明的 unit）与数值输入的字符放行
+            // 并把"当前文本"落到**视图状态存储**（元素表重建后恢复；模块可回读）
             ViewElementKind.TextInput => new TextInputElementViewModel(
                 element,
                 SubmitInput,
@@ -760,23 +961,23 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
                 _viewState,
                 InstanceId),
 
-            // 【G4 · 2026-09】B6 文件选择器：弹对话框选/存路径 → 经既有输入通道提交给模块
+            // B6 文件选择器：弹对话框选/存路径 → 经既有输入通道提交给模块
             ViewElementKind.FileSelector => new FileSelectorElementViewModel(element, SubmitInput),
 
-            // 【2026-09 缺陷修复】开关也把"当前值"落到**视图状态存储**：切页 / 改设置重建元素表后，
-            // 开关必须停在用户上次拨到的位置 —— 否则 UI 弹回"关"、模块还在按"开"跑（实测：连续发送）。
+            // 开关也把"当前值"落到**视图状态存储**：切页 / 改设置重建元素表后，
+            // 开关必须停在用户上次拨到的位置 —— 否则 UI 弹回"关"、模块还在按"开"跑（表现为"连续发送"照发）。
             ViewElementKind.ToggleSlider => new ToggleElementViewModel(element, SubmitInput, _viewState, InstanceId),
 
-            // 【2026-09 用户裁定】**开关式滑块**（B7）：与 B3 语义相同、外观不同（模板按 `IsSwitch` 二选一）
+            // **开关式滑块**（B7）：与 B3 语义相同、外观不同（模板按 `IsSwitch` 二选一）
             ViewElementKind.ToggleSwitch => new ToggleElementViewModel(element, SubmitInput, _viewState, InstanceId),
-            ViewElementKind.ConfigurationEditor => CreateConfigurationEditor(),
-            _ => new UnsupportedElementViewModel(element.Kind, element.Title),
+            ViewElementKind.ConfigurationEditor => CreateConfigurationEditor(element),
+            _ => new UnsupportedElementViewModel(element),
         };
     }
 
     /// <summary>
     /// 取某显示源的**共享文本缓冲**（视图状态存储里那一份）；未接线或未声明源名 ⇒ <see langword="null"/>
-    /// （元素自己建本地缓冲 —— 设计期与旧调用点行为不变）。
+    /// （元素自己建本地缓冲 —— 设计期与未接线的调用点行为不变）。
     /// </summary>
     /// <param name="sourceName">显示源名。</param>
     private DisplayBuffer? DisplayFor(string? sourceName) =>
@@ -784,18 +985,18 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
             ? _viewState.Display(InstanceId, sourceName)
             : null;
 
-    /// <summary>命令按钮：按命令声明生成（未声明的命令不会出现在界面上）。</summary>
-    /// <param name="command">命令声明。</param>
-    private CommandElementViewModel CreateCommand(ViewCommand command) =>
-        new(command, name => _command.SendCommand(InstanceId, name));
+    /// <summary>命令按钮：按声明节点生成（绑定的命令名来自节点的 `command` 角色键）。</summary>
+    /// <param name="node">命令按钮节点。</param>
+    private CommandElementViewModel CreateCommand(ViewNode node) =>
+        new(node, name => _command.SendCommand(InstanceId, name));
 
     /// <summary>提交一个输入值（输入框/开关共用）。</summary>
     private CommandResult SubmitInput(string source, string text) =>
         _command.SubmitInput(InstanceId, source, text);
 
-    private ConfigurationEditorElementViewModel CreateConfigurationEditor()
+    private ConfigurationEditorElementViewModel CreateConfigurationEditor(ViewNode node)
     {
-        var editor = new ConfigurationEditorElementViewModel();
+        var editor = new ConfigurationEditorElementViewModel(node);
         editor.Attach(InstanceId, ApplyConfigurationField);
         return editor;
     }

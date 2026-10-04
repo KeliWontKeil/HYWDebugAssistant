@@ -40,9 +40,8 @@ public sealed class FusionStubConfig
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>为什么需要它</b>：2026-09 用户裁定删除 6 个参考模块包后，"**一个模块两个输入口 + 一个输出口**"
-///     这条形态（ADR-0050 多源 / ADR-0052 角色分块 / ADR-0053 角色速率）**没有任何产品模块承载** ——
-///     但它是**框架能力**，必须继续被判据网覆盖 ⇒ 用测试桩承载（用户："**不删任何的框架能力与接口**"）；</item>
+///   <item><b>为什么需要它</b>：「**一个模块两个输入口 + 一个输出口**」这条形态（多源 / 角色分块 / 角色速率）
+///     在四个基础模块里**没有对应物** —— 但它是**框架能力**，必须继续被判据网覆盖 ⇒ 用测试桩承载；</item>
 ///   <item><b>与真实模块的关系</b>：链路两端仍是**四个正式模块**（`text-sender` / `hex-sender` 作为发布者、
 ///     `data-monitor` 作为下游显示）；本桩只承担"多源合并"这一件事；</item>
 ///   <item><b>载荷口径</b>：口的形状 = 与发送器**逐字相同**的 `RawBytes`（`{ len:u16, data:bytes[1472] }`）
@@ -129,27 +128,14 @@ public sealed class FusionStubModule : IModule, IActivitySource
             Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
         });
 
-        // **两入一出 = 一块功能分块**（ADR-0052：角色由模块声明，框架不派生）
-        // 两入一出 ⇒ **直接构造**（`Both` 只收单口；多口角色用构造器 —— 与参考融合器同一写法）
+        // **两入一出 = 一块功能分块**（角色由模块自己声明，框架不派生）
+        // 两入一出 ⇒ **直接构造**（`Both` 只收单口；多口角色用构造器）
         context.Declaration.DeclareRole(new RoleDeclaration(
             RoleId,
             new DataTypeRef(RawBytesTypeId, RawBytesVersion),
             [InputPort1, InputPort2],
             [OutputPort],
             "融合"));
-
-        context.Declaration.DeclareView(new ViewDeclaration(
-            [
-                new ViewElement(ViewElementKind.Numeric, FusedSource, "融合值"),
-                new ViewElement(ViewElementKind.Numeric, Count1Source, "第 1 路"),
-                new ViewElement(ViewElementKind.Numeric, Count2Source, "第 2 路"),
-            ],
-            dataSources:
-            [
-                new ViewDataSource(FusedSource, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.F32),
-                new ViewDataSource(Count1Source, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64),
-                new ViewDataSource(Count2Source, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U64),
-            ]));
     }
 
     /// <inheritdoc />
@@ -197,7 +183,7 @@ public sealed class FusionStubModule : IModule, IActivitySource
 
     /// <summary>处理一个到达的单元（**测试可直接调用**）。</summary>
     /// <param name="context">上下文。</param>
-    /// <param name="sourcePort">到达的口名（**来源用口区分** —— ADR-0050 M4）。</param>
+    /// <param name="sourcePort">到达的口名（**来源用口区分**）。</param>
     /// <param name="payload">载荷。</param>
     public void Handle(IModuleContext context, string? sourcePort, ReadOnlySpan<byte> payload)
     {
@@ -244,7 +230,8 @@ public sealed class FusionStubModule : IModule, IActivitySource
             };
         }
 
-        context.Ports.Publish(FusedSource, BitConverter.GetBytes(fused));
+        // 声明面把 `fused` 记为 8 字节浮点（声明是数据源宽度的唯一来源，读方按它切片）
+        context.Ports.Publish(FusedSource, BitConverter.GetBytes((double)fused));
         context.Ports.Publish(Count1Source, BitConverter.GetBytes((ulong)Interlocked.Read(ref _count1)));
         context.Ports.Publish(Count2Source, BitConverter.GetBytes((ulong)Interlocked.Read(ref _count2)));
 

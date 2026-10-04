@@ -25,17 +25,15 @@ namespace HYWDebugAssistant.Tests.Reference;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>载体变更（2026-09 用户裁定"完全删除旧的模块…新测试全部转入新的四个模块"）</b>：
-/// 原判据组合 = 三个参考桩模块（数据发生器 → 记录器 + 断言器，1:N 多播）。
+/// <b>链路载体 = 正式模块 + 本项目内的测试桩</b>：
+/// `hyw/data-monitor`（下游显示）+ `test/rate-source`（不需要人操作的持续数据源，见 <c>Stubs/</c>）+
+/// `test/fusion-stub`（多源合并）。
 /// </para>
 /// <list type="bullet">
-///   <item><b>链路载体</b>换成**正式模块 + 本项目内的测试桩**：`hyw/data-monitor`（下游显示）+
-///     `test/rate-source`（不需要人操作的持续数据源，见 <c>Stubs/</c>）+
-///     `test/fusion-stub`（多源合并）；</item>
-///   <item><b>判据本身一条都没改口径</b>：AC-1 依赖图 + 接入即运行、AC-2 故障隔离、AC-3 五类在线变更、
+///   <item><b>判据口径</b>：AC-1 依赖图 + 接入即运行、AC-2 故障隔离、AC-3 五类在线变更、
 ///     AC-4 保存/加载往返无损、AC-5 批量新增不碰既有、AC-6 未知形状零改动；</item>
-///   <item>框架程序集引用集断言（AC-1/AC-6）的对象是**框架自身**，与载体无关 ⇒ 原样保留；
-///     "模块只引 SDK"（AR-1）复核对象改为**四个正式模块程序集**。</item>
+///   <item>框架程序集引用集断言（AC-1/AC-6）的对象是**框架自身**，与载体无关；
+///     「模块只引 SDK」（AR-1）复核对象是**四个正式模块程序集**。</item>
 /// </list>
 /// </remarks>
 public class AcceptanceCriteriaTests
@@ -455,9 +453,6 @@ public class AcceptanceCriteriaTests
         public void OnRegistered(IModuleContext context)
         {
             context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape));
-            context.Declaration.DeclareView(new ViewDeclaration(
-                [new ViewElement(ViewElementKind.Numeric, "value", "值")],
-                [new ViewDataSource("value", unit: null, format: null, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.F32)]));
         }
 
         public void RunActivity(IModuleContext context)
@@ -538,9 +533,6 @@ public class AcceptanceCriteriaTests
         public void OnRegistered(IModuleContext context)
         {
             context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape));
-            context.Declaration.DeclareView(new ViewDeclaration(
-                [new ViewElement(ViewElementKind.Numeric, ValueSource, "计数")],
-                [new ViewDataSource(ValueSource, unit: null, format: null, kind: ViewDataSourceKind.Value, valueType: ContractPrimitive.U32)]));
         }
 
         public void RunActivity(IModuleContext context)

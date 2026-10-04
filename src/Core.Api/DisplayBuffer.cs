@@ -1,19 +1,18 @@
 namespace HYWDebugAssistant.Core.Api;
 
 /// <summary>
-/// **显示文本缓冲**：一个显示元素（A5 文本日志）当前保留的文本 —— **UI 渲染与模块回读是同一份**
-/// 〔2026-09 用户裁定 · `decisions.md` 7.31〕。
+/// **显示文本缓冲**：一个显示元素（A5 文本日志）当前保留的文本 —— **UI 渲染与模块回读是同一份**。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>语义对齐 WinForms 的 `TextBox`</b>（用户 2026-09："文本框在 winforms 中**不会丢弃数据**，
-///     不清空会一直保存"）：**只增**，只有 <see cref="Clear"/> 才清；界面只显示放得下的部分，
+///   <item><b>语义对齐 WinForms 的 `TextBox`</b>（WinForms 的文本框**不会丢弃数据**，
+///     不清空会一直保存）：**只增**，只有 <see cref="Clear"/> 才清；界面只显示放得下的部分，
 ///     更早的内容**用滚动条回看**；</item>
-///   <item><b>两个追加入口 = 换行归谁表达</b>〔2026-09 用户裁定〕：
+///   <item><b>两个追加入口 = 换行归谁表达</b>：
 ///     <see cref="AppendText"/>（**不换行** —— 数据直接接在后面，一行多长由**文本框宽度**决定）与
 ///     <see cref="AppendLine"/>（**通道换行** —— 换行是调用，不是文本里的字符）；
 ///     历史成员 <see cref="Append"/> 保持原样（老的"发布定长样本"路径照常工作）；</item>
-///   <item><b>为什么是"同一份"</b>：模块"保存显示内容"时**读文本框自己的内存**（用户原话）⇒
+///   <item><b>为什么是「同一份」</b>：模块「保存显示内容」时**读文本框自己的内存** ⇒
 ///     不设第二份副本（否则两份文本会不一致）；</item>
 ///   <item><b>容量与到顶策略</b>：<see cref="Capacity"/> **条**封顶，超出**丢弃最旧**并累计
 ///     <see cref="DroppedCount"/>（**不静默丢** —— 界面据此提示"已丢弃 N 行"）；</item>
@@ -25,7 +24,7 @@ namespace HYWDebugAssistant.Core.Api;
 public sealed class DisplayBuffer
 {
     /// <summary>
-    /// 默认容量（行）—— 用户 2026-09 裁定 **20 000 行**（量级参考：2 万行 × 48 字符 ≈ 2 MB）。
+    /// 默认容量（行）：**20 000 行**（量级参考：2 万行 × 48 字符 ≈ 2 MB）。
     /// </summary>
     /// <remarks>阶段 3 落地时按**实测**（只读文本框的布局耗时与内存）再调；**先不做应用级设置项**。</remarks>
     public const int DefaultCapacity = 20_000;

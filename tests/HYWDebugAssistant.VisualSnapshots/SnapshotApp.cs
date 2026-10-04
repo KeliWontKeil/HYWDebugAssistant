@@ -11,7 +11,7 @@ namespace HYWDebugAssistant.VisualSnapshots;
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>为什么不直接用 `HYWDebugAssistant.App.App`</b>：那会让本测试项目**引用 App 项目** ⇒ 构建它就要重新
-///     拷贝 App 的输出 ⇒ **应用正在运行时（`src/App/bin` 被锁）快照工具就不可用** —— 而调 UI 恰恰发生在应用开着的时候。
+///     拷贝 App 的输出 ⇒ **应用正在运行时（App 的 `bin` 输出被锁）快照工具就不可用** —— 而调 UI 恰恰发生在应用开着的时候。
 ///     本类只做 App 的资源装载（同一条 `avares://HYWDebugAssistant.Ui/...` 路径），与 App 解耦换来"随时可跑"。</item>
 ///   <item><b>保真度</b>：与 `App.axaml` **同一批资源**（Tokens 合并字典 + Fluent 主题 + Controls 样式）；
 ///     差别仅在于不装 `ViewLocator`（模块窗口不靠它解析视图）。若将来 App 增加**渲染必需**的资源，

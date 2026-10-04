@@ -3,7 +3,7 @@ using Avalonia.Input;
 namespace HYWDebugAssistant.Ui.Hotkeys;
 
 /// <summary>
-/// **快捷键动作目录**（ADR-0036 D7）：动作 = 固定枚举，标题用于设置界面展示，默认绑定可被用户覆盖。
+/// **快捷键动作目录**：动作 = 固定枚举，标题用于设置界面展示，默认绑定可被用户覆盖。
 /// </summary>
 /// <remarks>
 /// 作用域 = **应用内**（本应用任一窗口聚焦时生效）；不实现系统级全局热键。
@@ -23,7 +23,7 @@ public static class HotkeyCatalog
     /// <summary>打开拓扑诊断弹窗。</summary>
     public const string OpenTopology = "openTopology";
 
-    /// <summary>切换**叠加信息层**显示（原"口上标记"；ADR-0039 D5）。</summary>
+    /// <summary>切换**叠加信息层**显示（口上标记）。</summary>
     public const string ToggleMarkers = "toggleMarkers";
 
     /// <summary>切换几何吸附。</summary>
@@ -35,7 +35,7 @@ public static class HotkeyCatalog
     /// <summary>**固定 / 解锁全部端口锚点**（G5 · C5-7：锚点是否可拖动）。</summary>
     /// <remarks>
     /// 与 <see cref="ToggleLockAll"/> **不是一回事**：那个锁的是**模块窗口**（不可移动、不可缩放），
-    /// 这个固定的是**端口锚点**（不可沿边拖动、不可换边）。用词按 `decisions.md` 7.14 一律「固定」。
+    /// 这个固定的是**端口锚点**（不可沿边拖动、不可换边）。用词一律「固定」。
     /// </remarks>
     public const string ToggleAnchorFixed = "toggleAnchorFixed";
 

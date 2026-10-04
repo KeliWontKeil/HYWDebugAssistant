@@ -5,14 +5,14 @@ namespace HYWDebugAssistant.Ui.Geometry;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>为什么要有这个类型</b>（2026-09 缺陷修复）：标记尺寸原先有**两个来源** ——
+///   <item><b>为什么要有这个类型</b>：标记尺寸若存有**两个来源** ——
 ///     <c>PortMarkerViewModel.MarkerWidth/MarkerHeight</c> 里写死的 20/114，与 <c>Tokens.axaml</c> 的
 ///     <c>PortMarkerWidth</c>/<c>PortMarkerLength</c>；而**真正生效的只有前者**（模板的宽高绑定的就是视图模型，
 ///     面板排布也读它，两个 token 全仓库无人引用 = 死资源）⇒ 改了一处、另一处没改，"尺寸对不上"只会在
 ///     真机上以"标记压住内容 / 被裁"的形式出现。现在收敛到这里一处，token 侧只留注释指回来。</item>
-///   <item><b>长度 114 → 150</b>（2026-09 用户实测）：长度 114 时槽位缺口约 63px，而速率文本（<c>0.00 KB/s</c>）
-///     就要 ≈54px ⇒ 网络名只剩约 10px，「（直连）」必然被截（用户："括号太大显示不出来，一半的文字被
-///     后面的速率遮住了"）⇒ 加长到 **150**。代价：窗口 <c>MinHeight</c> 必须 ≥ 标记长度 + 余量
+///   <item><b>长度 114 → 150</b>：长度 114 时槽位缺口约 63px，而速率文本（<c>0.00 KB/s</c>）
+///     就要 ≈54px ⇒ 网络名只剩约 10px，「（直连）」必然被截掉一半文字 ⇒ 加长到 **150**。
+///     代价：窗口 <c>MinHeight</c> 必须 ≥ 标记长度 + 余量
 ///     （见 <see cref="MinWindowExtent"/>）。</item>
 ///   <item><b>跨轴宽 20</b> = 预留带厚度（<c>PortMarkerPanel.BandThickness</c>）：**同一块地方**，
 ///     不是相加（内容区加同宽内边距 ⇒ 标记与内容永不重叠）。</item>
@@ -41,7 +41,7 @@ public static class PortMarkerMetrics
     /// **网络名列的最大宽**（= 长度 − 固定槽位）——"名称优先"的直接体现：空间不够时**先裁速率**。
     /// </summary>
     /// <remarks>
-    /// 【2026-09 用户裁定】用户选了"名称优先：空间不够时先裁速率而不是名称"——名字是"这是哪条网络"的
+    /// 【名称优先】空间不够时**先裁速率**而不是名称——名字是"这是哪条网络"的
     /// 身份信息，速率的量纲/位置由槽位保证，被裁掉也不至于误读。
     /// </remarks>
     public const double NameMaxWidth = Length - FixedChrome;
@@ -53,8 +53,9 @@ public static class PortMarkerMetrics
     /// <remarks>
     /// 这条是**推算出来的约束**，不是审美取值：窗口比标记短 ⇒ 标记被面板夹到起点并**溢出被裁**
     /// （`PortMarkerPanel.AlongEdgeSpan` 的 `Math.Clamp(start, 0, max(0, available - length))`），
-    /// 表现为"标记被切掉一截"。`ModuleWindow.axaml` 的 `MinWidth/MinHeight` 与
-    /// `ModuleViewViewModel` 的同名常量必须 ≥ 它。
+    /// 表现为"标记被切掉一截"。它**就是框架地板的来历**：包声明 schema 里 `window.minHeight`
+    /// 的缺省值取自本常量（`minWidth` 的 180 则由"横排标记 + 按钮簇落脚"推出），
+    /// 读取器把小于地板的声明夹到地板 ⇒ 全框架只有 schema 那一份地板数值，代码里不再有第二份。
     /// </remarks>
     public const double MinWindowExtent = 160;
 }

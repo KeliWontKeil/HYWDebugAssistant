@@ -27,7 +27,7 @@ public sealed class ModuleInstance
         IReadOnlyList<DataTypeDeclaration> dataTypes,
         IReadOnlyList<Sdk.Contracts.RoleDeclaration> roles,
         IReadOnlyList<Sdk.Ports.FlowDeclaration> flows,
-        ViewDeclaration? view,
+        ViewDocument view,
         Context.ModuleContext context)
     {
         InstanceId = instanceId;
@@ -62,12 +62,12 @@ public sealed class ModuleInstance
     public IReadOnlyList<PortInstance> Ports { get; }
 
     /// <summary>
-    /// 该实例**声明的数据类型**（按声明顺序）【ADR-0046 D2】：框架只持**机械镜像**，不理解语义。
+    /// 该实例**声明的数据类型**（按声明顺序）：框架只持**机械镜像**，不理解语义。
     /// </summary>
     public IReadOnlyList<DataTypeDeclaration> DataTypes { get; }
 
     /// <summary>
-    /// 该实例**声明的角色**（功能分块：一种数据类型 + 其输入口/输出口）【ADR-0052】。
+    /// 该实例**声明的角色**（功能分块：一种数据类型 + 其输入口/输出口）。
     /// </summary>
     /// <remarks>
     /// **只用于呈现**（叠加层画功能块与 `m/n`）：不参与建网/兼容/停流/投递/计量，**不进组合件**。
@@ -76,13 +76,20 @@ public sealed class ModuleInstance
     public IReadOnlyList<Sdk.Contracts.RoleDeclaration> Roles { get; }
 
     /// <summary>
-    /// 该实例声明的**内部处理顺序**（`角色 → 角色`，已校验两端角色存在）【ADR-0052】。
+    /// 该实例声明的**内部处理顺序**（`角色 → 角色`，已校验两端角色存在）。
     /// </summary>
     /// <remarks>**只用于呈现**（叠加层画模块内部的细实线）：不参与任何判定，**不进组合件**。零声明 ⇒ 不画。</remarks>
     public IReadOnlyList<Sdk.Ports.FlowDeclaration> Flows { get; }
 
-    /// <summary>视图声明（<see langword="null"/> = **无 UI 模块**，合法）。</summary>
-    public ViewDeclaration? View { get; }
+    /// <summary>
+    /// 该实例的视图声明（包内 <c>view.json</c> 的解析结果）——**界面形态的唯一事实源**。
+    /// </summary>
+    /// <remarks>
+    /// **非空**：没有声明文件时 = 全 schema 缺省（含默认窗口尺寸与地板），整份被忽略（硬伤）时 =
+    /// <see cref="ViewDocument.Fallback"/>（没有任何控件，但**窗口尺寸取框架地板**，与"无 UI 模块"在呈现上等价）。
+    /// 默认值不在这里，全部由框架 schema 解出后落进本对象。
+    /// </remarks>
+    public ViewDocument View { get; }
 
     /// <summary>
     /// 该实例的模块上下文（框架侧使用：L4 运行时要接入真实投递面、取接收处理、置停止信号）。

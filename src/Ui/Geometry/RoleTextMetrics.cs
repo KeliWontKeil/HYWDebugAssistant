@@ -3,12 +3,12 @@ using System.Globalization;
 namespace HYWDebugAssistant.Ui.Geometry;
 
 /// <summary>
-/// **角色方块与角色信息的文本度量**（纯函数、确定值）【ADR-0053 · 用户第三十四轮】。
+/// **角色方块与角色信息的文本度量**（纯函数、确定值）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>为什么要它</b>：用户裁定角色方块"**太大、观感不好**"，要求"**文本自适应宽度**"——
-///     方块宽度必须跟着文字走，不能再是固定 128；</item>
+///   <item><b>为什么要它</b>：角色方块「**太大、观感不好**」⇒ 要求「**文本自适应宽度**」——
+///     方块宽度必须跟着文字走，不能是固定 128；</item>
 ///   <item><b>为什么是估算而不是测量</b>：方块宽度同时被**两端**用来算连线锚点
 ///     （本窗画自己的方块、对端窗用同一个函数算对端锚点）⇒ 必须是**确定性纯函数**，
 ///     不能依赖渲染期的排版结果（字体缺失/主题不同会让两侧算出不同宽度 ⇒ 线又错位）；
@@ -23,14 +23,14 @@ public static class RoleTextMetrics
     public const double TitleFontSize = 11;
 
     /// <summary>
-    /// **角色信息里的速率字号**（大字）【ADR-0053 · 用户第三十四轮："字体更大一些"】。
+    /// **角色信息里的速率字号**（大字）。
     /// </summary>
     public const double RateFontSize = 15;
 
     /// <summary>角色方块 / 角色信息**次要行**字号（`m/n`、口数、类型标签）。</summary>
     public const double DetailFontSize = 10;
 
-    /// <summary>类型标签的最大字数（**禁止外显过长描述** —— 用户第三十四轮："当前第三行太长了"）。</summary>
+    /// <summary>类型标签的最大字数（**禁止外显过长描述**）。</summary>
     public const int MaxTypeTagLength = 8;
 
     /// <summary>类型标签：只取**第一个**语义标签，并按字数截断（超长加省略号）。</summary>

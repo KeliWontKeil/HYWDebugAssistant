@@ -19,9 +19,8 @@ namespace HYWDebugAssistant.Tests;
 /// **主动接收路径**的端到端验证（`TryReceive` + `ReleaseBuffer`）。
 /// </summary>
 /// <remarks>
-/// 为什么单独保留这组测试：参考桩模块已改用**被动接收**（`04a` §5.2 发现一的裁决 ①），
-/// 但"允许阻塞的模块用自己的循环取数据"是设计明确保留的路径（ADR-0028 §3.3），
-/// 在 M2 补 `WaitForData` 原语之前，这条路径必须仍有组合级覆盖，避免它悄悄坏掉。
+/// 为什么单独保留这组测试：`TryReceive` + `ReleaseBuffer` 是设计保留的主动接收路径 ——
+/// 模块允许用自己的循环取数据；在 `WaitForData` 原语补上之前，这条路径必须有组合级覆盖，避免它悄悄坏掉。
 /// </remarks>
 public class ActiveReceiveTests
 {
@@ -77,7 +76,7 @@ public class ActiveReceiveTests
             null,
             true,
             entryType,
-            string.Empty,
+            TestViewPackages.For(entryType),
             string.Empty);
 
         services.Registry.TryRegister(definition, out var failure).ShouldBeTrue(failure);
@@ -127,16 +126,9 @@ public class ActiveReceiveTests
                 PortDirection.Receive,
                 ContractShape.OfPrimitive(ContractPrimitive.U32)));
 
-            context.Declaration.DeclareView(new Sdk.Views.ViewDeclaration(
-                [new Sdk.Views.ViewElement(Sdk.Views.ViewElementKind.Numeric, ReceivedSource, "已接收")],
-                [
-                    new Sdk.Views.ViewDataSource(
-                        ReceivedSource,
-                        unit: null,
-                        format: null,
-                        kind: Sdk.Views.ViewDataSourceKind.Value,
-                        valueType: ContractPrimitive.U64),
-                ]));
+            // 本模块**没有控件**（包内 `view.json` 只声明端口与数据源）：
+            // 本用例只验证主动接收路径（`TryReceive` + `ReleaseBuffer`），与界面无关；
+            // 订阅缓冲由 `RunActivity` 里的 `context.Ports.Publish(ReceivedSource, …)` 写入。
         }
 
         public void RunActivity(IModuleContext context)

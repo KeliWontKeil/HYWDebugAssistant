@@ -9,7 +9,7 @@ using HYWDebugAssistant.Ui.ViewModels;
 namespace HYWDebugAssistant.FrameworkUi.ViewModels;
 
 /// <summary>
-/// **数据结构（类型身份）→ 颜色** 映射表的一行【ADR-0054 · 用户第三十四轮】。
+/// **数据结构（类型身份）→ 颜色** 映射表的一行。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -86,7 +86,7 @@ public sealed partial class DataTypeColorRowViewModel : ViewModelBase
     /// <param name="usageText">用量文本。</param>
     /// <param name="overrideHex">用户覆盖色（null = 自动）。</param>
     /// <remarks>
-    /// 【用户第三十四轮实测："鼠标指到色块上时**不停的闪烁**"】根因 = 刷新时**重建整张表**
+    /// 悬停时色块不停闪烁的根因 = 刷新时**重建整张表**
     /// （半个刷新周期换一批控件，正在打开的取色弹窗目标被销毁 ⇒ 反复开关 = 闪烁）。
     /// ⇒ 行对象**只在类型集合变化时增删**，其余情况一律**就地改值**（集合稳定 ⇒ 弹窗不会被拆掉）。
     /// </remarks>
@@ -119,7 +119,7 @@ public sealed partial class DataTypeColorRowViewModel : ViewModelBase
 }
 
 /// <summary>
-/// **数据结构 → 颜色** 表格的容器（行集合 + 空态文案）【ADR-0054】。
+/// **数据结构 → 颜色** 表格的容器（行集合 + 空态文案）。
 /// </summary>
 public sealed partial class DataTypeColorTableViewModel : ViewModelBase
 {

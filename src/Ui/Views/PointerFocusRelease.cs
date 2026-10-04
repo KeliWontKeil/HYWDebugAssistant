@@ -7,8 +7,7 @@ using Avalonia.VisualTree;
 namespace HYWDebugAssistant.Ui.Views;
 
 /// <summary>
-/// **点空白/非可聚焦处 = 主动放弃键盘焦点**〔2026-09 用户裁定："鼠标必须点其他控件/窗口才能离开焦点，
-/// **点其他空白不行**"〕——全局一处，主窗口与模块窗口同时受益。
+/// **点空白/非可聚焦处 = 主动放弃键盘焦点**——全局一处，主窗口与模块窗口同时受益。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -20,7 +19,7 @@ namespace HYWDebugAssistant.Ui.Views;
 ///     按钮 / 开关 / 文本框 / 滚动条都有自己的可聚焦部件 ⇒ **行为与今天完全一致**；
 ///     而空白背景、标签文字、边框这些都不可聚焦 ⇒ 释放焦点；</item>
 ///   <item><b>释放的是"这一下点击所属窗口"的焦点</b>（`FocusManager` 按 `TopLevel` 分家）——
-///     正是用户描述的场景："点别的窗口"本来就会切窗口，这里补的是"点本窗口的空白"。</item>
+///     "点别的窗口"本身就会切窗口，这里补的是"点本窗口的空白"这一条。</item>
 /// </list>
 /// </remarks>
 public static class PointerFocusRelease

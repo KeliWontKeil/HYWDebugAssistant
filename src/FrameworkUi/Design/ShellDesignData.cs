@@ -4,7 +4,7 @@ using HYWDebugAssistant.Ui.Design;
 namespace HYWDebugAssistant.FrameworkUi.Design;
 
 /// <summary>
-/// **外壳与弹窗的设计时样例数据**（XAML 预览器用）——【用户第九轮反馈】：
+/// **外壳与弹窗的设计时样例数据**（XAML 预览器用）：
 /// 让 `MainWindow` / 四个弹窗 / 两个侧边页面在 VS 设计器里**有内容可看**，从而能直接调 UI。
 /// </summary>
 /// <remarks>

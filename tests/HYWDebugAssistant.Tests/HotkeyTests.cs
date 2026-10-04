@@ -6,7 +6,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// M1-17：**应用内快捷键**（ADR-0036 D7）——绑定解析/格式化、冲突、动作分发、设置持久化。
+/// M1-17：**应用内快捷键**——绑定解析/格式化、冲突、动作分发、设置持久化。
 /// </summary>
 public class HotkeyTests
 {
@@ -102,8 +102,8 @@ public class HotkeyTests
     [Fact]
     public void 服务_应有固定与解锁端口锚点的动作且默认键可用()
     {
-        // 【G5 · C5-7】"可通过快捷键/操作锁定与解锁" —— 动作目录必须**真的**有这一项，
-        // 而且**与"全部锁定/解锁（模块窗口）"是两个不同动作**（术语撞词，见 decisions 7.14）。
+        // 【G5 · C5-7】动作目录必须**真的**有「固定 / 解锁端口锚点」这一项，
+        // 而且**与「全部锁定/解锁（模块窗口）」是两个不同动作**（术语撞词：锚点侧一律用「固定」）。
         var action = HotkeyCatalog.Find(HotkeyCatalog.ToggleAnchorFixed);
         action.ShouldNotBeNull("G5 要求的全局「固定 / 解锁端口锚点」动作必须在目录里");
         action.Title.ShouldContain("固定");

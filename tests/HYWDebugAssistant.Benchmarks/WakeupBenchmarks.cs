@@ -8,7 +8,7 @@ namespace HYWDebugAssistant.Benchmarks;
 /// <remarks>
 /// <list type="bullet">
 ///   <item>测法：**两个真实线程**做"生产者放行 → 消费者应答"的往返，除以往返次数得到**单次交接延迟**；</item>
-///   <item>注意：自旋只是被实测的**对照策略**；框架实现里不使用自旋锁（ADR-0025 §8 / `implementation/03`）。</item>
+///   <item>注意：自旋只是被实测的**对照策略**；框架实现里不使用自旋锁。</item>
 /// </list>
 /// </remarks>
 [MemoryDiagnoser]

@@ -20,7 +20,7 @@ public delegate void ReceiveHandler(ReadOnlySpan<byte> payload);
 public interface IModuleDeclaration
 {
     /// <summary>
-    /// 声明一个**数据类型**【ADR-0046 D2】：标识 + 版本 + 尺寸（由形状定）+ 传输语义 + 计量块 + **解码器**。
+    /// 声明一个**数据类型**：标识 + 版本 + 尺寸（由形状定）+ 传输语义 + 计量块 + **解码器**。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
@@ -35,31 +35,28 @@ public interface IModuleDeclaration
     void DeclarePort(PortDeclaration port);
 
     /// <summary>
-    /// 声明一个**角色**（模块的功能分块：一种数据类型 + 其输入口/输出口）【ADR-0052】。
+    /// 声明一个**角色**（模块的功能分块：一种数据类型 + 其输入口/输出口）。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
     ///   <item><b>角色 = 模块内部数据处理功能的抽象</b>（"我有哪几块处理功能"），与**网络标签/端口标记**
     ///     （数据接口的抽象）**不是同一层级** —— 叠加层只画角色，接口仍由端口标记表达；</item>
     ///   <item>一个角色**只有一种类型**；**口通常各 1 个**（多源融合器 = 2 入 1 出，允许）；一个口**最多属于一个角色**；</item>
-    ///   <item>**只呈现**：不参与建网 / 契约兼容 / 停流 / 投递 / 计量，也不进组合件（ADR-0048 R9）；</item>
+    ///   <item>**只呈现**：不参与建网 / 契约兼容 / 停流 / 投递 / 计量，也不进组合件；</item>
     ///   <item>声明即契约：有数据口的模块**应当**声明角色；未声明 ⇒ 叠加层不画方块。**运行期不报**（避免在自家正确模块的
-    ///     Issue 中心报警）；由 SDK 自检（`ModuleContract`）给一条**建议**（`Advisories`，**不进 `Problems`**）—— 见 B5 裁定。</item>
+    ///     Issue 中心报警）；由 SDK 自检（`ModuleContract`）给一条**建议**（`Advisories`，**不进 `Problems`**）。</item>
     /// </list>
     /// </remarks>
     /// <param name="role">角色声明。</param>
     void DeclareRole(RoleDeclaration role);
 
     /// <summary>
-    /// 声明一条**模块内部的处理顺序**（`角色 → 角色`）【ADR-0052 · 修订 ADR-0049 D13】——
-    /// 表达"分块之间的先后"（如"融合 → 限幅"）。单分块模块**零声明**。
+    /// 声明一条**模块内部的处理顺序**（`角色 → 角色`）——
+    /// 表达「分块之间的先后」（如「融合 → 限幅」）。单分块模块**零声明**。
     /// </summary>
     /// <remarks>只呈现：不参与建网/兼容/停流/投递/计量，也不进组合件；两端角色必须已声明（否则报 Issue 并忽略该条）。</remarks>
     /// <param name="flow">内部处理关系（角色 → 角色）。</param>
     void DeclareFlow(FlowDeclaration flow);
-
-    /// <summary>声明视图（预置元素组合；不声明 = 无 UI 模块，合法）。</summary>
-    void DeclareView(ViewDeclaration view);
 }
 
 /// <summary>
@@ -83,7 +80,7 @@ public interface IPortAccess
 
     /// <summary>主动取一个待处理数据单元——**主动接收模式**（非阻塞；无数据时返回 <see langword="false"/>）。</summary>
     /// <remarks>
-    /// 输入队列是**每模块实例一个**（ADR-0029 §4.2），因此主动接收返回"任意一个单元 + 其目标口名"；
+    /// 输入队列是**每模块实例一个**，因此主动接收返回「任意一个单元 + 其目标口名」；
     /// 只关心单一接收口的模块自行比对 <paramref name="sourcePort"/> 即可。
     /// 取到的缓冲**必须**经 <see cref="ReleaseBuffer"/> 归还。
     /// </remarks>
@@ -115,7 +112,7 @@ public interface IConfigurationAccess
 }
 
 /// <summary>
-/// 停止信号：模块的长时间活动应周期性检查该信号并尽快退出（ADR-0029 §4.1 停止协议）。
+/// 停止信号：模块的长时间活动应周期性检查该信号并尽快退出。
 /// </summary>
 public interface IStopSignal
 {
@@ -129,8 +126,8 @@ public interface IStopSignal
 }
 
 /// <summary>
-/// **人机操作收件箱**【新增 · M1-16 / ADR-0040 D1-D3】：
-/// 框架把"用户点按钮 / 填输入框 / 拨开关"投递到这里，**模块在自身线程上消费**
+/// **人机操作收件箱**：
+/// 框架把「用户点按钮 / 填输入框 / 拨开关」投递到这里，**模块在自身线程上消费**
 /// （与数据投递同一线程纪律：框架不跨线程直接调模块）。
 /// </summary>
 /// <remarks>
@@ -154,7 +151,7 @@ public interface IModuleInbox
 }
 
 /// <summary>
-/// **输入处理结果反馈**【新增 · G3 / 用户 2026-09 裁决】：模块把"某次输入的处理结果"回报到**对应的输入元素**上，
+/// **输入处理结果反馈**（G3）：模块把「某次输入的处理结果」回报到**对应的输入元素**上，
 /// 框架据此把它渲染成**失败态**（红框）—— 模块**不持 UI**、视图由框架渲染，故这件事**本质只能由框架做**。
 /// </summary>
 /// <remarks>
@@ -180,7 +177,7 @@ public interface IInputFeedbackReporter
 }
 
 /// <summary>
-/// 模块上下文：模块**唯一**的框架访问面（不持有框架对象引用）——ADR-0028 §3.8。
+/// 模块上下文：模块**唯一**的框架访问面（不持有框架对象引用）。
 /// </summary>
 /// <remarks>
 /// 方向纪律：模块 → 框架为"声明 / 上报 / 请求"；框架 → 模块为"生命周期钩子 + 投递回调"。
@@ -215,12 +212,11 @@ public interface IModuleContext
     /// <summary>停止信号（长期活动必须响应）。</summary>
     IStopSignal StopSignal { get; }
 
-    /// <summary>**人机操作收件箱**（命令 / 输入；模块在自身线程消费 —— ADR-0040）。</summary>
+    /// <summary>**人机操作收件箱**（命令 / 输入；模块在自身线程消费）。</summary>
     IModuleInbox Inbox { get; }
 
     /// <summary>
-    /// **显示内容的请求面**（模块 → 框架的"请求"方向）：目前只有"**清空某个显示源**"
-    /// 〔2026-09 · 为 `hyw/data-monitor` 的「清空」而只增〕。
+    /// **显示内容的请求面**（模块 → 框架的「请求」方向）：目前只有「**清空某个显示源**」。
     /// </summary>
     /// <remarks>
     /// 与 <see cref="ViewState"/> 的分界：那边是**只读**（模块改不了用户的选中页与编辑内容）；
@@ -229,8 +225,7 @@ public interface IModuleContext
     IViewDisplayAccess Display { get; }
 
     /// <summary>
-    /// **视图状态回读**（只读快照）：当前选中页 / 输入框当前文本 / 显示区保留的文本
-    /// 〔2026-09 用户裁定 · `decisions.md` 7.28〕。
+    /// **视图状态回读**（只读快照）：当前选中页 / 输入框当前文本 / 显示区保留的文本。
     /// </summary>
     /// <remarks>
     /// <b>方向纪律的增补</b>：既有纪律是"模块 → 框架 = 声明/上报/请求；框架 → 模块 = 钩子 + 投递回调"；

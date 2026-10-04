@@ -15,7 +15,6 @@
         ShowInTaskbar="False"
         Background="Transparent"
         SizeToContent="Manual"
-        MinWidth="180" MinHeight="160"
         Width="320" Height="220">
 
     <!--
@@ -28,11 +27,15 @@
         ⑤ 内容区点击**不选中**、但会**取消已有选中**（点别处即取消，用户第六轮反馈）。
       层级（自下而上）：内容层 → 交互带/手柄 → **口标记层** → 叠加信息层（B3）→ 按钮簇。
 
-      【用户第九轮反馈 · UI 开发方式】**尺寸的默认值就在本文件**（`Width`/`Height`/`MinWidth`/`MinHeight`）：
+      【尺寸口径 · 本文件不是事实源】**运行期的尺寸与约束全部来自模型**（声明面 `view.json` 的 `frame.window`，
+      缺省由 schema 补齐、下限在读取侧已夹到框架地板）：默认尺寸与最小尺寸都由
+      `ModuleWindowManager.ApplyGeometry` 按模型施加，本文件**只留设计器兜底**
+      （`Width`/`Height`/`d:DesignWidth`/`d:DesignHeight`）。
+      **本文件没有 `MinWidth`/`MinHeight`**（2026-10）：它们是框架地板的第二份字面量，且因为
+      `CanResize="False"` 对用户**毫无约束作用** —— 真实约束走模型的
+      `ModuleViewViewModel.EffectiveMin*` → `Fit`。地板的唯一来源见包声明 schema 的 `window.min*` 缺省值。
       内容排不下时由 `ModuleContentView` 的 ScrollViewer 滚动，**代码不再按内容计算窗口尺寸**；
       用户在界面上拖过的尺寸会随组合件保存（那是"用户的布局"，不是"代码算的布局"）。
-      **`MinHeight = 160` 是推出来的**（2026-09）：端口标记沿边长度 150（`PortMarkerMetrics.Length`）
-      ⇒ 窗口比它短就会把标记裁掉一截；`MinWidth = 180` 同理要容下横排标记（150）+ 「固定」按钮脚下的空隙。
       `d:DataContext` = 设计时样例数据 → **VS 设计器里可直接预览与调整**（见 `Ui/Design/DesignData.cs`）。
     -->
     <Window.Styles>

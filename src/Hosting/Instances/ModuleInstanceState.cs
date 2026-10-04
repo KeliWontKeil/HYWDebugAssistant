@@ -1,7 +1,7 @@
 namespace HYWDebugAssistant.Hosting.Instances;
 
 /// <summary>
-/// 模块实例的**框架层状态机**（权威）——主文档 §8.4 / ADR-0014。
+/// 模块实例的**框架层状态机**（权威）。
 /// </summary>
 /// <remarks>
 /// <code>Registered → Active ⇄ Disabled → Removed</code>

@@ -3,7 +3,7 @@ using System.Collections.ObjectModel;
 namespace HYWDebugAssistant.Sdk.Contracts;
 
 /// <summary>
-/// 契约**形状**描述（契约三层能力之③：组合与签名）——ADR-0028 §3.4 / C3-5。
+/// 契约**形状**描述（契约三层能力之③：组合与签名）。
 /// </summary>
 /// <remarks>
 /// 形状 = 成员序列（名称 + 原语类型 + 顺序）= **签名**；兼容判定 = 接收契约 ⊇ 发送契约（形状子集，可计算）。
@@ -13,10 +13,10 @@ namespace HYWDebugAssistant.Sdk.Contracts;
 /// 结构组合（嵌套深度 ≤ 4）；**无变长**。
 /// </para>
 /// <para>
-/// <b>字节块上限 256 → 4096（2026-09 放宽，只增）</b>：第一批模块的**文本载荷**要"一个 UDP 包量级"
-/// （用户裁定 `N = 1472`，上限留到 4096）。放宽属**兼容扩展**（老模块引用小尺寸照常工作）。
+/// <b>字节块上限 4096</b>：**文本载荷**要「一个 UDP 包量级」（典型有效载荷约 1472 字节），
+/// 故上限留到 4096。放宽属**兼容扩展**（引用小尺寸的模块照常工作）。
 /// <b>代价（已在模块页写明）</b>：v1 只定长 ⇒ **每个数据单元搬运字节 = 契约尺寸**（发 1 个字符也搬满 N），
-/// 大上限意味着字节速率与队列内存随之上升 —— 但那正是"还原文本"必须付的代价（用长度字段取真实内容）。
+/// 大上限意味着字节速率与队列内存随之上升 —— 但那正是「还原文本」必须付的代价（用长度字段取真实内容）。
 /// </para>
 /// <para>
 /// 契约**不含单位/量纲语义**（主文档 §5.4.2）——单位属模块配置/显示层。
@@ -43,12 +43,12 @@ public abstract record ContractShape
     public static StructShape OfStruct(params (string Name, ContractShape Shape)[] fields) => new(fields);
 
     /// <summary>
-    /// **信息类型的可读描述**【新增 · M1-16 / ADR-0039 D4】：把契约形状渲染成紧凑文本
+    /// **信息类型的可读描述**：把契约形状渲染成紧凑文本
     /// （如 <c>f32</c> · <c>u64</c> · <c>f32[8]</c> · <c>bytes[16]</c> · <c>{seq:u64, value:f32}</c>）。
     /// </summary>
     /// <remarks>
-    /// 用途 = **界面表达"接口的信息类型"**（端口标记 / 拓扑诊断）。此前该事实只存在于 SDK 与运行时内部，
-    /// 公开面只有字节数，界面无从显示（用户第六轮反馈："完全不知道接口的信息类型"）。
+    /// 用途 = **界面表达「接口的信息类型」**（端口标记 / 拓扑诊断）。缺少它时该事实只存在于 SDK 与运行时内部，
+    /// 公开面只有字节数，界面无从显示（用户看不出接口的信息类型）。
     /// 描述文本**不承载语义**（单位/量纲仍属模块配置与显示层，主文档 §5.4.2）。
     /// </remarks>
     public string Describe()
@@ -71,7 +71,7 @@ public abstract record ContractShape
     ///   <item><b>为什么不能直接用 <c>==</c></b>：这些形状是 record，但 <see cref="StructShape.Fields"/> 是集合成员，
       ///     record 的默认相等对集合做的是**引用比较** ⇒ 两个模块**各自构造**出的同一形状会被判"不相等"
       ///     （隐形陷阱：只有引用同一个静态实例才连得上）。本方法做真正的结构比较；</item>
-    ///   <item><b>用途</b>：兼容判定（ADR-0051：直连要求**形状完全一致**）与模块契约自检。</item>
+    ///   <item><b>用途</b>：兼容判定（直连要求**形状完全一致**）与模块契约自检。</item>
     /// </list>
     /// </remarks>
     /// <param name="left">形状（可为 <see langword="null"/>）。</param>
@@ -163,8 +163,8 @@ public sealed record BytesShape : ContractShape
     /// 长度上限（v1）。
     /// </summary>
     /// <remarks>
-    /// <b>256 → 4096（2026-09 放宽，只增）</b>：文本类载荷要"一个 UDP 包量级"。
-    /// 放宽属**兼容扩展**（老模块用不到这么大，照常工作）；引用该常量的只有
+    /// <b>上限 4096</b>：文本类载荷要「一个 UDP 包量级」。
+    /// 放宽属**兼容扩展**（用不到这么大的模块照常工作）；引用该常量的只有
     /// `Sdk.Testing.ModuleContract`（长度校验）与 `TestModuleContext`（按长度推断形状）⇒ **自动跟随**。
     /// </remarks>
     public const int MaxLength = 4096;
@@ -191,11 +191,11 @@ public sealed record BytesShape : ContractShape
 public sealed record ArrayShape : ContractShape
 {
     /// <summary>
-    /// 长度上限（v1）——**本次未放宽**（与字节块的上限彼此独立）。
+    /// 长度上限（v1）——与字节块的上限彼此独立。
     /// </summary>
     /// <remarks>
     /// 数组长度按**元素个数**计：配合 `u64` 元素时 256 个元素 = 2048 字节，量级已足够；
-    /// 文本类需求走**字节块**（`BytesShape`，2026-09 已放宽到 4096），故此处保持不动（最小改动）。
+    /// 文本类需求走**字节块**（`BytesShape`，上限 4096），故此处不必放宽。
     /// </remarks>
     public const int MaxLength = 256;
 

@@ -5,7 +5,7 @@ using Avalonia.Controls;
 namespace HYWDebugAssistant.Ui.Views;
 
 /// <summary>
-/// **应用窗口组**（ADR-0036 D5）：把一个应用的全部顶层窗口当作**一个整体**来管理层级。
+/// **应用窗口组**：把一个应用的全部顶层窗口当作**一个整体**来管理层级。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">

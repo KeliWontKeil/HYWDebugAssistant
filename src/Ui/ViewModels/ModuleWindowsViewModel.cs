@@ -9,7 +9,7 @@ using HYWDebugAssistant.Ui.Views;
 
 namespace HYWDebugAssistant.Ui.ViewModels;
 
-/// <summary>窗口上的缩放手柄（边框的边中点/角点 —— Office 直觉，ADR-0034 §2.2）。</summary>
+/// <summary>窗口上的缩放手柄（边框的边中点/角点 —— Office 直觉）。</summary>
 public enum ResizeHandle
 {
     /// <summary>左中。</summary>
@@ -42,17 +42,16 @@ public enum ResizeHandle
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>没有"工作区"容器</b>：本类不持有画布、不画背景、不做边界钳制——背景就是用户桌面（§10.1-3）；</item>
+///   <item><b>没有"工作区"容器</b>：本类不持有画布、不画背景、不做边界钳制——背景就是用户桌面；</item>
 ///   <item><b>坐标 = 屏幕坐标（物理像素）</b>：拖动/缩放直接改窗口位置与大小；吸附把**屏幕工作区、
-///     框架外壳窗口、其他模块窗口**一并作为参照（`11` §2.1）；</item>
-///   <item><b>组关系由位置派生</b>（C5-1）：拖动开始时求贴合连通分量并冻结、期间整组位移、结束后重算；
+///     框架外壳窗口、其他模块窗口**一并作为参照；</item>
+///   <item><b>组关系由位置派生</b>：拖动开始时求贴合连通分量并冻结、期间整组位移、结束后重算；
 ///     按住 Ctrl 或选中态"独立拖动"只动一个；</item>
 ///   <item><b>本类与窗口技术无关</b>（只操作数值几何）→ 可独立单元测试；真正的开窗/关窗在窗口管理器。</item>
 /// </list>
 /// </remarks>
 public sealed partial class ModuleWindowsViewModel : ViewModelBase
 {
-    /// <summary>吸附容差（px；Gate C 定稿前用 8，C5-1 约束 4）。</summary>
     /// <summary>对齐类吸附容差（px）——**默认值**；实际值取设置里的「吸附距离」（见 <see cref="SnapDistance"/>）。</summary>
     public const double SnapTolerance = SnapEngine.DefaultTolerance;
 
@@ -64,12 +63,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// </summary>
     /// <remarks>
     /// 与 <see cref="GroupTolerance"/>（模块之间，8px）**刻意不同**：模块之间"差一点也算拼上"对拼装手感友好；
-    /// 但外壳用它会让"停在附近、没吸附"的模块在拖动主窗口时被一并带走（用户实测复报）。
+    /// 但外壳用它会让"停在附近、没吸附"的模块在拖动主窗口时被一并带走。
     /// </remarks>
     public const double ShellJoinTolerance = 1;
 
     /// <summary>
-    /// **当前生效的吸附距离**（px）——【ADR-0042 D6 / 用户裁决】设置项 `snapDistance`（默认 4，2–8），
+    /// **当前生效的吸附距离**（px）——设置项 `snapDistance`（默认 4，2–8），
     /// 由 `Refresh` 从设置同步；**对齐类容差 = 本值**，**贴合类容差 = 本值 × 2**。
     /// </summary>
     public double SnapDistance { get; private set; } = SnapEngine.DefaultTolerance;
@@ -121,7 +120,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// 由 `ModuleWindowManager` 落到真实窗口上。
     /// </summary>
     /// <remarks>
-    /// 【用户第十二轮第四轮反馈】"主窗口与模块形成一个视觉整体后，移动谁都是整体动"——
+    /// 主窗口与模块形成一个视觉整体后，移动谁都是整体动 ——
     /// 外壳不是"应用的框架"，而是**拼图里的一个节点**；因此拖模块与拖外壳走的是同一套成组逻辑。
     /// </remarks>
     public event EventHandler<(double Dx, double Dy)>? ShellTranslationRequested;
@@ -134,8 +133,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <param name="query">查询面（UI 唯一读通道）。</param>
     /// <param name="command">命令面（UI 唯一写通道）。</param>
     /// <param name="viewState">
-    /// **视图状态存取面**〔2026-09 · `decisions.md` 7.28/7.31〕：切页选中态 / 输入框未提交文本 /
-    /// 显示缓冲都存这里 ⇒ 元素表重建不丢内容、模块可回读。`null` ⇒ 回落今天的行为（设计期 / 旧调用点）。
+    /// **视图状态存取面**：切页选中态 / 输入框未提交文本 /
+    /// 显示缓冲都存这里 ⇒ 元素表重建不丢内容、模块可回读。`null` ⇒ 不落存储（设计期 / 未接线的调用点）。
     /// </param>
     public ModuleWindowsViewModel(IRuntimeQuery query, IRuntimeCommand command, IViewStateAccess? viewState = null)
     {
@@ -160,13 +159,13 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     [ObservableProperty]
     public partial CanvasRect? WorkArea { get; set; }
 
-    /// <summary>框架外壳窗口矩形（拼图"起始点"，可被贴靠 —— O-6）。</summary>
+    /// <summary>框架外壳窗口矩形（拼图"起始点"，可被贴靠）。</summary>
     [ObservableProperty]
     public partial CanvasRect? ShellRect { get; set; }
 
     /// <summary>
-    /// 是否显示**叠加信息层**（原 `ShowPortMarkers`：**端口标记改为常显**，开关改为控制叠加层）。
-    /// **默认关闭**【ADR-0045 D1：它是调试/观测层，不进常驻界面】。
+    /// 是否显示**叠加信息层**（端口标记本身常显，本开关只控制叠加层）。
+    /// **默认关闭**（它是调试/观测层，不进常驻界面）。
     /// </summary>
     [ObservableProperty]
     public partial bool ShowInfoOverlay { get; set; }
@@ -176,12 +175,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     public partial bool SnapEnabled { get; set; } = true;
 
     /// <summary>
-    /// **多行文本输入的提交键**（G2 · 2026-09）——应用级设置 `multilineSubmitKey` 的镜像，
+    /// **多行文本输入的提交键**——应用级设置 `multilineSubmitKey` 的镜像，
     /// 由本类下发到每个模块窗口（与 <see cref="ShowInfoOverlay"/> 同一条路径）。
     /// </summary>
     /// <remarks>
     /// 三档：<c>CtrlEnter</c>（默认：回车换行 / Ctrl+Enter 提交 / 失焦不提交）· <c>Enter</c>（回车提交 / Shift+Enter 换行）·
-    /// <c>None</c>（键盘都不提交）。**只影响多行输入**；单行输入仍是"回车 / 失焦一次提交"（ADR-0040 D-5）。
+    /// <c>None</c>（键盘都不提交）。**只影响多行输入**；单行输入仍是"回车 / 失焦一次提交"。
     /// </remarks>
     [ObservableProperty]
     public partial string MultilineSubmitKey { get; set; } = "CtrlEnter";
@@ -257,8 +256,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// 刷新**叠加层开关**与口标记的**对端文本**（仅服务**悬停提示**）。
     /// </summary>
     /// <remarks>
-    /// 【来源唯一 · ADR-0049 D4】叠加层的**连线**已完全改由**角色对**（`GetRolePairs`）驱动，
-    /// 不再读标记上的"对端方位/是否贴合" ⇒ 那三个字段（`PeerSide`/`PeerAdjacent`/`HasLink`）已删除。
+    /// 【来源唯一】叠加层的**连线**改由**角色对**（`GetRolePairs`）驱动，
+    /// 不读标记上的"对端方位/是否贴合"（那是同一事实的第二个来源，故不留那三个字段）。
     /// 本方法现在只做两件事：① 把叠加层开关下发到每个模块；② 给悬停提示填一句"对端是谁"。
     /// </remarks>
     private void RefreshOverlayPeers()
@@ -297,7 +296,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// **类型颜色改了** ⇒ 让所有端口标记重读类型画刷【ADR-0054：数据结构 → 颜色映射表】。
+    /// **类型颜色改了** ⇒ 让所有端口标记重读类型画刷（数据结构 → 颜色映射表）。
     /// </summary>
     /// <remarks>
     /// 色板（<c>PacketTypePalette</c>）是**绘制期唯一色彩来源**：
@@ -376,7 +375,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
     }
 
-    /// <summary>切换某模块的**运行 / 停用**（停用 = 保留实例、拓扑与配置，只停流 —— §8.4）。</summary>
+    /// <summary>切换某模块的**运行 / 停用**（停用 = 保留实例、拓扑与配置，只停流）。</summary>
     /// <param name="instanceId">实例 ID。</param>
     public void ToggleEnabled(string instanceId)
     {
@@ -388,7 +387,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _ = _command.SetModuleEnabled(instanceId, !module.IsEnabled);
     }
 
-    /// <summary>隐藏某个模块窗口（模块继续运行，只收起表现层 —— §10.1）。</summary>
+    /// <summary>隐藏某个模块窗口（模块继续运行，只收起表现层）。</summary>
     /// <param name="instanceId">实例 ID。</param>
     public void HideWindow(string instanceId)
     {
@@ -427,7 +426,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     // ---------------------------------------------------------------- 拖动
 
     /// <summary>
-    /// 开始拖动（C5-1 约束 1：**此刻**求贴合连通分量并冻结）。锁定或不可见时不进入拖动。
+    /// 开始拖动（**此刻**求贴合连通分量并冻结）。锁定或不可见时不进入拖动。
     /// </summary>
     /// <param name="instanceId">被拖模块的实例 ID。</param>
     /// <param name="pointerX">指针 X（屏幕坐标）。</param>
@@ -444,9 +443,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _draggingId = instanceId;
         module.IsInteracting = true;
 
-        // 【用户第十一轮反馈】**锁定成员不随组移动**：编组时就把锁定的成员排除，
+        // **锁定成员不随组移动**：编组时就把锁定的成员排除，
         // 于是拖动整组时它们留在原地（组自然"解开"）—— 这比"拖完再纠正"更直观。
-        // 【用户第十二轮第四轮反馈】**外壳也在这个组里**（单侧吸附完成即同组）：
+        // **外壳也在这个组里**（单侧吸附完成即同组）：
         // 拖动一个贴在外壳上的模块时，外壳窗口要跟着一起走（"视觉整体"）；见 _shellDragDx/Dy 与 ShellTranslationRequested。
         _dragGroup = independent
             ? [instanceId]
@@ -465,7 +464,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _shellDragDx = 0;
         _shellDragDy = 0;
 
-        // 【用户第十二轮反馈 · `architecture/15` §3.1】组内成员**也由指针驱动**：
+        // 组内成员**也由指针驱动**：
         // 否则 `ModuleWindowManager.OnWindowMoved` 会把窗口取整后的位置回写到它们的模型上
         // （被拖的那个模块被跳过、其余成员被逐个取整）⇒ 组内相对位置在拖动中被破坏、落盘带 0.5px 误差。
         foreach (var memberId in _dragGroup)
@@ -483,11 +482,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
     /// <summary>拖动中**按下 Ctrl 立刻拆分**：只拖被按下的那个模块，其余成员回到拖动起点。</summary>
     /// <remarks>
-    /// 【用户第十七轮反馈】原交互要求"**拖动前**按住 Ctrl 才独立拖动"，拖动开始后按 Ctrl 无效 ——
-    /// 用户："建议拖动期间按下后立刻断开，更符合常见类似功能的操作习惯"。
+    /// 拖动期间按下 Ctrl 立刻断开更符合常见操作习惯（不必在**拖动前**按住才生效）。
     /// <list type="bullet">
     ///   <item>**语义等价于"从一开始就按住 Ctrl"**：其余成员（含外壳）**回到本次拖动的起点**，被拖模块继续跟着指针；</item>
-    ///   <item>**单向**：拆分后即使松开 Ctrl 也不再重新合组（组在拖动开始时冻结 —— C5-1 约束 1）；</item>
+    ///   <item>**单向**：拆分后即使松开 Ctrl 也不重新合组（组在拖动开始时冻结）；</item>
     ///   <item>幂等：已经独立拖动时不做任何事（拖动中每帧都会调用）。</item>
     /// </list>
     /// </remarks>
@@ -545,8 +543,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// 把位移施加到**外壳**上（仅当本次拖动组包含外壳）：乐观更新模型里的外壳矩形，并请求窗口管理器移动真实窗口。
     /// </summary>
     /// <remarks>
-    /// 这是"主窗口与模块形成视觉整体后，移动谁都是整体动"的落点（用户第十二轮第四轮反馈）。
-    /// 真实窗口由 `ModuleWindowManager` 移动；它移动时会回推一次 `ShellRect`（交互期间只刷新参照、不再联动平移）。
+    /// 这是"主窗口与模块形成视觉整体后，移动谁都是整体动"的落点。
+    /// 真实窗口由 `ModuleWindowManager` 移动；它移动时会回推一次 `ShellRect`（交互期间只刷新参照、不联动平移）。
     /// </remarks>
     private void ApplyShellDelta(double dx, double dy)
     {
@@ -562,16 +560,16 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// **外壳移动 = 平移"与外壳拼成一体的那一组"**（用户第十二轮第四轮反馈）。
+    /// **外壳移动 = 平移"与外壳拼成一体的那一组"**。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item><b>外壳是拼图里的一个节点</b>（不是"应用的框架"）：它与模块之间只有**单侧吸附**（只提供右边缘 —— ADR-0038 D5）；
+    ///   <item><b>外壳是拼图里的一个节点</b>（不是"应用的框架"）：它与模块之间只有**单侧吸附**（只提供右边缘）；
     ///     模块贴着它就算拼上，于是它们同属一个**接触连通分量**；</item>
     ///   <item><b>只有吸附完成后才整体运动</b>：移动外壳 → 只平移与它相连的那一组（**没拼上的模块留在原处**）；
     ///     与"拖动一个模块会带走整组"是**同一套成组逻辑**，只是把外壳也纳入进来；</item>
-    ///   <item>之所以不再用"所有模块无条件跟随"：那会让与外壳毫无关系的模块也被拖走，不符合"拼装"的直觉；</item>
-    ///   <item><b>锁定</b> = 钉在桌面上：既不在组内被带走，也不随外壳移动（沿用第十一轮裁决）；</item>
+    ///   <item>之所以不用"所有模块无条件跟随"：那会让与外壳毫无关系的模块也被拖走，不符合"拼装"的直觉；</item>
+    ///   <item><b>锁定</b> = 钉在桌面上：既不在组内被带走，也不随外壳移动；</item>
     ///   <item><b>不逐帧落盘</b>：只改内存并记录待提交，由调用方在移动停下后调
     ///     <see cref="CommitSceneTranslation"/> 合并成一次变更（逐帧提交会触发建网重算并让外壳拖动卡顿）；</item>
     ///   <item>位置仍存**绝对屏幕坐标**（组合件格式不变）。</item>
@@ -585,7 +583,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <remarks>
     /// <b>为什么必须传"移动前"的矩形</b>：调用方通常已把 `ShellRect` 刷新成移动后的位置，
     /// 而此时模块还在旧位置上 —— 若用新矩形判分组，"贴上"会被判成"没贴上"，于是**模块不跟随**
-    /// （与 `implementation/02` P33 是同一类错误：**任何"谁和谁相连"的判定都必须用同一时刻的几何**）。
+    /// （同一类错误：**任何"谁和谁相连"的判定都必须用同一时刻的几何**）。
     /// </remarks>
     public void TranslateShellGroup(double dx, double dy, CanvasRect preMoveShell)
     {
@@ -595,10 +593,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         // **本次拖动开始时**就与外壳拼在一起的那些模块（冻结集合）：
-        // 【用户第三十四轮裁定："单独拖动主窗口时不进行吸附行为，更符合直觉"】
-        // 旧实现**逐帧**重算分组 ⇒ 拖着外壳**经过**某个模块时，那一帧它被判成"已拼上"并跟着走
+        // 单独拖动主窗口时不做吸附更符合直觉：若**逐帧**重算分组，拖着外壳**经过**某个模块时，
+        // 那一帧它就会被判成"已拼上"并跟着走
         // ⇒ 现象正是"经过模块时导致模块**错位粘连**（没有产生吸附行为却拼上去了）"。
-        // ⇒ 冻结集合只在**一次拖动开始时**算一次（用移动前的外壳矩形），拖动过程中**不再吸收新成员**。
+        // ⇒ 冻结集合只在**一次拖动开始时**算一次（用移动前的外壳矩形），拖动过程中**不吸收新成员**。
         _shellDragGroup ??= GroupOfNode(ShellNodeId, preMoveShell);
 
         foreach (var module in Modules)
@@ -661,8 +659,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <param name="pointerY">指针 Y（屏幕坐标）。</param>
     /// <param name="snapEnabled">本次是否吸附（null = 用开关值；按住 Alt 传 false）。</param>
     /// <remarks>
-    /// 【用户第十二轮第二轮反馈 · **保持拖动中实时吸附**】曾试过"松手才吸附"，被用户否决（操作不友好）；
-    /// 目标手感 = **Visio 式**：吸附半径小（几像素）、离开即松、靠参考线给反馈（详见 ADR-0042）。
+    /// **拖动中实时吸附**（松手才吸附操作不友好）；
+    /// 目标手感 = **Visio 式**：吸附半径小（几像素）、离开即松、靠参考线给反馈。
     /// 另：位置在写入模型前**统一取整到整数物理像素**（<see cref="ScreenPixels.Round"/>），修"缝/错位"。
     /// </remarks>
     public void DragTo(double pointerX, double pointerY, bool? snapEnabled = null)
@@ -734,7 +732,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             dragged.Guides = guides;
         }
 
-        // **即将自动建网**预览（ADR-0037）：按"接触且对齐"规则问 L4"现在松手会连上什么"，
+        // **即将自动建网**预览：按"接触且对齐"规则问 L4"现在松手会连上什么"，
         // 高亮对应的端口标记 —— 判定规则与真正建网同一份实现，预览必然与结果一致。
         UpdateDockPreview();
     }
@@ -783,10 +781,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
     }
 
-    // ---------------------------------------------------------------- 网络标签的"连接对齐"吸附（G5 追加）
+    // ---------------------------------------------------------------- 网络标签的"连接对齐"吸附
 
     /// <summary>
-    /// **拖动网络标签时的"连接对齐"吸附**（G5 追加 · 用户 2026-09 裁定"允许连接对齐式吸附/边框高亮"）。
+    /// **拖动网络标签时的"连接对齐"吸附**（允许连接对齐式吸附 / 边框高亮）。
     /// </summary>
     /// <param name="module">标记所属模块。</param>
     /// <param name="marker">正在拖的标记。</param>
@@ -820,7 +818,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         {
             _anchorDockNoticeKey = null;
 
-            // 【2026-09 用户新增诉求】"希望添加网络标签与**中线对齐**能力"：
+            // **网络标签与中线对齐**：
             // 没有"吸到哪里就能连上"的候选时，退一步做**纯排版**的对齐（吸到模块边缘中点 = 中线）。
             // 优先级明确：**连接对齐 > 中线对齐**（能连上的位置永远优先于"好看的位置"）。
             return SnapAnchorToCenterLine(module, marker, edge, offset);
@@ -913,7 +911,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
     }
 
-    /// <summary>结束拖动：**一次 ChangeSet** 提交整组位置（原子），随后清辅助线（C5-1 约束 1）。</summary>
+    /// <summary>结束拖动：**一次 ChangeSet** 提交整组位置（原子），随后清辅助线。</summary>
     public void EndDrag()
     {        if (_draggingId is null)
         {
@@ -1049,8 +1047,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         var start = _resizeStartRect;
-        var minWidth = ModuleViewViewModel.MinWidth * module.Scale;
-        var minHeight = ModuleViewViewModel.MinHeight * module.Scale;
+        // 缩放约束来自**本模块包内 `view.json`**：
+        // 下限 = max(框架下限, json 的 min)，上限 = json 的 max（无声明 ⇒ 无上限）。
+        var minWidth = module.EffectiveMinWidth * module.Scale;
+        var minHeight = module.EffectiveMinHeight * module.Scale;
+        var maxWidth = module.EffectiveMaxWidth * module.Scale;
+        var maxHeight = module.EffectiveMaxHeight * module.Scale;
 
         var left = start.Left;
         var top = start.Top;
@@ -1060,24 +1062,40 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         if (_resizeHandle is ResizeHandle.Left or ResizeHandle.TopLeft or ResizeHandle.BottomLeft)
         {
             left = Math.Min(pointerX, right - minWidth);
+            if (maxWidth is { } widthLimit)
+            {
+                left = Math.Max(left, right - widthLimit);
+            }
         }
 
         if (_resizeHandle is ResizeHandle.Right or ResizeHandle.TopRight or ResizeHandle.BottomRight)
         {
             right = Math.Max(pointerX, left + minWidth);
+            if (maxWidth is { } widthLimit)
+            {
+                right = Math.Min(right, left + widthLimit);
+            }
         }
 
         if (_resizeHandle is ResizeHandle.Top or ResizeHandle.TopLeft or ResizeHandle.TopRight)
         {
             top = Math.Min(pointerY, bottom - minHeight);
+            if (maxHeight is { } heightLimit)
+            {
+                top = Math.Max(top, bottom - heightLimit);
+            }
         }
 
         if (_resizeHandle is ResizeHandle.Bottom or ResizeHandle.BottomLeft or ResizeHandle.BottomRight)
         {
             bottom = Math.Max(pointerY, top + minHeight);
+            if (maxHeight is { } heightLimit)
+            {
+                bottom = Math.Min(bottom, top + heightLimit);
+            }
         }
 
-        // **尺寸吸附**（Visio 式，用户要求）：拖动边时，若结果尺寸接近其他模块的宽/高 → 吸附到该尺寸，
+        // **尺寸吸附**（Visio 式）：拖动边时，若结果尺寸接近其他模块的宽/高 → 吸附到该尺寸，
         // 这样"把几个模块调成一样大"很容易；只吸附尺寸，不改变边的方向语义。
         if (SnapEnabled)
         {
@@ -1109,10 +1127,23 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             }
         }
 
+        // 最终尺寸再夹一次（吸附可能把尺寸拉到别的模块的宽/高上；json 的上限必须说话算数）
+        var width = Math.Max(minWidth, right - left);
+        var height = Math.Max(minHeight, bottom - top);
+        if (maxWidth is { } widthCap)
+        {
+            width = Math.Min(width, widthCap);
+        }
+
+        if (maxHeight is { } heightCap)
+        {
+            height = Math.Min(height, heightCap);
+        }
+
         module.X = ScreenPixels.Round(left);
         module.Y = ScreenPixels.Round(top);
-        module.Width = ScreenPixels.Round(right - left);
-        module.Height = ScreenPixels.Round(bottom - top);
+        module.Width = ScreenPixels.Round(width);
+        module.Height = ScreenPixels.Round(height);
         RaiseGeometry(module);
     }
 
@@ -1131,6 +1162,17 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _ = _command.UpdateModuleLayout(module.ToLayout());
     }
 
+    /// <summary>把物理像素尺寸夹进"有效区间"（DIP 上下限 × 缩放）。</summary>
+    /// <param name="pixels">待夹的物理像素值。</param>
+    /// <param name="minDip">有效最小（DIP）。</param>
+    /// <param name="maxDip">有效最大（DIP；<see langword="null"/> = 无上限）。</param>
+    /// <param name="scale">屏幕缩放。</param>
+    private static double ClampToBounds(double pixels, double minDip, double? maxDip, double scale)
+    {
+        var value = Math.Max(pixels, minDip * scale);
+        return maxDip is { } upper ? Math.Min(value, upper * scale) : value;
+    }
+
     // ---------------------------------------------------------------- 端口标签（建网）
 
     /// <summary>提交端口网络标签（**唯一建网机制**：同名即连）。</summary>
@@ -1138,7 +1180,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <param name="marker">端口标记。</param>
     /// <returns>结果文本（成功/失败原因）。</returns>
     /// <remarks>
-    /// 【缺陷修复】失败时**保持编辑框打开**并把原因显示在框内：此前无论成功失败都先关框，
+    /// 失败时**保持编辑框打开**并把原因显示在框内：无论成功失败都先关框的话，
     /// 校验失败（如名字含空白）时用户只看到"框关了、什么都没变" → 误判为"改标签不生效"。
     /// </remarks>
     public string CommitPortLabel(ModuleViewViewModel module, PortMarkerViewModel marker)
@@ -1172,11 +1214,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             marker.EditError = string.Join("；", result.Failures);
         }
 
-        // 【用户第十三轮反馈】原 `marker.EditResult = message`（悬停里显示"上次操作"）**已删除**：
-        //   ① 悬停提示不该携带"最近一次操作结果"这类**瞬时状态**；② 该数据本身也不再保存（见 `PortMarkerViewModel`）。
-        //   结果文本仍然**返回并送到状态栏**（`RaiseNotice`）—— 反馈闭环不丢，只是不再挂在标记上。
+        // `marker.EditResult`（悬停里显示"上次操作"）**不保留**：
+        //   ① 悬停提示不该携带"最近一次操作结果"这类**瞬时状态**；② 该数据本身也不保存（见 `PortMarkerViewModel`）。
+        //   结果文本仍然**返回并送到状态栏**（`RaiseNotice`）—— 反馈闭环不丢，只是不挂在标记上。
 
-        // **反馈闭环**：提示送到状态栏（此前返回值被调用方丢弃 → 用户完全看不到结果）
+        // **反馈闭环**：提示送到状态栏（返回值被调用方丢弃的话，结果就完全看不到）
         RaiseNotice(message, isError: !result.Succeeded);
         return message;
     }
@@ -1190,7 +1232,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         marker.IsEditing = false;
     }
 
-    // ---------------------------------------------------------------- 端口锚点（G5 · C5-7）
+    // ---------------------------------------------------------------- 端口锚点
 
     /// <summary>
     /// **提交端口锚点几何**（拖动松手时调用）：边缘 + 偏移 + 固定标志**一次写全**。
@@ -1291,7 +1333,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// **固定 / 解锁单个端口锚点**（G5 · C5-7：C5-7 的"可通过快捷键/**操作**锁定与解锁"里的"操作"）。
+    /// **固定 / 解锁单个端口锚点**（快捷键之外的**操作**入口）。
     /// </summary>
     /// <param name="module">所属模块视图。</param>
     /// <param name="marker">端口标记。</param>
@@ -1343,13 +1385,13 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// **全局切换端口锚点「固定 / 解锁」**（C5-7 的"可通过快捷键/操作锁定与解锁"，G5）。
+    /// **全局切换端口锚点「固定 / 解锁」**。
     /// </summary>
     /// <returns>结果文本（送状态栏）。</returns>
     /// <remarks>
     /// <list type="bullet">
     ///   <item>**全局**（全部模块的全部端口**统一**取反）：与"全部锁定 / 解锁"模块窗口同一口味，
-    ///     单口固定留给模块声明（`PortDeclaration.AnchorDraggable = false`）；</item>
+    ///     单口固定留给包内声明（`view.json` 的 `ports[].constraints.draggable = false`）；</item>
     ///   <item>取反基准 = **当前所有口是否都已固定**：全固定 ⇒ 解锁全部，否则 ⇒ 固定全部
     ///     （否则混状态下用户按一次只翻转了一半，第二次才齐 —— 反直觉）。</item>
     /// </list>
@@ -1410,11 +1452,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     };
 
     /// <summary>
-    /// **还原模块**【用户第十一轮反馈 · 替代原「暂停」】：回到默认尺寸，可选连配置一起还原。
+    /// **还原模块**：回到默认尺寸，可选连配置一起还原。
     /// </summary>
     /// <remarks>
-    /// 默认尺寸 = **模块声明的首选尺寸**（`ViewDeclaration.PreferredWidth/Height`；未声明则框架默认），
+    /// 默认尺寸 = **模块包内 `view.json` 的 `window.default`**（未声明则框架默认 320×220），
     /// **不是**按元素类型估算的结果；位置不变（只还原尺寸与配置，不动用户摆放的位置）。
+    /// 还原值同样夹进该模块的有效尺寸区间（json 的 min/max 是约束，还原也不能越过）。
     /// </remarks>
     /// <param name="module">模块视图。</param>
     /// <param name="scope">还原范围（只尺寸 / 尺寸与配置）。</param>
@@ -1422,9 +1465,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(module);
 
-        // ① 尺寸回到模块声明的首选尺寸（× 屏幕缩放，**取整到整数物理像素**），并写回布局
-        module.Width = ScreenPixels.Round(module.PreferredWidth * module.Scale);
-        module.Height = ScreenPixels.Round(module.PreferredHeight * module.Scale);
+        // ① 尺寸回到包内声明的默认尺寸（× 屏幕缩放，**取整到整数物理像素**），并写回布局
+        module.Width = ScreenPixels.Round(ClampToBounds(
+            module.PreferredWidth * module.Scale, module.EffectiveMinWidth, module.EffectiveMaxWidth, module.Scale));
+        module.Height = ScreenPixels.Round(ClampToBounds(
+            module.PreferredHeight * module.Scale, module.EffectiveMinHeight, module.EffectiveMaxHeight, module.Scale));
         module.X = ScreenPixels.Round(module.X);
         module.Y = ScreenPixels.Round(module.Y);
         module.HasLayout = true;
@@ -1454,7 +1499,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// 窗口**打开后**把实际尺寸落盘（未摆放过的模块由此获得第一条布局记录）。
     /// </summary>
     /// <remarks>
-    /// 【用户第九轮反馈 · UI 开发方式】尺寸默认值归 XAML：这里只把窗口的**实际尺寸**写进模型与布局，
+    /// 尺寸默认值归**声明面**（包内 `view.json` 的 `frame.window`）：这里只把窗口的**实际尺寸**写进模型与布局，
     /// 不做任何"按内容估算"。之后用户的拖动/缩放照常覆盖。
     /// </remarks>
     /// <param name="module">模块视图。</param>
@@ -1465,9 +1510,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 清除全部选中【M1-16 / ADR-0039 D1】：点内容区 / 点外壳 / 点本应用其他窗口。
+    /// 清除全部选中：点内容区 / 点外壳 / 点本应用其他窗口。
     /// </summary>
-    /// <remarks>用户第六轮反馈："现在无法取消选中模块"——此前选中只能被"选中另一个"覆盖，没有退出口。</remarks>
+    /// <remarks>选中只能被"选中另一个"覆盖的话就没有退出口（点内容区 / 外壳 / 其他窗口都必须能取消）。</remarks>
     public void ClearSelection()
     {
         foreach (var module in Modules)
@@ -1490,22 +1535,29 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// 新模块的摆放位置（物理像素）：**从外壳右侧开始、竖着一列排开，互不堆叠**。
     /// </summary>
     /// <remarks>
-    /// 【用户第十七轮反馈】原先新模块都落在左上角（`48,48` 起、每 40px 斜叠）⇒ **压在主窗口上、彼此重叠**。
-    /// 现规则（纯几何、可单测）：
+    /// 新模块若都落在左上角（`48,48` 起、每 40px 斜叠）⇒ **压在主窗口上、彼此重叠**。
+    /// 故规则（纯几何、可单测）：
     /// <list type="number">
     ///   <item>起点 X = **外壳右边缘 + 间距**（外壳不可用时回退到 <see cref="PlaceOrigin"/>），起点 Y = 外壳上边缘（同回退）；</item>
     ///   <item>**已有的模块**逐个检查：与候选矩形相交就让位（向下挪一个"模块高 + 间距"）；</item>
     ///   <item>一列到底（超出工作区下沿）就**换到右面一列**（X 挪"模块宽 + 间距"，Y 回到起点）；
     ///     工作区不可用时不换列（无限向下，仍保证不堆叠）。</item>
     /// </list>
-    /// 尺寸用**模块的声明默认尺寸 × 缩放**估算（真实尺寸要等窗口打开才知道 —— 布局归 XAML）。有循环上限兜底，
-    /// 极端情况下宁可重叠也不死循环。
+    /// 尺寸用**声明面给出的默认尺寸 × 缩放**估算（真实尺寸要等窗口打开才知道 —— 那时按包内 `view.json` 的
+    /// <c>frame.window</c> 开窗）。有循环上限兜底，极端情况下宁可重叠也不死循环。
     /// </remarks>
+    /// <param name="instance">即将摆放的实例（默认尺寸从它的声明面读）。</param>
     /// <returns>摆放位置（物理像素）。</returns>
-    private (double X, double Y) NextPlacement()
+    private (double X, double Y) NextPlacement(ModuleInstanceView instance)
     {
-        var width = Math.Max(1, ModuleViewViewModel.DefaultWidth * Scale);
-        var height = Math.Max(1, ModuleViewViewModel.DefaultHeight * Scale);
+        ArgumentNullException.ThrowIfNull(instance);
+
+        // 声明面没有默认尺寸（实例连声明都没有）时只求"别算出 0 尺寸"：摆放只关心"互不堆叠"，
+        // 不在这里造第二份默认尺寸 —— 默认尺寸的唯一来源是声明面，框架地板则在读取侧就已落进声明
+        // （见 `ViewDocument.Fallback`，故这里**不需要**任何地板字面量）。
+        var window = instance.View?.Frame.Window;
+        var width = Math.Max(1, (window is { Width: > 0 } declaredWidth ? declaredWidth.Width : 1) * Scale);
+        var height = Math.Max(1, (window is { Height: > 0 } declaredHeight ? declaredHeight.Height : 1) * Scale);
 
         var shell = ShellRect is { IsValid: true } rect ? rect : (CanvasRect?)null;
         var baseX = shell is { } s ? s.Right + PlaceGap : PlaceOrigin;
@@ -1546,9 +1598,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         {
             if (module.Width <= 0 || module.Height <= 0)
             {
-                // 尺寸还没读回来（窗口未打开）→ 用声明默认尺寸估
-                var w = ModuleViewViewModel.DefaultWidth * Scale;
-                var h = ModuleViewViewModel.DefaultHeight * Scale;
+                // 尺寸还没读回来（窗口未打开）→ 用**声明面给出的默认尺寸**估
+                var w = module.PreferredWidth * Scale;
+                var h = module.PreferredHeight * Scale;
                 if (x < module.X + w + PlaceGap && right + PlaceGap > module.X
                     && y < module.Y + h + PlaceGap && bottom + PlaceGap > module.Y)
                 {
@@ -1585,12 +1637,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 continue;
             }
 
-            // 新模块：**只分配错位摆放的位置**；尺寸由窗口的 **XAML 默认值**决定。
+            // 新模块：**只分配错位摆放的位置**；尺寸由声明面（包内 `view.json` 的 `frame.window`）决定。
             // 窗口打开后（ModuleWindowManager.PublishActualSize）把**实际尺寸**读回并经 CommitInitialLayout 落盘。
-            // 【用户第九轮反馈】此前这里就写回"模型算出来的默认尺寸"，等于让代码决定外层容器尺寸。
-            // 【用户第十七轮反馈】原先是"左上角起、每 40px 斜着叠" ⇒ 新模块压在主窗口上且互相堆叠；
-            // 现改为**在右侧排开、互不堆叠**（见 NextPlacement）。
-            var placement = NextPlacement();
+            // 这里若写回"模型算出来的默认尺寸"，等于让代码决定外层容器尺寸（那是声明面的职责）。
+            // 摆放**在右侧排开、互不堆叠**（见 NextPlacement）—— 从左上角斜着叠会压在主窗口上且互相堆叠。
+            var placement = NextPlacement(instance);
             var created = new ModuleViewViewModel(
                 instance,
                 layout: null,
@@ -1640,7 +1691,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 continue;
             }
 
-            // 【用户第十二轮第四轮反馈 · 关键】**整体平移尚未落盘**的模块同样不能被回写：
+            // **整体平移尚未落盘**的模块同样不能被回写：
             // 刷新是 60Hz 的，若这里用"已落盘的旧布局"覆盖内存位置，模块会被一帧帧拉回原位 ——
             // 表现就是"移动主窗口时模块跟不动"（甚至来回抖）。落盘由防抖合并提交负责。
             if (_pendingSceneCommits.Contains(module.InstanceId))
@@ -1711,7 +1762,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <returns>被请求清空的**数据源名集合**；没有请求时为 <see langword="null"/>。</returns>
     /// <remarks>
     /// 一次性取完（而不是"每遇到一个显示元素取一个"）的理由见调用处的注释：**顺序不该影响语义**，
-    /// 而且旧写法会在源名不匹配时把请求**丢掉**。
+    /// 而且按元素逐个取会在源名不匹配时把请求**丢掉**。
     /// </remarks>
     private HashSet<string>? DrainClears(string instanceId)
     {
@@ -1732,7 +1783,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// **落地某实例挂起的"追加文本"请求**〔2026-09 用户裁定 · WinForms 模型〕。
+    /// **落地某实例挂起的"追加文本"请求**（WinForms 模型）。
     /// </summary>
     /// <param name="instanceId">实例 ID。</param>
     /// <remarks>
@@ -1781,8 +1832,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             _sources[(source.InstanceId, source.DataSourceName)] = source;
         }
 
-        // 【结构变了就立刻刷新】**连接状态/停流/角色投影**都以**网络成员关系**为唯一来源（用户裁定"指标来源唯一"）：
-        // 它们不再是"每 0.5 秒才追上"的滞后态 —— 建网/断网/改标签/增删模块的**当帧**就刷新，
+        // 【结构变了就立刻刷新】**连接状态/停流/角色投影**都以**网络成员关系**为唯一来源（"指标来源唯一"）：
+        // 它们不是"每 0.5 秒才追上"的滞后态 —— 建网/断网/改标签/增删模块的**当帧**就刷新，
         // 否则用户刚连上却看不到连接灯与连线（"看得见"是功能的一部分）。
         var structure = BuildStructureSignature();
         var structureChanged = !string.Equals(structure, _structureSignature, StringComparison.Ordinal);
@@ -1790,8 +1841,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         foreach (var module in Modules)
         {
-            // 【2026-09 缺陷修复 · 用户实测"清空按钮无用，只会使窗口闪一下"】**本帧先把该实例的挂起清空请求
-            // 一次取完**（旧写法是在"每遇到一个 A5 元素"时才 `TryTakeClear` 一次 ⇒ ① 顺序不对就**丢掉**
+            // **本帧先把该实例的挂起清空请求
+            // 一次取完**（若在"每遇到一个 A5 元素"时才 `TryTakeClear` 一次 ⇒ ① 顺序不对就**丢掉**
             // 别的源的请求；② 语义上也不该被元素遍历顺序左右）。取到的是一个**集合**，供下面的元素循环按源名匹配。
             var clears = DrainClears(module.InstanceId);
 
@@ -1829,9 +1880,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                     continue;
                 }
 
-                // **清空优先，且不依赖"订阅源是否存在"**（2026-09 缺陷修复）：此前这段在
+                // **清空优先，且不依赖"订阅源是否存在"**：这段若放在
                 // `_sources.TryGetValue(...)` 之后 ⇒ 一个**还没出过数据/当前无发布者**的显示源
-                // 会连"清空"都轮不到（用户实测："清空按钮无用"）。框架持有的显示缓冲已在**本帧开头**清掉了
+                // 会连"清空"都轮不到（表现为"清空按钮无用"）。框架持有的显示缓冲已在**本帧开头**清掉了
                 // （见 `DrainAppends` 上方的顺序说明）⇒ 这里只需把**元素自己的镜像**跟着清掉。
                 if (element is TextLogElementViewModel clearable
                     && clears is not null
@@ -1884,12 +1935,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <list type="bullet">
     ///   <item><b>指标一律经唯一口径 <see cref="IRuntimeQuery.GetPortMetrics"/></b>（Core 算、UI 只格式化）：
     ///     一个端口的指标 = **该口参与的"流"上的指标之和**（发送口 = 以它为源的全部绑定；接收口 = 以它为宿的全部绑定）；</item>
-    ///   <item><b>为什么不再在这里查字典</b>（2026-09 缺陷根因）：旧写法先按<b>网络身份键</b>查、失败再拿
+    ///   <item><b>为什么不按"逐源诊断表"查</b>：先按<b>网络身份键</b>查、失败再拿
     ///     <b>口字面量</b>去查<b>逐源诊断表</b>（键 = `单源 → 宿子集`，是**源**键）⇒ **宿口永远匹配不上**
     ///     ⇒ 宿口标记的投递/丢弃/速率**静默为 0**（多源网络 / 加载期有未锚定源 / 宿被逐对兼容过滤时必现；
     ///     1:1 单源单宿时两个键恰好相等，所以一直没被发现）。现在"一个口该读哪些流"由框架回答；</item>
     ///   <item>**速率与角色方块同一口径**：都取逐源诊断的搬运字节速率（同一批框架速率计），
-    ///     故同一根线两侧不会再显示不同的数（旧写法接收侧走"每口队列"速率 ⇒ 与发送侧可能对不上）。</item>
+    ///     故同一根线两侧不会再显示不同的数（接收侧若走"每口队列"速率 ⇒ 与发送侧可能对不上）。</item>
     /// </list>
     /// </remarks>
     private void RefreshMarkerStatus(ModuleViewViewModel module)
@@ -1931,31 +1982,31 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             marker.NetworkName = network.IsAnonymous ? null : network.Name;
             marker.IsStalled = network.IsStalled;
 
-            // 【ADR-0050 Q2 / ADR-0046 D8】**框架算、界面只格式化**：不再自行差分估算、
-            // 也不再拿"投递数 × 契约尺寸"自己乘一遍（累计字节由框架给出，同一口径）。
+            // **框架算、界面只格式化**：不自行差分估算、
+            // 也不拿"投递数 × 契约尺寸"自己乘一遍（累计字节由框架给出，同一口径）。
             var metrics = _query.GetPortMetrics(module.InstanceId, marker.PortName);
 
             marker.Delivered = metrics.Delivered;
 
             // `Dropped` = **传输丢弃**（队列满 + 无承载 + 载荷非法）；**停流未投递**是合法状态，
-            // 不算故障，故不显示在这里（三类丢弃不混算，ADR-0046 D8 / ADR-0050 Q5）
+            // 不算故障，故不显示在这里（三类丢弃不混算）
             marker.Dropped = metrics.Dropped;
 
-            // 【2026-09 用户裁定"速率只要有效数据"】**界面显示的是有效口径**：
+            // **界面显示的是有效口径**（"速率只要有效数据"）：
             // 速率取 `PayloadBytesPerSecond`、累计流量取 `PayloadBytesDelivered`
             // （逐单元读类型声明的有效长度字段 ⇒ 不含尾部补零/对齐填充）。
-            // 搬运口径（`BytesPerSecond` / `BytesDelivered`）仍是 API 事实，但**界面不再显示它**
+            // 搬运口径（`BytesPerSecond` / `BytesDelivered`）仍是 API 事实，但**界面不显示它**
             // ——否则同一块标签上"速率"与"流量"会各说一套。
             marker.BytesText = metrics.PayloadBytesDelivered > 0 ? FormatBytes(metrics.PayloadBytesDelivered) : null;
-            // 【2026-09 用户裁定】速率**如实显示**：`---` 只表示"**无连接**"（上面那条分支）；
-            // 有连接但这一秒没数据 ⇒ `0.00 B/s`（**不再拿 `---` 冒充 0** —— 用户："再低的速率也是有数据，
-            // 如实显示，没有数据就写 0.00，--- 表示无连接"）。
+            // 速率**如实显示**：`---` 只表示"**无连接**"（上面那条分支）；
+            // 有连接但这一秒没数据 ⇒ `0.00 B/s`（**不拿 `---` 冒充 0** —— 再低的速率也是有数据，
+            // 如实显示，没有数据就写 0.00，--- 表示无连接）。
             marker.RateText = FormatRate(metrics.PayloadBytesPerSecond);
         }
     }
 
     /// <summary>
-    /// **角色投影第一遍**：摆好本模块的**角色方块**（功能分块）与信息区【ADR-0052】。
+    /// **角色投影第一遍**：摆好本模块的**角色方块**（功能分块）与信息区。
     /// </summary>
     /// <remarks>
     /// 数据来源 = 公开查询面 <c>GetRoles</c>（Core 算、UI 只画）；此处只做"查询面 → 视图模型"的搬运，
@@ -1984,9 +2035,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 role.SemanticText,
                 role.NominalRateHz);
 
-            // **角色自身的信息**（用户第三十四轮：画在角色方块上方、左对齐、大字速率、禁止过长描述）——
+            // **角色自身的信息**（画在角色方块上方、左对齐、大字速率、禁止过长描述）——
             // 数值全部来自框架的**角色维度聚合**（`GetRoles` 已按角色汇总），UI 只做格式化。
-            // 【2026-09】速率是**有效载荷字节速率**（用户："速率只要有效数据"）。
+            // 速率是**有效载荷字节速率**（"速率只要有效数据"）。
             box.RateText = role.PayloadRateBytesPerSecond > 0.5
                 ? $"{FormatBytes((long)role.PayloadRateBytesPerSecond)}/s"
                 : "---";
@@ -2005,12 +2056,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item><b>线的两点</b>：本端角色**方块中心**与**对端角色方块中心**【ADR-0053 · 用户第三十四轮：
-    ///     "连线从角色方块中心出发"】—— 对端那一点用**同一套** <c>ConnectionOverlay.LayoutRoles</c>
+    ///   <item><b>线的两点</b>：本端角色**方块中心**与**对端角色方块中心**（连线从角色方块中心出发）
+    ///     —— 对端那一点用**同一套** <c>ConnectionOverlay.LayoutRoles</c>
     ///     从对端模块的方块算出并换算到本窗局部坐标 ⇒ 两端算出的**是同一条线段**
     ///     （各窗只画自己窗内那段 ⇒ 严格共线，不会出现"两根错位的线"）；</item>
     ///   <item>对端方块算不出（对端没有该角色 / 已被裁掉 / 不在现场）⇒ 回退为**对端窗口中心**；</item>
-    ///   <item><b>线不承载指标</b>（用户第三十四轮）：角色维度指标画在**角色方块**上（第一遍已备好），
+    ///   <item><b>线不承载指标</b>：角色维度指标画在**角色方块**上（第一遍已备好），
     ///     通路维度指标画在**端口标记**上；这里只算几何与对端信息，不重复算数字。</item>
     /// </list>
     /// </remarks>
@@ -2068,10 +2119,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// **对端角色方块中心**（本窗局部坐标，**DIP**）【ADR-0053：线以两个角色方块中心为端点】。
+    /// **对端角色方块中心**（本窗局部坐标，**DIP**；线以两个角色方块中心为端点）。
     /// </summary>
     /// <remarks>
-    /// <b>单位口径（唯一事实源，用户第三十四轮："多套坐标系相互冲突，请确定唯一事实源"）</b>：
+    /// <b>单位口径（唯一事实源）</b>：
     /// <list type="number">
     ///   <item><b>叠加层几何 = DIP</b>：画布尺寸用 <see cref="ModuleViewViewModel.CanvasWidth"/>/<c>CanvasHeight</c>
     ///     （= 模型 px ÷ 缩放），方块布局也用它；</item>
@@ -2126,7 +2177,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// **速率文本**（每秒字节数）：**如实显示**，不做"低于阈值就显示占位符"的模糊化。
     /// </summary>
     /// <param name="bytesPerSecond">每秒搬运字节数（框架算，界面只格式化）。</param>
-    /// <returns>`0.00 B/s` / `12.34 B/s` / `1.44 KB/s` …（2026-09 用户裁定："再低的速率也是有数据，如实显示"）。</returns>
+    /// <returns>`0.00 B/s` / `12.34 B/s` / `1.44 KB/s` …（再低的速率也是有数据，如实显示）。</returns>
     private static string FormatRate(double bytesPerSecond) =>
         bytesPerSecond < 1024
             ? $"{bytesPerSecond:0.00} B/s"
@@ -2159,8 +2210,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 解码一个样本：**模块注册的解码器优先**（框架只回调）【ADR-0046 D1 ③】；
-    /// 未提供时按**参考实现**回退（旧模块形态，登记为历史兼容路径——不猜类型，原语未声明即失败）。
+    /// 解码一个样本：**模块注册的解码器优先**（框架只回调）；
+    /// 未提供时按**参考实现**回退（兼容形态——不猜类型，原语未声明即失败）。
     /// </summary>
     private static bool DecodeSample(SubscriptionSourceView source, ReadOnlySpan<byte> sample, out double value)
     {
@@ -2208,7 +2259,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             points.Add(value);
         }
 
-        // UI 侧抽样：序列比窗口长时等间隔抽到 MaxPoints（降采样不插值，§4.3）
+        // UI 侧抽样：序列比窗口长时等间隔抽到 MaxPoints（降采样不插值）
         if (points.Count <= CurveElementViewModel.MaxPoints)
         {
             return points;
@@ -2227,7 +2278,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// 文本日志：读**新增**的文本样本并逐行追加（用已读计数避免重复追加）。
     /// </summary>
     /// <remarks>
-    /// <b>这是**历史路径**</b>：只有仍按"发布定长样本"写显示区的模块走它（如零口的转换器）。
+    /// <b>**兼容路径**</b>：只有仍按"发布定长样本"写显示区的模块走它（如零口的转换器）。
     /// 数据显示器已改为经 <c>IViewDisplayAccess.AppendText/AppendLine</c> 追加（见 <see cref="DrainAppends"/>）
     /// —— 两条路都往**同一份**显示缓冲里写，因此可以共存（只增纪律：老模块零改动）。
     /// </remarks>
@@ -2281,7 +2332,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <summary>外壳在**拼图图**里的节点 id（与实例 id 不会冲突）。</summary>
     public const string ShellNodeId = "#shell";
 
-    /// <summary>拼图图的全部节点：外壳（若可用）+ 可见模块（ADR-0042 之后的"成组"输入）。</summary>
+    /// <summary>拼图图的全部节点：外壳（若可用）+ 可见模块（成组判定的输入）。</summary>
     /// <param name="shellOverride">用指定的外壳矩形代替模型里的当前值（**分组判定要用移动前的几何**）。</param>
     private List<(string Id, CanvasRect Rect)> TilingNodes(CanvasRect? shellOverride = null)
     {
@@ -2302,12 +2353,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <remarks>
     /// <list type="bullet">
     ///   <item>模块 ↔ 模块：沿用 <see cref="SnapEngine.AreJoined"/>（相邻边贴合 + 交叉轴有重叠）；</item>
-    ///   <item><b>模块 ↔ 外壳：只有"模块左边缘贴外壳右边缘"算</b>（外壳只提供右边缘 —— ADR-0038 D5 / 用户裁决 D-2），
+    ///   <item><b>模块 ↔ 外壳：只有"模块左边缘贴外壳右边缘"算</b>（外壳只提供右边缘），
     ///     不允许贴它的左/上/下边缘；</item>
-    ///   <item><b>外壳用严格容差</b>（<see cref="ShellJoinTolerance"/>，2026-09 缺陷修复）：模块间用
+    ///   <item><b>外壳用严格容差</b>（<see cref="ShellJoinTolerance"/>）：模块间用
     ///     <see cref="GroupTolerance"/>（贴合容差 8px，"差一点也算拼上"对拼装手感友好），但**外壳不能用它** ——
     ///     否则"停在离外壳 8px 处、根本没吸附"的模块也被判成已拼上，拖动主窗口时被一并带走，
-    ///     表现为"没产生吸附行为却粘在主窗口上"（用户实测复报，与第三十四轮反馈同一现象）。
+    ///     表现为"没产生吸附行为却粘在主窗口上"。
     ///     外壳侧的判据是"**真的贴上了**"⇒ 吸附产生的 0 间隙（允许 1px 取整误差）。</item>
     /// </list>
     /// </remarks>
@@ -2365,10 +2416,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// **参照线**集合（ADR-0042 D2）：其他模块的外框（4 边 + 中心线）+ 外壳边。
+    /// **参照线**集合：其他模块的外框（4 边 + 中心线）+ 外壳边。
     /// </summary>
     /// <remarks>
-    /// 外壳只是"**只暴露一条边的对象**"，与模块进同一张线表 —— 不再是特殊通道（ADR-0042 D2）。
+    /// 外壳只是"**只暴露一条边的对象**"，与模块进同一张线表（不做特殊通道）。
     /// 同组成员与自身不提供外框线（自己不能吸自己）。
     /// </remarks>
     private List<SnapLine> CollectLines(string draggingId)
@@ -2391,16 +2442,16 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 端口锚点对（ADR-0042 D2/D4）：被拖模块的发送口 ↔ 其他模块的接收口（及反向）。
+    /// 端口锚点对：被拖模块的发送口 ↔ 其他模块的接收口（及反向）。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
     ///   <item><b>对齐轴由端口所在的边决定</b>：左/右边的口 → 约束 Y（两个口沿竖直方向对齐）；上/下边的口 → 约束 X；</item>
-    ///   <item><b>只有"面对面"的两个口才参与</b>（2026-09 缺陷修复）：对方的口必须挂在**对面那条边**上
+    ///   <item><b>只有"面对面"的两个口才参与</b>：对方的口必须挂在**对面那条边**上
     ///     （我朝右 → 对方朝左；我朝下 → 对方朝上）。缺这一条时，两个**背对背/错向**的口
     ///     （例如上下相邻的两模块，一个右边缘口、一个左边缘口）也会产生"对齐吸附"，
-    ///     把模块吸到一个**永远不会连上**的位置（用户实测："明明对齐的下侧却导致左右两侧的吸附"）；</item>
-    ///   <item>接近范围由引擎按两模块的交叉轴间隙判定（不再"按缝隙大小猜邻接方向" —— ADR-0042 D4）。</item>
+    ///     把模块吸到一个**永远不会连上**的位置（表现为"明明对齐的下侧却导致左右两侧的吸附"）；</item>
+    ///   <item>接近范围由引擎按两模块的交叉轴间隙判定（不按缝隙大小猜邻接方向）。</item>
     /// </list>
     /// 同组成员与自身不参与；此通道**恒开**（不依赖"叠加信息层"开关）。
     /// </remarks>

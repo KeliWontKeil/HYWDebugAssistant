@@ -11,7 +11,7 @@ namespace HYWDebugAssistant.Hosting.Context;
 public readonly record struct InputFeedbackEntry(string SourceName, bool Succeeded, string? Message);
 
 /// <summary>
-/// **输入处理结果的存放处**（G3 · 用户 2026-09 裁决）。
+/// **输入处理结果的存放处**（G3）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">

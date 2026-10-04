@@ -7,11 +7,10 @@ namespace HYWDebugAssistant.Ui.Views;
 /// **窗口可见外框**（屏幕物理像素）—— 外壳作为吸附参照时，用它而不是"客户区"。
 /// </summary>
 /// <remarks>
-/// 【用户第十二轮反馈 · 裁决 D-4：直接改用可见外框右边缘】此前参照取 `PointToScreen(0,0) + ClientSize`
-/// （= 客户区右边缘），而用户视觉上的"窗口边缘"是**可见外框**：两者相差"可见边框（约 1px）"，
-/// 于是模块贴上去**总有 1px 的缝**。
+/// 参照必须取**可见外框**：<c>PointToScreen(0,0) + ClientSize</c> 是**客户区右边缘**，
+/// 与视觉上的"窗口边缘"（**可见外框**）相差"可见边框（约 1px）"⇒ 模块贴上去**总有 1px 的缝**。
 /// <list type="bullet">
-///   <item><c>DWMWA_EXTENDED_FRAME_BOUNDS</c>（= 9）= **可见外框**：不含 Win 的不可见缩放边，正是用户看到的边；</item>
+///   <item><c>DWMWA_EXTENDED_FRAME_BOUNDS</c>（= 9）= **可见外框**：不含 Win 的不可见缩放边，正是视觉上的边；</item>
 ///   <item>取不到时回退 <c>GetWindowRect</c>（含不可见缩放边，会略宽），再取不到则由调用方回退客户区。</item>
 /// </list>
 /// 返回的是**物理像素**（本进程按显示器 DPI 感知），与模型几何同一坐标系，不需要再换算缩放。

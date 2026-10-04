@@ -5,31 +5,31 @@ using Avalonia.Media.Immutable;
 namespace HYWDebugAssistant.Ui.ViewModels;
 
 /// <summary>
-/// **数据包类型 → 颜色** 的调色板（端口标记上的窄颜色条 + 叠加层角色方块的填充）【ADR-0049 D6 / P4-Q4】。
+/// **数据包类型 → 颜色** 的调色板（端口标记上的窄颜色条 + 叠加层角色方块的填充）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>键 = 类型身份</b>（`DataRoleView.TypeKey` / `PortView.TypeKey`：`标识@v版本`；未声明类型 ⇒ 结构描述）。
 ///     **不能用呈现文本** —— `{seq:u64, value:f32}` 会把"不同标识但形状相同"的两种类型涂成同一色，
-///     而 ADR-0051 明确二者**不是同一种量**（会与 ADR-0048 的角色合并规则自相矛盾）；</item>
+///     而**角色合并**规则明确二者**不是同一种量** ⇒ 按呈现文本配色会与它自相矛盾；</item>
 ///   <item><b>默认 = 稳定哈希配色</b>：同一 `TypeKey` **恒得同一色**（跨模块、跨进程、跨重启一致），
 ///     用户不必维护任何表就能分辨类型。哈希用 **FNV-1a**（<c>string.GetHashCode</c> **每个进程都变**
 ///     ⇒ 每次启动颜色都不同，绝对不能用）；</item>
-///   <item><b>覆盖表（接口，本 ADR 只留口子）</b>：用户日后在侧边栏的"**数据包类型表**"里手动指定颜色时，
+///   <item><b>覆盖表（接口，只留口子）</b>：日后在侧边栏的「**数据包类型表**」里手动指定颜色时，
 ///     经 <see cref="SetOverride"/> 填入即可覆盖哈希色。**映射入口只有本类**：端口标记与角色方块共用它，
-///     所以两处颜色**永远一致**（详见 ADR-0049 §8 的评估与后续计划）；</item>
+///     所以两处颜色**永远一致**；</item>
 ///   <item><b>静态画刷必须是"不可变"画刷</b>：<see cref="SolidColorBrush"/> 是 <c>AvaloniaObject</c>，
 ///     **有线程亲和性**——若它在 A 线程被创建，渲染线程读它就会抛
 ///     <c>The calling thread cannot access this object because a different thread owns it</c>
-///     （本类是静态单例、会被任意线程首次触碰，实测踩过：见 `LESSONS` 49 / `implementation/02` P47）；</item>
+///     （本类是静态单例、会被任意线程首次触碰 —— 这个坑踩过）；</item>
 ///   <item><b>可读性</b>：叠加层是**深色玻璃**（`OverlayScrim`），故自动配色固定取"中等饱和 + 较高亮度"，
-///     保证浅色文字压在其上可读；浅/深主题各配一套是**产品决策**，留待"数据包类型表"那一轮（ADR-0049 §8）。</item>
+///     保证浅色文字压在其上可读；浅/深主题各配一套是**产品决策**，留待「数据包类型表」落地时再定。</item>
 /// </list>
 /// </remarks>
 public static class PacketTypePalette
 {
     /// <summary>
-    /// **用户覆盖表**（键 = 类型身份）：本 ADR 只提供接口，侧边栏"数据包类型表"落地时直接填这里。
+    /// **用户覆盖表**（键 = 类型身份）：只提供接口，侧边栏「数据包类型表」落地时直接填这里。
     /// </summary>
     private static readonly ConcurrentDictionary<string, IBrush> Overrides = new(StringComparer.Ordinal);
 
