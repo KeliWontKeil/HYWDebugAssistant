@@ -1,7 +1,9 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using HYWDebugAssistant.Core.Persistence;
 using HYWDebugAssistant.FrameworkUi.Views;
+using HYWDebugAssistant.Ui.ModuleSurface.Hosting;
 using HYWDebugAssistant.Ui.Views;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -41,6 +43,21 @@ public partial class App : Application
             var windowManager = new ModuleWindowManager(shell.Windows, window);
             window.WindowManager = windowManager;
 
+            // **进程级屏幕缩放**：只给"读旧组合件（< v3）时把布局从物理像素换成 DIP"用一次。
+            // 放在窗口建好之后取（那时才有 RenderScaling）；窗口在这一步还没 `Show`，
+            // 但 `Screens` 已经可用，取不到就保持 1（新格式的组合件不受影响）。
+            CompositeService.ScreenScale = window.Screens.Primary?.Scaling ?? 1.0;
+
+            // **文件选择请求面**：按实例解析到模块窗口，选定后把路径经**输入通道**投回模块。
+            // 挂在这里的理由：宿主窗口只有 UI 侧知道（`ModuleWindowManager` 持有实例 → 窗口的映射）。
+            var command = provider.GetRequiredService<HYWDebugAssistant.Core.Api.IRuntimeCommand>();
+
+            provider.GetRequiredService<HYWDebugAssistant.Core.Runtime.ModuleRuntime>().FileAccessFor =
+                instanceId => new ModuleFileAccess(
+                    instanceId,
+                    id => windowManager.WindowFor(id),
+                    (source, path) => _ = command.SubmitInput(instanceId, source, path));
+
             desktop.MainWindow = window;
 
             desktop.ShutdownRequested += (_, _) =>
@@ -48,9 +65,6 @@ public partial class App : Application
                 windowManager.Dispose();
                 _provider?.Dispose();
             };
-
-            // 【临时自检】HYW_DRAG_SELFTEST=1 时脚本化拖动，用于定位"靠近时抖动"（定位后删除）
-            DragSelfTest.RunIfRequested(desktop, provider, shell);
         }
 
         base.OnFrameworkInitializationCompleted();

@@ -101,6 +101,28 @@ public interface IViewStateAccess
     void RequestAppend(string instanceId, string sourceName, string text, bool lineBreak);
 
     /// <summary>
+    /// **模块请求「把某显示源的文本替换成这一句」**（消息 / 状态这类"只有当前值"的内容）。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="RequestAppend"/> 同一模型（模块线程只入队、UI 在刷新节拍里落地），
+    /// 但语义是**替换**：消息连写两次该只看到后一句。
+    /// 落地时**覆盖**该源（并丢掉该源尚未落地的追加 —— 替换与追加混在一起没有确定含义）。
+    /// </remarks>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="sourceName">显示源名。</param>
+    /// <param name="text">新的全部内容（空串 ⇒ 等价清空）。</param>
+    void RequestSetText(string instanceId, string sourceName, string text);
+
+    /// <summary>
+    /// 取走一个待执行的"替换显示源文本"请求（UI 在刷新节拍里调用）。
+    /// </summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="sourceName">显示源名。</param>
+    /// <param name="text">新的全部内容。</param>
+    /// <returns>取到为 <see langword="true"/>；没有待处理请求为 <see langword="false"/>。</returns>
+    bool TryTakeSetText(string instanceId, out string? sourceName, out string? text);
+
+    /// <summary>
     /// 取走某实例**全部**待落地的追加请求（UI 在刷新节拍里调用；取走即清空）。
     /// </summary>
     /// <param name="instanceId">实例 ID。</param>

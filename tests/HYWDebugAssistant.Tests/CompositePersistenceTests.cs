@@ -395,11 +395,61 @@ public class CompositePersistenceTests
         harness.Services.SaveComposite(resaved, "legacy").Succeeded.ShouldBeTrue();
 
         var root = JsonNode.Parse(File.ReadAllText(resaved))!.AsObject();
-        root["schemaVersion"]!.GetValue<int>().ShouldBe(2, "写回即升版到 v2（`sources[]` 时代）");
+        root["schemaVersion"]!.GetValue<int>().ShouldBe(3, "写回即升版到当前版本（v3 = 布局改用 DIP）");
 
         var entry = root["networks"]!.AsArray()[0]!.AsObject();
         entry["sources"]!.AsArray().Select(n => n!.GetValue<string>()).ShouldBe(["g1.out"]);
         entry.ShouldNotContainKey("source", "旧字段必须被清掉：两个字段并存 = 第二事实源");
+    }
+
+    [Fact]
+    public void 加载_旧版布局应按屏幕缩放归一为DIP并升版写回()
+    {
+        // v2 及更早的 `layout.*` 四数是**屏幕物理像素**，v3 起一律 DIP（见 `ModuleLayoutView`）。
+        // 单位归一的**唯一一处**在解析期：按屏幕缩放 ÷。这条用例把它钉住 ——
+        // 不归一的话，150% 的屏上这样的组合件会以 1.5 倍的尺寸开窗（右边框长出屏幕）。
+        using var harness = new Harness(("gen", typeof(GeneratorModule)));
+        var path = harness.PathFor("legacy-v2-layout.json");
+
+        File.WriteAllText(path, """
+        {
+          "schemaVersion": 2,
+          "instances": [
+            { "instanceId": "g1", "moduleId": "test/gen/1.0.0", "enabled": true }
+          ],
+          "networks": [],
+          "layout": {
+            "g1": { "x": 100, "y": 200, "width": 400, "height": 300, "viewVisible": true }
+          }
+        }
+        """);
+
+        CompositeService.ScreenScale = 2.0;
+        try
+        {
+            harness.Services.LoadComposite(path).Succeeded.ShouldBeTrue();
+        }
+        finally
+        {
+            CompositeService.ScreenScale = 1.0;
+        }
+
+        harness.Runtime.Content.Layout.TryGetModule("g1", out var loaded).ShouldBeTrue();
+        loaded!.X.ShouldBe(50, "X 按缩放归一为 DIP");
+        loaded.Y.ShouldBe(100, "Y 按缩放归一为 DIP");
+        loaded.Width.ShouldBe(200, "Width 按缩放归一为 DIP");
+        loaded.Height.ShouldBe(150, "Height 按缩放归一为 DIP");
+
+        // 写回：升版到 v3，且写出的是**已归一**的 DIP 值（不再二次换算）
+        var resaved = harness.PathFor("legacy-v2-layout-resaved.json");
+        harness.Services.SaveComposite(resaved, "legacy").Succeeded.ShouldBeTrue();
+
+        var root = JsonNode.Parse(File.ReadAllText(resaved))!.AsObject();
+        root["schemaVersion"]!.GetValue<int>().ShouldBe(3);
+
+        var saved = root["layout"]!["g1"]!.AsObject();
+        saved["width"]!.GetValue<double>().ShouldBe(200, "v3 里写的是 DIP");
+        saved["height"]!.GetValue<double>().ShouldBe(150);
     }
 
     [Fact]

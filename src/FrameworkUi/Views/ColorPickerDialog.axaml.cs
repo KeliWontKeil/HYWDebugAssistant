@@ -1,8 +1,23 @@
 using Avalonia.Controls;
 using Avalonia.Media;
+using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Ui.Theming;
 
 namespace HYWDebugAssistant.FrameworkUi.Views;
+
+/// <summary>推荐色的一格（显示名 + 色值 + 画刷）—— 界面层对推荐色目录的包装。</summary>
+/// <param name="Name">显示名（悬停提示）。</param>
+/// <param name="Hex">色值文本（`#RRGGBB`）。</param>
+/// <remarks>
+/// 数据住在 `Core.Api` 的 <see cref="ThemePresets"/>（那一层零框架依赖，只有文本）；
+/// **画刷是界面的事**，所以在这里包一层。
+/// </remarks>
+public sealed record RecommendedColor(string Name, string Hex)
+{
+    /// <summary>色块画刷（解析不了 ⇒ 透明）。</summary>
+    public IBrush Brush =>
+        Color.TryParse(Hex, out var color) ? new SolidColorBrush(color) : Brushes.Transparent;
+}
 
 /// <summary>
 /// **调色板窗口**：任选颜色（左侧取色器：光谱/色相/分量/十六进制 + 右侧常驻推荐色）。
@@ -13,7 +28,8 @@ namespace HYWDebugAssistant.FrameworkUi.Views;
 ///     否则每个位置各自内联「预设 + 十六进制输入」（还只能输 RGB/挑内置色）⇒ 观感与能力都不一致；</item>
 ///   <item><b>一屏全见</b>：**左取色器 + 右侧常驻推荐色** ⇒ 推荐色**不必切页签**就能点；
 ///     控件自带的"色板"页签关掉（`IsColorPaletteVisible=False`）⇒ 推荐色**只有一个来源**；</item>
-///   <item><b>推荐色与主题一套</b>：推荐色 = <see cref="ThemeApplier.Presets"/>（与设置页"主题色"同一套 8 档）；
+///   <item><b>推荐色与主题一套</b>：推荐色 = <see cref="ThemePresets.Accents"/>（8 档，与主题色同一套；
+///     数据住 `Core.Api`，界面把它包成 <see cref="RecommendedColor"/> 才拿得到画刷）；
 ///     而**类型颜色本身由用户自定、与主题解耦**（一套颜色由用户自己改，不与主题一套色，
 ///     不过调色板中的推荐颜色与主题一套色）；</item>
 ///   <item><b>精简</b>：不做「自定义颜色」格、不带透明度（减少内置颜色与用户自定义颜色的候选数量）；</item>
@@ -28,8 +44,10 @@ public partial class ColorPickerDialog : Window
     {
         InitializeComponent();
 
-        // 推荐色 = **与主题同一套**，常驻显示在右侧 8 个
-        RecommendedColors.ItemsSource = ThemeApplier.Presets;
+        // 推荐色 = **与主题同一套**，常驻显示在右侧 8 个（数据来自 `Core.Api` 的推荐色目录）
+        RecommendedColors.ItemsSource = ThemePresets.Accents
+            .Select(preset => new RecommendedColor(preset.Name, preset.Hex))
+            .ToList();
     }
 
     /// <summary>当前颜色（= 窗口内取色控件的值；调用方据此设初值 / 读结果）。</summary>
@@ -42,7 +60,7 @@ public partial class ColorPickerDialog : Window
     /// <summary>点了某个推荐色 ⇒ 直接把它作为当前颜色（= 用户不必去光谱里凑）。</summary>
     private void OnPickRecommended(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (sender is Button { DataContext: ThemeApplier.AccentPreset preset }
+        if (sender is Button { DataContext: RecommendedColor preset }
             && ThemeApplier.Parse(preset.Hex) is { } color)
         {
             Color = color;

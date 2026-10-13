@@ -69,20 +69,13 @@ public sealed class ApplicationSettings
     public bool ShowInfoOverlay { get; set; }
 
     /// <summary>
-    /// **主题**：<c>Light</c>（默认）/ <c>Dark</c> / <c>System</c>（跟随系统）。
+    /// **外观块**（设置里"外观"这一层）：选哪套主题 + 逐项覆盖 + 字体轴。
     /// </summary>
-    public string Theme { get; set; } = "Light";
-
-    /// <summary>**主题色**（十六进制，如 <c>#2563EB</c>）；非法或为空则用内置主题色。</summary>
-    public string AccentColor { get; set; } = "#2563EB";
-
-    /// <summary>
-    /// **背景档位**：<c>Theme</c>（默认，跟随主题）/ <c>LightGray</c> / <c>DarkGray</c> / <c>Custom</c>。
-    /// </summary>
-    public string BackgroundMode { get; set; } = "Theme";
-
-    /// <summary>**自定义背景色**（十六进制；仅 <see cref="BackgroundMode"/> = <c>Custom</c> 时生效）。</summary>
-    public string BackgroundColor { get; set; } = "#F3F4F6";
+    /// <remarks>
+    /// 它是**外观**这一层的容器：主题是"值的来源"，覆盖是"用户的差异"，字体是另一个轴。
+    /// 层次与解析链见 <see cref="AppearanceSettings"/> 的说明。
+    /// </remarks>
+    public AppearanceSettings Appearance { get; set; } = new();
 
     /// <summary>
     /// **多行文本输入的提交键**：
@@ -100,42 +93,6 @@ public sealed class ApplicationSettings
     /// </list>
     /// </remarks>
     public string MultilineSubmitKey { get; set; } = "CtrlEnter";
-
-
-    /// <summary>
-    /// **界面字体**（字体在设置里**显式可调**，读**系统已有字体**）。
-    /// </summary>
-    /// <remarks>
-    /// <list type="bullet">
-    ///   <item>作用于**框架自身的界面文字**（外壳、清单、设置页、状态栏等，资源键 <c>FontUi</c>）；</item>
-    ///   <item>默认 <c>Segoe UI, Microsoft YaHei UI</c>（**保持既有观感不变** —— 用户要调的是文本框那一路）；</item>
-    ///   <item>可写**回退列表**（逗号分隔）：拉丁字体在前、中文回退在后，例如 <c>Times New Roman, 宋体</c>；</item>
-    ///   <item>空串 ⇒ 回落默认；设置页给系统字体下拉（**读系统已有字体**，不内置字体文件）。</item>
-    /// </list>
-    /// </remarks>
-    public string UiFontFamily { get; set; } = "Segoe UI, Microsoft YaHei UI";
-
-    /// <summary>
-    /// **数据字体**：作用于**所有输入框与显示框**（模块内容区的文本元素 + 诊断里的数据列）。
-    /// </summary>
-    /// <remarks>
-    /// 默认 <c>Times New Roman, 宋体</c>（中文用宋体、英文用 Times New Roman）。
-    /// 同样是回退列表（拉丁在前、中文在后）；资源键 <c>FontData</c>。
-    /// </remarks>
-    public string DataFontFamily { get; set; } = "Times New Roman, 宋体";
-    /// <summary>
-    /// **发送方向色**（十六进制，如 <c>#EA580C</c>；**空 = 跟随主题默认值**）。
-    /// </summary>
-    /// <remarks>
-    /// 「方向」= **稳定语义**（发送 / 接收），与「主题色」解耦：主题色只表达选中/聚焦/活动等**框架性交互**语义。
-    /// **空串是默认值**（跟随 <c>Tokens.axaml</c> 里深浅两套各自的内置方向色）——这样深色主题的默认值不会被
-    /// 浅色默认值"覆盖成死值"（`accentColor` 的默认非空，故其伴生色 `AccentSecondary` 实际从不生效，
-    /// 属已知遗留问题）。用户一旦填色，则**深浅两套主题都用它**（完全尊重用户选择，不做提示）。
-    /// </remarks>
-    public string DirectionSendColor { get; set; } = string.Empty;
-
-    /// <summary>**接收方向色**（语义同 <see cref="DirectionSendColor"/>；空 = 跟随主题默认值）。</summary>
-    public string DirectionReceiveColor { get; set; } = string.Empty;
 
     /// <summary>
     /// **外壳窗口比例**：<c>9:19.5</c>（默认，手机竖屏常用比例）/ <c>9:16</c> / <c>16:9</c>。
@@ -199,20 +156,10 @@ public sealed class ApplicationSettings
         AlignAutoNetworkEnabled = AlignAutoNetworkEnabled,
         SnapDistance = SnapDistance,
         ShowInfoOverlay = ShowInfoOverlay,
-        Theme = Theme,
-        AccentColor = AccentColor,
-        BackgroundMode = BackgroundMode,
-        BackgroundColor = BackgroundColor,
-        MultilineSubmitKey = MultilineSubmitKey,
-        // **这两行不可漏**：Clone 是
-        // 写侧（`SettingsService.Update` 的 `Current = settings.Clone()`）与读侧（`RuntimeServices.GetSettings`）
-        // 的**必经之路** ⇒ 漏掉就会被静默换成默认值（落盘写默认值、读回默认值、`ThemeApplier` 拿到默认值）。
-        // **颜色能用只是因为颜色字段不在这份清单里**（同一条管线、同一份文件，唯一差别就是这份字段清单）。
+        // **外观块要深拷**：它自己持两层字典（按主题分层的覆盖），浅拷会让"改一份影响另一份"。
         // 纪律：`Clone` 必须与**全部可持久化属性**一一对应 —— `SettingsServiceTests` 有一条反射式用例钉住它。
-        UiFontFamily = UiFontFamily,
-        DataFontFamily = DataFontFamily,
-        DirectionSendColor = DirectionSendColor,
-        DirectionReceiveColor = DirectionReceiveColor,
+        Appearance = Appearance.Clone(),
+        MultilineSubmitKey = MultilineSubmitKey,
         ShellAspect = ShellAspect,
         ShellFixedSize = ShellFixedSize,
         ModuleSourceDirectories = [.. ModuleSourceDirectories],

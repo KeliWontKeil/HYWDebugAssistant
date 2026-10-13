@@ -21,6 +21,12 @@
             <SolidColorBrush x:Key="TextMuted" Color="#A1A1AA" />
             <SolidColorBrush x:Key="AccentPrimary" Color="#2563EB" />
             <SolidColorBrush x:Key="AccentSecondary" Color="#0891B2" />
+            <!--
+              **更重一档的主题色**：由主题色派生（向黑 18%，见 `PaletteDerivation`）。
+              内置值 = **该公式在默认主题色上的结果**（不是另挑的一个色）——
+              这样"没改主题色"与"派生算出来"是同一个值，两者不会各说一套。
+            -->
+            <SolidColorBrush x:Key="AccentStrong" Color="#1E51C0" />
 
             <!--
               **方向语义色**【ADR-0044 · 用户第十四轮裁决 D1a】：发送 / 接收是**稳定语义**，
@@ -57,6 +63,41 @@
               刻意用**中性低对比**色 ⇒ 用户一眼能分清"哪条是网络连接（方向色 + 流动虚线）、哪条只是模块内部结构"。
             -->
             <SolidColorBrush x:Key="OverlayFlow" Color="#8FA3BF" Opacity="0.85" />
+
+            <!--
+              **按钮的常态与"按下去"那几档色**：`Styles/ButtonChrome.axaml`（全应用按钮壳）与模块的命令按钮
+              样式都读它们，所以放全局这一份。
+              · 常态：浅面 + 细边（与窗口底分得开）；
+              · 指向 / 按下：**主题色的淡底** —— 色随主题色、浓度就是这里的 `Opacity`
+                （由应用器按套读走，代码里不抄第二份）。不用"主色 + 元素透明度"：那会把按钮上的字一起淡掉。
+                为什么不是"写死的浅蓝"：那正是"指向时底是蓝的、边是橙的"那种对不上的来源。
+            -->
+            <SolidColorBrush x:Key="SurfaceButtonFaceBrush" Color="#F4F4F5" />
+            <SolidColorBrush x:Key="SurfaceButtonFaceHoverBrush" Color="#2563EB" Opacity="0.13" />
+            <SolidColorBrush x:Key="SurfaceButtonFacePressedBrush" Color="#2563EB" Opacity="0.24" />
+            <SolidColorBrush x:Key="SurfaceButtonEdgeBrush" Color="#A1A1AA" />
+
+            <!--
+              **模块内容区专有的那几支**（分区：模块表面）。
+              它们与上面那些全局角色**同住这一个文件**：色板只有一处（浅深两套各一份）——
+              "模块表面的观感"以前住在另一个文件里，于是"改一处颜色要去两个文件找"。
+              尺寸（内容区留白 / 行高 / 字号 / 曲线内缩…）仍住在 `ModuleSurface/Theme/ModuleSurfaceMetrics.axaml`：
+              它们不是颜色，也不随主题变。
+            -->
+            <SolidColorBrush x:Key="SurfaceToggleTrackOffBrush" Color="#E4E4E7" />
+            <SolidColorBrush x:Key="SurfaceToggleTrackOffHoverBrush" Color="#D4D4D8" />
+            <SolidColorBrush x:Key="SurfaceToggleKnobBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="SurfaceToggleKnobEdgeBrush" Color="#D4D4D8" />
+            <SolidColorBrush x:Key="SurfaceTextFrameEditableBrush" Color="#3F3F46" />
+            <!--
+              **主题色淡底那三支**（页签悬停 / 选中）：**色**由主题色派生（改主题色即跟随），
+              **浓度**就是这里的 `Opacity`（由应用器按套读走，代码里不抄第二份）。
+              `Color="{DynamicResource AccentPrimary}"` 这种写法**不行**（token 是画刷，`Color` 要 `Color` ⇒
+              运行时 `InvalidCastException`）；而"引画刷 + 元素 `Opacity`"会把页签文字一起淡掉。
+            -->
+            <SolidColorBrush x:Key="SurfaceTabHoverBrush" Color="#2563EB" Opacity="0.06" />
+            <SolidColorBrush x:Key="SurfaceTabSelectedBackgroundBrush" Color="#2563EB" Opacity="0.12" />
+            <SolidColorBrush x:Key="SurfaceTabSelectedHoverBrush" Color="#2563EB" Opacity="0.22" />
         </ResourceDictionary>
 
         <ResourceDictionary x:Key="Dark">
@@ -70,6 +111,8 @@
             <SolidColorBrush x:Key="TextMuted" Color="#71717A" />
             <SolidColorBrush x:Key="AccentPrimary" Color="#3B82F6" />
             <SolidColorBrush x:Key="AccentSecondary" Color="#22D3EE" />
+            <!-- 更重一档的主题色（派生色，说明见浅色分支）：内置值 = 公式在深色默认主题色上的结果。 -->
+            <SolidColorBrush x:Key="AccentStrong" Color="#306AC9" />
 
             <!-- 方向语义色【ADR-0044】：深色主题下各提亮一档（同一语义、两套主题各自的内置默认值）。 -->
             <SolidColorBrush x:Key="DirectionSend" Color="#F59E0B" />
@@ -88,9 +131,35 @@
             <SolidColorBrush x:Key="OverlayInkMuted" Color="#A5B4C8" />
             <!-- 内部处理关系线【ADR-0049 D13/Q11】：深色主题下略提亮，仍是**中性低对比**（不与方向色争）。 -->
             <SolidColorBrush x:Key="OverlayFlow" Color="#9FB2CC" Opacity="0.85" />
+
+            <!-- 按钮常态/指向/按下那几档色（说明见浅色分支）：指向/按下都是**主题色的淡底** -->
+            <SolidColorBrush x:Key="SurfaceButtonFaceBrush" Color="#2A2A2E" />
+            <SolidColorBrush x:Key="SurfaceButtonFaceHoverBrush" Color="#3B82F6" Opacity="0.25" />
+            <SolidColorBrush x:Key="SurfaceButtonFacePressedBrush" Color="#3B82F6" Opacity="0.40" />
+            <SolidColorBrush x:Key="SurfaceButtonEdgeBrush" Color="#52525B" />
+
+            <!-- 模块内容区专有的那几支（说明见浅色分支） -->
+            <SolidColorBrush x:Key="SurfaceToggleTrackOffBrush" Color="#3F3F46" />
+            <SolidColorBrush x:Key="SurfaceToggleTrackOffHoverBrush" Color="#52525B" />
+            <SolidColorBrush x:Key="SurfaceToggleKnobBrush" Color="#F4F4F5" />
+            <SolidColorBrush x:Key="SurfaceToggleKnobEdgeBrush" Color="#27272A" />
+            <SolidColorBrush x:Key="SurfaceTextFrameEditableBrush" Color="#D4D4D8" />
+            <!-- 主题色淡底那三支：色由主题色派生，浓度 = 这里的 Opacity（说明见浅色分支） -->
+            <SolidColorBrush x:Key="SurfaceTabHoverBrush" Color="#3B82F6" Opacity="0.10" />
+            <SolidColorBrush x:Key="SurfaceTabSelectedBackgroundBrush" Color="#3B82F6" Opacity="0.18" />
+            <SolidColorBrush x:Key="SurfaceTabSelectedHoverBrush" Color="#3B82F6" Opacity="0.30" />
         </ResourceDictionary>
 
     </ResourceDictionary.ThemeDictionaries>
+
+    <!--
+      这两支**没有**平铺兜底副本 —— 曾经有（理由是"某些查找链解析不到主题字典里的键"），
+      但实测表明那份副本会**盖住主题字典里的值**：在合并字典内部，平铺条目先于主题字典被取到，
+      于是深色主题读到的其实是**浅色那一份**（`OverlaySelection` 深色应当是 `#3B82F6`）。
+      今天不再需要它：色板覆盖由应用器**合并到最后**（那一份只写主题字典，且按套分桶），
+      解析链在色板之前就命中它；"解析不到"那种坑由 `ThemeApplier` 的类型注释记着。
+    -->
+
 
     <!-- 字体（V4：系统字体 + 数据区等宽；09 §3） -->
     <FontFamily x:Key="FontUi">Segoe UI, Microsoft YaHei UI, sans-serif</FontFamily>
@@ -107,11 +176,9 @@
     <!--
       尺寸 token【M1-16 / ADR-0039 D1-D3 · ADR-0040 D4】：**改尺寸只改这里**。
       · 控件高度 27：输入类控件与 12 px 字号匹配（用户第六轮反馈"文本框太高"）；
-      · 模块窗口：交互带 6 px、缩放手柄 6×6（原 12×12 **缩小 50%**，且仅选中时可命中）；
-      · 端口标记（标准件）：**尺寸不在这里** —— 见 `Ui/Geometry/PortMarkerMetrics.cs`
-        （【2026-09 缺陷修复】`PortMarkerWidth`/`PortMarkerLength` 两个 token 曾与视图模型里的
-        20/114 各写一份，而**真正生效的只有视图模型那份**、token 全仓库无人引用（死资源）⇒ 已删除，
-        统一由 `PortMarkerMetrics` 提供；标记内元素尺寸仍在下面）。
+      · 模块窗口：交互带 6 px、缩放手柄 6×6（仅选中时可命中）；
+      · 端口标记（标准件）：**尺寸不在这里** —— 见 `Ui/Geometry/PortMarkerMetrics.cs`（唯一来源；
+        标记内元素尺寸仍在下面）。
     -->
     <x:Double x:Key="ControlHeight">27</x:Double>
     <x:Double x:Key="ControlFontSize">12</x:Double>
@@ -120,23 +187,22 @@
     <x:Double x:Key="PortMarkerFontSize">11</x:Double>
 
     <!--
-      端口标记内元素尺寸【ADR-0043 · 用户第十三轮反馈】：
-      · PortMarkerArrowFontSize —— 方向箭头字号 **11 → 16**（用户："箭头太小看不清"）；
+      端口标记内元素尺寸：
+      · PortMarkerArrowFontSize —— 方向箭头字号 **18**（箭头要在灰玻璃遮罩下仍可辨认）；
       · PortMarkerLampSize —— 连接指示灯 **6×6 → 8×8**（`StateIndicator` 半径 = 边长/2 − 1 ⇒ 半径 2 → 3，**+1**），
         并由"距端部 3 px"改为 **Margin=0 贴到标记端部"最边缘"**；
       · PortMarkerStripWidth —— **数据包类型窄色条**宽度 6（沿标记长边方向的窄条；竖排时跨满标记内宽 = 20 − 边框 1×2 = 18）。
-        色条颜色 = **占位色，映射待定**（`PacketTypePalette.Placeholder`，将来只改那里，XAML 不动）。
+        色条颜色 = **类型色板按类型身份给出**（用户覆盖色优先，否则稳定哈希自动色；XAML 不写颜色）。
     -->
     <x:Double x:Key="PortMarkerArrowFontSize">18</x:Double>
     <x:Double x:Key="PortMarkerLampSize">8</x:Double>
     <x:Double x:Key="PortMarkerStripWidth">6</x:Double>
 
     <!--
-      **叠加层模式下的端口标记**（网络标签）【ADR-0053 · 用户第三十四轮】：用户裁定
-      "网络标签上缺少速率显示，这才是'数据通路速率'" + "叠加视图里网络标签不该被高亮"。
+      **叠加层模式下的端口标记**（网络标签）：
       · PortMarkerRateFontSize —— 通路速率字号 **10**（比名称小一号 ⇒ 层级清楚，且与名称同排不挤）；
-      · 降权（不高亮）由 `ModuleWindow.axaml` 里的 `Border.portMarker.overlay` 样式组实现
-        （边框改中性、整体透明度降低；箭头/灯进一步降透明度）—— 与角色方块形成"两个维度"的视觉分工。
+      · 叠加层下标记不做单独降权：标记层排在遮罩之前 ⇒ 被灰玻璃统一压暗，
+        连线与角色层保持满强度 —— 形成"通路维度 / 角色维度"的视觉分工。
     -->
     <x:Double x:Key="PortMarkerRateFontSize">10</x:Double>
 

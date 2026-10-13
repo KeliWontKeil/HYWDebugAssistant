@@ -36,7 +36,7 @@ internal static class TempViewPackage
     {
         var portItems = string.Join(", ", ports.Select(p => $$"""{ "name": "{{p.Port}}", "edge": "{{p.Edge}}" }"""));
         var sourceItems = string.Join(", ", sources.Select(s => $$"""{ "name": "{{s.Name}}", "kind": "Value", "valueType": "{{s.ValueType}}" }"""));
-        var viewItems = string.Join(", ", sources.Select(s => $$"""{ "kind": "numeric", "data": "{{s.Name}}" }"""));
+        var viewItems = string.Join(", ", sources.Select(s => $$"""{ "kind": "numeric", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "data": "{{s.Name}}", "width": { "fill": true }, "height": { "pixels": 24 } }"""));
         var views = sources.Count == 0
             ? "[]"
             : $$"""[ { "root": { "kind": "container", "children": [ {{viewItems}} ] } } ]""";

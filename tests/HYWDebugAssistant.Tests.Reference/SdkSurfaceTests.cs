@@ -130,8 +130,8 @@ public class SdkSurfaceTests
 
         public IModuleDeclaration Declaration { get; }
 
-        /// <summary>输入处理结果反馈（G3）——本替身不使用。</summary>
-        public HYWDebugAssistant.Sdk.Context.IInputFeedbackReporter InputFeedback => null!;
+        /// <summary>元素外观的设定面 —— 本替身不使用。</summary>
+        public HYWDebugAssistant.Sdk.Context.IViewAppearanceAccess Appearance => null!;
 
         public IPortAccess Ports => null!;
 
@@ -152,6 +152,9 @@ public class SdkSurfaceTests
 
         /// <summary>显示内容请求面——本替身不使用。</summary>
         public HYWDebugAssistant.Sdk.Context.IViewDisplayAccess Display => null!;
+
+        /// <summary>文件选择请求面——本替身不使用。</summary>
+        public HYWDebugAssistant.Sdk.Context.IFileAccess Files => null!;
 
         private sealed class DeclarationSink(
             List<PortDeclaration> ports,

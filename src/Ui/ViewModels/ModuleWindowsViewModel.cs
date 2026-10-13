@@ -82,7 +82,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     private readonly IRuntimeQuery _query;
     private readonly IRuntimeCommand _command;
     private readonly Dictionary<(string InstanceId, string Source), SubscriptionSourceView> _sources = [];
-    private readonly Dictionary<(string InstanceId, string Source), long> _textReadCounts = [];
 
     private int _frameCounter;
 
@@ -92,21 +91,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <summary>本次拖动**起点**的各成员几何（拖动中按 Ctrl 拆分时用来"放回原位"）。</summary>
     private readonly Dictionary<string, CanvasRect> _dragStartRects = new(StringComparer.Ordinal);
 
-    private readonly byte[] _sampleScratch = new byte[1024];
-    private readonly byte[] _seriesScratch = new byte[CurveElementViewModel.MaxPoints * 8];
-    private readonly byte[] _textScratch = new byte[4096];
-    private readonly double[] _seriesValues = new double[CurveElementViewModel.MaxPoints];
-
     private string? _draggingId;
     private IReadOnlyList<string> _dragGroup = [];
     private double _dragPointerOffsetX;
     private double _dragPointerOffsetY;
-
-    /// <summary>【临时诊断】当前拖动组的成员数。</summary>
-    internal int DragGroupSize => _dragGroup.Count;
-
-    /// <summary>【临时诊断】参与吸附的其他模块数（最近一帧）。</summary>
-    internal int SnapNeighbourCount { get; private set; }
 
     /// <summary>整体平移造成的位置变化、**尚未落盘**的实例（合并提交用，见 <see cref="CommitSceneTranslation"/>）。</summary>
     private readonly HashSet<string> _pendingSceneCommits = new(StringComparer.Ordinal);
@@ -151,15 +139,19 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <summary>模块窗口（每个模块一项）。</summary>
     public ObservableCollection<ModuleViewViewModel> Modules { get; } = [];
 
-    /// <summary>屏幕缩放（1.0 = 100%；由窗口管理器按主屏设置）。</summary>
-    [ObservableProperty]
-    public partial double Scale { get; set; } = 1.0;
-
-    /// <summary>屏幕工作区（物理像素；外壳窗口关闭时为 null = 不做屏幕吸附与钳制）。</summary>
+    /// <summary>
+    /// 屏幕工作区（**DIP**；外壳窗口关闭时为 null = 不做屏幕吸附与钳制）。
+    /// </summary>
+    /// <remarks>
+    /// 由窗口管理器**换算成 DIP 后**发布（<c>Screens.WorkingArea</c> 本身是物理像素），
+    /// 这样它与模块坐标（DIP）同单位，摆放与钳制不必各自换算。
+    /// </remarks>
     [ObservableProperty]
     public partial CanvasRect? WorkArea { get; set; }
 
-    /// <summary>框架外壳窗口矩形（拼图"起始点"，可被贴靠）。</summary>
+    /// <summary>
+    /// 框架外壳窗口矩形（拼图"起始点"，可被贴靠；**DIP**，同 <see cref="WorkArea"/> 的口径）。
+    /// </summary>
     [ObservableProperty]
     public partial CanvasRect? ShellRect { get; set; }
 
@@ -184,10 +176,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// </remarks>
     [ObservableProperty]
     public partial string MultilineSubmitKey { get; set; } = "CtrlEnter";
-
-    /// <summary>拖动中的吸附辅助线（屏幕坐标）。</summary>
-    [ObservableProperty]
-    public partial IReadOnlyList<GuideLine> Guides { get; set; } = [];
 
     /// <summary>当前选中的模块实例（选中态视觉）。</summary>
     [ObservableProperty]
@@ -606,8 +594,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 continue;
             }
 
-            module.X = ScreenPixels.Round(module.X + dx);
-            module.Y = ScreenPixels.Round(module.Y + dy);
+            module.X = ScreenPixels.RoundDip(module.X + dx);
+            module.Y = ScreenPixels.RoundDip(module.Y + dy);
             RaiseGeometry(module);
             _ = _pendingSceneCommits.Add(module.InstanceId);
         }
@@ -655,13 +643,14 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>拖动中：吸附 → 整组平移 → 更新辅助线。</summary>
-    /// <param name="pointerX">指针 X（屏幕坐标）。</param>
-    /// <param name="pointerY">指针 Y（屏幕坐标）。</param>
+    /// <param name="pointerX">指针 X（屏幕坐标，**DIP**）。</param>
+    /// <param name="pointerY">指针 Y（屏幕坐标，**DIP**）。</param>
     /// <param name="snapEnabled">本次是否吸附（null = 用开关值；按住 Alt 传 false）。</param>
     /// <remarks>
     /// **拖动中实时吸附**（松手才吸附操作不友好）；
     /// 目标手感 = **Visio 式**：吸附半径小（几像素）、离开即松、靠参考线给反馈。
-    /// 另：位置在写入模型前**统一取整到整数物理像素**（<see cref="ScreenPixels.Round"/>），修"缝/错位"。
+    /// 另：位置在写入模型前**统一取整到整 DIP**（<see cref="ScreenPixels.RoundDip"/>）——
+    /// 吸附在整数格上做，才不会出现"小数 DIP 乘缩放后两端各自舍入 ⇒ 看得见的缝"。
     /// </remarks>
     public void DragTo(double pointerX, double pointerY, bool? snapEnabled = null)
     {
@@ -694,22 +683,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             guides = snapped.Guides;
         }
 
-        // 统一取整：模型几何一律是整数物理像素（唯一量化点）
-        var dx = ScreenPixels.Round(targetX) - module.X;
-        var dy = ScreenPixels.Round(targetY) - module.Y;
-
-        // 【临时诊断】控制器侧一帧（原始目标 → 吸附后、实际施加的位移、组与邻居数）
-        Diagnostics.DragDiagnostics.Record(Diagnostics.DragDiagnostics.FormatSnap(
-            raw: (X: pointerX - _dragPointerOffsetX, Y: pointerY - _dragPointerOffsetY),
-            finalX: targetX,
-            finalY: targetY,
-            appliedDx: dx,
-            appliedDy: dy,
-            sticky: $"group={_dragGroup.Count}",
-            groupSize: _dragGroup.Count,
-            neighbourCount: neighbourCount));
-
-        SnapNeighbourCount = neighbourCount;
+        // 统一取整：模型几何一律**整 DIP**（唯一量化点，见 `ScreenPixels.RoundDip`）
+        var dx = ScreenPixels.RoundDip(targetX) - module.X;
+        var dy = ScreenPixels.RoundDip(targetY) - module.Y;
 
         foreach (var memberId in _dragGroup)
         {
@@ -723,8 +699,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         // 组内含外壳（模块单侧吸附在外壳上）→ 外壳窗口也一起走（"视觉整体"）
         ApplyShellDelta(dx, dy);
-
-        Guides = guides;
 
         // 窗内绘制用：辅助线挂到**被拖的模块**上（其余成员只跟随位移）
         if (Find(draggingId) is { } dragged)
@@ -935,7 +909,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         _draggingId = null;
         _dragGroup = [];
-        Guides = [];
         ClearDockPreview();
 
         if (layouts.Count > 0)
@@ -980,7 +953,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         var group = _dragGroup;
         _draggingId = null;
         _dragGroup = [];
-        Guides = [];
 
         // 组内含外壳时，外壳窗口也被拖走了 → 还原时把它移回去（累计位移取反）
         if ((Math.Abs(_shellDragDx) > 0.5 || Math.Abs(_shellDragDy) > 0.5)
@@ -1049,10 +1021,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         var start = _resizeStartRect;
         // 缩放约束来自**本模块包内 `view.json`**：
         // 下限 = max(框架下限, json 的 min)，上限 = json 的 max（无声明 ⇒ 无上限）。
-        var minWidth = module.EffectiveMinWidth * module.Scale;
-        var minHeight = module.EffectiveMinHeight * module.Scale;
-        var maxWidth = module.EffectiveMaxWidth * module.Scale;
-        var maxHeight = module.EffectiveMaxHeight * module.Scale;
+        // **四个数都是 DIP**（与模型同单位）：本次缩放的指针位置由调用方按该窗口的缩放换成 DIP
+        // （见 `ModuleWindow.ScreenPoint` 的调用点），模型与带宽因此不必再乘缩放。
+        var minWidth = module.EffectiveMinWidth;
+        var minHeight = module.EffectiveMinHeight;
+        var maxWidth = module.EffectiveMaxWidth;
+        var maxHeight = module.EffectiveMaxHeight;
 
         var left = start.Left;
         var top = start.Top;
@@ -1140,10 +1114,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             height = Math.Min(height, heightCap);
         }
 
-        module.X = ScreenPixels.Round(left);
-        module.Y = ScreenPixels.Round(top);
-        module.Width = ScreenPixels.Round(width);
-        module.Height = ScreenPixels.Round(height);
+        // **四个数都是 DIP、都不取整**：DIP 不是像素，取整只会在缩放 ≠100% 时让"贴齐"差几个物理像素
+        // （物理像素的取整只发生在窗口边界：`ModuleWindowManager` 落位时乘 `RenderScaling` 那一步）。
+        module.X = left;
+        module.Y = top;
+        module.Width = width;
+        module.Height = height;
         RaiseGeometry(module);
     }
 
@@ -1162,15 +1138,14 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _ = _command.UpdateModuleLayout(module.ToLayout());
     }
 
-    /// <summary>把物理像素尺寸夹进"有效区间"（DIP 上下限 × 缩放）。</summary>
-    /// <param name="pixels">待夹的物理像素值。</param>
+    /// <summary>把尺寸夹进"有效区间"（**两侧同为 DIP** ⇒ 不涉及缩放）。</summary>
+    /// <param name="dip">待夹的值（DIP）。</param>
     /// <param name="minDip">有效最小（DIP）。</param>
     /// <param name="maxDip">有效最大（DIP；<see langword="null"/> = 无上限）。</param>
-    /// <param name="scale">屏幕缩放。</param>
-    private static double ClampToBounds(double pixels, double minDip, double? maxDip, double scale)
+    private static double ClampToBounds(double dip, double minDip, double? maxDip)
     {
-        var value = Math.Max(pixels, minDip * scale);
-        return maxDip is { } upper ? Math.Min(value, upper * scale) : value;
+        var value = Math.Max(dip, minDip);
+        return maxDip is { } upper ? Math.Min(value, upper) : value;
     }
 
     // ---------------------------------------------------------------- 端口标签（建网）
@@ -1465,23 +1440,18 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(module);
 
-        // ① 尺寸回到包内声明的默认尺寸（× 屏幕缩放，**取整到整数物理像素**），并写回布局
-        module.Width = ScreenPixels.Round(ClampToBounds(
-            module.PreferredWidth * module.Scale, module.EffectiveMinWidth, module.EffectiveMaxWidth, module.Scale));
-        module.Height = ScreenPixels.Round(ClampToBounds(
-            module.PreferredHeight * module.Scale, module.EffectiveMinHeight, module.EffectiveMaxHeight, module.Scale));
-        module.X = ScreenPixels.Round(module.X);
-        module.Y = ScreenPixels.Round(module.Y);
+        // ① 尺寸回到包内声明的默认尺寸（**声明就是 DIP** ⇒ 不乘缩放、不取整），并写回布局
+        module.Width = ClampToBounds(module.PreferredWidth, module.EffectiveMinWidth, module.EffectiveMaxWidth);
+        module.Height = ClampToBounds(module.PreferredHeight, module.EffectiveMinHeight, module.EffectiveMaxHeight);
         module.HasLayout = true;
 
         _ = _command.UpdateModuleLayout(module.ToLayout());
         RaiseGeometry(module);
 
-        // ② 配置（可选）：清掉该实例已保存的配置，模块重新读到默认值并刷新表单
+        // ② 配置（可选）：清掉该实例已保存的配置，模块重新读到默认值
         if (scope == ModuleResetScope.SizeAndConfiguration)
         {
             var result = _command.ResetModuleConfiguration(module.InstanceId);
-            module.ReloadConfigurationForms();
 
             RaiseNotice(
                 result.Succeeded
@@ -1526,6 +1496,23 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     private ModuleViewViewModel? Find(string instanceId) =>
         Modules.FirstOrDefault(m => string.Equals(m.InstanceId, instanceId, StringComparison.Ordinal));
 
+    /// <summary>几何比较的容差（DIP）：与位置回写用的同一个 0.5。</summary>
+    private const double GeometryEpsilon = 0.5;
+
+    /// <summary>
+    /// 布局回声与内存模型**是不是真的有差**（差 &lt; <see cref="GeometryEpsilon"/> 视为没有）。
+    /// </summary>
+    /// <remarks>
+    /// "没有差就不动"是"首帧即终值"的必要条件：几何只该因为**真实变化**（用户动作、真实 DPI 变化）
+    /// 被重新应用，不该因为"读回了一份数值上等价的记录"再应用一次。
+    /// </remarks>
+    private static bool HasGeometryDifference(ModuleViewViewModel module, ModuleLayoutView layout) =>
+        Math.Abs(layout.X - module.X) >= GeometryEpsilon
+        || Math.Abs(layout.Y - module.Y) >= GeometryEpsilon
+        || Math.Abs(layout.Width - module.Width) >= GeometryEpsilon
+        || Math.Abs(layout.Height - module.Height) >= GeometryEpsilon
+        || layout.IsViewVisible != module.IsViewVisible;
+
     private void RaiseGeometry(ModuleViewViewModel module) =>
         GeometryChanged?.Invoke(
             this,
@@ -1547,7 +1534,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <c>frame.window</c> 开窗）。有循环上限兜底，极端情况下宁可重叠也不死循环。
     /// </remarks>
     /// <param name="instance">即将摆放的实例（默认尺寸从它的声明面读）。</param>
-    /// <returns>摆放位置（物理像素）。</returns>
+    /// <returns>摆放位置（**DIP**，与模型同一坐标系）。</returns>
     private (double X, double Y) NextPlacement(ModuleInstanceView instance)
     {
         ArgumentNullException.ThrowIfNull(instance);
@@ -1555,9 +1542,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         // 声明面没有默认尺寸（实例连声明都没有）时只求"别算出 0 尺寸"：摆放只关心"互不堆叠"，
         // 不在这里造第二份默认尺寸 —— 默认尺寸的唯一来源是声明面，框架地板则在读取侧就已落进声明
         // （见 `ViewDocument.Fallback`，故这里**不需要**任何地板字面量）。
+        // **尺寸是 DIP（声明就是 DIP）** ⇒ 不乘缩放；而 `ShellRect` / `WorkArea` 由窗口管理器
+        // 按同一口径（DIP）发布 ⇒ 本方法整段都在 DIP 里算，位置与尺寸不再混单位。
         var window = instance.View?.Frame.Window;
-        var width = Math.Max(1, (window is { Width: > 0 } declaredWidth ? declaredWidth.Width : 1) * Scale);
-        var height = Math.Max(1, (window is { Height: > 0 } declaredHeight ? declaredHeight.Height : 1) * Scale);
+        var width = Math.Max(1, window is { Width: > 0 } declaredWidth ? declaredWidth.Width : 1);
+        var height = Math.Max(1, window is { Height: > 0 } declaredHeight ? declaredHeight.Height : 1);
 
         var shell = ShellRect is { IsValid: true } rect ? rect : (CanvasRect?)null;
         var baseX = shell is { } s ? s.Right + PlaceGap : PlaceOrigin;
@@ -1579,16 +1568,16 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
             if (!OverlapsAnyModule(x, y, width, height))
             {
-                return (ScreenPixels.Round(x), ScreenPixels.Round(y));
+                return (x, y);
             }
 
             y += height + PlaceGap;
         }
 
-        return (ScreenPixels.Round(x), ScreenPixels.Round(y));
+        return (x, y);
     }
 
-    /// <summary>候选矩形是否与**已有模块**相交（留 <see cref="PlaceGap"/> 的呼吸间距）。</summary>
+    /// <summary>候选矩形是否与**已有模块**相交（留 <see cref="PlaceGap"/> 的呼吸间距）。全程 DIP。</summary>
     private bool OverlapsAnyModule(double x, double y, double width, double height)
     {
         var right = x + width;
@@ -1598,9 +1587,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         {
             if (module.Width <= 0 || module.Height <= 0)
             {
-                // 尺寸还没读回来（窗口未打开）→ 用**声明面给出的默认尺寸**估
-                var w = module.PreferredWidth * Scale;
-                var h = module.PreferredHeight * Scale;
+                // 尺寸还没读回来（窗口未打开）→ 用**声明面给出的默认尺寸**估（同为 DIP）
+                var w = module.PreferredWidth;
+                var h = module.PreferredHeight;
                 if (x < module.X + w + PlaceGap && right + PlaceGap > module.X
                     && y < module.Y + h + PlaceGap && bottom + PlaceGap > module.Y)
                 {
@@ -1647,7 +1636,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 layout: null,
                 _query,
                 _command,
-                Scale,
                 placement.X,
                 placement.Y,
                 _viewState);
@@ -1699,19 +1687,14 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 continue;
             }
 
-            if (layoutById.TryGetValue(module.InstanceId, out var layout))
+            // **回声不是几何来源**：读回的布局与内存模型**没有真差**时，一个像素都不动。
+            // 新模块开窗的那 0.x 秒里，"窗口已按内存模型落位"与"刚写下去的布局回声"之间会带一点
+            // 平台取整的小数差 —— 无条件重应用会让窗口尺寸被再写一次、内容跟着重排，
+            // 而**由实得尺寸推出的自绘几何（滑块圆钮）就跳 1px**（用户症状："卡一下归位"）。
+            if (layoutById.TryGetValue(module.InstanceId, out var layout)
+                && HasGeometryDifference(module, layout))
             {
-                // 【临时诊断】拖动期间"其他模块被回写"会让贴着它的模块跟着抖 —— 必须记下来
-                var beforeX = module.X;
-                var beforeY = module.Y;
                 module.ApplyLayout(layout);
-
-                if (_draggingId is { Length: > 0 }
-                    && (Math.Abs(module.X - beforeX) > 0.5 || Math.Abs(module.Y - beforeY) > 0.5))
-                {
-                    Diagnostics.DragDiagnostics.RecordNeighbourWriteBack(module.InstanceId, beforeX, beforeY, module.X, module.Y);
-                }
-
                 RaiseGeometry(module);
             }
         }
@@ -1780,6 +1763,33 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         return clears;
+    }
+
+    /// <summary>
+    /// **落地某实例挂起的"替换显示源文本"请求**（消息 / 状态这类只有当前值的内容）。
+    /// </summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <remarks>
+    /// 与追加同一模型（模块线程只入队、UI 线程落地），差别在语义：**替换**而不是追加。
+    /// 落地时顺带**丢掉该源还没落地的追加** —— 替换与追加混在一起没有确定含义，
+    /// 保留旧的追加会让"刚设的消息"被几行旧日志顶掉。
+    /// </remarks>
+    private void DrainSets(string instanceId)
+    {
+        if (_viewState is null)
+        {
+            return;
+        }
+
+        while (_viewState.TryTakeSetText(instanceId, out var source, out var text) && source is { Length: > 0 })
+        {
+            _viewState.Display(instanceId, source).SetText(text ?? string.Empty);
+
+            // 告诉表面这个缓冲换了内容：不通知 ⇒ 控件手里的快照看起来还是"没变"
+            // （行数与末行都可能是同一份），于是一直显示旧的那一句。
+            Modules.FirstOrDefault(m => string.Equals(m.InstanceId, instanceId, StringComparison.Ordinal))
+                ?.ForgetSurfaceBuffer(source);
+        }
     }
 
     /// <summary>
@@ -1853,17 +1863,18 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 foreach (var name in clears)
                 {
                     _viewState.Display(module.InstanceId, name).Clear();
+
+                    // 告诉**新表面**这个缓冲被清空了：不通知 ⇒ 控件手里的快照看起来还是"没变"
+                    // （行数与末行都没动），于是一直显示旧行 —— 表现为"清空按钮按了没反应"。
+                    module.ForgetSurfaceBuffer(name);
                 }
             }
 
+            // 本帧把挂起的"替换显示源文本"落地（消息 / 状态这类**只有当前值**的内容）
+            DrainSets(module.InstanceId);
+
             // 本帧把挂起的"追加文本"落地（数据到达即落地，不存在"半行/pending tail"）
             DrainAppends(module.InstanceId);
-
-            // 配置 Schema 读取要反射配置类型 → 不按帧重读：约每 2 秒一次，捕获外部（组合件加载/JSON 写回）变更
-            if (_frameCounter % 120 == 0)
-            {
-                module.ReloadConfigurationForms();
-            }
 
             // 口标记的网络信息（连接状态 + **投递量与估算字节**）与**角色方块**：
             // ① **结构变化时**立即刷一次；② 否则按约 0.5 秒的节拍刷（指标会随数据流动持续变化）
@@ -1873,49 +1884,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 RefreshRoleBoxes(module);
             }
 
-            foreach (var element in module.Elements)
-            {
-                if (element.DataSourceName is not { Length: > 0 } name)
-                {
-                    continue;
-                }
-
-                // **清空优先，且不依赖"订阅源是否存在"**：这段若放在
-                // `_sources.TryGetValue(...)` 之后 ⇒ 一个**还没出过数据/当前无发布者**的显示源
-                // 会连"清空"都轮不到（表现为"清空按钮无用"）。框架持有的显示缓冲已在**本帧开头**清掉了
-                // （见 `DrainAppends` 上方的顺序说明）⇒ 这里只需把**元素自己的镜像**跟着清掉。
-                if (element is TextLogElementViewModel clearable
-                    && clears is not null
-                    && clears.Contains(name))
-                {
-                    _textReadCounts.Remove((module.InstanceId, name));
-                    clearable.Clear();
-                    continue;
-                }
-
-                if (!_sources.TryGetValue((module.InstanceId, name), out var source))
-                {
-                    continue;
-                }
-
-                switch (element)
-                {
-                    case ValueElementViewModel value:
-                        value.Update(ReadLatest(source));
-                        break;
-
-                    case CurveElementViewModel curve:
-                        curve.Update(ReadSeries(source));
-                        break;
-
-                    case TextLogElementViewModel log:
-                        AppendTextLines(module.InstanceId, source, log);
-                        break;
-
-                    default:
-                        break;
-                }
-            }
+            // **表面每帧刷一次**：取数、就地更新、输入反馈回填都在这一条路里。
+            module.RefreshSurface();
         }
 
         // **角色投影第二遍**：连线的对端锚点要用**对端方块的位置** ⇒ 必须等所有模块的方块都摆好
@@ -1926,6 +1896,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 RefreshRoleLinks(module);
             }
         }
+
     }
 
     /// <summary>
@@ -2122,14 +2093,15 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// **对端角色方块中心**（本窗局部坐标，**DIP**；线以两个角色方块中心为端点）。
     /// </summary>
     /// <remarks>
-    /// <b>单位口径（唯一事实源）</b>：
-    /// <list type="number">
-    ///   <item><b>叠加层几何 = DIP</b>：画布尺寸用 <see cref="ModuleViewViewModel.CanvasWidth"/>/<c>CanvasHeight</c>
-    ///     （= 模型 px ÷ 缩放），方块布局也用它；</item>
-    ///   <item><b>模型几何 = 物理像素</b>（窗口位置是 `PixelPoint`）：世界增量因此必须**除以缩放**才是 DIP；
-    ///     这就是"完全水平/垂直的线也错位"的根因 —— 旧代码把 px 增量直接当 DIP 用（缩放 ≠100% 时整体放大/缩小）；</item>
-    ///   <item>换算只发生在**本方法与 `CanvasWidth/CanvasHeight`** 两处，其余位置一律不许再乘除缩放。</item>
-    /// </list>
+    /// <b>单位口径（唯一事实源）：模型与叠加层都是 DIP</b>。
+    /// 这里**一次换算都没有** —— 模型的 <c>X/Y/Width/Height</c> 与叠加层的画布、方块布局同为 DIP
+    /// （口径见 <see cref="HYWDebugAssistant.Core.Api.ModuleLayoutView">ModuleLayoutView</see>），
+    /// 世界增量直接相减即可。
+    /// <para>
+    /// 旧实现里"模型 = 物理像素、叠加层 = DIP"的错位（完全水平/垂直的线也会错开）根因就在这里：
+    /// 那一版必须把 px 增量除以缩放才对齐。**全 DIP 改造之后这个换算点整体消失**，
+    /// 别处也不许再引入任何乘除缩放。
+    /// </para>
     /// </remarks>
     private Avalonia.Point? ResolvePeerAnchor(ModuleViewViewModel module, RoleFlowView flow)
     {
@@ -2138,7 +2110,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             return null;
         }
 
-        // 对端方块布局：用**对端自己的 DIP 画布**（与对端绘制时是同一对数字）
+        // 对端方块布局：用**对端自己的画布**（与对端绘制时是同一对数字）
         var layout = ConnectionOverlay.LayoutRoles(peer.Roles, peer.CanvasWidth, peer.CanvasHeight);
         var box = layout.Boxes.FirstOrDefault(b => string.Equals(b.RoleKey, flow.PeerRoleKey, StringComparison.Ordinal));
 
@@ -2147,21 +2119,21 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             return null;   // 该角色没被画出来（放不下被裁掉）⇒ 交给回退
         }
 
-        // 世界增量：px → DIP（**必须除缩放**，否则缩放 ≠100% 时两端算出的位置不同 ⇒ 线错位）
-        var dx = module.ToDip(peer.Rect.X - module.Rect.X);
-        var dy = module.ToDip(peer.Rect.Y - module.Rect.Y);
+        // 世界增量：**两端同单位（DIP）⇒ 直接相减**
+        var dx = peer.Rect.X - module.Rect.X;
+        var dy = peer.Rect.Y - module.Rect.Y;
 
         return new Avalonia.Point(box.Center.X + dx, box.Center.Y + dy);
     }
 
-    /// <summary>回退：对端**窗口中心**（本窗局部坐标，**DIP**；px → DIP 同样必须除以缩放）。</summary>
+    /// <summary>回退：对端**窗口中心**（本窗局部坐标，**DIP**，同单位直接相减）。</summary>
     private Avalonia.Point ResolvePeerCenter(ModuleViewViewModel module, string peerInstanceId)
     {
         if (Find(peerInstanceId) is { } peer && peer.Rect.IsValid && module.Rect.IsValid)
         {
             return new Avalonia.Point(
-                module.ToDip(peer.Rect.X + (peer.Rect.Width / 2) - module.Rect.X),
-                module.ToDip(peer.Rect.Y + (peer.Rect.Height / 2) - module.Rect.Y));
+                peer.Rect.X + (peer.Rect.Width / 2) - module.Rect.X,
+                peer.Rect.Y + (peer.Rect.Height / 2) - module.Rect.Y);
         }
 
         return new Avalonia.Point(module.CanvasWidth / 2, module.CanvasHeight / 2);
@@ -2190,141 +2162,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         < 1024L * 1024 * 1024 => $"{bytes / (1024.0 * 1024):F1} MB",
         _ => $"{bytes / (1024.0 * 1024 * 1024):F2} GB",
     };
-
-    private double? ReadLatest(SubscriptionSourceView source)
-    {
-        var sampleSize = source.SampleSizeInBytes > 0
-            ? source.SampleSizeInBytes
-            : SampleCodec.SizeOf(source.ValueType);
-
-        if (sampleSize <= 0 || sampleSize > _sampleScratch.Length)
-        {
-            return null;
-        }
-
-        return _query.TryReadLatest(source.InstanceId, source.DataSourceName, _sampleScratch, out var length)
-            && length == sampleSize
-            && DecodeSample(source, _sampleScratch.AsSpan(0, length), out var decoded)
-                ? decoded
-                : null;
-    }
-
-    /// <summary>
-    /// 解码一个样本：**模块注册的解码器优先**（框架只回调）；
-    /// 未提供时按**参考实现**回退（兼容形态——不猜类型，原语未声明即失败）。
-    /// </summary>
-    private static bool DecodeSample(SubscriptionSourceView source, ReadOnlySpan<byte> sample, out double value)
-    {
-        if (source.Decoder is { } decoder)
-        {
-            return decoder(sample, out value);
-        }
-
-        if (source.ValueType is { } primitive)
-        {
-            return SampleCodec.TryDecode(primitive, sample, out value);
-        }
-
-        value = 0;
-        return false;
-    }
-
-    private IReadOnlyList<double> ReadSeries(SubscriptionSourceView source)
-    {
-        var sampleSize = source.SampleSizeInBytes > 0
-            ? source.SampleSizeInBytes
-            : SampleCodec.SizeOf(source.ValueType);
-
-        if (sampleSize <= 0 || sampleSize > 8)
-        {
-            return [];
-        }
-
-        var maxSamples = Math.Min(CurveElementViewModel.MaxPoints, _seriesScratch.Length / sampleSize);
-        var count = _query.ReadSeries(source.InstanceId, source.DataSourceName, _seriesScratch, maxSamples);
-
-        if (count <= 0)
-        {
-            return [];
-        }
-
-        var points = new List<double>(count);
-        for (var i = 0; i < count; i++)
-        {
-            if (!DecodeSample(source, _seriesScratch.AsSpan(i * sampleSize, sampleSize), out var value))
-            {
-                break;
-            }
-
-            points.Add(value);
-        }
-
-        // UI 侧抽样：序列比窗口长时等间隔抽到 MaxPoints（降采样不插值）
-        if (points.Count <= CurveElementViewModel.MaxPoints)
-        {
-            return points;
-        }
-
-        var step = (double)points.Count / CurveElementViewModel.MaxPoints;
-        for (var i = 0; i < CurveElementViewModel.MaxPoints; i++)
-        {
-            _seriesValues[i] = points[(int)(i * step)];
-        }
-
-        return _seriesValues.ToArray();
-    }
-
-    /// <summary>
-    /// 文本日志：读**新增**的文本样本并逐行追加（用已读计数避免重复追加）。
-    /// </summary>
-    /// <remarks>
-    /// <b>**兼容路径**</b>：只有仍按"发布定长样本"写显示区的模块走它（如零口的转换器）。
-    /// 数据显示器已改为经 <c>IViewDisplayAccess.AppendText/AppendLine</c> 追加（见 <see cref="DrainAppends"/>）
-    /// —— 两条路都往**同一份**显示缓冲里写，因此可以共存（只增纪律：老模块零改动）。
-    /// </remarks>
-    private void AppendTextLines(string instanceId, SubscriptionSourceView source, TextLogElementViewModel log)
-    {
-        var sampleSize = source.SampleSizeInBytes;
-        if (sampleSize <= 0 || sampleSize > _textScratch.Length)
-        {
-            return;
-        }
-
-        var key = (instanceId, source.DataSourceName);
-        var read = _textReadCounts.TryGetValue(key, out var value) ? value : 0;
-
-        // 只取最近窗口内的样本（窗口上限 = 缓冲容量；超出直接从头开始，不做补算）
-        var maxSamples = _textScratch.Length / sampleSize;
-        var count = _query.ReadSeries(instanceId, source.DataSourceName, _textScratch, maxSamples);
-        if (count <= 0)
-        {
-            return;
-        }
-
-        if (source.Written <= read)
-        {
-            // 无新增（或缓冲被覆盖导致计数倒退）：本次不追加
-            _textReadCounts[key] = source.Written;
-            return;
-        }
-
-        var available = Math.Min(count, (int)Math.Min(int.MaxValue, source.Written - read));
-        var skip = count - available;
-
-        for (var i = skip; i < count; i++)
-        {
-            var span = _textScratch.AsSpan(i * sampleSize, sampleSize);
-            var end = span.IndexOf((byte)0);
-            var text = System.Text.Encoding.UTF8.GetString(end >= 0 ? span[..end] : span).TrimEnd();
-
-            if (text.Length > 0)
-            {
-                log.Append(text);
-            }
-        }
-
-        _textReadCounts[key] = source.Written;
-    }
 
     private IReadOnlyList<(string Id, CanvasRect Rect)> ModuleRects() =>
         [.. Modules.Where(m => m.IsViewVisible).Select(m => (m.InstanceId, m.Rect))];

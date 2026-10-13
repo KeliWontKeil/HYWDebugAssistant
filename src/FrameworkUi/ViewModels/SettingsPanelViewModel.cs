@@ -41,6 +41,16 @@ public sealed partial class HotkeyRowViewModel : ViewModelBase
     public partial bool IsCapturing { get; set; }
 }
 
+/// <summary>主题下拉里的一项（"跟随系统" 或某一套主题）。</summary>
+/// <param name="Id">选择值：<see cref="ThemeIds.System"/> 或主题名（写进设置的就是它）。</param>
+/// <param name="Title">显示名。</param>
+/// <remarks>下拉框直接显示 <see cref="ToString"/> ⇒ 覆写成显示名，界面侧不必再挂模板。</remarks>
+public sealed record ThemeChoice(string Id, string Title)
+{
+    /// <inheritdoc />
+    public override string ToString() => Title;
+}
+
 /// <summary>模块来源根的诊断行（「模块清单」与设置页「模块与来源」共用）。</summary>
 public sealed record ModuleSourceRowViewModel
 {
@@ -237,21 +247,22 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         _ = _command.UpdateSettings(settings);
     }
 
-    /// <summary>主题（Light / Dark / System）——改动**即时生效**。</summary>
-    [ObservableProperty]
-    public partial string Theme { get; set; } = "Light";
+    /// <summary>
+    /// **可选主题**（"跟随系统" + 目录里的每一套）——改动**即时生效**。
+    /// </summary>
+    /// <remarks>
+    /// 列表来自 <see cref="ThemeCatalog"/>：**加一套主题 = 目录里多一条**，本页不改。
+    /// "跟随系统"不是一个主题（它只是"按系统类型挑一套"），故排在最前。
+    /// </remarks>
+    public IReadOnlyList<ThemeChoice> ThemeChoices { get; } =
+    [
+        new(ThemeIds.System, "跟随系统"),
+        .. ThemeCatalog.Themes.Select(theme => new ThemeChoice(theme.Id, theme.Title)),
+    ];
 
-    /// <summary>主题色（十六进制文本；改动即时生效）。</summary>
+    /// <summary>当前选中的主题项（**唯一状态**；写设置时取它的 <see cref="ThemeChoice.Id"/>）。</summary>
     [ObservableProperty]
-    public partial string AccentColor { get; set; } = "#2563EB";
-
-    /// <summary>背景档位（Theme / LightGray / DarkGray / Custom）。</summary>
-    [ObservableProperty]
-    public partial string BackgroundMode { get; set; } = "Theme";
-
-    /// <summary>自定义背景色（十六进制文本；仅 Custom 档位生效）。</summary>
-    [ObservableProperty]
-    public partial string BackgroundColor { get; set; } = "#F3F4F6";
+    public partial ThemeChoice? SelectedThemeChoice { get; set; }
 
     /// <summary>
     /// **界面字体**：框架自身界面文字用的字体族（资源键 `FontUi`）。
@@ -327,12 +338,14 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     /// <summary>比例档位选项（下拉用）。</summary>
     public IReadOnlyList<string> ShellAspectOptions { get; } = ShellLayout.Aspects;
 
-    /// <summary>主题档位选项（下拉用）。</summary>
-    public IReadOnlyList<string> ThemeOptions { get; } = ["Light", "Dark", "System"];
-
-    /// <summary>背景档位选项（下拉用）。</summary>
-    public IReadOnlyList<string> BackgroundOptions { get; } =
-        [ThemeApplier.BackgroundTheme, ThemeApplier.BackgroundLightGray, ThemeApplier.BackgroundDarkGray, ThemeApplier.BackgroundCustom];
+    /// <summary>
+    /// **背景预设**（两档）：一键把三支底色写进**两套主题**的覆盖里。
+    /// </summary>
+    /// <remarks>
+    /// "背景档位"这个字段已经删掉：底就是三支普通的色（工作区 / 模块 / 外壳），
+    /// 逐项可改、可跟随。预设只是"一次写六格"的**动作**（不是第二处状态）。
+    /// </remarks>
+    public IReadOnlyList<ThemePresets.BackgroundPreset> BackgroundPresets { get; } = ThemePresets.Backgrounds;
 
     /// <summary>
     /// **多行文本输入的提交键**——三档字符串（值域与 `ApplicationSettings` 一致）。
@@ -352,100 +365,205 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     private static string NormalizeSubmitKey(string? value) =>
         value is "Enter" or "None" or "CtrlEnter" ? value : "CtrlEnter";
 
-    /// <summary>当前主题色画刷（设置页的"色块"按钮显示它；用户在弹窗里改色）。</summary>
-    public Avalonia.Media.IBrush AccentBrush =>
-        ThemeApplier.Parse(AccentColor) is { } color
-            ? new Avalonia.Media.SolidColorBrush(color)
-            : Avalonia.Media.Brushes.Transparent;
-
-    /// <summary>当前自定义背景色画刷（同上）。</summary>
-    public Avalonia.Media.IBrush BackgroundBrush =>
-        ThemeApplier.Parse(BackgroundColor) is { } color
-            ? new Avalonia.Media.SolidColorBrush(color)
-            : Avalonia.Media.Brushes.Transparent;
-
-    // ---- 方向语义色 ----
+    // ---- 主题色板（逐项可改；面板按"浅 / 深"两栏呈现两套内置主题） ----
 
     /// <summary>
-    /// **发送方向色**（十六进制；**空 = 跟随主题默认值**）。
+    /// **色板分区**：按色板契约（`Styles/palette.json`）生成**全部**相对色。
     /// </summary>
     /// <remarks>
-    /// 语义 = 「发送」这一**稳定方向**，消费者：网络标签箭头 / 网络标签边框 / 建网预览描边 / 叠加层流向箭头。
-    /// 与「主题色」**完全解耦**：主题色只管选中/聚焦/活动等框架性交互。
+    /// <list type="bullet">
+    ///   <item><b>一行 = 一支 token × 浅深两格</b>：留空 = 跟随（派生支跟随源、其余跟随内置值）；</item>
+    ///   <item><b>没有例外</b>：主题色 / 背景 / 方向色就是普通的几支色（以前它们是独立字段 + 独立控件，
+    ///     于是"一支色两处状态"）；</item>
+    ///   <item><b>只在「应用 / 确认」时生效</b>：与外观区其余项同一机制（改完能「取消」反悔）。</item>
+    /// </list>
     /// </remarks>
-    [ObservableProperty]
-    public partial string DirectionSendColor { get; set; } = string.Empty;
+    public ObservableCollection<PaletteGroupViewModel> PaletteGroups { get; } = [];
 
-    /// <summary>**接收方向色**（十六进制；**空 = 跟随主题默认值**）。</summary>
-    [ObservableProperty]
-    public partial string DirectionReceiveColor { get; set; } = string.Empty;
-
-    /// <summary>发送色片显示用的画刷（未自定义时取**当前主题的有效方向色**，故切主题会跟着变）。</summary>
-    public Avalonia.Media.IBrush DirectionSendBrush => EffectiveDirectionBrush("DirectionSend", DirectionSendColor);
-
-    /// <summary>接收色片显示用的画刷（同上）。</summary>
-    public Avalonia.Media.IBrush DirectionReceiveBrush => EffectiveDirectionBrush("DirectionReceive", DirectionReceiveColor);
-
-    /// <summary>发送色文本（空 → 显示"跟随主题"，避免"色块有色、框里却空着"的困惑）。</summary>
-    public string DirectionSendText => string.IsNullOrWhiteSpace(DirectionSendColor) ? "跟随主题" : DirectionSendColor;
-
-    /// <summary>接收色文本（同上）。</summary>
-    public string DirectionReceiveText => string.IsNullOrWhiteSpace(DirectionReceiveColor) ? "跟随主题" : DirectionReceiveColor;
-
-    /// <summary>取"用户填了就用用户的，没填就用当前主题的内置值"的画刷。</summary>
-    private static Avalonia.Media.IBrush EffectiveDirectionBrush(string resourceKey, string hex)
+    /// <summary>建色板行（**只建一次**：装载与生效只改值、不重建集合 —— 重建会把折叠状态一起丢掉）。</summary>
+    private void BuildPaletteGroups()
     {
-        if (ThemeApplier.Parse(hex) is { } configured)
+        if (PaletteGroups.Count > 0)
         {
-            return new Avalonia.Media.SolidColorBrush(configured);
+            return;
         }
 
-        return Avalonia.Application.Current?.TryGetResource(resourceKey, null, out var resource) == true
-            && resource is Avalonia.Media.IBrush brush
-            ? brush
-            : Avalonia.Media.Brushes.Transparent;
+        foreach (var (group, tokens) in PaletteManifest.Sections)
+        {
+            var rows = tokens.Select(token => new PaletteRowViewModel(token)).ToList();
+
+            if (rows.Count > 0)
+            {
+                PaletteGroups.Add(new PaletteGroupViewModel(group, rows, group.Expanded));
+            }
+        }
     }
 
-    // 外观改动**不是「改即生效」**：这些回调只更新**本页内的色片预览**；
-    // 真正生效统一走「应用 / 确认」按钮。
-    // ⇒ 不再保留 `ApplyAppearance`（连带 `_appearanceReady` 字段）。
-    // 注意：主题切换后**方向色片要重读资源**（未自定义时取的是「当前主题的有效值」）⇒ 仍在这里发通知。
-    partial void OnThemeChanged(string value)
+    /// <summary>把设置里的覆盖写进各行（打开设置 / 取消 / 生效后回读时调）。</summary>
+    /// <param name="settings">当前设置。</param>
+    private void SyncPaletteFrom(ApplicationSettings settings)
     {
-        OnPropertyChanged(nameof(DirectionSendBrush));
-        OnPropertyChanged(nameof(DirectionReceiveBrush));
+        foreach (var row in PaletteGroups.SelectMany(group => group.Rows))
+        {
+            row.Light.Hex = settings.Appearance.Override(row.Light.Theme, row.Key);
+            row.Dark.Hex = settings.Appearance.Override(row.Dark.Theme, row.Key);
+        }
+
+        RefreshPalette();
     }
 
-    partial void OnAccentColorChanged(string value) => OnPropertyChanged(nameof(AccentBrush));
-
-    partial void OnBackgroundColorChanged(string value) => OnPropertyChanged(nameof(BackgroundBrush));
-
-    // 方向色：**不做任何合法性/对比度提示**（完全尊重用户选择）
-    partial void OnDirectionSendColorChanged(string value)
+    /// <summary>让色块 / 状态文本 / 分区计数重新求值（内置值会随主题与主题色变，故不能只在改值时刷）。</summary>
+    private void RefreshPalette()
     {
-        OnPropertyChanged(nameof(DirectionSendBrush));
-        OnPropertyChanged(nameof(DirectionSendText));
+        foreach (var group in PaletteGroups)
+        {
+            foreach (var row in group.Rows)
+            {
+                row.Light.Refresh();
+                row.Dark.Refresh();
+            }
+
+            group.Refresh();
+        }
     }
 
-    partial void OnDirectionReceiveColorChanged(string value)
+    /// <summary>
+    /// 把各行当前的覆盖写进**外观块**（只写非空 ⇒ **跟随不落盘**，不产生死数据）。
+    /// </summary>
+    /// <param name="appearance">目标外观块（通常是当前设置的那一份副本）。</param>
+    private void CollectPaletteInto(AppearanceSettings appearance)
     {
-        OnPropertyChanged(nameof(DirectionReceiveBrush));
-        OnPropertyChanged(nameof(DirectionReceiveText));
+        appearance.PaletteOverrides.Clear();
+
+        foreach (var row in PaletteGroups.SelectMany(group => group.Rows))
+        {
+            foreach (var cell in new[] { row.Light, row.Dark })
+            {
+                if (cell.Hex is { Length: > 0 } hex)
+                {
+                    appearance.SetOverride(cell.Theme, cell.Token, hex);
+                }
+            }
+        }
     }
 
-    /// <summary>导出外观设置（只含外观字段，避免把未应用的其他编辑一起落盘）。</summary>
-    private ApplicationSettings ToAppearanceSettings()
+    /// <summary>把全部色板的改动清掉（"恢复默认"用：回到跟随内置值）。</summary>
+    private void ClearPaletteEdits()
     {
-        var settings = _lastLoaded?.Clone() ?? new ApplicationSettings();
-        settings.Theme = Theme;
-        settings.AccentColor = AccentColor;
-        settings.BackgroundMode = BackgroundMode;
-        settings.UiFontFamily = UiFontFamily;
-        settings.DataFontFamily = DataFontFamily;
-        settings.BackgroundColor = BackgroundColor;
-        settings.DirectionSendColor = DirectionSendColor;
-        settings.DirectionReceiveColor = DirectionReceiveColor;
-        return settings;
+        foreach (var row in PaletteGroups.SelectMany(group => group.Rows))
+        {
+            row.Light.Hex = null;
+            row.Dark.Hex = null;
+        }
+
+        RefreshPalette();
+    }
+
+    /// <summary>改某一格（<paramref name="hex"/> = null/空 ⇒ 恢复跟随内置值）。</summary>
+    /// <param name="row">色板行。</param>
+    /// <param name="dark">true = 深色那一格。</param>
+    /// <param name="hex">新色值。</param>
+    public void SetPaletteColor(PaletteRowViewModel row, bool dark, string? hex)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        row.Cell(dark).Hex = string.IsNullOrWhiteSpace(hex) ? null : hex;
+        RefreshPalette();
+    }
+
+    /// <summary>
+    /// **两套同色**：把浅色那一格的当前有效色写成深色那一格的覆盖值。
+    /// </summary>
+    /// <param name="row">色板行。</param>
+    /// <remarks>
+    /// 常见诉求是"这一支两套用同一个色"（而不是"浅深各自调"）；浅色为准是刻意的 ——
+    /// 浅色那一套是默认主题，先调它、再同步过去，比"先想清楚哪一套是源"少一步。
+    /// 深色那一格因此变成**显式覆盖**（不再跟主题色派生），这是用户看得见的结果。
+    /// </remarks>
+    public void SyncPaletteToDark(PaletteRowViewModel row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        if (row.Light.EffectiveHex is { } hex)
+        {
+            SetPaletteColor(row, dark: true, hex);
+        }
+    }
+
+    /// <summary>某一区全部恢复跟随。</summary>
+    /// <param name="group">色板分区。</param>
+    public void ResetPaletteGroup(PaletteGroupViewModel group)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        foreach (var row in group.Rows)
+        {
+            row.Light.Hex = null;
+            row.Dark.Hex = null;
+        }
+
+        RefreshPalette();
+    }
+
+    /// <summary>**色板全部恢复默认**（全部回到跟随内置值）。</summary>
+    [RelayCommand]
+    private void ResetPalette()
+    {
+        ClearPaletteEdits();
+        SetStatus(true, "色板已全部恢复默认（跟随内置值）—— 点「应用」或「确认」后生效");
+    }
+
+    // 外观改动**不是「改即生效」**：真正生效统一走「应用 / 确认」按钮。
+    // 注意：换主题后色块要重读资源（跟随项取的是「当前主题的有效值」）⇒ 仍在这里发通知。
+    partial void OnSelectedThemeChoiceChanged(ThemeChoice? value) => RefreshPalette();
+
+    /// <summary>把设置里的主题选择落到下拉的选中项（选择值没有对应项时回落到"跟随系统"）。</summary>
+    /// <param name="selection">设置里的选择值（<see cref="ThemeIds.System"/> 或某套主题的名字）。</param>
+    private ThemeChoice? FindThemeChoice(string? selection)
+    {
+        var normalized = ThemeIds.Normalize(selection);
+
+        return ThemeChoices.FirstOrDefault(choice => string.Equals(choice.Id, normalized, StringComparison.OrdinalIgnoreCase))
+            ?? ThemeChoices.FirstOrDefault(choice => string.Equals(choice.Id, ThemeIds.System, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// **套一档背景预设**：把三支底色写进**两套主题**（"浅灰就是浅灰"，与深浅主题无关）。
+    /// </summary>
+    /// <param name="preset">预设（工作区 / 模块 / 外壳三支底色）。</param>
+    /// <remarks>
+    /// 它是**动作**而不是第二处状态：写的就是色板里那三支的覆盖值，用户之后照样能逐项改。
+    /// </remarks>
+    public void ApplyBackgroundPreset(ThemePresets.BackgroundPreset preset)
+    {
+        ArgumentNullException.ThrowIfNull(preset);
+
+        foreach (var row in PaletteGroups.SelectMany(group => group.Rows))
+        {
+            switch (row.Key)
+            {
+                case "BgWorkspace":
+                    row.Light.Hex = preset.Workspace;
+                    row.Dark.Hex = preset.Workspace;
+                    break;
+
+                case "BgModule":
+                    row.Light.Hex = preset.Module;
+                    row.Dark.Hex = preset.Module;
+                    break;
+
+                case "BgChrome":
+                    row.Light.Hex = preset.Chrome;
+                    row.Dark.Hex = preset.Chrome;
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
+        RefreshPalette();
+        SetStatus(true, $"已套用背景预设「{preset.Title}」（两套主题）—— 点「应用」或「确认」后生效");
     }
 
     // ---- 模块来源 / 日志 ----
@@ -507,14 +625,13 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         SnapDistance = settings.SnapDistance;
         MultilineSubmitKey = settings.MultilineSubmitKey;
         ShowInfoOverlay = settings.ShowInfoOverlay;
-        Theme = settings.Theme;
-        AccentColor = settings.AccentColor;
-        BackgroundMode = settings.BackgroundMode;
-        UiFontFamily = settings.UiFontFamily;
-        DataFontFamily = settings.DataFontFamily;
-        BackgroundColor = settings.BackgroundColor;
-        DirectionSendColor = settings.DirectionSendColor;
-        DirectionReceiveColor = settings.DirectionReceiveColor;
+        SelectedThemeChoice = FindThemeChoice(settings.Appearance.ThemeSelection);
+        UiFontFamily = settings.Appearance.UiFontFamily;
+        DataFontFamily = settings.Appearance.DataFontFamily;
+
+        // 色板：行只建一次（不重建 ⇒ 折叠状态与滚动位置保住），这里只把生效值写进各行
+        BuildPaletteGroups();
+        SyncPaletteFrom(settings);
         ShellAspect = settings.ShellAspect;
         ShellFixedSize = settings.ShellFixedSize;
         LogLevel = settings.LogLevel;
@@ -669,14 +786,11 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         SnapDistance = defaults.SnapDistance;
         MultilineSubmitKey = NormalizeSubmitKey(defaults.MultilineSubmitKey);
         ShowInfoOverlay = defaults.ShowInfoOverlay;
-        Theme = defaults.Theme;
-        AccentColor = defaults.AccentColor;
-        BackgroundMode = defaults.BackgroundMode;
-        BackgroundColor = defaults.BackgroundColor;
-        UiFontFamily = defaults.UiFontFamily;
-        DataFontFamily = defaults.DataFontFamily;
-        DirectionSendColor = defaults.DirectionSendColor;
-        DirectionReceiveColor = defaults.DirectionReceiveColor;
+        SelectedThemeChoice = FindThemeChoice(defaults.Appearance.ThemeSelection);
+        UiFontFamily = defaults.Appearance.UiFontFamily;
+        DataFontFamily = defaults.Appearance.DataFontFamily;
+        // 色板也回默认：全部回到"跟随内置值"（缺这一段时，"恢复全部默认"对色板毫无作用）
+        ClearPaletteEdits();
         ShellAspect = defaults.ShellAspect;
         ShellFixedSize = defaults.ShellFixedSize;
         LogLevel = defaults.LogLevel;
@@ -842,14 +956,11 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         settings.SnapDistance = Math.Clamp(SnapDistance, 2, 8);
         settings.MultilineSubmitKey = NormalizeSubmitKey(MultilineSubmitKey);
         settings.ShowInfoOverlay = ShowInfoOverlay;
-        settings.Theme = Theme;
-        settings.AccentColor = AccentColor;
-        settings.BackgroundMode = BackgroundMode;
-        settings.UiFontFamily = UiFontFamily;
-        settings.DataFontFamily = DataFontFamily;
-        settings.BackgroundColor = BackgroundColor;
-        settings.DirectionSendColor = DirectionSendColor;
-        settings.DirectionReceiveColor = DirectionReceiveColor;
+        settings.Appearance.ThemeSelection = SelectedThemeChoice?.Id ?? ThemeIds.System;
+        settings.Appearance.UiFontFamily = UiFontFamily;
+        settings.Appearance.DataFontFamily = DataFontFamily;
+        // 主题色板：只写用户逐项改过的那几支（跟随 = 不写 ⇒ 不产生死数据）
+        CollectPaletteInto(settings.Appearance);
         settings.ShellAspect = ShellAspect;
         settings.ShellFixedSize = ShellFixedSize;
         settings.ModuleSourceDirectories = [.. ModuleSourceDirectories];
@@ -881,17 +992,14 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
             DiagnosticHintThreshold = current.DiagnosticHintThreshold;
             AlignAutoNetworkEnabled = current.AlignAutoNetworkEnabled;
             ShowInfoOverlay = current.ShowInfoOverlay;
-            Theme = current.Theme;
-            AccentColor = current.AccentColor;
-            BackgroundMode = current.BackgroundMode;
+            SelectedThemeChoice = FindThemeChoice(current.Appearance.ThemeSelection);
             // 字体也必须回读：缺这两行时，界面上显示的是「你刚选的」，而实际生效的是默认值
             // （真因可能是 `ApplicationSettings.Clone` 漏字段，但这里不同步回读会让
             //  「界面显示 = 实际生效值」这条纪律再破一次）。
-            UiFontFamily = current.UiFontFamily;
-            DataFontFamily = current.DataFontFamily;
-            BackgroundColor = current.BackgroundColor;
-            DirectionSendColor = current.DirectionSendColor;
-            DirectionReceiveColor = current.DirectionReceiveColor;
+            UiFontFamily = current.Appearance.UiFontFamily;
+            DataFontFamily = current.Appearance.DataFontFamily;
+            // 色板也要回读：生效值就是我们刚写进去的那张表，回读让"界面上显示的 = 实际生效的"
+            SyncPaletteFrom(current);
             ShellAspect = current.ShellAspect;
             ShellFixedSize = current.ShellFixedSize;
             _lastLoaded = current;

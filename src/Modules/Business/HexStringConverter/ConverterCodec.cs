@@ -66,47 +66,40 @@ internal static class ConverterCodec
             return true;    // 空 ⇒ 无动作
         }
 
-        var digits = new List<char>(text.Length);
+        // **空白是分隔符，不是装饰**（最严判据）：每一段都必须是**恰好两位**。
+        // 丢掉空白再按两位切会把 `123456 23 55` 这种"某一段少写了一个空格"的输入
+        // 静默解成 5 个字节 —— 用户看到的是一串莫名其妙的字符，而**没有任何报错**。
+        // 判据取"段"而不是"总位数"：错在哪一段就点哪一段，用户才知道改哪里。
+        var segments = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
 
-        foreach (var ch in text)
+        foreach (var segment in segments)
         {
-            if (char.IsWhiteSpace(ch))
+            if (segment.Length != 2)
             {
-                continue;   // 排版字符
-            }
-
-            if (!Uri.IsHexDigit(ch))
-            {
-                failure = $"出现非十六进制字符 '{ch}'（只接受 0-9 / A-F / a-f 与空白）";
+                failure = $"「{segment}」是 {segment.Length} 位；每段必须恰好两位（如 `0D 0A`）";
                 return false;
             }
 
-            digits.Add(ch);
+            foreach (var ch in segment)
+            {
+                if (!Uri.IsHexDigit(ch))
+                {
+                    failure = $"「{segment}」里有非十六进制字符 '{ch}'（只接受 0-9 / A-F / a-f）";
+                    return false;
+                }
+            }
         }
 
-        if (digits.Count == 0)
+        if (segments.Length == 0)
         {
             return true;    // 全空白 ⇒ 等价于空
         }
 
-        if (digits.Count % 2 != 0)
-        {
-            failure = $"十六进制位数是奇数（{digits.Count} 位）—— 每字节必须两位";
-            return false;
-        }
-
-        var bytes = new byte[digits.Count / 2];
+        var bytes = new byte[segments.Length];
 
         for (var i = 0; i < bytes.Length; i++)
         {
-            bytes[i] = byte.Parse(
-                string.Create(2, (digits[i * 2], digits[i * 2 + 1]), static (span, state) =>
-                {
-                    span[0] = state.Item1;
-                    span[1] = state.Item2;
-                }),
-                NumberStyles.HexNumber,
-                CultureInfo.InvariantCulture);
+            bytes[i] = byte.Parse(segments[i], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
         }
 
         // **按 UTF-8 严格解码**：非法 / 被截断的序列明确报错（不静默替换 —— "还原"优先）

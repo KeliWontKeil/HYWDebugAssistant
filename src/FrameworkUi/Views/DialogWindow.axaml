@@ -22,5 +22,6 @@
       （曾出现"设置 520×460 / Issue 900×520 / 清单 720×520"三种大小，用户："需要一致化…观感不好"）。
       **改弹窗大小请只改这里**（`DialogWindowTests` 会把"四个种类尺寸一致"钉住）。
     -->
-    <ContentControl Name="Body" />
+    <!-- 按钮的指针 / 按下态：必须挂在窗口 Resources 上才被 Fluent 的按钮模板读到（见该文件说明） -->
+<ContentControl Name="Body" />
 </Window>

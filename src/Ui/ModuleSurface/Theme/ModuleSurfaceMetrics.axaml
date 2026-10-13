@@ -1,0 +1,56 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    模块表面（ModuleSurface）的**尺寸** —— **模块内容区里数值字面量的唯一住处**。
+
+    这里**只有尺寸**（内容区留白 / 行高 / 字号 / 间距 / 曲线内缩 / 过场时长…）：
+    它们不随主题变，也不属于"颜色"这件事。
+    **颜色一律在色板里**（`Styles/Tokens.axaml`，含模块表面那几支的"模块表面"分区）——
+    色板只有一处，"改一个颜色要去两个文件找"那种事不再发生。
+
+    引用方式一律 `{DynamicResource ...}`：切换深浅色 / 换主题时不重建控件树。
+  -->
+
+  <!--
+    内容区四周的预留带（旧 `ModuleContentView.axaml` 里 ScrollViewer 的 `Margin="20,22,20,24"`）。
+    上/下比左右厚，因为模块窗口里有两类东西**叠在内容之上**：端口标记（沿上/下边向内占 20）
+    与左下角的"运行指示"（状态点 + 文本，约 17 高）—— 四边一律 20 会让最后一行内容正好被端口标记压住。
+    **必须是 `Margin` 而不是 `Padding`**：`Padding` 算在视口之内 ⇒ 内容恒大于视口 ⇒
+    任何模块在默认尺寸下都常驻一条滚动条。
+  -->
+  <x:Double x:Key="SurfaceContentInsetLeft">20</x:Double>
+  <x:Double x:Key="SurfaceContentInsetTop">22</x:Double>
+  <x:Double x:Key="SurfaceContentInsetRight">20</x:Double>
+  <x:Double x:Key="SurfaceContentInsetBottom">24</x:Double>
+
+  <!--
+    文本面：**行高**（文本层按它算"一屏放得下几行"，编辑器自己也用它 ⇒ 只有一个来源）。
+    那一圈边框的圆角不在这里：它由 `TextSurface.axaml` 里 `Border.surface-text-ring` 那一条给
+    （纯外观、没有代码读它 ⇒ 住在样式里，少一个"只有定义没有读者"的键）。
+  -->
+  <x:Double x:Key="SurfaceTextLineHeight">14</x:Double>
+
+  <x:Double x:Key="SurfaceLabelFontSize">11</x:Double>
+  <x:Double x:Key="SurfaceTitleFontSize">11</x:Double>
+
+  <!--
+    **说明文字与主体之间的间距**（只用于上下堆叠档；并排档由列宽决定，不用它）。
+    与下面那个行高兜底是两件事：这个管"文字与主体离多远"，那个管"两者同高才同一中线"。
+  -->
+  <x:Double x:Key="SurfaceLabelGap">4</x:Double>
+  <!-- 滑块圆钮滑过去的时长（可被覆盖：探针量"中途值"时把它调长） -->
+  <x:TimeSpan x:Key="SurfaceToggleSlideDuration">0:0:0.15</x:TimeSpan>
+
+  <!--
+    曲线（Curve）绘图区：**只剩框线那 1px**。
+    "框 = 内容"标准（`排布与坐标.md` §1.3）：内容矩形 = 框 − 框线，留白 ≤2px。
+    旧值 4 是"上下各留 4"的观感偏好，它让绘图区比框小 10px —— 于是"声明 64 高"的曲线
+    画出来只有 54 高，作者按框对齐时会差一截（这正是本次要消掉的那类隐形留白）。
+  -->
+  <x:Double x:Key="SurfacePlotInset">1</x:Double>
+  <x:Double x:Key="SurfaceCurveMinHeight">64</x:Double>
+  <!-- 仅登记（DeclarationOnly）的占位块 -->
+  <x:Double x:Key="SurfacePlaceholderFontSize">10</x:Double>
+
+</ResourceDictionary>

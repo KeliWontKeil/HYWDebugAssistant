@@ -887,15 +887,16 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<InputFeedbackView> GetInputFeedback(string instanceId)
+    public IReadOnlyList<AppearanceView> GetAppearance(string instanceId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
 
-        // 不存在 / 占位实例 ⇒ 空表（没回报过就没有条目 —— "不回报 = 无失败态"）
+        // 不存在 / 占位实例 ⇒ 空表（没设过外观就没有条目 —— "不设 = 全按主题"）
         return !_runtime.Content.TryGetInstance(instanceId, out var instance) || instance is null
             ? []
-            : [.. instance.Context.InputFeedbackStore.Snapshot()
-                .Select(e => new InputFeedbackView(e.SourceName, e.Succeeded, e.Message))];
+            : [.. instance.Context.AppearanceStore.Snapshot()
+                .Select(e => new AppearanceView(
+                    e.SourceName, e.Outline, e.Text, e.TextSize, e.Revision, e.ReadOnly, e.OutlineRole, e.TextRole))];
     }
 
     /// <inheritdoc />

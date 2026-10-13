@@ -23,12 +23,17 @@ public static class ModuleInstanceFactory
     /// <param name="display">
     /// **按实例绑定的显示请求面**；`null` ⇒ 模块的「清空显示源」请求被忽略（老调用点零改动）。
     /// </param>
+    /// <param name="files">
+    /// **按实例绑定的文件选择请求面**；`null` ⇒ 模块的"弹一次系统选择器"请求被忽略
+    /// （宿主没接线时用户看不到对话框，模块也收不到路径 —— 老调用点零改动）。
+    /// </param>
     public static ModuleInstance Create(
         string instanceId,
         Registry.ModuleDefinition definition,
         Diagnostics.IIssueSink issues,
         Sdk.Context.IViewStateReader? viewState = null,
-        Sdk.Context.IViewDisplayAccess? display = null)
+        Sdk.Context.IViewDisplayAccess? display = null,
+        Sdk.Context.IFileAccess? files = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
         ArgumentNullException.ThrowIfNull(definition);
@@ -46,6 +51,11 @@ public static class ModuleInstanceFactory
         if (display is not null)
         {
             context.AttachDisplay(display);
+        }
+
+        if (files is not null)
+        {
+            context.AttachFiles(files);
         }
 
         // ① 声明（异常边界：钩子异常不得逸出）

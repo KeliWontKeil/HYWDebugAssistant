@@ -8,17 +8,20 @@ using HYWDebugAssistant.Sdk.Views;
 namespace HYWDebugAssistant.Modules.HexStringConverter;
 
 /// <summary>
-/// **HEX ↔ 字符串转换器**（第一批 #4 · 功能角色「十六进制/字符串转换器」）—— **零口零角色**的离线小工具。
+/// **HEX ↔ 字符串转换器** —— **零口零角色**的离线小工具。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>模块页</b>：`docs/modules/hyw-hex-string-converter.md`；</item>
-///   <item><b>不交换数据</b>：**没有任何端口** ⇒ 不进拓扑、不参与建网；数据只走**视图输入 / 数据源**通道
+///   <item><b>不交换数据</b>：**没有任何端口** ⇒ 不进拓扑、不参与建网；数据只走**视图输入 / 显示**通道
 ///     （契约层已核实：零口零角色**合法且不出建议**）；</item>
-///   <item><b>结构与触发</b>：char 组与 hex 组**各一个 `TabPages`**（各 5 页，可存多条消息、
-///     **不持久化**）；**每个方向一个按钮**；**点按钮或敲回车**都能触发 —— 两者都靠
-///     **回读「当前选中页 + 该页当前文本」**实现，UI 上不必每页重复控件；</item>
-///   <item><b>失败 ⇒ 该输入框红框</b>（「如果转换失败，将文本框边框显著标红」⇒ G3 的就地反馈）；</item>
+///   <item><b>两个方向各一组页签**（各 5 页，可存多条消息、**不持久化**）；
+///     **没有按钮**：每拍轮询"当前选中页 + 该页当前文本"，一变就转 —— 打字、切页都算变化。
+///     "所见即所转"靠**回读视图状态**（含尚未提交的编辑）实现，不依赖"用户按过回车"；</item>
+///   <item><b>结果写进显示源**（`IViewDisplayAccess.SetText`）：结果框是只读文本面，
+///     与输入框走同一条"文本面"机制，而不是另一条二进制样本通道；</item>
+///   <item><b>失败 ⇒ 只把该输入框的边框标红</b>（帧架只提供"设边框色"这个基础能力，颜色由本模块挑），
+///     **不写任何文字提示** —— 这一格的"对错"用边框就够说清，不必再多一行字；</item>
+///   <item><b>空输入 ⇒ 清掉结果、清掉标色</b>（静默：用户还没写完不算错）。</item>
 /// </list>
 /// </remarks>
 [ModuleDefinition(
@@ -33,12 +36,6 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
 {
     // ---------------------------------------------------------------- ① 标识与常量
 
-    /// <summary>命令名：把 **char 组当前页**的内容转成 HEX。</summary>
-    public const string ToHexCommand = "to-hex";
-
-    /// <summary>命令名：把 **hex 组当前页**的内容转成字符。</summary>
-    public const string ToTextCommand = "to-text";
-
     /// <summary>char 组的标签容器状态键（回读"当前选中页"）。</summary>
     public const string CharPagesKey = "char-pages";
 
@@ -48,9 +45,7 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     /// <summary>
     /// 每组页数。
     /// </summary>
-    /// <remarks>
-    /// 页数取 5（`tabpages` 的标签数量为 5 个）；视图元素数量不设上限。
-    /// </remarks>
+    /// <remarks>页数取 5（声明里两个 `tabs` 各 5 页）；视图元素数量不设上限。</remarks>
     public const int PageCount = 5;
 
     /// <summary>第 n 页 char 输入源名（<c>char1</c> … <c>char5</c>）。</summary>
@@ -69,12 +64,17 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     /// <summary>显示源：HEX→char 的结果区。</summary>
     public const string CharResultSource = "charResult";
 
-    /// <summary>结果行的定宽（A5 显示源要求"同一数据源样本长度必须一致"）。</summary>
-    public const int ResultLineBytes = 96;
+    /// <summary>
+    /// 模块自己挑的**提示角色**（**相对色**）—— 框架只提供"设边框色"这个能力，不认识"红 = 失败"。
+    /// </summary>
+    /// <remarks>
+    /// 值只在这一处；用的是**配色表里的角色词**，不是色值 ⇒ 用户在设置里改那一支色、或换深浅主题，
+    /// 这一圈跟着变。要换观感就换词。
+    /// </remarks>
+    public const string AlertRole = ViewInkRoles.Danger;
 
-    /// <summary>活动周期（20 ms）。</summary>
+    /// <summary>活动周期（20 ms）——每拍轮询一次输入，用户打字与切页都及时跟上。</summary>
     public static readonly TimeSpan ActivityInterval = TimeSpan.FromMilliseconds(20);
-
 
     // ---------------------------------------------------------------- ② 声明块
 
@@ -83,12 +83,9 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        // **零口零角色**：不声明数据类型、不声明口、不声明角色（契约层核实过：合法且不出建议）
-        // ---------------------------------------------------------------- 视图
-        // 界面形态**不在代码里声明**：控件树、数据源、命令与窗口尺寸都在包内 `view.json`
-        // （唯一事实源），由框架读取并按 schema 补齐默认值。
-        // 本模块的数据源名（`char1…char5` / `hex1…hex5` / `hexResult` / `charResult`）与
-        // 命令名（`to-hex` / `to-text`）必须与 `view.json` 一致。
+        // **零口零角色**：不声明数据类型、不声明口、不声明角色。
+        // 界面形态不在代码里声明：控件树、数据源与窗口尺寸都在包内 `view.json`（唯一事实源）。
+        // 本模块的数据源名（`char1…char5` / `hex1…hex5` / `hexResult` / `charResult`）必须与它一致。
     }
 
     // ---------------------------------------------------------------- ③ 钩子块
@@ -104,85 +101,68 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        // 本模块**没有端口**、也没有活动体自身的业务 —— 活动体的唯一职责是**消费收件箱**
-        // （无活动循环的模块不消费收件箱，见 `02-module-sdk`「人机操作的投递」）。
+        // 本模块**没有端口**、也没有活动体自身的业务 —— 活动体的唯一职责是"看着输入变没变"。
         while (!context.StopSignal.IsStopRequested)
         {
-            PumpOnce(context);
+            Poll(context);
             _ = context.StopSignal.Wait(ActivityInterval);
         }
     }
 
-    // ---------------------------------------------------------------- ④ 接线与业务
+    // ---------------------------------------------------------------- ④ 业务
 
-    /// <summary>最近一次转换的方向与结果（测试可读）。</summary>
-    public string? LastResult { get; private set; }
+    /// <summary>最近一次字符→HEX 的结果（测试可读）。</summary>
+    public string? LastHexResult { get; private set; }
 
-    /// <summary>最近一次失败原因（成功为 <see langword="null"/>）。</summary>
+    /// <summary>最近一次 HEX→字符 的结果（测试可读）。</summary>
+    public string? LastCharResult { get; private set; }
+
+    /// <summary>最近一次失败原因（成功 / 空输入为 <see langword="null"/>）。</summary>
     public string? LastFailure { get; private set; }
 
-    /// <summary>消费**一次**收件箱（活动体的单步；模块测试直接驱动）。</summary>
+    /// <summary>上一次转换用的是哪一格、什么内容（"没变就不重算"的判据）。</summary>
+    private readonly Dictionary<string, string> _converted = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// **看一眼两个方向、该转就转**（活动体的单步；模块测试可直接调用）。
+    /// </summary>
     /// <param name="context">模块上下文。</param>
-    public void PumpOnce(IModuleContext context)
+    /// <remarks>
+    /// 每拍调一次。判据是"**（源名, 文本）这一对变没变**"：文本一变就重算，切页即使文本相同
+    /// 也重算（源名进了比较键）；两者都没变 ⇒ 一个字都不动（静止时零开销，也避免每拍重写显示缓冲）。
+    /// </remarks>
+    public void Poll(IModuleContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        while (context.Inbox.TryDequeueCommand(out var command))
-        {
-            if (string.Equals(command, ToHexCommand, StringComparison.Ordinal))
-            {
-                ConvertCurrentPage(context, toHex: true);
-                continue;
-            }
-
-            if (string.Equals(command, ToTextCommand, StringComparison.Ordinal))
-            {
-                ConvertCurrentPage(context, toHex: false);
-                continue;
-            }
-
-            context.Issues.Report(new IssueReport(
-                IssueCategory.ModuleError,
-                IssueSeverity.Warning,
-                $"未知命令：{command}（模块未实现）"));
-        }
-
-        while (context.Inbox.TryDequeueInput(out var source, out var text))
-        {
-            // **回车 / 失焦提交**也触发转换（点按钮**或**敲回车均可）
-            if (IsCharSource(source))
-            {
-                Convert(context, text, toHex: true, source);
-                continue;
-            }
-
-            if (IsHexSource(source))
-            {
-                Convert(context, text, toHex: false, source);
-            }
-        }
+        Refresh(context, toHex: true);
+        Refresh(context, toHex: false);
     }
 
-    /// <summary>转换**当前选中页**的内容（回读视图状态 —— 含尚未提交的编辑）。</summary>
+    /// <summary>对**一个方向**做一次"变了就转"。</summary>
     /// <param name="context">模块上下文。</param>
     /// <param name="toHex">true = char → HEX；false = HEX → char。</param>
-    /// <returns>是否产出了结果（空输入 ⇒ false，静默无动作）。</returns>
-    public bool ConvertCurrentPage(IModuleContext context, bool toHex)
+    private void Refresh(IModuleContext context, bool toHex)
     {
-        ArgumentNullException.ThrowIfNull(context);
-
         var page = context.ViewState.GetSelectedPage(toHex ? CharPagesKey : HexPagesKey) ?? 0;
         var source = toHex ? CharSourceOf(page) : HexSourceOf(page);
         var text = context.ViewState.GetInputText(source) ?? string.Empty;
 
-        return Convert(context, text, toHex, source);
+        if (_converted.TryGetValue(source, out var previous) && string.Equals(previous, text, StringComparison.Ordinal))
+        {
+            return;   // 这一格没变 ⇒ 不重算、不重写
+        }
+
+        _converted[source] = text;
+
+        Convert(context, text, toHex, source);
     }
 
     /// <summary>转换一段文本（**模块级测试可直接调用**，无需线程）。</summary>
     /// <param name="context">模块上下文。</param>
     /// <param name="text">输入文本。</param>
     /// <param name="toHex">true = char → HEX；false = HEX → char。</param>
-    /// <param name="source">输入源名（失败反馈打到这个输入框上）。</param>
+    /// <param name="source">输入源名（失败时把边框色打在它身上）。</param>
     /// <returns>是否产出了结果。</returns>
     public bool Convert(IModuleContext context, string? text, bool toHex, string source)
     {
@@ -194,70 +174,53 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
 
         if (!ok)
         {
-            // **失败 ⇒ 该输入框红框**；结果区**不动**
+            // **失败 ⇒ 清掉结果 + 只把这一格的边框标红**（不写文字提示：这一格的对错，边框说清就够）。
+            // 为什么**清掉**而不是留着上一次的结果：留着会让屏幕上同时有"新输入 + 旧结果"，
+            // 而旧结果看起来像是这次算出来的 —— 那是最容易骗到自己的一种状态。
             LastFailure = failure;
-            LastResult = null;
-            context.InputFeedback.Report(source, succeeded: false, message: failure);
+            PublishResult(context, toHex, null);
+            context.Appearance.SetOutlineRole(source, AlertRole);
             return false;
         }
-
-        // **空输入 ⇒ 静默无动作**（不改结果、不报错、**也不回报"成功"** —— "空"在各层意义一致）
-        if (result.Length == 0)
-        {
-            LastFailure = null;
-            LastResult = null;
-            return false;
-        }
-
-        context.InputFeedback.Report(source, succeeded: true, message: null);
 
         LastFailure = null;
-        LastResult = result;
 
-        var target = toHex ? HexResultSource : CharResultSource;
-
-        foreach (var line in ConverterCodec.SplitLines(result, ResultLineBytes))
+        if (result.Length == 0)
         {
-            context.Ports.Publish(target, BuildLine(line));
+            // **空输入 ⇒ 静默**：清掉结果、清掉标色（用户还没写完不算错）。
+            PublishResult(context, toHex, null);
+            context.Appearance.SetOutlineColor(source, null);
+            return false;
         }
 
+        PublishResult(context, toHex, result);
+
+        // **成功 ⇒ 清掉标色**（回到主题给的边框）。
+        context.Appearance.SetOutlineColor(source, null);
         return true;
     }
 
-    /// <summary>把一行文本写成**定宽样本**（A5 显示源要求长度一致）。</summary>
-    /// <param name="line">行文本。</param>
-    /// <returns>样本字节。</returns>
-    public static byte[] BuildLine(string line)
+    /// <summary>把结果落到**界面**（显示缓冲）—— 与输入框同一条"文本面"机制。</summary>
+    /// <param name="context">模块上下文。</param>
+    /// <param name="toHex">true = 写 HEX 结果区；false = 写字符结果区。</param>
+    /// <param name="result">结果文本；<see langword="null"/> / 空 ⇒ 清空该结果区。</param>
+    /// <remarks>
+    /// 结果框是**只读文本面**，它读的是**显示缓冲**（`IViewDisplayAccess`）。
+    /// 走别的通道（例如 `Ports.Publish` 那种二进制样本）结果永远到不了框里 —— 那正是"功能看起来全失效"的成因。
+    /// </remarks>
+    public void PublishResult(IModuleContext context, bool toHex, string? result)
     {
-        var bytes = Encoding.UTF8.GetBytes(line);
-        var sample = new byte[ResultLineBytes];
-        bytes.AsSpan(0, Math.Min(bytes.Length, sample.Length)).CopyTo(sample);
-        return sample;
-    }
+        ArgumentNullException.ThrowIfNull(context);
 
-    private static bool IsCharSource(string source)
-    {
-        for (var i = 0; i < PageCount; i++)
+        if (toHex)
         {
-            if (string.Equals(source, CharSourceOf(i), StringComparison.Ordinal))
-            {
-                return true;
-            }
+            LastHexResult = result;
+        }
+        else
+        {
+            LastCharResult = result;
         }
 
-        return false;
-    }
-
-    private static bool IsHexSource(string source)
-    {
-        for (var i = 0; i < PageCount; i++)
-        {
-            if (string.Equals(source, HexSourceOf(i), StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        context.Display.SetText(toHex ? HexResultSource : CharResultSource, result ?? string.Empty);
     }
 }

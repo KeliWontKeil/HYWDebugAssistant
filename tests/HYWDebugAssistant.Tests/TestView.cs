@@ -66,12 +66,12 @@ internal static class TestView
         }
     }
 
-    /// <summary>只读文本日志节点（schema 缺省：容量 20 000 / 按包换行 / 画空行标记）。</summary>
+    /// <summary>只读文本面节点（schema 缺省：容量 20 000 / 按宽度折行 / 画空行标记）。</summary>
     /// <param name="title">标题（缺省「日志」）。</param>
     /// <returns>节点。</returns>
     internal static ViewNode TextLog(string title = "日志") =>
         Node(
-            $$"""{ "kind": "textLog", "title": "{{title}}", "data": "log" }""",
+            $$"""{ "kind": "textBox", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "readonly": true, "title": "{{title}}", "data": "log" }""",
             """[ { "name": "log", "kind": "Text" } ]""");
 
     /// <summary>

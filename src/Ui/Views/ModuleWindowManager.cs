@@ -53,7 +53,6 @@ public sealed class ModuleWindowManager : IDisposable
         // 拖动组带动外壳（模块单侧吸附在外壳上时，拖模块 = 整体一起动）
         _controller.ShellTranslationRequested += OnShellTranslationRequested;
 
-        _controller.Scale = shell.Screens.Primary?.Scaling ?? 1.0;
         PublishWorkArea();
         PublishShellRect();
     }
@@ -120,6 +119,19 @@ public sealed class ModuleWindowManager : IDisposable
 
     // ---------------------------------------------------------------- 内部
 
+    /// <summary>
+    /// **按实例取它的宿主窗口**（找不到 ⇒ <see langword="null"/>）。
+    /// </summary>
+    /// <param name="instanceId">模块实例 ID。</param>
+    /// <returns>该实例的模块窗口。</returns>
+    /// <remarks>
+    /// 存在的理由：系统选择器要一个 <c>TopLevel</c>（<c>StorageProvider</c> 在它上面），
+    /// 而"哪个窗口属于哪个实例"只有本类知道 —— 模块与 L4 都拿不到窗口，也不该拿。
+    /// 于是模块的"弹一次系统选择器"请求由 UI 侧按实例解析到这里（见 <c>ModuleFileAccess</c>）。
+    /// </remarks>
+    public ModuleWindow? WindowFor(string instanceId) =>
+        _windows.TryGetValue(instanceId, out var window) ? window : null;
+
     private void OnGeometryChanged(object? sender, ModuleWindowGeometryChange e)
     {
         if (_windows.TryGetValue(e.InstanceId, out var window)
@@ -169,6 +181,12 @@ public sealed class ModuleWindowManager : IDisposable
 
         _windows[module.InstanceId] = window;
 
+        // **开窗前先定缩放**：`Show` 之前 `RenderScaling` 还不可信，而窗口落位与自绘几何
+        // （滑块圆钮按设备像素取整）都要用它 ⇒ 按"将要落在的那块屏"解析并发布一次。
+        // 于是**首帧就是终值**：显示之后不再出现"平台纠正位置 / 控件重摆圆钮"那两次几何应用
+        // （用户症状："模块实例化后 0.x 秒动 1px、然后归位"）。
+        window.PublishScalingFor(module.X, module.Y);
+
         ApplyGeometry(
             window,
             new ModuleWindowGeometryChange(module.InstanceId, module.X, module.Y, module.Width, module.Height),
@@ -194,13 +212,26 @@ public sealed class ModuleWindowManager : IDisposable
     /// <summary>
     /// 把窗口的**实际尺寸**写回模型（未摆放过的模块用它初始化布局，之后随组合件保存）。
     /// </summary>
-    /// <remarks>尺寸来源 = XAML 默认值；这里只做"读回事实"，不做任何计算。</remarks>
+    /// <remarks>
+    /// 尺寸来源 = XAML 默认值；这里只做"读回事实"，不做任何计算。
+    /// <b>`ClientSize` 本身就是 DIP，而模型也是 DIP</b> ⇒ 直接取用，**不乘缩放**
+    /// （乘了就等于把"物理像素"写进模型，而窗口在别的缩放的屏上会以 1.5 倍的物理尺寸开窗 —— 那正是"右边框被屏边遮住"的成因）。
+    /// </remarks>
     private void PublishActualSize(ModuleWindow window, ModuleViewViewModel module)
     {
-        var scaling = window.RenderScaling <= 0 ? 1.0 : window.RenderScaling;
+        // **平台取整不是几何事实**：缩放 ≠100% 时客户区尺寸会带小数（125% 下例如 400.8），
+        // 把它写进模型 ⇒ 下一次刷新"读回布局"时又应用回窗口 ⇒ 内容重排一次
+        // （屏幕上就是"实例化后 0.x 秒动一下"）。
+        // 判据与位置回写同一口径：差不到**一个设备像素**就不写 —— 模型留"意图尺寸"，噪声留在平台。
+        var tolerance = 1.0 / (window.ResolvedScaling > 0 ? window.ResolvedScaling : 1.0);
 
-        module.Width = ScreenPixels.Round(window.ClientSize.Width * scaling);
-        module.Height = ScreenPixels.Round(window.ClientSize.Height * scaling);
+        if (Math.Abs(window.ClientSize.Width - module.Width) >= tolerance
+            || Math.Abs(window.ClientSize.Height - module.Height) >= tolerance)
+        {
+            module.Width = window.ClientSize.Width;
+            module.Height = window.ClientSize.Height;
+        }
+
         module.HasLayout = true;
 
         _controller.CommitInitialLayout(module);
@@ -213,8 +244,14 @@ public sealed class ModuleWindowManager : IDisposable
             return;   // 拖动/缩放过程由指针主导，避免与模型互相覆盖
         }
 
-        var x = window.Position.X;
-        var y = window.Position.Y;
+        // **单位口径**：`Window.Position` 是**物理像素**，模型是 **DIP** ⇒ 在这里 ÷ 该窗口的缩放一次
+        // （与 `ApplyGeometry` 里那个 × 缩放互为逆运算）。旧实现把物理像素直接写进 DIP 模型 ⇒
+        // 125% 下模型位置比真实大 25% ⇒ 与持久化布局永远对不上，刷新每次都在"纠正"它。
+        // 回写**只改模型、不抬几何**：几何的唯一入口是真实用户动作与刷新里的差异判据。
+        var scaling = window.ResolvedScaling > 0 ? window.ResolvedScaling : 1.0;
+        var x = ScreenPixels.RoundDip(window.Position.X / scaling);
+        var y = ScreenPixels.RoundDip(window.Position.Y / scaling);
+
         if (Math.Abs(module.X - x) < 0.5 && Math.Abs(module.Y - y) < 0.5)
         {
             return;
@@ -228,18 +265,33 @@ public sealed class ModuleWindowManager : IDisposable
     /// 把模型几何应用到窗口（位置 + 尺寸，尺寸夹进该模块的有效区间）。
     /// </summary>
     /// <remarks>
+    /// <para>
     /// **窗口尺寸的唯一来源是模型**（模型里是"用户布局"或"包内
     /// `view.json` 的 `window.default`"，二者在 <see cref="ModuleViewViewModel"/> 构造时已分好优先级）；
     /// `ModuleWindow.axaml` 的 `Width`/`Height` 只作设计器里的兜底，不再是运行期事实来源。
     /// 内容排不下由内容区 ScrollViewer 处理（"信息量"永远不改变外层容器尺寸）。
+    /// </para>
+    /// <para>
+    /// <b>单位口径</b>：模型四数一律 **DIP**（见 `ModuleLayoutView`）。
+    /// <list type="bullet">
+    ///   <item><b>尺寸</b>：模型是 DIP、<c>Window.Width/Height</c> 也是 DIP ⇒ **直接赋值，不换算**。
+    ///     这一条正是"跨屏后右边框被遮住"的根治点：旧实现把模型当物理像素、再除以主屏缩放，
+    ///     于是模型里的 400 在 150% 的屏上被撑成 600 物理像素，从左上角往右长出屏幕。</item>
+    ///   <item><b>位置</b>：模型是 DIP、<c>Window.Position</c> 要**整数物理像素** ⇒
+    ///     **这是全项目唯一的 DIP → 物理像素换算点**：乘该窗口的 <c>RenderScaling</c> 后取整。</item>
+    /// </list>
+    /// </para>
     /// </remarks>
     private static void ApplyGeometry(ModuleWindow window, ModuleWindowGeometryChange geometry, ModuleViewViewModel module)
     {
-        var scaling = window.RenderScaling <= 0 ? 1.0 : window.RenderScaling;
+        // 位置：DIP → 物理像素（**唯一的换算点**；窗口坐标只能是整数物理像素）。
+        // 缩放取**本窗口已发布的那一份**（`ModuleWindow.ResolvedScaling`）：`Show` 之前 `RenderScaling`
+        // 不可信，用它算出来的位置会在显示后被平台纠正一次（"打开后跳一下"）。
+        var scaling = window.ResolvedScaling > 0 ? window.ResolvedScaling : 1.0;
+        var position = new PixelPoint(
+            ScreenPixels.ToPixel(geometry.X * scaling),
+            ScreenPixels.ToPixel(geometry.Y * scaling));
 
-        // 模型几何已是**整数物理像素**（唯一量化点：`ScreenPixels`），这里只做 px → DIP 的精确换算，
-        // 位置直接用整数（不再各自 Math.Round —— 口径不一致就等于没有口径，用户第十二轮反馈）。
-        var position = new PixelPoint(ScreenPixels.ToPixel(geometry.X), ScreenPixels.ToPixel(geometry.Y));
         if (window.Position != position)
         {
             window.Position = position;
@@ -248,11 +300,10 @@ public sealed class ModuleWindowManager : IDisposable
         // **默认尺寸必须真正应用**：没有布局记录时也要**按模型里的尺寸开窗**，不能直接返回、把尺寸
         // 交给 XAML 的默认 320×220 —— 那会让模块声明的默认尺寸从未被应用过
         // （实测：显示器声明 460×380，窗口却是 320×220，内容被挤到要滚动才看得全）。
-        // 模型里的尺寸 = "包内 `view.json` 的 `window.default` × 屏幕缩放"
-        // （`ModuleViewViewModel` 构造时算好），并夹进该模块的**有效尺寸区间**。
+        // 模型里的尺寸 = 声明面的 `window.default`（**DIP**，`ModuleViewViewModel` 构造时夹进有效区间）。
         var size = new Size(
-            Fit(module, ScreenPixels.Round(geometry.Width) / scaling, isWidth: true),
-            Fit(module, ScreenPixels.Round(geometry.Height) / scaling, isWidth: false));
+            Fit(module, geometry.Width, isWidth: true),
+            Fit(module, geometry.Height, isWidth: false));
 
         if (Math.Abs(window.Width - size.Width) > 0.5)
         {
@@ -283,8 +334,16 @@ public sealed class ModuleWindowManager : IDisposable
             return;
         }
 
+        // **换算成 DIP 再发布**：`Screens.WorkingArea` 是物理像素，而模型（模块坐标）是 DIP
+        // —— 摆放与钳制都要拿它和模块坐标比，混单位会让"贴边/避让"整体差一个缩放因子。
+        var scaling = _shell.RenderScaling <= 0 ? 1.0 : _shell.RenderScaling;
         var area = screen.WorkingArea;
-        _controller.WorkArea = new CanvasRect(area.X, area.Y, area.Width, area.Height);
+
+        _controller.WorkArea = new CanvasRect(
+            area.X / scaling,
+            area.Y / scaling,
+            area.Width / scaling,
+            area.Height / scaling);
     }
 
     /// <summary>
@@ -355,6 +414,11 @@ public sealed class ModuleWindowManager : IDisposable
     private DispatcherTimer? _followCommitTimer;
 
     /// <summary>把"拖动组带动外壳"的请求落到真实窗口上（见 <see cref="ModuleWindowsViewModel.ShellTranslationRequested"/>）。</summary>
+    /// <remarks>
+    /// <b>单位</b>：请求里的增量是 **DIP**（外壳矩形与模型同口径），而 <c>Window.Position</c> 要整数**物理像素**
+    /// ⇒ 必须乘该窗口的 <c>RenderScaling</c>（与 <see cref="ApplyGeometry"/> 的落位换算同一条口径）。
+    /// 不乘的话，150% 的屏上"拖动组带动外壳"只会移动 2/3 的距离。
+    /// </remarks>
     private void OnShellTranslationRequested(object? sender, (double Dx, double Dy) delta)
     {
         if (Math.Abs(delta.Dx) < 0.5 && Math.Abs(delta.Dy) < 0.5)
@@ -362,9 +426,11 @@ public sealed class ModuleWindowManager : IDisposable
             return;
         }
 
+        var scaling = _shell.RenderScaling <= 0 ? 1.0 : _shell.RenderScaling;
+
         _shell.Position = new PixelPoint(
-            _shell.Position.X + ScreenPixels.ToPixel(delta.Dx),
-            _shell.Position.Y + ScreenPixels.ToPixel(delta.Dy));
+            _shell.Position.X + ScreenPixels.ToPixel(delta.Dx * scaling),
+            _shell.Position.Y + ScreenPixels.ToPixel(delta.Dy * scaling));
     }
 
     /// <summary>
@@ -386,21 +452,31 @@ public sealed class ModuleWindowManager : IDisposable
     /// </remarks>
     private void PublishShellRect()
     {
+        var scaling = _shell.RenderScaling <= 0 ? 1.0 : _shell.RenderScaling;
+
         if (WindowFrameProbe.TryGetVisibleFrame(_shell, out var frame))
         {
-            _controller.ShellRect = ToRoundedRect(frame.X, frame.Y, frame.X + frame.Width, frame.Y + frame.Height);
+            // 探测给的是**物理像素**（Win32 坐标）⇒ ÷ 缩放换成 DIP 再发布。
+            // 四条边**先各自定好再相减**，不做舍入：舍入在缩放 ≠100% 时会各自放大误差，
+            // 让"贴齐"变成"差几像素"（旧实现在物理像素里靠向下/向上取整来保证不留缝）。
+            _controller.ShellRect = new CanvasRect(
+                frame.X / scaling,
+                frame.Y / scaling,
+                (frame.X + frame.Width) / scaling - (frame.X / scaling),
+                (frame.Y + frame.Height) / scaling - (frame.Y / scaling));
+
             return;
         }
 
-        // 回退：客户区（PointToScreen(0,0) 是客户区原点；ClientSize 是 DIP，需乘缩放回到物理像素）
-        var scaling = _shell.RenderScaling <= 0 ? 1.0 : _shell.RenderScaling;
+        // 回退：客户区。**原点必须换算**：`PointToScreen` 给的是**物理像素**，而模型一律 DIP
+        // （`ClientSize` 本身就是 DIP ⇒ 只有原点要换）。
         var clientOrigin = _shell.PointToScreen(new Point(0, 0));
 
-        _controller.ShellRect = ToRoundedRect(
-            clientOrigin.X,
-            clientOrigin.Y,
-            clientOrigin.X + (_shell.ClientSize.Width * scaling),
-            clientOrigin.Y + (_shell.ClientSize.Height * scaling));
+        _controller.ShellRect = new CanvasRect(
+            clientOrigin.X / scaling,
+            clientOrigin.Y / scaling,
+            _shell.ClientSize.Width,
+            _shell.ClientSize.Height);
     }
 
     /// <summary>

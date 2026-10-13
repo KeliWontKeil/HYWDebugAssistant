@@ -9,7 +9,7 @@
       和滚动条行为不同" ⇒ 合并到本控件，**差异只用属性表达**：
         · 数据来源：`Lines`（模块缓冲 ⇒ 日志）还是用户键入（`Text` 双向绑定 ⇒ 输入框）；
         · `IsReadOnly`；
-        · 滚动：`ShowScrollBar`（自建竖条 + 分页窗口）还是内层滚动条（输入框）；
+        · **文本层的滚动机制**：`ScrollMode = Window`（自建竖条 + 分页窗口）还是 `Native`（内层滚动条）；
         · 换行标记、字符级选择、复制：**同一份实现**（本控件 + `NewlineMarkOverlay`）。
       行为口径：**自动换行 + 无横向滚动条**（长行按字符折行 —— 一行多长由**文本框宽度**决定，
       不再由数据侧规定字节数）。
@@ -27,61 +27,107 @@
             <Setter Property="Padding" Value="4,1" />
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+
+            <!--
+              **底归 token，且三态同值**（常态 / 指向 / 聚焦）：底不该因为鼠标划过或点进去而变
+              —— 变化只由外面那一圈（`Border.surface-text-ring`）表达。
+              不写的话取的是 Fluent 模板的缺省底（深浅两套各一个值，且指向/聚焦各又是一档）。
+            -->
+            <Setter Property="Background" Value="{DynamicResource BgModule}" />
+
+            <!--
+              **选中与光标也归主题**（Fluent 桥接的一种：能钉**控件属性**就不去猜资源键名）。
+              不写的话：选中用系统的蓝、光标用模板色 —— 与"主题色只表达选中/聚焦"这条口径不一致，
+              屏幕上就是"别处都跟着主题走了，唯独文本框里选中还是另一个蓝"。
+            -->
+            <Setter Property="SelectionBrush" Value="{DynamicResource OverlaySelection}" />
+            <Setter Property="SelectionForegroundBrush" Value="{DynamicResource TextPrimary}" />
+            <Setter Property="CaretBrush" Value="{DynamicResource TextPrimary}" />
+
+            <!--
+              **文字怎么摆在框里这件事已经搬到控件里**（`TextSurface`：**单行居中、多行贴顶**）。
+              这里原先写死 `VerticalContentAlignment=Top`，理由是多行时每一行都漂在框中间；
+              但那是**内容摆放**、不是外观 ⇒ 属控件。留在这里会与控件那一份构成两处口径
+              （本地值优先 ⇒ 这条永远不生效，改它也不会有任何反应）。
+            -->
+            <Setter Property="VerticalAlignment" Value="Stretch" />
         </Style>
 
         <!--
-          **分页窗口模式（日志）**：滚动由右侧自建的那一根驱动 ⇒ 内层竖条只隐藏、不出现；
-          内层**仍可滚动**是有意的：折行会让窗口内容略高于视口，那时靠代码把光标放到末尾让文本框自己滚到底
-          —— 否则"最新那行"会被裁掉（"跟随尾部"就名不副实了）。
+          **内层竖条**：可见性只有一个写入点（`TextSurface.ApplyScrollMode`）——
+          `Window` 档把它设成 `Hidden`（仍可程序化滚动，但没有条），`Native` 档设成 `Auto`。
+          **这里不写 `ScrollViewer.VerticalScrollBarVisibility`**：代码里的本地值优先级更高，
+          写在这里只会是一条永远不生效的第二来源。`LineHeight` 同理（行高由主题给、代码读一次）。
         -->
         <Style Selector="TextBox.surface.paged">
-            <Setter Property="VerticalContentAlignment" Value="Top" />
             <Setter Property="Padding" Value="4,2" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="LineHeight" Value="14" />
-            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Hidden" />
         </Style>
 
         <!--
-          **只读文本面不画聚焦边框**【2026-09 用户实测缺陷修复】：
-          `Fluent` 主题的聚焦态**不是改文本框自己的 `BorderThickness`**，而是直接给模板里的
-          `Border#PART_BorderElement` 加粗到 2 px（`TextControlBorderThemeThicknessFocused`）——
-          所以 `.paged` 里那条 `BorderThickness=0` 只压得住静止态，**一聚焦就冒出深色圆角粗框**
-          （用户截图里那个"很重的聚焦环"）。要压住它，选择器必须**打到同一个模板部件**上，
-          且带上同样的伪类（触发态优先级高于普通态）。
+          **条要常驻**：Fluent 的 `ScrollBar` 缺省会自己淡出（`AllowAutoHide`），
+          于是"有没有得滚"要靠鼠标去试 —— 与"有得滚就常驻"这条裁定相反。
         -->
-        <Style Selector="TextBox.surface[IsReadOnly=True]:focus /template/ Border#PART_BorderElement">
+        <Style Selector="TextBox.surface /template/ ScrollBar">
+            <Setter Property="AllowAutoHide" Value="False" />
+            <!--
+              **滚动条的墨色也归主题**（Fluent 桥接）：不写就是模板缺省的一套灰蓝。
+              钉的是 `Foreground` —— Fluent 的滚动条模板把拇指画在它上面（这是"能钉属性就钉属性"的
+              又一处；资源键名在编译后的主题程序集里取不稳，见 `audit-colors` 的口径说明）。
+            -->
+            <Setter Property="Foreground" Value="{DynamicResource BorderStrong}" />
+        </Style>
+
+        <!--
+          **文本面的边框是一个叠加层**（`Border.surface-text-ring`，与编辑器同格）：
+          常态 1px / 聚焦·标红 2px，**厚度完全不进内容矩形** ——
+          否则一聚焦内容区就缩 2px、文字跟着动（用户看到的是"聚焦时字跳了一下"）。
+          圆角是几何（与状态无关），由主题给。
+        -->
+        <Style Selector="Border.surface-text-ring">
+            <Setter Property="CornerRadius" Value="3" />
+        </Style>
+
+        <!--
+          内层 `TextBox` 自己的边框（Fluent 的圆角框）**一律压掉**：那一圈由上面的叠加层画。
+          压的选择器**必须打到模板部件**上：Fluent 的聚焦态不是改文本框自己的 `BorderThickness`，
+          而是直接给模板里的 `Border#PART_BorderElement` 加粗到 2 px ⇒ 只改属性压不住聚焦态。
+        -->
+        <Style Selector="TextBox.surface /template/ Border#PART_BorderElement">
             <Setter Property="BorderThickness" Value="0" />
         </Style>
-        <Style Selector="TextBox.surface[IsReadOnly=True]:focus-within /template/ Border#PART_BorderElement">
+        <Style Selector="TextBox.surface:pointerover /template/ Border#PART_BorderElement">
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <!-- 指向态**底也不变**：输入区不是"可点的动作" -->
+        <Style Selector="TextBox.surface:pointerover">
+            <Setter Property="Background" Value="{DynamicResource BgModule}" />
+        </Style>
+        <Style Selector="TextBox.surface:focus">
+            <Setter Property="Background" Value="{DynamicResource BgModule}" />
+        </Style>
+        <Style Selector="TextBox.surface:focus /template/ Border#PART_BorderElement">
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="TextBox.surface:focus-within /template/ Border#PART_BorderElement">
             <Setter Property="BorderThickness" Value="0" />
         </Style>
     </UserControl.Styles>
-    <Grid ColumnDefinitions="*,Auto">
-        <Grid Grid.Column="0">
-            <TextBox Name="PartEditor"
-                     Classes="surface"
-                     FontFamily="{DynamicResource FontData}" />
-            <!-- 行末换行标记：**纯装饰**（不进文本、不参与选择、光标跳过），见 `NewlineMarkOverlay` -->
-            <ctrl:NewlineMarkOverlay Name="PartMarks" />
-        </Grid>
-        <!--
-          **自建竖向滚动条**（仅分页窗口模式、且**真的有东西可滚**时才出现）：
-          `Maximum = 总行数 - 窗口行数`、`ViewportSize = 窗口行数`、`Value = 窗口起点`
-          ⇒ 拖动条 = 拖动"窗口"，而不是滚动文本框内部。
-          **尺寸与外观一律交给主题**〔2026-09 用户实测缺陷修复〕：此前这里写了 `Width=12` +
-          `AllowAutoHide=False`，实测后果是 **`AllowAutoHide=False` 会把 `ScrollBar.IsExpanded` 顶成 `true`**
-          ⇒ 主题立刻画出**整根灰轨道 + 上下两个箭头按钮**（用户："滚动条风格非常奇怪且无用，怀疑是之前
-          开发时叠加上去的"）。`AllowAutoHide` 保持默认后：未展开态只有一根**细滑块**（主题的
-          `VerticalSmallScrollThumbScaleTransform`），轨道与箭头按钮的不透明度都是 0 —— 即"普通编辑器滚动条"。
-          **可见性由代码按"有没有回看余地"控制**（`Maximum <= 0` ⇒ 收起），不在 XAML 里写死。
-        -->
-        <ScrollBar Grid.Column="1"
-                   Name="PartScroll"
-                   Orientation="Vertical"
-                   Minimum="0"
-                   Maximum="0"
-                   ViewportSize="1"
-                   IsVisible="False" />
-    </Grid>
+
+    <!--
+      **这棵可视树由代码建**（见 `TextSurface` 构造函数），不在这里写。
+
+      理由：本控件要**自己量、自己排** —— 宽度必须由约束决定，不能交给任何会"按内容放宽"的容器
+      （`ScrollContentPresenter` 就是那样量的，而"按内容放宽"正是**会折行的文本框报整行宽、
+      文字冲出框被裁**的根源）。而 `ContentControl` 为了托管 `Content` 会插一个自己的内部 presenter，
+      那个 presenter 拿不到我们的排布结果 ⇒ 整棵内容树停在 `0x0`、根本不进可视树。
+      实测过：`Content` 非空、文本框有爹，但可视树里一个文本框都没有、界面上也什么都看不到。
+    -->
+
+    <!--
+      **自建竖向滚动条**（仅 `Window` 档、且**真的有东西可滚**时才出现）：
+      `Maximum = 总行数 - 窗口行数`、`ViewportSize = 窗口行数`、`Value = 窗口起点`
+      ⇒ 拖动条 = 拖动"窗口"，而不是滚动文本框内部。
+      **同一档里只可能有一根看得见的条**：内层那根在这一档被设成 `Hidden`。
+    -->
 </UserControl>

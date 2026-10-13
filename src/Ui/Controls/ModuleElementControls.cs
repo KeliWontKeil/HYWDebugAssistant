@@ -195,6 +195,7 @@ public sealed class CurveControl : Control
             }
         }
 
+        // **绝对色**（兜底）：调用方总会给 `Stroke`（主题色）；这一支只在"忘了接线"时出现，刻意不跟随主题。
         context.DrawGeometry(null, new Pen(Stroke ?? Brushes.DodgerBlue, 1.4, lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round), geometry);
     }
 }

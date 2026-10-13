@@ -1,4 +1,4 @@
-> ⚠ 历史材料（ADR 原文，2026-09 文档收敛起归档）。**现行决策**见 `docs/decisions.md`；实现层现行值见 `docs/architecture/` 各分册。正文为当时的决策与论证；其中的"待决/待办/计划"一律以现行文档为准。
+> ⚠ 历史材料（ADR 原文，2026-09 文档收敛起归档）。**现行决策见 `docs/architecture/CODEX.md`，架构例外见 `docs/architecture/EXCEPTIONS.md`。正文为当时的决策与论证；其中的"待决/待办/计划"一律以现行文档为准。
 
 # ADR-0016 持久化模型重构：抽象工作区 + 组合件载体（Supersede ADR-0001/0003/0005 相关表述）
 

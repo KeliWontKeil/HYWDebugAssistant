@@ -9,65 +9,40 @@ using HYWDebugAssistant.Core.Api;
 namespace HYWDebugAssistant.Ui.Theming;
 
 /// <summary>
-/// **主题与配色的应用器**：把应用级设置里的
-/// 主题（浅/深/跟随系统）· 主题色 · 背景色**落到角色 token 上**。
+/// **主题应用器**：把"当前生效的那套主题 + 用户的逐项覆盖"算成一组资源值，装进一份合并字典。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>只替换 token 值</b>：视图一律用 <c>DynamicResource</c> 取色（09 §2.1 的角色 token），
-///     因此本类**不改任何视图**即可让模块窗口、弹窗、叠加层一并跟随；</item>
-///   <item><b>为什么写进主题字典</b>：Avalonia 的资源查找顺序是
-///     **主题字典 → 自身条目 → 合并字典（后加者优先）** —— 把覆盖放进"合并字典"会被主题字典里的
-///     内置值盖住（实测：覆盖了也读不到）。故本类**直接改写主题字典中的键值**，并在每次应用前
-///     **把上一次的覆盖恢复**（快照 → 还原），从而不污染内置 token；</item>
-///   <item><b>不引入图片背景</b>：背景只支持"跟随主题 / 浅灰 / 深灰 / 自定义纯色"。</item>
-///   <item><b>方向语义色独立于主题色</b>：<c>DirectionSend</c>/<c>DirectionReceive</c>
-///     由 <c>directionSendColor</c>/<c>directionReceiveColor</c> 单独驱动，**不再从主题色派生**，且
-///     **默认值为空 = 跟随主题默认**（深浅两套各自的内置方向色因此都有效）；主题色只表达"选中/聚焦/活动"
-///     等**框架性交互**语义。</item>
+///   <item><b>层次</b>：外观（<see cref="AppearanceSettings"/>）→ 主题（<see cref="ThemeCatalog"/> 里的一套，
+///     由 <c>ThemeSelection</c> 选中）→ 色板（主题内容 = 色板里的值；用户覆盖 = 差异）→ 渲染。
+///     本类**不认识任何具体 token 名**：一支色算成什么，由色板契约（`Styles/palette.json`）说；</item>
+///   <item><b>每支一条解析链</b>：<c>用户的显式覆盖 ?? 契约里的派生规则(源值) ?? 色板里的内置值</c>。
+///     派生规则只吃四个输入（源当前值 / 这一支内置值 / 源内置值 / 规则参数），算法在
+///     <see cref="PaletteDerivation"/>。于是"用户改了主题色 ⇒ 派生支跟着变"与
+///     "用户没改 ⇒ 派生结果 == 内置值"两件事同时成立；</item>
+///   <item><b>主题的承载</b>：一套主题 = Avalonia 的一个 <see cref="ThemeVariant"/>（内置两套直接用静态变体；
+///     自定义 / 文件来的主题用 <c>new ThemeVariant(id, 基类型变体)</c> —— 未定义的键沿 <c>InheritVariant</c>
+///     回落到该类型的 Fluent 资源与内置色板，已实测）。"加第四套主题"因此不需要改本类；</item>
+///   <item><b>怎么替换</b>：本类**自己持有一份覆盖字典**（按主题分桶），每次应用时把它
+///     **合并到 <c>Application.Resources.MergedDictionaries</c> 的末尾**，下一次应用前先撤掉自己那一份。
+///     两条实测结论决定了这个写法：
+///     <br/>① **合并字典按声明顺序找、后加的赢** —— 加在末尾才盖得住色板里的内置值
+///     （加在最前面会被内置值盖住，那就是"改了没反应"）；
+///     <br/>② **加 / 撤合并字典会让已经在树上的 <c>DynamicResource</c> 立刻重解析** ——
+///     不必重建控件树，改色当场可见。
+///     <br/>与"改写色板字典里的键值"相比，这个写法**不依赖宿主资源图的形状**：
+///     XAML 里的 <c>&lt;ResourceInclude&gt;</c> 在运行期是**不可写**的 provider（实测），
+///     按"找到那份字典再改键"的写法在某些宿主里一条都改不到；</item>
+///   <item><b>按套</b>：同一支 token 浅深本就是两个值（<c>BgModule</c> 浅色是白、深色是深灰），
+///     故每条覆盖 / 派生值都记在**它那一套的主题字典**里 —— 改浅色的 <c>BgModule</c> 不会动深色那一套；</item>
+///   <item><b>浓度取内置值</b>：淡底（页签、按钮指向、选中叠加）只换**色**、不换**浓度** ——
+///     浓度从该套主题内置的那一支上读，于是"深浅两套各自的浓度"仍只有一个事实源（色板）。</item>
 /// </list>
 /// </remarks>
 public static class ThemeApplier
 {
-    /// <summary>背景档位：跟随主题（默认，不覆盖）。</summary>
-    public const string BackgroundTheme = "Theme";
-
-    /// <summary>背景档位：浅灰。</summary>
-    public const string BackgroundLightGray = "LightGray";
-
-    /// <summary>背景档位：深灰。</summary>
-    public const string BackgroundDarkGray = "DarkGray";
-
-    /// <summary>背景档位：自定义（取 <see cref="ApplicationSettings.BackgroundColor"/> 的值）。</summary>
-    public const string BackgroundCustom = "Custom";
-
-    /// <summary>主题档位：跟随系统。</summary>
-    public const string ThemeSystem = "System";
-
-    /// <summary>预设主题色档（名称 + 十六进制，供设置界面"一键选色"）。</summary>
-    /// <param name="Name">显示名。</param>
-    /// <param name="Hex">颜色文本。</param>
-    public sealed record AccentPreset(string Name, string Hex)
-    {
-        /// <summary>色块画刷（界面绑定用；无法解析时为透明）。</summary>
-        public IBrush Brush => Parse(Hex) is { } color ? new SolidColorBrush(color) : Brushes.Transparent;
-    }
-
-    /// <summary>预设主题色（8 档）。</summary>
-    public static readonly IReadOnlyList<AccentPreset> Presets =
-    [
-        new("蓝", "#2563EB"),
-        new("青", "#0891B2"),
-        new("绿", "#16A34A"),
-        new("橙", "#EA580C"),
-        new("红", "#DC2626"),
-        new("紫", "#7C3AED"),
-        new("粉", "#DB2777"),
-        new("灰", "#52525B"),
-    ];
-
-    /// <summary>上一次覆盖的快照（键 → 原值；原值 null 表示原本没有该键）。</summary>
-    private static readonly List<(ResourceDictionary Dictionary, string Key, object? Original)> Overridden = [];
+    /// <summary>上一次装上去的那一份覆盖字典（每次应用前先撤掉它，再按新设置装一份）。</summary>
+    private static ResourceDictionary? _installed;
 
     /// <summary>把设置应用到当前应用（无应用实例时静默返回——测试/无头环境）。</summary>
     /// <param name="settings">应用级设置。</param>
@@ -105,213 +80,205 @@ public static class ThemeApplier
         return Color.TryParse(text.Trim(), out var color) ? color : null;
     }
 
+    /// <summary>
+    /// 取某一套主题里**当前**某个 token 的画刷（没被覆盖时 = 该套的内置值）。
+    /// </summary>
+    /// <param name="token">色板 token 名（如 <c>TextPrimary</c>）。</param>
+    /// <param name="theme">主题名（见 <see cref="ThemeIds"/>，如 <c>light</c> / <c>dark</c>）。</param>
+    /// <returns>画刷（找不到 ⇒ <see langword="null"/>）。</returns>
+    /// <remarks>
+    /// 设置面板的色块用它：**另一套主题**的内置值只能在资源里读，不能靠切主题去看。
+    /// </remarks>
+    public static IBrush? PaletteBrush(string token, string theme)
+    {
+        if (Application.Current is not { } app || string.IsNullOrWhiteSpace(token))
+        {
+            return null;
+        }
+
+        var variant = ThemeCatalog.Find(theme)?.LookupVariant;
+
+        return variant is { } lookup && app.TryGetResource(token, lookup, out var value) && value is IBrush brush
+            ? brush
+            : null;
+    }
+
     private static void ApplyCore(Application app, ApplicationSettings settings)
     {
-        app.RequestedThemeVariant = settings.Theme switch
-        {
-            "Dark" => ThemeVariant.Dark,
-            "Light" => ThemeVariant.Light,
-            _ => ThemeVariant.Default,
-        };
+        // **选择 → 变体**：`System` ⇒ Default（由平台决定浅/深）；某套主题 ⇒ 它自己的变体。
+        app.RequestedThemeVariant = ThemeCatalog.VariantFor(settings.Appearance.ThemeSelection);
 
-        Restore();
+        Uninstall(app);
 
-        var overrides = BuildOverrides(settings);
-        if (overrides.Count > 0)
+        var colors = BuildOverrides(app, settings);
+        var fonts = BuildFontOverrides(settings);
+
+        if (colors.Count == 0 && fonts.Count == 0)
         {
-            ApplyToThemeDictionaries(app.Resources, overrides);
+            return;
         }
 
-        // **字体必须独立于颜色覆盖**：这一句若写在 `overrides.Count == 0 ⇒ return` 之后，则只要没设
-        // 主题色/背景色/方向色（= 默认"全部跟随主题"），**字体改动就被整段跳过**（改了下拉框却毫无变化）。
-        // 现在无论颜色是否有覆盖，字体都照常应用。
-        ApplyFonts(app, settings);
-    }
+        var dictionary = new ResourceDictionary();
 
-    /// <summary>
-    /// **字体覆盖**（字体在设置里**显式可调**，读系统已有字体）：
-    /// <c>FontUi</c>（界面文字）/ <c>FontData</c>（**所有输入框与显示框**）。
-    /// </summary>
-    /// <remarks>
-    /// 值可以是**回退列表**（逗号分隔，拉丁在前 / 中文在后）—— 直接交给 <see cref="FontFamily"/> 解析；
-    /// 空串 ⇒ 不覆盖（回落 `Tokens.axaml` 的内置值）。与颜色同一套"记原值 → 可反复切回"的机制。
-    /// </remarks>
-    private static void ApplyFonts(Application app, ApplicationSettings settings)
-    {
-        var overrides = new Dictionary<string, object>(StringComparer.Ordinal);
-
-        if (settings.UiFontFamily is { Length: > 0 } ui)
+        // 平铺项（字体）：主题无关，直接住在这份字典的平铺部分
+        foreach (var (key, value) in fonts)
         {
-            overrides["FontUi"] = new FontFamily(ui);
+            dictionary[key] = value;
         }
 
-        if (settings.DataFontFamily is { Length: > 0 } data)
+        // 按套的色：一套主题一个主题字典（键 = 该套主题的变体）
+        foreach (var (themeId, entries) in colors)
         {
-            overrides["FontData"] = new FontFamily(data);
-        }
-
-        if (overrides.Count > 0)
-        {
-            ApplyToKeyedDictionaries(app.Resources, overrides);
-        }
-    }
-
-    /// <summary>把覆盖写进**含该键**的任意层字典（顶层 + 合并字典，逐层递归）。</summary>
-    /// <param name="root">资源根。</param>
-    /// <param name="overrides">键 → 值。</param>
-    private static void ApplyToKeyedDictionaries(
-        IResourceDictionary root,
-        IReadOnlyDictionary<string, object> overrides)
-    {
-        if (root is ResourceDictionary own)
-        {
-            foreach (var (key, value) in overrides)
-            {
-                if (!own.ContainsKey(key))
-                {
-                    continue;
-                }
-
-                Overridden.Add((own, key, own[key]));
-                own[key] = value;
-            }
-        }
-
-        foreach (var merged in root.MergedDictionaries)
-        {
-            if (merged is ResourceDictionary nested)
-            {
-                ApplyToKeyedDictionaries(nested, overrides);
-            }
-        }
-    }
-
-    /// <summary>
-    /// 递归把覆盖写入**含该键的主题字典**。
-    /// </summary>
-    /// <remarks>
-    /// 角色 token 由 `Tokens.axaml` 提供，而它是**合并**进 `Application.Resources` 的，
-    /// 因此主题字典挂在合并字典里、不在 <c>Application.Resources.ThemeDictionaries</c> 顶层
-    /// （实测：只看顶层会一条都改不到）。只改**已含该键**的字典，避免误伤其他字典。
-    /// </remarks>
-    private static void ApplyToThemeDictionaries(
-        IResourceDictionary root,
-        IReadOnlyDictionary<string, object> overrides)
-    {
-        foreach (var provider in root.ThemeDictionaries.Values)
-        {
-            if (provider is not ResourceDictionary dictionary)
+            if (ThemeCatalog.Find(themeId) is not { } theme)
             {
                 continue;
             }
 
-            foreach (var (key, value) in overrides)
-            {
-                if (!dictionary.ContainsKey(key))
-                {
-                    continue;
-                }
+            var scoped = new ResourceDictionary();
 
-                Overridden.Add((dictionary, key, dictionary[key]));
-                dictionary[key] = value;
+            foreach (var (key, value) in entries)
+            {
+                scoped[key] = value;
             }
+
+            dictionary.ThemeDictionaries[theme.LookupVariant] = scoped;
         }
 
-        foreach (var merged in root.MergedDictionaries)
-        {
-            if (merged is ResourceDictionary nested)
-            {
-                ApplyToThemeDictionaries(nested, overrides);
-            }
-        }
+        // **加到最后**：合并字典按声明顺序找，后加的赢（加在最前会被色板里的内置值盖住）
+        app.Resources.MergedDictionaries.Add(dictionary);
+        _installed = dictionary;
     }
 
-    /// <summary>还原上一次的覆盖（保证设置可以反复切换、并能回到内置 token）。</summary>
-    private static void Restore()
+    /// <summary>撤掉上一次装上去的覆盖字典（于是所有 token 回到色板里的内置值）。</summary>
+    private static void Uninstall(Application app)
     {
-        foreach (var (dictionary, key, original) in Overridden)
+        if (_installed is { } dictionary)
         {
-            if (original is null)
-            {
-                _ = dictionary.Remove(key);
-            }
-            else
-            {
-                dictionary[key] = original;
-            }
+            _ = app.Resources.MergedDictionaries.Remove(dictionary);
+            _installed = null;
         }
-
-        Overridden.Clear();
     }
 
-    /// <summary>构造覆盖项（空 = 全部跟随主题）。</summary>
+    /// <summary>
+    /// **字体覆盖**（外观的第二个轴）：<c>FontUi</c>（界面文字）/ <c>FontData</c>（所有输入框与显示框）。
+    /// </summary>
     /// <remarks>
-    /// **一律使用不可变画刷**（<see cref="ImmutableSolidColorBrush"/>，见文件顶部的线程纪律说明）：
-    /// 这些画刷会进入应用级资源字典，被**渲染线程**读取；用有线程亲和性的 <c>SolidColorBrush</c> 时，
-    /// 只要覆盖是在非 UI 线程上算出来的（测试、后台刷新），渲染读它就会抛
-    /// <c>The calling thread cannot access this object because a different thread owns it</c>。
+    /// 值可以是**回退列表**（逗号分隔，拉丁在前 / 中文在后）—— 直接交给 <see cref="FontFamily"/> 解析；
+    /// 空串 ⇒ 不覆盖（回落色板文件里的内置值）。
+    /// <para>
+    /// 解析链与颜色同形（用户值 ?? 主题内容 ?? 内置缺省），今天只有前后两项有值：
+    /// **主题要带字体时，只是往这条链里加一项**，渲染侧不改。
+    /// </para>
     /// </remarks>
-    private static Dictionary<string, object> BuildOverrides(ApplicationSettings settings)
+    private static Dictionary<string, object> BuildFontOverrides(ApplicationSettings settings)
     {
+        var appearance = settings.Appearance;
         var overrides = new Dictionary<string, object>(StringComparer.Ordinal);
 
-        if (Parse(settings.AccentColor) is { } accent)
+        if (appearance.UiFontFamily is { Length: > 0 } ui)
         {
-            overrides["AccentPrimary"] = new ImmutableSolidColorBrush(accent);
-            overrides["AccentSecondary"] = new ImmutableSolidColorBrush(Secondary(accent));
-
-            // 选中/高亮覆盖色跟随主题色（透明度在 09 §2.2 已定）
-            overrides["OverlaySelection"] = new ImmutableSolidColorBrush(accent, 0.20);
-            overrides["OverlayHighlight"] = new ImmutableSolidColorBrush(accent, 0.12);
+            overrides["FontUi"] = new FontFamily(ui);
         }
 
-        if (BackgroundPalette(settings) is { } palette)
+        if (appearance.DataFontFamily is { Length: > 0 } data)
         {
-            overrides["BgWorkspace"] = new ImmutableSolidColorBrush(palette.Workspace);
-            overrides["BgModule"] = new ImmutableSolidColorBrush(palette.Module);
-            overrides["BgChrome"] = new ImmutableSolidColorBrush(palette.Chrome);
-        }
-
-        // 方向语义色：**独立于主题色**，只在用户显式填色时覆盖
-        // （空 = 跟随主题默认值 ⇒ 深浅两套主题各自的内置方向色都保住，不会被"默认值"盖死）
-        if (Parse(settings.DirectionSendColor) is { } sendDirection)
-        {
-            overrides["DirectionSend"] = new ImmutableSolidColorBrush(sendDirection);
-        }
-
-        if (Parse(settings.DirectionReceiveColor) is { } receiveDirection)
-        {
-            overrides["DirectionReceive"] = new ImmutableSolidColorBrush(receiveDirection);
+            overrides["FontData"] = new FontFamily(data);
         }
 
         return overrides;
     }
 
-    /// <summary>背景档位 → 三档背景色（null = 跟随主题）。</summary>
-    private static (Color Workspace, Color Module, Color Chrome)? BackgroundPalette(ApplicationSettings settings) =>
-        settings.BackgroundMode switch
-        {
-            BackgroundLightGray => (Color.Parse("#E8EAED"), Color.Parse("#F7F8FA"), Color.Parse("#F1F2F5")),
-            BackgroundDarkGray => (Color.Parse("#17181A"), Color.Parse("#202124"), Color.Parse("#1B1C1F")),
-            BackgroundCustom when Parse(settings.BackgroundColor) is { } custom =>
-                (custom, Lighten(custom, 0.06), Lighten(custom, 0.03)),
-            _ => null,
-        };
-
-    /// <summary>次色 = 主题色的邻近色（避免"一片蓝"，又不引入第二个用户输入）。</summary>
+    /// <summary>
+    /// 按色板契约算出**每一套主题**要写进资源的值（主题名 → token → 画刷）。
+    /// </summary>
+    /// <param name="app">当前应用（读内置值用）。</param>
+    /// <param name="settings">应用级设置（用户覆盖从 <see cref="AppearanceSettings.PaletteOverrides"/> 来）。</param>
     /// <remarks>
-    /// 方向语义（发送/接收）**不使用本派生色**（用独立的 `DirectionSend`/`DirectionReceive`）。
-    /// 当前消费者只剩：叠加信息层**连线**（待"叠加层专项"重设计）与模块内容曲线（**应改为模块自定色**，
-    /// 待"数据-颜色专项"）。因此本派生色**不代表任何"方向"语义**。
+    /// <b>每支一条链</b>：显式覆盖 → 派生规则 → 内置值（第三档不写，交给色板自己）。
+    /// 源色的"当前值"只看**覆盖与内置**（`from` 必须是不派生的支）⇒ 单层、无环、与顺序无关。
+    /// <para>
+    /// **一律使用不可变画刷**（<see cref="ImmutableSolidColorBrush"/>）：这些画刷会进入应用级资源字典，
+    /// 被**渲染线程**读取；用有线程亲和性的 <c>SolidColorBrush</c> 时，
+    /// 只要覆盖是在非 UI 线程上算出来的（测试、后台刷新），渲染读它就会抛
+    /// <c>The calling thread cannot access this object because a different thread owns it</c>。
+    /// </para>
     /// </remarks>
-    private static Color Secondary(Color accent) => Color.FromRgb(
-        (byte)Math.Clamp((accent.R * 0.35) + (accent.B * 0.65), 0, 255),
-        (byte)Math.Clamp((accent.G * 0.8) + (accent.B * 0.2), 0, 255),
-        (byte)Math.Clamp((accent.B * 0.85) + (accent.G * 0.15), 0, 255));
+    private static Dictionary<string, Dictionary<string, object>> BuildOverrides(
+        Application app,
+        ApplicationSettings settings)
+    {
+        var byTheme = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
 
-    /// <summary>按比例向白色靠近（用于同色系的模块底/工具底层次）。</summary>
-    private static Color Lighten(Color color, double amount) => Color.FromRgb(
-        (byte)Math.Clamp(color.R + ((255 - color.R) * amount), 0, 255),
-        (byte)Math.Clamp(color.G + ((255 - color.G) * amount), 0, 255),
-        (byte)Math.Clamp(color.B + ((255 - color.B) * amount), 0, 255));
+        foreach (var theme in ThemeCatalog.Themes)
+        {
+            var variant = theme.LookupVariant;
+            var overrides = new Dictionary<string, object>(StringComparer.Ordinal);
+
+            // 内置值：每支读一次，整支契约共用（读的是色板里的值 —— 我们那份字典还没装上去）
+            var builtIn = new Dictionary<string, (Color Color, double Opacity)>(StringComparer.Ordinal);
+            foreach (var token in PaletteManifest.Tokens)
+            {
+                builtIn[token.Key] = ReadBuiltIn(app, variant, token.Key);
+            }
+
+            (Color Color, double Opacity) SourceOf(string key) =>
+                settings.Appearance.Override(theme.Id, key) is { } hex && Parse(hex) is { } color
+                    ? (color, color.A < 255 ? color.A / 255.0 : builtIn[key].Opacity)
+                    : builtIn[key];
+
+            foreach (var token in PaletteManifest.Tokens)
+            {
+                // ① 用户显式改过 ⇒ 它说了算（写 8 位十六进制时按明写的 alpha 当浓度）
+                if (settings.Appearance.Override(theme.Id, token.Key) is { } explicitHex)
+                {
+                    if (Parse(explicitHex) is { } color)
+                    {
+                        overrides[token.Key] = Solid(
+                            color,
+                            color.A < 255 ? color.A / 255.0 : builtIn[token.Key].Opacity);
+                    }
+
+                    continue;
+                }
+
+                // ② 契约说它跟随别的支 ⇒ 按规则算（浓度一律取该支内置的不透明度）
+                if (token.Derive is { Mode: not PaletteDeriveMode.None } rule
+                    && builtIn.TryGetValue(rule.Source, out var sourceBuiltIn))
+                {
+                    var source = SourceOf(rule.Source);
+                    var derived = PaletteDerivation.Derive(
+                        rule,
+                        source.Color,
+                        builtIn[token.Key].Color,
+                        sourceBuiltIn.Color);
+
+                    overrides[token.Key] = Solid(derived, builtIn[token.Key].Opacity);
+                }
+
+                // ③ 其余：不写 ⇒ 用色板里的内置值（"没改就是设计值"由此成立）
+            }
+
+            if (overrides.Count > 0)
+            {
+                byTheme[theme.Id] = overrides;
+            }
+        }
+
+        return byTheme;
+    }
+
+    /// <summary>读某一套主题里某一支的**内置值**（资源缺失 ⇒ 透明，且不参与派生）。</summary>
+    /// <param name="app">当前应用。</param>
+    /// <param name="variant">该套主题的变体。</param>
+    /// <param name="key">token 名。</param>
+    private static (Color Color, double Opacity) ReadBuiltIn(Application app, ThemeVariant variant, string key) =>
+        app.TryGetResource(key, variant, out var value) && value is ISolidColorBrush brush
+            ? (brush.Color, brush.Opacity)
+            : (Colors.Transparent, 1);
+
+    /// <summary>造一支不可变纯色画刷（先按不透明度归一，再交给画刷）。</summary>
+    /// <param name="color">颜色（其 alpha 通道被忽略，统一由 <paramref name="opacity"/> 表达）。</param>
+    /// <param name="opacity">不透明度（0–1）。</param>
+    private static ImmutableSolidColorBrush Solid(Color color, double opacity) =>
+        new(Color.FromRgb(color.R, color.G, color.B), Math.Clamp(opacity, 0, 1));
 }

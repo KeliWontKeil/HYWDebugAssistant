@@ -6,7 +6,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Sdk.Ports;
-using HYWDebugAssistant.Ui.Diagnostics;
+using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.ViewModels;
 
 namespace HYWDebugAssistant.Ui.Views;
@@ -32,10 +32,6 @@ public partial class ModuleWindow : Window
     private bool _dragging;
     private bool _resizing;
     private ModuleViewViewModel? _hooked;
-
-    /// <summary>【临时诊断】上一帧指针位置（算指针位移用）。</summary>
-    private double _lastPointerX;
-    private double _lastPointerY;
 
     /// <summary>锚点拖动的**启动阈值**（逻辑 px）：小于它视为"点击"，把手势留给双击改网名。</summary>
     private const double AnchorDragThreshold = 4;
@@ -82,6 +78,82 @@ public partial class ModuleWindow : Window
         AddHandler(PointerReleasedEvent, OnPointerReleased, RoutingStrategies.Tunnel);
 
         DataContextChanged += (_, _) => Hook();
+
+        // **真实缩放变化**（窗口被拖到别块屏、系统改 DPI）：重新解析并发布一次 ——
+        // 这不是"settle"：DPI 确实变了，几何理应跟着重算，而重算的触发点是这里、不是"下一帧顺手发现"。
+        ScalingChanged += (_, _) => PublishScaling();
+
+        // 显示之后再解析一次：那时窗口自己的 `RenderScaling` 才是事实（见 `PublishScaling`）。
+        Opened += (_, _) => PublishScaling();
+    }
+
+    /// <summary>
+    /// **这块窗口的缩放**（一次解析、一份发布）—— 窗口落位与自绘几何都读这一份。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 为什么不能各处自己读 <see cref="TopLevel.RenderScaling"/>：`Show` **之前**它不可信
+    /// （项目里已有同类先例：`App` 取进程级缩放用的是 `Screens.Primary.Scaling`，注释写明
+    /// "窗口在这一步还没 `Show`，但 `Screens` 已经可用"）。开窗时按 1.0 算，显示之后就会被平台
+    /// 或自绘几何各纠正一次 —— 用户看到的就是"实例化后 0.x 秒动 1px、然后归位"。
+    /// </para>
+    /// <para>
+    /// 于是：开窗前由 <see cref="ModuleWindowManager"/> 调 <see cref="PublishScalingFor"/> 按**目标屏**解析一次；
+    /// `Show` 之后与真实缩放变化时由本类按窗口自己的值更新。**只有这一处解析、只有这一份发布。**
+    /// </para>
+    /// </remarks>
+    public double ResolvedScaling { get; private set; } = 1.0;
+
+    /// <summary>已发布的缩放发生变化（真实变化：开窗后拿到真值、窗口被拖到另一块屏）。</summary>
+    public event EventHandler? ResolvedScalingChanged;
+
+    /// <summary>
+    /// **按 DIP 位置解析"这块窗口将落在哪块屏"，并发布其缩放**（开窗前调用一次）。
+    /// </summary>
+    /// <param name="dipX">模型位置 X（DIP）。</param>
+    /// <param name="dipY">模型位置 Y（DIP）。</param>
+    /// <remarks>
+    /// DIP → 物理像素需要缩放，而"该用哪块屏的缩放"又取决于落点 ⇒ 用**主屏缩放**求一个候选点，
+    /// 再问那块屏要缩放。跨屏边界的那点误差由 `ScalingChanged` 与位置回写兜住。
+    /// </remarks>
+    public void PublishScalingFor(double dipX, double dipY)
+    {
+        var primary = Screens.Primary is { Scaling: > 0 } screen ? screen.Scaling : 1.0;
+
+        PublishScaling(new PixelPoint(
+            ScreenPixels.ToPixel(dipX * primary),
+            ScreenPixels.ToPixel(dipY * primary)));
+    }
+
+    /// <summary>按"当前位置 / 窗口自己的值"重新解析并发布缩放（`Show` 之后、真实缩放变化时）。</summary>
+    public void PublishScaling() => PublishScaling(Position);
+
+    private void PublishScaling(PixelPoint intended)
+    {
+        var scaling = 1.0;
+
+        if (IsVisible && RenderScaling > 0)
+        {
+            // 已显示 ⇒ 窗口自己的值就是事实。
+            scaling = RenderScaling;
+        }
+        else if (Screens.ScreenFromPoint(intended) is { Scaling: > 0 } screen)
+        {
+            // 未显示 ⇒ 按它将要落在的那块屏取（`Screens` 在 `Show` 之前就可用）。
+            scaling = screen.Scaling;
+        }
+        else if (Screens.Primary is { Scaling: > 0 } primary)
+        {
+            scaling = primary.Scaling;
+        }
+
+        if (Math.Abs(scaling - ResolvedScaling) < 1e-6)
+        {
+            return;
+        }
+
+        ResolvedScaling = scaling;
+        ResolvedScalingChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>模块窗口集控制器（由窗口管理器在显示前注入）。</summary>
@@ -105,9 +177,6 @@ public partial class ModuleWindow : Window
         if (controller.BeginDrag(module.InstanceId, x, y, independent))
         {
             _dragging = true;
-            _lastPointerX = x;
-            _lastPointerY = y;
-            DragDiagnostics.Reset();
             e.Pointer.Capture(sender as IInputElement ?? this);
             e.Handled = true;
         }
@@ -154,8 +223,6 @@ public partial class ModuleWindow : Window
 
         if (_dragging)
         {
-            var before = Module is { } m0 ? (X: m0.X, Y: m0.Y, W: m0.Width, H: m0.Height) : default;
-
             // 【用户第十七轮反馈】拖动**期间**按下 Ctrl = **立刻拆分**（只拖自己、其余成员回原位），
             // 不再要求"必须拖动前按住"。幂等：已独立拖动时不做事；松手后不会重新合组。
             if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
@@ -165,41 +232,6 @@ public partial class ModuleWindow : Window
 
             // 按住 Alt = 本次移动临时停用吸附（Q5-1）
             controller.DragTo(x, y, snapEnabled: e.KeyModifiers.HasFlag(KeyModifiers.Alt) ? false : null);
-
-            // 【临时诊断】记录该帧的指针与几何事实（拖动结束时整段落盘）
-            if (Module is { } dragged)
-            {
-                var deltaX = x - _lastPointerX;
-                var deltaY = y - _lastPointerY;
-                var derived = LastWindowDerivedPoint;
-                var scaling = RenderScaling <= 0 ? 1.0 : RenderScaling;
-
-                DragDiagnostics.Record(DragDiagnostics.Format(
-                    cursor: (X: x, Y: y),
-                    derived: derived,
-                    pointerDelta: (X: deltaX, Y: deltaY),
-                    modelBefore: before,
-                    module: (X: dragged.X, Y: dragged.Y, W: dragged.Width, H: dragged.Height),
-                    windowPosition: (X: Position.X, Y: Position.Y),
-                    windowSize: (W: ClientSize.Width * scaling, H: ClientSize.Height * scaling),
-                    sticky: $"group={controller.DragGroupSize}"));
-
-                var errorX = Math.Abs(derived.X - x);
-                var errorY = Math.Abs(derived.Y - y);
-                var movedX = dragged.X - before.X;
-                var movedY = dragged.Y - before.Y;
-
-                // 异常帧就在日志里打标记（不打断拖动，也不再只写一次）
-                if (errorX > 1.5 || errorY > 1.5
-                    || (movedX * deltaX < 0 && Math.Abs(movedX) > 2)
-                    || (movedY * deltaY < 0 && Math.Abs(movedY) > 2))
-                {
-                    DragDiagnostics.Record($"!!异常帧 指针换算差=({errorX:0.#},{errorY:0.#}) 模块位移=({movedX:0.#},{movedY:0.#})");
-                }
-            }
-
-            _lastPointerX = x;
-            _lastPointerY = y;
             e.Handled = true;
         }
     }
@@ -227,16 +259,8 @@ public partial class ModuleWindow : Window
         if (_dragging)
         {
             _dragging = false;
-            var groupSize = controller.DragGroupSize;
-            var instanceId = Module?.InstanceId ?? "-";
             controller.EndDrag();
             e.Pointer.Capture(null);
-
-            // 【临时诊断】整段拖动落盘（每次拖动都会追加一段）
-            if (DragDiagnostics.Flush($"实例={instanceId} 组={groupSize}") is { } path)
-            {
-                controller.RaiseNotice($"拖动诊断日志已写入：{path}", isError: false);
-            }
         }
     }
 
@@ -745,32 +769,37 @@ public partial class ModuleWindow : Window
     };
 
     /// <summary>
-    /// 把指针位置换算为**屏幕物理像素**。
+    /// 把指针位置换算为**屏幕坐标（DIP）** —— 与模型几何同一坐标系。
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// <b>单位口径</b>：模型四数一律 DIP（见 `ModuleLayoutView`），所以本方法**必须返回 DIP**。
+    /// `Position`（窗口位置）本身就是 DIP，只有"指针在窗口内 + 乘缩放"那一路会得到物理像素，
+    /// 系统光标那一路拿到的也是物理像素 ⇒ 两路都要 ÷ <c>RenderScaling</c>。
+    /// </para>
+    /// <para>
     /// 【用户第十二轮第二轮反馈 · `architecture/15` §6.4】**优先取系统光标**：
     /// 原来只用 <c>Position + 局部坐标 × 缩放</c>，两个来源不是同一次采样（窗口位置是我们刚设的、
     /// 局部坐标来自系统消息生成时刻），拖动中窗口每帧都在动（吸附命中还会跳几像素）⇒
     /// 指针读数带上"等于窗口位移量"的误差 ⇒ 回授振荡。系统光标与本窗口自己的位置无关，能断掉这条回授。
     /// 非 Windows / 非鼠标（触摸、笔）或调用失败时回退到原换算。
+    /// </para>
     /// </remarks>
     private (double X, double Y) ScreenPoint(PointerEventArgs e)
     {
         var local = e.GetPosition(this);
         var scaling = RenderScaling <= 0 ? 1.0 : RenderScaling;
-        var derived = (X: Position.X + (local.X * scaling), Y: Position.Y + (local.Y * scaling));
 
-        // 诊断用：把"窗口换算值"留存，便于与系统光标比对（见 DragDiagnostics）
-        LastWindowDerivedPoint = derived;
+        // 回退值：`Position` 是 DIP、`local` 是 DIP ⇒ 相加已是 DIP（不再乘缩放）。
+        var derived = (X: Position.X + local.X, Y: Position.Y + local.Y);
 
         if (e.Pointer.Type == PointerType.Mouse && NativeCursor.TryGetScreenPosition(out var systemX, out var systemY))
         {
-            return (systemX, systemY);
+            // 系统光标是**物理像素** ⇒ ÷ 缩放换成 DIP
+            return (systemX / scaling, systemY / scaling);
         }
 
         return derived;
     }
 
-    /// <summary>【临时诊断】最近一次"窗口换算"得到的指针位置（拖动诊断用，见 `DragDiagnostics`）。</summary>
-    internal (double X, double Y) LastWindowDerivedPoint { get; private set; }
 }

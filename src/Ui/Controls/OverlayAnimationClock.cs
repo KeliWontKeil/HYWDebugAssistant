@@ -9,7 +9,7 @@ namespace HYWDebugAssistant.Ui.Controls;
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>为什么共享</b>：叠加层的"流动虚线"要随时间推进，但**不能**每个模块窗口各起一个定时器
-///     （N 个窗口 = N 条时间线，还可能因相位不同看起来各不相同）。这里只维护**一个** 20 Hz 时钟，
+///     （N 个窗口 = N 条时间线，还可能因相位不同看起来各不相同）。这里只维护**一个**时钟（<see cref="IntervalMs"/> ms ≈ 60 Hz），
 ///     所有**可见**的 <see cref="ConnectionOverlay"/> 共用同一个 tick ⇒ 全屏虚线**同相流动**；</item>
 ///   <item><b>什么时候不跑</b>：叠加层本身是**默认关闭**的调试层。关闭时对应的
 ///     <see cref="ConnectionOverlay"/> 会把自己退订 ⇒ **没有订阅者就不跑表**（不白烧 CPU）；
@@ -25,7 +25,7 @@ public static class OverlayAnimationClock
     /// </summary>
     /// <remarks>
     /// 虚线流动"**一卡一卡**"（像一根匀速旋转的指针，转到 270° 突然跳回 0°）有两个成因，分开看：
-    /// 两个问题分开看：① **帧率**（旧实现 20 Hz、每 tick 跳 1.2 px）⇒ 提到 60 Hz；
+    /// ① **帧率**：两次 tick 之间的相位推进量与"流速 × 间隔"成正比，间隔越大位移越大、越像跳动 ⇒ 取 60 Hz 让推进足够细；
     /// ② **真正的"跳一下"是相位环绕点算错了**（见 <see cref="Period"/> 的说明）—— 平滑一段后**周期性跳**正是环绕不连续的典型症状。
     /// </remarks>
     public const int IntervalMs = 16;

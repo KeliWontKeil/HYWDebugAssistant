@@ -88,11 +88,15 @@ internal static class TextSenderCodec
     }
 
     /// <summary>
-    /// 解析「间隔」输入（毫秒）。范围 0 – 数据类型最大值，不预设上限需求。
+    /// 解析「间隔」输入（毫秒）。范围 <c>0 … MaxIntervalMs</c>。
     /// </summary>
-    /// <param name="text">输入文本（框架只保证"是数字写法"，**范围归模块**）。</param>
+    /// <param name="text">输入文本。</param>
     /// <param name="milliseconds">解析结果（毫秒）。</param>
-    /// <returns>解析成功为 <see langword="true"/>；失败 ⇒ 调用方回报失败（红框），**不改动当前值**。</returns>
+    /// <returns>解析成功为 <see langword="true"/>；失败 ⇒ 调用方报错（标红），**不改动当前值**。</returns>
+    /// <remarks>
+    /// **上下界与文案同源**：范围取 <see cref="TextSenderModule.MaxIntervalMs"/>，报错文案也用它 ——
+    /// 三者（接受 / 存储 / 文案）是同一个数，不会出现"说合法却按别的值走"。
+    /// </remarks>
     public static bool TryParseInterval(string? text, out uint milliseconds)
     {
         milliseconds = 0;
@@ -107,6 +111,7 @@ internal static class TextSenderCodec
             text.Trim(),
             System.Globalization.NumberStyles.None,
             System.Globalization.CultureInfo.InvariantCulture,
-            out milliseconds);
+            out milliseconds)
+            && milliseconds <= TextSenderModule.MaxIntervalMs;
     }
 }

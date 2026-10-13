@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using HYWDebugAssistant.Ui.ModuleSurface.Theme;
 using HYWDebugAssistant.Ui.Views;
 using HYWDebugAssistant.Ui.ViewModels;
 using Shouldly;
@@ -74,9 +75,10 @@ public class TabStripSnapshotTests
                 Pump();
 
                 // ① 页签在真实 Skia 视觉树里存在、有非零尺寸（模板/样式写错时这里是 0）
+                //    类名取常量而不是字面量：它是"外观挂点"，写错字面量会让用例自己变成哑的
                 var tabs = window.GetVisualDescendants()
                     .OfType<Button>()
-                    .Where(b => b.Classes.Contains("tabStripItem"))
+                    .Where(b => b.Classes.Contains(SurfaceClasses.TabStripItem))
                     .ToList();
 
                 tabCount = tabs.Count;
@@ -176,8 +178,11 @@ public class TabStripSnapshotTests
     private static void DumpVisualTree(Visual visual, int depth, List<string> lines)
     {
         var bounds = visual.Bounds;
+        var classes = (visual as Control)?.Classes;
+        var marks = classes is { Count: > 0 } ? $" classes=[{string.Join(",", classes)}]" : string.Empty;
+
         lines.Add($"{new string(' ', depth * 2)}{visual.GetType().Name} " +
-                  $"name={(visual as Control)?.Name ?? "-"} @({bounds.X:0},{bounds.Y:0}) {bounds.Width:0}x{bounds.Height:0}");
+                  $"name={(visual as Control)?.Name ?? "-"} @({bounds.X:0},{bounds.Y:0}) {bounds.Width:0}x{bounds.Height:0}{marks}");
 
         foreach (var child in visual.GetVisualChildren())
         {

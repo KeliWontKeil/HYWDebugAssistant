@@ -58,6 +58,16 @@
         <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
 
+    <!--
+      **按钮的指向 / 按下**由 `Styles/ButtonChrome.axaml` 统一给（那一份排在最后，且同时打在
+      控件自身与模板部件上 —— 部件才是画在最上面的那一层）。
+
+      **这里刻意不再写 `Button:pointerover` / `Button:pressed`**：那两条会**对所有按钮**生效，
+      优先级又高于"按类名收窄"的规则，于是普通按钮在指向/按下时会被**先刷一层浅主色**、
+      再叠 ButtonChrome 的面色 —— 屏幕上就是"多叠了一层"（实测）。自带底色的按钮类
+      （`.tab` / `.rail` / `.icon` / `.helpIcon`）各自有指针态，也不需要这两条。
+    -->
+
     <Style Selector="ToggleButton">
         <Setter Property="MinHeight" Value="{DynamicResource ControlHeight}" />
         <Setter Property="FontSize" Value="{DynamicResource ControlFontSize}" />

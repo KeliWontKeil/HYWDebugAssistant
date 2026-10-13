@@ -12,7 +12,7 @@ namespace HYWDebugAssistant.Infrastructure.Storage;
 ///     5 个读取点…）⇒ 「用户数据在哪」没有单一答案，包根会出现互相矛盾的说法；
 ///   <item><b>不预先建目录</b>：写盘方（`JsonFileStore`）会按需建目录 ⇒ 这里**只给路径**，不产生副作用
 ///     （避免"装起来就多一堆空目录"）；</item>
-///   <item><b>不管临时文件</b>：`%TEMP%` 下的取证日志（`DragDiagnostics`）属临时层，**不在这里**。</item>
+///   <item><b>不管临时文件</b>：`%TEMP%` 下的临时产物属临时层，**不在这里**。</item>
 /// </list>
 /// <para>
 /// **本类不做任何版本/迁移**：未设计兼容性的改动一律不考虑兼容性 ⇒

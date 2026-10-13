@@ -1,28 +1,29 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/Sdk/HYWDebugAssistant.Sdk.csproj" />
-    <Project Path="src/Sdk.Testing/HYWDebugAssistant.Sdk.Testing.csproj" />
-    <Project Path="src/Infrastructure/HYWDebugAssistant.Infrastructure.csproj" />
-    <Project Path="src/Hosting/HYWDebugAssistant.Hosting.csproj" />
-    <Project Path="src/DataPlane/HYWDebugAssistant.DataPlane.csproj" />
-    <Project Path="src/Core/HYWDebugAssistant.Core.csproj" />
-    <Project Path="src/Core.Api/HYWDebugAssistant.Core.Api.csproj" />
-    <Project Path="src/Ui/HYWDebugAssistant.Ui.csproj" />
-    <Project Path="src/FrameworkUi/HYWDebugAssistant.FrameworkUi.csproj" />
     <Project Path="src/App/HYWDebugAssistant.App.csproj" />
+    <Project Path="src/Core.Api/HYWDebugAssistant.Core.Api.csproj" />
+    <Project Path="src/Core/HYWDebugAssistant.Core.csproj" />
+    <Project Path="src/DataPlane/HYWDebugAssistant.DataPlane.csproj" />
+    <Project Path="src/FrameworkUi/HYWDebugAssistant.FrameworkUi.csproj" />
+    <Project Path="src/Hosting/HYWDebugAssistant.Hosting.csproj" />
+    <Project Path="src/Infrastructure/HYWDebugAssistant.Infrastructure.csproj" />
+    <Project Path="src/Sdk.Testing/HYWDebugAssistant.Sdk.Testing.csproj" />
+    <Project Path="src/Sdk/HYWDebugAssistant.Sdk.csproj" />
+    <Project Path="src/Ui/HYWDebugAssistant.Ui.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/" />
   <Folder Name="/src/Modules/Business/">
-    <Project Path="src/Modules/Business/TextSender/HYWDebugAssistant.Modules.TextSender.csproj" />
-    <Project Path="src/Modules/Business/HexSender/HYWDebugAssistant.Modules.HexSender.csproj" />
     <Project Path="src/Modules/Business/DataMonitor/HYWDebugAssistant.Modules.DataMonitor.csproj" />
+    <Project Path="src/Modules/Business/HexSender/HYWDebugAssistant.Modules.HexSender.csproj" />
     <Project Path="src/Modules/Business/HexStringConverter/HYWDebugAssistant.Modules.HexStringConverter.csproj" />
+    <Project Path="src/Modules/Business/TextSender/HYWDebugAssistant.Modules.TextSender.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/HYWDebugAssistant.Tests/HYWDebugAssistant.Tests.csproj" />
-    <Project Path="tests/HYWDebugAssistant.Tests.Reference/HYWDebugAssistant.Tests.Reference.csproj" />
-    <Project Path="tests/HYWDebugAssistant.Modules.Tests/HYWDebugAssistant.Modules.Tests.csproj" />
     <Project Path="tests/HYWDebugAssistant.ArchitectureTests/HYWDebugAssistant.ArchitectureTests.csproj" />
-    <Project Path="tests/HYWDebugAssistant.VisualSnapshots/HYWDebugAssistant.VisualSnapshots.csproj" />
     <Project Path="tests/HYWDebugAssistant.Benchmarks/HYWDebugAssistant.Benchmarks.csproj" />
+    <Project Path="tests/HYWDebugAssistant.Modules.Tests/HYWDebugAssistant.Modules.Tests.csproj" />
+    <Project Path="tests/HYWDebugAssistant.Tests.Reference/HYWDebugAssistant.Tests.Reference.csproj" />
+    <Project Path="tests/HYWDebugAssistant.Tests/HYWDebugAssistant.Tests.csproj" />
+    <Project Path="tests/HYWDebugAssistant.VisualSnapshots/HYWDebugAssistant.VisualSnapshots.csproj" />
   </Folder>
 </Solution>

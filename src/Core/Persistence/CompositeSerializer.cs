@@ -63,7 +63,16 @@ public static class CompositeSerializer
     /// <param name="root">根 JSON 对象。</param>
     /// <param name="warnings">记录级问题（面向用户，由调用方转 Issue）。</param>
     /// <param name="failure">结构性失败原因（非空 = 应拒绝加载）。</param>
-    public static bool TryParse(JsonObject root, out Composite? composite, out IReadOnlyList<string> warnings, out string? failure)
+    /// <param name="dipScale">
+    /// **当前屏幕缩放**（≤0 视为 1）。只用于把**旧格式**（&lt; v3）里的布局数值从
+    /// 屏幕物理像素换算成 DIP —— v3 起四个数已经是 DIP，本参数无用。
+    /// </param>
+    public static bool TryParse(
+        JsonObject root,
+        out Composite? composite,
+        out IReadOnlyList<string> warnings,
+        out string? failure,
+        double dipScale = 1.0)
     {
         ArgumentNullException.ThrowIfNull(root);
 
@@ -212,6 +221,12 @@ public static class CompositeSerializer
             });
         }
 
+        // **旧格式的单位归一（唯一一处）**：v3 之前 `layout.*` 的四个数是**屏幕物理像素**，
+        // 而模型自 v3 起一律 DIP（见 `ModuleLayoutView`）⇒ 在这里 ÷ 缩放换过来。
+        // 放在解析期而不是下游，是为了让"`ModuleLayoutView` 就是 DIP"成为**无条件的不变式** ——
+        // 读它的代码（视图模型、DockRule、呈现）不需要知道单位来源，也不带任何"要不要换算"的标记。
+        var layoutScale = schemaVersion < 3 && dipScale > 0 ? dipScale : 1.0;
+
         var layout = new List<ModuleLayoutView>();
         if (root[LayoutField] is JsonObject layoutObject)
         {
@@ -231,10 +246,10 @@ public static class CompositeSerializer
 
                 layout.Add(new ModuleLayoutView(
                     instanceId,
-                    x,
-                    y,
-                    ReadDouble(item, WidthField, fallback: 0),
-                    ReadDouble(item, HeightField, fallback: 0),
+                    x / layoutScale,
+                    y / layoutScale,
+                    ReadDouble(item, WidthField, fallback: 0) / layoutScale,
+                    ReadDouble(item, HeightField, fallback: 0) / layoutScale,
                     ReadBool(item, ViewVisibleField, fallback: true)));
             }
         }

@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     0) 清除被污染的环境变量 Platform（否则 MSBuild 会把它当作目标平台，报 MSB4126）
-    1) 文档机械审计（docs/tools/audit-docs.ps1，只读）—— 规定见 docs/DOC-WORKFLOW.md §4
+    1) 文档机械审计（docs/tools/audit-docs.ps1，只读）—— 规定就在该脚本头部注释的「判据」清单里
     2) dotnet restore / build
     3) 校验内置模块包归拢（应用输出 modules\ + artifacts\modules\）
     4) 依赖许可审计（tools/audit-licenses.ps1，白名单：MIT/Apache-2.0/BSD 等宽松许可）
@@ -21,7 +21,7 @@ param(
     [string]$Configuration = 'Debug',
     [switch]$SkipTests,
     [switch]$SkipAudit,
-    # 跳过文档机械审计（仅当本次改动确实不涉及 docs/ 时使用；见 docs/DOC-WORKFLOW.md §4）
+    # 跳过文档机械审计（仅当本次改动确实不涉及 docs/ 时使用；判据见 docs/tools/audit-docs.ps1 头部）
     [switch]$SkipDocAudit,
     # Gate B 数值实测（04a §5 清单）：跑 BenchmarkDotNet 基准（Release）。
     # **不进常规门禁**（耗时且数值随机器波动）；数值**只记录、不设阈值**。
@@ -69,15 +69,23 @@ foreach ($name in @('Platform', 'Platform(x86)')) {
 $sln = Join-Path $root 'HYWDebugAssistant.slnx'
 if (-not (Test-Path $sln)) { throw "未找到解决方案：$sln" }
 
-# ---- 1) 文档机械审计（只读；规定见 docs/DOC-WORKFLOW.md §4）----
+# ---- 1) 文档机械审计（只读；判据见该脚本头部注释）----
 # 放在最前：文档问题最便宜、且不依赖构建产物；改了 docs/ 却忘了跑审计会在这里被拦下。
 if (-not $SkipDocAudit) {
     Write-Host "===== 1/5 文档机械审计 =====" -ForegroundColor Cyan
     & (Join-Path $root 'docs\tools\audit-docs.ps1')
-    if ($LASTEXITCODE -ne 0) { throw '文档机械审计未通过（见上方 文件:行号；处置见 docs/DOC-WORKFLOW.md §4）' }
+    if ($LASTEXITCODE -ne 0) { throw '文档机械审计未通过（见上方 文件:行号；判据见 docs/tools/audit-docs.ps1 头部注释）' }
 }
 else {
     Write-Host "[skip] 文档机械审计已跳过（-SkipDocAudit）" -ForegroundColor Yellow
+}
+
+# ---- 1b) 颜色口径审计（只读；判据见该脚本头部注释）----
+# 与文档审计同一位置、同一理由：**相对色引 token / 绝对色带理由标记**这条口径，
+# 靠"改了源码就顺手跑一次"是守不住的；放在构建最前，违规当场拦下。
+if (-not $SkipDocAudit) {
+    & (Join-Path $root 'docs\tools\audit-colors.ps1')
+    if ($LASTEXITCODE -ne 0) { throw '颜色口径审计未通过（见上方 文件:行号；判据见 docs/tools/audit-colors.ps1 头部注释）' }
 }
 
 Write-Host "===== 2/5 还原 =====" -ForegroundColor Cyan

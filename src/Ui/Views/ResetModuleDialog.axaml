@@ -15,7 +15,8 @@
       · 用普通窗口（带标题栏）而不是无边框窗：确认框需要明确的关闭与"取消"语义；
       · 文案与按钮从左到右按"影响从小到大"排列，取消在最后（Windows 习惯）。
     -->
-    <StackPanel Margin="14" Spacing="10">
+    <!-- 按钮的指针 / 按下态：必须挂在窗口 Resources 上才被 Fluent 的按钮模板读到（见该文件说明） -->
+<StackPanel Margin="14" Spacing="10">
         <TextBlock x:Name="Message"
                    TextWrapping="Wrap"
                    Foreground="{DynamicResource TextPrimary}"

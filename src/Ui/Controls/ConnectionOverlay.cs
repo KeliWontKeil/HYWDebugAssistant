@@ -21,14 +21,14 @@ namespace HYWDebugAssistant.Ui.Controls;
 ///     **线上一律不写文字**（线上的字会被读成"这条通路的信息"，与"角色自身的信息"混淆）；</item>
 ///   <item><b>两个信息维度</b>：**角色维度**（这块功能自己在跑多快）画在方块上；
 ///     **通路维度**（这条网络在跑多快）画在**端口标记**上 —— 读同一份框架诊断，但表达对象不同，
-///     因此在界面上**各有一处**出处，且接口层在叠加层里**降权不高亮**；</item>
+///     因此在界面上**各有一处**出处，且接口层在叠加层里被灰玻璃统一压暗（不做单独降权样式）；</item>
 ///   <item><b>线的几何</b>：一条线 = **本端角色方块中心 ↔ 对端角色方块中心**（两个点，两端用**同一套**布局算，
 ///     故两个窗口各画自己窗内那段时**严格共线**）；绘制时裁掉落在**本端方块内部**的那一段
 ///     （从方块边界出发）⇒ 视觉上"从方块中心出发"，且不会在方块里留一道淡线；
 ///     虚线的绘制方向**恒为数据流方向**（发送：方块 → 窗外；接收：窗外 → 方块），故两侧虚线看起来**一个向外、一个向内**；</item>
 ///   <item><b>未拼接的末端</b>：**不淡出**，改为在边界处画**断口竖杠** + 对端名 —— 表达"线被窗口裁断，另一端在窗外"；</item>
 ///   <item><b>层级与开关</b>：默认关闭（快捷键 `L`）、灰玻璃遮罩、排在端口标记**之下**、**不参与命中**、
-///     共享 20Hz 时钟（关闭即停表）。</item>
+///     共享 60 Hz 时钟（关闭即停表）。</item>
 /// </list>
 /// </remarks>
 public sealed class ConnectionOverlay : Control
@@ -348,7 +348,7 @@ public sealed class ConnectionOverlay : Control
     /// <summary>端口标记带厚度（与 <see cref="PortMarkerPanel.BandThickness"/> 一致）。</summary>
     private const double Band = PortMarkerPanel.BandThickness;
 
-    /// <summary>方向色取不到纯色时的兜底线色。</summary>
+    /// <summary>**绝对色**：方向色取不到纯色时的兜底线色（只在"主题资源缺失"时出现）。</summary>
     private static readonly Color FallbackDirection = Color.Parse("#94A3B8");
 
     /// <summary>发送方向的虚线（同向线条共用，只改 <c>Offset</c>）。</summary>
@@ -693,6 +693,7 @@ public sealed class ConnectionOverlay : Control
         var sendColor = ColorOf(SendArrowBrush) ?? FallbackDirection;
         var receiveColor = ColorOf(ReceiveArrowBrush) ?? FallbackDirection;
         var mid = MidColor(sendColor, receiveColor);
+        // **绝对色**（兜底）：调用方总会给 `InkBrush`（主题的 `OverlayInk`）；这一支只在资源缺失时出现。
         var ink = InkBrush ?? Brushes.White;
         var inkColor = ColorOf(ink) ?? Colors.White;
         var muted = InkMutedBrush ?? ink;

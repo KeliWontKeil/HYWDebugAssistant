@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="using:Avalonia.Controls"
-        xmlns:theming="using:HYWDebugAssistant.Ui.Theming"
+        xmlns:views="using:HYWDebugAssistant.FrameworkUi.Views"
         x:Class="HYWDebugAssistant.FrameworkUi.Views.ColorPickerDialog"
         Title="编辑颜色"
         SizeToContent="WidthAndHeight"
@@ -27,7 +27,8 @@
       （= `ThemeApplier.Presets`，与主题同一套），**不必切页签就能点**。`IsColorPaletteVisible=False`：
       推荐色**只有一个来源**（右侧那一排），控件自带的"色板"页签不再重复出现。
     -->
-    <StackPanel Margin="14" Spacing="10">
+    <!-- 按钮的指针 / 按下态：必须挂在窗口 Resources 上才被 Fluent 的按钮模板读到（见该文件说明） -->
+<StackPanel Margin="14" Spacing="10">
 
         <Grid ColumnDefinitions="Auto,*">
 
@@ -58,7 +59,7 @@
                         </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="theming:ThemeApplier+AccentPreset">
+                        <DataTemplate x:DataType="views:RecommendedColor">
                             <Button Width="26" Height="26" MinHeight="26" Padding="0" Margin="1"
                                     Background="{Binding Brush}"
                                     BorderBrush="{DynamicResource BorderStrong}"

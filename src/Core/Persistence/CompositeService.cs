@@ -25,6 +25,21 @@ public sealed class CompositeService
     private readonly ModuleRegistry _registry;
     private readonly IIssueSink _issues;
 
+    /// <summary>
+    /// **当前屏幕缩放**（供旧格式（&lt; v3）布局的单位归一用；≤0 或没设 ⇒ 1）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>静态</b>是有意的：它是**进程级事实**（这台机器当前那块屏的缩放），不是某个组合件或某个服务的属性；
+    /// 而 <c>Core</c> 拿不到屏幕 ⇒ 由 UI 层在窗口建好之后设置一次（见 <c>App</c>）。
+    /// </para>
+    /// <para>
+    /// 它只影响**读旧文件**那一次换算：v3 起的组合件里四个数已经是 DIP，本值无用。
+    /// 旧文件若在与保存时不同缩放的屏上打开，尺寸会差一个比例（一次性近似，第一次保存后固化）。
+    /// </para>
+    /// </remarks>
+    public static double ScreenScale { get; set; } = 1.0;
+
     /// <summary>创建服务。</summary>
     /// <param name="runtime">运行时（捕获与加载的目标）。</param>
     /// <param name="registry">模块注册表（加载时按标识 + 版本重锚）。</param>
@@ -82,7 +97,7 @@ public sealed class CompositeService
             return Reject(filePath, $"{prefix}：{readError}");
         }
 
-        if (!CompositeSerializer.TryParse(root!, out var composite, out var warnings, out var parseFailure))
+        if (!CompositeSerializer.TryParse(root!, out var composite, out var warnings, out var parseFailure, ScreenScale))
         {
             return Reject(filePath, $"组合件不可解析：{parseFailure}");
         }
@@ -146,6 +161,8 @@ public sealed class CompositeService
     ///   <item><b>v1 → v2</b>：网络源成员由单数 <c>source</c> 改为数组 <c>sources</c>。
     ///     字段形态的归一在**解析期**完成（<c>CompositeSerializer.ReadSources</c> 读旧字段即写进
     ///     <c>record.Sources</c>）⇒ 此处只需升版号；写回时旧字段被移除、新字段写出。</item>
+    ///   <item><b>v2 → v3</b>：布局四数由**屏幕物理像素**改为 **DIP**。单位换算同样在**解析期**完成
+    ///     （<c>CompositeSerializer.TryParse</c> 按 <see cref="ScreenScale"/> ÷）⇒ 此处只升版号。</item>
     ///   <item>版本号**过新**由调用方拒绝（见 <see cref="LoadComposite"/>），不回退猜测。</item>
     /// </list>
     /// </remarks>

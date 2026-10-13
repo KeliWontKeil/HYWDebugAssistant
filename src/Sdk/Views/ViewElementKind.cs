@@ -6,8 +6,7 @@ namespace HYWDebugAssistant.Sdk.Views;
 /// <remarks>
 /// 模块**不提供 View 类型**：视图只能由框架按本目录中的元素组合渲染。
 /// 新增元素属**兼容扩展**；删除或改语义属破坏性变更（须 ADR）。
-/// 声明面另有更细的 kind 名与角色划分（见框架 schema）；本枚举是**渲染侧的目录**，
-/// 编号与含义都不得改动 —— 模块的声明字节、运行时判定与测试都按它对齐。
+/// 声明面另有更细的 kind 名与角色划分（见框架 schema）；本枚举是**渲染侧的目录**。
 /// </remarks>
 public enum ViewElementKind
 {
@@ -53,9 +52,6 @@ public enum ViewElementKind
 
     /// <summary>B5 文本输入（如 AT 指令）。</summary>
     TextInput = 12,
-
-    /// <summary>B6 文件/路径选择。</summary>
-    FileSelector = 13,
 
     // ---- 结构容器类（C） ----
 
@@ -121,6 +117,12 @@ public static class ViewElementKindExtensions
 
     /// <summary>是否是**自己带排布键**的容器（即 <see cref="ViewElementKind.Container"/>）。</summary>
     public static bool IsLayoutContainer(this ViewElementKind kind) => kind == ViewElementKind.Container;
+
+    /// <summary>是否是标签页容器（<c>tabs</c>）—— 它内部有"页签条 + 页内容"这条分法。</summary>
+    /// <param name="declarationName">声明文件里的 kind 名。</param>
+    /// <returns>是标签页容器为 <see langword="true"/>。</returns>
+    public static bool IsTabs(string? declarationName) =>
+        string.Equals(declarationName, TabPagesName, StringComparison.Ordinal);
 
     /// <summary>是否是容器（含语义包装：分组 / 标签页 / 折叠）。</summary>
     public static bool IsContainer(this ViewElementKind kind) => kind

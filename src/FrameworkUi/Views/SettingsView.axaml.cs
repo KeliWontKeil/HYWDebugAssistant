@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.FrameworkUi.ViewModels;
 using HYWDebugAssistant.Ui.Hotkeys;
 using HYWDebugAssistant.Ui.Theming;
@@ -77,60 +78,82 @@ public partial class SettingsView : UserControl
         }
     }
 
-    // ------------------------------------------------------------ 调色板窗口（统一取色入口）
+    // ------------------------------------------------------------ 背景预设（动作：一次写六格）
 
-    /// <summary>主题色：打开调色板窗口（调色板窗口可被所有颜色选择相关位置复用）。</summary>
-    private async void OnPickAccentColor(object? sender, RoutedEventArgs e) =>
-        await PickAsync(
-            current: Settings?.AccentColor,
-            fallback: "#2563EB",
-            title: "编辑颜色 · 主题色",
-            resetText: null,
-            apply: hex => Settings!.AccentColor = hex ?? "#2563EB");
-
-    /// <summary>背景色（"自定义"档位用的色）。</summary>
-    private async void OnPickBackgroundColor(object? sender, RoutedEventArgs e) =>
-        await PickAsync(
-            current: Settings?.BackgroundColor,
-            fallback: "#F3F4F6",
-            title: "编辑颜色 · 背景色",
-            resetText: null,
-            apply: hex => Settings!.BackgroundColor = hex ?? "#F3F4F6");
-
-    /// <summary>发送方向色（**留空 = 跟随主题默认值** ⇒ 恢复按钮文案就是"跟随主题"）。</summary>
-    private async void OnPickSendColor(object? sender, RoutedEventArgs e) =>
-        await PickAsync(
-            current: Settings?.DirectionSendColor,
-            fallback: "#EA580C",
-            title: "编辑颜色 · 发送色",
-            resetText: "跟随主题",
-            apply: hex => Settings!.DirectionSendColor = hex ?? string.Empty);
-
-    /// <summary>接收方向色（留空 = 跟随主题默认值）。</summary>
-    private async void OnPickReceiveColor(object? sender, RoutedEventArgs e) =>
-        await PickAsync(
-            current: Settings?.DirectionReceiveColor,
-            fallback: "#0891B2",
-            title: "编辑颜色 · 接收色",
-            resetText: "跟随主题",
-            apply: hex => Settings!.DirectionReceiveColor = hex ?? string.Empty);
-
-    /// <summary>统一的"打开调色板窗口 → 把结果交回设置"路径（当前值为空时用默认色作初值）。</summary>
-    private async Task PickAsync(string? current, string fallback, string title, string? resetText, Action<string?> apply)
+    /// <summary>
+    /// 套一档背景预设：把三支底色写进**两套主题**的色板行（真正的生效仍走「应用 / 确认」）。
+    /// </summary>
+    private void OnApplyBackgroundPreset(object? sender, RoutedEventArgs e)
     {
-        if (Settings is null)
+        if (sender is Button { DataContext: ThemePresets.BackgroundPreset preset })
+        {
+            Settings?.ApplyBackgroundPreset(preset);
+        }
+    }
+
+    // ------------------------------------------------------------ 主题色板（逐项：取色 / 恢复 / 两套同色）
+
+    /// <summary>色板某一行的**浅色**格：打开调色板窗口（窗口里「跟随内置」= 恢复跟随）。</summary>
+    private async void OnPickPaletteLight(object? sender, RoutedEventArgs e) =>
+        await PickPaletteAsync(sender, dark: false);
+
+    /// <summary>色板某一行的**深色**格（同上）。</summary>
+    private async void OnPickPaletteDark(object? sender, RoutedEventArgs e) =>
+        await PickPaletteAsync(sender, dark: true);
+
+    /// <summary>色板一格的取色路径：初值 = 这一格**当前有效色**（已改 ⇒ 改过的；跟随 ⇒ 该套内置值）。</summary>
+    private async Task PickPaletteAsync(object? sender, bool dark)
+    {
+        if (sender is not Button { DataContext: PaletteRowViewModel row } || Settings is not { } settings)
         {
             return;
         }
 
         var owner = TopLevel.GetTopLevel(this) as Window;
-        var initial = ThemeApplier.Parse(string.IsNullOrWhiteSpace(current) ? fallback : current) ?? Colors.Gray;
+        var initial = ThemeApplier.Parse(row.Cell(dark).EffectiveHex ?? string.Empty) ?? Colors.Gray;
 
-        var result = await ColorPickerDialog.ShowAsync(owner, initial, title, resetText);
+        var result = await ColorPickerDialog.ShowAsync(
+            owner,
+            initial,
+            $"编辑颜色 · {row.Key}（{(dark ? "深色" : "浅色")}）",
+            resetText: "跟随内置");
 
         if (result.Confirmed)
         {
-            apply(result.Reset ? null : DataTypeColorRowViewModel.ToHex(result.Color));
+            settings.SetPaletteColor(row, dark, result.Reset ? null : DataTypeColorRowViewModel.ToHex(result.Color));
+        }
+    }
+
+    /// <summary>浅色那一格恢复跟随。</summary>
+    private void OnResetPaletteLight(object? sender, RoutedEventArgs e) => ResetPaletteCell(sender, dark: false);
+
+    /// <summary>深色那一格恢复跟随。</summary>
+    private void OnResetPaletteDark(object? sender, RoutedEventArgs e) => ResetPaletteCell(sender, dark: true);
+
+    /// <summary>某一格恢复跟随内置值。</summary>
+    private void ResetPaletteCell(object? sender, bool dark)
+    {
+        if (sender is Button { DataContext: PaletteRowViewModel row })
+        {
+            Settings?.SetPaletteColor(row, dark, null);
+        }
+    }
+
+    /// <summary>「两套同色」：浅色那一格的当前色写成深色那一格的覆盖值。</summary>
+    private void OnSyncPaletteRow(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: PaletteRowViewModel row })
+        {
+            Settings?.SyncPaletteToDark(row);
+        }
+    }
+
+    /// <summary>「本区恢复默认」：这一区全部回到跟随内置值。</summary>
+    private void OnResetPaletteGroup(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: PaletteGroupViewModel group })
+        {
+            Settings?.ResetPaletteGroup(group);
         }
     }
 }

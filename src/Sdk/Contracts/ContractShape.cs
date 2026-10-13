@@ -6,7 +6,8 @@ namespace HYWDebugAssistant.Sdk.Contracts;
 /// 契约**形状**描述（契约三层能力之③：组合与签名）。
 /// </summary>
 /// <remarks>
-/// 形状 = 成员序列（名称 + 原语类型 + 顺序）= **签名**；兼容判定 = 接收契约 ⊇ 发送契约（形状子集，可计算）。
+/// 形状 = 成员序列（名称 + 原语类型 + 顺序）= **签名**；兼容判定要求两侧形状**完全一致**
+/// （成员名称、原语种类、长度、顺序、数量全同），不做"接收 ⊇ 发送"的子集判定。
 /// <para>
 /// v1 规则：仅定长原语（<see cref="ContractPrimitive"/>）、定长字节块（1–<see cref="BytesShape.MaxLength"/>）、
 /// 定长数组（元素为原语，长度 1–<see cref="ArrayShape.MaxLength"/>）、
@@ -19,7 +20,7 @@ namespace HYWDebugAssistant.Sdk.Contracts;
 /// 大上限意味着字节速率与队列内存随之上升 —— 但那正是「还原文本」必须付的代价（用长度字段取真实内容）。
 /// </para>
 /// <para>
-/// 契约**不含单位/量纲语义**（主文档 §5.4.2）——单位属模块配置/显示层。
+/// 契约**不含单位/量纲语义**——单位属模块配置/显示层。
 /// </para>
 /// </remarks>
 public abstract record ContractShape
@@ -49,7 +50,7 @@ public abstract record ContractShape
     /// <remarks>
     /// 用途 = **界面表达「接口的信息类型」**（端口标记 / 拓扑诊断）。缺少它时该事实只存在于 SDK 与运行时内部，
     /// 公开面只有字节数，界面无从显示（用户看不出接口的信息类型）。
-    /// 描述文本**不承载语义**（单位/量纲仍属模块配置与显示层，主文档 §5.4.2）。
+    /// 描述文本**不承载语义**（单位/量纲仍属模块配置与显示层）。
     /// </remarks>
     public string Describe()
     {

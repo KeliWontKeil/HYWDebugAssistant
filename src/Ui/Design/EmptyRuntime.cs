@@ -98,11 +98,13 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     ];
 
     /// <inheritdoc />
-    public IReadOnlyList<InputFeedbackView> GetInputFeedback(string instanceId) =>
-        // 设计时样例：给输入元素一个失败态样本（G3 红框的设计时可见性）
+    public IReadOnlyList<AppearanceView> GetAppearance(string instanceId) =>
+        // 设计时样例：给某一格一个"被模块标了色"的样本（设计时也能看见这个能力）。
+        // 真跑起来时模块给的是**角色词**（见 `ViewInkRoles`），走的不是这条绝对值。
         instanceId switch
         {
-            "inputs-1" => [new("input", Succeeded: false, Message: "示例：处理失败")],
+            // 绝对色：设计期预览的一份固定样例值 —— 它要演示的是"模块能标一个具体的色"，与主题配色表无关。
+            "inputs-1" => [new("input", Outline: 0xFFD32F2F, Text: null)],
             _ => [],
         };
 

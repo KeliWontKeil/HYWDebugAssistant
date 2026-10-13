@@ -328,7 +328,7 @@ public class OverlaySnapshotTests
     /// </summary>
     /// <remarks>
     /// 视图在**包内 `view.json`**（`SnapshotViewPackages.Tabs`）：`container` 根 → `tabs` → 3 个 `group`，
-    /// 每个 `group` 里一个 `textInput`。模块代码只声明数据面 —— 与正式模块同构。
+    /// 每个 `group` 里一个 `textBox`。模块代码只声明数据面 —— 与正式模块同构。
     /// 无端口、无角色 —— 标签页与叠加层无关，本条只为"真出像素"服务。
     /// </remarks>
     [ModuleDefinition("test", "snapshot-tabs", "1.0.0")]
@@ -338,6 +338,42 @@ public class OverlaySnapshotTests
         public void OnRegistered(IModuleContext context)
         {
             _ = context;
+        }
+    }
+
+    /// <summary>
+    /// 快照用"一块内容面板"模块：**每种控件都真出像素**（新内容机制的自检夹具）。
+    /// </summary>
+    /// <remarks>
+    /// 视图在包内 `view.json`（<c>SnapshotViewPackages.Panel</c>）：可折叠区里一块日志、一个数值读数、
+    /// 一个文本框、一个命令按钮；旁边一个声明了但未渲染的 `statusLight`（走占位控件）。
+    /// 无端口、无角色 —— 本条只为"声明面必须变成控件"服务。
+    /// </remarks>
+    [ModuleDefinition("test", "snapshot-panel", "1.0.0")]
+    public sealed class SnapshotPanelModule : IModule, IActivitySource
+    {
+        /// <summary>夹具发布的数据源名（与包内 `view.json` 的 `value` 同名）。</summary>
+        public const string ValueSource = "value";
+
+        /// <inheritdoc />
+        public ActivityKind Kind => ActivityKind.Periodic;
+
+        /// <inheritdoc />
+        public TimeSpan Interval => TimeSpan.FromMilliseconds(20);
+
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context) => _ = context;
+
+        /// <inheritdoc />
+        public void RunActivity(IModuleContext context)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+
+            while (!context.StopSignal.IsStopRequested)
+            {
+                context.Ports.Publish(ValueSource, BitConverter.GetBytes((double)42.5));
+                _ = context.StopSignal.Wait(Interval);
+            }
         }
     }
 
@@ -361,17 +397,22 @@ public class OverlaySnapshotTests
         {
             Runtime = new HYWDebugAssistant.Core.Runtime.ModuleRuntime();
             Services = new HYWDebugAssistant.Core.Services.RuntimeServices(Runtime);
-            Windows = new ModuleWindowsViewModel(Services, Services);
+            ViewState = new HYWDebugAssistant.Core.Services.ViewStateStore();
+            Windows = new ModuleWindowsViewModel(Services, Services, ViewState);
 
             // 视图（含端口位置）只有一个来源 = 包内 `view.json`；代码里已无视图声明 API。
             Register("snapshot-sender", typeof(SnapshotSenderModule), SnapshotViewPackages.Sender);
             Register("snapshot-sink", typeof(SnapshotSinkModule), SnapshotViewPackages.Sink);
             Register("snapshot-tabs", typeof(SnapshotTabsModule), SnapshotViewPackages.Tabs);
+            Register("snapshot-panel", typeof(SnapshotPanelModule), SnapshotViewPackages.Panel);
         }
 
         public HYWDebugAssistant.Core.Runtime.ModuleRuntime Runtime { get; }
 
         public HYWDebugAssistant.Core.Services.RuntimeServices Services { get; }
+
+        /// <summary>视图状态（显示缓冲 / 未提交文本 / 折叠与选页）——与窗口视图模型共用同一个实例。</summary>
+        public HYWDebugAssistant.Core.Services.ViewStateStore ViewState { get; }
 
         public ModuleWindowsViewModel Windows { get; }
 
@@ -381,6 +422,13 @@ public class OverlaySnapshotTests
 
         /// <summary>加入一个"多页标签页"模块（G1 快照用）。</summary>
         public void AddTabs(string instanceId, double x, double y) => Add(instanceId, "test/snapshot-tabs/1.0.0", x, y);
+
+        /// <summary>加入一个"每种控件都来一份"模块（新内容机制的自检夹具）。</summary>
+        public void AddPanel(string instanceId, double x, double y) => Add(instanceId, "test/snapshot-panel/1.0.0", x, y);
+
+        /// <summary>往某实例的显示缓冲里追加一行（走模块侧同一条"请求 → 落地"通道）。</summary>
+        public void AppendDisplayLine(string instanceId, string sourceName, string text) =>
+            ViewState.RequestAppend(instanceId, sourceName, text, lineBreak: true);
 
         public ModuleWindow OpenWindow(ModuleViewViewModel module)
         {
@@ -409,7 +457,7 @@ public class OverlaySnapshotTests
             Windows.Refresh();
         }
 
-        private void Register(string name, Type entryType, string packageDirectory)
+        internal void Register(string name, Type entryType, string packageDirectory)
         {
             var definition = new ModuleDefinition(
                 ModuleId.Create("test", name, "1.0.0"),
@@ -441,7 +489,7 @@ public class OverlaySnapshotTests
               "frame": { "ports": [ { "name": "out", "edge": "right", "offset": 0.5 } ] },
               "sources": [ { "name": "value", "kind": "Value", "valueType": "F64" } ],
               "views": [
-                { "root": { "kind": "container", "children": [ { "kind": "numeric", "title": "值", "data": "value" } ] } }
+                { "root": { "kind": "container", "children": [ { "kind": "numeric", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "data": "value", "width": { "fill": true }, "height": { "pixels": 24 } } ] } }
               ]
             }
             """);
@@ -455,12 +503,12 @@ public class OverlaySnapshotTests
               "frame": { "ports": [ { "name": "in", "edge": "left", "offset": 0.5 } ] },
               "sources": [ { "name": "value", "kind": "Value", "valueType": "F64" } ],
               "views": [
-                { "root": { "kind": "container", "children": [ { "kind": "numeric", "title": "值", "data": "value" } ] } }
+                { "root": { "kind": "container", "children": [ { "kind": "numeric", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "data": "value", "width": { "fill": true }, "height": { "pixels": 24 } } ] } }
               ]
             }
             """);
 
-        /// <summary>标签页模块的包（`tabs` 3 页，每页一个 `textInput`，内容文字不同）。</summary>
+        /// <summary>标签页模块的包（`tabs` 3 页，每页一个 `textBox`，内容文字不同）。</summary>
         public static string Tabs { get; } = Write(
             "hyw-snapshot-tabs-package",
             """
@@ -480,9 +528,9 @@ public class OverlaySnapshotTests
                         "kind": "tabs",
                         "title": "消息",
                         "children": [
-                          { "kind": "group", "title": "第 1 页", "children": [ { "kind": "textInput", "title": "第一页输入", "input": "page0" } ] },
-                          { "kind": "group", "title": "第 2 页", "children": [ { "kind": "textInput", "title": "第二页输入", "input": "page1" } ] },
-                          { "kind": "group", "title": "第 3 页", "children": [ { "kind": "textInput", "title": "第三页输入", "input": "page2" } ] }
+                          { "kind": "group", "title": "第 1 页", "children": [ { "kind": "textBox", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "title": "第一页输入", "input": "page0", "width": { "fill": true }, "height": { "pixels": 92 } } ] },
+                          { "kind": "group", "title": "第 2 页", "children": [ { "kind": "textBox", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "title": "第二页输入", "input": "page1", "width": { "fill": true }, "height": { "pixels": 92 } } ] },
+                          { "kind": "group", "title": "第 3 页", "children": [ { "kind": "textBox", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "title": "第三页输入", "input": "page2", "width": { "fill": true }, "height": { "pixels": 92 } } ] }
                         ]
                       }
                     ]
@@ -492,8 +540,45 @@ public class OverlaySnapshotTests
             }
             """);
 
-        private static string Write(string directoryName, string document)
-        {
+        /// <summary>
+        /// 内容面板模块的包：**可折叠区 + 文本面 + 数值读数 + 文本框 + 命令按钮 + 一个未渲染的 statusLight**。
+        /// </summary>
+        /// <remarks>按钮与文本框都绑了名字 ⇒ 快照用例可以真点、真打字，验证"声明 → 控件 → 提交"整条链。</remarks>
+        public static string Panel { get; } = Write(
+            "hyw-snapshot-panel-package",
+            """
+            {
+              "version": 1,
+              "sources": [
+                { "name": "value", "kind": "Value", "valueType": "F64" },
+                { "name": "log", "kind": "Text" },
+                { "name": "text1", "kind": "Text" }
+              ],
+              "views": [
+                {
+                  "root": {
+                    "kind": "container",
+                    "children": [
+                      {
+                        "kind": "collapsible",
+                        "title": "详情",
+                        "stateKey": "detail",
+                        "children": [
+                          { "kind": "textBox", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "readonly": true, "title": "日志", "data": "log", "width": { "fill": true }, "height": { "fill": true, "min": 88 } }
+                        ]
+                      },
+                      { "kind": "numeric", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "data": "value", "width": { "fill": true }, "height": { "pixels": 24 } },
+                      { "kind": "textBox", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "title": "输入", "input": "text1", "multiline": false, "width": { "fill": true }, "height": { "pixels": 28 } },
+                      { "kind": "commandButton", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "text": "执行", "command": "noop", "width": { "pixels": 88 }, "height": { "pixels": 28 } },
+                      { "kind": "statusLight", "title": "灯", "data": "value", "width": { "fill": true }, "height": { "pixels": 24 } }
+                    ]
+                  }
+                }
+              ]
+            }
+            """);
+
+        internal static string Write(string directoryName, string document)        {
             var directory = Path.Combine(Path.GetTempPath(), directoryName);
             _ = System.IO.Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "view.json"), document);

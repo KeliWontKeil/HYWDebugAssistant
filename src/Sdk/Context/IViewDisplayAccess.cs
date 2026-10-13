@@ -59,6 +59,17 @@ public interface IViewDisplayAccess
     void AppendLine(string dataSourceName, string text);
 
     /// <summary>
+    /// **把某个显示源的文本替换成这一句**（消息 / 状态这类"只有当前值"的内容用它）。
+    /// </summary>
+    /// <param name="dataSourceName">显示元素的 <c>DataSource</c> 名（在视图声明里登记过）。</param>
+    /// <param name="text">新的全部内容；空串 ⇒ 等价清空。</param>
+    /// <remarks>
+    /// 与 <see cref="AppendText"/> / <see cref="AppendLine"/> 的分工：那两条是**只增**（日志、流），
+    /// 本方法是**替换**。消息类内容要的是替换语义 —— 连写两次该只看到后一句，而不是两句都留着。
+    /// </remarks>
+    void SetText(string dataSourceName, string text);
+
+    /// <summary>
     /// 请求**清空**某个显示源的当前内容（模块的「清空」命令用它落点）。
     /// </summary>
     /// <param name="dataSourceName">显示元素的 <c>DataSource</c> 名（在视图声明里登记过）。</param>

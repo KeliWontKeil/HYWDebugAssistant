@@ -55,31 +55,56 @@ internal sealed class MonitorLineFormatter(MonitorFormat format)
             _ = builder.Append(timestamp.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture)).Append("  ");
         }
 
+        var body = new StringBuilder(payload.Length * 3);
+
         if (format.Hex)
         {
             foreach (var b in payload)
             {
-                _ = builder.Append(b.ToString("X2", CultureInfo.InvariantCulture)).Append(' ');
+                _ = body.Append(b.ToString("X2", CultureInfo.InvariantCulture)).Append(' ');
             }
 
-            if (builder.Length > 0 && builder[^1] == ' ')
-            {
-                _ = builder.Length--;   // 末尾不留悬空空格
-            }
-        }
-        else
-        {
-            _ = builder.Append(DecodeUtf8(payload));
+            // **末尾那一个空格就是分隔空格**（每字节后面已经各带一个）：
+            // 十六进制是**一组数字的并列**，不隔开就分不出包边界 ——
+            // `21 41 43` 接 `65 0C` 会粘成 `21 41 4365 0C`，读起来是一个长数。
+            // 它是**呈现层的分隔符**（不是数据里的字节），只在十六进制方向出现。
+            return builder.Append(body).ToString();
         }
 
-        return builder.ToString();
+        // **文本方向一个字节都不加**：文本就是数据本身，多一个空格就是**无中生有**
+        // （它会进显示缓冲、也会进保存的文件）。文本方向不隔开会粘在一起，
+        // 那是"要不要每包一行"的事 —— 由 `BreakAfterPacket`（通道换行）表达，不由字符表达。
+        _ = body.Append(DecodeUtf8(payload));
+
+        return builder.Append(body).ToString();
     }
 
     /// <summary>
-    /// UTF-8 解码：**非法 / 被截断的序列明确标出**（不静默替换）。
+    /// UTF-8 解码：**非法 / 被截断的序列**与**不可显示的字符**都**明确标出**（不静默替换、不静默当换行）。
     /// </summary>
     /// <param name="chunk">字节块。</param>
-    /// <returns>文本（非法字节用 `⟨XX⟩` 标出）。</returns>
+    /// <returns>文本（不可显示的部分用 `⟨XX⟩` 标出）。</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>一条统一的标准（两个方向都一样）</b>：凡是**屏幕上没有可见形状**的东西，一律写成
+    /// <c>⟨XX⟩</c>（该字符的原始字节，大写十六进制、逐字节排列）——
+    /// <list type="bullet">
+    ///   <item>ASCII 控制字符：`0x0C` ⇒ <c>⟨0C⟩</c>、换行 `0x0A` ⇒ <c>⟨0A⟩</c>、制表 `0x09` ⇒ <c>⟨09⟩</c>；</item>
+    ///   <item>被删字符 `0x7F` ⇒ <c>⟨7F⟩</c>；</item>
+    ///   <item>非 ASCII 的不可显示码位（如 U+0085）⇒ 它的 UTF-8 原始字节，如 <c>⟨C2 85⟩</c>；</item>
+    ///   <item>非法 / 被截断的字节 ⇒ 单独那个字节，如 <c>⟨A1⟩</c>。</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// <b>为什么不能"按原样塞进去"</b>：控制字符进到文本里，显示层要么不画（看起来像丢了数据），
+    /// 要么按它自己的语义走 —— `0x0C`（换页）/ `0x0A`（换行）会让**显示自己跳行**，
+    /// 而那个"换行"并不是数据里的一条记录边界，用户看到的行结构于是与数据对不上。
+    /// </para>
+    /// <para>
+    /// <b>它是"所见即所存"的一部分</b>：显示的就是存下来的 —— 保存出来的 `.txt` 里同样是 <c>⟨0A⟩</c>，
+    /// 不会在文件里突然变成真实换行（那样"屏幕上看到的行数"与"文件里的行数"就再也对不上了）。
+    /// </para>
+    /// </remarks>
     private static string DecodeUtf8(ReadOnlySpan<byte> chunk)
     {
         var builder = new StringBuilder(chunk.Length);
@@ -89,9 +114,21 @@ internal sealed class MonitorLineFormatter(MonitorFormat format)
         {
             var status = Rune.DecodeFromUtf8(chunk[index..], out var rune, out var consumed);
 
-            if (status == System.Buffers.OperationStatus.Done)
+            if (status == System.Buffers.OperationStatus.Done && IsVisible(rune))
             {
                 _ = builder.Append(rune.ToString());
+                index += consumed;
+                continue;
+            }
+
+            if (status == System.Buffers.OperationStatus.Done)
+            {
+                // **合法但屏幕上没有形状** ⇒ 标出它的原始字节（逐个字节，便于与十六进制方向对照）
+                for (var i = 0; i < consumed; i++)
+                {
+                    _ = builder.Append(CultureInfo.InvariantCulture, $"⟨{chunk[index + i]:X2}⟩");
+                }
+
                 index += consumed;
                 continue;
             }
@@ -103,4 +140,26 @@ internal sealed class MonitorLineFormatter(MonitorFormat format)
 
         return builder.ToString();
     }
+
+    /// <summary>这个码位在屏幕上有可见形状吗（决定"原样显示"还是"写成 ⟨XX⟩"）。</summary>
+    /// <param name="rune">码位。</param>
+    /// <returns>有可见形状为 <see langword="true"/>。</returns>
+    /// <remarks>
+    /// 判据取 <see cref="Rune.GetUnicodeCategory(Rune)"/>：只有 <c>Cc</c>（控制）/<c>Cf</c>（格式）/
+    /// <c>Cs</c>（代理）/<c>Co</c>（私用）/<c>Cn</c>（未分配）/<c>Zl</c>/<c>Zp</c>（U+2028 / U+2029 这类会跳行的分隔符）
+    /// 被算作"没有可见形状"。**ASCII 空格 U+0020 算可见**（它是 <c>Zs</c>）——
+    /// 空格当然要照原样留着，否则 `41 42` 那种文本会被写成 `⟨20⟩⟨20⟩`，没法看。
+    /// <b>制表符不算可见</b>：它没有自己的字形，画出来是"一段不定宽的空白"，位置与宽度由制表位决定。
+    /// </remarks>
+    private static bool IsVisible(Rune rune) => Rune.GetUnicodeCategory(rune) switch
+    {
+        UnicodeCategory.Control => false,
+        UnicodeCategory.Format => false,
+        UnicodeCategory.Surrogate => false,
+        UnicodeCategory.PrivateUse => false,
+        UnicodeCategory.OtherNotAssigned => false,
+        UnicodeCategory.LineSeparator => false,
+        UnicodeCategory.ParagraphSeparator => false,
+        _ => true,
+    };
 }

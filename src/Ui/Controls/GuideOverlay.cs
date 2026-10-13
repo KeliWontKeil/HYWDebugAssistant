@@ -14,19 +14,20 @@ namespace HYWDebugAssistant.Ui.Controls;
 /// <list type="bullet">
 ///   <item>不绘制任何跨窗口内容：所有坐标都以**本窗口客户区左上角为原点**换算，
 ///     因此不需要透明覆盖窗（跨窗口画线是被否决的方案）；</item>
-///   <item><b>坐标单位</b>：吸附与布局几何存的是**屏幕物理像素**，
-///     而本控件绘制用的是 **DIP**。**不能**直接以 <c>屏幕坐标 − 模块 X/Y</c> 当 DIP 画线：
-///     在 100% 缩放下看不出问题，**在 125% / 150% 缩放下线的位置会整体偏移**
-///     （对齐线差几个像素）。必须改为：
-///     **客户区原点的屏幕坐标**（<c>TopLevel.PointToScreen(0,0)</c>，自动包含窗口边框内缩）
-///     + 除以 <c>RenderScaling</c> 换算到 DIP；</item>
+///   <item><b>坐标单位</b>：<see cref="GuideLine.Position"/> 与模型几何**同一单位 = 屏幕 DIP**
+///     （模型一律 DIP，DIP → 物理像素的换算只在窗口边界一处，见 `ModuleWindowManager.ApplyGeometry`）。
+///     本控件画在**本窗口客户区的 DIP** 空间里 ⇒ 只需减去客户区原点；而
+///     <c>TopLevel.PointToScreen(0,0)</c> 给的是**物理像素** ⇒ **只把它 ÷ 缩放**换成 DIP。
+///     <b>不能把"线 − 原点"这个差整体再除一次缩放</b>：那等于把线自己的坐标也缩了一遍
+///     ⇒ 位置按 <c>(1/scale − 1)</c> 偏移（125% 屏上屏幕 y≈600 的线会画高 ≈120px），
+///     且**越靠屏幕右/下越偏**（实测：中线对齐时那根线明显跑到上面去了）；</item>
 ///   <item>窗口边框不裁剪时线会画到窗口外（实测出现过横贯屏幕的虚线），
 ///     故 <c>ModuleWindow</c> 的 Frame 设 <c>ClipToBounds=True</c>。</item>
 /// </list>
 /// </remarks>
 public sealed class GuideOverlay : Control
 {
-    /// <summary>对齐辅助线（**屏幕坐标，物理像素**；来自吸附引擎）。</summary>
+    /// <summary>对齐辅助线（**与模型几何同一单位：屏幕 DIP**；来自吸附引擎）。</summary>
     public static readonly StyledProperty<IReadOnlyList<GuideLine>?> GuidesProperty =
         AvaloniaProperty.Register<GuideOverlay, IReadOnlyList<GuideLine>?>(nameof(Guides));
 
@@ -38,7 +39,7 @@ public sealed class GuideOverlay : Control
     public static readonly StyledProperty<IBrush?> LineBrushProperty =
         AvaloniaProperty.Register<GuideOverlay, IBrush?>(nameof(LineBrush));
 
-    /// <summary>对齐辅助线（屏幕坐标，物理像素）。</summary>
+    /// <summary>对齐辅助线（屏幕 DIP，与模型几何同单位）。</summary>
     public IReadOnlyList<GuideLine>? Guides
     {
         get => GetValue(GuidesProperty);
@@ -111,6 +112,9 @@ public sealed class GuideOverlay : Control
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        // **绝对色**（兜底）：调用方（模块窗口）总会把 `LineBrush` 设成主题色；
+        // 这一支只在"忘了设色"时出现 —— 它刻意**不跟随主题**：兜底若随主题，
+        // 反而会把"调用方没接线"这件事藏起来（屏幕上看着一切正常）。
         var brush = LineBrush ?? Brushes.DodgerBlue;
         var bounds = Bounds;
         if (bounds.Width <= 1 || bounds.Height <= 1)
@@ -118,17 +122,17 @@ public sealed class GuideOverlay : Control
             return;
         }
 
-        // 客户区原点（屏幕物理像素）+ 缩放 → 把屏幕坐标换算为**本控件的 DIP 坐标**
-        var scale = 1.0;
+        // 客户区原点：`PointToScreen` 给**物理像素** ⇒ ÷ 缩放换成**屏幕 DIP**（与 Guides 同单位）。
+        // 换算只有这一步：线自己的坐标已经是 DIP，**不再参与任何缩放**。
         var originX = 0.0;
         var originY = 0.0;
 
         if (TopLevel.GetTopLevel(this) is { } host)
         {
+            var scale = host.RenderScaling <= 0 ? 1.0 : host.RenderScaling;
             var clientOrigin = host.PointToScreen(new Point(0, 0));
-            originX = clientOrigin.X;
-            originY = clientOrigin.Y;
-            scale = host.RenderScaling <= 0 ? 1.0 : host.RenderScaling;
+            originX = clientOrigin.X / scale;
+            originY = clientOrigin.Y / scale;
         }
 
         // ① 虚线对齐参考线
@@ -143,7 +147,7 @@ public sealed class GuideOverlay : Control
             {
                 if (guide.IsVertical)
                 {
-                    var x = (guide.Position - originX) / scale;
+                    var x = guide.Position - originX;
                     if (IsDrawable(x, bounds.Width))
                     {
                         var drawX = InsetForDrawing(x, bounds.Width);
@@ -152,7 +156,7 @@ public sealed class GuideOverlay : Control
                 }
                 else
                 {
-                    var y = (guide.Position - originY) / scale;
+                    var y = guide.Position - originY;
                     if (IsDrawable(y, bounds.Height))
                     {
                         var drawY = InsetForDrawing(y, bounds.Height);

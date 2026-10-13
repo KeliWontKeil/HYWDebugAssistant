@@ -5,6 +5,12 @@ namespace HYWDebugAssistant.Ui.Geometry;
 /// <param name="Position">线所在坐标（竖线为 X，横线为 Y）。</param>
 /// <param name="Start">线段起点（竖线为 Y，横线为 X）。</param>
 /// <param name="End">线段终点。</param>
+/// <remarks>
+/// 三个数都是**屏幕 DIP** —— 与模型几何（<c>CanvasRect</c>）**同一单位**，
+/// 因为它的输入就是模型矩形。DIP → 物理像素的换算只在窗口边界一处
+/// （见 <c>ModuleWindowManager.ApplyGeometry</c>）；绘制方（`GuideOverlay`）只许做
+/// "减去本窗口客户区原点（同样换成 DIP）"这一步，**不许再乘/除缩放**。
+/// </remarks>
 public readonly record struct GuideLine(bool IsVertical, double Position, double Start, double End);
 
 /// <summary>

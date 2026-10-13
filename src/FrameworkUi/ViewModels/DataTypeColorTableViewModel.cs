@@ -105,11 +105,12 @@ public sealed partial class DataTypeColorRowViewModel : ViewModelBase
     public void ResetToAuto() => _apply(TypeKey, null);
 
     /// <summary>画刷 → `#RRGGBB`（**写入设置的就是这个文本**）。</summary>
-    /// <param name="brush">画刷（非纯色画刷返回占位色文本）。</param>
+    /// <param name="brush">画刷（非纯色画刷 ⇒ 取自动配色的占位色文本）。</param>
     /// <returns>`#RRGGBB` 形式。</returns>
+    /// <remarks>占位色的文本住在 <see cref="PacketTypePalette.PlaceholderHex"/>（唯一一处），这里不再写第二遍。</remarks>
     public static string ToHex(IBrush? brush) => brush is ISolidColorBrush solid
         ? ToHex(solid.Color)
-        : "#9AA4B2";
+        : PacketTypePalette.PlaceholderHex;
 
     /// <summary>颜色 → `#RRGGBB`。</summary>
     /// <param name="color">颜色。</param>

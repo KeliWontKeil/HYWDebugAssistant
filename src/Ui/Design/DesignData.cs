@@ -80,7 +80,6 @@ public static class DesignData
                 view.Frame.Window.Height),
             EmptyRuntime.Instance,
             EmptyRuntime.Instance,
-            scale: 1.0,
             fallbackX: 0,
             fallbackY: 0);
     }
@@ -97,9 +96,7 @@ public static class DesignData
         Columns = [],
         Rows = [],
         Unit = string.Empty,
-        InputKind = "text",
         TextAlign = "default",
-        FileMode = "open",
         Warnings = [],
         Children =
         [
@@ -132,9 +129,7 @@ public static class DesignData
         Columns = [],
         Rows = [],
         Unit = string.Empty,
-        InputKind = "text",
         TextAlign = "default",
-        FileMode = "open",
         Warnings = [],
         Children = [],
         DataSource = source,

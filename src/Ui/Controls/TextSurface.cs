@@ -5,8 +5,12 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Markup.Xaml.MarkupExtensions;
+using Avalonia.Media;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.Input;
+using HYWDebugAssistant.Sdk.Views;
+using HYWDebugAssistant.Ui.ModuleSurface.Theme;
 
 namespace HYWDebugAssistant.Ui.Controls;
 
@@ -19,7 +23,8 @@ namespace HYWDebugAssistant.Ui.Controls;
 ///     （可选再加自建竖向滚动条 + 分页窗口）⇒ 模块文本**输入框**与 A5 **日志**共用同一份实现，
 ///     不再各写一套（重复实现 = 测试成本翻倍 + 观感/手感各自漂移）；</item>
 ///   <item><b>差异只用属性表达</b>：数据来源（<see cref="Lines"/> 模块缓冲 vs <see cref="Text"/> 用户键入）、
-///     <see cref="IsReadOnly"/>、滚动（<see cref="ShowScrollBar"/> 自建竖条 + 分页窗口 vs 内层滚动）；</item>
+///     <see cref="IsReadOnly"/>、文本层的滚动（<see cref="ScrollMode"/>：`window` = 自建竖条 + 分页窗口，
+///     `native` = 文本框自己的滚动条）；</item>
 ///   <item><b>换行标记 / 字符级选择 / 复制 = 同一份实现</b>：`↵` 一律由 <see cref="NewlineMarkOverlay"/>
 ///     画在**同格的只读绘制层**里（不进文本、不参与选择、光标跳过 —— 与 Word 的 ¶ 同构）；</item>
 ///   <item><b>一行多长由文本框宽度决定</b>（自动换行、**无横向滚动条**）—— 数据侧不再规定字节数；
@@ -30,7 +35,7 @@ namespace HYWDebugAssistant.Ui.Controls;
 ///     "复制全部"的取数也就地收回本类（<see cref="Lines"/> 对分页窗口而言**就是整段缓冲**）。</item>
 /// </list>
 /// <para>
-/// <b>分页窗口</b>（<see cref="ShowScrollBar"/> = true，日志用）：实测只读 `TextBox` 的更新代价 ≈ **0.47 ms/行**
+/// <b>分页窗口</b>（<see cref="ScrollMode"/> = <see cref="ViewScrollMode.Window"/>，日志用）：实测只读 `TextBox` 的更新代价 ≈ **0.47 ms/行**
 /// （赋 `Text` 本身便宜，**贵的是布局**；20 000 行一次要十几秒）⇒ 文本框**每次只吃一屏多**，
 /// 更早的内容靠右侧自建滚动条换窗口内容，代价于是与缓冲长度**无关**。
 /// 追加只标"待刷新"，由 **20 Hz 的节拍**统一落地（<see cref="DispatcherTimer"/> + "到节拍边界落地"的排程两条腿）。
@@ -52,6 +57,16 @@ public sealed partial class TextSurface : UserControl
     public static readonly StyledProperty<bool> IsMultilineProperty =
         AvaloniaProperty.Register<TextSurface, bool>(nameof(IsMultiline));
 
+    /// <summary>
+    /// 长行是否**按宽度折行**（<c>true</c> = 自动换行、无横向滚动条；<c>false</c> = 一行到底、横向滚）。
+    /// </summary>
+    /// <remarks>
+    /// 折行与否是**模块作者的声明**（日志的 <c>wrap</c> 键），不是控件固定的观感：
+    /// 一屏要看全一行的场合（十六进制、定宽记录）必须能关掉它。
+    /// </remarks>
+    public static readonly StyledProperty<bool> WrapsProperty =
+        AvaloniaProperty.Register<TextSurface, bool>(nameof(Wraps), defaultValue: true);
+
     /// <summary>最小高度（DIP；0 = 不设 —— 单行框的行为）。</summary>
     public static readonly StyledProperty<double> EditorMinHeightProperty =
         AvaloniaProperty.Register<TextSurface, double>(nameof(EditorMinHeight));
@@ -61,44 +76,24 @@ public sealed partial class TextSurface : UserControl
         AvaloniaProperty.Register<TextSurface, bool>(nameof(ShowNewlineMarks));
 
     /// <summary>
-    /// 是否**分页窗口 + 自建竖条**（日志 = true；输入框 = false ⇒ 内层滚动条）。
+    /// **文本层用哪一套滚动**（声明面 <c>scrollBar</c>；**必写** —— 框架不按 <c>readonly</c> 推）。
     /// </summary>
-    public static readonly StyledProperty<bool> ShowScrollBarProperty =
-        AvaloniaProperty.Register<TextSurface, bool>(nameof(ShowScrollBar));
+    /// <remarks>
+    /// 它与**元素层**的溢出（框比格子高时由外层滚动 / 裁剪）是**两级不同的事实**；
+    /// 两档互斥 ⇒ 同一个文本面只可能有一根用户看得见的条。
+    /// </remarks>
+    public static readonly StyledProperty<ViewScrollMode> ScrollModeProperty =
+        AvaloniaProperty.Register<TextSurface, ViewScrollMode>(nameof(ScrollMode));
 
-    /// <summary>**分页窗口的数据来源**（模块缓冲的行；仅在 <see cref="ShowScrollBar"/> 下有消费者）。</summary>
+    /// <summary>
+    /// 文字横向对齐（声明面 <c>textAlign</c>）—— **落在内层编辑器上**（它才是排版文字的那一层）。
+    /// </summary>
+    public static readonly StyledProperty<TextAlignment> AlignProperty =
+        AvaloniaProperty.Register<TextSurface, TextAlignment>(nameof(Align));
+
+    /// <summary>**分页窗口的数据来源**（模块缓冲的行；仅在 <see cref="ScrollMode"/> = `window` 时有消费者）。</summary>
     public static readonly StyledProperty<IReadOnlyList<string>?> LinesProperty =
         AvaloniaProperty.Register<TextSurface, IReadOnlyList<string>?>(nameof(Lines));
-
-    /// <summary>失败态（红框样式类 `invalid`）。</summary>
-    public static readonly StyledProperty<bool> IsInvalidProperty =
-        AvaloniaProperty.Register<TextSurface, bool>(nameof(IsInvalid));
-
-    /// <summary>数值输入（样式类 `numeric`）。</summary>
-    public static readonly StyledProperty<bool> IsNumericProperty =
-        AvaloniaProperty.Register<TextSurface, bool>(nameof(IsNumeric));
-
-    /// <summary>十六进制输入（样式类 `hex`）。</summary>
-    public static readonly StyledProperty<bool> IsHexProperty =
-        AvaloniaProperty.Register<TextSurface, bool>(nameof(IsHex));
-
-    /// <summary>显式左对齐（样式类 `alignLeft`）。</summary>
-    public static readonly StyledProperty<bool> IsAlignLeftProperty =
-        AvaloniaProperty.Register<TextSurface, bool>(nameof(IsAlignLeft));
-
-    /// <summary>居中（样式类 `alignCenter`）。</summary>
-    public static readonly StyledProperty<bool> IsAlignCenterProperty =
-        AvaloniaProperty.Register<TextSurface, bool>(nameof(IsAlignCenter));
-
-    /// <summary>显式右对齐（样式类 `alignRight`）。</summary>
-    public static readonly StyledProperty<bool> IsAlignRightProperty =
-        AvaloniaProperty.Register<TextSurface, bool>(nameof(IsAlignRight));
-
-    /// <summary>一行的显示高度（DIP）—— 与样式里的 <c>LineHeight</c> 一致：窗口行数 = "视口放得下几行"。</summary>
-    private const double LineHeightDip = 14;
-
-    /// <summary>窗口最少行数（视口再小也留这些行，首屏不至于空）。</summary>
-    private const int MinWindowLines = 20;
 
     /// <summary>窗口最多行数（**性能闸门**）—— 实测 ≈ 0.47 ms/行 ⇒ 一屏 + 一页余量，且绝不越过这个上限。</summary>
     private const int MaxWindowLines = 200;
@@ -109,17 +104,26 @@ public sealed partial class TextSurface : UserControl
     /// <summary>滚轮一次移动的行数（一屏内的手感粒度，与 WinForms 多行框接近）。</summary>
     private const int WheelLines = 3;
 
+    private readonly RelayCommand _copyAllCommand;
+
     private readonly TextBox _editor;
     private readonly NewlineMarkOverlay _marks;
     private readonly ScrollBar _scroll;
 
-    private readonly RelayCommand _copyAllCommand;
+    /// <summary>文本面这一行的排布（编辑器 + 标记层 + 边框叠加层 + 自建竖条）。</summary>
+    private readonly SurfaceTextRow _row;
+
+    /// <summary>边框叠加层（常态 1px / 聚焦·标红 2px）—— **不参与内容矩形**。</summary>
+    private readonly Border _ring;
 
     /// <summary>正在把**编辑器**的文本回写 <see cref="Text"/>（避免两条同步互相打架）。</summary>
     private bool _syncingText;
 
+    /// <summary>**文本层**的行高（DIP；由主题给，读一次同时用于编辑器与窗口行数）。</summary>
+    private double _lineHeight;
+
     /// <summary>**分页窗口**：窗口行数 / 起点 / 是否跟随尾部。</summary>
-    private int _windowSize = MinWindowLines;
+    private int _windowSize = 1;
     private int _windowStart;
 
     private bool _followTail = true;
@@ -159,10 +163,40 @@ public sealed partial class TextSurface : UserControl
 
         InitializeComponent();
 
-        _editor = PartEditor;
-        _marks = PartMarks;
-        _scroll = PartScroll;
+        // **孩子由代码给、量排由 `SurfaceTextRow` 定**，不走手工加可视子这条路。
+        // `ContentControl` 为了托管 `Content` 会插一个自己的内部 presenter；手工 `VisualChildren.Add`
+        // 顶不过它（实测：可视子仍是那个 `ContentPresenter 0x0`，整棵内容树**不进可视树**，
+        // 屏幕上什么都看不到，而 `Content`、文本框的爹看上去都正常）。
+        var editor = new TextBox { Name = "PartEditor" };
 
+        if (this.TryFindResource("FontData", out var font) && font is Avalonia.Media.FontFamily family)
+        {
+            editor.FontFamily = family;
+        }
+
+        editor.Classes.Add("surface");
+
+        // **单行：文字与光标在框内垂直居中**；多行在下面按 `IsMultiline` 改成贴顶（见那一段的说明）。
+        // 这是"内容怎么摆在框里" ⇒ **属控件、不属主题**（主题里那两条 `VerticalContentAlignment=Top`
+        // 已删，否则就是两处口径）。缺省先给居中：单行是缺省档，而"把属性设成与缺省相同的值"
+        // **不会**触发属性变更回调 —— 只靠回调设，会漏掉最常用的那一种。
+        editor.VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Center;
+
+        _editor = editor;
+
+        _marks = new NewlineMarkOverlay { Name = "PartMarks", IsHitTestVisible = false };
+        _scroll = new ScrollBar { Name = "PartScroll", Orientation = Avalonia.Layout.Orientation.Vertical, IsVisible = false };
+
+        // **边框是叠加层**：与编辑器同格、不参与命中、**不参与内容矩形** ——
+        // 聚焦 / 标红时它变粗，而文字一格都不动（厚度进布局的话内容区会缩 2px）。
+        _ring = new Border { Name = "PartRing", IsHitTestVisible = false };
+        _ring.Classes.Add(RingClass);
+
+        _row = new SurfaceTextRow(_editor, _marks, _ring, _scroll);
+        Content = _row;
+
+        // **文本层那一档由 `ScrollMode` 唯一决定**（内层竖条的可见性、行高、自建条都在
+        // `ApplyScrollMode` 一处写入）—— 构造期先落一次，属性变化时再落。
         _marks.Editor = _editor;
         _marks.IsActive = false;
 
@@ -186,11 +220,206 @@ public sealed partial class TextSurface : UserControl
         _editor.PropertyChanged += OnEditorPropertyChanged;
         _editor.GotFocus += (_, _) => Pump();
         _editor.LostFocus += (_, _) => Pump();
+        _editor.GotFocus += (_, _) => UpdateFrame();
+        _editor.LostFocus += (_, _) => UpdateFrame();
         _scroll.ValueChanged += OnScrollValueChanged;
+
+        // 折行是"值变了才应用"的属性，得在构造期先落一次：默认 `Wraps = true`，
+        // 不落的话样式表里那条 `TextWrapping = Wrap` 是唯一来源，声明面关掉折行时视觉不会变。
+        ApplyWrapping(Wraps);
+
+        // **行高先取一次**：`ScrollMode` 是在对象初始化器里设的 ⇒ `ApplyScrollMode` 会在挂上可视树
+        // **之前**先跑一遍，那时从主题里读不到合并字典（拿到回退值），而 `LineHeight` 不接受 0
+        // （只接受 > 0 或 NaN）。挂上之后再读一次真值。
+        _lineHeight = SurfaceTheme.TextLineHeight(this);
 
         AttachedToVisualTree += (_, _) => Attach();
         DetachedFromVisualTree += (_, _) => Detach();
+
+        ApplyCaret();
+        UpdateFrame();
+        ApplyScrollMode();
     }
+
+    /// <summary>边框叠加层的类名（与 <c>TextSurface.axaml</c> 里的选择器同一处口径）。</summary>
+    public const string RingClass = "surface-text-ring";
+
+    /// <summary>是不是"自建竖条 + 分页窗口"那一档。</summary>
+    private bool IsWindowMode => ScrollMode is ViewScrollMode.Window;
+
+    /// <summary>
+    /// **这一圈边框被标出来了**（模块说"这一格不对"）。
+    /// </summary>
+    /// <remarks>
+    /// 颜色由模块给（框架不认识"红 = 失败"），这里只负责**怎么画**：标红时同时加粗，
+    /// 并且**优先于聚焦态** —— 用户正在改那一格时，它仍然得是醒目的。
+    /// </remarks>
+    public uint? FrameAlert { get; set; }
+
+    /// <summary>
+    /// **这一圈被标出来了**（**角色词**版：颜色取主题里那一支 ⇒ 换主题 / 用户改色都跟随）。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="FrameAlert"/> 是同一圈的两种写法（模块侧后写的清掉另一种）：
+    /// 那条给"我就要这个色"（绝对色），这条给"要配色表里的 <c>danger</c>"（相对色）。
+    /// 值是**主题键**（解析在 <c>SurfaceElementControl</c> 一处做），这里只负责把它画出来。
+    /// </remarks>
+    public string? FrameAlertRole { get; set; }
+
+    /// <summary>
+    /// **模块给的文字色**（`null` = 没设 ⇒ 主题那一档）。
+    /// </summary>
+    /// <remarks>
+    /// 必须落在**内层编辑器**上：真正显示文字的是它，而它自带一条样式前景（Fluent 的半透明黑），
+    /// 那条**优先于从元素继承** ⇒ 只改外层元素的前景等于没改（用户实测："文字是深灰色而不是黑色"、
+    /// 模块设了颜色也不生效）。判据同 <see cref="FrameAlert"/>：**用户看得见的那一块是谁画的**。
+    /// </remarks>
+    public uint? TextColor
+    {
+        get => _textColor;
+        set
+        {
+            _textColor = value;
+
+            if (_textColor is { } argb)
+            {
+                _editor.Foreground = new SolidColorBrush(Color.FromUInt32(argb));
+                return;
+            }
+
+            // `null` ⇒ 交还主题（主题在 `TextBox.surface` 上写了 `TextPrimary`）。
+            _editor.ClearValue(ForegroundProperty);
+        }
+    }
+
+    /// <summary>
+    /// **模块给的文字大小**（DIP；`null` = 没设 ⇒ 主题那一档）。
+    /// </summary>
+    /// <remarks>与 <see cref="TextColor"/> 同一条口径：落到内层编辑器上，`null` 交还主题。</remarks>
+    public double? TextSize
+    {
+        get => _textSize;
+        set
+        {
+            _textSize = value;
+
+            if (_textSize is { } dips)
+            {
+                _editor.FontSize = dips;
+                return;
+            }
+
+            _editor.ClearValue(FontSizeProperty);
+        }
+    }
+
+    private uint? _textColor;
+    private double? _textSize;
+
+    /// <summary>
+    /// **模块给的文字角色词**（**主题键**；<see langword="null"/> = 没设 ⇒ 主题那一档）。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="TextColor"/> 同一落点、同一理由（必须落在**内层编辑器**上，样式前景压过继承）；
+    /// 区别只在写法：那条是局部色值（刻意固定），这条是**主题资源绑定**（随主题 / 用户改色跟随）。
+    /// </remarks>
+    public string? TextColorRole
+    {
+        get => _textColorRole;
+        set
+        {
+            _textColorRole = value;
+
+            if (_textColorRole is { Length: > 0 } key)
+            {
+                _editor[!ForegroundProperty] = new DynamicResourceExtension(key);
+                return;
+            }
+
+            _editor.ClearValue(ForegroundProperty);
+        }
+    }
+
+    private string? _textColorRole;
+
+    /// <summary>
+    /// **按当前状态把那一圈边框画出来**：常态浅灰 / 可写深灰 / 聚焦加粗 / 被标红时鲜艳加粗。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 这几档是**同一圈的几个状态**，用代码算而不是用选择器：可写与聚焦各自要改色和粗细，
+    /// 而"当前是第几档"只有控件自己知道。
+    /// </para>
+    /// <para>
+    /// <b>颜色一律走 <see cref="DynamicResourceExtension"/></b>：主题字典由框架解析，
+    /// 于是换主题 / 换深浅色时不必重建控件树。**不要在代码里 `TryFindResource` 取色** ——
+    /// 那个查找在控件挂进可视树之前解析不到合并字典，结果是"常态那一圈一点颜色都没有"，
+    /// 而屏幕上表现为"边框没了、只剩标红的"。
+    /// </para>
+    /// <para>
+    /// **可写与可读必须一眼分得出来**：只读面（日志 / 结果框）是"我给你看的"，可写面是"你要填的"。
+    /// 两圈一样深的时候，用户要读一眼才敢下手；深浅差一档就不必读。
+    /// </para>
+    /// <para>
+    /// <b>只读面不用"聚焦加粗"</b>：加粗是"你现在在改这一格"的信号，而只读面**改不了** ——
+    /// 给它加粗等于告诉用户一件不成立的事。只读面点进去仍然能选中文字（那是读的行为）。
+    /// </para>
+    /// </remarks>
+    public void UpdateFrame()
+    {
+        // 加粗 = "正在改这一格"。只读面没有这件事，所以它的**叠加层**只有 1px。
+        var focused = !IsReadOnly && _editor.IsFocused;
+
+        // **厚度只落在叠加层上**：本控件自己一圈都不画（`BorderThickness` 恒为 0）——
+        // 画在这里就等于"状态改变了布局矩形"，聚焦瞬间内容区缩 2px、文字跟着移。
+        BorderThickness = default;
+        _ring.BorderThickness = FrameAlert is not null || FrameAlertRole is not null || focused
+            ? new Thickness(2)
+            : new Thickness(1);
+
+        // **角色词优先走主题绑定**（`danger` 这类相对色）：换主题 / 用户改主题色时由资源系统重新解析。
+        if (FrameAlertRole is { Length: > 0 } alertRole)
+        {
+            _ring[!Border.BorderBrushProperty] = new DynamicResourceExtension(alertRole);
+            return;
+        }
+
+        if (FrameAlert is { } alert)
+        {
+            // 标红：颜色由模块给（框架不认识"红 = 失败"），**优先于聚焦态** ——
+            // 用户正在改那一格时它仍然得醒目。
+            _ring.BorderBrush = new SolidColorBrush(Color.FromUInt32(alert));
+            return;
+        }
+
+        _ring[!Border.BorderBrushProperty] = new DynamicResourceExtension(
+            IsReadOnly ? FrameBrushKey : EditableFrameBrushKey);
+    }
+
+    /// <summary>
+    /// **只读面不显示插入光标**（把它的颜色设成透明）。
+    /// </summary>
+    /// <remarks>
+    /// 闪烁的竖线在只读面上是纯粹的噪声：它说"你可以在这里打字"，而这恰恰是不成立的。
+    /// **只改光标的颜色，不动 `Focusable`** —— 关掉焦点会连"选中文字"一起失去，
+    /// 而"能选中、能复制"正是只读面该有的读法。回切到可写面时必须还原。
+    /// </remarks>
+    private void ApplyCaret()
+    {
+        if (IsReadOnly)
+        {
+            _editor.CaretBrush = Brushes.Transparent;
+            return;
+        }
+
+        _editor.ClearValue(TextBox.CaretBrushProperty);
+    }
+
+    /// <summary>常态（只读面）边框色的资源键（**引全局角色** `BorderStrong`；本控件不再自带一份拷贝）。</summary>
+    private const string FrameBrushKey = "BorderStrong";
+
+    /// <summary>可写面边框色的资源键（比常态深一档 ⇒ 一眼看出"这一格能填"）。</summary>
+    private const string EditableFrameBrushKey = "SurfaceTextFrameEditableBrush";
 
     /// <summary>内层**唯一的**文本框（测试与调试读取；输入框的提交策略挂在它冒泡/隧道的路由事件上）。</summary>
     public TextBox Editor => _editor;
@@ -198,7 +427,7 @@ public sealed partial class TextSurface : UserControl
     /// <summary>换行标记绘制层（测试与调试读取）。</summary>
     public NewlineMarkOverlay Marks => _marks;
 
-    /// <summary>自建竖向滚动条（**只在分页窗口模式、且真的有回看余地时**才可见 —— 见 <see cref="UpdateScrollBarVisibility"/>）。</summary>
+    /// <summary>自建竖向滚动条（**只在 `window` 档、且真的有回看余地时**才可见 —— 见 <see cref="UpdateScrollBarRange"/>）。</summary>
     public ScrollBar ScrollBar => _scroll;
 
     /// <summary>当前窗口行数（**一屏 + 一页余量**；测试与诊断读取）。</summary>
@@ -231,6 +460,13 @@ public sealed partial class TextSurface : UserControl
         set => SetValue(IsMultilineProperty, value);
     }
 
+    /// <summary>长行是否按宽度折行。</summary>
+    public bool Wraps
+    {
+        get => GetValue(WrapsProperty);
+        set => SetValue(WrapsProperty, value);
+    }
+
     /// <summary>最小高度（DIP）。</summary>
     public double EditorMinHeight
     {
@@ -245,11 +481,18 @@ public sealed partial class TextSurface : UserControl
         set => SetValue(ShowNewlineMarksProperty, value);
     }
 
-    /// <summary>是否分页窗口 + 自建竖条。</summary>
-    public bool ShowScrollBar
+    /// <summary>文本层用哪一套滚动（声明面 <c>scrollBar</c>）。</summary>
+    public ViewScrollMode ScrollMode
     {
-        get => GetValue(ShowScrollBarProperty);
-        set => SetValue(ShowScrollBarProperty, value);
+        get => GetValue(ScrollModeProperty);
+        set => SetValue(ScrollModeProperty, value);
+    }
+
+    /// <summary>文字横向对齐（声明面 <c>textAlign</c>）。</summary>
+    public TextAlignment Align
+    {
+        get => GetValue(AlignProperty);
+        set => SetValue(AlignProperty, value);
     }
 
     /// <summary>分页窗口的数据来源（行）。</summary>
@@ -257,48 +500,6 @@ public sealed partial class TextSurface : UserControl
     {
         get => GetValue(LinesProperty);
         set => SetValue(LinesProperty, value);
-    }
-
-    /// <summary>失败态（红框）。</summary>
-    public bool IsInvalid
-    {
-        get => GetValue(IsInvalidProperty);
-        set => SetValue(IsInvalidProperty, value);
-    }
-
-    /// <summary>数值输入（字符放行由外壳的隧道处理器判定，这里只带样式类）。</summary>
-    public bool IsNumeric
-    {
-        get => GetValue(IsNumericProperty);
-        set => SetValue(IsNumericProperty, value);
-    }
-
-    /// <summary>十六进制输入（同上）。</summary>
-    public bool IsHex
-    {
-        get => GetValue(IsHexProperty);
-        set => SetValue(IsHexProperty, value);
-    }
-
-    /// <summary>显式左对齐。</summary>
-    public bool IsAlignLeft
-    {
-        get => GetValue(IsAlignLeftProperty);
-        set => SetValue(IsAlignLeftProperty, value);
-    }
-
-    /// <summary>居中。</summary>
-    public bool IsAlignCenter
-    {
-        get => GetValue(IsAlignCenterProperty);
-        set => SetValue(IsAlignCenterProperty, value);
-    }
-
-    /// <summary>显式右对齐。</summary>
-    public bool IsAlignRight
-    {
-        get => GetValue(IsAlignRightProperty);
-        set => SetValue(IsAlignRightProperty, value);
     }
 
     /// <inheritdoc />
@@ -317,6 +518,8 @@ public sealed partial class TextSurface : UserControl
         {
             var readOnly = change.GetNewValue<bool>();
             _editor.IsReadOnly = readOnly;
+            ApplyCaret();     // 只读面不显示插入光标（但文字仍可选中）
+            UpdateFrame();    // 可写/可读的深浅是这一圈的两个状态
             return;
         }
 
@@ -325,6 +528,20 @@ public sealed partial class TextSurface : UserControl
             var multiline = change.GetNewValue<bool>();
             _editor.AcceptsReturn = multiline;
             SetClass(_editor, "multiline", multiline);
+
+            // **单行：文字与光标在框内垂直居中；多行：从第一行起排（贴顶）**。
+            // 多行必须贴顶：内容的高随行数变，居中会让"滚到哪儿"与眼睛看到的位置对不上；
+            // 单行的框往往比一行高（例：声明 24 的间隔框），贴顶就永远偏上。
+            _editor.VerticalContentAlignment = multiline
+                ? Avalonia.Layout.VerticalAlignment.Top
+                : Avalonia.Layout.VerticalAlignment.Center;
+
+            return;
+        }
+
+        if (change.Property == WrapsProperty)
+        {
+            ApplyWrapping(change.GetNewValue<bool>());
             return;
         }
 
@@ -340,51 +557,21 @@ public sealed partial class TextSurface : UserControl
             return;
         }
 
-        if (change.Property == ShowScrollBarProperty)
+        if (change.Property == ScrollModeProperty)
         {
-            ConfigurePaging(change.GetNewValue<bool>());
+            ApplyScrollMode();
+            return;
+        }
+
+        if (change.Property == AlignProperty)
+        {
+            _editor.TextAlignment = change.GetNewValue<TextAlignment>();
             return;
         }
 
         if (change.Property == LinesProperty)
         {
             ResubscribeLines(change.GetNewValue<IReadOnlyList<string>?>());
-            return;
-        }
-
-        if (change.Property == IsInvalidProperty)
-        {
-            SetClass(_editor, "invalid", change.GetNewValue<bool>());
-            return;
-        }
-
-        if (change.Property == IsNumericProperty)
-        {
-            SetClass(_editor, "numeric", change.GetNewValue<bool>());
-            return;
-        }
-
-        if (change.Property == IsHexProperty)
-        {
-            SetClass(_editor, "hex", change.GetNewValue<bool>());
-            return;
-        }
-
-        if (change.Property == IsAlignLeftProperty)
-        {
-            SetClass(_editor, "alignLeft", change.GetNewValue<bool>());
-            return;
-        }
-
-        if (change.Property == IsAlignCenterProperty)
-        {
-            SetClass(_editor, "alignCenter", change.GetNewValue<bool>());
-            return;
-        }
-
-        if (change.Property == IsAlignRightProperty)
-        {
-            SetClass(_editor, "alignRight", change.GetNewValue<bool>());
         }
     }
 
@@ -409,7 +596,7 @@ public sealed partial class TextSurface : UserControl
     /// <summary>把 <see cref="Text"/> 推进编辑器（**只在真的不同才写**：赋 `Text` 会重置光标/选区）。</summary>
     private void PushTextToEditor(string? text)
     {
-        if (ShowScrollBar || _syncingText)
+        if (IsWindowMode || _syncingText)
         {
             return;     // 分页窗口模式下文本由窗口写，`Text` 不是它的来源
         }
@@ -437,7 +624,7 @@ public sealed partial class TextSurface : UserControl
     private void OnEditorTextChanged(object? sender, TextChangedEventArgs e)
     {
         // 分页窗口模式下 `Text` 不是数据源（数据源是 `Lines`）⇒ 不回写，否则会把窗口内容当"用户输入"
-        if (ShowScrollBar || _syncingText)
+        if (IsWindowMode || _syncingText)
         {
             return;
         }
@@ -462,23 +649,62 @@ public sealed partial class TextSurface : UserControl
         }
     }
 
+    /// <summary>切换"长行按宽度折行"（关 ⇒ 一行到底、横向滚动）。</summary>
+    /// <param name="wraps">是否折行。</param>
+    /// <remarks>
+    /// 折行与否同时定两件事：文本框自己的排版（<c>TextWrapping</c>）与**横向滚动条**要不要出现。
+    /// 只改前者会让"关掉折行"变成"长行被切掉"（用户看不到被切掉的那半行）。
+    /// </remarks>
+    private void ApplyWrapping(bool wraps)
+    {
+        _editor.TextWrapping = wraps ? TextWrapping.Wrap : TextWrapping.NoWrap;
+        _editor.SetValue(
+            ScrollViewer.HorizontalScrollBarVisibilityProperty,
+            wraps ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto);
+    }
+
     // ---------------------------------------------------------------- 分页窗口（日志那一半）
 
-    /// <summary>切换分页窗口模式（开 = 自建竖条 + 窗口；关 = 内层滚动条）。</summary>
-    private void ConfigurePaging(bool paged)
+    /// <summary>
+    /// **把文本层那一档落到控件上**（唯一的写入点）：内层竖条、行高、自建条的可见性。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 两档互斥，并且各自只有一条可见性判据：
+    /// `window` ⇒ 内层条 `Hidden`（仍可程序化滚动，但没有条）+ **只有自建条**可能可见
+    /// （判据 = `Maximum &gt; 0`，见 <see cref="UpdateScrollBarRange"/>）；
+    /// `native` ⇒ 自建条不显示 + 内层条 `Auto`（由 Fluent 自己按需出现）。
+    /// </para>
+    /// <para>
+    /// **不在样式表里写 `VerticalScrollBarVisibility`**：本地值优先级更高，写在那里只会是一条
+    /// 永远不生效的第二来源（"配了却没生效"）。行高同理 —— 主题给一个数，这里读一次同时用于
+    /// 编辑器与"一屏放得下几行"。
+    /// </para>
+    /// </remarks>
+    private void ApplyScrollMode()
     {
-        SetClass(_editor, "paged", paged);
-        UpdateScrollBarVisibility();
+        var window = IsWindowMode;
 
-        if (paged)
+        SetClass(_editor, "paged", window);
+
+        // 行高与那一档一并在**这一处**落到编辑器上（写入合法性见 `ApplyLineHeight`）。
+        ApplyLineHeight();
+
+        _editor.SetValue(
+            ScrollViewer.VerticalScrollBarVisibilityProperty,
+            window ? ScrollBarVisibility.Hidden : ScrollBarVisibility.Auto);
+
+        if (window)
         {
             _editor.ContextMenu = BuildContextMenu();
             _pending = true;
             Attach();
+            UpdateScrollBarRange(CountLines(), _windowSize, _windowStart);
             return;
         }
 
         _editor.ContextMenu = null;
+        SetBarVisible(false);
 
         if (_timer is not null)
         {
@@ -488,15 +714,29 @@ public sealed partial class TextSurface : UserControl
     }
 
     /// <summary>
-    /// **自建竖条的可见性判据**：分页模式 **且** 缓冲比窗口长（`Maximum &gt; 0`）。
+    /// 把行高落到编辑器上 —— **只写合法值**。
     /// </summary>
     /// <remarks>
-    /// 竖条若只按"是不是分页模式"显示 ⇒ **没得可滚时也常驻一根**，
-    /// 会被读成"这根条没用"（日志是流式追加，绝大多数时候确实没什么可回看的）。
-    /// 判据就用 <see cref="ScrollBar.Maximum"/> 本身（= 总行数 − 窗口行数，唯一事实源），
-    /// 不另存一个"能不能滚"的标志 ⇒ 两个来源迟早各说一套。
+    /// `LineHeight` 只接受「&gt; 0 或 NaN」：写 0 会当场抛
+    /// （`0 is not a valid value for 'LineHeight'`）。而主题值在**挂上可视树之前**读不到
+    /// （`DynamicResource` 还没解析到合并字典），构造期拿到的是回退值 ⇒ 两个入口都必须走这里。
     /// </remarks>
-    private void UpdateScrollBarVisibility() => _scroll.IsVisible = ShowScrollBar && _scroll.Maximum > 0;
+    private void ApplyLineHeight() =>
+        _editor.LineHeight = IsWindowMode && _lineHeight > 0 ? _lineHeight : double.NaN;
+
+    /// <summary>把"自建条占不占宽"写给文本行（它是布局输入，写一次就够，重复写会白白重排）。</summary>
+    /// <param name="visible">要不要占宽。</param>
+    private void SetBarVisible(bool visible)
+    {
+        if (_scroll.IsVisible == visible && _row.BarVisible == visible)
+        {
+            return;
+        }
+
+        _scroll.IsVisible = visible;
+        _row.BarVisible = visible;
+        _row.InvalidateMeasure();
+    }
 
     /// <summary>日志用的右键菜单（只读时 Fluent 内置菜单大半是灰的，且不含"复制全部"）。</summary>
     private ContextMenu BuildContextMenu()
@@ -517,10 +757,14 @@ public sealed partial class TextSurface : UserControl
 
     private void Attach()
     {
-        if (!ShowScrollBar || _timer is not null)
+        if (!IsWindowMode || _timer is not null)
         {
             return;
         }
+
+        // 行高从主题读一次（挂上可视树之后才读得到合并字典）—— 它同时决定编辑器与窗口行数。
+        _lineHeight = SurfaceTheme.TextLineHeight(this);
+        ApplyLineHeight();
 
         _windowSize = ComputeWindowSize();
         _followTail = true;
@@ -554,7 +798,7 @@ public sealed partial class TextSurface : UserControl
     /// </summary>
     private void Pump()
     {
-        if (!ShowScrollBar || _rewriting)
+        if (!IsWindowMode || _rewriting)
         {
             return;
         }
@@ -618,7 +862,7 @@ public sealed partial class TextSurface : UserControl
     /// </remarks>
     private void ScheduleFlush()
     {
-        if (_flushScheduled || !ShowScrollBar)
+        if (_flushScheduled || !IsWindowMode)
         {
             return;
         }
@@ -631,7 +875,7 @@ public sealed partial class TextSurface : UserControl
     {
         _flushScheduled = false;
 
-        if (!ShowScrollBar)
+        if (!IsWindowMode)
         {
             return;
         }
@@ -647,7 +891,7 @@ public sealed partial class TextSurface : UserControl
 
     private void OnEditorPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
-        if (!ShowScrollBar)
+        if (!IsWindowMode)
         {
             return;
         }
@@ -679,12 +923,17 @@ public sealed partial class TextSurface : UserControl
         }
     }
 
-    /// <summary>窗口行数 = 视口放得下的行数 × 2（一屏 + 一页余量），夹在 [<see cref="MinWindowLines"/>, <see cref="MaxWindowLines"/>]。</summary>
+    /// <summary>窗口行数 = 视口放得下的行数 × 2（一屏 + 一页余量），夹在 [1, <see cref="MaxWindowLines"/>]。</summary>
+    /// <remarks>
+    /// **没有"最少 20 行"这一档**：视口只有几行时把窗口撑到 20 行，等于让窗口内容必然高于视口
+    /// ⇒ 内层被迫滚动 ⇒ 与"这一档只有一根看得见的条"直接冲突（屏幕上就是"忽然多出一根条"）。
+    /// </remarks>
     private int ComputeWindowSize()
     {
-        // 首帧还没布局时 Bounds 为 0 ⇒ 退到最小窗口，随后 Bounds 变化会再算一次
-        var visible = (int)Math.Ceiling(Math.Max(0, _editor.Bounds.Height) / LineHeightDip);
-        return Math.Clamp(visible * 2, MinWindowLines, MaxWindowLines);
+        // 首帧还没布局时 Bounds 为 0 ⇒ 报 1 行，随后 Bounds 变化会再算一次
+        var line = _lineHeight > 0 ? _lineHeight : 1;
+        var visible = (int)Math.Ceiling(Math.Max(0, _editor.Bounds.Height) / line);
+        return Math.Clamp(visible * 2, 1, MaxWindowLines);
     }
 
     private void OnScrollValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
@@ -699,17 +948,20 @@ public sealed partial class TextSurface : UserControl
 
     private void OnEditorWheel(object? sender, PointerWheelEventArgs e)
     {
-        if (!ShowScrollBar)
+        if (!IsWindowMode)
         {
-            return;
+            return; // `native` 档：滚轮归文本框自己（那是它的条在驱动）
         }
+
+        // **这一档的滚轮一律由窗口消费**：内层那个偏移是私有实现（折行留下的余量），
+        // 放行给内层会让"窗口起点"与"实际显示到哪"两套模型错位（同一个滚轮动了两处）。
+        e.Handled = true;
 
         if (Math.Max(0, CountLines() - _windowSize) <= 0)
         {
             return; // 内容不足一屏：滚轮无事可做（也不该把窗口推离底部）
         }
 
-        e.Handled = true;
         MoveWindow(_windowStart + (e.Delta.Y > 0 ? -WheelLines : WheelLines));
     }
 
@@ -822,10 +1074,10 @@ public sealed partial class TextSurface : UserControl
 
         _windowStart = start;
         _lastFlushUtc = DateTime.UtcNow;
-        UpdateScrollBar(total, size, start);
+        UpdateScrollBarRange(total, size, start);
     }
 
-    private void UpdateScrollBar(int total, int size, int start)
+    private void UpdateScrollBarRange(int total, int size, int start)
     {
         _suppressScrollEvent = true;
 
@@ -840,8 +1092,9 @@ public sealed partial class TextSurface : UserControl
             _suppressScrollEvent = false;
         }
 
-        // 范围变了 ⇒ 可见性跟着变（连"没什么可滚"的那一根都不该常驻）
-        UpdateScrollBarVisibility();
+        // 范围变了 ⇒ 可见性跟着变（连"没什么可滚"的那一根都不该常驻）。
+        // 判据只用 `Maximum` 本身（= 总行数 − 窗口行数，唯一事实源），不另存一个"能不能滚"的标志。
+        SetBarVisible(IsWindowMode && _scroll.Maximum > 0);
     }
 
     /// <summary>订阅/退订分页数据源（集合变化 ⇒ 标"待刷新"）。</summary>
@@ -865,7 +1118,6 @@ public sealed partial class TextSurface : UserControl
         }
 
         _pending = true;
-        _followTail = true;
         Pump();
     }
 
@@ -919,4 +1171,131 @@ public sealed partial class TextSurface : UserControl
     /// 而不是某一次视图实例 —— 否则视图重建时会连带把它放掉，粘贴随即拿到空内容。
     /// </remarks>
     private static DataTransfer? _clipboardPayload;
+}
+
+/// <summary>
+/// **文本面这一行的排布**：文本框在左、自建竖条在右，换行标记层与文本框同格叠放。
+/// </summary>
+/// <remarks>
+/// <para>
+/// 它存在的唯一理由是**折行必须是确定的**：`TextBox` 的尺寸规则是 —— **宽度受约束**时报约束宽、
+/// 文字在框内折行；**宽度不受约束**时报**整行文本的宽度**。而滚动容器量孩子时会把宽度放宽成
+/// "按内容"（`ScrollContentPresenter` 就是这样），于是会折行的文本框报出整行宽（实测 200 字符 ⇒ 2212，
+/// 而框只有 360）⇒ **文字冲出框被外层裁掉**，屏幕上却不报任何错：**被裁的是字，不是框**，
+/// 所以从框的尺寸上什么也看不出来。
+/// </para>
+/// <para>
+/// 所以宽度**由这里算**（= 本行实得宽 − 竖条占宽），再用这个有限数去量文本框；折行于是只由
+/// "这块文本面有多宽"决定，与框架的测量顺序、与父层怎么量本行都无关。
+/// 标记层与文本框**同宽同位**：`↵` 是按文本框的行位置算出来的，差一个像素就会画到字外面。
+/// </para>
+/// </remarks>
+internal sealed class SurfaceTextRow : Panel
+{
+    private readonly TextBox _editor;
+    private readonly NewlineMarkOverlay _marks;
+    private readonly Border _ring;
+    private readonly ScrollBar _scroll;
+
+    /// <summary>建一行。</summary>
+    /// <param name="editor">内层文本框。</param>
+    /// <param name="marks">行末换行标记绘制层。</param>
+    /// <param name="ring">边框叠加层（与编辑器同格，只画那一圈边）。</param>
+    /// <param name="scroll">自建竖向滚动条（只有 `window` 档会占宽）。</param>
+    public SurfaceTextRow(TextBox editor, NewlineMarkOverlay marks, Border ring, ScrollBar scroll)
+    {
+        _editor = editor;
+        _marks = marks;
+        _ring = ring;
+        _scroll = scroll;
+
+        Children.Add(editor);
+        Children.Add(marks);
+        Children.Add(scroll);
+        Children.Add(ring);
+
+        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+        VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch;
+    }
+
+    /// <summary>
+    /// **竖条占不占宽**（由 <see cref="TextSurface"/> 唯一写入 —— 它是**布局输入**，不是绘制状态）。
+    /// </summary>
+    /// <remarks>
+    /// 这一格是"本行要不要让出条的位置"的**唯一事实源**：从前这里读的是竖条自己的 `IsVisible`，
+    /// 而那个值由节拍线程按数据改 ⇒ 布局输入在两次测量之间变来变去，
+    /// 屏幕上就是"文字宽度偶尔跳一下 / 条忽隐忽现"。
+    /// </remarks>
+    public bool BarVisible { get; set; }
+
+    /// <summary>
+    /// **折行与滚动必须是确定的**：宽度/高度都由"本行实得的尺寸"决定，不由内容决定。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// `TextBox` 的尺寸规则是：**宽度受约束**时报约束宽、文字在框内折行；**宽度不受约束**时报
+    /// **整行文本的宽度**。高度同理 —— 约束高**就是它要填满的高度**，不受约束时它才按内容报。
+    /// 而排布链上量"按内容"的元素时给的正是**无穷**（`adaptive`、以及下限为 0 的 `fill`），
+    /// 于是会折行的文本框按整行文本报宽（实测 200 字符 ⇒ 2212，而框只有 360）、
+    /// 按整份文本报高（实测 60 行 ⇒ 885，而框只有 189）。
+    /// </para>
+    /// <para>
+    /// 后一个后果更隐蔽：**文本框把自己撑到 885，排布层就以为内容真要 885**
+    /// ⇒ 内容区与视口一起被撑大 ⇒ 文本框的视口与它的滚动范围**永远一样大** ⇒
+    /// **滚动条永远不会出现**（"没得可滚"）。
+    /// </para>
+    /// <para>
+    /// 所以两个轴都在这里夹回约束：宽度 = 本行实得宽 − 竖条占宽；高度 = 约束高。
+    /// 文字在框内折行、超出就在框内滚 —— 与框架的测量顺序、与父层怎么量本行都无关。
+    /// </para>
+    /// <para>
+    /// <b>这里绝不读排布结果</b>（例如本行/文本面的 `Bounds`）：那是跨遍读 ——
+    /// 第一次测量必然拿到 0 宽，而 `adaptive` 宽的文本面正好走"约束无穷"这一档
+    /// ⇒ 整块文本面静默量成 0 宽、屏幕上什么都不显示。
+    /// </para>
+    /// </remarks>
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        var width = double.IsInfinity(availableSize.Width) ? 0 : Math.Max(0, availableSize.Width);
+
+        // **高度不给"猜"的余地**：约束有限 ⇒ 就是它；约束无穷 ⇒ 报 0，让排布层去定。
+        // 这里刻意**不用"上一次排布的高"兜底**：那会把上一次被撑大的高记下来，形成正反馈
+        // （报 885 ⇒ 排布层按 885 排 ⇒ 下次还报 885 ⇒ 视口与滚动范围永远一样大，滚动条永不出来）。
+        // 报 0 时排布层才知道"这一块的高度得由我决定"，于是 `fill` / `*` / 声明像素各自生效。
+        var height = double.IsInfinity(availableSize.Height) ? 0 : availableSize.Height;
+
+        // 竖条按"占不占宽"量（不占时量 0 —— 它也不显示）。
+        _scroll.Measure(new Size(double.PositiveInfinity, height));
+
+        var bar = BarVisible ? _scroll.DesiredSize.Width : 0;
+        var content = new Size(Math.Max(0, width - bar), height);
+
+        // 文本框拿到的**宽与高都是有限数**：折行与"超出就滚"于是都是确定的 ——
+        // 折行由宽度决定，滚动由"内容比这个高多"决定，与框架的测量顺序无关。
+        _editor.Measure(content);
+        _marks.Measure(content);
+        _ring.Measure(content);
+
+        return new Size(width, height);
+    }
+
+    /// <inheritdoc />
+    protected override Size ArrangeOverride(Size finalSize)
+    {
+        var bar = BarVisible ? _scroll.DesiredSize.Width : 0;
+        var contentWidth = Math.Max(0, finalSize.Width - bar);
+
+        _editor.Arrange(new Rect(0, 0, contentWidth, finalSize.Height));
+        _marks.Arrange(new Rect(0, 0, contentWidth, finalSize.Height));
+
+        if (BarVisible)
+        {
+            _scroll.Arrange(new Rect(contentWidth, 0, bar, finalSize.Height));
+        }
+
+        // 边框叠加层铺满**整行**（含条那一格）：它只画那一圈边，不占内容、不进测量。
+        _ring.Arrange(new Rect(0, 0, finalSize.Width, finalSize.Height));
+
+        return finalSize;
+    }
 }

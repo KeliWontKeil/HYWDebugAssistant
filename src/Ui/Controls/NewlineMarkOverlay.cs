@@ -52,6 +52,12 @@ public sealed class NewlineMarkOverlay : Control
     /// <summary>标记相对正文的字号比例（小一点，不喧宾夺主）。</summary>
     private const double MarkFontScale = 0.85;
 
+    /// <summary>
+    /// **绝对色**：主题资源取不到时的兜底墨色（未挂树 / 无头宿主才会用到）。
+    /// 正常情况下标记走主题的 `TextMuted` —— 兜底不跟随主题，才会在"忘了挂主题"时看得出来。
+    /// </summary>
+    private static readonly IBrush AbsoluteMarkInk = Brushes.Gray;
+
     /// <summary>要标注的文本框。</summary>
     public static readonly StyledProperty<TextBox?> EditorProperty =
         AvaloniaProperty.Register<NewlineMarkOverlay, TextBox?>(nameof(Editor));
@@ -292,13 +298,20 @@ public sealed class NewlineMarkOverlay : Control
         }
 
         _markFontSize = size;
+
+        // **换行标记的墨色走主题**（`TextMuted`）：它是一个"安静的小记号"，不该自带一支灰
+        //（自带的那支既不随主题变、也和别处的次要墨色对不上）。
+        var ink = editor.TryFindResource("TextMuted", out var resource) && resource is IBrush themed
+            ? themed
+            : AbsoluteMarkInk;
+
         _mark = new FormattedText(
             NewlineMark,
             CultureInfo.CurrentCulture,
             FlowDirection.LeftToRight,
             new Typeface(editor.FontFamily),
             size,
-            Brushes.Gray);
+            ink);
 
         return _mark;
     }

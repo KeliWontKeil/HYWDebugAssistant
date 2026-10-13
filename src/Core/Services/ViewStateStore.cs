@@ -251,6 +251,47 @@ public sealed class ViewStateStore : IViewStateAccess
         }
     }
 
+    /// <inheritdoc />
+    public void RequestSetText(string instanceId, string sourceName, string text)
+    {
+        if (string.IsNullOrWhiteSpace(instanceId) || string.IsNullOrWhiteSpace(sourceName))
+        {
+            return;     // 未声明的源一律忽略（**不抛** —— 与"未知一律安全"同一纪律）
+        }
+
+        lock (_gate)
+        {
+            // **后写覆盖先写**：这是替换语义（消息只有"当前值"），不是队列 ——
+            // 连写两次该只看到后一句，而不是两句都排队落地。
+            Get(instanceId).PendingSets[sourceName] = text;
+        }
+    }
+
+    /// <inheritdoc />
+    public bool TryTakeSetText(string instanceId, out string? sourceName, out string? text)
+    {
+        sourceName = null;
+        text = null;
+
+        if (string.IsNullOrWhiteSpace(instanceId))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            if (!_instances.TryGetValue(instanceId, out var state) || state.PendingSets.Count == 0)
+            {
+                return false;
+            }
+
+            sourceName = state.PendingSets.First().Key;
+            text = state.PendingSets[sourceName];
+            _ = state.PendingSets.Remove(sourceName);
+            return true;
+        }
+    }
+
     /// <summary>某实例的**显示请求面**（交给模块的那一份；模块只能用"清空"这一类请求）。</summary>
     /// <param name="instanceId">实例 ID。</param>
     /// <returns>请求面。</returns>
@@ -287,6 +328,16 @@ public sealed class ViewStateStore : IViewStateAccess
         public HashSet<string> PendingClears { get; } = new(StringComparer.Ordinal);
 
         /// <summary>
+        /// 待 UI 落地的"**替换**显示源文本"请求（模块 → 框架）：**每个源只留最后一次**
+        /// （替换语义 ⇒ 与顺序无关，留着中间值只会让界面闪几下）。
+        /// </summary>
+        public Dictionary<string, string> PendingSets { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// 模块给某元素设定的外观（按源名）——只存颜色，不含语义。
+        /// </summary>
+
+        /// <summary>
         /// 待 UI 落地的"追加文本"请求（**有序** —— 追加与顺序有关，不能像清空那样用集合）。
         /// </summary>
         public List<DisplayAppend> PendingAppends { get; } = [];
@@ -306,6 +357,10 @@ public sealed class ViewStateStore : IViewStateAccess
 
         /// <inheritdoc />
         public void Clear(string dataSourceName) => _owner.RequestClear(_instanceId, dataSourceName);
+
+        /// <inheritdoc />
+        public void SetText(string dataSourceName, string text) =>
+            _owner.RequestSetText(_instanceId, dataSourceName, text);
 
         /// <inheritdoc />
         public void AppendText(string dataSourceName, string text) =>
@@ -335,6 +390,17 @@ public sealed class ViewStateStore : IViewStateAccess
 
         /// <inheritdoc />
         public string? GetInputText(string sourceName) => _owner.GetInputText(_instanceId, sourceName);
+
+        /// <inheritdoc />
+        public void SetInputValue(string sourceName, string? text)
+        {
+            if (string.IsNullOrWhiteSpace(sourceName))
+            {
+                return;   // 纪律：设定路径不抛
+            }
+
+            _owner.SetInputText(_instanceId, sourceName, text);
+        }
 
         /// <inheritdoc />
         public IReadOnlyList<string> GetDisplayLines(string sourceName)

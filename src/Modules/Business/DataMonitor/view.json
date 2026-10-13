@@ -1,97 +1,228 @@
 {
   "version": 1,
   "frame": {
-    "window": { "width": 400, "height": 500, "minWidth": 400, "minHeight": 500 },
+    "window": {
+      "width": 400,
+      "height": 400,
+      "minWidth": 400,
+      "minHeight": 400
+    },
     "ports": [
-      { "name": "in", "edge": "top", "offset": 0.5 }
+      {
+        "name": "in",
+        "edge": "top",
+        "offset": 0.5
+      }
     ]
   },
   "sources": [
-    { "name": "log", "kind": "Text" },
-    { "name": "paused", "kind": "Value", "valueType": "Bool" },
-    { "name": "hexView", "kind": "Value", "valueType": "Bool" },
-    { "name": "wrap", "kind": "Value", "valueType": "Bool" },
-    { "name": "timestamp", "kind": "Value", "valueType": "Bool" },
-    { "name": "savePath", "kind": "Text" }
+    {
+      "name": "log",
+      "kind": "Text"
+    },
+    {
+      "name": "paused",
+      "kind": "Value",
+      "valueType": "Bool"
+    },
+    {
+      "name": "hexView",
+      "kind": "Value",
+      "valueType": "Bool"
+    },
+    {
+      "name": "wrap",
+      "kind": "Value",
+      "valueType": "Bool"
+    },
+    {
+      "name": "timestamp",
+      "kind": "Value",
+      "valueType": "Bool"
+    },
+    {
+      "name": "savePath",
+      "kind": "Text"
+    },
+    {
+      "name": "status",
+      "kind": "Text"
+    }
   ],
   "views": [
     {
       "root": {
         "kind": "container",
-        "layout": "grid",
-        "columns": ["*", "*", "*"],
-        "rows": ["*", "auto", "auto"],
-        "columnSpacing": 8,
-        "rowSpacing": 6,
+        "layout": "flow",
+        "overflow": "scroll",
+        "padding": 0,
+        "spacing": 2,
+        "width": {
+          "fill": true
+        },
+        "height": {
+          "adaptive": true
+        },
         "children": [
           {
-            "kind": "textLog",
-            "title": "显示",
+            "kind": "textBox",
+            "fontSize": 0,
+            "textColor": "",
+            "titleFontSize": 0,
+            "titleColor": "",
             "data": "log",
-            "feedbackSource": "savePath",
-            "column": 0,
-            "row": 0,
-            "columnSpan": 3,
-            "width": { "fill": true },
-            "height": { "fill": true }
+            "title": "显示",
+            "textPlacement": "none",
+            "textAnchor": "center",
+            "multiline": false,
+            "textAlign": "default",
+            "wrap": true,
+            "showNewlineMark": true,
+            "minEditorHeight": 0,
+            "scrollBar": "window",
+            "readonly": true,
+            "stateKey": null,
+            "width": {
+              "fill": true
+            },
+            "height": {
+              "fill": true,
+              "min": 88
+            }
           },
           {
-            "kind": "toggleSwitch",
-            "title": "暂停显示",
-            "input": "paused",
-            "column": 0,
-            "row": 1,
-            "width": { "pixels": 128 },
-            "height": { "pixels": 30 }
+            "kind": "label",
+            "titleFontSize": 0,
+            "titleColor": "",
+            "data": "status",
+            "text": "",
+            "textColor": "",
+            "nowrap": false,
+            "fontSize": 11,
+            "muted": false,
+            "width": {
+              "fill": true
+            },
+            "height": {
+              "pixels": 18
+            }
           },
           {
-            "kind": "toggleSwitch",
-            "title": "十六进制显示",
-            "input": "hexView",
-            "column": 1,
-            "row": 1,
-            "width": { "pixels": 128 },
-            "height": { "pixels": 30 }
-          },
-          {
-            "kind": "commandButton",
-            "title": "清空",
-            "command": "clear",
-            "column": 2,
-            "row": 1,
-            "width": { "pixels": 96 },
-            "height": { "pixels": 30 }
-          },
-          {
-            "kind": "toggleSwitch",
-            "title": "数据包换行",
-            "input": "wrap",
-            "column": 0,
-            "row": 2,
-            "width": { "pixels": 128 },
-            "height": { "pixels": 30 }
-          },
-          {
-            "kind": "toggleSwitch",
-            "title": "添加时间戳",
-            "input": "timestamp",
-            "column": 1,
-            "row": 2,
-            "width": { "pixels": 128 },
-            "height": { "pixels": 30 }
-          },
-          {
-            "kind": "fileSelector",
-            "title": "保存",
-            "input": "savePath",
-            "fileMode": "save",
-            "filter": "文本文件 (*.txt)|*.txt",
-            "suggestedFileName": "savetext1.txt",
-            "showInlineResult": false,
-            "column": 2,
-            "row": 2,
-            "width": { "pixels": 96 },
-            "height": { "pixels": 30 }
+            "kind": "container",
+            "layout": "panel",
+            "overflow": "clip",
+            "anchor": "left",
+            "valign": "top",
+            "width": {
+              "fill": true
+            },
+            "height": {
+              "pixels": 72
+            },
+            "children": [
+              {
+                "kind": "toggleSlider",
+                "titleFontSize": 0,
+                "titleColor": "",
+                "input": "paused",
+                "title": "暂停显示",
+                "textPlacement": "right",
+                "textAnchor": "center",
+                "width": {
+                  "pixels": 128
+                },
+                "height": {
+                  "pixels": 18
+                },
+                "x": 10,
+                "y": 5
+              },
+              {
+                "kind": "toggleSlider",
+                "titleFontSize": 0,
+                "titleColor": "",
+                "input": "hexView",
+                "title": "十六进制显示",
+                "textPlacement": "right",
+                "textAnchor": "center",
+                "width": {
+                  "pixels": 128
+                },
+                "height": {
+                  "pixels": 18
+                },
+                "x": 120,
+                "y": 5
+              },
+              {
+                "kind": "commandButton",
+                "fontSize": 0,
+                "textColor": "",
+                "titleFontSize": 0,
+                "titleColor": "",
+                "command": "clear",
+                "text": "清空",
+                "width": {
+                  "pixels": 96
+                },
+                "height": {
+                  "pixels": 28
+                },
+                "x": 250,
+                "y": 0
+              },
+              {
+                "kind": "toggleSlider",
+                "titleFontSize": 0,
+                "titleColor": "",
+                "input": "wrap",
+                "title": "数据包换行",
+                "textPlacement": "right",
+                "textAnchor": "center",
+                "width": {
+                  "pixels": 128
+                },
+                "height": {
+                  "pixels": 18
+                },
+                "x": 10,
+                "y": 45
+              },
+              {
+                "kind": "toggleSlider",
+                "titleFontSize": 0,
+                "titleColor": "",
+                "input": "timestamp",
+                "title": "添加时间戳",
+                "textPlacement": "right",
+                "textAnchor": "center",
+                "width": {
+                  "pixels": 128
+                },
+                "height": {
+                  "pixels": 18
+                },
+                "x": 120,
+                "y": 45
+              },
+              {
+                "kind": "commandButton",
+                "fontSize": 0,
+                "textColor": "",
+                "titleFontSize": 0,
+                "titleColor": "",
+                "command": "save",
+                "text": "保存",
+                "width": {
+                  "pixels": 96
+                },
+                "height": {
+                  "pixels": 28
+                },
+                "x": 250,
+                "y": 40
+              }
+            ]
           }
         ]
       }

@@ -144,7 +144,7 @@ public class BusinessChainTests
         composition.Type("sender", TextSenderModule.TextSourceOf(0), "tick");
         // 间隔 **0 = 未设置** ⇒ 连续发送**显式报错且不发** ⇒ 本用例必须给一个真实间隔
         // （要测的是"按间隔发送 + 关掉即停"，不是"没设置也硬发"）。
-        composition.Submit("sender", TextSenderModule.IntervalSource, "20").Succeeded.ShouldBeTrue();
+        composition.Type("sender", TextSenderModule.IntervalSource, "20");
         composition.Submit("sender", TextSenderModule.ContinuousSource, "true").Succeeded.ShouldBeTrue();
 
         composition.WaitForCount("sender", TextSenderModule.SentSource, atLeast: 5)
@@ -192,7 +192,7 @@ public class BusinessChainTests
         composition.Services.UpdatePortNetwork("monitor", DataMonitorModule.InPort, "bus").Succeeded.ShouldBeTrue();
 
         composition.Type("sender", TextSenderModule.TextSourceOf(0), "12345678");   // 8 字节
-        composition.Submit("sender", TextSenderModule.IntervalSource, "100").Succeeded.ShouldBeTrue();
+        composition.Type("sender", TextSenderModule.IntervalSource, "100");
         composition.Submit("sender", TextSenderModule.ContinuousSource, "true").Succeeded.ShouldBeTrue();
 
         composition.WaitForCount("sender", TextSenderModule.SentSource, atLeast: 10)
@@ -243,7 +243,7 @@ public class BusinessChainTests
         composition.Type("sender", TextSenderModule.TextSourceOf(1), "second-page");
         composition.SelectPage("sender", TextSenderModule.PagesStateKey, 1);
 
-        composition.Submit("sender", TextSenderModule.IntervalSource, "20").Succeeded.ShouldBeTrue();
+        composition.Type("sender", TextSenderModule.IntervalSource, "20");
         composition.Submit("sender", TextSenderModule.ContinuousSource, "true").Succeeded.ShouldBeTrue();
 
         composition.WaitForCount("sender", TextSenderModule.SentSource, atLeast: 2)
@@ -271,15 +271,18 @@ public class BusinessChainTests
 
         composition.Services.AddModule("sender", TextSenderModuleId).Succeeded.ShouldBeTrue();
 
-        // 超出 u32 ⇒ 模块回报失败（框架只判"是不是数字写法"；范围归模块）
-        composition.Submit("sender", TextSenderModule.IntervalSource, "4294967296").Succeeded.ShouldBeTrue();
+        // 超出 u32 ⇒ 模块自己判定非法，并**把那一格标成失败色**（框架不再替它判字符级写法）；
+        // 判据是**角色词**：具体哪个红归用户设置管（见 `ViewInkRoles`）。
+        composition.Type("sender", TextSenderModule.IntervalSource, "4294967296");
 
         Composition.WaitUntil(
-            () => composition.Services.GetInputFeedback("sender")
+            () => composition.Services.GetAppearance("sender")
                 .Any(f => string.Equals(f.SourceName, TextSenderModule.IntervalSource, StringComparison.Ordinal)
-                    && !f.Succeeded
-                    && f.Message is { Length: > 0 }),
-            TimeSpan.FromSeconds(3)).ShouldBeTrue("非法输入必须被模块识别并回报（不静默丢值）");
+                    && string.Equals(
+                        f.OutlineRole,
+                        HYWDebugAssistant.Sdk.Views.ViewInkRoles.Danger,
+                        StringComparison.Ordinal)),
+            TimeSpan.FromSeconds(3)).ShouldBeTrue("非法输入必须被模块识别并标出来（不静默丢值）");
     }
 
     /// <summary>未声明的命令 / 输入必须被**拒绝**（否则用户点了按钮却毫无反应）。</summary>

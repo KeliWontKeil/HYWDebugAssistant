@@ -72,7 +72,8 @@
         </Style>
     </Window.Styles>
 
-    <Grid ColumnDefinitions="44,*" RowDefinitions="*,Auto">
+    <!-- 按钮的指针 / 按下态：必须挂在窗口 Resources 上才被 Fluent 的按钮模板读到（见该文件说明） -->
+<Grid ColumnDefinitions="44,*" RowDefinitions="*,Auto">
 
         <!-- ==================== A 区：活动栏 ==================== -->
         <Border Grid.Row="0" Grid.RowSpan="2" Grid.Column="0"

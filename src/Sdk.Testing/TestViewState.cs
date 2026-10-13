@@ -86,6 +86,23 @@ public sealed class TestViewState : IViewStateReader
         _ = _displayLines.Remove(sourceName);
     }
 
+    /// <summary>把某显示源**替换**成这一份文本（模块的 `SetText` 在测试替身里的落点）。</summary>
+    /// <param name="sourceName">显示源名。</param>
+    /// <param name="text">新的全部内容（空串 ⇒ 等价清空）。</param>
+    public void SetDisplay(string sourceName, string text)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        ArgumentNullException.ThrowIfNull(text);
+
+        if (text.Length == 0)
+        {
+            _ = _displayLines.Remove(sourceName);
+            return;
+        }
+
+        _displayLines[sourceName] = [text];
+    }
+
     /// <inheritdoc />
     public int? GetSelectedPage(string stateKey) =>
         stateKey is not null && _selectedPages.TryGetValue(stateKey, out var page) ? page : null;
@@ -93,6 +110,17 @@ public sealed class TestViewState : IViewStateReader
     /// <inheritdoc />
     public string? GetInputText(string sourceName) =>
         sourceName is not null && _inputTexts.TryGetValue(sourceName, out var text) ? text : null;
+
+    /// <inheritdoc />
+    public void SetInputValue(string sourceName, string? text)
+    {
+        if (string.IsNullOrWhiteSpace(sourceName))
+        {
+            return;
+        }
+
+        SetInputText(sourceName, text);
+    }
 
     /// <inheritdoc />
     public IReadOnlyList<string> GetDisplayLines(string sourceName) =>

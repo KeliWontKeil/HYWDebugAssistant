@@ -30,6 +30,7 @@
     <ProjectReference Include="..\..\src\Modules\Business\HexSender\HYWDebugAssistant.Modules.HexSender.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\DataMonitor\HYWDebugAssistant.Modules.DataMonitor.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\HexStringConverter\HYWDebugAssistant.Modules.HexStringConverter.csproj" />
+    <!-- 样板模块（开发样板 · 声明面演示箱）：与四个正式模块同型，契约自检同口径 -->
   </ItemGroup>
 
 </Project>

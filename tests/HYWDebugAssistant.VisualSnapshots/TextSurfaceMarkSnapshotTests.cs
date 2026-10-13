@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using HYWDebugAssistant.Sdk.Views;
 using HYWDebugAssistant.Ui.Controls;
 using Shouldly;
 using Xunit;
@@ -77,7 +78,7 @@ public class TextSurfaceMarkSnapshotTests
                 {
                     IsReadOnly = true,
                     IsMultiline = true,
-                    ShowScrollBar = true,
+                    ScrollMode = ViewScrollMode.Window,
                     ShowNewlineMarks = true,
                     Lines = ["line-0000", "甲\n\n乙", "line-0002"],
                 };

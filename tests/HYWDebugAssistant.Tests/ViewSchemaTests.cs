@@ -17,48 +17,12 @@ public sealed class ViewSchemaTests
 
         schema.ShouldNotBeNull();
         schema.DocumentVersion.ShouldBe(ViewSchema.SupportedDocumentVersion);
-        schema.Kinds.Count.ShouldBe(19);
+        schema.Kinds.Count.ShouldBe(16);
         schema.Kinds.Values.Count(kind => kind.IsContainer).ShouldBe(4);
-        schema.Kinds.Values.Count(kind => !kind.IsContainer).ShouldBe(15);
-        schema.Kinds.Values.Count(kind => !kind.Rendered).ShouldBe(6);
+        schema.Kinds.Values.Count(kind => !kind.IsContainer).ShouldBe(12);
+        schema.Kinds.Values.Count(kind => !kind.Rendered).ShouldBe(4);
         schema.HardRules.ShouldNotBeEmpty();
         schema.WarningRules.ShouldNotBeEmpty();
-    }
-
-    [Fact]
-    public void 每个kind都必须算得出缺省宽高()
-    {
-        ViewSchema.TryLoad(out var schema, out var error).ShouldBeTrue(error);
-        schema.ShouldNotBeNull();
-
-        foreach (var kind in schema.Kinds.Keys)
-        {
-            var geometry = schema.GeometryOf(kind);
-            geometry.ShouldNotBeNull($"kind {kind} 取不到缺省尺寸口径");
-            geometry.Width.ShouldNotBeNull($"kind {kind} 算不出缺省宽度");
-            geometry.Height.ShouldNotBeNull($"kind {kind} 算不出缺省高度");
-        }
-    }
-
-    [Fact]
-    public void 缺省尺寸按kind分档_基线填满_日志填满_多行输入按内容()
-    {
-        ViewSchema.TryLoad(out var schema, out var error).ShouldBeTrue(error);
-        schema.ShouldNotBeNull();
-
-        var baseline = schema.GeometryOf("numeric");
-        baseline.ShouldNotBeNull();
-        baseline.Width.ShouldBe(AxisDefault.Fill);
-        baseline.Height.ShouldBe(AxisDefault.Adaptive);
-
-        var log = schema.GeometryOf("textLog");
-        log.ShouldNotBeNull();
-        log.Height.ShouldBe(AxisDefault.Fill);
-
-        var input = schema.GeometryOf("textInput");
-        input.ShouldNotBeNull();
-        input.Height.ShouldBe(AxisDefault.Adaptive);
-        input.HeightWhenMultiline.ShouldBe(AxisDefault.Fill);
     }
 
     [Fact]
@@ -67,10 +31,18 @@ public sealed class ViewSchemaTests
         ViewSchema.TryLoad(out var schema, out var error).ShouldBeTrue(error);
         schema.ShouldNotBeNull();
 
-        foreach (var (name, expected) in WindowDefaults)
+        // 窗口缺省"只在 schema 里给一次"：本用例要盯的是**每个键都带了合规的缺省**，
+        // 而不是"宽度是 320" —— 调数值不该变红，漏给缺省 / 缺省落在自己的下限之外才该红。
+        foreach (var name in WindowKeys)
         {
-            schema.WindowProperties[name].TryGetNumber(out var value).ShouldBeTrue($"window.{name} 没有数字缺省值");
-            value.ShouldBe(expected);
+            var spec = schema.WindowProperties[name];
+            spec.TryGetNumber(out var value).ShouldBeTrue($"window.{name} 没有数字缺省值");
+            spec.Min.ShouldNotBeNull($"window.{name} 没有给出下限");
+            value.ShouldBeGreaterThanOrEqualTo(spec.Min!.Value, $"window.{name} 的缺省不该小于它自己的下限");
+            if (spec.Max is { } max)
+            {
+                value.ShouldBeLessThanOrEqualTo(max, $"window.{name} 的缺省不该超过它自己的上限");
+            }
         }
 
         // 无上限用显式 null 表示（"带了缺省值，值是空"与"忘了写"必须能分开）
@@ -91,8 +63,10 @@ public sealed class ViewSchemaTests
         edge.Required.ShouldBeTrue("每个数据面口都必须显式给出 edge —— 框架不再按惯例推断（decisions.md 7.61）");
         edge.TryGetString(out _).ShouldBeFalse("声明值就是唯一位置来源：没有默认值");
 
-        schema.PortProperties["offset"].TryGetNumber(out var offset).ShouldBeTrue();
-        offset.ShouldBe(0.5);
+        schema.PortProperties["offset"].TryGetNumber(out var offset).ShouldBeTrue("offset 应有数字缺省值");
+        // 口位置是归一化坐标：缺省必须落在自己的定义域 0–1 内（具体取值属于观感，会随设计调整，不在这里钉死）
+        offset.ShouldBeGreaterThanOrEqualTo(0, "offset 的缺省必须落在 0–1 之间");
+        offset.ShouldBeLessThanOrEqualTo(1, "offset 的缺省必须落在 0–1 之间");
         schema.PortProperties["name"].Required.ShouldBeTrue();
     }
 
@@ -133,14 +107,8 @@ public sealed class ViewSchemaTests
     }
 
     [Fact]
-    public void 基线口径缺失或版本不认识都要拒绝()
+    public void 版本不认识或不是json都要拒绝()
     {
-        ViewSchema.TryParse(
-            MinimalSchema.Replace("\"*\": { \"width\": { \"fill\": true }, \"height\": { \"adaptive\": true } },", string.Empty, StringComparison.Ordinal),
-            out _,
-            out var noBaseline).ShouldBeFalse();
-        noBaseline.ShouldNotBeNull().ShouldContain("算不出缺省宽高");
-
         ViewSchema.TryParse(
             MinimalSchema.Replace("\"schemaVersion\": 1", "\"schemaVersion\": 2", StringComparison.Ordinal),
             out _,
@@ -159,13 +127,8 @@ public sealed class ViewSchemaTests
     /// <summary>框架级允许出现的分组名（常量数组，避免把它写成调用实参）。</summary>
     private static readonly string[] FrameSectionNames = ["window", "ports"];
 
-    private static readonly (string Name, double Value)[] WindowDefaults =
-    [
-        ("width", 320),
-        ("height", 220),
-        ("minWidth", 180),
-        ("minHeight", 160),
-    ];
+    /// <summary>窗口的四个"有值"尺寸键：缺省是否存在、是否落在自己的区间里由用例判定 —— 数值本身只在 schema 里给。</summary>
+    private static readonly string[] WindowKeys = ["width", "height", "minWidth", "minHeight"];
 
     private const string MinimalSchema = """
         {
@@ -186,11 +149,7 @@ public sealed class ViewSchemaTests
               "adaptive": { "type": "bool", "const": true }
             }
           },
-          "defaultGeometry": {
-            "*": { "width": { "fill": true }, "height": { "adaptive": true } },
-            "textLog": { "height": { "fill": true } },
-            "textInput": { "height": { "adaptive": true }, "heightWhenMultiline": { "fill": true } }
-          },
+          "defaultText": { "*": "none" },
           "tracks": { "forms": [ "*", "N*", "auto", "number>=1" ] },
           "commonProperties": {
             "kind": { "type": "string", "required": true },

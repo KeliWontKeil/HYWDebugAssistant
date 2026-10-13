@@ -7,10 +7,10 @@ using Xunit;
 namespace HYWDebugAssistant.ArchitectureTests;
 
 /// <summary>
-/// 架构约束检查：<b>AR-1 ~ AR-16</b>（唯一来源：docs/architecture/06-test-architecture.md §6.3）。
+/// 架构约束检查：<b>AR-0 ~ AR-19</b>（规则集的权威定义见 docs/architecture/CODEX.md §9.1）。
 /// <para>
 /// 依赖类（AR-1~AR-12）：读取**已编译程序集的 AssemblyRef 表**（覆盖间接依赖，比源码扫描可靠）。
-/// 源码类（AR-13~AR-16）：源码扫描（命名空间一致性、业务词汇、排除清单、公开签名）。
+/// 源码类（AR-0、AR-13~AR-19）：源码扫描（项目清单、命名空间一致性、业务词汇、排除清单、公开签名、数据路径、模块几何、注释纪律）。
 /// </para>
 /// <para>
 /// <b>目标程序集缺失即失败</b>——禁止「无对象则跳过」：规则静默失效比误报更危险。
@@ -22,7 +22,7 @@ public class ArchitectureRulesTests
     private const string SdkName = "HYWDebugAssistant.Sdk";
     private const string ModulesPrefix = "HYWDebugAssistant.Modules.";
 
-    /// <summary>AR-3~AR-11：各框架程序集**允许直接引用**的框架内程序集（穷举，来自 docs/architecture/01 §1.3）。</summary>
+    /// <summary>AR-3~AR-11：各框架程序集**允许直接引用**的框架内程序集（穷举）。</summary>
     private static readonly Dictionary<string, string[]> AllowedFrameworkRefs = new(StringComparer.Ordinal)
     {
         [SdkName] = [],                                                                     // AR-9：零框架依赖

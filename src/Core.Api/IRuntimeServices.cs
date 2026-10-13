@@ -128,21 +128,23 @@ public interface IRuntimeQuery
     IReadOnlyList<RoleView> GetRoles(string instanceId);
 
     /// <summary>
-    /// 某实例各**输入元素**的**最近一次处理结果**（G3）。
+    /// 某实例各元素**运行时被设定的外观**（颜色）。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item><b>它回答什么</b>：模块经 <c>IModuleContext.InputFeedback.Report</c> 回报的"某次输入处理失败（及原因）"
-    ///     —— 用于把**处理失败**（转换失败 / HEX 非法……）渲染成该输入元素的**失败态**（红框）；</item>
-    ///   <item><b>为什么需要它</b>：`SubmitInput` 的 `CommandResult` 只反映"是否投递入队"，**不反映模块处理结果**，
-    ///     而模块不持 UI ⇒ 处理失败在界面上无处可见（取证见 `roadmap.md` §3 第 15 项）；</item>
-    ///   <item><b>生命周期 = "下一次提交即刷新"</b>：框架在**投递入队时清除**该 (实例, 源名) 的旧结果 ⇒
-    ///     **没回报过就没有条目**（返回空表），模块默认什么都不做也不受影响；</item>
+    ///   <item><b>它回答什么</b>：模块经 <c>IModuleContext.Appearance</c> 设的边框色 / 文字色 ——
+    ///     用于把某元素画成模块要的样子；</item>
+    ///   <item><b>它不含语义</b>：只有颜色，**没有**"成功 / 失败"这种判断。颜色与它何时变都是模块的 C# 逻辑
+    ///     （框架不认识"红 = 失败"），因为把"失败必须长什么样"写进框架就是把功能限定死；</item>
+    ///   <item><b>为什么需要它</b>：模块不持 UI，而 `SubmitInput` 的 `CommandResult` 只反映"是否投递入队"，
+    ///     **不反映模块处理结果** ⇒ 没有这条通道，"这一格现在不对"在界面上无处可见；</item>
+    ///   <item><b>生命周期 = 模块自己设、自己清</b>：设 <see langword="null"/> 即回到声明 / 主题；
+    ///     没设过就没有条目（返回空表）；</item>
     ///   <item><b>只读、只用于呈现</b>：不参与建网/兼容/停流/投递/计量，**不进组合件**。</item>
     /// </list>
     /// </remarks>
     /// <param name="instanceId">实例 ID（不存在 / 占位实例 ⇒ 空列表）。</param>
-    IReadOnlyList<InputFeedbackView> GetInputFeedback(string instanceId);
+    IReadOnlyList<AppearanceView> GetAppearance(string instanceId);
 
     /// <summary>
     /// 某实例参与的**角色间数据流**清单：已按（本端角色, 对端实例, 对端角色）**聚合**并给出口对数。

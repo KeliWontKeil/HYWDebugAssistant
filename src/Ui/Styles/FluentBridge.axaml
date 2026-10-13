@@ -1,0 +1,136 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    **Fluent 桥接表**：把"模板自带、我们没写过的那些颜色"逐个接到角色 token 上。
+
+    为什么要有这一份：框架主题（Fluent）自己带一整套颜色 —— 控件文字、滚动条、下拉、列表选中、
+    文本选中与光标、禁用态。它们**不在我们的 token 里**，于是"别处都跟着主题走了，唯独这几处还是模板的好看色"。
+
+    两条纪律：
+
+    1. **能钉控件属性就不去猜资源键名**（这是本项目一贯的做法，见 `Controls/TextSurface.axaml`）：
+       `Foreground` / `Background` / `BorderBrush` / `SelectionBrush` / `CaretBrush` 都是控件自己的属性，
+       钉它们由控件模板用 `TemplateBinding` 带出去；而"猜 Fluent 的资源键名"在编译后的主题程序集里
+       既查不到也验不了（键名错了**不报错**，只是什么都不发生 —— 那种"改了没生效"最难查）。
+    2. **只写"我们确实显示的控件"**：模板里没用到的不抄（Fluent 全量复制是维护黑洞）。
+
+    本文件必须挂在 `FluentTheme` **与 `ButtonChrome.axaml` 之后**（同名属性上"后声明者赢"）——
+    挂载顺序见 `App.axaml`。
+  -->
+
+  <!--
+    ① **按钮上的字**：不写就是模板缺省（半透明黑 ⇒ 屏幕上偏灰），与同屏的 label / 读数不是同一支墨。
+    自带墨的按钮类（`.helpIcon` / `.tab.active` 的文字 / 活动栏图标）由各自的类样式给，**类选择器更具体** ⇒ 它们照旧赢。
+  -->
+  <Style Selector="Button">
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="Button:disabled">
+    <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+  </Style>
+
+  <Style Selector="ToggleButton">
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <!--
+    ② **文本输入区：常态 / 指向 / 聚焦三态的底与边同值**（聚焦只由那一圈表达）。
+    指向态**属于"可点的动作"**（按钮 / 页签 / 活动栏 / 开关 / 滑块 / 下拉）；
+    输入框是"可以打字的区域"，鼠标划过不该有任何变化 —— 那会让人以为它是个按钮。
+    钉 `Background` / `BorderBrush`（控件属性）而不是去猜 Fluent 的资源键名，理由同上。
+  -->
+  <Style Selector="TextBox">
+    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="SelectionBrush" Value="{DynamicResource OverlaySelection}" />
+    <Setter Property="SelectionForegroundBrush" Value="{DynamicResource TextPrimary}" />
+    <Setter Property="CaretBrush" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="TextBox:pointerover">
+    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+  </Style>
+
+  <Style Selector="TextBox:focus">
+    <!-- 聚焦只改**底**（保持常态底）；那一圈聚焦色由 Fluent 的聚焦规则给，不在这里压掉 -->
+    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+  </Style>
+
+  <!--
+    ③ **滚动条**：钉 `Foreground` —— Fluent 的滚动条模板把拇指画在它上面。
+    同时让条**常驻**（模板缺省会自己淡出，于是"有没有得滚"要靠鼠标去试）；
+    这条只作用于还没被别处覆盖的滚动条（文本面自己那一条更具体，仍是它赢）。
+  -->
+  <Style Selector="ScrollBar">
+    <Setter Property="Foreground" Value="{DynamicResource BorderStrong}" />
+  </Style>
+
+  <Style Selector="TextBox /template/ ScrollBar">
+    <Setter Property="AllowAutoHide" Value="False" />
+  </Style>
+
+  <!--
+    ④ **下拉框**：面 / 边 / 字都归 token；展开后的候选项另算（下一组）。
+    `Popup` 自己的底色由 `FlyoutPresenter` 那一组管（下拉的内容宿主就是它）。
+  -->
+  <Style Selector="ComboBox">
+    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="ComboBox:pointerover">
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
+  </Style>
+
+  <Style Selector="ComboBox:disabled">
+    <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+  </Style>
+
+  <!-- ⑤ **候选项与列表项**：常态墨 + 选中底（选中底引叠加色 ⇒ 改主题色时跟着变） -->
+  <Style Selector="ComboBoxItem">
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="ComboBoxItem:selected">
+    <Setter Property="Background" Value="{DynamicResource OverlaySelection}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="ListBoxItem">
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="ListBoxItem:selected">
+    <Setter Property="Background" Value="{DynamicResource OverlaySelection}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="ListBoxItem:disabled">
+    <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+  </Style>
+
+  <!-- ⑥ **勾选框的文字**（方框本身归 Fluent 的自绘模板；这一条只管字） -->
+  <Style Selector="CheckBox">
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="CheckBox:disabled">
+    <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+  </Style>
+
+  <!-- ⑦ **浮出层与悬停提示的表面**（帮助问号的 Flyout、下拉的内容宿主、ToolTip） -->
+  <Style Selector="FlyoutPresenter">
+    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="ToolTip">
+    <Setter Property="Background" Value="{DynamicResource BgChrome}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+</Styles>

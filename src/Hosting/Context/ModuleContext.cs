@@ -55,16 +55,19 @@ public sealed class ModuleContext : IModuleContext
         Ports = new PlaceholderPortAccess(_receiveHandlers);
         Configuration = new InMemoryConfigurationAccess(_configuration, _configurationGate);
         Inbox = new BoundedInbox();
-        InputFeedback = InputFeedbackStore;
+        Appearance = AppearanceStore;
     }
 
     /// <summary>
-    /// **输入处理结果的存放处**（G3）——L4 经此读快照、并在**投递入队时**清除旧结果（"下一次提交即刷新"）。
+    /// **元素外观的存放处** —— L4 经此读快照交给界面。
     /// </summary>
-    public InputFeedbackStore InputFeedbackStore { get; } = new();
+    /// <remarks>
+    /// 它只存"什么颜色"，**不含任何语义**：模块给红给绿都行，框架不解释（见 <see cref="IViewAppearanceAccess"/>）。
+    /// </remarks>
+    public AppearanceStore AppearanceStore { get; } = new();
 
     /// <inheritdoc />
-    public IInputFeedbackReporter InputFeedback { get; }
+    public IViewAppearanceAccess Appearance { get; }
 
     /// <summary>实例 ID。</summary>
     public string InstanceId { get; }
@@ -124,6 +127,20 @@ public sealed class ModuleContext : IModuleContext
     {
         ArgumentNullException.ThrowIfNull(display);
         Display = display;
+    }
+
+    /// <summary>
+    /// **文件选择的请求面**（模块 → 框架的"请求"方向）：模块说"帮我弹一次系统选择器"，
+    /// 选定的路径经**输入通道**投回。未注入 ⇒ 请求被忽略（**不抛异常**）。
+    /// </summary>
+    public IFileAccess Files { get; private set; } = EmptyFileAccess.Instance;
+
+    /// <summary>挂上文件选择请求面（**由 L4/宿主在创建实例时调用**；模块作者不使用本方法）。</summary>
+    /// <param name="files">按实例绑定的请求面。</param>
+    public void AttachFiles(IFileAccess files)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        Files = files;
     }
 
     /// <summary>已声明的口（按声明顺序）。</summary>
@@ -508,6 +525,11 @@ public sealed class ModuleContext : IModuleContext
             // 无框架接线 ⇒ 忽略（模块不该被这个面绊倒）
         }
 
+        public void SetText(string dataSourceName, string text)
+        {
+            // 同上：替换入口在未接线时同样是"忽略"，不抛
+        }
+
         public void AppendText(string dataSourceName, string text)
         {
             // 同上：只增的追加入口在未接线时同样是"忽略"，不抛
@@ -516,6 +538,17 @@ public sealed class ModuleContext : IModuleContext
         public void AppendLine(string dataSourceName, string text)
         {
             // 同上
+        }
+    }
+
+    /// <summary>**"请求被忽略"的文件选择面**（未注入真实面时的回落 —— 不抛异常）。</summary>
+    private sealed class EmptyFileAccess : IFileAccess
+    {
+        public static readonly EmptyFileAccess Instance = new();
+
+        public void Request(FilePickRequest request)
+        {
+            // 无宿主接线 ⇒ 忽略（模块不该被这个面绊倒；用户看不到对话框，模块也收不到路径）
         }
     }
 
@@ -530,6 +563,12 @@ public sealed class ModuleContext : IModuleContext
         public int? GetSelectedPage(string stateKey) => null;
 
         public string? GetInputText(string sourceName) => null;
+
+        public void SetInputValue(string sourceName, string? text)
+        {
+            _ = sourceName;
+            _ = text;
+        }
 
         public IReadOnlyList<string> GetDisplayLines(string sourceName) => [];
     }

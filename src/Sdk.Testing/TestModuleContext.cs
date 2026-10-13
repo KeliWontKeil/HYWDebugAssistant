@@ -18,13 +18,13 @@ namespace HYWDebugAssistant.Sdk.Testing;
 ///   <item>`Publish` 写入的记录可直接断言（<see cref="Published"/>）。</item>
 /// </list>
 /// </remarks>
-public sealed class TestModuleContext : IModuleContext, IInputFeedbackReporter
+public sealed class TestModuleContext : IModuleContext
 {
     private readonly List<PortDeclaration> _ports = [];
     private readonly List<DataTypeDeclaration> _dataTypes = [];
     private readonly List<FlowDeclaration> _flows = [];
     private readonly List<RoleDeclaration> _roles = [];
-    private readonly List<InputFeedbackReport> _inputFeedback = [];
+    private readonly List<AppearanceReport> _appearances = [];
     private readonly Dictionary<string, ReceiveHandler> _receiveHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, object> _configuration = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<byte[]>> _published = new(StringComparer.Ordinal);
@@ -46,27 +46,72 @@ public sealed class TestModuleContext : IModuleContext, IInputFeedbackReporter
         Issues = new IssueCollector(ReportedIssues);
         Configuration = new InMemoryConfigurationAccess(_configuration);
         StopSignal = _stopSignal;
-        InputFeedback = this;
+        Appearance = new AppearanceRecorder(_appearances);
     }
 
     /// <summary>
-    /// 模块回报的**输入处理结果**（G3）——模块作者可在自己的测试里断言"非法输入确实回报了失败"。
+    /// 模块给元素设定的**外观**（颜色）——只记颜色，**不含语义**（框架不认识"红 = 失败"）。
     /// </summary>
-    /// <remarks>与框架侧同一语义：**只记录、不解释**（呈现文本）；框架在投递入队时清旧结果（"下一次提交即刷新"）。</remarks>
-    public IReadOnlyList<InputFeedbackReport> InputFeedbackReports => _inputFeedback;
+    /// <remarks>模块作者可在自己的测试里断言"这一步确实把边框设成了某个颜色"。</remarks>
+    public IReadOnlyList<AppearanceReport> AppearanceReports => _appearances;
 
     /// <inheritdoc />
-    public IInputFeedbackReporter InputFeedback { get; }
+    public IViewAppearanceAccess Appearance { get; }
 
-    /// <inheritdoc />
-    void IInputFeedbackReporter.Report(string sourceName, bool succeeded, string? message) =>
-        _inputFeedback.Add(new InputFeedbackReport(sourceName, succeeded, message));
+    /// <summary>一次外观设定的**记录**（测试断言用）。</summary>
+    /// <param name="SourceName">数据源名。</param>
+    /// <param name="Outline">设的边框色；<see langword="null"/> = 清除。</param>
+    /// <param name="Text">设的文字色；<see langword="null"/> = 未动这一键位。</param>
+    /// <param name="TextSize">设的字号；<see langword="null"/> = 未动这一键位。</param>
+    /// <param name="Reset">是不是一次**动作复原**要求（勾选框拨回）。</param>
+    /// <param name="ReadOnly">设的运行期只读；<see langword="null"/> = 未动这一键位。</param>
+    /// <param name="OutlineRole">设的边框**角色词**（相对色）；<see langword="null"/> = 未动这一键位。</param>
+    /// <param name="TextRole">设的文字**角色词**（相对色）；<see langword="null"/> = 未动这一键位。</param>
+    public readonly record struct AppearanceReport(
+        string SourceName,
+        uint? Outline,
+        uint? Text,
+        double? TextSize = null,
+        bool Reset = false,
+        bool? ReadOnly = null,
+        string? OutlineRole = null,
+        string? TextRole = null);
 
-    /// <summary>一次输入处理结果的**记录**（G3；测试断言用）。</summary>
-    /// <param name="SourceName">输入源名。</param>
-    /// <param name="Succeeded">是否成功。</param>
-    /// <param name="Message">可选原因。</param>
-    public readonly record struct InputFeedbackReport(string SourceName, bool Succeeded, string? Message);
+    /// <summary>把外观设定记下来的替身。</summary>
+    private sealed class AppearanceRecorder : IViewAppearanceAccess
+    {
+        private readonly List<AppearanceReport> _log;
+
+        public AppearanceRecorder(List<AppearanceReport> log) => _log = log;
+
+        /// <inheritdoc />
+        public void SetOutlineColor(string sourceName, uint? argb) =>
+            _log.Add(new AppearanceReport(sourceName, argb, Text: null));
+
+        /// <inheritdoc />
+        public void SetOutlineRole(string sourceName, string? role) =>
+            _log.Add(new AppearanceReport(sourceName, Outline: null, Text: null, OutlineRole: role));
+
+        /// <inheritdoc />
+        public void SetTextColor(string sourceName, uint? argb) =>
+            _log.Add(new AppearanceReport(sourceName, Outline: null, argb));
+
+        /// <inheritdoc />
+        public void SetTextRole(string sourceName, string? role) =>
+            _log.Add(new AppearanceReport(sourceName, Outline: null, Text: null, TextRole: role));
+
+        /// <inheritdoc />
+        public void SetTextSize(string sourceName, double? dips) =>
+            _log.Add(new AppearanceReport(sourceName, Outline: null, Text: null, dips));
+
+        /// <inheritdoc />
+        public void SetReadOnly(string sourceName, bool isReadOnly) =>
+            _log.Add(new AppearanceReport(sourceName, Outline: null, Text: null, ReadOnly: isReadOnly));
+
+        /// <inheritdoc />
+        public void ResetInteraction(string sourceName) =>
+            _log.Add(new AppearanceReport(sourceName, Outline: null, Text: null, TextSize: null, Reset: true));
+    }
 
     /// <summary>实例 ID。</summary>
     public string InstanceId { get; }
@@ -129,12 +174,40 @@ public sealed class TestModuleContext : IModuleContext, IInputFeedbackReporter
     /// </remarks>
     public List<string> ClearedDisplays { get; } = [];
 
+    /// <summary>
+    /// **整段替换过哪些显示源**（测试可断言）：模块调 <c>Display.SetText</c> 时记在这个名字下。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="ClearedDisplays"/> 同一模型：测试里**直接落到 <see cref="ViewState"/>**。
+    /// 与追加分开记的理由：替换是"只有当前值"的语义（消息 / 状态），断言"界面上现在显示的是哪一句"
+    /// 应当查这一份，而不是去翻追加过的行。
+    /// </remarks>
+    public List<(string SourceName, string Text)> SetTexts { get; } = [];
+
     /// <inheritdoc />
     IViewDisplayAccess IModuleContext.Display => DisplayAccess;
 
     private DisplayRecorder? _display;
 
     private DisplayRecorder DisplayAccess => _display ??= new DisplayRecorder(this);
+
+    /// <summary>
+    /// **测试里的文件选择请求面**：请求只被记录，**不弹任何对话框**
+    /// （与框架侧"请求进挂起表、由 UI 执行"同一个形状 —— 测试不碰真实系统对话）。
+    /// </summary>
+    /// <remarks>
+    /// 想模拟"用户选定了一个路径"时，测试直接
+    /// <c>EnqueueInput(request.SourceName, 路径)</c> —— 那正是框架在真实宿主里做的事
+    /// （选定后按 <see cref="FilePickRequest.SourceName"/> 投回输入通道）。
+    /// </remarks>
+    public List<FilePickRequest> FilePickRequests { get; } = [];
+
+    /// <inheritdoc />
+    IFileAccess IModuleContext.Files => FileAccess;
+
+    private FileAccessRecorder? _files;
+
+    private FileAccessRecorder FileAccess => _files ??= new FileAccessRecorder(this);
 
     /// <summary>投递一个命令（测试驱动用；等价于用户在模块窗口里点按钮）。</summary>
     /// <param name="commandName">命令名。</param>
@@ -143,7 +216,16 @@ public sealed class TestModuleContext : IModuleContext, IInputFeedbackReporter
     /// <summary>投递一个输入值（测试驱动用；等价于用户在输入框里回车）。</summary>
     /// <param name="source">输入源。</param>
     /// <param name="text">文本。</param>
-    public void EnqueueInput(string source, string text) => ((TestInbox)Inbox).Inputs.Enqueue((source, text));
+    /// <remarks>
+    /// <b>同时写进视图状态</b>：真实链路里用户一改字，UI 先把值写进视图状态、再把这次改动投给模块
+    /// （模块"所见即所发"读的就是那一份）。只入队不写状态，等于造了一个真实宿主不存在的形状 ——
+    /// 模块会读不到用户在界面上拨到的位置。
+    /// </remarks>
+    public void EnqueueInput(string source, string text)
+    {
+        ViewState.SetInputText(source, text);
+        ((TestInbox)Inbox).Inputs.Enqueue((source, text));
+    }
 
     /// <summary>测试用收件箱：无界（测试里手动投递，不需要丢旧策略）。</summary>
     private sealed class TestInbox : IModuleInbox
@@ -384,6 +466,18 @@ public sealed class TestModuleContext : IModuleContext, IInputFeedbackReporter
             owner.ViewState.ClearDisplay(dataSourceName);
         }
 
+        public void SetText(string dataSourceName, string text)
+        {
+            if (string.IsNullOrWhiteSpace(dataSourceName))
+            {
+                return;
+            }
+
+            // 与框架侧同一语义：**替换**（不是追加）⇒ 记下"这一源被整段设过"并落到视图状态。
+            owner.SetTexts.Add((dataSourceName, text));
+            owner.ViewState.SetDisplay(dataSourceName, text);
+        }
+
         public void AppendText(string dataSourceName, string text)
         {
             if (string.IsNullOrWhiteSpace(dataSourceName))
@@ -402,6 +496,28 @@ public sealed class TestModuleContext : IModuleContext, IInputFeedbackReporter
             }
 
             owner.ViewState.AppendDisplay(dataSourceName, text, lineBreak: true);
+        }
+    }
+
+    /// <summary>
+    /// 测试替身：把"文件选择请求"记下来，**不弹任何对话框**。
+    /// </summary>
+    /// <remarks>
+    /// 与框架侧同一模型：模块只"请求"，执行是宿主的事。测试要模拟"用户选了某个路径"时，
+    /// 直接 <c>EnqueueInput(request.SourceName, 路径)</c> —— 与真实宿主投回输入通道是同一件事。
+    /// </remarks>
+    private sealed class FileAccessRecorder(TestModuleContext owner) : IFileAccess
+    {
+        public void Request(FilePickRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+
+            if (string.IsNullOrWhiteSpace(request.SourceName))
+            {
+                return;
+            }
+
+            owner.FilePickRequests.Add(request);
         }
     }
 }

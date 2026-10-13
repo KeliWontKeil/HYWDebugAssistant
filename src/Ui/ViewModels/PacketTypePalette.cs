@@ -36,8 +36,22 @@ public static class PacketTypePalette
     /// <summary>自动配色的缓存（同一键复用同一画刷：颜色稳定 + 不做重复计算）。</summary>
     private static readonly ConcurrentDictionary<string, IBrush> Auto = new(StringComparer.Ordinal);
 
-    /// <summary>**未映射类型**的占位色（空键 / 未知）：中性灰蓝，刻意保持中性。</summary>
-    public static IBrush Placeholder { get; } = new ImmutableSolidColorBrush(Color.Parse("#9AA4B2"));
+    /// <summary>
+    /// **未映射类型**的占位色（空键 / 未知）：中性灰蓝，刻意保持中性。
+    /// </summary>
+    /// <remarks>
+    /// **绝对色**：本类整支都是"按类型标识算出来的颜色"（见 <see cref="AutoColor"/>），
+    /// 它**不属于主题的命名色板** —— 主题管"界面观感"，这里管"数据身份"。
+    /// 用户可以在「数据包类型表」里逐键覆盖（<see cref="Overrides"/>）。
+    /// <para>
+    /// 占位色的**文本形式**（`#RRGGBB`）就是 <see cref="PlaceholderHex"/>：设置面板写回设置时也用它
+    /// —— 同一个色值只写一处（以前它在这个类与设置面板的兜底里各写了一遍）。
+    /// </para>
+    /// </remarks>
+    public static IBrush Placeholder { get; } = new ImmutableSolidColorBrush(Color.Parse(PlaceholderHex));
+
+    /// <summary>占位色的文本形式（**唯一一处**；`Placeholder` 与设置面板的兜底都引它）。</summary>
+    public const string PlaceholderHex = "#9AA4B2";
 
     /// <summary>自动配色的饱和度（0–1）：中等饱和 —— 深色玻璃上不刺眼、彼此可分。</summary>
     public const double AutoSaturation = 0.52;

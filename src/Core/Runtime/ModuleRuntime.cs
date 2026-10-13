@@ -67,6 +67,18 @@ public sealed partial class ModuleRuntime : IDisposable
     /// </summary>
     public Api.IViewStateAccess? ViewState { get; }
 
+    /// <summary>
+    /// **文件选择请求面的解析器**（按实例给一份；`null` = 未接线 ⇒ 模块的"弹选择器"请求被忽略）。
+    /// </summary>
+    /// <remarks>
+    /// <b>为什么是"解析器"而不是一个面</b>：系统选择器需要一个宿主窗口（`TopLevel.StorageProvider`），
+    /// 而"哪个窗口属于哪个实例"只有 **UI 侧**知道（窗口集控制器持有实例 → 窗口的映射）。
+    /// L4 因此不持有窗口，只按实例问一句"这一份请求面是谁" —— 与
+    /// <see cref="ViewState"/> 的按实例绑定同一个形状（那边由存储面 `DisplayFor(instanceId)` 给出）。
+    /// <b>由 App 在启动时挂上</b>（同 <c>RuntimeServices.BuiltInModuleDirectory</c> 的做法）。
+    /// </remarks>
+    public Func<string, Sdk.Context.IFileAccess?>? FileAccessFor { get; set; }
+
     /// <summary>Issue 中心（框架判定与模块报告的统一收集点）。</summary>
     public IssueCenter Issues { get; }
 
@@ -148,7 +160,8 @@ public sealed partial class ModuleRuntime : IDisposable
                         add.Definition,
                         Issues,
                         ViewState?.ReaderFor(add.InstanceId),
-                        (ViewState as Services.ViewStateStore)?.DisplayFor(add.InstanceId));
+                        (ViewState as Services.ViewStateStore)?.DisplayFor(add.InstanceId),
+                        FileAccessFor?.Invoke(add.InstanceId));
                     plan.AddInstances.Add((created, new ModuleCarrierAdapter(created, created.Context, Issues)));
                     break;
 
@@ -305,16 +318,12 @@ public sealed partial class ModuleRuntime : IDisposable
                     {
                         // **必须**在**整棵声明树**里找：输入可以声明在容器里（`tabs` 的页内、`group` 内……）
                         // —— 只看顶层会把"页内输入的回车/失焦提交"误判成"模块未声明该输入"而拒绝；
-                        // 整树判定也让 `fileSelector` 这类输入节点与文本框走同一条通道。
+                        // 整树判定也让"声明在页内、容器里的输入"与文本框走同一条通道。
                         failures.Add($"模块未声明该输入：{input.InstanceId}.{input.Source}");
                     }
                     else
                     {
                         plan.InputDeliveries.Add((input.InstanceId, input.Source, input.Text));
-
-                        // "**下一次提交即刷新**"：投递入队时清除该 (实例, 源名) 的旧处理结果
-                        // ⇒ 模块这次若不再回报，失败态自然消失；**没回报过也永远没有失败态**（零影响）。
-                        inputInstance.Context.InputFeedbackStore.Clear(input.Source);
                     }
 
                     break;
@@ -593,8 +602,16 @@ public sealed partial class ModuleRuntime : IDisposable
 
     // 绑定角色由读取器按 schema 落成节点上的键（`Input` / `Command`）：判定"声明了什么"只需查键，
     // 不再按 kind 抄一份清单 —— 清单一旦分叉，新控件就会漏判（历史上开关、文件选择器都踩过）。
+    //
+    // **但"声明了输入"不等于"有界面元素绑定它"**：模块的数据源可以没有任何界面实体
+    // （例如「选一个保存位置」那条源 —— 它由模块自己的逻辑决定何时产生值，界面上没有对应的控件）。
+    // 这种源的合法声明处就是 `sources` 段，故两处都算：
+    //   · 元素用 `input` 绑了它（用户能打字的那种），或
+    //   · `sources` 里登记了它（没有界面实体、由别处投递的那种 —— 例如系统对话框选完的回填）。
+    // 只认前者会把后者**整个拒掉**，而表现是"对话框选了位置却什么都没发生、也没有文件"。
     private static bool DeclaresInput(HYWDebugAssistant.Sdk.Views.ViewDocument view, string source) =>
-        FlattenNodes(view).Any(node => string.Equals(node.Input, source, StringComparison.Ordinal));
+        FlattenNodes(view).Any(node => string.Equals(node.Input, source, StringComparison.Ordinal))
+        || view.Sources.Any(declared => string.Equals(declared.Name, source, StringComparison.Ordinal));
 
     private static bool DeclaresCommand(HYWDebugAssistant.Sdk.Views.ViewDocument view, string commandName) =>
         FlattenNodes(view).Any(node => string.Equals(node.Command, commandName, StringComparison.Ordinal));

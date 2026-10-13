@@ -190,16 +190,35 @@ public sealed record ModuleInstanceView(
     HYWDebugAssistant.Sdk.Views.ViewDocument? View = null);
 
 /// <summary>
-/// 某个**输入元素**的最近一次**处理结果**（G3；经 <c>IRuntimeQuery.GetInputFeedback</c> 取得）。
+/// 某个元素**运行时被设定的外观**（经 <c>IRuntimeQuery.GetAppearance</c> 取得）。
 /// </summary>
-/// <param name="SourceName">输入元素的数据源名（= 视图声明里该元素的 <c>DataSource</c>）。</param>
-/// <param name="Succeeded">是否处理成功（false ⇒ UI 渲染失败态）。</param>
-/// <param name="Message">模块给的呈现文本（框架**不理解**其语义；null = 留白）。</param>
+/// <param name="SourceName">元素的数据源名（= 视图声明里该元素的绑定名）。</param>
+/// <param name="Outline">边框色（<c>0xAARRGGBB</c>）；<see langword="null"/> = 没设 ⇒ 按主题。</param>
+/// <param name="Text">文字色（<c>0xAARRGGBB</c>）；<see langword="null"/> = 没设 ⇒ 按声明 / 主题。</param>
+/// <param name="TextSize">文字大小（DIP）；<see langword="null"/> = 没设 ⇒ 按声明 / 主题那一档。</param>
+/// <param name="ReadOnly">运行期只读开关；<see langword="null"/> = 没设 ⇒ 按声明那一档。</param>
+/// <param name="OutlineRole">边框的**角色词**（相对色）；<see langword="null"/> = 没设。与 <paramref name="Outline"/> 互斥。</param>
+/// <param name="TextRole">文字的**角色词**（相对色）；<see langword="null"/> = 没设。与 <paramref name="Text"/> 互斥。</param>
+/// <param name="Revision">动作复原信号（每次 <c>ResetInteraction</c> 自增；控件据此把用户刚做的交互复原）。</param>
 /// <remarks>
+/// <para>
+/// <b>它不含语义</b>：这里只有颜色、字号、只读与"复原信号"，**没有**"成功 / 失败"这种判断 ——
+/// 它们与"何时变"都是模块的 C# 逻辑（框架不认识"红 = 失败"）。
+/// </para>
+/// <para>
 /// **只呈现**：不参与建网/兼容/停流/投递/计量，**不进组合件**（纯运行期状态）。
-/// 生命周期 = "**下一次提交即刷新**"（框架在投递入队时清除旧结果）。
+/// 生命周期 = 模块自己设、自己清（设 <see langword="null"/> 即回到主题）。
+/// </para>
 /// </remarks>
-public sealed record InputFeedbackView(string SourceName, bool Succeeded, string? Message);
+public sealed record AppearanceView(
+    string SourceName,
+    uint? Outline,
+    uint? Text,
+    double? TextSize = null,
+    long Revision = 0,
+    bool? ReadOnly = null,
+    string? OutlineRole = null,
+    string? TextRole = null);
 
 /// <summary>网络视图。</summary>
 /// <param name="Name">网络名（匿名网络为空串）。</param>
@@ -254,13 +273,37 @@ public sealed record NetworkView(
 /// 模块视图布局（**纯数值**：位置与尺寸，随组合件保存）。
 /// </summary>
 /// <remarks>
+/// <para>
+/// <b>单位口径 = DIP（设备无关像素），四个数一律如此</b>。这条不是审美，是被两处硬约束逼出来的：
+/// <list type="number">
+///   <item><b>接触判定必须同单位</b>：<c>DockRule.TryGetContact</c> 把 <c>X + Width</c>、
+///     <c>Y + Height</c> 写在同一个表达式里比较像素相邻 —— 两者不同单位就判不出来。
+///     而它跑在 <c>Core</c> 里（<c>ModuleRuntime.Networking</c> 直接拿布局构造候选），
+///     <b>拿不到屏幕缩放</b>，没有地方做换算。</item>
+///   <item><b>尺寸必须是可移植的</b>：模型若存物理像素，同一份组合件在 150% 的屏上就会
+///     以 1.5 倍的物理尺寸开窗（窗口尺寸是 DIP）⇒ <b>右边框长出屏幕被遮住</b>。
+///     存 DIP 则跨屏后内容不伸缩，物理尺寸随屏自适应 —— 那是期望行为。</item>
+/// </list>
+/// </para>
+/// <para>
+/// <b>旧格式（SchemaVersion &lt; 3）的四个数是物理像素</b>，由
+/// <c>CompositeSerializer.TryParse</c> 在**解析期**按屏幕缩放 ÷ 换算成 DIP
+/// ⇒ 本记录**无条件就是 DIP**，读它的代码不需要知道单位来源，也不带任何"要不要换算"的标记。
+/// </para>
+/// <para>
+/// <b>DIP ↔ 物理像素的换算只发生在窗口边界</b>（<c>ModuleWindowManager</c>：落位时
+/// <c>DIP × 该窗口 RenderScaling</c> 取整成 <c>PixelPoint</c>；读窗口尺寸时直接用 DIP）。
+/// 其余位置一律不许再乘除缩放。
+/// </para>
+/// <para>
 /// "是否拼为一组"由位置派生（C5-1）：只保存位置，组关系在加载/拖动后由几何重新推导，**不单独存储**。
+/// </para>
 /// </remarks>
 /// <param name="InstanceId">实例 ID。</param>
-/// <param name="X">画布坐标 X（像素）。</param>
-/// <param name="Y">画布坐标 Y（像素）。</param>
-/// <param name="Width">视图宽度（像素）。</param>
-/// <param name="Height">视图高度（像素）。</param>
+/// <param name="X">画布坐标 X（**DIP**）。</param>
+/// <param name="Y">画布坐标 Y（**DIP**）。</param>
+/// <param name="Width">视图宽度（**DIP**）。</param>
+/// <param name="Height">视图高度（**DIP**）。</param>
 /// <param name="IsViewVisible">模块视图是否开启（关 = 仍在运行，仅隐藏表现层）。</param>
 public sealed record ModuleLayoutView(
     string InstanceId,

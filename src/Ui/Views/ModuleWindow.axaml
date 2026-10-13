@@ -34,11 +34,15 @@
       **本文件没有 `MinWidth`/`MinHeight`**（2026-10）：它们是框架地板的第二份字面量，且因为
       `CanResize="False"` 对用户**毫无约束作用** —— 真实约束走模型的
       `ModuleViewViewModel.EffectiveMin*` → `Fit`。地板的唯一来源见包声明 schema 的 `window.min*` 缺省值。
-      内容排不下时由 `ModuleContentView` 的 ScrollViewer 滚动，**代码不再按内容计算窗口尺寸**；
+      内容排不下时由内容区（`ModuleSurfaceView` 里的滚动视口）滚动，**代码不再按内容计算窗口尺寸**；
       用户在界面上拖过的尺寸会随组合件保存（那是"用户的布局"，不是"代码算的布局"）。
       `d:DataContext` = 设计时样例数据 → **VS 设计器里可直接预览与调整**（见 `Ui/Design/DesignData.cs`）。
     -->
-    <Window.Styles>
+    <!--
+      **按钮的指针 / 按下态**：Fluent 的按钮模板从这几个资源键取色，它盖在 `Button.Background` 之上 ——
+      应用级资源赢不过 Fluent 的主题字典，**只有挂在这一层（窗口 Resources）才被读到**（见那份文件的说明）。
+    -->
+<Window.Styles>
         <!-- 按钮簇：悬停或选中时淡入（平时不可见，避免干扰数据阅读） -->
         <Style Selector="Border#Cluster">
             <Setter Property="Opacity" Value="0" />
@@ -70,10 +74,13 @@
             <Setter Property="IsHitTestVisible" Value="True" />
         </Style>
 
-        <!-- 选中态：主色边框（09 §8）；边框本就覆盖整个窗口周界 -->
+        <!--
+          选中态：**只换边框颜色**。
+          **不加粗**：`BorderThickness` 会进布局 ⇒ 选中瞬间窗口内容整体内缩 1px（模块里所有控件跟着跳一下）。
+          选中本来就已经有三处表达（边框色、缩放带、按钮簇），不需要再动几何。
+        -->
         <Style Selector="Border#Frame.selected">
             <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
-            <Setter Property="BorderThickness" Value="2" />
         </Style>
 
         <!--
@@ -177,7 +184,7 @@
         <Grid>
 
             <!-- 内容（**整块窗口**都是内容区：没有标题栏、没有身份行） -->
-            <views:ModuleContentView Name="ModuleArea"
+            <views:ModuleSurfaceView Name="ModuleArea"
                                      DataContext="{Binding}"
                                      PointerPressed="OnContentPressed" />
 
@@ -623,6 +630,16 @@
                                     InkMutedBrush="{DynamicResource OverlayInkMuted}"
                                     DataFontFamily="{DynamicResource FontData}"
                                     IsHitTestVisible="False" />
+
+            <!--
+              **拖动时的对齐标线**：拖到与别的窗口/外壳**边或中线对齐**时，在这一层画出来。
+              数值由视图模型算（`SnapEngine`），本层只负责画 —— 所以它必须**在所有内容之上**
+              （压在遮罩、角色方块、连线之上），且**不参与命中**（命中要落到端口标记与标题栏上）。
+            -->
+            <ctrl:GuideOverlay Guides="{Binding Guides}"
+                               ResizeEdges="{Binding ResizeEdges}"
+                               LineBrush="{DynamicResource AccentPrimary}"
+                               IsHitTestVisible="False" />
 
             <!-- 运行指示：**左下角**（状态点 + 状态文本；模块名不显示） -->
             <StackPanel HorizontalAlignment="Left"

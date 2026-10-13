@@ -129,6 +129,172 @@ public class BusinessModulesContractTests
     }
 
     /// <summary>
+    /// **模块声明的标准化**：文本面的三个键必须**显式写出来**，不靠 schema 缺省兜底。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 这里守的是**声明面自己读得懂**：读取器一旦把"声明里没写"读成 <c>false</c>（而不是取 schema 的缺省），
+    /// <c>textBox</c> 的 <c>wrap</c> / <c>showNewlineMark</c> 就会静默变成关闭态，而模块作者
+    /// 以为自己什么都没写就是默认行为 —— 界面不会报错，只会不像作者想的那样。
+    /// 把"这块日志留多少行、折不折行、画不画换行标记"写出来，这一层歧义就不存在了。
+    /// </para>
+    /// <para>
+    /// 判据只看"这个键在不在这一条声明里"，不看值 —— 值该是什么由模块决定。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void 模块声明里的文本面_必须显式写出它自己的键()
+    {
+        var missing = new List<string>();
+
+        foreach (var module in ModulePackages)
+        {
+            var root = ReadPackagedView(module).GetProperty("views")[0].GetProperty("root");
+            CollectTextSurfaceGaps(root, module, missing);
+        }
+
+        missing.ShouldBeEmpty(
+            "文本面的这些键必须显式声明（不靠 schema 缺省兜底）："
+            + Environment.NewLine + string.Join(Environment.NewLine, missing));
+    }
+
+    /// <summary>
+    /// **几何必须逐元素显式声明**：每个会渲染的元素都得自己写出两个轴（漏写由读取器报硬伤）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 兜底不够显式：模块作者看自己的声明看不出"这块要多宽"，而界面上一旦表现不符预期，
+    /// 也说不清是声明的问题还是框架的问题。写出来之后，"这块多宽多高"就只有一个事实源。
+    /// </para>
+    /// <para>
+    /// **每个轴只写一个口径**（<c>adaptive</c> / <c>fill</c> / <c>pixels</c>）：读取器把"同轴多口径"
+    /// 判为硬伤（声明作废）—— 那正是"声明了却没按声明来"的另一种来源，所以这里一并拦下。
+    /// </para>
+    /// <para>
+    /// <c>tabs</c> / <c>collapsible</c> 的直接子节点是**页载体**（<c>tabs</c> 只取它的 <c>children</c>
+    /// 与 <c>title</c>，载体自己不生成控件），所以它那两轴不必声明；载体里面的元素照查。
+    /// **声明根**同理不必声明两轴：模块根**就是**表面面板本身，面板的尺寸由窗口给。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void 模块声明里的每个元素_必须显式写出两个轴的口径()
+    {
+        var problems = new List<string>();
+
+        foreach (var module in ModulePackages)
+        {
+            var root = ReadPackagedView(module).GetProperty("views")[0].GetProperty("root");
+            CollectGeometryGaps(root, module, skipAxes: true, problems);
+        }
+
+        problems.ShouldBeEmpty(
+            "几何必须逐元素显式声明（漏写是硬伤），且每个轴只能写一个口径："
+            + Environment.NewLine + string.Join(Environment.NewLine, problems));
+    }
+
+    /// <summary>递归查几何声明：每个渲染元素两个轴都要有、且每轴只有一个口径。</summary>
+    /// <param name="node">声明节点。</param>
+    /// <param name="module">模块包名（报错定位用）。</param>
+    /// <param name="skipAxes">本节点是否不必声明两轴（声明根 / 页载体）。</param>
+    /// <param name="problems">问题清单（累加）。</param>
+    private static void CollectGeometryGaps(JsonElement node, string module, bool skipAxes, List<string> problems)
+    {
+        var kind = node.TryGetProperty("kind", out var kindElement) ? kindElement.GetString() : null;
+        var title = node.TryGetProperty("title", out var titleElement) ? titleElement.GetString() : null;
+        var where = $"{module} 的 {(title is { Length: > 0 } ? $"「{title}」" : kind ?? "?")}";
+
+        if (!skipAxes && kind is { Length: > 0 })
+        {
+            foreach (var axis in AxisNames)
+            {
+                if (!node.TryGetProperty(axis, out var axisElement))
+                {
+                    problems.Add($"{where} 没写 {axis}");
+                    continue;
+                }
+
+                var strategies = AxisStrategies
+                    .Count(name => axisElement.TryGetProperty(name, out var value)
+                        && value.ValueKind is JsonValueKind.True or JsonValueKind.Number);
+
+                if (strategies != 1)
+                {
+                    problems.Add($"{where} 的 {axis} 写了 {strategies} 个口径（必须恰好一个）");
+                }
+            }
+        }
+
+        if (!node.TryGetProperty("children", out var children) || children.ValueKind is not JsonValueKind.Array)
+        {
+            return;
+        }
+
+        // 页载体：`tabs` / `collapsible` 的直接子节点自己不生成控件，两轴不必声明。
+        var childrenAreCarriers = kind is "tabs" or "collapsible";
+
+        foreach (var child in children.EnumerateArray())
+        {
+            CollectGeometryGaps(child, module, childrenAreCarriers, problems);
+        }
+    }
+
+    /// <summary>本用例覆盖的模块包名（新增业务模块时一并登记）。</summary>
+    private static readonly string[] ModulePackages =
+        ["data-monitor", "hex-sender", "hex-string-converter", "text-sender"];
+
+    /// <summary>一个轴上允许的口径（解析顺序 adaptive &gt; fill &gt; pixels）。</summary>
+    private static readonly string[] AxisStrategies = ["adaptive", "fill", "pixels"];
+
+    /// <summary>两个轴的键名。</summary>
+    private static readonly string[] AxisNames = ["width", "height"];
+
+    /// <summary>递归找文本面节点，逐个查它该显式写的键在不在。</summary>
+    /// <param name="node">声明节点。</param>
+    /// <param name="module">模块包名（报错定位用）。</param>
+    /// <param name="missing">缺键清单（累加）。</param>
+    private static void CollectTextSurfaceGaps(JsonElement node, string module, List<string> missing)
+    {
+        if (node.TryGetProperty("kind", out var kindElement)
+            && kindElement.GetString() is "textBox")
+        {
+            var title = node.TryGetProperty("title", out var titleElement) ? titleElement.GetString() : null;
+            var where = $"{module} 的 {(title is { Length: > 0 } ? $"「{title}」" : "textBox")}";
+            var readOnly = node.TryGetProperty("readonly", out var readOnlyElement)
+                && readOnlyElement.ValueKind is JsonValueKind.True;
+
+            foreach (var key in TextBoxKeys(readOnly))
+            {
+                if (!node.TryGetProperty(key, out _))
+                {
+                    missing.Add($"{where} 没写 {key}");
+                }
+            }
+        }
+
+        if (!node.TryGetProperty("children", out var children) || children.ValueKind is not JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var child in children.EnumerateArray())
+        {
+            CollectTextSurfaceGaps(child, module, missing);
+        }
+    }
+
+    /// <summary>文本框在声明里必须显式给出的键（按它是输入面还是输出面分两档）。</summary>
+    /// <param name="readOnly">是不是只读（输出）面。</param>
+    /// <returns>键名序列。</returns>
+    /// <remarks>
+    /// 这里只列**该档真的会读**的键：显式的意义是"作者表过态"，所以写上去就必须有人读
+    /// （`capacity` 与 `inputKind` 不在列 —— 前者是**数据源**的属性，后者在框架不再替模块判
+    /// 字符级合法性之后**没有任何消费者**，两个键都已从声明面删除）。
+    /// </remarks>
+    private static string[] TextBoxKeys(bool readOnly) => readOnly
+        ? ["wrap", "showNewlineMark", "textAlign", "textPlacement"]
+        : ["multiline", "wrap", "showNewlineMark", "textAlign", "textPlacement"];
+
+    /// <summary>
     /// 读**包内 `view.json`** 里某个口声明的默认边（裁决 ③：口的默认位置只有这一个来源）。
     /// </summary>
     /// <remarks>

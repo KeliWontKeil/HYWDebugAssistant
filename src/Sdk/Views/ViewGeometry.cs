@@ -24,7 +24,7 @@ public sealed record AxisLayout
     /// <summary>最低优先级：**固定像素**（DIP；必须 ≥ 1；绝对坐标模式两轴必须是它）。</summary>
     public double? Pixels { get; init; }
 
-    /// <summary>可选下限（DIP；空 = 框架缺省：填满型的日志 88 / 多行输入编辑器最小高，其余 0）。</summary>
+    /// <summary>可选下限（DIP；空 = 无下限）。**地板只由声明给**，代码里没有第二份。</summary>
     public double? Min { get; init; }
 
     /// <summary>可选上限（DIP；空 = 不夹）。</summary>
@@ -44,7 +44,7 @@ public sealed record AxisLayout
 /// <summary>一个轴上的尺寸口径（三优先级 + 未声明）。</summary>
 public enum AxisMode
 {
-    /// <summary>没声明这个轴（框架缺省：宽度满宽；日志/多行输入的高度填满）。</summary>
+    /// <summary>没声明这个轴 —— 读取器按硬伤拒绝；渲染侧不会拿到这一档。</summary>
     Undeclared = 0,
 
     /// <summary>随内容自适应。</summary>
@@ -57,17 +57,67 @@ public enum AxisMode
     Pixels = 3,
 }
 
+/// <summary>
+/// 文本面在**文本层**（文本比文本面高）用哪一套滚动机制。
+/// </summary>
+/// <remarks>
+/// <para>
+/// 它与**元素层**的溢出（元素比它所在的格子高 ⇒ 由该层容器的 <c>overflow</c> 决定滚动还是裁剪）
+/// 是**两级不同的事实**：这一档只回答"文本怎么滚"，绝不改变文本面的元素矩形（那是排布层的事）。
+/// </para>
+/// <para>两档互斥：同一个文本面只可能有一根用户看得见的条。</para>
+/// </remarks>
+public enum ViewScrollMode
+{
+    /// <summary>文本框自己的滚动条（光标在哪滚到哪）。可编辑面用它。</summary>
+    Native = 0,
+
+    /// <summary>自建竖条 + 分页窗口（尾部跟随，显示区只吃一屏多）。长流用它。</summary>
+    Window = 1,
+}
+
+/// <summary><see cref="ViewScrollMode"/> 的字面量解析。</summary>
+public static class ViewScrollModeExtensions
+{
+    /// <summary>解析字面量（不认识的值 ⇒ <paramref name="fallback"/>；读取器已按 schema 的取值域拦过）。</summary>
+    /// <param name="text">字面量（<c>native</c> / <c>window</c>）。</param>
+    /// <param name="fallback">不认识时的回退值。</param>
+    public static ViewScrollMode Parse(string? text, ViewScrollMode fallback) => text?.Trim().ToLowerInvariant() switch
+    {
+        "native" => ViewScrollMode.Native,
+        "window" => ViewScrollMode.Window,
+        _ => fallback,
+    };
+}
+
 /// <summary>容器的排布模式。</summary>
 public enum ViewLayoutMode
 {
     /// <summary>单列满宽、自上而下（缺省；与引入本机制之前**逐像素一致**）。</summary>
     Flow = 0,
 
-    /// <summary>绝对坐标（每个元素给出 X/Y/宽/高）。</summary>
+    /// <summary>绝对坐标（每个元素给出 X/Y/宽/高，坐标相对**父层坐标系**）。</summary>
     Absolute = 1,
 
     /// <summary>表格（列/行轨道 + 元素落在格子里）。</summary>
     Grid = 2,
+
+    /// <summary>
+    /// **面板**（相对坐标 + 整块挪位）：每个元素给出 X/Y/宽/高，坐标相对**本 panel 的原点**，
+    /// 且**不随窗口缩放**；窗口变化时由 <c>anchor</c>/<c>valign</c> 让"内容块在面板框里停靠"。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="Absolute"/> 的区别是**两个不同用途**，不是同一个能力的两种写法：
+    /// <list type="bullet">
+    ///   <item><see cref="Absolute"/> = **描述窗口坐标**：元素位置相对父层坐标系，可选按比例缩放
+    ///     （元素级 <c>scaleWithWindow</c>）—— 窗口变大时元素会**散开**；</item>
+    ///   <item><see cref="Panel"/> = **描述组内事实**：元素坐标相对本面板原点、恒定不变 ——
+    ///     窗口变大时**整组挪位**，元素之间的相对位置与尺寸**一根发丝都不动**。</item>
+    /// </list>
+    /// 行列式（<see cref="Flow"/>/<see cref="Grid"/>）的自适应动的是**元素之间**的关系（轨道宽、余量分配），
+    /// 所以它会"自适应掉控件组的布局与相对坐标"；panel 刻意不做这件事。
+    /// </remarks>
+    Panel = 3,
 }
 
 /// <summary>绝对坐标越界时的处理。</summary>
@@ -84,20 +134,21 @@ public enum ViewLayoutOverflow
 public static class ViewLayoutModeExtensions
 {
     /// <summary>解析排布模式字面量（不认识的值 ⇒ <paramref name="fallback"/>；读取器已拦未知值）。</summary>
-    /// <param name="text">字面量（<c>flow</c> / <c>absolute</c> / <c>grid</c>）。</param>
+    /// <param name="text">字面量（<c>flow</c> / <c>absolute</c> / <c>grid</c> / <c>panel</c>）。</param>
     /// <param name="fallback">不认识时的回退值。</param>
     public static ViewLayoutMode Parse(string? text, ViewLayoutMode fallback) => text?.Trim().ToLowerInvariant() switch
     {
         "flow" => ViewLayoutMode.Flow,
         "absolute" => ViewLayoutMode.Absolute,
         "grid" => ViewLayoutMode.Grid,
+        "panel" => ViewLayoutMode.Panel,
         _ => fallback,
     };
 
     /// <summary>是否是认识的排布模式字面量。</summary>
     /// <param name="text">字面量（空 = 缺省，算认识）。</param>
     public static bool IsKnown(string? text) =>
-        string.IsNullOrWhiteSpace(text) || text.Trim().ToLowerInvariant() is "flow" or "absolute" or "grid";
+        string.IsNullOrWhiteSpace(text) || text.Trim().ToLowerInvariant() is "flow" or "absolute" or "grid" or "panel";
 }
 
 /// <summary><see cref="ViewLayoutOverflow"/> 的字面量解析。</summary>
@@ -247,8 +298,16 @@ public readonly record struct GridTrack(GridTrackKind Kind, double Value)
 public static class CellAlignExtensions
 {
     /// <summary>解析停靠字面量（不认识的值 ⇒ <paramref name="fallback"/>；读取器已拦未知值）。</summary>
-    /// <param name="text">字面量（<c>stretch</c> / <c>left</c> / <c>center</c> / <c>right</c>，垂直方向用 <c>top</c> / <c>bottom</c>）。</param>
+    /// <param name="text">
+    /// 字面量。横向用 <c>left</c> / <c>center</c> / <c>right</c>，纵向用 <c>top</c> / <c>center</c> / <c>bottom</c>，
+    /// 另接受 <c>stretch</c>/<c>fill</c>（元素级缺省）与 <c>start</c>/<c>end</c>（通用写法）。
+    /// </param>
     /// <param name="fallback">不认识时的回退值。</param>
+    /// <remarks>
+    /// <c>right</c>/<c>bottom</c> 与 <c>end</c> 同义、<c>left</c>/<c>top</c> 与 <c>start</c> 同义 ——
+    /// 这一层刻意同时收两种写法：**键**要按轴给直观的名字（`anchor: right`、`valign: bottom`），
+    /// 而**枚举**只有一对 <see cref="CellAlign.Start"/>/<see cref="CellAlign.End"/>。
+    /// </remarks>
     public static CellAlign Parse(string? text, CellAlign fallback) => text?.Trim().ToLowerInvariant() switch
     {
         "stretch" or "fill" => CellAlign.Stretch,

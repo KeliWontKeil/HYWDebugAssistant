@@ -62,7 +62,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     /// <summary>输入源 / 数据源：「添加时间戳」开关。</summary>
     public const string TimestampSource = "timestamp";
 
-    /// <summary>输入源：保存路径（框架的 B6 文件选择器弹**保存对话框**后回投）。</summary>
+    /// <summary>输入源：保存路径（模块**请求框架弹保存对话框**后，框架把路径投回本输入源）。</summary>
     public const string SavePathSource = "savePath";
 
     /// <summary>
@@ -73,10 +73,36 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     /// </remarks>
     public const string DefaultSaveFileName = "savetext1.txt";
 
+    /// <summary>保存对话框的文件类型过滤串（形如 <c>文本文件 (*.txt)|*.txt</c>）。</summary>
+    public const string SaveFileFilter = "文本文件 (*.txt)|*.txt";
+
+    /// <summary>
+    /// 显示源：**消息**（"已保存到哪 / 为什么没存成"）。
+    /// </summary>
+    /// <remarks>
+    /// 它**没有界面实体**：由模块按自己的逻辑写入，界面上一块 `label`（或只读文本面）按声明吃它。
+    /// 这正是"消息不是控件能力"的落点 —— 模块只管写，长在哪儿由声明面决定。
+    /// </remarks>
+    public const string StatusSource = "status";
+
+    /// <summary>
+    /// 模块自己挑的**提示角色**（**相对色**）—— 框架只提供"设边框色"这个能力，不认识"红 = 失败"。
+    /// </summary>
+    /// <remarks>
+    /// 值只在这一处；用的是**配色表里的角色词**，不是色值 ⇒ 用户在设置里改那一支色、或换深浅主题，
+    /// 这一圈跟着变（写死 ARGB 就不会跟）。要换观感就换词。
+    /// </remarks>
+    public const string AlertRole = ViewInkRoles.Danger;
+
     /// <summary>命令名：清空显示区。</summary>
     public const string ClearCommand = "clear";
 
     /// <summary>命令名：把显示区内容保存到 <see cref="SavePathSource"/> 指定的文件。</summary>
+    /// <remarks>
+    /// <b>它是"选一个位置并保存"</b>：模块自己请求框架弹保存对话框（
+    /// <see cref="Sdk.Context.IFileAccess"/>），用户选定后框架把路径投回
+    /// <see cref="SavePathSource"/>，那条输入一到就**当场写盘** —— 与用户自己敲一个路径同一个口径。
+    /// </remarks>
     public const string SaveCommand = "save";
 
     /// <summary>活动周期（20 ms）。</summary>
@@ -213,7 +239,13 @@ public sealed class DataMonitorModule : IModule, IActivitySource
             ? $"已保存：{Path.GetFileName(_savePath)}（{LastSavedLineCount} 行）"
             : LastSaveFailure ?? "保存失败";
 
-        context.InputFeedback.Report(SavePathSource, saved, message);
+        // **消息走"写文本"这条路**：界面上由一块 `label`（或只读文本面）显示，
+        // 落点由声明面决定 —— 不是"某个控件自己弹一块角"。
+        context.Display.SetText(StatusSource, message);
+
+        // **颜色是模块自己的选择**：框架只提供"设边框色"这个基础外观能力，
+        // 不认识"红 = 失败"（绿、蓝都行，只要模块自己的逻辑需要）。
+        context.Appearance.SetOutlineRole(SavePathSource, saved ? null : AlertRole);
     }
 
     /// <summary>消费**一次**收件箱（活动体的单步；模块测试直接驱动）。</summary>
@@ -232,7 +264,14 @@ public sealed class DataMonitorModule : IModule, IActivitySource
 
             if (string.Equals(command, SaveCommand, StringComparison.Ordinal))
             {
-                Save(context);
+                // **点「保存」= 选一个位置再存**：由**模块**请求框架弹保存对话框
+                // （界面那一侧只是同一个按钮，没有任何"选择器控件"）。
+                // 已有路径时同样重新请求 —— 用户要换存处时不该只能存回同一个文件。
+                context.Files.Request(new Sdk.Context.FilePickRequest(
+                    SavePathSource,
+                    Sdk.Context.FilePickMode.Save,
+                    SaveFileFilter,
+                    DefaultSaveFileName));
                 continue;
             }
 
@@ -244,36 +283,49 @@ public sealed class DataMonitorModule : IModule, IActivitySource
 
         while (context.Inbox.TryDequeueInput(out var source, out var text))
         {
+            // **四个开关都要把值写回那一格**：开关的**位置**只有一个来源（视图状态里那一格），
+            // 界面每帧照它画。只把值收进模块字段、不写回，界面读到的就永远是旧值 ——
+            // 用户拨了它又被"读回原值"弹回去，看起来就是"按了它自己又切回去了"。
             if (string.Equals(source, PausedSource, StringComparison.Ordinal))
             {
                 _paused = IsTrue(text);
+                context.ViewState.SetInputValue(PausedSource, _paused ? "true" : "false");
                 continue;
             }
 
             if (string.Equals(source, LineBreakSource, StringComparison.Ordinal))
             {
                 _lineBreakPerPacket = IsTrue(text);
+                context.ViewState.SetInputValue(LineBreakSource, _lineBreakPerPacket ? "true" : "false");
                 continue;
             }
 
             if (string.Equals(source, HexViewSource, StringComparison.Ordinal))
             {
                 _hexView = IsTrue(text);
+                context.ViewState.SetInputValue(HexViewSource, _hexView ? "true" : "false");
                 continue;
             }
 
             if (string.Equals(source, TimestampSource, StringComparison.Ordinal))
             {
                 _timestamp = IsTrue(text);
+                context.ViewState.SetInputValue(TimestampSource, _timestamp ? "true" : "false");
                 continue;
             }
 
             if (string.Equals(source, SavePathSource, StringComparison.Ordinal))
             {
+                // 用户取消（空结果）⇒ 不改路径、不写盘、也不报错：取消是正常操作，不是失败。
+                if (text.Length == 0)
+                {
+                    continue;
+                }
+
                 _savePath = text;
 
-                // 选完位置**当场保存**（不再等 `save` 命令）：
-                // 界面上的「保存」就是那个文件选择器按钮，选完就存才是一步操作。
+                // 选完位置**当场保存**（不再等 `save` 命令）：点「保存」是一步操作 ——
+                // 选完就存，用户不必再点第二次。
                 SaveAndReport(context);
                 continue;
             }

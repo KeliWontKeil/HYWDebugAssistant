@@ -48,7 +48,7 @@
 `12-module-discovery-and-window-behavior.md` · `13-ui-usability-remediation-plan.md` · `14-ui-rework-m1-16.md` ·
 `15-snap-and-anchor-remediation.md` · `16-data-protocol.md` · `17-layering-and-responsibilities.md` · `18-network-semantics.md`
 
-> 注意：**旧编号与现行 `docs/architecture/01`–`10` 不是同一份**，编号不可互推。现行分册见 `docs/architecture/00-architecture-index.md`。
+> 注意：**旧编号与现行 `docs/architecture/01`–`11` 不是同一份**，编号不可互推。现行分册见 `docs/architecture/00-architecture-index.md`。
 
 ### 重写前的旧工程文档（4）
 

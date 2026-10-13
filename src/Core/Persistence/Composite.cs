@@ -20,10 +20,14 @@ public sealed class Composite
     /// 当前组合件 Schema 版本。
     /// </summary>
     /// <remarks>
-    /// <b>v2</b>：网络源成员由单数 <c>source</c> 改为**数组 <c>sources</c>**（多源一等）。
-    /// 读入 v1 时**在解析期归一**（见 <c>CompositeSerializer</c>），写回一律升到 v2。
+    /// <list type="bullet">
+    ///   <item><b>v2</b>：网络源成员由单数 <c>source</c> 改为**数组 <c>sources</c>**（多源一等）。</item>
+    ///   <item><b>v3</b>：<c>layout.&lt;实例&gt;</c> 的 <c>x</c>/<c>y</c>/<c>width</c>/<c>height</c>
+    ///     由**屏幕物理像素**改为 **DIP**（四数同单位，见 `ModuleLayoutView`）。读入 v1/v2 时
+    ///     **在解析期归一**（按屏幕缩放 ÷ 换算，见 <c>CompositeSerializer</c>），写回一律升到 v3。</item>
+    /// </list>
     /// </remarks>
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     /// <summary>Schema 版本（文件内嵌，加载时用于迁移判断）。</summary>
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;

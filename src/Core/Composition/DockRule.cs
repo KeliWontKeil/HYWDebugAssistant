@@ -47,7 +47,7 @@ public readonly record struct DockPair(DockEnd Source, DockEnd Target)
 ///     吸附对齐后自然满足条件，满足条件即可建网；</item>
 ///   <item><b>严格以防误建</b>：接触（相邻边间隙 ≤ <see cref="EdgeContactTolerance"/>）+
 ///     接触面投影重叠 + 标记中心对齐（≤ <see cref="MarkerAlignTolerance"/>）+
-///     方向（发送↔接收）+ 契约兼容（接收 ⊇ 发送）+ **双方均未打标签**（打了标签的口只参与命名网络）。</item>
+///     方向（发送↔接收）+ 契约兼容（形状**完全一致**）+ **双方均未打标签**（打了标签的口只参与命名网络）。</item>
 /// </list>
 /// </remarks>
 public static class DockRule

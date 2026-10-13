@@ -151,29 +151,116 @@ public interface IModuleInbox
 }
 
 /// <summary>
-/// **输入处理结果反馈**（G3）：模块把「某次输入的处理结果」回报到**对应的输入元素**上，
-/// 框架据此把它渲染成**失败态**（红框）—— 模块**不持 UI**、视图由框架渲染，故这件事**本质只能由框架做**。
+/// **元素外观的设定面**：模块把"界面上某个元素现在是什么颜色"告诉框架。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>为什么需要它</b>：`SubmitInput` 返回的 `CommandResult` **只反映"是否投递入队"**，
 ///     不反映模块的处理结果（转换失败、HEX 非法……都发生在**模块内部**，此时投递是成功的）⇒
-///     没有本通道时，"处理失败"在界面上**无处可见**；</item>
-///   <item><b>粒度</b>：按**输入元素**（`ViewElement.DataSource` 的名字）定位；**只做输入** ——
-///     命令侧的同类反馈留待需要时再只增；</item>
-///   <item><b>生命周期（"下一次提交即刷新"）</b>：框架在**投递入队时清除**该 (实例, 源名) 的旧结果 ⇒
-///     **不回报 = 无失败态**（模块可以默认什么都不做，零影响）；想让失败态消失，**下一次提交**即可；</item>
-///   <item><b>纪律</b>：<see cref="Report"/> **不抛**（非法源名 / 内部失败只记诊断计数）；回报的是**呈现文本**，
-///     框架**不理解**它的语义（与 `Issue` / 业务状态同一口径）。</item>
+///     没有本通道时，模块**够不到**界面，也就无法让"这一格现在不对"在屏幕上可见；</item>
+///   <item><b>它是基础外观能力，不含语义</b>：框架**不认识**"红 = 失败"这类约定 ——
+///     颜色由模块给，什么时候给、给什么色，全归模块的 C# 逻辑。
+///     若把"成功/失败"做成参数，就等于框架替模块规定了"失败必须长这样"，那正是要避免的限定；</item>
+///   <item><b>粒度</b>：按**数据源名**定位（源名是模块唯一知道的键；元素 ID 不存在）。
+///     同一源名被两个元素引用 ⇒ 两个元素同色；</item>
+///   <item><b>可回退</b>：传 <see langword="null"/> ⇒ 该键位回到声明 / 主题给的值；</item>
+///   <item><b>纪律</b>：各方法**不抛**（非法源名只记诊断计数），与 `Issue` / 业务状态同一口径。</item>
 /// </list>
 /// </remarks>
-public interface IInputFeedbackReporter
+public interface IViewAppearanceAccess
 {
-    /// <summary>回报一次输入的处理结果。</summary>
-    /// <param name="sourceName">输入元素的数据源名（= 视图声明里该输入元素的 <c>DataSource</c>）。</param>
-    /// <param name="succeeded">是否处理成功（false ⇒ 该输入渲染失败态）。</param>
-    /// <param name="message">可选原因（展示在该输入元素旁；null = 留白）。</param>
-    void Report(string sourceName, bool succeeded, string? message = null);
+    /// <summary>设某个元素的**边框色**（ARGB —— **绝对色**，深浅主题与用户改色都不影响它）。</summary>
+    /// <param name="sourceName">该元素绑定的数据源名。</param>
+    /// <param name="argb">颜色（<c>0xAARRGGBB</c>）；<see langword="null"/> ⇒ 回到主题给的边框。</param>
+    /// <remarks>
+    /// 与 <see cref="SetOutlineRole"/> 是**同一键位的两种写法**（后写的那次生效，两者互斥）：
+    /// 这条给"我就要这个色"（刻意固定）；那条给"我要配色表里的某一支"（随主题与用户改色跟随）。
+    /// </remarks>
+    void SetOutlineColor(string sourceName, uint? argb);
+
+    /// <summary>
+    /// 设某个元素的**边框色**（**角色词** —— 相对色：随深浅主题与用户改色自动跟随）。
+    /// </summary>
+    /// <param name="sourceName">该元素绑定的数据源名。</param>
+    /// <param name="role">
+    /// 角色词（见 <see cref="Views.ViewInkRoles"/>，如 <c>danger</c> / <c>muted</c>）；
+    /// <see langword="null"/> ⇒ 回到主题给的边框。
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <b>为什么要有它</b>：用 <see cref="SetOutlineColor"/> 传一个**写死的红**，用户在设置里改了
+    /// <c>SemanticError</c>、或换了深浅主题，那一圈红纹丝不动。
+    /// 模块想说的其实是"这一格现在不对"（语义），而不是"我要那一支红"（色值）；
+    /// 角色词让它只说出前半句，配色表怎么长由用户定。
+    /// </para>
+    /// <para>
+    /// <b>仍然不含业务语义</b>：框架不认识"失败"，它只知道"这一格要 <c>danger</c> 这一支色" ——
+    /// 该不该标、什么时候标，仍是模块的判断。
+    /// </para>
+    /// <para>
+    /// <b>纪律</b>：与同族一样**不抛**；没登记过的词视同没设（界面回落到声明 / 主题那一档）。
+    /// </para>
+    /// </remarks>
+    void SetOutlineRole(string sourceName, string? role);
+
+    /// <summary>设某个元素的**文字色**（ARGB —— **绝对色**，刻意固定）。</summary>
+    /// <param name="sourceName">该元素绑定的数据源名。</param>
+    /// <param name="argb">颜色（<c>0xAARRGGBB</c>）；<see langword="null"/> ⇒ 回到声明 / 主题给的颜色。</param>
+    void SetTextColor(string sourceName, uint? argb);
+
+    /// <summary>设某个元素的**文字色**（**角色词** —— 相对色，随主题与用户改色跟随）。</summary>
+    /// <param name="sourceName">该元素绑定的数据源名。</param>
+    /// <param name="role">角色词（见 <see cref="Views.ViewInkRoles"/>）；<see langword="null"/> ⇒ 回到声明 / 主题。</param>
+    /// <remarks>与 <see cref="SetOutlineRole"/> 同一条口径：它是同一键位的另一种写法，两者互斥。</remarks>
+    void SetTextRole(string sourceName, string? role);
+
+    /// <summary>设某个元素的**文字大小**（DIP）。</summary>
+    /// <param name="sourceName">该元素绑定的数据源名。</param>
+    /// <param name="dips">字号（DIP）；<see langword="null"/> ⇒ 回到声明 / 主题给的那一档。</param>
+    /// <remarks>
+    /// 与颜色同档：**基础外观能力，不含语义**。"这条提示该用小一号字"是模块自己的排版判断，
+    /// 框架只负责把它画出来 —— 所以它和 <see cref="SetTextColor"/> 一样收的是**值**，不是"重要/次要"这类档位名
+    /// （档位名会把"什么算次要"写成框架的规矩）。
+    /// </remarks>
+    void SetTextSize(string sourceName, double? dips);
+
+    /// <summary>
+    /// **把某一格现在设成只读 / 可编辑**（运行期开关）。
+    /// </summary>
+    /// <param name="sourceName">该元素绑定的数据源名。</param>
+    /// <param name="isReadOnly">是否只读。</param>
+    /// <remarks>
+    /// <para>
+    /// 与声明里的 <c>readonly</c> 分工：那个是**这一格一贯只读**（静态、由作者定）；
+    /// 这个是**它现在暂时不让改**（运行期、由模块按业务定）。例：自动发送进行中把「间隔」锁住，
+    /// 免得中途改值让发送节奏变形。
+    /// </para>
+    /// <para>
+    /// 仍然是**基础能力、不含语义**：框架不认识"为什么锁"，它只会把这一格画成只读的样子
+    /// （灰化、不被光标强占、点进去也改不了字）—— 要不要锁、锁多久，是模块的判断。
+    /// </para>
+    /// <para><b>纪律</b>：与同族一样**不抛**（非法源名只记诊断计数）；传 <see langword="false"/> ⇒ 回到可编辑。</para>
+    /// </remarks>
+    void SetReadOnly(string sourceName, bool isReadOnly);
+
+    /// <summary>
+    /// **把这一格上用户刚做的那次交互复原**（勾选框拨回、滑块滑回）。
+    /// </summary>
+    /// <param name="sourceName">该元素绑定的数据源名。</param>
+    /// <remarks>
+    /// <para>
+    /// <b>用在"动作不成立"的场合</b>：用户勾了「连续发送」，但模块判定发不出去（没内容 / 没设间隔）
+    /// ⇒ 模块说"把这一格复原"，界面就把它拨回未选中 —— 用户看到的语义是
+    /// **"这个操作没成立，它自己退回去了"**，而不是"我勾了但它没反应"。
+    /// </para>
+    /// <para>
+    /// <b>它是基础能力，不含语义</b>：名字刻意不叫 "ReportFailed"、参数里**没有"成功/失败"** ——
+    /// 框架不认识业务上的成败，它只会"把这一格复原"；要不要复原、什么时候复原，是模块的判断。
+    /// 与 <see cref="SetOutlineColor"/> 配合用：**复原**是"把动作撤掉"，**标色**是"告诉用户为什么"。
+    /// </para>
+    /// <para><b>纪律</b>：**不抛**（非法源名只记诊断计数）。</para>
+    /// </remarks>
+    void ResetInteraction(string sourceName);
 }
 
 /// <summary>
@@ -206,8 +293,14 @@ public interface IModuleContext
     /// <summary>业务状态上报（框架只登记/呈现、**不解释语义**）。</summary>
     IBusinessStateReporter State { get; }
 
-    /// <summary>**输入处理结果反馈**（G3：让"处理失败"在对应输入元素上可见）。</summary>
-    IInputFeedbackReporter InputFeedback { get; }
+    /// <summary>
+    /// **元素外观的设定面**（模块 → 框架的「请求」方向）：给某个元素设边框色 / 文字色。
+    /// </summary>
+    /// <remarks>
+    /// 外观是**基础能力**，不含任何语义：框架不认识"红 = 失败"这类约定，颜色与它何时变
+    /// 全归模块的 C# 逻辑（<see cref="IViewAppearanceAccess"/>）。
+    /// </remarks>
+    IViewAppearanceAccess Appearance { get; }
 
     /// <summary>停止信号（长期活动必须响应）。</summary>
     IStopSignal StopSignal { get; }
@@ -233,4 +326,16 @@ public interface IModuleContext
     /// <b>只增成员</b>：模块实现者无需改动（属性由框架提供），既有模块零影响。
     /// </remarks>
     IViewStateReader ViewState { get; }
+
+    /// <summary>
+    /// **文件选择的请求面**（模块 → 框架的「请求」方向）：模块说"帮我弹一次系统选择器"，
+    /// 选定的路径经**输入通道**投回（见 <see cref="IFileAccess"/>）。
+    /// </summary>
+    /// <remarks>
+    /// <b>文件访问是能力，不是一种控件</b>（<see cref="ModuleCapability.File"/>）：
+    /// "什么时候要用户指一个文件路径"是模块逻辑（命令处理里决定），不是界面声明能表达的事 ——
+    /// 做成按钮型控件会让声明面去描述"宿主对话怎么配"（过滤串 / 预填名 / 三种模式），
+    /// 而那不是界面事实；那个控件还会把路径写进它自己的输入源，造成同一个值有两个存放处。
+    /// </remarks>
+    IFileAccess Files { get; }
 }

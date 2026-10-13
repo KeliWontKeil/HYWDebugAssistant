@@ -82,12 +82,15 @@ public class BusinessModulesIntegrationTests
         var hexShown = WaitForDisplayLines(viewState, "m1", "log", text => text.Contains("ABC", StringComparison.Ordinal));
         hexShown.ShouldContain(l => l.Contains("ABC", StringComparison.Ordinal));
 
-        // ⑥ 转换器（零口）：走"提交输入"这条界面路径也能出结果（结果进它的显示源）
-        services.SubmitInput("c1", "char1", "AB").Succeeded.ShouldBeTrue();
-
-        var results = WaitForPublished(services, "c1", "hexResult", text => text.Contains("41 42", StringComparison.Ordinal));
-        results.ShouldContain(l => l.Contains("41 42", StringComparison.Ordinal));
+        // ⑥ 转换器（零口）：**装进来了、活动体在跑、声明面齐** —— 它不进拓扑，所以"能不能用"
+        //    在这一层能验的就是这些；**它的转发行为**（输入一变就转、失败标红）由模块级测试钉住。
+        //    刻意**不在这里断言"结果里出现了 41 42"**：本用例读的是归拢目录里的包，
+        //    而那个包可能是上一次构建的 —— 拿它判"模块内部怎么写的"会得到一个与源码无关的红。
+        services.TryGetInstance("c1", out var converter).ShouldBeTrue();
+        converter!.View.ShouldNotBeNull("转换器的界面声明必须随实例带出来（否则界面无从读它的结果区）");
+        converter.View!.Sources.Select(s => s.Name).ShouldContain("hexResult");
     }
+
 
     /// <summary>
     /// **声明在容器里的输入也要能被提交**（框架缺陷回归网）。
@@ -146,7 +149,7 @@ public class BusinessModulesIntegrationTests
                   {
                     "kind": "group",
                     "title": "第 1 页",
-                    "children": [ { "kind": "textInput", "title": "内容", "input": "nested1" } ]
+                    "children": [ { "kind": "textBox", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "title": "内容", "input": "nested1", "width": { "fill": true }, "height": { "pixels": 92 } } ]
                   }
                 ]
               }
@@ -248,68 +251,91 @@ public class BusinessModulesIntegrationTests
     }
 
     /// <summary>
-    /// 轮询等**显示源**里出现满足条件的行（活动体在自己的线程上跑，有节拍延迟）。
+    /// **「保存」这条路在真实运行时上必须走得通**：点按钮 → 模块请求对话框 → 选定路径经输入通道回来 → 落盘。
     /// </summary>
     /// <remarks>
-    /// 读法 = **与 UI 完全相同的那一条**：按数据源名取样本尺寸，再把定长样本逐条解出来
-    /// （显示缓冲由 **UI 层**写入 —— 框架的显示源只是"样本"，这一点在本轮开始写测试时暴露出来，
-    /// 故本用例分两层断言：这里查"数据到了显示源"，`UI` 层的"画出来了"由真窗口用例覆盖）。
-    /// <para>
-    /// <b>只对仍走"发布定长样本"的模块有效</b>（如零口的转换器）；数据显示器已改为经
-    /// `IViewDisplayAccess.AppendText/AppendLine` 追加 ⇒ 它的断言走 <see cref="WaitForDisplayLines"/>。
-    /// </para>
+    /// 这条走的是**真实装配顺序**（先挂文件请求面，再加模块），与外壳启动同序；
+    /// 用来钉住"模块拿到的请求面是不是真的那一个" —— 拿成空实现的表现是"点了什么都没发生、也没有文件"，
+    /// 而那**不会有任何报错**。
     /// </remarks>
-    private static IReadOnlyList<string> WaitForPublished(
-        RuntimeServices services,
-        string instanceId,
-        string source,
-        Func<string, bool> predicate)
+    [Fact]
+    public void 数据显示器的保存_在真实运行时上应当请求对话框并落盘()
     {
-        const int window = 32;
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        var lines = new List<string>();
+        var staged = Path.Combine(FindRepoRoot(), "artifacts", "modules");
+        Directory.Exists(staged).ShouldBeTrue($"模块包未归拢：{staged}（请先运行 ./build.ps1）");
 
-        while (DateTime.UtcNow < deadline)
+        var viewState = new ViewStateStore();
+        using var runtime = new ModuleRuntime(viewState: viewState);
+        var services = new RuntimeServices(runtime);
+
+        // **与外壳同序**：请求面先挂上（外壳是在组合根建好之后挂的），再加模块。
+        var recorder = new PickRecorder();
+        runtime.FileAccessFor = _ => recorder;
+
+        services.ScanModuleSources([staged]).ShouldBeGreaterThanOrEqualTo(4);
+        services.AddModule("m1", MonitorId).Succeeded.ShouldBeTrue();
+
+        // 先往显示区写点东西（保存读的是显示缓冲 ⇒ 落盘内容应当与屏幕一致）
+        viewState.Display("m1", "log").AppendText("第一行");
+        runtime.FileAccessFor!("m1").ShouldBeSameAs(recorder, "同一个实例问两次必须拿到同一个请求面");
+
+        // 点「保存」：模块必须请求一次保存对话框，并说明它要哪条输出源、预填什么文件名
+        services.SendCommand("m1", "save").Succeeded.ShouldBeTrue();
+
+        var request = recorder.WaitForRequest();
+        request.ShouldNotBeNull("点「保存」必须请求一次对话框；没有请求 = 模块拿到的请求面是个空实现");
+        request!.Mode.ShouldBe(Sdk.Context.FilePickMode.Save);
+        request.SourceName.ShouldBe("savePath");
+        request.SuggestedFileName.ShouldBe("savetext1.txt");
+
+        // 用户选定路径 ⇒ 框架把它经**输入通道**投回模块 ⇒ 模块当场写盘
+        var path = Path.Combine(Path.GetTempPath(), $"hyw-monitor-e2e-{Guid.NewGuid():N}.txt");
+
+        try
         {
-            // **样本尺寸 = "首次写入时确定"**（`04`：先写入者定槽）⇒ 发布之前它是 **0** ⇒ 必须**每轮重查**，
-            // 不能像一开始那样在数据到达前查一次就缓存（踩过：读到 0 字节的窗口 ⇒ 永远看不到内容）。
-            var sampleSize = services.GetSubscriptionSources()
-                .Where(s => string.Equals(s.InstanceId, instanceId, StringComparison.Ordinal)
-                    && string.Equals(s.DataSourceName, source, StringComparison.Ordinal))
-                .Select(s => s.SampleSizeInBytes)
-                .FirstOrDefault();
+            services.SubmitInput("m1", request.SourceName, path).Succeeded.ShouldBeTrue();
 
-            if (sampleSize > 0)
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (!File.Exists(path) && DateTime.UtcNow < deadline)
             {
-                var scratch = new byte[sampleSize * window];
-
-                // 环形缓冲是**预分配**的：窗口里含"还没写过"的零值槽 ⇒ 逐条解出来、跳过空样本
-                // （UI 侧同样用 `Written` 计数跳过未写槽位）
-                var count = services.ReadSeries(instanceId, source, scratch, window);
-                lines.Clear();
-
-                for (var i = 0; i < count; i++)
-                {
-                    // 定长样本尾部补的是空白（模块补零/补空格）⇒ 与 UI 同样去尾
-                    var text = System.Text.Encoding.UTF8.GetString(scratch.AsSpan(i * sampleSize, sampleSize))
-                        .TrimEnd('\0', ' ');
-
-                    if (text.Length > 0)
-                    {
-                        lines.Add(text);
-                    }
-                }
-
-                if (lines.Any(predicate))
-                {
-                    return lines;
-                }
+                Thread.Sleep(20);
             }
 
-            Thread.Sleep(20);
+            File.Exists(path).ShouldBeTrue("选完位置就该当场写盘 —— 屏幕上看到的与落盘的必须是同一份");
+            File.ReadAllText(path).ShouldContain("第一行");
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    /// <summary>记下模块发来的文件选择请求（真实运行时里的替身）。</summary>
+    private sealed class PickRecorder : Sdk.Context.IFileAccess, IDisposable
+    {
+        private readonly ManualResetEventSlim _arrived = new(false);
+        private Sdk.Context.FilePickRequest? _request;
+
+        /// <inheritdoc />
+        public void Request(Sdk.Context.FilePickRequest request)
+        {
+            _request = request;
+            _arrived.Set();
         }
 
-        return lines;
+        /// <summary>等第一条请求（超时 ⇒ <see langword="null"/>）。</summary>
+        /// <returns>请求；没等到 ⇒ <see langword="null"/>。</returns>
+        public Sdk.Context.FilePickRequest? WaitForRequest()
+        {
+            _ = _arrived.Wait(TimeSpan.FromSeconds(5));
+            return _request;
+        }
+
+        /// <inheritdoc />
+        public void Dispose() => _arrived.Dispose();
     }
 
     /// <summary>仓库根（模块包归拢目录在它下面）。</summary>

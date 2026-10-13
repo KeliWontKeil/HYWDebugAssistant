@@ -30,8 +30,8 @@ public class SubscriptionBufferTests
                   "root": {
                     "kind": "container",
                     "children": [
-                      { "kind": "numeric", "data": "value" },
-                      { "kind": "curve", "data": "wave" }
+                      { "kind": "numeric", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "data": "value", "width": { "fill": true }, "height": { "pixels": 24 } },
+                      { "kind": "curve", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "data": "wave", "width": { "fill": true }, "height": { "pixels": 64 } }
                     ]
                   }
                 }
@@ -61,7 +61,7 @@ public class SubscriptionBufferTests
               "version": 1,
               "sources": [ { "name": "seq", "kind": "Sequence", "valueType": "F64" } ],
               "views": [
-                { "root": { "kind": "numeric", "data": "seq" } }
+                { "root": { "kind": "numeric", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "data": "seq" } }
               ]
             }
             """);
@@ -90,7 +90,7 @@ public class SubscriptionBufferTests
               "version": 1,
               "sources": [ { "name": "value", "kind": "Value", "valueType": "F64" } ],
               "views": [
-                { "root": { "kind": "numeric", "data": "value" } }
+                { "root": { "kind": "numeric", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "data": "value" } }
               ]
             }
             """);

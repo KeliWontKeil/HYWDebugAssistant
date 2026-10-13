@@ -168,6 +168,32 @@ public sealed class DisplayBuffer
         Cleared?.Invoke();
     }
 
+    /// <summary>
+    /// **把内容替换成这一句**（消息 / 状态这类**只有当前值**的内容）。
+    /// </summary>
+    /// <param name="text">新的全部内容；空串 ⇒ 等价清空。</param>
+    /// <remarks>
+    /// 与 <see cref="Append"/> / <see cref="AppendText"/> 的分工：那两条是**只增**（日志、流），
+    /// 本方法是**替换**。替换会**重置**丢弃计数 —— 丢弃数是"这块缓冲装不下过"的记账，
+    /// 换了内容之后它说的是另一份内容，留着就骗人了。
+    /// </remarks>
+    public void SetText(string text)
+    {
+        lock (_gate)
+        {
+            _lines.Clear();
+            DroppedCount = 0;
+
+            if (!string.IsNullOrEmpty(text))
+            {
+                _lines.Add(text);
+            }
+        }
+
+        Cleared?.Invoke();
+        Appended?.Invoke(text ?? string.Empty);
+    }
+
     /// <summary>**快照**（调用时复制；模块回读用）。</summary>
     /// <returns>当前保留的全部行（副本）。</returns>
     public IReadOnlyList<string> Snapshot()

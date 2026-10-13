@@ -212,20 +212,11 @@ public sealed class SettingsService
         // 数据结构 → 颜色：键 = 类型身份，值 = `#RRGGBB`（缺失 = 全部走自动配色）
         settings.TypeColors = ReadStringMap(root, "typeColors");
 
-        // 外观：主题 / 主题色 / 背景档位（非法值回退到默认，不让损坏的设置阻断启动）
-        settings.Theme = ReadString(root, "theme") ?? settings.Theme;
-        settings.AccentColor = ReadString(root, "accentColor") ?? settings.AccentColor;
-        settings.BackgroundMode = ReadString(root, "backgroundMode") ?? settings.BackgroundMode;
-        settings.BackgroundColor = ReadString(root, "backgroundColor") ?? settings.BackgroundColor;
+        // **外观块**（主题选择 + 按主题分层的色板覆盖 + 字体轴）：新形状优先，旧扁平键读时迁移
+        settings.Appearance = ReadAppearance(root);
 
         // 多行输入提交键：非法值回退默认（`Ui` 侧按三档字符串解释，不做校验、不提示）
         settings.MultilineSubmitKey = ReadString(root, "multilineSubmitKey") ?? settings.MultilineSubmitKey;
-        settings.UiFontFamily = ReadString(root, "uiFontFamily") ?? settings.UiFontFamily;
-        settings.DataFontFamily = ReadString(root, "dataFontFamily") ?? settings.DataFontFamily;
-
-        // 方向语义色：空串 = 跟随主题默认值（不校验色值：完全尊重用户输入）
-        settings.DirectionSendColor = ReadString(root, "directionSendColor") ?? settings.DirectionSendColor;
-        settings.DirectionReceiveColor = ReadString(root, "directionReceiveColor") ?? settings.DirectionReceiveColor;
         settings.ShellAspect = ReadString(root, "shellAspect") ?? settings.ShellAspect;
         settings.ShellFixedSize = ReadBool(root, "shellFixedSize", settings.ShellFixedSize);
 
@@ -246,18 +237,18 @@ public sealed class SettingsService
         root["alignAutoNetwork"] = settings.AlignAutoNetworkEnabled;
         _ = root.Remove("autoNetworkEnabled");   // 旧键已迁移（语义由"加入即连"改为"对齐建网"）
         root["showInfoOverlay"] = settings.ShowInfoOverlay;
-        root["theme"] = settings.Theme;
-        root["accentColor"] = settings.AccentColor;
-        root["backgroundMode"] = settings.BackgroundMode;
-        root["backgroundColor"] = settings.BackgroundColor;
 
-        // 这两项**必须**在这里写出，否则改完字体一重启就回到默认（只读不写 = 不可持久化）
-        root["uiFontFamily"] = settings.UiFontFamily;
-        root["dataFontFamily"] = settings.DataFontFamily;
+        // **外观块**（`appearance { theme, paletteOverrides{主题:{token:hex}}, fonts{ui,data} }`）：
+        // 写新形状，并把**全部旧外观键**删掉（含本轮折叠进来的那五个颜色字段）——
+        // 留着会出现"两个来源"，下次读到时又得判谁优先。
+        root["appearance"] = WriteAppearance(settings.Appearance);
+
+        foreach (var legacy in LegacyAppearanceKeys)
+        {
+            _ = root.Remove(legacy);
+        }
 
         root["multilineSubmitKey"] = settings.MultilineSubmitKey;
-        root["directionSendColor"] = settings.DirectionSendColor;
-        root["directionReceiveColor"] = settings.DirectionReceiveColor;
         root["shellAspect"] = settings.ShellAspect;
         root["shellFixedSize"] = settings.ShellFixedSize;
         root["snapDistance"] = settings.SnapDistance;
@@ -295,6 +286,205 @@ public sealed class SettingsService
         }
 
         root["typeColors"] = typeColors;
+    }
+
+    /// <summary>
+    /// 读**外观块**：新形状（`appearance` 对象）优先，旧扁平键**读时迁移**。
+    /// </summary>
+    /// <param name="root">设置文件根对象。</param>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>新形状：`appearance { theme, paletteOverrides { 主题: { token: hex } }, fonts { ui, data } }`；</item>
+    ///   <item>旧扁平键：`theme` / `paletteOverrides`（键形如 <c>Light/AccentPrimary</c>）/ `uiFontFamily` / `dataFontFamily`
+    ///     —— 只有在新形状**没给**该值时生效（新形状赢）；</item>
+    ///   <item>主题名一律过 <see cref="ThemeIds.Normalize"/> ⇒ 旧值 `Light` / `Dark` 与手写大小写都落到规范名，
+    ///     **不需要一次性迁移脚本**。</item>
+    /// </list>
+    /// </remarks>
+    private static AppearanceSettings ReadAppearance(JsonObject root)
+    {
+        var appearance = new AppearanceSettings();
+
+        var block = root.TryGetPropertyValue("appearance", out var node) && node is JsonObject nested ? nested : null;
+
+        // 主题选择
+        var selection = block is not null ? ReadString(block, "theme") : null;
+        appearance.ThemeSelection = ThemeIds.Normalize(selection ?? ReadString(root, "theme") ?? appearance.ThemeSelection);
+
+        // 字体轴
+        var fonts = block is not null
+            && block.TryGetPropertyValue("fonts", out var fontsNode)
+            && fontsNode is JsonObject fontsObject
+                ? fontsObject
+                : null;
+
+        appearance.UiFontFamily = (fonts is not null ? ReadString(fonts, "ui") : null)
+            ?? ReadString(root, "uiFontFamily")
+            ?? appearance.UiFontFamily;
+
+        appearance.DataFontFamily = (fonts is not null ? ReadString(fonts, "data") : null)
+            ?? ReadString(root, "dataFontFamily")
+            ?? appearance.DataFontFamily;
+
+        // 色板覆盖：新形状（按主题嵌套）
+        if (block is not null
+            && block.TryGetPropertyValue("paletteOverrides", out var paletteNode)
+            && paletteNode is JsonObject palette)
+        {
+            foreach (var (themeId, entries) in palette)
+            {
+                if (entries is not JsonObject map)
+                {
+                    continue;
+                }
+
+                foreach (var (token, value) in map)
+                {
+                    appearance.SetOverride(themeId, token, value?.ToString());
+                }
+            }
+        }
+
+        // 色板覆盖：旧形状（键 `主题/token` 的扁平表）—— 新形状已给的那一支不覆盖
+        foreach (var (key, hex) in ReadStringMap(root, "paletteOverrides"))
+        {
+            if (LegacyPaletteOverrideKeys.TryParse(key, out var themeId, out var token)
+                && appearance.Override(themeId, token) is null)
+            {
+                appearance.SetOverride(themeId, token, hex);
+            }
+        }
+
+        // 本轮删掉的五个"专项"字段（主题色 / 背景档位 / 方向色）：读时折叠进覆盖层
+        FoldLegacyColorFields(root, appearance);
+
+        return appearance;
+    }
+
+    /// <summary>
+    /// **旧外观字段 → 覆盖层**（读时迁移；对应 token 已有显式覆盖时不覆盖它）。
+    /// </summary>
+    /// <param name="root">设置文件根对象。</param>
+    /// <param name="appearance">目标外观块。</param>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><c>accentColor</c>（一条值）⇒ 两套主题的 <c>AccentPrimary</c>（旧语义就是"两套同值"）；</item>
+    ///   <item><c>backgroundMode</c> = <c>LightGray</c> / <c>DarkGray</c> ⇒ 三支底色 × 两套（值取自
+    ///     <see cref="ThemePresets"/>）；<c>Custom</c> + <c>backgroundColor</c> ⇒ 以它推三支；<c>Theme</c> ⇒ 不写；</item>
+    ///   <item><c>directionSendColor</c> / <c>directionReceiveColor</c>：**空 = 跟随**（不写）；有值 ⇒ 两套都写
+    ///     （旧语义"填了就两套都用它"）。</item>
+    /// </list>
+    /// <para>
+    /// 折叠只发生在**读**这一侧，且**不写回旧键**：第一次「应用」之后文件里只剩新形状（见 <see cref="WriteAppearance"/>）。
+    /// </para>
+    /// </remarks>
+    private static void FoldLegacyColorFields(JsonObject root, AppearanceSettings appearance)
+    {
+        static void SetIfAbsent(AppearanceSettings target, string theme, string token, string hex)
+        {
+            if (target.Override(theme, token) is null)
+            {
+                target.SetOverride(theme, token, hex);
+            }
+        }
+
+        // ① 主题色
+        if (ReadString(root, "accentColor") is { Length: > 0 } accent)
+        {
+            foreach (var theme in ThemeIds.BuiltIn)
+            {
+                SetIfAbsent(appearance, theme, "AccentPrimary", accent);
+            }
+        }
+
+        // ② 背景档位（浅灰 / 深灰 / 自定义）
+        var mode = ReadString(root, "backgroundMode");
+        var custom = ReadString(root, "backgroundColor");
+
+        var background = ThemePresets.FindBackground(mode) is { } preset
+            ? (preset.Workspace, preset.Module, preset.Chrome)
+            : string.Equals(mode, "Custom", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(custom)
+                ? ThemePresets.CustomBackground(custom)
+                : ((string, string, string)?)null;
+
+        if (background is { } palette)
+        {
+            foreach (var theme in ThemeIds.BuiltIn)
+            {
+                SetIfAbsent(appearance, theme, "BgWorkspace", palette.Item1);
+                SetIfAbsent(appearance, theme, "BgModule", palette.Item2);
+                SetIfAbsent(appearance, theme, "BgChrome", palette.Item3);
+            }
+        }
+
+        // ③ 方向语义色（空 = 跟随主题内容 ⇒ 不写）
+        foreach (var (key, token) in new[]
+        {
+            ("directionSendColor", "DirectionSend"),
+            ("directionReceiveColor", "DirectionReceive"),
+        })
+        {
+            if (ReadString(root, key) is { Length: > 0 } hex)
+            {
+                foreach (var theme in ThemeIds.BuiltIn)
+                {
+                    SetIfAbsent(appearance, theme, token, hex);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// **旧外观键**（写侧一律删掉）：主题 / 色板覆盖（扁平表）/ 字体两项 /
+    /// 以及本轮折叠进覆盖层的那五个专项字段。
+    /// </summary>
+    private static readonly string[] LegacyAppearanceKeys =
+    [
+        "theme",
+        "paletteOverrides",
+        "uiFontFamily",
+        "dataFontFamily",
+        "accentColor",
+        "backgroundMode",
+        "backgroundColor",
+        "directionSendColor",
+        "directionReceiveColor",
+    ];
+
+    /// <summary>写**外观块**（新形状；只写用户真正改过的覆盖项 ⇒ 跟随不落盘、不产生死数据）。</summary>
+    /// <param name="appearance">外观块。</param>
+    private static JsonObject WriteAppearance(AppearanceSettings appearance)
+    {
+        var palette = new JsonObject();
+
+        foreach (var theme in ThemeIds.BuiltIn)
+        {
+            var entries = new JsonObject();
+
+            foreach (var (token, hex) in appearance.OverridesOf(theme))
+            {
+                if (!string.IsNullOrWhiteSpace(token) && !string.IsNullOrWhiteSpace(hex))
+                {
+                    entries[token] = hex;
+                }
+            }
+
+            if (entries.Count > 0)
+            {
+                palette[theme] = entries;
+            }
+        }
+
+        return new JsonObject
+        {
+            ["theme"] = appearance.ThemeSelection,
+            ["paletteOverrides"] = palette,
+            ["fonts"] = new JsonObject
+            {
+                ["ui"] = appearance.UiFontFamily,
+                ["data"] = appearance.DataFontFamily,
+            },
+        };
     }
 
     /// <summary>读字符串映射（缺失/类型不符 = 空表）。</summary>

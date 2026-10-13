@@ -54,6 +54,29 @@ public interface IViewStateReader
     string? GetInputText(string sourceName);
 
     /// <summary>
+    /// **把一个输入源的值写回去**（模块对"这一格现在应该是什么值"的宣告）。
+    /// </summary>
+    /// <param name="sourceName">输入元素的 <c>DataSource</c> 名。</param>
+    /// <param name="text">要写入的文本；<see langword="null"/> = 清掉这一格的值。</param>
+    /// <remarks>
+    /// <para>
+    /// <b>为什么需要它</b>：`ResetInteraction` 只能表达"**这次动作不成立**"，表达不了
+    /// "**这一格的值应该是 false**"；而"把这一格拨回"的实际实现是"拨回**框架记着的那一份值**"。
+    /// 于是模块判定"开关不该开着"时，那一格若没有**值**可拨回，就会停在用户刚拨到的位置上 ——
+    /// 看起来就是"弹回去了、但再按一下又能违法地开着"。写回值之后，"拨回"才真正有依据。
+    /// </para>
+    /// <para>
+    /// <b>与输入通道的分工</b>：用户改字走 `SubmitInput`（框架把它投进模块的收件箱）；
+    /// 本方法是**反方向**的 —— 模块说"这一格现在是这个值"，框架据此更新界面与视图状态，
+    /// **不回投给模块**（否则模块会被自己写的值唤醒，形成回环）。
+    /// </para>
+    /// <para>
+    /// <b>纪律</b>：与同族一致 —— 未声明该输入 / 无此容器 ⇒ **静默忽略，不抛**。
+    /// </para>
+    /// </remarks>
+    void SetInputValue(string sourceName, string? text);
+
+    /// <summary>
     /// 某文本显示源**当前保留的文本**（显示缓冲的**全部内容**，不只是屏幕上可见的那几行）。
     /// </summary>
     /// <param name="sourceName">显示元素的 <c>DataSource</c> 名。</param>

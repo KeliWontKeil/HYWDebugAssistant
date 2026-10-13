@@ -311,8 +311,14 @@ public sealed partial class ModuleRuntime
     {
         try
         {
-            // 与 `AddModuleOperation` 同口径：视图状态**按实例绑定**交给模块（只读）。
-            instance = ModuleInstanceFactory.Create(instanceId, definition, Issues, ViewState?.ReaderFor(instanceId), (ViewState as Services.ViewStateStore)?.DisplayFor(instanceId));
+            // 与 `AddModuleOperation` 同口径：视图状态**按实例绑定**交给模块（只读），文件选择面同理。
+            instance = ModuleInstanceFactory.Create(
+                instanceId,
+                definition,
+                Issues,
+                ViewState?.ReaderFor(instanceId),
+                (ViewState as Services.ViewStateStore)?.DisplayFor(instanceId),
+                FileAccessFor?.Invoke(instanceId));
             failure = null;
             return true;
         }

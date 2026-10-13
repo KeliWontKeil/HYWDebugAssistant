@@ -1,4 +1,4 @@
-> ⚠ 历史材料（ADR 原文，2026-09 文档收敛起归档）。**现行决策**见 `docs/decisions.md`；实现层现行值见 `docs/architecture/` 各分册。正文为当时的决策与论证；其中的"待决/待办/计划"一律以现行文档为准。
+> ⚠ 历史材料（ADR 原文，2026-09 文档收敛起归档）。**现行决策见 `docs/architecture/CODEX.md`，架构例外见 `docs/architecture/EXCEPTIONS.md`。正文为当时的决策与论证；其中的"待决/待办/计划"一律以现行文档为准。
 
 # ADR-0008 契约语言能力与兼容规则（PQ-IF-03~07）
 

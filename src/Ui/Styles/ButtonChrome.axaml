@@ -1,0 +1,117 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    按钮的壳与五态（全应用）。
+
+    四条事实（两条来自文档、两条来自本项目实测），合起来才是这份文件的写法：
+
+    1. Fluent 的按钮模板把指针态颜色打在模板部件 ContentPresenter#PART_ContentPresenter 上，
+       绕过 Button.Background（Styles 排障页的 "Pseudoclass style is not applied" 一节）。
+    2. ControlTheme 里用 ^:pointerover 指控件自身、由模板 TemplateBinding 带出去（Control Themes 一页的例子）。
+    3. Fluent 那条样式按模板部件名匹配、不认模板是谁的：换成我们自己的模板后它照样生效，
+       而且它在控制主题之后处理 => 主题内的嵌套样式赢不了它。
+    4. 所以五态要在应用样式集合里、排在 Fluent 之后声明（本文件挂在 Controls.axaml 之后），
+       并且同时打在控件自身属性与那个部件的 Background 上 ——
+       部件的 Background 才是页面像素的直接来源（实测：常态 #33000000、指针 #FF000000，
+       屏幕上就是"我们的色叠 20% 黑"）。
+  -->
+  <Styles.Resources>
+    <!--
+      按钮的控制主题：x:Key="{x:Type Button}"（对所有 Button），由下面的 Theme setter 指过来。
+      只负责壳（模板、圆角、对齐、焦点环）；颜色与五态在本文件下面的样式里。
+      基础 setter 刻意最小，以免把"自带背景"的按钮类（.icon 透明无边框、.helpIcon 圆形、.tab、.rail）
+      平时就改掉。
+    -->
+    <ControlTheme x:Key="{x:Type Button}" TargetType="Button">
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="FocusAdorner" Value="{x:Null}" />
+
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border
+            Name="Chrome"
+            Background="{TemplateBinding Background}"
+            BorderBrush="{TemplateBinding BorderBrush}"
+            BorderThickness="{TemplateBinding BorderThickness}"
+            CornerRadius="{TemplateBinding CornerRadius}"
+            Padding="{TemplateBinding Padding}">
+            <!--
+              **部件一律透明**：底色只由外层那块 `Border#Chrome` 画一次。
+              为什么：`ContentPresenter` 只占**内边距以内**的区域，让它也画一次底色就会变成
+              "外圈一个色、中间一块另一个色"的**方块**（实测：页签中央那块没占满的蓝就是这么来的）。
+              另外这也顺手绕开了 Fluent 那条按部件名给指针态刷半透明黑的样式 ——
+              部件不画底色，它刷什么都不会上屏。
+            -->
+            <ContentPresenter
+              Name="PART_ContentPresenter"
+              Background="Transparent"
+              Content="{TemplateBinding Content}"
+              ContentTemplate="{TemplateBinding ContentTemplate}"
+              Foreground="{TemplateBinding Foreground}"
+              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+              RecognizesAccessKey="True" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+  </Styles.Resources>
+
+  <Style Selector="Button">
+    <Setter Property="Theme" Value="{DynamicResource {x:Type Button}}" />
+  </Style>
+
+  <!--
+    **"按钮面"只给普通按钮**：`.tab`（分类标签）、`.rail`（活动栏）、`.icon`（图标按钮）、
+    `.helpIcon`（问号）都**自带底色与边框**（透明 / 半透明主色 / 圆形），它们的外观归各自的类样式。
+
+    为什么必须排除：这几条声明在 `Controls.axaml` 与 `ButtonChrome.axaml` **之前**，
+    后声明的会赢 —— 不排除的话，标签自己的"选中蓝底"会被替换成中性的按钮面，
+    于是中央出现一块**与它底色对不上的方块**（实测：页签里一块浅蓝）。
+
+    部件（`ContentPresenter`）不必在这里写：它跟随控件的 `Background`（模板里是 `TemplateBinding`），
+    所以"面"会自动跟着走；`TemplateBinding` 是绑定、优先级高于按部件名的样式，
+    这也正好把它从 Fluent 的半透明黑里摘出来。
+  -->
+  <Style Selector="Button:not(.tab):not(.rail):not(.icon):not(.helpIcon)">
+    <Setter Property="Background" Value="{DynamicResource SurfaceButtonFaceBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource SurfaceButtonEdgeBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+
+  <Style Selector="Button:not(.tab):not(.rail):not(.icon):not(.helpIcon):pointerover">
+    <Setter Property="Background" Value="{DynamicResource SurfaceButtonFaceHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+  </Style>
+
+  <Style Selector="Button:not(.tab):not(.rail):not(.icon):not(.helpIcon):pressed">
+    <Setter Property="Background" Value="{DynamicResource SurfaceButtonFacePressedBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+  </Style>
+
+  <!-- 键盘焦点：边换主色、厚度不变（改厚度按钮会长胖、把旁边的控件挤动 —— 与滑块同一条纪律） -->
+  <Style Selector="Button:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+  </Style>
+
+  <!--
+    **"持久选中"的按钮（分类标签、活动栏）不带焦点环**：它们已经有**选中态**在表达"我在哪儿"
+    （页签是蓝底 + 蓝字、活动栏是主色图标），再叠一圈主色边就变成"多余的选中框"
+    （实测：鼠标点一下标签，焦点环就套在已选中的蓝底上）。
+    这里给回**它们各自类样式用的那个边框色**（而不是主色）：标签用 `BorderDefault`、活动栏用
+    `TextSecondary` —— 与它们平时的样子一致，只是不再"发蓝"。
+  -->
+  <Style Selector="Button.tab:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+  </Style>
+
+  <Style Selector="Button.rail:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource TextSecondary}" />
+  </Style>
+
+  <Style Selector="Button:disabled">
+    <Setter Property="Opacity" Value="0.5" />
+  </Style>
+</Styles>
