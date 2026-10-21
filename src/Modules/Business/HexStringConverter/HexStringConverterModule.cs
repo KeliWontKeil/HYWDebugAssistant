@@ -31,7 +31,12 @@ namespace HYWDebugAssistant.Modules.HexStringConverter;
     DisplayName = "HEX ↔ 字符串转换器",
     Description = "十六进制与字符串互转的离线小工具（无端口、不交换数据）",
     Tags = ["hex", "tool"],
-    ParticipatesInDataFlow = false)]
+    ParticipatesInDataFlow = false,
+    WindowWidth = 400,
+    WindowHeight = 300,
+    MinWidth = 400,
+    MinHeight = 300,
+    ViewFactory = typeof(Views.HexStringConverterViewFactory))]
 public sealed class HexStringConverterModule : IModule, IActivitySource
 {
     // ---------------------------------------------------------------- ① 标识与常量
@@ -48,15 +53,59 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     /// <remarks>页数取 5（声明里两个 `tabs` 各 5 页）；视图元素数量不设上限。</remarks>
     public const int PageCount = 5;
 
+    /// <summary>第 1 页 char 输入源名。</summary>
+    public const string Char1 = "char1";
+
+    /// <summary>第 2 页 char 输入源名。</summary>
+    public const string Char2 = "char2";
+
+    /// <summary>第 3 页 char 输入源名。</summary>
+    public const string Char3 = "char3";
+
+    /// <summary>第 4 页 char 输入源名。</summary>
+    public const string Char4 = "char4";
+
+    /// <summary>第 5 页 char 输入源名。</summary>
+    public const string Char5 = "char5";
+
+    /// <summary>第 1 页 hex 输入源名。</summary>
+    public const string Hex1 = "hex1";
+
+    /// <summary>第 2 页 hex 输入源名。</summary>
+    public const string Hex2 = "hex2";
+
+    /// <summary>第 3 页 hex 输入源名。</summary>
+    public const string Hex3 = "hex3";
+
+    /// <summary>第 4 页 hex 输入源名。</summary>
+    public const string Hex4 = "hex4";
+
+    /// <summary>第 5 页 hex 输入源名。</summary>
+    public const string Hex5 = "hex5";
+
     /// <summary>第 n 页 char 输入源名（<c>char1</c> … <c>char5</c>）。</summary>
     /// <param name="page">页序号（0 基）。</param>
     /// <returns>输入源名（越界回落到第 1 页）。</returns>
-    public static string CharSourceOf(int page) => $"char{Math.Clamp(page, 0, PageCount - 1) + 1}";
+    public static string CharSourceOf(int page) => Math.Clamp(page, 0, PageCount - 1) switch
+    {
+        0 => Char1,
+        1 => Char2,
+        2 => Char3,
+        3 => Char4,
+        _ => Char5,
+    };
 
     /// <summary>第 n 页 hex 输入源名（<c>hex1</c> … <c>hex5</c>）。</summary>
     /// <param name="page">页序号（0 基）。</param>
     /// <returns>输入源名（越界回落到第 1 页）。</returns>
-    public static string HexSourceOf(int page) => $"hex{Math.Clamp(page, 0, PageCount - 1) + 1}";
+    public static string HexSourceOf(int page) => Math.Clamp(page, 0, PageCount - 1) switch
+    {
+        0 => Hex1,
+        1 => Hex2,
+        2 => Hex3,
+        3 => Hex4,
+        _ => Hex5,
+    };
 
     /// <summary>显示源：char→HEX 的结果区。</summary>
     public const string HexResultSource = "hexResult";
@@ -84,8 +133,27 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
         ArgumentNullException.ThrowIfNull(context);
 
         // **零口零角色**：不声明数据类型、不声明口、不声明角色。
-        // 界面形态不在代码里声明：控件树、数据源与窗口尺寸都在包内 `view.json`（唯一事实源）。
-        // 本模块的数据源名（`char1…char5` / `hex1…hex5` / `hexResult` / `charResult`）必须与它一致。
+        // 但**界面契约照常要声明**（显示源与输入源）：它是"界面能读什么、能提交什么"的事实，
+        // 与有没有数据口无关 —— 不声明的话界面既读不到值、提交也会被闸门拒掉。
+        DeclareUi(context);
+    }
+
+    /// <summary>界面契约（显示源 / 输入源）：名字只在这里写一次。</summary>
+    private static void DeclareUi(IModuleContext context)
+    {
+        for (var i = 0; i < PageCount; i++)
+        {
+            var charSource = CharSourceOf(i);
+            context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(charSource, ViewDataSourceKind.Text));
+            context.Declaration.DeclareInput(charSource);
+
+            var hexSource = HexSourceOf(i);
+            context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(hexSource, ViewDataSourceKind.Text));
+            context.Declaration.DeclareInput(hexSource);
+        }
+
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(HexResultSource, ViewDataSourceKind.Text));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(CharResultSource, ViewDataSourceKind.Text));
     }
 
     // ---------------------------------------------------------------- ③ 钩子块

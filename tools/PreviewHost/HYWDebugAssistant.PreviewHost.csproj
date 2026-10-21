@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    **XAML 预览器的可执行目标**。
+
+    模块是类库，且由 App 动态扫描包加载，**没有任何可执行项目引用它们**；
+    Avalonia 预览器因此无法为模块 `Views/*.axaml` 找到可用目标，显示
+    "No Previewable Target"。本宿主只负责引用模块、提供 App/主题，让预览器
+    在目标下拉框里有一个真实可执行项目可选；它不是产品入口，也不参与 App 发布。
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>HYWDebugAssistant.PreviewHost</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Ui\HYWDebugAssistant.Ui.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\DataMonitor\HYWDebugAssistant.Modules.DataMonitor.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\HexSender\HYWDebugAssistant.Modules.HexSender.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\HexStringConverter\HYWDebugAssistant.Modules.HexStringConverter.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\Serial\HYWDebugAssistant.Modules.Serial.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\TcpClient\HYWDebugAssistant.Modules.TcpClient.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\TcpServer\HYWDebugAssistant.Modules.TcpServer.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\TextSender\HYWDebugAssistant.Modules.TextSender.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\Udp\HYWDebugAssistant.Modules.Udp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+  </ItemGroup>
+
+</Project>

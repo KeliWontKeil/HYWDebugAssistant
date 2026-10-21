@@ -7,6 +7,7 @@
   -->
   <ItemGroup>
     <ProjectReference Include="..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\Sdk.Ui\HYWDebugAssistant.Sdk.Ui.csproj" />
     <ProjectReference Include="..\Core.Api\HYWDebugAssistant.Core.Api.csproj" />
   </ItemGroup>
 

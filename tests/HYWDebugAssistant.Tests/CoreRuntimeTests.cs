@@ -778,6 +778,164 @@ public class CoreRuntimeTests
         services.GetDiagnostics().ShouldAllBe(d => d.Delivered == 1, "每个源各投递 1 次（只有 1 个兼容宿）");
     }
 
+    [Fact]
+    public void 多拓扑速率矩阵_1对多_多对一_多对多_部分兼容必须按实际绑定统计()
+    {
+        // **速率口径 = 按源发布**（一次发布只算一次）⇒ 1:N 的宿口不乘宿数；N:1/N:M 的宿口
+        // 只加“实际投到它的源”；部分兼容不会把整网其他源加进来。
+        // **计数（Delivered/Bus）是绑定级按宿（多宿放大）**——本测试只钉速率与有效载荷累计，
+        // 不把“宿口读到同源其他宿份额”的文档化口径当回归。
+        using var runtime = new ModuleRuntime();
+        var services = new RuntimeServices(runtime);
+
+        // 1:N（一个源，两个宿）
+        AddModule(runtime, "one-s", "rate-sender-f32", typeof(RateRoleF32Sender));
+        AddModule(runtime, "one-r1", "rate-receiver-f32", typeof(RateRoleF32Receiver));
+        AddModule(runtime, "one-r2", "rate-receiver-f32", typeof(RateRoleF32Receiver));
+
+        // N:1（两个源，一个宿）
+        AddModule(runtime, "many-s1", "rate-sender-f32", typeof(RateRoleF32Sender));
+        AddModule(runtime, "many-s2", "rate-sender-f32", typeof(RateRoleF32Sender));
+        AddModule(runtime, "many-r", "rate-receiver-f32", typeof(RateRoleF32Receiver));
+
+        // N:M（两个源，两个宿）
+        AddModule(runtime, "mesh-s1", "rate-sender-f32", typeof(RateRoleF32Sender));
+        AddModule(runtime, "mesh-s2", "rate-sender-f32", typeof(RateRoleF32Sender));
+        AddModule(runtime, "mesh-r1", "rate-receiver-f32", typeof(RateRoleF32Receiver));
+        AddModule(runtime, "mesh-r2", "rate-receiver-f32", typeof(RateRoleF32Receiver));
+
+        // 部分兼容 N:M（f32 源只到 f32 宿；u64 源只到 u64 宿）——逐对绑定过滤
+        AddModule(runtime, "partial-a", "rate-sender-f32", typeof(RateRoleF32Sender));
+        AddModule(runtime, "partial-b", "rate-sender-u64", typeof(RateRoleU64Sender));
+        AddModule(runtime, "partial-r1", "rate-receiver-f32", typeof(RateRoleF32Receiver));
+        AddModule(runtime, "partial-r2", "rate-receiver-u64", typeof(RateRoleU64Receiver));
+
+        foreach (var (instance, port, label) in new[]
+                 {
+                     ("one-s", RateRoleF32Sender.OutPort, "one"),
+                     ("one-r1", RateRoleF32Receiver.InPort, "one"),
+                     ("one-r2", RateRoleF32Receiver.InPort, "one"),
+                     ("many-s1", RateRoleF32Sender.OutPort, "many"),
+                     ("many-s2", RateRoleF32Sender.OutPort, "many"),
+                     ("many-r", RateRoleF32Receiver.InPort, "many"),
+                     ("mesh-s1", RateRoleF32Sender.OutPort, "mesh"),
+                     ("mesh-s2", RateRoleF32Sender.OutPort, "mesh"),
+                     ("mesh-r1", RateRoleF32Receiver.InPort, "mesh"),
+                     ("mesh-r2", RateRoleF32Receiver.InPort, "mesh"),
+                     ("partial-a", RateRoleF32Sender.OutPort, "partial"),
+                     ("partial-b", RateRoleU64Sender.OutPort, "partial"),
+                     ("partial-r1", RateRoleF32Receiver.InPort, "partial"),
+                     ("partial-r2", RateRoleU64Receiver.InPort, "partial"),
+                 })
+        {
+            SetLabel(runtime, instance, port, label);
+        }
+
+        // 基线：一次观察全部绑定（同一 now），随后等满整秒窗口。
+        _ = services.GetDiagnostics();
+        Thread.Sleep((int)(HYWDebugAssistant.Core.Diagnostics.RateMeter.WindowSeconds * 1000) + 200);
+
+        // 每个源发 5 个单元；f32 4 字节 / u64 8 字节。
+        Send(runtime, "one-s", RateRoleF32Sender.OutPort, 5, sizeof(float));
+        Send(runtime, "many-s1", RateRoleF32Sender.OutPort, 5, sizeof(float));
+        Send(runtime, "many-s2", RateRoleF32Sender.OutPort, 5, sizeof(float));
+        Send(runtime, "mesh-s1", RateRoleF32Sender.OutPort, 5, sizeof(float));
+        Send(runtime, "mesh-s2", RateRoleF32Sender.OutPort, 5, sizeof(float));
+        Send(runtime, "partial-a", RateRoleF32Sender.OutPort, 5, sizeof(float));
+        Send(runtime, "partial-b", RateRoleU64Sender.OutPort, 5, sizeof(ulong));
+
+        // 触发：同一 now 下算出全部绑定的速率（避免逐模块观察造成窗口错位）。
+        _ = services.GetDiagnostics();
+
+        // ① 每个模块的角色速率必须等于它自己的口速率。
+        // 旧实现按网络合计 ⇒ N:1/N:M/部分兼容的源角色（以及部分兼容的宿角色）会不等。
+        foreach (var (instance, port) in new[]
+                 {
+                     ("one-s", RateRoleF32Sender.OutPort),
+                     ("one-r1", RateRoleF32Receiver.InPort),
+                     ("one-r2", RateRoleF32Receiver.InPort),
+                     ("many-s1", RateRoleF32Sender.OutPort),
+                     ("many-s2", RateRoleF32Sender.OutPort),
+                     ("many-r", RateRoleF32Receiver.InPort),
+                     ("mesh-s1", RateRoleF32Sender.OutPort),
+                     ("mesh-s2", RateRoleF32Sender.OutPort),
+                     ("mesh-r1", RateRoleF32Receiver.InPort),
+                     ("mesh-r2", RateRoleF32Receiver.InPort),
+                     ("partial-a", RateRoleF32Sender.OutPort),
+                     ("partial-b", RateRoleU64Sender.OutPort),
+                     ("partial-r1", RateRoleF32Receiver.InPort),
+                     ("partial-r2", RateRoleU64Receiver.InPort),
+                 })
+        {
+            ShouldShareRate(
+                RoleRate(services, instance),
+                PortRate(services, instance, port),
+                $"{instance}：角色速率必须等于自己所在口的速率（不得是网络合计）");
+        }
+
+        // ② 1:N：每个宿 = 源（不是 2×源）。
+        var oneSource = PortRate(services, "one-s", RateRoleF32Sender.OutPort);
+        oneSource.ShouldBeGreaterThan(0, "1:N 的源必须有速率");
+        ShouldShareRate(PortRate(services, "one-r1", RateRoleF32Receiver.InPort), oneSource, "1:N 宿 1 = 源，不乘宿数");
+        ShouldShareRate(PortRate(services, "one-r2", RateRoleF32Receiver.InPort), oneSource, "1:N 宿 2 = 源，不乘宿数");
+
+        // ③ N:1：宿 = 各源之和。
+        var manySum = PortRate(services, "many-s1", RateRoleF32Sender.OutPort)
+            + PortRate(services, "many-s2", RateRoleF32Sender.OutPort);
+        manySum.ShouldBeGreaterThan(0, "N:1 的源必须有速率");
+        ShouldShareRate(PortRate(services, "many-r", RateRoleF32Receiver.InPort), manySum, "N:1 宿 = 各源之和");
+
+        // ④ N:M：每个宿 = 各源之和（不是 4×、也不是只取一个源）。
+        var meshSum = PortRate(services, "mesh-s1", RateRoleF32Sender.OutPort)
+            + PortRate(services, "mesh-s2", RateRoleF32Sender.OutPort);
+        meshSum.ShouldBeGreaterThan(0, "N:M 的源必须有速率");
+        ShouldShareRate(PortRate(services, "mesh-r1", RateRoleF32Receiver.InPort), meshSum, "N:M 宿 1 = 各源之和");
+        ShouldShareRate(PortRate(services, "mesh-r2", RateRoleF32Receiver.InPort), meshSum, "N:M 宿 2 = 各源之和");
+
+        // ⑤ 部分兼容：每个宿只加真正有绑定的源，不能是整网合计。
+        var partialA = PortRate(services, "partial-a", RateRoleF32Sender.OutPort);
+        var partialB = PortRate(services, "partial-b", RateRoleU64Sender.OutPort);
+        partialA.ShouldBeGreaterThan(0);
+        partialB.ShouldBeGreaterThan(0);
+        ShouldShareRate(PortRate(services, "partial-r1", RateRoleF32Receiver.InPort), partialA, "部分兼容：f32 宿只加 f32 源");
+        ShouldShareRate(PortRate(services, "partial-r2", RateRoleU64Receiver.InPort), partialB, "部分兼容：u64 宿只加 u64 源");
+
+        // ⑥ 有效载荷累计（界面“流量约”）按源计、不随宿数放大。
+        PortPayloadBytes(services, "one-s", RateRoleF32Sender.OutPort).ShouldBe((long)(5 * sizeof(float)));
+        PortPayloadBytes(services, "one-r1", RateRoleF32Receiver.InPort).ShouldBe((long)(5 * sizeof(float)));
+        PortPayloadBytes(services, "one-r2", RateRoleF32Receiver.InPort).ShouldBe((long)(5 * sizeof(float)));
+        PortPayloadBytes(services, "many-r", RateRoleF32Receiver.InPort).ShouldBe((long)(2 * 5 * sizeof(float)));
+        PortPayloadBytes(services, "mesh-r1", RateRoleF32Receiver.InPort).ShouldBe((long)(2 * 5 * sizeof(float)));
+        PortPayloadBytes(services, "mesh-r2", RateRoleF32Receiver.InPort).ShouldBe((long)(2 * 5 * sizeof(float)));
+        PortPayloadBytes(services, "partial-r1", RateRoleF32Receiver.InPort).ShouldBe((long)(5 * sizeof(float)));
+        PortPayloadBytes(services, "partial-r2", RateRoleU64Receiver.InPort).ShouldBe((long)(5 * sizeof(ulong)));
+    }
+
+    /// <summary>取某实例唯一角色的有效载荷速率。</summary>
+    private static double RoleRate(RuntimeServices services, string instanceId) =>
+        services.GetRoles(instanceId).ShouldHaveSingleItem().PayloadRateBytesPerSecond;
+
+    /// <summary>取某口的有效载荷速率。</summary>
+    private static double PortRate(RuntimeServices services, string instanceId, string portName) =>
+        services.GetPortMetrics(instanceId, portName).PayloadBytesPerSecond;
+
+    /// <summary>取某口的累计有效载荷字节。</summary>
+    private static long PortPayloadBytes(RuntimeServices services, string instanceId, string portName) =>
+        services.GetPortMetrics(instanceId, portName).PayloadBytesDelivered;
+
+    /// <summary>从某源的某个口发 <paramref name="count"/> 个零载荷单元。</summary>
+    private static void Send(ModuleRuntime runtime, string instanceId, string portName, int count, int unitBytes)
+    {
+        runtime.Content.TryGetInstance(instanceId, out var instance).ShouldBeTrue();
+        var payload = new byte[unitBytes];
+
+        for (var i = 0; i < count; i++)
+        {
+            instance!.Context.Ports.TrySend(portName, payload)
+                .ShouldBeTrue($"{instanceId}.{portName} 应有至少一个兼容宿");
+        }
+    }
+
     /// <summary>u64 发送模块（逐对兼容测试用）。</summary>
     [ModuleDefinition("test", "u64-sender", "1.0.0")]
     public sealed class U64SenderModule : IModule
@@ -807,6 +965,108 @@ public class CoreRuntimeTests
         }
     }
 
+    // ------------------------------------------------------------ 速率矩阵测试模块
+
+    private const string RateF32TypeId = "test/rate-f32";
+
+    private const string RateU64TypeId = "test/rate-u64";
+
+    private const int RateTypeVersion = 1;
+
+    /// <summary>f32 发送模块（一个输出口 + 一个纯源角色）。</summary>
+    [ModuleDefinition("test", "rate-sender-f32", "1.0.0")]
+    public sealed class RateRoleF32Sender : IModule
+    {
+        /// <summary>发送口名。</summary>
+        public const string OutPort = "out";
+
+        /// <summary>契约形状。</summary>
+        public static readonly ContractShape Shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
+
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context)
+        {
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(RateF32TypeId, RateTypeVersion, Shape));
+            context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape)
+            {
+                Type = new DataTypeRef(RateF32TypeId, RateTypeVersion),
+            });
+            context.Declaration.DeclareRole(RoleDeclaration.Output(
+                "emit", new DataTypeRef(RateF32TypeId, RateTypeVersion), OutPort, "发送"));
+        }
+    }
+
+    /// <summary>f32 接收模块（一个输入口 + 一个纯汇角色）。</summary>
+    [ModuleDefinition("test", "rate-receiver-f32", "1.0.0")]
+    public sealed class RateRoleF32Receiver : IModule
+    {
+        /// <summary>接收口名。</summary>
+        public const string InPort = "in";
+
+        /// <summary>契约形状。</summary>
+        public static readonly ContractShape Shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
+
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context)
+        {
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(RateF32TypeId, RateTypeVersion, Shape));
+            context.Declaration.DeclarePort(new PortDeclaration(InPort, PortDirection.Receive, Shape)
+            {
+                Type = new DataTypeRef(RateF32TypeId, RateTypeVersion),
+            });
+            context.Declaration.DeclareRole(RoleDeclaration.Input(
+                "consume", new DataTypeRef(RateF32TypeId, RateTypeVersion), InPort, "接收"));
+            context.Ports.SetReceiveHandler(InPort, _ => { });
+        }
+    }
+
+    /// <summary>u64 发送模块（一个输出口 + 一个纯源角色；用于部分兼容拓扑）。</summary>
+    [ModuleDefinition("test", "rate-sender-u64", "1.0.0")]
+    public sealed class RateRoleU64Sender : IModule
+    {
+        /// <summary>发送口名。</summary>
+        public const string OutPort = "out";
+
+        /// <summary>契约形状。</summary>
+        public static readonly ContractShape Shape = ContractShape.OfPrimitive(ContractPrimitive.U64);
+
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context)
+        {
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(RateU64TypeId, RateTypeVersion, Shape));
+            context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape)
+            {
+                Type = new DataTypeRef(RateU64TypeId, RateTypeVersion),
+            });
+            context.Declaration.DeclareRole(RoleDeclaration.Output(
+                "emit", new DataTypeRef(RateU64TypeId, RateTypeVersion), OutPort, "发送"));
+        }
+    }
+
+    /// <summary>u64 接收模块（一个输入口 + 一个纯汇角色；用于部分兼容拓扑）。</summary>
+    [ModuleDefinition("test", "rate-receiver-u64", "1.0.0")]
+    public sealed class RateRoleU64Receiver : IModule
+    {
+        /// <summary>接收口名。</summary>
+        public const string InPort = "in";
+
+        /// <summary>契约形状。</summary>
+        public static readonly ContractShape Shape = ContractShape.OfPrimitive(ContractPrimitive.U64);
+
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context)
+        {
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(RateU64TypeId, RateTypeVersion, Shape));
+            context.Declaration.DeclarePort(new PortDeclaration(InPort, PortDirection.Receive, Shape)
+            {
+                Type = new DataTypeRef(RateU64TypeId, RateTypeVersion),
+            });
+            context.Declaration.DeclareRole(RoleDeclaration.Input(
+                "consume", new DataTypeRef(RateU64TypeId, RateTypeVersion), InPort, "接收"));
+            context.Ports.SetReceiveHandler(InPort, _ => { });
+        }
+    }
+
     // ------------------------------------------------------------ 建网测试辅助
 
     /// <summary>摆放模块（写入布局）并触发一次推导（等价于"拖动结束提交"）。</summary>
@@ -820,7 +1080,7 @@ public class CoreRuntimeTests
             instanceId, new PortGeometryView(portName, offset)))).Applied.ShouldBeTrue();
 
     /// <summary>给端口设置网络标签（走真实变更入口 → 触发推导）。</summary>
-    private static void SetLabel(ModuleRuntime runtime, string instanceId, string portName, string? label) =>
+    internal static void SetLabel(ModuleRuntime runtime, string instanceId, string portName, string? label) =>
         runtime.Apply(ChangeSet.OfOne(new UpdatePortNetworkOperation(instanceId, portName, label))).Applied.ShouldBeTrue();
 
     // ------------------------------------------------------------ 测试辅助
@@ -830,7 +1090,7 @@ public class CoreRuntimeTests
             name, string.Empty, [], ModuleCapability.None, [], null, true,
             entryType, TestViewPackages.For(entryType), string.Empty);
 
-    private static void AddModule(ModuleRuntime runtime, string instanceId, string name, Type entryType) =>
+    internal static void AddModule(ModuleRuntime runtime, string instanceId, string name, Type entryType) =>
         runtime.Apply(ChangeSet.OfOne(new AddModuleOperation(instanceId, TestDefinition(name, entryType))))
             .Applied.ShouldBeTrue();
 

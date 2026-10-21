@@ -239,11 +239,11 @@ public sealed partial class ModuleRuntime
             foreach (var port in instance.Ports)
             {
                 var isSend = port.Direction == PortDirection.Send;
-                // **端口几何**：用户覆盖 > 包内 `view.json` 声明（没有惯例回退）
+                // **端口几何**：用户覆盖 > 模块代码里声明的默认位置（没有惯例回退）
                 // （与呈现同源 ⇒ 一次解析出有效边/偏移/标签）。
                 var recorded = Content.Layout.TryGetPort(instance.InstanceId, port.Name, out var stored);
                 var geometry = PortGeometryResolution.Resolve(
-                    instance.View.Frame, port.Name, stored, recorded);
+                    port.Declaration, stored, recorded);
 
                 ends.Add(new DockEnd(
                     instance.InstanceId,
@@ -295,7 +295,7 @@ public sealed partial class ModuleRuntime
                 var isSend = port.Direction == PortDirection.Send;
                 var recorded = Content.Layout.TryGetPort(instance.InstanceId, port.Name, out var stored);
                 var geometry = PortGeometryResolution.Resolve(
-                    instance.View.Frame, port.Name, stored, recorded);
+                    port.Declaration, stored, recorded);
 
                 var isMine = string.Equals(instance.InstanceId, instanceId, StringComparison.Ordinal)
                     && string.Equals(port.Name, portName, StringComparison.Ordinal);

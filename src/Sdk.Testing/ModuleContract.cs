@@ -17,8 +17,9 @@ namespace HYWDebugAssistant.Sdk.Testing;
 /// 建议放进去会把「能跑但有话说」变成「不合法」。运行期**不产生**这类提示（不能在自家正确模块的 Issue 中心里报警）。
 /// </param>
 /// <remarks>
-/// **不含界面声明**：控件树、数据源与命令都在包内 `view.json`，由框架的读取器按 schema 解析，
-/// 与模块代码无关（要看声明面请用 `ViewDeclarationReader` 读包目录）。
+/// **界面契约也在代码里**：显示源 / 输入源 / 命令由模块的 <c>OnRegistered</c> 声明；
+/// 视图（XAML）只按这些名字取数、提交。本结果当前汇总数据面；界面键与声明的对账由
+/// `VisualSnapshots` 的视图契约用例覆盖（真造控件，再按控件上的键对声明）。
 /// </remarks>
 public sealed record ContractProbeResult(
     Type EntryType,

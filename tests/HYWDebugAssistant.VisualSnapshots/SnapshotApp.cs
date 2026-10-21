@@ -37,13 +37,6 @@ public sealed class SnapshotApp : Application
             Source = new Uri("avares://HYWDebugAssistant.Ui/Styles/Controls.axaml"),
         });
 
-        // 模块内容区自己的外观（与 App.axaml 同一行，且必须排在 Controls.axaml 之后）：
-        // 内容区要按自己的密度压掉全局给 `TextBox` 定的固定高，因此**渲染必需**，缺了会画错。
-        Styles.Add(new StyleInclude(new Uri("avares://HYWDebugAssistant.Ui/"))
-        {
-            Source = new Uri("avares://HYWDebugAssistant.Ui/ModuleSurface/Theme/ModuleSurfaceStyles.axaml"),
-        });
-
         // **按钮的壳与五态**（与 App.axaml 同一行，且同样排在最末）：
         // Fluent 有一条按模板部件名匹配的指针态样式，声明在前的会被它盖掉（实测）。
         Styles.Add(new StyleInclude(new Uri("avares://HYWDebugAssistant.Ui/"))
@@ -56,11 +49,9 @@ public sealed class SnapshotApp : Application
             Source = new Uri("avares://HYWDebugAssistant.Ui/Styles/Tokens.axaml"),
         });
 
-        // 模块内容区自己的**尺寸**（与 App.axaml 同一行）：模块表面渲染必需，缺了会大声失败。
-        // 颜色不在这里 —— 色板只有一份（上面的 Tokens.axaml）。
         Resources.MergedDictionaries.Add(new ResourceInclude(new Uri("avares://HYWDebugAssistant.Ui/"))
         {
-            Source = new Uri("avares://HYWDebugAssistant.Ui/ModuleSurface/Theme/ModuleSurfaceMetrics.axaml"),
+            Source = new Uri("avares://HYWDebugAssistant.Ui/Styles/ModuleMetrics.axaml"),
         });
 
         // **Fluent 桥接表**（与 App.axaml 同一行、同样排在最末）：
@@ -69,6 +60,12 @@ public sealed class SnapshotApp : Application
         Styles.Add(new StyleInclude(new Uri("avares://HYWDebugAssistant.Ui/"))
         {
             Source = new Uri("avares://HYWDebugAssistant.Ui/Styles/FluentBridge.axaml"),
+        });
+
+        // **模块控件库的默认观感**（与 App.axaml 同一行、排在最末）。
+        Styles.Add(new StyleInclude(new Uri("avares://HYWDebugAssistant.Sdk.Ui/"))
+        {
+            Source = new Uri("avares://HYWDebugAssistant.Sdk.Ui/Themes/Controls.axaml"),
         });
     }
 

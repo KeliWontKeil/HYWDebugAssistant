@@ -7,7 +7,7 @@ using Xunit;
 namespace HYWDebugAssistant.ArchitectureTests;
 
 /// <summary>
-/// 架构约束检查：<b>AR-0 ~ AR-19</b>（规则集的权威定义见 docs/architecture/CODEX.md §9.1）。
+/// 架构约束检查：<b>AR-0 ~ AR-22</b>（规则集的权威定义见 docs/architecture/CODEX.md §9.1）。
 /// <para>
 /// 依赖类（AR-1~AR-12）：读取**已编译程序集的 AssemblyRef 表**（覆盖间接依赖，比源码扫描可靠）。
 /// 源码类（AR-0、AR-13~AR-19）：源码扫描（项目清单、命名空间一致性、业务词汇、排除清单、公开签名、数据路径、模块几何、注释纪律）。
@@ -20,12 +20,15 @@ namespace HYWDebugAssistant.ArchitectureTests;
 public class ArchitectureRulesTests
 {
     private const string SdkName = "HYWDebugAssistant.Sdk";
+    private const string SdkUiName = "HYWDebugAssistant.Sdk.Ui";
     private const string ModulesPrefix = "HYWDebugAssistant.Modules.";
 
     /// <summary>AR-3~AR-11：各框架程序集**允许直接引用**的框架内程序集（穷举）。</summary>
     private static readonly Dictionary<string, string[]> AllowedFrameworkRefs = new(StringComparer.Ordinal)
     {
         [SdkName] = [],                                                                     // AR-9：零框架依赖
+        // 模块界面契约与控件库：只依赖 Sdk（Avalonia 由包引用带入，属外部框架，不在这张表里判）
+        [SdkUiName] = [SdkName],
         // SDK 测试套件（T6）：与 Sdk 同源的零框架依赖（模块作者在自己的测试项目里引用它）
         ["HYWDebugAssistant.Sdk.Testing"] = [SdkName],
         ["HYWDebugAssistant.Infrastructure"] = [],                                          // AR-10：不引框架程序集
@@ -33,19 +36,19 @@ public class ArchitectureRulesTests
         ["HYWDebugAssistant.DataPlane"] = [SdkName, "HYWDebugAssistant.Infrastructure"],     // AR-3：不得反向依赖 L2/L4/L5
         ["HYWDebugAssistant.Core"] = [SdkName, "HYWDebugAssistant.Core.Api", "HYWDebugAssistant.Hosting", "HYWDebugAssistant.DataPlane", "HYWDebugAssistant.Infrastructure"], // AR-5（含实现自身公开面 Core.Api）
         ["HYWDebugAssistant.Core.Api"] = [SdkName],                                          // AR-6
-        ["HYWDebugAssistant.Ui"] = [SdkName, "HYWDebugAssistant.Core.Api"],                  // AR-7
+        ["HYWDebugAssistant.Ui"] = [SdkName, SdkUiName, "HYWDebugAssistant.Core.Api"],       // AR-7
         ["HYWDebugAssistant.FrameworkUi"] = [SdkName, "HYWDebugAssistant.Core.Api", "HYWDebugAssistant.Ui"], // AR-8
         // AR-11：App 是**唯一白名单**（组合根，同时可见 L4 内部与 L5）
         ["HYWDebugAssistant.App"] =
         [
-            SdkName, "HYWDebugAssistant.Infrastructure", "HYWDebugAssistant.Hosting", "HYWDebugAssistant.DataPlane",
+            SdkName, SdkUiName, "HYWDebugAssistant.Infrastructure", "HYWDebugAssistant.Hosting", "HYWDebugAssistant.DataPlane",
             "HYWDebugAssistant.Core", "HYWDebugAssistant.Core.Api", "HYWDebugAssistant.Ui", "HYWDebugAssistant.FrameworkUi",
         ],
     };
 
     /// <summary>AR-5 加强：允许引用 UI 框架（Avalonia）的程序集。</summary>
     private static readonly string[] UiLayers =
-        ["HYWDebugAssistant.Ui", "HYWDebugAssistant.FrameworkUi", "HYWDebugAssistant.App"];
+        ["HYWDebugAssistant.Ui", "HYWDebugAssistant.FrameworkUi", "HYWDebugAssistant.App", SdkUiName];
 
     /// <summary>AR-13：框架核心层不得出现的具体业务词汇（P1/P2/P13）。</summary>
     private static readonly string[] BusinessWords =
@@ -175,6 +178,8 @@ public class ArchitectureRulesTests
         var expected = new[]
         {
             "HYWDebugAssistant.Sdk",
+            // 模块界面契约与控件库（模块自带视图引用的那一层；只依赖 Sdk + Avalonia）
+            SdkUiName,
             // T6 契约测试套件（M1-12 加入；与 Sdk 同源的零框架依赖，供模块作者在自己的测试项目里引用）
             "HYWDebugAssistant.Sdk.Testing",
             "HYWDebugAssistant.Infrastructure", "HYWDebugAssistant.Hosting",
@@ -208,10 +213,11 @@ public class ArchitectureRulesTests
             EnsureBuilt(module);
             foreach (var reference in ReferencedAssemblies(module.DllPath).Where(IsFrameworkOrModule))
             {
-                if (!string.Equals(reference, SdkName, StringComparison.Ordinal))
+                if (!string.Equals(reference, SdkName, StringComparison.Ordinal)
+                    && !string.Equals(reference, SdkUiName, StringComparison.Ordinal))
                 {
                     violations.Add(
-                        $"{module.ProjectName} 引用了 {reference}；模块**只允许**引用 {SdkName}（AR-1），" +
+                        $"{module.ProjectName} 引用了 {reference}；模块**只允许**引用 {SdkName} / {SdkUiName}（AR-1），" +
                         "模块之间不得互相引用（AR-2 / P12）");
                 }
             }
@@ -272,7 +278,7 @@ public class ArchitectureRulesTests
             string[]? allowed;
             if (projectName.StartsWith(ModulesPrefix, StringComparison.Ordinal))
             {
-                allowed = [SdkName]; // AR-1 / AR-2
+                allowed = [SdkName, SdkUiName]; // AR-1 / AR-2（视图契约与控件库是第二个允许引用）
             }
             else if (!AllowedFrameworkRefs.TryGetValue(projectName, out allowed))
             {
@@ -310,11 +316,15 @@ public class ArchitectureRulesTests
                 .Where(r => r.StartsWith("Avalonia", StringComparison.Ordinal))
                 .ToList();
 
-            if (uiReferences.Count > 0 && !UiLayers.Contains(assembly.ProjectName, StringComparer.Ordinal))
+            // **模块也允许引用 Avalonia**：模块自带视图（XAML）就是它的界面，
+            // 而界面只能是控件 —— 这是"界面在模块里"，不是"框架层依赖 UI 框架"。
+            if (uiReferences.Count > 0
+                && !UiLayers.Contains(assembly.ProjectName, StringComparer.Ordinal)
+                && !assembly.ProjectName.StartsWith(ModulesPrefix, StringComparison.Ordinal))
             {
                 violations.Add(
                     $"{assembly.ProjectName} 引用了 UI 框架（{string.Join(", ", uiReferences)}）；" +
-                    $"仅 {string.Join(" / ", UiLayers)} 可引用（AR-5 / AR-9 / ADR-0026 C1-3）");
+                    $"仅 {string.Join(" / ", UiLayers)} 与模块可引用（AR-5 / AR-9 / ADR-0026 C1-3）");
             }
         }
 
@@ -523,30 +533,27 @@ public class ArchitectureRulesTests
     }
 
     /// <summary>
-    /// **AR-18：模块的窗口尺寸与端口默认位置只有包内 `view.json` 一个来源**。
+    /// **AR-18：模块的窗口尺寸与端口几何只有代码声明一个来源**。
     /// </summary>
     /// <remarks>
     /// <para>
-    /// 口径：默认尺寸 / 最小尺寸 / 最大尺寸**全部进包内 `view.json`**，「网络标签在哪条边」这类位置也都可改
-    /// ⇒ **json 为唯一来源**，代码里不留 `Edge` / `AnchorDraggable` 这类声明。
+    /// 口径：默认/最小尺寸由 `[ModuleDefinition]` 声明，端口默认边与偏移由 <c>PortDeclaration</c> 声明
+    /// ⇒ **代码是唯一来源**，模块不再从任何外部数据文件里读这些事实。
     /// </para>
     /// <para>
-    /// 本用例把这条纪律变成**可执行检查**：模块源码里再出现尺寸常量或端口位置常量，这里当场红
-    /// （框架侧的 `PortDeclaration.Edge` / `AnchorDraggable` 与 `ViewDeclaration.PreferredWidth` / `PreferredHeight`
-    /// 已经删掉 —— 这些标识只剩"包内 json"一条通路）。
+    /// 本用例把这条纪律变成**可执行检查**：模块类缺窗口尺寸声明即红；
+    /// 模块源码里出现"从界面数据文件读几何"的通路（`ViewFrame` / `ViewWindowDeclaration` / `view.json`）也红。
+    /// </para>
+    /// <para>
+    /// <b>为什么是正向检查</b>：以前这条规则是反的（尺寸必须写在 `view.json`、代码里不许写）。
+    /// 现在的形态是"模块自带视图 + 契约在代码里"，于是必须要求**每一条**都出现在代码声明里 ——
+    /// 漏一条的后果是窗口用框架缺省尺寸（看起来"这个模块天生就小"），而不是一条错误。
     /// </para>
     /// </remarks>
     [Fact]
-    public void AR18_模块尺寸与端口位置必须只来自包内view_json()
+    public void AR18_模块尺寸与端口几何必须只来自代码声明()
     {
-        string[] forbidden =
-        [
-            "PreferredWidth",
-            "PreferredHeight",
-            "AnchorDraggable",
-            "Edge = Sdk.Ports.PortEdge.",
-            "Edge = PortEdge.",
-        ];
+        string[] forbidden = ["ViewFrame", "ViewWindowDeclaration", "view.json", "frame.ports"];
 
         var offenders = new List<string>();
 
@@ -557,6 +564,20 @@ public class ArchitectureRulesTests
                 continue;
             }
 
+            var text = File.ReadAllText(file);
+
+            // 正向：每个模块类都声明窗口尺寸（`0` 是"未声明"的哨兵，等于没写）。
+            if (text.Contains("[ModuleDefinition(", StringComparison.Ordinal))
+            {
+                if (!text.Contains("WindowWidth", StringComparison.Ordinal)
+                    || !text.Contains("WindowHeight", StringComparison.Ordinal))
+                {
+                    offenders.Add(
+                        $"{Path.GetRelativePath(RepoRoot, file)} 的 [ModuleDefinition] 没有声明 WindowWidth / WindowHeight"
+                        + "（窗口尺寸是模块的形态事实，必须由代码声明给，否则只能用框架缺省）");
+                }
+            }
+
             var lineNumber = 0;
             foreach (var line in File.ReadAllLines(file))
             {
@@ -565,14 +586,14 @@ public class ArchitectureRulesTests
                 {
                     if (line.Contains(token, StringComparison.Ordinal))
                     {
-                        offenders.Add($"{Path.GetRelativePath(RepoRoot, file)}:{lineNumber} 出现 '{token}'");
+                        offenders.Add($"{Path.GetRelativePath(RepoRoot, file)}:{lineNumber} 出现 '{token}'（几何只能来自代码声明）");
                     }
                 }
             }
         }
 
         offenders.ShouldBeEmpty(
-            "模块的尺寸 / 端口默认位置只能写在包内 `view.json` 里（AR-18）："
+            "模块的尺寸 / 端口几何只能来自代码声明（AR-18）："
             + Environment.NewLine + string.Join(Environment.NewLine, offenders));
     }
 
@@ -659,6 +680,127 @@ public class ArchitectureRulesTests
         offenders.ShouldBeEmpty(
             $"注释只写为什么 / 不变量 / 坑（AR-19），共 {total} 处（先列前 {reportLimit} 处）；"
             + "例外请写 ARCH-EXCEPTION 标记并登记："
+            + Environment.NewLine + string.Join(Environment.NewLine, offenders));
+    }
+
+    /// <summary>
+    /// **AR-20：界面描述文件禁止复活**。
+    /// </summary>
+    /// <remarks>
+    /// 模块界面 = 模块自己的 XAML + 代码声明。任何 `view.json` / `view.schema.json` 之类
+    /// "第二份界面事实"都不允许再进仓库 —— 它一旦存在，测试与文档就会再次围着它转。
+    /// </remarks>
+    [Fact]
+    public void AR20_界面描述文件禁止复活()
+    {
+        var roots = new[]
+        {
+            Path.Combine(RepoRoot, "src"),
+            Path.Combine(RepoRoot, "tests"),
+            Path.Combine(RepoRoot, ".dsh"),
+        };
+
+        var offenders = roots
+            .Where(Directory.Exists)
+            .SelectMany(root => Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            .Where(path => !path.Contains($"{Separator}bin{Separator}", StringComparison.OrdinalIgnoreCase)
+                && !path.Contains($"{Separator}obj{Separator}", StringComparison.OrdinalIgnoreCase)
+                && !path.Contains($"{Separator}artifacts{Separator}", StringComparison.OrdinalIgnoreCase))
+            .Where(path =>
+            {
+                var name = Path.GetFileName(path);
+                return string.Equals(name, "view.json", StringComparison.OrdinalIgnoreCase)
+                    || name.EndsWith(".view.json", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("view.schema", StringComparison.OrdinalIgnoreCase);
+            })
+            .Select(path => Path.GetRelativePath(RepoRoot, path))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        offenders.ShouldBeEmpty(
+            "界面只能由模块 XAML + 代码声明决定；界面描述文件一经出现就会变成第二份事实源（AR-20）："
+            + Environment.NewLine + string.Join(Environment.NewLine, offenders));
+    }
+
+    /// <summary>
+    /// **AR-21：Sdk.Ui 只许有控件 / 契约 / 主题**。
+    /// </summary>
+    /// <remarks>
+    /// 控件库一旦重新长出"按 kind 派发的描述表 / 界面 schema / 节点树遍历"，
+    /// 就等于把刚删掉的声明面换了张皮搬回来。字段编辑器按 <c>ConfigFieldKind</c> 选编辑器
+    /// 属控件行为，不在禁令内。
+    /// </remarks>
+    [Fact]
+    public void AR21_控件库不得重新长出界面描述面()
+    {
+        string[] forbidden =
+        [
+            "ViewDeclarationReader", "ViewSchema", "ViewDocument", "ViewElementKind",
+            "ControlCatalog", "ViewFrame", "ViewWindowDeclaration",
+
+            // 视觉结构必须住在 ControlTheme 的 XAML 里；控件代码只许创建"编辑器种类"这类行为件。
+            "new Grid", "new TextBlock", "new Ellipse",
+        ];
+
+        var offenders = new List<string>();
+
+        foreach (var file in SourceFiles(SdkUiName))
+        {
+            var text = File.ReadAllText(file);
+            foreach (var token in forbidden)
+            {
+                if (text.Contains(token, StringComparison.Ordinal))
+                {
+                    offenders.Add($"{Path.GetRelativePath(RepoRoot, file)} 出现 '{token}'");
+                }
+            }
+        }
+
+        offenders.ShouldBeEmpty(
+            "Sdk.Ui 只许有控件 / 契约 / 主题；不得重新长出界面描述面（AR-21）："
+            + Environment.NewLine + string.Join(Environment.NewLine, offenders));
+    }
+
+    /// <summary>
+    /// **AR-22：模块 XAML 的绑定键只许经 <c>{x:Static}</c>**。
+    /// </summary>
+    /// <remarks>
+    /// <c>Source="text1"</c> 这类字面量在编译期完全合法，写错只会在运行期变成空白或"点了没反应"。
+    /// 键必须来自模块常量（<c>{x:Static views:XxxViewKeys.Yyy}</c>）——错一个字符就是编译错误。
+    /// </remarks>
+    [Fact]
+    public void AR22_模块XAML的绑定键必须来自x_Static常量()
+    {
+        var keyProperty = new Regex(
+            @"\b(?:Source|Field|CommandName|StateKey)\s*=\s*""(?<value>[^""]*)""",
+            RegexOptions.Compiled);
+
+        var offenders = new List<string>();
+        var modulesRoot = Path.Combine(RepoRoot, "src", "Modules");
+
+        foreach (var file in Directory.EnumerateFiles(modulesRoot, "*.axaml", SearchOption.AllDirectories)
+                     .Where(path => !path.Contains($"{Separator}bin{Separator}", StringComparison.OrdinalIgnoreCase)
+                         && !path.Contains($"{Separator}obj{Separator}", StringComparison.OrdinalIgnoreCase)))
+        {
+            var lineNumber = 0;
+            foreach (var line in File.ReadAllLines(file))
+            {
+                lineNumber++;
+                foreach (Match match in keyProperty.Matches(line))
+                {
+                    var value = match.Groups["value"].Value.Trim();
+
+                    if (!value.StartsWith("{x:Static", StringComparison.Ordinal))
+                    {
+                        offenders.Add(
+                            $"{Path.GetRelativePath(RepoRoot, file)}:{lineNumber} 的键是字面量「{value}」（应改为 {{x:Static …}}）");
+                    }
+                }
+            }
+        }
+
+        offenders.ShouldBeEmpty(
+            "模块 XAML 的 Source / Field / CommandName / StateKey 必须引用模块常量（AR-22）："
             + Environment.NewLine + string.Join(Environment.NewLine, offenders));
     }
 

@@ -739,39 +739,35 @@ public class CompositePersistenceTests
         Anchor(second, "a1").IsAnchorFixed.ShouldBeTrue("用户设过的固定态要保住（覆盖'默认可拖'的声明）");
     }
 
-    // ------------------------------------------------------------ 端口边（包内 `view.json` 是唯一来源；没有惯例）
+    // ------------------------------------------------------------ 端口边（代码声明是唯一来源；Auto = 惯例）
 
     [Fact]
-    public void 端口边_声明是唯一来源_没声明即硬伤_用户拖动覆盖仍然最高优先()
+    public void 端口边_代码声明是唯一来源_未声明即按惯例_用户拖动覆盖仍然最高优先()
     {
         using var harness = new Harness();
-        harness.Register("edge-anchor", typeof(DraggableAnchorModule), EdgeAnchorPackage.Directory);
+        harness.Register("edge-anchor", typeof(DraggableAnchorModule));
         harness.Register("gen", typeof(GeneratorModule));
         harness.Register("sink", typeof(SinkModule));
-        // 包的声明里**没有**这个口：数据面有口、`frame.ports[]` 里没有 ⇒ 走"没有位置"的硬伤分支。
-        harness.Register("bare", typeof(SinkModule), MismatchedPackage.Directory);
+        // 一个"什么都没声明"的模块：口只给了方向 ⇒ 边应按惯例解析，而不是"没有位置"。
+        harness.Register("bare", typeof(SinkModule));
 
         harness.Services.AddModule("e1", "test/edge-anchor/1.0.0").Succeeded.ShouldBeTrue();
         harness.Services.AddModule("g1", "test/gen/1.0.0").Succeeded.ShouldBeTrue();
         harness.Services.AddModule("s1", "test/sink/1.0.0").Succeeded.ShouldBeTrue();
         harness.Services.AddModule("b1", "test/bare/1.0.0").Succeeded.ShouldBeTrue();
 
-        // ① 包内声明什么就是什么 —— **不是惯例**（.json 写什么就是什么，不规定默认值）。
-        PortOf(harness, "g1").Edge.ShouldBe(PortEdge.Right, "声明值是事实源；发送口写 right 是声明的结果，不是惯例");
-        PortOf(harness, "s1").Edge.ShouldBe(PortEdge.Left, "声明值是事实源；接收口写 left 同理");
+        // ① 口没有声明具体边时按**数据流惯例**：发送在右、接收在左。
+        PortOf(harness, "g1").Edge.ShouldBe(PortEdge.Right, "未声明边 ⇒ 发送口按惯例落在右边");
+        PortOf(harness, "s1").Edge.ShouldBe(PortEdge.Left, "未声明边 ⇒ 接收口按惯例落在左边");
 
-        // ② 包内**没写**数据面的那个口 ⇒ **没有位置**：边保持 `Auto` 哨兵，并按硬伤报出。
-        PortOf(harness, "b1").Edge.ShouldBe(PortEdge.Auto, "包内没声明 ⇒ 不猜：边就是没声明");
-        harness.Runtime.Issues.Recent(30)
-            .ShouldContain(
-                e => e.Issue.Message.Contains("没有声明位置", StringComparison.Ordinal),
-                "数据面有口、包内 `frame.ports[]` 里却没有条目 ⇒ 硬伤（框架不再替它猜边）");
+        // ② 同一惯例对"零额外声明的模块"同样成立（不依赖任何外部数据文件）。
+        PortOf(harness, "b1").Edge.ShouldBe(PortEdge.Left, "接收口没有具体边 ⇒ 惯例给左边");
 
-        // ③ 包内声明的 `edge` / `offset` ⇒ 就是这两个值（"网络标签在哪条边"的唯一来源）。
+        // ③ 代码里声明了 `Edge` / `AnchorOffset` ⇒ 就是这两个值（几何的唯一来源）。
         var declared = PortOf(harness, "e1");
         declared.Edge.ShouldBe(PortEdge.Top, "声明值即事实源：写 top 就在 top");
         declared.AnchorOffset.ShouldBe(0.25);
-        declared.NetworkLabel.ShouldBeNull("标签文案由数据面口名给（用户可改名）；声明面没有 label 键");
+        declared.NetworkLabel.ShouldBeNull("标签文案由数据面口名给（用户可改名）");
 
         // ④ 用户自己拖出来的覆盖（`UpdatePortGeometry` 落盘的那份）**仍然最高优先**。
         harness.Services.UpdatePortGeometry(
@@ -780,9 +776,9 @@ public class CompositePersistenceTests
             .Succeeded.ShouldBeTrue();
 
         var overridden = PortOf(harness, "e1");
-        overridden.Edge.ShouldBe(PortEdge.Left, "用户拖动覆盖 > 包内声明");
+        overridden.Edge.ShouldBe(PortEdge.Left, "用户拖动覆盖 > 代码声明");
         overridden.AnchorOffset.ShouldBe(0.8);
-        overridden.NetworkLabel.ShouldBe("用户标签", "用户改过的标签就是用户改的（声明面没有标签键）");
+        overridden.NetworkLabel.ShouldBe("用户标签", "用户改过的标签就是用户改的");
     }
 
     /// <summary>取某实例唯一端口的**查询面**（已解析的有效固定态）。</summary>
@@ -837,8 +833,7 @@ public class CompositePersistenceTests
 
             foreach (var (name, entryType) in modules)
             {
-                // 带口的桩模块都必须在包内声明口的边（声明是边的唯一来源）——按模块名给固定夹具。
-                Register(name, entryType, PackageFor(name));
+                Register(name, entryType);
             }
         }
 
@@ -846,22 +841,7 @@ public class CompositePersistenceTests
 
         public RuntimeServices Services { get; }
 
-        public void Register(string name, Type entryType) => Register(name, entryType, PackageFor(name));
-
-        /// <summary>
-        /// 带口的桩模块的固定夹具包（<c>frame.ports[]</c> 里声明各自的边）；
-        /// 其余模块不需要包，传空目录（下次注册同名会覆盖，故带口的模块名不要复用）。
-        /// </summary>
-        private static string PackageFor(string name) => name switch
-        {
-            "gen" => GeneratorPackage.Directory,
-            "sink" => SinkPackage.Directory,
-            "draggable-anchor" => DraggableAnchorPackage.Directory,
-            _ => string.Empty,
-        };
-
-        /// <summary>注册一个模块；<paramref name="packageDirectory"/> 非空时框架会读它包内的 `view.json`（裁决 ③）。</summary>
-        public void Register(string name, Type entryType, string packageDirectory)
+        public void Register(string name, Type entryType)
         {
             var definition = new ModuleDefinition(
                 ModuleId.Create("test", name, "1.0.0"),
@@ -873,8 +853,8 @@ public class CompositePersistenceTests
                 null,
                 true,
                 entryType,
-                packageDirectory,
-                string.Empty);
+                packageDirectory: string.Empty,
+                assemblyPath: string.Empty);
 
             Services.Registry.TryRegister(definition, out var failure).ShouldBeTrue(failure);
         }
@@ -953,7 +933,7 @@ public class CompositePersistenceTests
     }
 
     /// <summary>
-    /// 测试模块：带包内 `view.json`（只声明口的边）—— 用来对照"没有声明就没有位置"。
+    /// 测试模块：口的边、偏移都写在代码声明里 —— 用来对照"声明值即事实源"。
     /// **可拖动性不在声明面**：锚点默认固定，只能由用户显式解锁。
     /// </summary>
     [ModuleDefinition("test", "draggable-anchor", "1.0.0")]
@@ -967,114 +947,11 @@ public class CompositePersistenceTests
             context.Declaration.DeclarePort(new PortDeclaration(
                 OutPort,
                 PortDirection.Send,
-                ContractShape.OfPrimitive(ContractPrimitive.F32)));
-    }
-
-    /// <summary>夹具用的**带端口边声明的临时包目录**（发送口桩：声明 <c>out</c> 在右）。</summary>
-    private static class GeneratorPackage
-    {
-        /// <summary>包目录。</summary>
-        public static string Directory { get; } = TempViewPackage.Create(
-            "composite-gen",
-            """
+                ContractShape.OfPrimitive(ContractPrimitive.F32))
             {
-              "version": 1,
-              "frame": { "ports": [ { "name": "out", "edge": "right" } ] },
-              "sources": [],
-              "views": []
-            }
-            """);
-    }
-
-    /// <summary>夹具用的**带端口边声明的临时包目录**（接收口桩：声明 <c>in</c> 在左）。</summary>
-    private static class SinkPackage
-    {
-        /// <summary>包目录。</summary>
-        public static string Directory { get; } = TempViewPackage.Create(
-            "composite-sink",
-            """
-            {
-              "version": 1,
-              "frame": { "ports": [ { "name": "in", "edge": "left" } ] },
-              "sources": [],
-              "views": []
-            }
-            """);
-    }
-
-    /// <summary>
-    /// 夹具用的**声明里没有这个口**的临时包目录（数据面有口、声明里没有 ⇒ 硬伤）。
-    /// </summary>
-    private static class MismatchedPackage
-    {
-        /// <summary>包目录。</summary>
-        public static string Directory { get; } = TempViewPackage.Create(
-            "composite-mismatched",
-            """
-            {
-              "version": 1,
-              "frame": { "ports": [ { "name": "other", "edge": "right" } ] },
-              "sources": [],
-              "views": []
-            }
-            """);
-    }
-
-    /// <summary>夹具用的**带端口边声明的临时包目录**（口在哪条边只有包内 `view.json` 一个来源）。</summary>
-    private static class DraggableAnchorPackage
-    {
-        /// <summary>包目录（测试启动时创建，并写入夹具固定的 `view.json`）。</summary>
-        public static string Directory { get; } = Ensure();
-
-        private static string Ensure()
-        {
-            var directory = Path.Combine(Path.GetTempPath(), "hyw-composite-anchor-package");
-            _ = System.IO.Directory.CreateDirectory(directory);
-            File.WriteAllText(
-                Path.Combine(directory, "view.json"),
-                """
-                {
-                  "version": 1,
-                  "frame": {
-                    "ports": [
-                      { "name": "out", "edge": "right" }
-                    ]
-                  },
-                  "sources": [],
-                  "views": []
-                }
-                """);
-            return directory;
-        }
-    }
-
-    /// <summary>
-    /// 夹具用的**带"端口边 / 偏移"声明的临时包目录**（网络标签在哪条边只有包内 `view.json` 一个来源）。
-    /// </summary>
-    private static class EdgeAnchorPackage
-    {
-        /// <summary>包目录（测试启动时创建，并写入夹具固定的 `view.json`）。</summary>
-        public static string Directory { get; } = Ensure();
-
-        private static string Ensure()
-        {
-            var directory = Path.Combine(Path.GetTempPath(), "hyw-composite-edge-package");
-            _ = System.IO.Directory.CreateDirectory(directory);
-            File.WriteAllText(
-                Path.Combine(directory, "view.json"),
-                """
-                {
-                  "version": 1,
-                  "frame": {
-                    "ports": [
-                      { "name": "out", "edge": "top", "offset": 0.25 }
-                    ]
-                  },
-                  "sources": [],
-                  "views": []
-                }
-                """);
-            return directory;
-        }
+                // 几何的**唯一来源是代码声明**：这条口的默认位置写在这里。
+                Edge = PortEdge.Top,
+                AnchorOffset = 0.25,
+            });
     }
 }

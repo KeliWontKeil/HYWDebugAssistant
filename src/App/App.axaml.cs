@@ -3,7 +3,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using HYWDebugAssistant.Core.Persistence;
 using HYWDebugAssistant.FrameworkUi.Views;
-using HYWDebugAssistant.Ui.ModuleSurface.Hosting;
+using HYWDebugAssistant.Ui.ModuleViews;
 using HYWDebugAssistant.Ui.Views;
 using Microsoft.Extensions.DependencyInjection;
 

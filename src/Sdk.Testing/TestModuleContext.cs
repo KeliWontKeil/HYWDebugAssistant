@@ -24,6 +24,9 @@ public sealed class TestModuleContext : IModuleContext
     private readonly List<DataTypeDeclaration> _dataTypes = [];
     private readonly List<FlowDeclaration> _flows = [];
     private readonly List<RoleDeclaration> _roles = [];
+    private readonly List<DisplaySourceDeclaration> _displaySources = [];
+    private readonly List<string> _inputs = [];
+    private readonly List<(string Name, string Title)> _commands = [];
     private readonly List<AppearanceReport> _appearances = [];
     private readonly Dictionary<string, ReceiveHandler> _receiveHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, object> _configuration = new(StringComparer.Ordinal);
@@ -42,7 +45,8 @@ public sealed class TestModuleContext : IModuleContext
 
         InstanceId = instanceId;
         ModuleId = moduleId ?? HYWDebugAssistant.Sdk.ModuleId.Create("test", "under-test", "1.0.0");
-        Declaration = new DeclarationCollector(_ports, _dataTypes, _flows, _roles);
+        Declaration = new DeclarationCollector(
+            _ports, _dataTypes, _flows, _roles, _displaySources, _inputs, _commands);
         Issues = new IssueCollector(ReportedIssues);
         Configuration = new InMemoryConfigurationAccess(_configuration);
         StopSignal = _stopSignal;
@@ -274,6 +278,15 @@ public sealed class TestModuleContext : IModuleContext
     /// <summary>已声明的**角色**（功能分块，按声明顺序；测试断言用）。</summary>
     public IReadOnlyList<RoleDeclaration> DeclaredRoles => _roles;
 
+    /// <summary>已声明的**显示源**（按声明顺序；测试断言用）。</summary>
+    public IReadOnlyList<DisplaySourceDeclaration> DeclaredDisplaySources => _displaySources;
+
+    /// <summary>已声明的**输入源名**（按声明顺序；测试断言用）。</summary>
+    public IReadOnlyList<string> DeclaredInputs => _inputs;
+
+    /// <summary>已声明的**命令**（名字 + 标题，按声明顺序；测试断言用）。</summary>
+    public IReadOnlyList<(string Name, string Title)> DeclaredCommands => _commands;
+
     /// <summary>模块经发送口发出的数据单元（口名 → 字节序列）。</summary>
     public List<(string PortName, byte[] Payload)> Sent { get; } = [];
 
@@ -319,7 +332,10 @@ public sealed class TestModuleContext : IModuleContext
         List<PortDeclaration> ports,
         List<DataTypeDeclaration> types,
         List<FlowDeclaration> flows,
-        List<RoleDeclaration> roles) : IModuleDeclaration
+        List<RoleDeclaration> roles,
+        List<DisplaySourceDeclaration> displaySources,
+        List<string> inputs,
+        List<(string Name, string Title)> commands) : IModuleDeclaration
     {
         public void DeclareDataType(DataTypeDeclaration type) => types.Add(type);
 
@@ -328,6 +344,12 @@ public sealed class TestModuleContext : IModuleContext
         public void DeclareRole(RoleDeclaration role) => roles.Add(role);
 
         public void DeclareFlow(FlowDeclaration flow) => flows.Add(flow);
+
+        public void DeclareDisplaySource(DisplaySourceDeclaration source) => displaySources.Add(source);
+
+        public void DeclareInput(string sourceName) => inputs.Add(sourceName);
+
+        public void DeclareCommand(string name, string title) => commands.Add((name, title));
     }
 
     private sealed class IssueCollector(List<IssueReport> sink) : IIssueReporter

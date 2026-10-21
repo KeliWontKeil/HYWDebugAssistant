@@ -275,7 +275,7 @@ public sealed class RoleOrderViewModel
 /// <summary>
 /// 叠加层**信息区**的内容。
 /// </summary>
-/// <param name="Identity">左上：`实例 · 模块名`（12px）。</param>
+/// <param name="Identity">左上：`外部语义名 + 现场连续编号`（12px；不显示实例 ID）。</param>
 /// <param name="Notice">
 /// 左上第二行（10px，仅在**需要说明**时非空）：无数据口 ⇒ `无数据口`；有数据口但**未声明角色** ⇒ 提示作者补声明。
 /// （**不**用文字重复"几个角色/几个口"——那是图上可见的事实。）
@@ -286,7 +286,7 @@ public readonly record struct RoleOverlayInfo(string Identity, string Notice);
 public static class RoleOverlayInfoBuilder
 {
     /// <summary>构造信息区。</summary>
-    /// <param name="identity">`实例 · 模块名`。</param>
+    /// <param name="identity">`外部语义名 + 现场连续编号`（不显示实例 ID）。</param>
     /// <param name="roleCount">声明了几个角色。</param>
     /// <param name="portCount">模块有几个数据口。</param>
     /// <returns>信息区内容。</returns>

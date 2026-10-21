@@ -331,7 +331,7 @@ public static class CompositeSerializer
                     portNode[OffsetField] = port.Offset;
 
                     // 【G5 · C5-7】「固定」是**三态**：null = 用户没设置过 ⇒ **缺省不写**（该口是否可拖由
-                    // 包内 `view.json` 的 `ports[].constraints.draggable` 决定）；有值才写（用户设过 ⇒ 覆盖包内声明）。
+                    // 模块 `PortDeclaration.AnchorDraggable` 决定）；有值才写（用户设过 ⇒ 覆盖模块声明）。
                     if (port.IsAnchorFixed is { } anchorFixed)
                     {
                         portNode[LockedField] = anchorFixed;

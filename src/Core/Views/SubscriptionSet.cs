@@ -38,26 +38,27 @@ public sealed class SubscriptionSet
     private readonly Dictionary<string, SubscriptionBuffer> _buffers = new(StringComparer.Ordinal);
     private readonly HashSet<string> _unknownNames = new(StringComparer.Ordinal);
 
-    /// <summary>按视图声明建立集合。</summary>
+    /// <summary>按模块的**显示源声明**建立集合。</summary>
     /// <param name="instanceId">实例 ID。</param>
-    /// <param name="view">视图声明（可为空 = 无 UI 模块）。</param>
+    /// <param name="sources">显示源声明（空 = 这个模块没有显示源，属合法形态）。</param>
     /// <param name="ringCapacity">环形缓冲容量（样本数）。</param>
     public SubscriptionSet(
         string instanceId,
-        ViewDocument? view,
+        IReadOnlyList<DisplaySourceDeclaration> sources,
         int ringCapacity = SubscriptionBuffer.DefaultRingCapacity)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
         ArgumentOutOfRangeException.ThrowIfLessThan(ringCapacity, 1);
+        ArgumentNullException.ThrowIfNull(sources);
 
         InstanceId = instanceId;
 
-        if (view is null || view.Sources.Count == 0)
+        if (sources.Count == 0)
         {
             return;
         }
 
-        foreach (var source in view.Sources)
+        foreach (var source in sources)
         {
             var isSeries = source.Kind != ViewDataSourceKind.Value;
 
@@ -103,7 +104,7 @@ public sealed class SubscriptionSet
 
         if (!_buffers.TryGetValue(dataSourceName, out var buffer))
         {
-            failure = $"数据源未在视图声明中登记：'{dataSourceName}'（已丢弃）";
+            failure = $"显示源未在模块声明中登记：'{dataSourceName}'（已丢弃）";
 
             // **只提示一次**：未声明的名字反复出现不刷屏
             return _unknownNames.Add(dataSourceName)

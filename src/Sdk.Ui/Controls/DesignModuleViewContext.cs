@@ -1,0 +1,230 @@
+using System.Globalization;
+using System.Reflection;
+using Avalonia.Controls;
+using HYWDebugAssistant.Sdk.Configuration;
+
+namespace HYWDebugAssistant.Sdk.Ui.Controls;
+
+/// <summary>
+/// **设计时模块上下文**：从模块的配置类型反射出字段，让预览器也能画出配置表单。
+/// </summary>
+/// <remarks>
+/// <para>
+/// 运行时的 <see cref="IModuleViewContext"/> 由宿主提供，字段来自组合件里的配置 Schema；
+/// 预览器不启动运行时，拿不到这个上下文。于是 <see cref="ModuleView"/> 在设计环境
+/// （<see cref="Design.IsDesignMode"/> 或 <see cref="ModuleView.IsPreviewHost"/>）挂一个本类实例：
+/// 字段标题、编辑器种类、枚举选项都从配置类型自己的标注读，和运行时是同一份元数据，
+/// 只是值用默认实例。
+/// </para>
+/// <para>
+/// 它**不是运行时数据源**，也不参与写回：提交/命令全部返回成功但什么也不做。
+/// </para>
+/// </remarks>
+public sealed class DesignModuleViewContext : IModuleViewContext
+{
+    private readonly Type _configType;
+    private readonly object? _config;
+
+    /// <summary>用配置类型构造设计时上下文。</summary>
+    /// <param name="configType">带 <see cref="ConfigurationFieldAttribute"/> 的配置类型。</param>
+    public DesignModuleViewContext(Type configType)
+    {
+        ArgumentNullException.ThrowIfNull(configType);
+        _configType = configType;
+
+        try
+        {
+            _config = Activator.CreateInstance(configType);
+        }
+        catch (Exception)
+        {
+            // 设计时不应该因为某个配置类型需要构造参数就整页空白；字段元数据仍可读。
+            _config = null;
+        }
+    }
+
+    /// <inheritdoc />
+    public string InstanceId => "design";
+
+    /// <inheritdoc />
+    public string MultilineSubmitKey => "CtrlEnter";
+
+    /// <inheritdoc />
+    public double? ReadLatest(string source) => null;
+
+    /// <inheritdoc />
+    public IReadOnlyList<double> ReadSeries(string source) => [];
+
+    /// <inheritdoc />
+    public TextBufferSnapshot ReadText(string source) => TextBufferSnapshot.Empty;
+
+    /// <inheritdoc />
+    public bool SubmitInput(string source, string text) => true;
+
+    /// <inheritdoc />
+    public CommandOutcome InvokeCommand(string command) => CommandOutcome.Ok;
+
+    /// <inheritdoc />
+    public CommandOutcome UpdateField(string fieldName, string value) => CommandOutcome.Ok;
+
+    /// <inheritdoc />
+    public ViewAppearance Appearance(string source) => ViewAppearance.None;
+
+    /// <inheritdoc />
+    public string? ReadInputText(string source) => null;
+
+    /// <inheritdoc />
+    public void WriteInputText(string source, string text)
+    {
+        // 设计时没有视图状态；输入仅用于看排版。
+    }
+
+    /// <inheritdoc />
+    public int? SelectedPage(string stateKey) => null;
+
+    /// <inheritdoc />
+    public void SetSelectedPage(string stateKey, int page)
+    {
+        // 设计时没有页签状态。
+    }
+
+    /// <inheritdoc />
+    public ConfigFieldView? ReadField(string fieldName)
+    {
+        if (fieldName.Length == 0)
+        {
+            return null;
+        }
+
+        var property = _configType.GetProperty(
+            fieldName,
+            BindingFlags.Public | BindingFlags.Instance);
+
+        if (property is null
+            || !property.CanRead
+            || !property.CanWrite
+            || property.GetIndexParameters().Length > 0)
+        {
+            return null;
+        }
+
+        var metadata = property.GetCustomAttribute<ConfigurationFieldAttribute>();
+        var value = ReadValue(property);
+        var (kind, choices) = Classify(property.PropertyType);
+
+        if (kind is null)
+        {
+            return null;
+        }
+
+        // 动态选项（如串口列表）优先：运行时也是"返回表 ⇒ 下拉"。
+        if (_config is IConfigurationChoices provider)
+        {
+            try
+            {
+                if (provider.GetChoices(fieldName) is { } dynamic)
+                {
+                    var list = new List<ConfigChoice>();
+
+                    if (value.Length > 0 && !dynamic.Contains(value, StringComparer.Ordinal))
+                    {
+                        list.Add(new ConfigChoice(value, value));
+                    }
+
+                    foreach (var choice in dynamic)
+                    {
+                        list.Add(new ConfigChoice(choice, choice));
+                    }
+
+                    kind = ConfigFieldKind.Enum;
+                    choices = list;
+                }
+            }
+            catch (Exception)
+            {
+                // 设计时枚举设备失败不是视图错误；保留静态字段外观即可。
+            }
+        }
+
+        return new ConfigFieldView(
+            property.Name,
+            string.IsNullOrWhiteSpace(metadata?.Title) ? property.Name : metadata!.Title!,
+            kind.Value,
+            value,
+            choices,
+            metadata?.Unit,
+            metadata?.Description);
+    }
+
+    /// <summary>读属性当前值的文本形态（配置实例构造失败 ⇒ 空串）。</summary>
+    private string ReadValue(PropertyInfo property)
+    {
+        if (_config is null)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            return property.GetValue(_config) switch
+            {
+                null => string.Empty,
+                IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
+                var value => value.ToString() ?? string.Empty,
+            };
+        }
+        catch (Exception)
+        {
+            return string.Empty;
+        }
+    }
+
+    /// <summary>属性类型 → 编辑器种类 + 枚举选项（与运行时 Schema 的规则同构）。</summary>
+    private static (ConfigFieldKind? Kind, IReadOnlyList<ConfigChoice>? Choices) Classify(Type type)
+    {
+        var underlying = Nullable.GetUnderlyingType(type) ?? type;
+
+        if (underlying == typeof(bool))
+        {
+            return (ConfigFieldKind.Boolean, null);
+        }
+
+        if (underlying.IsEnum)
+        {
+            var choices = new List<ConfigChoice>();
+
+            foreach (var name in Enum.GetNames(underlying))
+            {
+                var title = underlying.GetField(name)
+                    ?.GetCustomAttribute<ConfigurationChoiceAttribute>()
+                    ?.Title;
+
+                choices.Add(new ConfigChoice(
+                    name,
+                    string.IsNullOrWhiteSpace(title) ? name : title!));
+            }
+
+            return (ConfigFieldKind.Enum, choices);
+        }
+
+        if (underlying == typeof(string))
+        {
+            return (ConfigFieldKind.Text, null);
+        }
+
+        if (underlying == typeof(byte) || underlying == typeof(sbyte)
+            || underlying == typeof(short) || underlying == typeof(ushort)
+            || underlying == typeof(int) || underlying == typeof(uint)
+            || underlying == typeof(long) || underlying == typeof(ulong))
+        {
+            return (ConfigFieldKind.WholeNumber, null);
+        }
+
+        if (underlying == typeof(float) || underlying == typeof(double) || underlying == typeof(decimal))
+        {
+            return (ConfigFieldKind.Number, null);
+        }
+
+        return (null, null);
+    }
+}

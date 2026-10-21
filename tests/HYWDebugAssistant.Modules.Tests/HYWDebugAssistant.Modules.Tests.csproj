@@ -30,6 +30,11 @@
     <ProjectReference Include="..\..\src\Modules\Business\HexSender\HYWDebugAssistant.Modules.HexSender.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\DataMonitor\HYWDebugAssistant.Modules.DataMonitor.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\HexStringConverter\HYWDebugAssistant.Modules.HexStringConverter.csproj" />
+    <!-- 第二批（外部接入）：串口 / TCP 客户端 / TCP 服务端 / UDP —— 与四个基础模块同型，契约自检同口径 -->
+    <ProjectReference Include="..\..\src\Modules\Business\Serial\HYWDebugAssistant.Modules.Serial.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\TcpClient\HYWDebugAssistant.Modules.TcpClient.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\TcpServer\HYWDebugAssistant.Modules.TcpServer.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\Udp\HYWDebugAssistant.Modules.Udp.csproj" />
     <!-- 样板模块（开发样板 · 声明面演示箱）：与四个正式模块同型，契约自检同口径 -->
   </ItemGroup>
 

@@ -1,0 +1,44 @@
+<ui:ModuleView xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+             xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:views="using:HYWDebugAssistant.Modules.HexSender.Views"
+             x:Class="HYWDebugAssistant.Modules.HexSender.Views.HexSenderView"
+             x:CompileBindings="True"
+             x:DataType="contracts:IModuleViewContext"
+             d:DesignWidth="358" d:DesignHeight="192">
+
+  <!--
+    HEX 发送器（内容区 358×192）：多页输入区自适应；动作/状态条固定 70 高，
+    按钮、滑块、间隔框、已发送读数全部绝对定位。
+  -->
+  <Grid RowDefinitions="Auto,*,70">
+
+    <TextBlock Grid.Row="0" Classes="module-field-label" Text="HEX 输入" />
+
+    <ui:ModuleTabs Grid.Row="1" StateKey="{x:Static views:HexSenderViewKeys.PagesStateKey}">
+      <TabItem Header="1"><ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexSenderViewKeys.Hex1}" Multiline="True" ShowNewlineMarks="False" /></TabItem>
+      <TabItem Header="2"><ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexSenderViewKeys.Hex2}" Multiline="True" ShowNewlineMarks="False" /></TabItem>
+      <TabItem Header="3"><ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexSenderViewKeys.Hex3}" Multiline="True" ShowNewlineMarks="False" /></TabItem>
+      <TabItem Header="4"><ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexSenderViewKeys.Hex4}" Multiline="True" ShowNewlineMarks="False" /></TabItem>
+      <TabItem Header="5"><ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexSenderViewKeys.Hex5}" Multiline="True" ShowNewlineMarks="False" /></TabItem>
+    </ui:ModuleTabs>
+
+    <Canvas Grid.Row="2" Height="70" ClipToBounds="True">
+      <ui:ModuleButton Canvas.Left="0" Canvas.Top="4" Width="64" Height="27"
+                       CommandName="{x:Static views:HexSenderViewKeys.Send}" Content="发送" />
+      <ui:ModuleToggle Canvas.Left="74" Canvas.Top="4" Width="100" Height="24"
+                       Source="{x:Static views:HexSenderViewKeys.Continuous}" Text="连续发送" />
+      <ui:ModuleTextSurface Mode="Input" Canvas.Left="184" Canvas.Top="4" Width="64" Height="24"
+                        Source="{x:Static views:HexSenderViewKeys.Interval}" TextAlignment="Right" />
+      <TextBlock Canvas.Left="252" Canvas.Top="10" Text="ms" Classes="module-unit" />
+      <ui:ModuleLabel Canvas.Left="0" Canvas.Top="36" Width="250" Height="16"
+                      Source="{x:Static views:HexSenderViewKeys.Status}" />
+      <ui:ModuleNumeric Canvas.Left="258" Canvas.Top="34" Width="96" Height="30"
+                        Source="{x:Static views:HexSenderViewKeys.Sent}" Unit="条" Title="已发送" />
+    </Canvas>
+  </Grid>
+</ui:ModuleView>
+
+

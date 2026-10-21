@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using HYWDebugAssistant.Core.Views;
 using HYWDebugAssistant.Sdk.Contracts;
+using HYWDebugAssistant.Sdk.Views;
 using Shouldly;
 using Xunit;
 
@@ -17,29 +18,11 @@ public class SubscriptionBufferTests
     [Fact]
     public void 形态_数值类元素用最新值槽_曲线类元素用环形缓冲()
     {
-        var view = TestView.Read(
-            """
-            {
-              "version": 1,
-              "sources": [
-                { "name": "value", "kind": "Value", "unit": "V", "valueType": "F64" },
-                { "name": "wave", "kind": "Sequence", "valueType": "F64" }
-              ],
-              "views": [
-                {
-                  "root": {
-                    "kind": "container",
-                    "children": [
-                      { "kind": "numeric", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "data": "value", "width": { "fill": true }, "height": { "pixels": 24 } },
-                      { "kind": "curve", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "data": "wave", "width": { "fill": true }, "height": { "pixels": 64 } }
-                    ]
-                  }
-                }
-              ]
-            }
-            """);
-
-        var set = new SubscriptionSet("m1", view);
+        var set = new SubscriptionSet("m1",
+        [
+            new DisplaySourceDeclaration("value", ViewDataSourceKind.Value, ContractPrimitive.F64),
+            new DisplaySourceDeclaration("wave", ViewDataSourceKind.Sequence, ContractPrimitive.F64),
+        ]);
 
         set.Count.ShouldBe(2);
         set.TryGet("value", out var value).ShouldBeTrue();
@@ -55,18 +38,10 @@ public class SubscriptionBufferTests
     [Fact]
     public void 形态_声明为序列的即使绑到数值元素也用环形缓冲()
     {
-        var view = TestView.Read(
-            """
-            {
-              "version": 1,
-              "sources": [ { "name": "seq", "kind": "Sequence", "valueType": "F64" } ],
-              "views": [
-                { "root": { "kind": "numeric", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "data": "seq" } }
-              ]
-            }
-            """);
-
-        var set = new SubscriptionSet("m1", view);
+        var set = new SubscriptionSet("m1",
+        [
+            new DisplaySourceDeclaration("seq", ViewDataSourceKind.Sequence, ContractPrimitive.F64),
+        ]);
 
         set.TryGet("seq", out var buffer).ShouldBeTrue();
         buffer!.Form.ShouldBe(SubscriptionBufferForm.Ring, "模块声明了序列语义 → 保留历史");
@@ -75,7 +50,7 @@ public class SubscriptionBufferTests
     [Fact]
     public void 无UI模块_不建立任何订阅缓冲()
     {
-        var set = new SubscriptionSet("m1", view: null);
+        var set = new SubscriptionSet("m1", []);
 
         set.Count.ShouldBe(0);
         set.Buffers.ShouldBeEmpty();
@@ -84,23 +59,16 @@ public class SubscriptionBufferTests
     [Fact]
     public void 未声明的数据源_丢弃并只提示一次()
     {
-        var view = TestView.Read(
-            """
-            {
-              "version": 1,
-              "sources": [ { "name": "value", "kind": "Value", "valueType": "F64" } ],
-              "views": [
-                { "root": { "kind": "numeric", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "data": "value" } }
-              ]
-            }
-            """);
+        var set = new SubscriptionSet("m1",
+        [
+            new DisplaySourceDeclaration("value", ViewDataSourceKind.Value, ContractPrimitive.F64),
+        ]);
 
-        var set = new SubscriptionSet("m1", view);
         var sample = new byte[4];
 
         set.TryWrite("ghost", sample, out var firstFailure).ShouldBe(SubscriptionWriteOutcome.UnknownDataSource);
         firstFailure.ShouldNotBeNull();
-        firstFailure!.ShouldContain("未在视图声明中登记");
+        firstFailure!.ShouldContain("未在模块声明中登记");
 
         // 重复出现 → 不再提示（不刷屏）
         set.TryWrite("ghost", sample, out _).ShouldBe(SubscriptionWriteOutcome.Suppressed);

@@ -5,9 +5,7 @@
         xmlns:views="using:HYWDebugAssistant.Ui.Views"
         x:Class="HYWDebugAssistant.Ui.Views.ModuleWindow"
         x:DataType="vm:ModuleViewViewModel"
-        xmlns:design="using:HYWDebugAssistant.Ui.Design"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        d:DataContext="{x:Static design:DesignData.ModuleWindow}"
         d:DesignWidth="320" d:DesignHeight="220"
         Title="模块"
         WindowDecorations="None"
@@ -27,13 +25,13 @@
         ⑤ 内容区点击**不选中**、但会**取消已有选中**（点别处即取消，用户第六轮反馈）。
       层级（自下而上）：内容层 → 交互带/手柄 → **口标记层** → 叠加信息层（B3）→ 按钮簇。
 
-      【尺寸口径 · 本文件不是事实源】**运行期的尺寸与约束全部来自模型**（声明面 `view.json` 的 `frame.window`，
-      缺省由 schema 补齐、下限在读取侧已夹到框架地板）：默认尺寸与最小尺寸都由
+      【尺寸口径 · 本文件不是事实源】**运行期的尺寸与约束全部来自模型**（模块的 `[ModuleDefinition]`，
+      下限在模型构造时已夹到框架地板）：默认尺寸与最小尺寸都由
       `ModuleWindowManager.ApplyGeometry` 按模型施加，本文件**只留设计器兜底**
       （`Width`/`Height`/`d:DesignWidth`/`d:DesignHeight`）。
       **本文件没有 `MinWidth`/`MinHeight`**（2026-10）：它们是框架地板的第二份字面量，且因为
       `CanResize="False"` 对用户**毫无约束作用** —— 真实约束走模型的
-      `ModuleViewViewModel.EffectiveMin*` → `Fit`。地板的唯一来源见包声明 schema 的 `window.min*` 缺省值。
+      `ModuleViewViewModel.EffectiveMin*` → `Fit`。地板来源见 `PortMarkerMetrics.MinWindowExtent`。
       内容排不下时由内容区（`ModuleSurfaceView` 里的滚动视口）滚动，**代码不再按内容计算窗口尺寸**；
       用户在界面上拖过的尺寸会随组合件保存（那是"用户的布局"，不是"代码算的布局"）。
       `d:DataContext` = 设计时样例数据 → **VS 设计器里可直接预览与调整**（见 `Ui/Design/DesignData.cs`）。
@@ -180,7 +178,8 @@
             BorderBrush="{DynamicResource BorderDefault}"
             BorderThickness="1"
             CornerRadius="{DynamicResource ModuleCornerRadius}"
-            ClipToBounds="True">
+            ClipToBounds="True"
+            PointerPressed="OnFramePressed">
         <Grid>
 
             <!-- 内容（**整块窗口**都是内容区：没有标题栏、没有身份行） -->
@@ -188,15 +187,20 @@
                                      DataContext="{Binding}"
                                      PointerPressed="OnContentPressed" />
 
-            <!-- 交互带（叠在内容之上，只覆盖 6 px 边框；不遮挡内容区事件） -->
+            <!--
+              交互带（叠在内容之上，覆盖完整 6px 环；不遮挡内容区事件）。
+              **角点不再留空**：四条带在四角相接，未选中时点角点先选中（手柄此时不可命中），
+              选中后同一位置的 6×6 手柄在上层接管缩放。
+              最外 1px 的可视边框不在本层覆盖范围（它在 Frame 的边框上）⇒ 由 `Frame.PointerPressed` 接管。
+            -->
             <Grid Name="Band">
-                <Rectangle Name="BandTop" Height="6" VerticalAlignment="Top" Margin="6,0,6,0"
+                <Rectangle Name="BandTop" Height="6" VerticalAlignment="Top"
                            Fill="Transparent" Cursor="SizeAll" PointerPressed="OnBandPressed" />
-                <Rectangle Name="BandBottom" Height="6" VerticalAlignment="Bottom" Margin="6,0,6,0"
+                <Rectangle Name="BandBottom" Height="6" VerticalAlignment="Bottom"
                            Fill="Transparent" Cursor="SizeAll" PointerPressed="OnBandPressed" />
-                <Rectangle Name="BandLeft" Width="6" HorizontalAlignment="Left" Margin="0,6,0,6"
+                <Rectangle Name="BandLeft" Width="6" HorizontalAlignment="Left"
                            Fill="Transparent" Cursor="SizeAll" PointerPressed="OnBandPressed" />
-                <Rectangle Name="BandRight" Width="6" HorizontalAlignment="Right" Margin="0,6,0,6"
+                <Rectangle Name="BandRight" Width="6" HorizontalAlignment="Right"
                            Fill="Transparent" Cursor="SizeAll" PointerPressed="OnBandPressed" />
 
                 <!-- 角点手柄（6×6） -->

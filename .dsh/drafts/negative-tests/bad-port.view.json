@@ -1,2 +1,0 @@
-{ "version": 1, "frame": { "window": { "width": 320, "height": 220 }, "ports": [ { "name": "out", "edge": "above", "offset": 1.5 } ] }, "sources": [ { "name": "s", "kind": "Text" } ],
-  "views": [ { "root": { "kind": "textLog", "data": "s" } } ] }

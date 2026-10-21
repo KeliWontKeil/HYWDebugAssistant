@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    业务模块（第二批 #3）：TCP 服务端 `hyw/tcp-server`。
+    **本版只有形态**：声明 + 配置 + 界面，没有 IO 逻辑（外部接入接线见执行计划的 P1/P4）。
+  -->
+  <PropertyGroup>
+    <ModulePackageName>tcp-server</ModulePackageName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\..\..\Sdk.Ui\HYWDebugAssistant.Sdk.Ui.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

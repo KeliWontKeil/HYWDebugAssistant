@@ -31,6 +31,7 @@ public sealed class DisplayBuffer
 
     private readonly List<string> _lines;
     private readonly Lock _gate = new();
+    private long _revision;
 
     /// <summary>创建缓冲。</summary>
     /// <param name="capacity">容量（行）；&lt;= 0 ⇒ 用 <see cref="DefaultCapacity"/>。</param>
@@ -42,6 +43,11 @@ public sealed class DisplayBuffer
 
     /// <summary>容量（行）。</summary>
     public int Capacity { get; }
+
+    /// <summary>
+    /// **变更号**：追加/替换/清空/裁剪都会递增。读方用同一个号判断“内容没变” ⇒ 可跳过重排。
+    /// </summary>
+    public long Revision => Interlocked.Read(ref _revision);
 
     /// <summary>因超出容量而被丢弃的**旧行累计数**（界面提示"已丢弃 N 行"）。</summary>
     public int DroppedCount { get; private set; }
@@ -106,6 +112,7 @@ public sealed class DisplayBuffer
             current = lines[^1];
         }
 
+        Interlocked.Increment(ref _revision);
         TextAppended?.Invoke(current);
     }
 
@@ -142,6 +149,8 @@ public sealed class DisplayBuffer
             DroppedCount += trimmed;
         }
 
+        Interlocked.Increment(ref _revision);
+
         if (trimmed > 0)
         {
             Trimmed?.Invoke(trimmed);
@@ -165,6 +174,7 @@ public sealed class DisplayBuffer
             DroppedCount = 0;
         }
 
+        Interlocked.Increment(ref _revision);
         Cleared?.Invoke();
     }
 
@@ -190,6 +200,7 @@ public sealed class DisplayBuffer
             }
         }
 
+        Interlocked.Increment(ref _revision);
         Cleared?.Invoke();
         Appended?.Invoke(text ?? string.Empty);
     }

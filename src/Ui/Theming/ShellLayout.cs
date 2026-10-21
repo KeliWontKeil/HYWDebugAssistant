@@ -21,11 +21,7 @@ public static class ShellLayout
     /// <summary>短边基准尺寸（DIP）。</summary>
     public const double BaseShortSide = 396;
 
-    /// <summary>最小尺寸（DIP）。</summary>
-    public const double MinWidth = 360;
-
-    /// <summary>最小高度（DIP）。</summary>
-    public const double MinHeight = 480;
+    // 外壳窗口的最小尺寸**不在这里**（唯一来源 = 窗口自己的声明）：同一件事两处定义时，"哪个生效"没有答案。
 
     /// <summary>按档位换算窗口尺寸（短边 = <see cref="BaseShortSide"/>，长边按比例；竖屏/横屏都成立）。</summary>
     /// <param name="aspect">比例档位（如 <c>9:19.5</c>）。</param>

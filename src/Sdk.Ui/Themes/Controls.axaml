@@ -1,0 +1,429 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls">
+  <!--
+    控件库的**默认观感**（只这一处）。
+
+    颜色全部走主题 token（宿主提供：`TextPrimary` / `TextMuted` / `Semantic*` …），
+    于是换深浅主题、用户改配色时这里一个像素都不用动。
+    字号与间距也在这里 —— 控件代码里不写字面量。
+
+    **视觉结构也在这一份 XAML 里**：每个控件一个 ControlTheme，用命名部件（PART_*）
+    把内部结构画出来；C# 控件只取部件、管行为，不再 `new Grid/TextBlock`。
+  -->
+  <Styles.Resources>
+
+    <ControlTheme x:Key="{x:Type ui:ModuleLabel}" TargetType="ui:ModuleLabel">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <TextBlock Name="PART_Text" Classes="module-label" VerticalAlignment="Center" />
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+
+    <ControlTheme x:Key="{x:Type ui:ModuleNumeric}" TargetType="ui:ModuleNumeric">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Grid ColumnDefinitions="Auto,*,Auto">
+            <TextBlock Name="PART_Title" Classes="module-title" VerticalAlignment="Center" />
+            <TextBlock Name="PART_Value" Grid.Column="1" Classes="module-numeric"
+                       VerticalAlignment="Center" HorizontalAlignment="Right" />
+            <TextBlock Name="PART_Unit" Grid.Column="2" Classes="module-unit"
+                       Margin="4,0,4,0" VerticalAlignment="Center" IsVisible="False" />
+          </Grid>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+
+    <ControlTheme x:Key="{x:Type ui:ModuleStatusLight}" TargetType="ui:ModuleStatusLight">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Ellipse Name="PART_Dot" Classes="module-status-light" />
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+
+    <ControlTheme x:Key="{x:Type ui:ModuleTextSurface}" TargetType="ui:ModuleTextSurface">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Grid>
+            <Border Name="PART_Frame" Classes="module-text-frame"
+                    BorderThickness="1" CornerRadius="2"
+                    Background="{DynamicResource BgModule}">
+              <Grid>
+                <TextBox Name="PART_Input" Classes="module-text-editor"
+                         BorderThickness="0" Background="Transparent"
+                         HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                         IsVisible="False" />
+                <ScrollViewer Name="PART_ReadScroll"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalContentAlignment="Stretch"
+                              IsVisible="False">
+                  <ui:IncrementalTextView Name="PART_ReadText" Classes="module-text-read"
+                                          HorizontalAlignment="Stretch" />
+                </ScrollViewer>
+              </Grid>
+            </Border>
+            <Border Name="PART_FocusRing" BorderThickness="2" CornerRadius="2"
+                    BorderBrush="{DynamicResource AccentPrimary}"
+                    IsVisible="False" IsHitTestVisible="False" />
+            <ui:NewlineMarkOverlay Name="PART_Marks" IsHitTestVisible="False" />
+            <Border Name="PART_ErrorRing" BorderThickness="2" CornerRadius="2"
+                    BorderBrush="{DynamicResource SemanticError}"
+                    IsVisible="False" IsHitTestVisible="False" />
+            <TextBlock Name="PART_Dropped" Classes="module-notice"
+                       VerticalAlignment="Bottom" IsVisible="False" />
+          </Grid>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+
+    <ControlTheme x:Key="{x:Type ui:ModuleToggle}" TargetType="ui:ModuleToggle">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Grid ColumnDefinitions="Auto,*" VerticalAlignment="Center">
+            <Border Name="PART_Track" Width="36" Height="18" CornerRadius="9"
+                    Background="{DynamicResource SurfaceToggleTrackOffBrush}"
+                    BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                    VerticalAlignment="Center">
+              <Border Name="PART_Knob" Width="14" Height="14" CornerRadius="7"
+                      Background="{DynamicResource SurfaceToggleKnobBrush}"
+                      BorderBrush="{DynamicResource SurfaceToggleKnobEdgeBrush}" BorderThickness="1"
+                      HorizontalAlignment="Left" VerticalAlignment="Center" Margin="2,0,2,0" />
+            </Border>
+            <TextBlock Grid.Column="1" Text="{TemplateBinding Text}"
+                       Foreground="{TemplateBinding Foreground}"
+                       FontSize="{TemplateBinding FontSize}"
+                       Margin="6,0,0,0" VerticalAlignment="Center" />
+          </Grid>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+
+
+
+    <ControlTheme x:Key="{x:Type ui:ModuleConfigField}" TargetType="ui:ModuleConfigField">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Grid RowDefinitions="*,Auto">
+            <Grid Grid.Row="0" ColumnDefinitions="Auto,*">
+              <TextBlock Name="PART_Title" Classes="module-title" VerticalAlignment="Center" />
+              <ContentControl Name="PART_EditorHost" Grid.Column="1" />
+              <Border Name="PART_ReadFrame" Grid.Column="1" Classes="module-text-frame readonly"
+                      BorderThickness="1" CornerRadius="2" MinHeight="22"
+                      VerticalAlignment="Center" IsVisible="False">
+                <SelectableTextBlock Name="PART_ReadText" Classes="module-text-read"
+                                     Padding="4,0" VerticalAlignment="Center"
+                                     TextWrapping="NoWrap" />
+              </Border>
+              <Border Name="PART_ErrorRing" Grid.Column="1" BorderThickness="2" CornerRadius="2"
+                      IsVisible="False" IsHitTestVisible="False" />
+            </Grid>
+            <TextBlock Name="PART_Notice" Grid.Row="1" Classes="module-notice"
+                       TextWrapping="Wrap" IsVisible="False" />
+          </Grid>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+
+    <!--
+      页签本体：选中态 = 淡主题色圆角底 + 2px 主题色下沿，未选中透明 + 次文字。
+      这组属性必须住在 ControlTheme 里：Fluent 的 TabItem 主题会盖掉外部
+      `TabItem` 样式；`TabControl.ItemContainerTheme` 才是容器主题的入口。
+    -->
+    <ControlTheme x:Key="ModuleTabItemTheme" TargetType="TabItem">
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="24" />
+      <Setter Property="Padding" Value="7,1" />
+      <Setter Property="Margin" Value="0,0,2,0" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <!--
+            下沿必须在**Padding 之外**、铺满页签本体：放在带 Padding 的内层 Grid 里时，
+            它只会横过文字的宽度（实测 6px），看起来像一个小蓝点。
+          -->
+          <Grid>
+            <Border Name="PART_Root"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="0"
+                    Padding="{TemplateBinding Padding}">
+              <TextBlock Text="{TemplateBinding Header}"
+                         Foreground="{TemplateBinding Foreground}"
+                         FontSize="{TemplateBinding FontSize}"
+                         HorizontalAlignment="Center"
+                         VerticalAlignment="Center" />
+            </Border>
+            <Border Name="PART_Underline" Height="2"
+                    VerticalAlignment="Bottom"
+                    HorizontalAlignment="Stretch"
+                    Background="Transparent" />
+          </Grid>
+        </ControlTemplate>
+      </Setter>
+
+      <Style Selector="^:pointerover">
+        <Setter Property="Background" Value="{DynamicResource SurfaceTabHoverBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+      </Style>
+
+      <Style Selector="^:selected">
+        <Setter Property="Background" Value="{DynamicResource SurfaceTabSelectedBackgroundBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource AccentPrimary}" />
+      </Style>
+
+      <Style Selector="^:selected:pointerover">
+        <Setter Property="Background" Value="{DynamicResource SurfaceTabSelectedHoverBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource AccentPrimary}" />
+      </Style>
+
+      <Style Selector="^:selected /template/ Border#PART_Underline">
+        <Setter Property="Background" Value="{DynamicResource AccentPrimary}" />
+      </Style>
+    </ControlTheme>
+  </Styles.Resources>
+
+  <Style Selector="ui|ModuleLabel">
+    <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleLabel}}" />
+  </Style>
+
+  <Style Selector="ui|ModuleNumeric">
+    <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleNumeric}}" />
+  </Style>
+
+  <Style Selector="ui|ModuleStatusLight">
+    <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleStatusLight}}" />
+  </Style>
+
+  <Style Selector="ui|ModuleTextSurface">
+    <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleTextSurface}}" />
+  </Style>
+
+  <Style Selector="ui|ModuleToggle">
+    <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleToggle}}" />
+  </Style>
+
+
+
+  <Style Selector="ui|ModuleConfigField">
+    <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleConfigField}}" />
+  </Style>
+
+  <Style Selector="TextBlock.module-label">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="TextBlock.module-label.muted">
+    <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+  </Style>
+
+  <Style Selector="TextBlock.module-field-label">
+    <Setter Property="FontSize" Value="10" />
+    <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+    <Setter Property="Margin" Value="4,2,0,2" />
+    <Setter Property="TextWrapping" Value="NoWrap" />
+  </Style>
+
+  <Style Selector="TextBlock.module-title">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+    <Setter Property="Margin" Value="0,0,4,0" />
+  </Style>
+
+  <Style Selector="TextBlock.module-numeric">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontFamily" Value="{DynamicResource FontData}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+    <Setter Property="HorizontalAlignment" Value="Right" />
+    <Setter Property="TextWrapping" Value="NoWrap" />
+  </Style>
+
+  <Style Selector="TextBlock.module-unit">
+    <Setter Property="FontSize" Value="10" />
+    <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+    <Setter Property="Margin" Value="3,0,0,1" />
+  </Style>
+
+  <Style Selector="TextBlock.module-notice">
+    <Setter Property="FontSize" Value="10" />
+    <Setter Property="Foreground" Value="{DynamicResource SemanticError}" />
+  </Style>
+
+  <Style Selector="Ellipse.module-status-light">
+    <Setter Property="Width" Value="10" />
+    <Setter Property="Height" Value="10" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+
+  <!--
+    模块控件库的**尺寸**也在这里：视图只摆结构，不逐格写高度/字号。
+    数值与全局控件高（27）对齐，避免"同一种控件在不同模块里高矮不一"。
+  -->
+  <Style Selector="ui|ModuleButton">
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="MinWidth" Value="64" />
+    <Setter Property="FontSize" Value="11" />
+  </Style>
+
+  <Style Selector="ui|ModuleConfigField">
+    <Setter Property="MinHeight" Value="24" />
+  </Style>
+
+  <Style Selector="ui|ModuleNumeric">
+    <Setter Property="MinHeight" Value="30" />
+    <Setter Property="Margin" Value="0,0,4,0" />
+  </Style>
+
+  <Style Selector="ui|ModuleToggle">
+    <Setter Property="MinHeight" Value="24" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="ui|ModuleToggle:pointerover /template/ Border#PART_Track">
+    <Setter Property="Background" Value="{DynamicResource SurfaceToggleTrackOffHoverBrush}" />
+  </Style>
+
+  <Style Selector="ui|ModuleToggle:checked /template/ Border#PART_Track">
+    <Setter Property="Background" Value="{DynamicResource AccentPrimary}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+  </Style>
+
+  <Style Selector="ui|ModuleToggle:checked:pointerover /template/ Border#PART_Track">
+    <Setter Property="Background" Value="{DynamicResource AccentPrimary}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+  </Style>
+
+  <Style Selector="ui|ModuleToggle /template/ Border#PART_Knob">
+    <Setter Property="Transitions">
+      <Transitions>
+        <ThicknessTransition Property="Margin" Duration="0:0:0.16" />
+      </Transitions>
+    </Setter>
+  </Style>
+
+  <Style Selector="ui|ModuleToggle:checked /template/ Border#PART_Knob">
+    <Setter Property="Margin" Value="18,0,2,0" />
+  </Style>
+
+  <Style Selector="ui|ModuleToggle:disabled">
+    <Setter Property="Opacity" Value="0.5" />
+  </Style>
+
+  <Style Selector="ui|ModuleTabs">
+    <!-- 派生自 TabControl：类型选择器只匹配精确类型，必须显式把默认页签主题指回来。 -->
+    <Setter Property="Theme" Value="{DynamicResource {x:Type TabControl}}" />
+    <Setter Property="ItemContainerTheme" Value="{DynamicResource ModuleTabItemTheme}" />
+    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <!-- 选中页的模块控件必须填满页签内容区：默认 ContentPresenter 的左上对齐会让文本框按内容宽收缩。 -->
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Stretch" />
+  </Style>
+
+  <Style Selector="ui|ModuleTabs /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Stretch" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="VerticalAlignment" Value="Stretch" />
+  </Style>
+
+  <!-- 页签条：紧凑档；选中 = 淡主题色底 + 主题色下沿。 -->
+  <Style Selector="ui|ModuleStatusLight">
+    <Setter Property="Margin" Value="0,0,6,0" />
+  </Style>
+
+  <!--
+    文本面只有一个边框来源：模板里的 PART_Frame。
+    内层 TextBox 固定无边框，Fluent 的悬停/聚焦边框就不会再和 frame 打架。
+  -->
+  <Style Selector="Border.module-text-frame">
+    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource SurfaceTextFrameEditableBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="2" />
+  </Style>
+
+  <Style Selector="Border.module-text-frame.readonly">
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+  </Style>
+
+  <Style Selector="TextBox.module-text-editor">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Padding" Value="4,0" />
+    <Setter Property="MinHeight" Value="24" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="{DynamicResource SurfaceTextFrameEditableBrush}" />
+    <Setter Property="SelectionBrush" Value="{DynamicResource OverlaySelection}" />
+    <Setter Property="SelectionForegroundBrush" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="TextBox.module-text-editor.readonly">
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+  </Style>
+
+  <Style Selector="SelectableTextBlock.module-text-read">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Padding" Value="4,2" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="SelectionBrush" Value="{DynamicResource OverlaySelection}" />
+    <Setter Property="SelectionForegroundBrush" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="ui|IncrementalTextView.module-text-read">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Padding" Value="4,2" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="SelectionBrush" Value="{DynamicResource OverlaySelection}" />
+    <Setter Property="SelectionForegroundBrush" Value="{DynamicResource TextPrimary}" />
+  </Style>
+  <!-- 字段编辑器：统一高度与字号，避免"一行高一行矮"（三档自然高本来各不相同）。 -->
+  <!--
+    配置格的内层编辑器**必须改掉全局 TextBox/ComboBox 的固定高 27**：
+    模块内容区的行高是 22–24，按 27 排会让 5 行串口参数比内容区还高（最后一格被裁）。
+    高度只在这里给，视图不再逐格写。
+  -->
+  <Style Selector="ui|ModuleConfigField TextBox">
+    <Setter Property="Height" Value="22" />
+    <Setter Property="MinHeight" Value="22" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Padding" Value="4,0" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+
+  <Style Selector="ui|ModuleConfigField ComboBox">
+    <Setter Property="Height" Value="22" />
+    <Setter Property="MinHeight" Value="22" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Padding" Value="6,0" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+
+  <Style Selector="ui|ModuleConfigField ui|ModuleToggle">
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+  </Style>
+</Styles>
+
+
+
+
+
+
+
+
+

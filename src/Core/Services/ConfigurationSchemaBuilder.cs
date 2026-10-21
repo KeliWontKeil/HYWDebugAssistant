@@ -158,12 +158,35 @@ internal static class ConfigurationSchemaBuilder
             return false;   // 非可编辑类型（复杂对象等）：不生成字段
         }
 
+        var current = Format(property.GetValue(configuration), type);
+
+        // **动态可选项**：配置对象自己知道"现在有哪些"（如本机当前可用的外部设备）⇒ 该字段改为**下拉**呈现。
+        // 返回 `null` 才表示"这个字段不是动态字段"；**空表表示"是动态字段但现在没有可选项"**（两件事不能混同）。
+        // 当前值必须留在选项里：否则表单会把已存的值显示成列表里的第一项 —— 看着像被改过。
+        if (configuration is IConfigurationChoices provider && provider.GetChoices(property.Name) is { } dynamic)
+        {
+            var list = new List<ConfigurationFieldChoice>();
+
+            if (current.Length > 0 && !dynamic.Contains(current, StringComparer.Ordinal))
+            {
+                list.Add(new ConfigurationFieldChoice(current, current));
+            }
+
+            foreach (var value in dynamic)
+            {
+                list.Add(new ConfigurationFieldChoice(value, value));
+            }
+
+            kind = ConfigurationFieldKind.Enum;
+            choices = list;
+        }
+
         field = new ConfigurationFieldView(
             property.Name,
             title,
             string.IsNullOrWhiteSpace(metadata?.Group) ? null : metadata!.Group,
             kind.Value,
-            Format(property.GetValue(configuration), type),
+            current,
             OrNull(metadata?.Minimum),
             OrNull(metadata?.Maximum),
             OrNull(metadata?.Step),
@@ -192,7 +215,13 @@ internal static class ConfigurationSchemaBuilder
             var choices = new List<ConfigurationFieldChoice>();
             foreach (var name in Enum.GetNames(underlying))
             {
-                choices.Add(new ConfigurationFieldChoice(name, name));
+                // **写回用成员名，显示可用标注**（`[ConfigurationChoice]`）：两者合一会让界面里
+                // 只能看到标识符（"Baud115200"），而人该看到的是"115200"。
+                var title = underlying.GetField(name)?.GetCustomAttribute<ConfigurationChoiceAttribute>()?.Title;
+
+                choices.Add(new ConfigurationFieldChoice(
+                    name,
+                    string.IsNullOrWhiteSpace(title) ? name : title!));
             }
 
             return (ConfigurationFieldKind.Enum, choices);

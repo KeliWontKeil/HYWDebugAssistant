@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    业务模块（第二批 #1）：串口 `hyw/serial`。
+    **本版只有形态**：声明 + 配置 + 界面，没有 IO 逻辑（外部接入接线的活见执行计划的 P1/P3）。
+    与第三方模块**同构同路径**：只引 Sdk（AR-1）；不得引用其他模块（AR-2）。
+  -->
+  <PropertyGroup>
+    <!-- 包目录名（artifacts\modules\serial\ 与应用输出 modules\serial\）—— 用户可见 -->
+    <ModulePackageName>serial</ModulePackageName>
+
+    <!--
+      **模块包必须自带第三方依赖**：模块是插件，宿主不会替它带（库项目缺省不把 NuGet 依赖拷进
+      输出目录，而包归拢拷的就是输出目录）⇒ 打开这一档，依赖才会随包走。
+    -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <!-- 模块自带的视图：Avalonia 控件 + 视图契约（AR-1 允许的第二个程序集）。 -->
+    <ProjectReference Include="..\..\..\Sdk.Ui\HYWDebugAssistant.Sdk.Ui.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 串口：本版只用它"列出可用端口"（供配置表单的动态下拉）；开会话的活见执行计划的 P2 -->
+    <PackageReference Include="System.IO.Ports" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 模块清单随构建输出（M1 物理形式：目录 + module.json + 实现程序集） -->
+    <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

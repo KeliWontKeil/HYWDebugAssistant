@@ -136,6 +136,11 @@ public sealed class FusionStubModule : IModule, IActivitySource
             [InputPort1, InputPort2],
             [OutputPort],
             "融合"));
+
+        // 融合结果与两路计数（测试按名字读 ⇒ 代码里声明）。
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(FusedSource, ViewDataSourceKind.Value, ContractPrimitive.F64));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(Count1Source, ViewDataSourceKind.Value, ContractPrimitive.U64));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(Count2Source, ViewDataSourceKind.Value, ContractPrimitive.U64));
     }
 
     /// <inheritdoc />

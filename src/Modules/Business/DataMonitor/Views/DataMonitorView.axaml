@@ -1,0 +1,40 @@
+<ui:ModuleView xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+             xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:views="using:HYWDebugAssistant.Modules.DataMonitor.Views"
+             x:Class="HYWDebugAssistant.Modules.DataMonitor.Views.DataMonitorView"
+             x:CompileBindings="True"
+             x:DataType="contracts:IModuleViewContext"
+             d:DesignWidth="358" d:DesignHeight="352">
+
+  <!--
+    数据显示器（内容区 358×352）：日志区自适应；底部 106 高的动作/开关/状态条绝对定位。
+    开关按两行固定摆放，不随文字长度改变位置。
+  -->
+  <Grid RowDefinitions="*,106">
+
+    <ui:ModuleTextSurface Mode="Display" Grid.Row="0" Source="{x:Static views:DataMonitorViewKeys.Log}" />
+
+    <Canvas Grid.Row="1" Height="106" ClipToBounds="True">
+      <ui:ModuleButton Canvas.Left="0" Canvas.Top="2" Width="64" Height="27"
+                       CommandName="{x:Static views:DataMonitorViewKeys.Clear}" Content="清空" />
+      <ui:ModuleButton Canvas.Left="72" Canvas.Top="2" Width="64" Height="27"
+                       CommandName="{x:Static views:DataMonitorViewKeys.Save}" Content="保存" />
+
+      <ui:ModuleToggle Canvas.Left="0" Canvas.Top="34" Width="96" Height="24"
+                       Source="{x:Static views:DataMonitorViewKeys.Paused}" Text="暂停显示" />
+      <ui:ModuleToggle Canvas.Left="104" Canvas.Top="34" Width="108" Height="24"
+                       Source="{x:Static views:DataMonitorViewKeys.Wrap}" Text="数据包换行" />
+      <ui:ModuleToggle Canvas.Left="220" Canvas.Top="34" Width="88" Height="24"
+                       Source="{x:Static views:DataMonitorViewKeys.HexView}" Text="十六进制" />
+      <ui:ModuleToggle Canvas.Left="0" Canvas.Top="62" Width="88" Height="24"
+                       Source="{x:Static views:DataMonitorViewKeys.Timestamp}" Text="时间戳" />
+
+      <ui:ModuleLabel Canvas.Left="0" Canvas.Top="88" Width="250" Height="16"
+                      Source="{x:Static views:DataMonitorViewKeys.Status}" />
+    </Canvas>
+  </Grid>
+</ui:ModuleView>
+

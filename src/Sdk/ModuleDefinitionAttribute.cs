@@ -53,4 +53,48 @@ public sealed class ModuleDefinitionAttribute : Attribute
 
     /// <summary>是否参与数据活动（供 L2/L3 决定承载方式；不构成框架分类）。</summary>
     public bool ParticipatesInDataFlow { get; init; } = true;
+
+    /// <summary>
+    /// 模块窗口的**默认尺寸**（DIP）。<c>0</c> = 用框架缺省。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 窗口尺寸是**模块的形态事实**（这个模块天生多大），因此写在代码声明里，
+    /// 与口、类型、角色同处 —— 它是编译期可校验的常量，不是运行期读来的数据。
+    /// </para>
+    /// <para>
+    /// 内容排不下时由内容区滚动，框架**不按内容反过来算窗口尺寸**。
+    /// </para>
+    /// </remarks>
+    public double WindowWidth { get; init; }
+
+    /// <inheritdoc cref="WindowWidth"/>
+    public double WindowHeight { get; init; }
+
+    /// <summary>窗口最小尺寸（DIP）；<c>0</c> = 用框架地板。</summary>
+    /// <remarks>
+    /// <para>地板存在的理由是端口标记的沿边几何：窗口比它窄会把标记裁掉一截。</para>
+    /// <para>
+    /// 用 <c>0</c> 当"未声明"：特性参数的有效类型里没有可空数（<c>double?</c> 不能做命名参数），
+    /// 而 0 宽高的窗口没有意义 —— 于是它天然是一个不可能被真正想要的哨兵值。
+    /// </para>
+    /// </remarks>
+    public double MinWidth { get; init; }
+
+    /// <inheritdoc cref="MinWidth"/>
+    public double MinHeight { get; init; }
+
+    /// <summary>
+    /// 本模块的**视图工厂类型**（实现 <c>HYWDebugAssistant.Sdk.Ui.IModuleViewFactory</c>）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 框架按这个类型**每个实例造一次视图**（类型需有公共无参构造）。
+    /// 用类型而非实例：模块对象本身是有状态、受生命周期约束的，视图不能把它的第二份实例造出来。
+    /// </para>
+    /// <para>
+    /// 不声明 = 这个模块没有自绘界面，窗口只显示身份与状态（合法形态，不是错误）。
+    /// </para>
+    /// </remarks>
+    public Type? ViewFactory { get; init; }
 }

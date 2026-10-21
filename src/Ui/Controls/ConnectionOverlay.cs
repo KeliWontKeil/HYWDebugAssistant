@@ -715,9 +715,10 @@ public sealed class ConnectionOverlay : Control
         }
 
         // ④ 信息区：左上身份（12px）+（必要时）第二行说明（10px）
+        // 叠加层是给用户看的：身份只使用外部语义名；实例 ID（英文模块名）只用于内部/诊断。
         var identity = IdentityText is { Length: > 0 } text
             ? text
-            : $"{InstanceId} · {ModuleTitle}".Trim(' ', '·');
+            : ModuleTitle ?? string.Empty;
 
         if (identity.Length > 0)
         {

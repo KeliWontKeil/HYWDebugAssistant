@@ -33,10 +33,20 @@
     <ProjectReference Include="..\..\src\Ui\HYWDebugAssistant.Ui.csproj" />
     <ProjectReference Include="..\..\src\FrameworkUi\HYWDebugAssistant.FrameworkUi.csproj" />
     <ProjectReference Include="..\..\src\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\..\src\Sdk.Testing\HYWDebugAssistant.Sdk.Testing.csproj" />
     <ProjectReference Include="..\..\src\Hosting\HYWDebugAssistant.Hosting.csproj" />
     <ProjectReference Include="..\..\src\DataPlane\HYWDebugAssistant.DataPlane.csproj" />
     <ProjectReference Include="..\..\src\Core\HYWDebugAssistant.Core.csproj" />
     <ProjectReference Include="..\..\src\Core.Api\HYWDebugAssistant.Core.Api.csproj" />
+    <!-- 八个业务模块的视图契约：真造 XAML 控件，再按控件上的键对代码声明。 -->
+    <ProjectReference Include="..\..\src\Modules\Business\Serial\HYWDebugAssistant.Modules.Serial.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\TcpClient\HYWDebugAssistant.Modules.TcpClient.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\TcpServer\HYWDebugAssistant.Modules.TcpServer.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\Udp\HYWDebugAssistant.Modules.Udp.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\TextSender\HYWDebugAssistant.Modules.TextSender.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\HexSender\HYWDebugAssistant.Modules.HexSender.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\DataMonitor\HYWDebugAssistant.Modules.DataMonitor.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\HexStringConverter\HYWDebugAssistant.Modules.HexStringConverter.csproj" />
   </ItemGroup>
 
 </Project>

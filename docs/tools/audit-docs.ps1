@@ -43,7 +43,6 @@ $currentSet = @(
     @{ Dir = $docs;                             Filter = '*.md';     Why = 'docs/ 根（入口 / 工作流 / 代码是什么 / 正在做什么 / 怎么去做）' }
     @{ Dir = (Join-Path $docs 'architecture');  Filter = '*.md';     Why = '系统是什么（单册）' }
     @{ Dir = (Join-Path $docs 'design');        Filter = '*.md';     Why = '正在开发的功能的临时设计记录（做完即并入正文或删除）' }
-    @{ Dir = (Join-Path $docs 'view-declaration'); Filter = '*.md';  Why = '怎么写一个模块（声明面键表 / 声明文件标准写法 / 排布与坐标）' }
     @{ Dir = (Join-Path $docs 'tools');         Filter = '*.ps1';    Why = '文档工具' }
     @{ Dir = (Join-Path $root '.dsh\skills');   Filter = 'README.md'; Why = '可迁移技能索引' }
 )
@@ -191,7 +190,7 @@ else { Report-Ok '所有表格行的格数均不超过所在表的表头' }
 if ($tableShort -gt 0) { Report-Info "格数少于表头的行：$tableShort 处（表格允许的短行，非错误）" }
 
 Write-Host '== 7. 登记一致性（现行文档必须"有家"）==' -ForegroundColor Green
-$dirWhite = @('architecture', 'design', 'archive', 'tools', 'view-declaration')
+$dirWhite = @('architecture', 'design', 'archive', 'tools')
 $dirStray = @(Get-ChildItem $docs -Directory | Where-Object { $_.Name -notin $dirWhite })
 if ($dirStray) {
     $dirStray | ForEach-Object { Report-Fail "docs/ 下出现未登记的一级目录：$($_.Name)（白名单：$($dirWhite -join ' / ')）" }

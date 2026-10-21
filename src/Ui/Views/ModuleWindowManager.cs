@@ -266,8 +266,8 @@ public sealed class ModuleWindowManager : IDisposable
     /// </summary>
     /// <remarks>
     /// <para>
-    /// **窗口尺寸的唯一来源是模型**（模型里是"用户布局"或"包内
-    /// `view.json` 的 `window.default`"，二者在 <see cref="ModuleViewViewModel"/> 构造时已分好优先级）；
+    /// **窗口尺寸的唯一来源是模型**（模型里是"用户布局"或模块 `[ModuleDefinition]` 的默认窗口尺寸，
+    /// 二者在 <see cref="ModuleViewViewModel"/> 构造时已分好优先级）；
     /// `ModuleWindow.axaml` 的 `Width`/`Height` 只作设计器里的兜底，不再是运行期事实来源。
     /// 内容排不下由内容区 ScrollViewer 处理（"信息量"永远不改变外层容器尺寸）。
     /// </para>

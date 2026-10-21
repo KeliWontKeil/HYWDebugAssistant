@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    模块界面契约与控件库（**模块作者可引用的第二个程序集**）。
+
+    为什么单独一层：Sdk 是**零依赖**的契约层（契约自检可以脱离 UI 跑），
+    而"模块自带视图"需要 Avalonia 的 Control —— 把它放进 Sdk 会让契约层拖进整个 UI 框架。
+    于是这里只放两样东西：**视图契约**（工厂 / 上下文 / 快照）与**控件库**（承载不了的行为）。
+
+    纪律（AR-21）：本程序集只许有 **控件 + 契约 + 主题**；
+    不得出现"按 kind 派发"、描述表、界面 schema 一类第二份词汇表。
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 控件库的默认观感：**随本程序集发布**（宿主用 `StyleInclude` 引用这里的 axaml）。 -->
+    <AvaloniaResource Include="Themes\Controls.axaml" />
+    <!-- 设计时兜底 token：只由 `ModuleView` 在预览器里合并，运行时宿主色板仍是唯一色源。 -->
+    <AvaloniaResource Include="Themes\DesignTokens.axaml" />
+  </ItemGroup>
+
+</Project>

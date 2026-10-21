@@ -95,49 +95,6 @@ internal static class RoleModel
     }
 
     /// <summary>
-    /// 某个角色的**承载网络键集合**（该角色的口参与的全部网络）。
-    /// </summary>
-    /// <remarks>
-    /// 用途：把**通路维度**的框架诊断（按网络统计的速率 / 投递 / 丢弃）聚合到**角色维度**
-    /// ——"这块功能自己在跑多快"。与 <see cref="PeersOf"/> 用同一套"口是否在该网络里"的成员判定，
-    /// 故两个口径不会漂移。
-    /// </remarks>
-    /// <param name="instance">本实例。</param>
-    /// <param name="ports">该角色某一侧（或两侧）的口名。</param>
-    /// <param name="networks">全部网络。</param>
-    /// <param name="keyOf">网络 → 框架身份键（与诊断视图的 <c>Key</c> 同源）。</param>
-    /// <returns>去重后的网络键集合。</returns>
-    internal static HashSet<string> NetworksOf(
-        ModuleInstance instance,
-        IEnumerable<string> ports,
-        IReadOnlyList<Network> networks,
-        Func<Network, string> keyOf)
-    {
-        var keys = new HashSet<string>(StringComparer.Ordinal);
-        var portNames = ports as IReadOnlyList<string> ?? [.. ports];
-
-        foreach (var network in networks)
-        {
-            foreach (var portName in portNames)
-            {
-                var literal = $"{instance.InstanceId}.{portName}";
-
-                if (network.Sources.Any(m => Member(m, literal)) || network.Targets.Any(m => Member(m, literal)))
-                {
-                    _ = keys.Add(keyOf(network));
-                    break;   // 该网络已计入 ⇒ 换下一个网络（避免同一网络被多个口重复计入）
-                }
-            }
-        }
-
-        return keys;
-
-        static bool Member(NetworkMember member, string literal) =>
-            string.Equals(member.InstanceId, literal[..literal.LastIndexOf('.')], StringComparison.Ordinal)
-            && string.Equals(member.PortName, literal[(literal.LastIndexOf('.') + 1)..], StringComparison.Ordinal);
-    }
-
-    /// <summary>
     /// 枚举**角色间的数据流**（本实例视角）：本角色的输出口 → 对端角色的输入口。
     /// </summary>
     /// <remarks>

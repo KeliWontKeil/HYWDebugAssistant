@@ -1,0 +1,48 @@
+<ui:ModuleView xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+             xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:views="using:HYWDebugAssistant.Modules.Serial.Views"
+             x:Class="HYWDebugAssistant.Modules.Serial.Views.SerialView"
+             x:CompileBindings="True"
+             x:DataType="contracts:IModuleViewContext"
+             d:DesignWidth="358" d:DesignHeight="142">
+
+  <!--
+    串口（内容区 358×142）：参数格、读数、按钮、状态灯全部绝对定位。
+    **只有需要随窗口伸缩的内容才进 Grid 的星号行列**；这些固定尺寸的控件不再走 StackPanel 流式排布。
+  -->
+  <Canvas ClipToBounds="True">
+
+    <!-- 左栏：五个参数格，固定 160×24，行距 2。 -->
+    <ui:ModuleConfigField Canvas.Left="0" Canvas.Top="0" Width="160" Height="24"
+                          Field="{x:Static views:SerialViewKeys.PortName}" />
+    <ui:ModuleConfigField Canvas.Left="0" Canvas.Top="26" Width="160" Height="24"
+                          Field="{x:Static views:SerialViewKeys.BaudRate}" />
+    <ui:ModuleConfigField Canvas.Left="0" Canvas.Top="52" Width="160" Height="24"
+                          Field="{x:Static views:SerialViewKeys.DataBits}" />
+    <ui:ModuleConfigField Canvas.Left="0" Canvas.Top="78" Width="160" Height="24"
+                          Field="{x:Static views:SerialViewKeys.StopBits}" />
+    <ui:ModuleConfigField Canvas.Left="0" Canvas.Top="104" Width="160" Height="24"
+                          Field="{x:Static views:SerialViewKeys.Parity}" />
+
+    <!-- 右栏：状态灯 + 三格计量（同一行）。 -->
+    <ui:ModuleStatusLight Canvas.Left="168" Canvas.Top="2" Width="10" Height="10"
+                          Source="{x:Static views:SerialViewKeys.Link}" />
+    <ui:ModuleNumeric Canvas.Left="184" Canvas.Top="0" Width="60" Height="30"
+                      Source="{x:Static views:SerialViewKeys.RxCount}" Unit="B" Title="收" />
+    <ui:ModuleNumeric Canvas.Left="246" Canvas.Top="0" Width="60" Height="30"
+                      Source="{x:Static views:SerialViewKeys.TxCount}" Unit="B" Title="发" />
+    <ui:ModuleNumeric Canvas.Left="308" Canvas.Top="0" Width="50" Height="30"
+                      Source="{x:Static views:SerialViewKeys.DropCount}" Unit="B" Title="丢弃" />
+
+    <ui:ModuleLabel Canvas.Left="168" Canvas.Top="30" Width="190" Height="16"
+                    Source="{x:Static views:SerialViewKeys.State}" />
+
+    <ui:ModuleButton Canvas.Left="168" Canvas.Top="96" Width="88" Height="27"
+                     CommandName="{x:Static views:SerialViewKeys.Open}" Content="打开" />
+    <ui:ModuleButton Canvas.Left="264" Canvas.Top="96" Width="88" Height="27"
+                     CommandName="{x:Static views:SerialViewKeys.Close}" Content="关闭" />
+  </Canvas>
+</ui:ModuleView>

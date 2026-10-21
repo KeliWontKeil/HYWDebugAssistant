@@ -45,11 +45,9 @@ public class HostingLifecycleTests
         instance.Ports.Count.ShouldBe(1);
         instance.Ports[0].Name.ShouldBe("out");
         instance.Ports[0].Direction.ShouldBe(PortDirection.Send);
-        instance.View.ShouldNotBeNull();
-        instance.View!.Views.Count.ShouldBe(1, "整份声明只渲染第 0 个视图");
-        instance.View!.Views[0].Root.Children.Count.ShouldBe(
-            4,
-            "文本发送器声明 4 个顶层元素（内容说明 / 分页输入区 / 消息那一行 / 一行动作 = 发送+连续发送+间隔+已发送）");
+
+        // 界面是模块自带的视图：框架只知道"有没有视图工厂"，不持有任何界面结构。
+        instance.ViewType.ShouldNotBeNull("文本发送器自带 XAML 视图");
         instance.ActivitySource.ShouldNotBeNull();
     }
 

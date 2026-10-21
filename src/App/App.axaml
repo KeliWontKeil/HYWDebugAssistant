@@ -12,12 +12,10 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <!-- 视觉 token（颜色角色 / 字体 / 尺寸；09 §2–§5） -->
+                <!-- 视觉 token（颜色角色 / 字体 / 尺寸） -->
                 <ResourceInclude Source="avares://HYWDebugAssistant.Ui/Styles/Tokens.axaml" />
-                <!--
-                  模块内容区自己的**尺寸**（颜色不在这里：色板只有一份，见上面 Tokens.axaml）。
-                -->
-                <ResourceInclude Source="avares://HYWDebugAssistant.Ui/ModuleSurface/Theme/ModuleSurfaceMetrics.axaml" />
+                <!-- 模块内容区的共用几何（预留带 / 文本行高） -->
+                <ResourceInclude Source="avares://HYWDebugAssistant.Ui/Styles/ModuleMetrics.axaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>
@@ -33,12 +31,6 @@
         <!-- 统一控件尺寸与图标按钮样式（M1-16 / ADR-0040 D4） -->
         <StyleInclude Source="avares://HYWDebugAssistant.Ui/Styles/Controls.axaml" />
         <!--
-          模块内容区自己的外观（选择器等）：只挂 `surface-*` 类名，因此**不**影响外壳。
-          它必须排在 `Controls.axaml` 之后 —— 全局那份给 `TextBox` 定了固定高，
-          内容区要按自己的密度压掉它。
-        -->
-        <StyleInclude Source="avares://HYWDebugAssistant.Ui/ModuleSurface/Theme/ModuleSurfaceStyles.axaml" />
-        <!--
           **按钮的壳与五态**：必须排在 `FluentTheme`（与 `Controls.axaml`）**之后** ——
           Fluent 有一条按模板部件名匹配的指针态样式，声明在前的会被它盖掉（实测：那条会给
           `ContentPresenter#PART_ContentPresenter` 刷半透明黑，屏幕上就是"我们的色发灰"）。
@@ -50,5 +42,11 @@
           桥接的是**控件属性**而不是猜 Fluent 的资源键名，理由见该文件头部说明。
         -->
         <StyleInclude Source="avares://HYWDebugAssistant.Ui/Styles/FluentBridge.axaml" />
+        <!--
+          **模块控件库的默认观感**（`Sdk.Ui`）：控件自己的字号/间距/灯体尺寸。
+          排在最后：它只在本库的类名上写这些，不与外壳或 Fluent 桥接争选择器；
+          颜色仍走上面的 token（`DynamicResource`），换主题时这里一个字都不用改。
+        -->
+        <StyleInclude Source="avares://HYWDebugAssistant.Sdk.Ui/Themes/Controls.axaml" />
     </Application.Styles>
 </Application>

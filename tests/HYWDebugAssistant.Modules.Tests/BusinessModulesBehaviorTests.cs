@@ -368,13 +368,9 @@ public class BusinessModulesBehaviorTests
     /// </summary>
     /// <remarks>
     /// <para>
-    /// 统一标准：屏幕上**没有可见形状**的东西（控制字符、被删字符、格式字符、会跳行的分隔符、
-    /// 非法/被截断的字节）都写成它**原始字节**的大写十六进制，包在 `⟨⟩` 里。
-    /// </para>
-    /// <para>
-    /// <b>为什么不能按原样塞进去</b>：控制字符进到文本里，显示层要么不画（看起来像丢数据），
-    /// 要么按它自己的语义走 —— `0x0C`（换页）/`0x0A`（换行）会让**显示自己跳行**，
-    /// 而那个"换行"并不是数据里的记录边界，用户看到的行结构于是与数据对不上。
+    /// 统一标准：屏幕上**没有可见形状、也没有格式语义**的东西（换页/制表等控制字符、被删字符、
+    /// 格式字符、非法/被截断的字节）都写成它**原始字节**的大写十六进制，包在 `⟨⟩` 里。
+    /// 换行是例外：它是格式声明，保留为真实换行，由显示层画 `↵`。
     /// </para>
     /// </remarks>
     [Fact]
@@ -385,7 +381,7 @@ public class BusinessModulesBehaviorTests
         // 控制字符：换行 / 回车 / 制表 / 换页 / 退格
         DataMonitorModule.FormatLines("A\nB"u8, hex: false, timestamp: false, perPacket: false, now)
             .ShouldHaveSingleItem()
-            .ShouldBe("A⟨0A⟩B", "换行符**不再**按原样塞进文本（它会自己跳行、那是显示行为不是数据边界）");
+            .ShouldBe("A\nB", "换行是格式声明，保留为真实字符；显示层用 ↵ 标出来");
 
         DataMonitorModule.FormatLines(new byte[] { 0x41, 0x0C, 0x42 }, hex: false, timestamp: false, perPacket: false, now)
             .ShouldHaveSingleItem()
@@ -849,8 +845,8 @@ public class BusinessModulesBehaviorTests
             text.ShouldNotContain("↵", Case.Sensitive, "标记是**显示层**的装饰：保存出来的文件里绝不能有它");
             text.ShouldNotContain('\0', "定长样本的补零/补齐都不该出现在保存结果里");
             text.Replace("\r\n", "\n", StringComparison.Ordinal).ShouldBe(
-                "甲⟨0A⟩乙\n丙\n",
-                "所见即所存：数据里那个**不可显示的**换行字符在文件里同样是 `⟨0A⟩`（屏幕上看到的行数 = 文件里的行数），"
+                "甲\n乙\n丙\n",
+                "所见即所存：数据里真实的换行在文件里仍是真实换行；"
                 + "通道换行成为真正的换行；「数据包换行」开着 ⇒ 每包各自一行、不再补分隔空格；"
                 + "**没有任何尾部补齐**（末尾那一个换行是 `File.WriteAllLines` 的收尾，不是数据内容）");
             text.ShouldNotContain("  \n", Case.Sensitive, "行尾不得有补齐产生的空格");

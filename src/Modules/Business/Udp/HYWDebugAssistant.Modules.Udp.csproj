@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    业务模块（第二批 #4）：UDP `hyw/udp`。
+    **本版只有形态**：声明 + 配置 + 界面，没有 IO 逻辑（外部接入接线见执行计划的 P1/P4）。
+    UDP 是**无连接**的：本地是"绑定"，远端是"默认收件人"，两者都只是参数，不是会话的两端。
+  -->
+  <PropertyGroup>
+    <ModulePackageName>udp</ModulePackageName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\..\..\Sdk.Ui\HYWDebugAssistant.Sdk.Ui.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

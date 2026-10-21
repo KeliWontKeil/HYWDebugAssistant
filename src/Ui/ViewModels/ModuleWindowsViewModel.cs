@@ -259,14 +259,28 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 continue;
             }
 
-            foreach (var target in network.Targets)
+            // **多源/多宿**：对端文本必须来自 `Sources` / `Targets` 全集，不能只取主源或第一个宿。
+            // 悬空的源不作为“对端”展示（它没有绑定）；在场源 = Sources - UnresolvedSources。
+            var presentSources = network.Sources
+                .Where(source => !network.UnresolvedSources.Contains(source, StringComparer.Ordinal))
+                .ToList();
+            var sourceText = DescribePeers(presentSources);
+            var targetText = DescribePeers(network.Targets);
+
+            if (sourceText.Length > 0)
             {
-                peers[target] = network.Source;
+                foreach (var target in network.Targets)
+                {
+                    peers[target] = sourceText;
+                }
             }
 
-            if (network.Targets.Count > 0)
+            if (targetText.Length > 0)
             {
-                peers[network.Source] = network.Targets[0];
+                foreach (var source in presentSources)
+                {
+                    peers[source] = targetText;
+                }
             }
         }
 
@@ -282,6 +296,19 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             }
         }
     }
+
+    /// <summary>
+    /// 对端列表的悬停文本：1 个直接显示、2 个用 `、`、更多显示 `首个 等 N 个`（不把长列表塞进提示）。
+    /// </summary>
+    /// <param name="members">对端口字面量（已按网络成员过滤）。</param>
+    /// <returns>提示文本；空列表 ⇒ 空串。</returns>
+    private static string DescribePeers(IReadOnlyList<string> members) => members.Count switch
+    {
+        0 => string.Empty,
+        1 => members[0],
+        2 => $"{members[0]}、{members[1]}",
+        _ => $"{members[0]} 等 {members.Count} 个",
+    };
 
     /// <summary>
     /// **类型颜色改了** ⇒ 让所有端口标记重读类型画刷（数据结构 → 颜色映射表）。
@@ -305,27 +332,41 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
     }
 
-    /// <summary>选中一个模块（点击边框带时调用；锁定或未选中都不影响数据）。</summary>
+    /// <summary>
+    /// 选中一个模块（点击边框带 / 端口标记时调用；**唯一写者**）。
+    /// </summary>
     /// <param name="instanceId">实例 ID（null = 取消选择）。</param>
+    /// <remarks>
+    /// <b>选中态只有一个事实源 = <see cref="SelectedInstanceId"/></b>：本方法每次调用都把
+    /// <b>全部模块</b>的 <see cref="ModuleViewViewModel.IsSelected"/> 对账成"是否就是目标"。
+    /// 旧实现只在 id 变化时改前后两个模块，且 <c>ClearSelection</c> 不清 <c>SelectedInstanceId</c> ⇒
+    /// "点内容清空后再点同一个模块"会被 early-return 吞掉（边框/手柄再也出不来）。对账式写法同时兜住
+    /// 模块刷新重建、未知 id、历史脏标志。锁定模块不可选中（锁定 = 不可拖动/缩放/选中）。
+    /// </remarks>
     public void Select(string? instanceId)
     {
-        if (string.Equals(SelectedInstanceId, instanceId, StringComparison.Ordinal))
+        var target = instanceId is { Length: > 0 } id
+            ? Modules.FirstOrDefault(m => string.Equals(m.InstanceId, id, StringComparison.Ordinal))
+            : null;
+
+        if (target is { IsLocked: true })
         {
-            return;
+            target = null;
         }
 
-        if (SelectedInstanceId is { Length: > 0 } previous
-            && Modules.FirstOrDefault(m => string.Equals(m.InstanceId, previous, StringComparison.Ordinal)) is { } previousModule)
+        var next = target?.InstanceId;
+        if (!string.Equals(SelectedInstanceId, next, StringComparison.Ordinal))
         {
-            previousModule.IsSelected = false;
+            SelectedInstanceId = next;
         }
 
-        SelectedInstanceId = instanceId;
-
-        if (instanceId is { Length: > 0 } current
-            && Modules.FirstOrDefault(m => string.Equals(m.InstanceId, current, StringComparison.Ordinal)) is { } module)
+        foreach (var module in Modules)
         {
-            module.IsSelected = true;
+            var selected = ReferenceEquals(module, target);
+            if (module.IsSelected != selected)
+            {
+                module.IsSelected = selected;
+            }
         }
     }
 
@@ -1019,8 +1060,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         var start = _resizeStartRect;
-        // 缩放约束来自**本模块包内 `view.json`**：
-        // 下限 = max(框架下限, json 的 min)，上限 = json 的 max（无声明 ⇒ 无上限）。
+        // 缩放约束来自**本模块的代码声明**：
+        // 下限 = max(框架下限, 模块声明的 min)，上限 = 模块声明的 max（无声明 ⇒ 无上限）。
         // **四个数都是 DIP**（与模型同单位）：本次缩放的指针位置由调用方按该窗口的缩放换成 DIP
         // （见 `ModuleWindow.ScreenPoint` 的调用点），模型与带宽因此不必再乘缩放。
         var minWidth = module.EffectiveMinWidth;
@@ -1366,7 +1407,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <remarks>
     /// <list type="bullet">
     ///   <item>**全局**（全部模块的全部端口**统一**取反）：与"全部锁定 / 解锁"模块窗口同一口味，
-    ///     单口固定留给包内声明（`view.json` 的 `ports[].constraints.draggable = false`）；</item>
+    ///     单口固定留给模块声明（`PortDeclaration.AnchorDraggable = false`）；</item>
     ///   <item>取反基准 = **当前所有口是否都已固定**：全固定 ⇒ 解锁全部，否则 ⇒ 固定全部
     ///     （否则混状态下用户按一次只翻转了一半，第二次才齐 —— 反直觉）。</item>
     /// </list>
@@ -1430,9 +1471,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// **还原模块**：回到默认尺寸，可选连配置一起还原。
     /// </summary>
     /// <remarks>
-    /// 默认尺寸 = **模块包内 `view.json` 的 `window.default`**（未声明则框架默认 320×220），
+    /// 默认尺寸 = **模块的 `[ModuleDefinition(WindowWidth/WindowHeight)]`**（未声明则框架地板），
     /// **不是**按元素类型估算的结果；位置不变（只还原尺寸与配置，不动用户摆放的位置）。
-    /// 还原值同样夹进该模块的有效尺寸区间（json 的 min/max 是约束，还原也不能越过）。
+    /// 还原值同样夹进该模块的有效尺寸区间（模块声明的 min/max 是约束，还原也不能越过）。
     /// </remarks>
     /// <param name="module">模块视图。</param>
     /// <param name="scope">还原范围（只尺寸 / 尺寸与配置）。</param>
@@ -1469,7 +1510,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// 窗口**打开后**把实际尺寸落盘（未摆放过的模块由此获得第一条布局记录）。
     /// </summary>
     /// <remarks>
-    /// 尺寸默认值归**声明面**（包内 `view.json` 的 `frame.window`）：这里只把窗口的**实际尺寸**写进模型与布局，
+    /// 尺寸默认值归**模块代码声明**：这里只把窗口的**实际尺寸**写进模型与布局，
     /// 不做任何"按内容估算"。之后用户的拖动/缩放照常覆盖。
     /// </remarks>
     /// <param name="module">模块视图。</param>
@@ -1482,14 +1523,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <summary>
     /// 清除全部选中：点内容区 / 点外壳 / 点本应用其他窗口。
     /// </summary>
-    /// <remarks>选中只能被"选中另一个"覆盖的话就没有退出口（点内容区 / 外壳 / 其他窗口都必须能取消）。</remarks>
-    public void ClearSelection()
-    {
-        foreach (var module in Modules)
-        {
-            module.IsSelected = false;
-        }
-    }
+    /// <remarks>
+    /// **委托给唯一写者 <see cref="Select"/>**：只清各模块的 <c>IsSelected</c> 而不清
+    /// <see cref="SelectedInstanceId"/> 会让"再次选中同一模块"被吞掉（边框/手柄再也出不来）。
+    /// </remarks>
+    public void ClearSelection() => Select(null);
 
     // ---------------------------------------------------------------- 内部
 
@@ -1530,8 +1568,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     ///   <item>一列到底（超出工作区下沿）就**换到右面一列**（X 挪"模块宽 + 间距"，Y 回到起点）；
     ///     工作区不可用时不换列（无限向下，仍保证不堆叠）。</item>
     /// </list>
-    /// 尺寸用**声明面给出的默认尺寸 × 缩放**估算（真实尺寸要等窗口打开才知道 —— 那时按包内 `view.json` 的
-    /// <c>frame.window</c> 开窗）。有循环上限兜底，极端情况下宁可重叠也不死循环。
+    /// 尺寸用**模块声明的默认尺寸 × 缩放**估算（真实尺寸要等窗口打开才知道 —— 那时按
+    /// <c>[ModuleDefinition]</c> 的窗口尺寸开窗）。有循环上限兜底，极端情况下宁可重叠也不死循环。
     /// </remarks>
     /// <param name="instance">即将摆放的实例（默认尺寸从它的声明面读）。</param>
     /// <returns>摆放位置（**DIP**，与模型同一坐标系）。</returns>
@@ -1539,12 +1577,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(instance);
 
-        // 声明面没有默认尺寸（实例连声明都没有）时只求"别算出 0 尺寸"：摆放只关心"互不堆叠"，
-        // 不在这里造第二份默认尺寸 —— 默认尺寸的唯一来源是声明面，框架地板则在读取侧就已落进声明
-        // （见 `ViewDocument.Fallback`，故这里**不需要**任何地板字面量）。
+        // 模块没有声明默认尺寸时只求"别算出 0 尺寸"：摆放只关心"互不堆叠"，
+        // 不在这里造第二份默认尺寸 —— 默认尺寸的唯一来源是 `[ModuleDefinition]`，
+        // 框架地板在窗口模型构造时由 `PortMarkerMetrics.MinWindowExtent` 兜底。
         // **尺寸是 DIP（声明就是 DIP）** ⇒ 不乘缩放；而 `ShellRect` / `WorkArea` 由窗口管理器
         // 按同一口径（DIP）发布 ⇒ 本方法整段都在 DIP 里算，位置与尺寸不再混单位。
-        var window = instance.View?.Frame.Window;
+        var window = instance.Window;
         var width = Math.Max(1, window is { Width: > 0 } declaredWidth ? declaredWidth.Width : 1);
         var height = Math.Max(1, window is { Height: > 0 } declaredHeight ? declaredHeight.Height : 1);
 
@@ -1626,9 +1664,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 continue;
             }
 
-            // 新模块：**只分配错位摆放的位置**；尺寸由声明面（包内 `view.json` 的 `frame.window`）决定。
+            // 新模块：**只分配错位摆放的位置**；尺寸由模块的 `[ModuleDefinition]` 决定。
             // 窗口打开后（ModuleWindowManager.PublishActualSize）把**实际尺寸**读回并经 CommitInitialLayout 落盘。
-            // 这里若写回"模型算出来的默认尺寸"，等于让代码决定外层容器尺寸（那是声明面的职责）。
+            // 这里若写回"模型算出来的默认尺寸"，等于让代码决定外层容器尺寸（那是模块声明的职责）。
             // 摆放**在右侧排开、互不堆叠**（见 NextPlacement）—— 从左上角斜着叠会压在主窗口上且互相堆叠。
             var placement = NextPlacement(instance);
             var created = new ModuleViewViewModel(
@@ -1698,6 +1736,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 RaiseGeometry(module);
             }
         }
+
+        // **选中态对账**：模块可能刚被移除/重建（选中标志默认 false，而 SelectedInstanceId 还在）。
+        // 每帧按唯一事实源重算一次；无变化不触发通知，成本只是 O(模块数) 的相等判断。
+        Select(SelectedInstanceId);
 
         OnPropertyChanged(nameof(ModuleCount));
     }
@@ -1783,12 +1825,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         while (_viewState.TryTakeSetText(instanceId, out var source, out var text) && source is { Length: > 0 })
         {
+            // 缓冲换了内容 ⇒ 视图下一帧读到新行（控件按内容比较决定要不要重排）。
             _viewState.Display(instanceId, source).SetText(text ?? string.Empty);
-
-            // 告诉表面这个缓冲换了内容：不通知 ⇒ 控件手里的快照看起来还是"没变"
-            // （行数与末行都可能是同一份），于是一直显示旧的那一句。
-            Modules.FirstOrDefault(m => string.Equals(m.InstanceId, instanceId, StringComparison.Ordinal))
-                ?.ForgetSurfaceBuffer(source);
         }
     }
 
@@ -1866,7 +1904,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
                     // 告诉**新表面**这个缓冲被清空了：不通知 ⇒ 控件手里的快照看起来还是"没变"
                     // （行数与末行都没动），于是一直显示旧行 —— 表现为"清空按钮按了没反应"。
-                    module.ForgetSurfaceBuffer(name);
                 }
             }
 
@@ -1930,7 +1967,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
             foreach (var candidate in networks)
             {
-                if (string.Equals(candidate.Source, literal, StringComparison.Ordinal)
+                // **成员判定必须用全部声明源**：`NetworkView.Source` 只是兼容访问器（多源时只代表第一个源），
+                // 用它会让第二个及以后的发送端找不到网络 ⇒ 标记恒显示 `---`（关掉一个源后又“恢复”）。
+                if (candidate.Sources.Contains(literal, StringComparer.Ordinal)
                     || candidate.Targets.Contains(literal, StringComparer.Ordinal))
                 {
                     network = candidate;
@@ -2019,7 +2058,36 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         module.ApplyRoleBoxes(
             boxes,
-            RoleOverlayInfoBuilder.Build($"{module.InstanceId} · {module.Title}", roles.Count, contractSizes));
+            RoleOverlayInfoBuilder.Build(OverlayIdentity(module), roles.Count, contractSizes));
+    }
+
+    /// <summary>
+    /// 叠加层展示的身份：**外部语义名 + 当前现场内的连续编号**，不暴露实例 ID（英文模块名）。
+    /// </summary>
+    /// <remarks>
+    /// 编号按 <see cref="Modules"/> 的当前顺序、以**外部展示名**（<see cref="ModuleViewViewModel.Title"/>）分组
+    /// 现场计算；关闭一个实例后剩余实例重新连续编号，新实例补到当前数量之后 —— 与“全局自增计数器”
+    /// 不同，不会留下关闭实例的旧编号。
+    /// </remarks>
+    private string OverlayIdentity(ModuleViewViewModel module)
+    {
+        var title = string.IsNullOrWhiteSpace(module.Title) ? "模块" : module.Title;
+        var number = 1;
+
+        foreach (var peer in Modules)
+        {
+            if (string.Equals(peer.InstanceId, module.InstanceId, StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            if (string.Equals(peer.Title, module.Title, StringComparison.Ordinal))
+            {
+                number++;
+            }
+        }
+
+        return $"{title} {number}";
     }
 
     /// <summary>
@@ -2053,7 +2121,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             // 对端角色方块中心（本窗局部坐标）；算不出 ⇒ 对端窗口中心
             link.Target = ResolvePeerAnchor(module, flow) ?? ResolvePeerCenter(module, flow.PeerInstanceId);
             link.PeerAdjacent = IsPeerAdjacent(module, flow.PeerInstanceId);
-            link.PeerText = link.PeerAdjacent ? null : flow.PeerInstanceId;
+            link.PeerText = link.PeerAdjacent
+                ? null
+                : Find(flow.PeerInstanceId) is { } peer
+                    ? OverlayIdentity(peer)
+                    : null;
 
             links.Add(link);
         }

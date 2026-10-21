@@ -6,6 +6,7 @@ using HYWDebugAssistant.Hosting.Registry;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
+using HYWDebugAssistant.Sdk.Views;
 using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
@@ -126,9 +127,12 @@ public class ActiveReceiveTests
                 PortDirection.Receive,
                 ContractShape.OfPrimitive(ContractPrimitive.U32)));
 
-            // 本模块**没有控件**（包内 `view.json` 只声明端口与数据源）：
             // 本用例只验证主动接收路径（`TryReceive` + `ReleaseBuffer`），与界面无关；
-            // 订阅缓冲由 `RunActivity` 里的 `context.Ports.Publish(ReceivedSource, …)` 写入。
+            // 但**订阅缓冲只为声明过的显示源建立** —— 于是这里把那条源按代码声明出来。
+            context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(
+                ReceivedSource,
+                ViewDataSourceKind.Value,
+                ContractPrimitive.U64));
         }
 
         public void RunActivity(IModuleContext context)

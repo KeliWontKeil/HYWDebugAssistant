@@ -30,7 +30,12 @@ namespace HYWDebugAssistant.Modules.HexSender;
     DisplayName = "HEX 发送器",
     Description = "把一串十六进制文本解析成字节发出去；单次点击 + 连续发送（开关 + 间隔）",
     Tags = ["hex", "sender"],
-    ParticipatesInDataFlow = true)]
+    ParticipatesInDataFlow = true,
+    WindowWidth = 400,
+    WindowHeight = 240,
+    MinWidth = 400,
+    MinHeight = 240,
+    ViewFactory = typeof(Views.HexSenderViewFactory))]
 public sealed class HexSenderModule : IModule, IActivitySource
 {
     // ---------------------------------------------------------------- ① 标识与常量
@@ -53,11 +58,32 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// <remarks>页数取 5（`tabpages` 的标签数量为 5 个）；视图元素数量不设上限，页数可自由取。</remarks>
     public const int PageCount = 5;
 
+    /// <summary>第 1 页输入源名。</summary>
+    public const string Hex1 = "hex1";
+
+    /// <summary>第 2 页输入源名。</summary>
+    public const string Hex2 = "hex2";
+
+    /// <summary>第 3 页输入源名。</summary>
+    public const string Hex3 = "hex3";
+
+    /// <summary>第 4 页输入源名。</summary>
+    public const string Hex4 = "hex4";
+
+    /// <summary>第 5 页输入源名。</summary>
+    public const string Hex5 = "hex5";
+
     /// <summary>第 n 页输入源名（<c>hex1</c> … <c>hex5</c>）。</summary>
     /// <param name="page">页序号（0 基）。</param>
     /// <returns>输入源名（越界回落到第 1 页）。</returns>
-    public static string HexSourceOf(int page) =>
-        $"hex{Math.Clamp(page, 0, PageCount - 1) + 1}";
+    public static string HexSourceOf(int page) => Math.Clamp(page, 0, PageCount - 1) switch
+    {
+        0 => Hex1,
+        1 => Hex2,
+        2 => Hex3,
+        3 => Hex4,
+        _ => Hex5,
+    };
 
     /// <summary>输入源 / 数据源：连续发送开关。</summary>
     public const string ContinuousSource = "continuous";
@@ -117,6 +143,9 @@ public sealed class HexSenderModule : IModule, IActivitySource
         context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, RawBytesShape)
         {
             Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
+
+            // 发送口在**下边**（与监视器的上边配对：上下叠放即可连）。用户仍可拖动覆盖。
+            Edge = PortEdge.Bottom,
         });
 
         context.Declaration.DeclareRole(RoleDeclaration.Output(
@@ -125,11 +154,27 @@ public sealed class HexSenderModule : IModule, IActivitySource
             OutPort,
             "发送"));
 
-        // ---------------------------------------------------------------- 视图
-        // 界面形态**不在代码里声明**：控件树、数据源、命令、窗口尺寸与端口默认边都在
-        // 包内 `view.json`（唯一事实源），由框架读取并按 schema 补齐默认值。
-        // 本模块的数据源名（`hex1…hex5` / `continuous` / `interval` / `sent`）与命令名（`send`）
-        // 必须与 `view.json` 一致；「只放行 16 进制写法」由声明文件的 `inputKind` 表达。
+        DeclareUi(context);
+    }
+
+    /// <summary>界面契约（显示源 / 输入源 / 命令）：名字只在这里写一次。</summary>
+    private static void DeclareUi(IModuleContext context)
+    {
+        foreach (var name in new[] { Hex1, Hex2, Hex3, Hex4, Hex5 })
+        {
+            context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(name, ViewDataSourceKind.Text));
+            context.Declaration.DeclareInput(name);
+        }
+
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(ContinuousSource, ViewDataSourceKind.Value, ContractPrimitive.Bool));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(IntervalSource, ViewDataSourceKind.Text));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(SentSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(StatusSource, ViewDataSourceKind.Text));
+
+        context.Declaration.DeclareInput(ContinuousSource);
+        context.Declaration.DeclareInput(IntervalSource);
+
+        context.Declaration.DeclareCommand(SendCommand, "发送");
     }
 
     // ---------------------------------------------------------------- ③ 钩子块

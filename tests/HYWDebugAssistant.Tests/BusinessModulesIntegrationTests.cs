@@ -87,22 +87,141 @@ public class BusinessModulesIntegrationTests
         //    刻意**不在这里断言"结果里出现了 41 42"**：本用例读的是归拢目录里的包，
         //    而那个包可能是上一次构建的 —— 拿它判"模块内部怎么写的"会得到一个与源码无关的红。
         services.TryGetInstance("c1", out var converter).ShouldBeTrue();
-        converter!.View.ShouldNotBeNull("转换器的界面声明必须随实例带出来（否则界面无从读它的结果区）");
-        converter.View!.Sources.Select(s => s.Name).ShouldContain("hexResult");
+
+        // 界面是模块自带的视图：它的结果区绑哪条显示源，是**代码声明**的事（这里验声明本身）。
+        converter!.HasView.ShouldBeTrue("转换器自带 XAML 视图");
     }
 
 
     /// <summary>
-    /// **声明在容器里的输入也要能被提交**（框架缺陷回归网）。
+    /// **串口模块（第二批样板）的参数应进配置表单**：读即登记 ⇒ Schema 有字段；枚举的显示名与写回名各司其职。
     /// </summary>
     /// <remarks>
-    /// 背景：`SubmitInput` 的校验**只看顶层元素**就会漏掉宣言在 `TabPages` 页内
-    /// （四个基础模块正是这种形态：多页输入框）的输入一律被判"**模块未声明该输入**"而拒绝
-    /// —— 现象 = 在页内输入框里回车**没有任何反应**。修法 = 校验前**展平**元素树。
-    /// 本用例用一个"输入在容器里"的最小模块把这个坑钉住（与 G4 的 `FileSelector` 漏判同类）。
+    /// 这条同时钉三件事：① 模块在 <c>OnRegistered</c> 里读一次配置就足以让参数出现在表单（无 UI 也能读到）；
+    /// ② <c>[ConfigurationChoice]</c> 只改**显示名**，写回用的始终是**成员名**；
+    /// ③ 写回走框架的变更入口（<c>UpdateConfigurationField</c>），而不是模块自己改。
     /// </remarks>
     [Fact]
-    public void 声明在容器里的输入_也应能被提交()
+    public void 串口模块_参数应进配置表单_且枚举的显示名与写回名各司其职()
+    {
+        var staged = Path.Combine(FindRepoRoot(), "artifacts", "modules");
+        Directory.Exists(staged).ShouldBeTrue($"模块包未归拢：{staged}（请先运行 ./build.ps1）");
+
+        var viewState = new ViewStateStore();
+        using var runtime = new ModuleRuntime(viewState: viewState);
+        var services = new RuntimeServices(runtime);
+        services.ScanModuleSources([staged]).ShouldBeGreaterThan(0);
+
+        services.AddModule("s1", "hyw/serial/1.0.0").Succeeded.ShouldBeTrue();
+
+        services.TryGetConfigurationSchema("s1", out var schema).ShouldBeTrue();
+        schema.ShouldNotBeNull();
+
+        // ① 五个串口参数都在 —— 判据是"读一次配置就登记"，不是"表单里恰好有这几行"
+        schema!.Fields.Select(field => field.Name).ShouldBe(
+            ["PortName", "BaudRate", "DataBits", "StopBits", "Parity"],
+            ignoreOrder: true);
+
+        // ② 枚举的显示名来自标注，写回名是成员名（两者混同会让界面里只能看到标识符）
+        var baud = schema.Fields.Single(field => field.Name == "BaudRate");
+        baud.Kind.ShouldBe(ConfigurationFieldKind.Enum);
+        baud.Choices.ShouldNotBeNull();
+        baud.Choices!.ShouldContain(
+            choice => choice.Value == "Baud115200" && choice.Title == "115200",
+            "写回用成员名、给人看的是标注里的字");
+
+        // ③ 端口号是**动态下拉**：与这台机器上有没有插串口无关（空表也是下拉）
+        schema.Fields.Single(field => field.Name == "PortName").Kind
+            .ShouldBe(ConfigurationFieldKind.Enum, "端口号的可选值随环境变 ⇒ 它是下拉，不是文本框");
+
+        // ④ 包内依赖必须是**当前平台的实现**：平台无关的那份引用版会把枚举变成"静默空表"
+        //    （实测过：平铺在包根的是引用版，真实现在 runtimes/<rid>/lib/<tfm>/ 下）
+        var ports = AppDomain.CurrentDomain.GetAssemblies()
+            .FirstOrDefault(assembly => assembly.GetName().Name == "System.IO.Ports");
+        ports.ShouldNotBeNull("模块包自带的依赖必须被解析到（否则端口枚举会静默变成空表）");
+
+        var getPortNames = ports!.GetType("System.IO.Ports.SerialPort")!
+            .GetMethod("GetPortNames", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!;
+        Should.NotThrow(() => getPortNames.Invoke(null, null));
+
+        // ⑤ 写回走框架入口，读回来的是新值
+        services.UpdateConfigurationField("s1", "BaudRate", "Baud9600").Succeeded.ShouldBeTrue();
+        services.TryGetConfigurationSchema("s1", out var updated).ShouldBeTrue();
+        updated!.Fields.Single(field => field.Name == "BaudRate").Value.ShouldBe("Baud9600");
+    }
+
+    /// <summary>
+    /// **网络类模块的地址与端口应按各自性质呈现**：本机地址有"可用值"来源 ⇒ 动态下拉；
+    /// 对端地址没有 ⇒ 文本；端口有明确定义域 ⇒ 整数档（带上下限）。
+    /// </summary>
+    /// <param name="moduleId">模块 Id。</param>
+    /// <param name="instanceId">实例 Id。</param>
+    /// <param name="localField">本机地址字段名（没有传空串）。</param>
+    /// <param name="remoteField">对端地址字段名（没有传空串）。</param>
+    /// <param name="portField">端口字段名。</param>
+    /// <remarks>
+    /// 判据与机器无关：本机地址那一档**永远**至少有 <c>0.0.0.0</c>（"听/绑全部网卡"与本机有几个地址无关），
+    /// 所以"它是不是下拉"在任何机器上都可判。
+    /// </remarks>
+    [Theory]
+    [InlineData("hyw/tcp-client/1.0.0", "c1", "", "RemoteHost", "RemotePort")]
+    [InlineData("hyw/tcp-server/1.0.0", "s1", "LocalAddress", "", "LocalPort")]
+    [InlineData("hyw/udp/1.0.0", "u1", "LocalAddress", "RemoteAddress", "LocalPort")]
+    public void 网络类模块的地址与端口应按各自性质呈现(
+        string moduleId,
+        string instanceId,
+        string localField,
+        string remoteField,
+        string portField)
+    {
+        var staged = Path.Combine(FindRepoRoot(), "artifacts", "modules");
+        Directory.Exists(staged).ShouldBeTrue($"模块包未归拢：{staged}（请先运行 ./build.ps1）");
+
+        var viewState = new ViewStateStore();
+        using var runtime = new ModuleRuntime(viewState: viewState);
+        var services = new RuntimeServices(runtime);
+        services.ScanModuleSources([staged]).ShouldBeGreaterThan(0);
+        services.AddModule(instanceId, moduleId).Succeeded.ShouldBeTrue();
+
+        services.TryGetConfigurationSchema(instanceId, out var schema).ShouldBeTrue();
+        schema.ShouldNotBeNull();
+
+        if (localField.Length > 0)
+        {
+            var local = schema!.Fields.Single(field => field.Name == localField);
+            local.Kind.ShouldBe(ConfigurationFieldKind.Enum, "本机地址能枚举 ⇒ 动态下拉");
+            local.Choices.ShouldNotBeNull();
+            local.Choices!.ShouldContain(
+                choice => choice.Value == "0.0.0.0",
+                "「听/绑全部网卡」这一项与本机有几个地址无关 ⇒ 任何机器上都有得选");
+        }
+
+        if (remoteField.Length > 0)
+        {
+            schema!.Fields.Single(field => field.Name == remoteField).Kind
+                .ShouldBe(ConfigurationFieldKind.Text, "对端地址没有可用值来源 ⇒ 文本框");
+        }
+
+        var port = schema!.Fields.Single(field => field.Name == portField);
+        port.Kind.ShouldBe(ConfigurationFieldKind.WholeNumber, "端口是整数且有定义域");
+        port.Minimum.ShouldNotBeNull();
+        port.Maximum.ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// **输入源由模块代码声明**：声明过的可提交，未声明的仍被拒绝。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 输入源的名字**只有代码声明一个来源**（不再从界面数据文件里翻找）：框架据此判定"这个名字模块登记过吗"。
+    /// 未登记的名字拒收并报 Issue —— 那是"漏声明"的可见形态，而不是让一次提交悄悄消失。
+    /// </para>
+    /// <para>
+    /// 本用例用一条最小模块把这个闸门钉住：登记的通过、没登记的拒绝（**校验不能被放宽成"什么都收"**）。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void 输入源由代码声明_登记过的可提交_未声明的仍拒绝()
     {
         var runtime = new HYWDebugAssistant.Core.Runtime.ModuleRuntime();
         using var _ = runtime;
@@ -118,45 +237,19 @@ public class BusinessModulesIntegrationTests
             null,
             true,
             typeof(NestedInputModule),
-            NestedInputPackage,
+            TestViewPackages.For(typeof(NestedInputModule)),
             string.Empty);
 
         services.Registry.TryRegister(definition, out var failure).ShouldBeTrue(failure);
         services.AddModule("n1", "test/nested-input/1.0.0").Succeeded.ShouldBeTrue();
 
-        // 输入声明在 `TabPages` 的页内 ⇒ 提交必须被接受（修复前这里返回"模块未声明该输入"）
+        // 输入由模块代码声明 ⇒ 提交必须被接受
         services.SubmitInput("n1", NestedInputModule.NestedSource, "回车提交")
-            .Succeeded.ShouldBeTrue("页内输入与顶层输入一样，都是模块声明过的输入");
+            .Succeeded.ShouldBeTrue("声明的输入源与它长在界面的哪一层无关，提交都应被接受");
 
         // 未声明的名字仍然拒绝（修复不能把校验一起放开）
         services.SubmitInput("n1", "不存在", "x").Succeeded.ShouldBeFalse();
     }
-
-    /// <summary>
-    /// 桩模块的包目录：页内输入的声明**只在包内 `view.json`**（代码侧不再声明视图）。
-    /// </summary>
-    private static readonly string NestedInputPackage = TempViewPackage.Create(
-        "business-nested-input",
-        """
-        {
-          "version": 1,
-          "sources": [ { "name": "nested1", "kind": "Text" } ],
-          "views": [
-            {
-              "root": {
-                "kind": "tabs",
-                "children": [
-                  {
-                    "kind": "group",
-                    "title": "第 1 页",
-                    "children": [ { "kind": "textBox", "fontSize": 0, "textColor": "", "titleFontSize": 0, "titleColor": "", "title": "内容", "input": "nested1", "width": { "fill": true }, "height": { "pixels": 92 } } ]
-                  }
-                ]
-              }
-            }
-          ]
-        }
-        """);
 
     /// <summary>测试夹具：输入声明在 `TabPages` 页内的最小模块。</summary>
     [HYWDebugAssistant.Sdk.ModuleDefinition("test", "nested-input", "1.0.0")]
@@ -166,8 +259,17 @@ public class BusinessModulesIntegrationTests
         public const string NestedSource = "nested1";
 
         /// <inheritdoc />
-        public void OnRegistered(HYWDebugAssistant.Sdk.Context.IModuleContext context) =>
+        public void OnRegistered(HYWDebugAssistant.Sdk.Context.IModuleContext context)
+        {
             ArgumentNullException.ThrowIfNull(context);
+
+            // 界面契约在**代码**里声明：显示源 + 输入源（闸门据此判定）
+            context.Declaration.DeclareDisplaySource(
+                new HYWDebugAssistant.Sdk.Views.DisplaySourceDeclaration(
+                    NestedSource,
+                    HYWDebugAssistant.Sdk.Views.ViewDataSourceKind.Text));
+            context.Declaration.DeclareInput(NestedSource);
+        }
     }
 
     /// <summary>

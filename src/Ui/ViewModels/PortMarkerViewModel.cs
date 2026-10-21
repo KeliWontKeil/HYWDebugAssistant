@@ -13,8 +13,9 @@ namespace HYWDebugAssistant.Ui.ViewModels;
 ///   <item>标记块是**唯一**的用户建网入口：填写"网络名"即设置端口标签（同名自动连成一条网络）；</item>
 ///   <item>只承担视觉 + 输入，改标签经 <c>IRuntimeCommand.UpdatePortNetwork</c> 提交；</item>
 ///   <item>发送口在右边缘、接收口在左边缘（与数据流方向一致）；标记块画在**预留带**内，不覆盖内容；</item>
-///   <item>投递量/字节数是**网络粒度**（框架诊断按网络统计）——同一网络的所有成员显示同一组数字，
-///     界面以工具提示说明，不假装是"按宿口"的精确值（字节 = 投递数 × 发送方契约尺寸的估算）。</item>
+///   <item>指标是**该口参与的通路**口径：速率/有效载荷累计按**源**计（多宿不放大）；
+///     投递/丢弃是绑定级**按宿**计数（宿口在 1:N/N:M 下含同源其他宿的份额）。
+///     界面只显示框架给的数，不自行差分或估算。</item>
 /// </list>
 /// </remarks>
 public sealed partial class PortMarkerViewModel : ViewModelBase
@@ -93,15 +94,18 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     [ObservableProperty]
     public partial string? NetworkName { get; set; }
 
-    /// <summary>该网络累计投递的数据单元数（**网络粒度**）。</summary>
+    /// <summary>
+    /// 该口参与的流的累计投递单元数（**绑定级按宿**：一条 `源→N宿` 绑定的计数是 N 份；
+    /// 宿口会含同源其他宿的份额）。
+    /// </summary>
     [ObservableProperty]
     public partial long Delivered { get; set; }
 
-    /// <summary>该网络累计丢弃的数据单元数。</summary>
+    /// <summary>该口参与的流的累计传输丢弃数（**绑定级按宿**；不含停流未投递）。</summary>
     [ObservableProperty]
     public partial long Dropped { get; set; }
 
-    /// <summary>估算字节数文本（投递数 × 契约尺寸；空 = 未知）。</summary>
+    /// <summary>累计有效载荷字节文本（按源计；空 = 未知）。</summary>
     [ObservableProperty]
     public partial string? BytesText { get; set; }
 
@@ -119,7 +123,8 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
 
     /// <summary>
     /// **通路速率**（**通路维度**）：文本**常驻**显示在标记上
-    /// （速率**常驻**于网络标签上，**不属于叠加层**）；未入网/无流量 = 占位符。
+    /// （速率**常驻**于网络标签上，**不属于叠加层**）。
+    /// **未入网 = `---`**；已连接但上一秒无数据 = `0.00 B/s`（零速率与“没连接”可区分）。
     /// </summary>
     /// <remarks>
     /// 与角色方块上的"角色自身速率"是**两个维度**（读同一份框架诊断，表达对象不同）——
@@ -229,10 +234,10 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     public StateVisual State => IsStalled ? StateVisual.Dangling : IsConnected ? StateVisual.Active : StateVisual.Idle;
 
     /// <summary>
-    /// **所在边缘**——来自 `PortView.Edge` 的**有效边**（用户拖动覆盖 &gt; 包内 `view.json` 声明的边）。
+    /// **所在边缘**——来自 `PortView.Edge` 的**有效边**（用户拖动覆盖 &gt; 模块 `PortDeclaration.Edge`）。
     /// </summary>
     /// <remarks>
-    /// 不是写死的 `IsSend ? Right : Left`：**模块在包内声明边、用户可以把标记拖到任意边**。
+    /// 不是写死的 `IsSend ? Right : Left`：**模块在代码里声明边、用户可以把标记拖到任意边**。
     /// **没有惯例回退**：`Auto` 只会出现在"声明缺失 ⇒ 已判硬伤"的实例上（= 这个口没有位置），
     /// 界面按"未声明"呈现，框架不替它猜方向。
     /// **可变**：拖动过程中就地更新形成预览；松手时由 <c>ModuleWindowsViewModel.MovePortAnchor</c> 提交，
@@ -314,7 +319,7 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
 
     /// <summary>编辑框的帮助文本（**收进问号按钮的弹窗**，不占标记宽度）。</summary>
     public string Hint => IsSend
-        ? "发送口：填网络名后，同名接收口自动连上（一个网络只能有一个发送端）"
+        ? "发送口：填网络名后，同名接收口自动连上；同名发送口可以有多个（多源网络）"
         : "接收口：填网络名后，同名发送口自动连上；没有同名发送端时只保留标签并提示";
 
     /// <summary>
@@ -342,8 +347,8 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
                     text += $"\n对端：{peer}";
                 }
 
-                text += $"\n投递 {Delivered} 单元 · 丢弃 {Dropped} 单元"
-                    + (BytesText is { Length: > 0 } bytes ? $"\n流量约 {bytes}（网络粒度估算）" : string.Empty);
+                text += $"\n投递 {Delivered} 单元 · 丢弃 {Dropped} 单元（该口参与的流）"
+                    + (BytesText is { Length: > 0 } bytes ? $"\n流量约 {bytes}（该口参与的通路）" : string.Empty);
             }
 
             return text + (IsAnchorFixed

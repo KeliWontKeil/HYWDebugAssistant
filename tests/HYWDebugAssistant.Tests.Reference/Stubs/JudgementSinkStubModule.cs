@@ -142,6 +142,12 @@ public sealed class JudgementSinkStubModule : IModule
 
         // 被动接收模式：单元解出 `{ seq, value }` 后逐条判定（测试也可直接调 `Judge`）
         context.Ports.SetReceiveHandler(InPort, payload => Handle(context, payload));
+
+        // 四个统计量的界面契约（代码声明是缓冲的唯一来源）。
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(CountSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(PassedSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(FailedSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(DeviationSource, ViewDataSourceKind.Value, ContractPrimitive.F32));
     }
 
     /// <summary>

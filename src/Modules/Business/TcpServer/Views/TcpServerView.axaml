@@ -1,0 +1,47 @@
+<ui:ModuleView xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+             xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:views="using:HYWDebugAssistant.Modules.TcpServer.Views"
+             x:Class="HYWDebugAssistant.Modules.TcpServer.Views.TcpServerView"
+             x:CompileBindings="True"
+             x:DataType="contracts:IModuleViewContext"
+             d:DesignWidth="358" d:DesignHeight="142">
+
+  <!--
+    TCP 服务端（内容区 358×142）：监听参数、读数、开关、按钮全部绝对定位。
+    已连接数与状态同一行；固定控件不再参与流式排布。
+  -->
+  <Canvas ClipToBounds="True">
+
+    <ui:ModuleConfigField Canvas.Left="0" Canvas.Top="0" Width="160" Height="24"
+                          Field="{x:Static views:TcpServerViewKeys.LocalAddress}" />
+    <ui:ModuleConfigField Canvas.Left="0" Canvas.Top="26" Width="160" Height="24"
+                          Field="{x:Static views:TcpServerViewKeys.LocalPort}" />
+    <ui:ModuleConfigField Canvas.Left="0" Canvas.Top="52" Width="160" Height="24"
+                          Field="{x:Static views:TcpServerViewKeys.MaxConnections}" />
+
+    <ui:ModuleStatusLight Canvas.Left="168" Canvas.Top="2" Width="10" Height="10"
+                          Source="{x:Static views:TcpServerViewKeys.Link}" />
+    <ui:ModuleNumeric Canvas.Left="184" Canvas.Top="0" Width="60" Height="30"
+                      Source="{x:Static views:TcpServerViewKeys.RxCount}" Unit="B" Title="收" />
+    <ui:ModuleNumeric Canvas.Left="246" Canvas.Top="0" Width="60" Height="30"
+                      Source="{x:Static views:TcpServerViewKeys.TxCount}" Unit="B" Title="发" />
+    <ui:ModuleNumeric Canvas.Left="308" Canvas.Top="0" Width="50" Height="30"
+                      Source="{x:Static views:TcpServerViewKeys.DropCount}" Unit="B" Title="丢弃" />
+
+    <ui:ModuleLabel Canvas.Left="168" Canvas.Top="30" Width="110" Height="16"
+                    Source="{x:Static views:TcpServerViewKeys.State}" />
+    <ui:ModuleNumeric Canvas.Left="280" Canvas.Top="26" Width="78" Height="30"
+                      Source="{x:Static views:TcpServerViewKeys.ConnCount}" Unit="路" Title="已连接" />
+
+    <ui:ModuleConfigField Canvas.Left="168" Canvas.Top="58" Width="180" Height="24"
+                          Field="{x:Static views:TcpServerViewKeys.NoDelay}" />
+
+    <ui:ModuleButton Canvas.Left="168" Canvas.Top="100" Width="88" Height="27"
+                     CommandName="{x:Static views:TcpServerViewKeys.Open}" Content="启动" />
+    <ui:ModuleButton Canvas.Left="264" Canvas.Top="100" Width="88" Height="27"
+                     CommandName="{x:Static views:TcpServerViewKeys.Close}" Content="停止" />
+  </Canvas>
+</ui:ModuleView>

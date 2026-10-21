@@ -182,6 +182,23 @@ public partial class ModuleWindow : Window
         }
     }
 
+    /// <summary>
+    /// 最外 1px 可视边框按下：等价于边框带按下。
+    /// </summary>
+    /// <remarks>
+    /// 只有**点在 Frame 自己身上**（= 可视外边框；内容区由 `ModuleSurfaceView` 的透明底命中）才转交，
+    /// 内容控件/端口标记的事件冒泡到 Frame 时不触发窗口拖动。
+    /// </remarks>
+    private void OnFramePressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!ReferenceEquals(e.Source, sender))
+        {
+            return;
+        }
+
+        OnBandPressed(sender, e);
+    }
+
     /// <summary>缩放手柄按下：按手柄方向缩放。</summary>
     private void OnHandlePressed(object? sender, PointerPressedEventArgs e)
     {
@@ -278,6 +295,13 @@ public partial class ModuleWindow : Window
         if (FindMarker(e.Source) is not { } marker || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
             return;
+        }
+
+        // 端口标记占满了边框的很大一段：单击标记也应把模块选中（否则用户点在“边框上”却不出手柄）。
+        // 不 Handled、不 Capture ⇒ 双击改网络名与锚点拖动的既有手势不受影响。
+        if (Module is { IsLocked: false } && Controller is { } selection)
+        {
+            selection.Select(marker.InstanceId);
         }
 
         _anchorCandidate = marker;

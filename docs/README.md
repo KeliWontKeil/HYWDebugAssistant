@@ -13,10 +13,10 @@
 |---|---|---|
 | [`architecture/CODEX.md`](architecture/CODEX.md) | 这个系统现在的样子：分层与依赖、项目结构、运行期机制、网络语义、UI 外壳、叠加与视觉、设置与数据协议、测试与交付 | 要改任何非平凡东西之前 |
 | [`STYLE.md`](STYLE.md) | 代码风格、架构铁律、热路径纪律，以及本项目踩过的坑（**先看这份再动手**） | 写代码时 |
-| [`view-declaration/`](view-declaration/README.md) | **模块界面声明**：有哪些控件与键（**由 schema 生成**）、`view.json` 的标准写法、排布与坐标怎么算 | 写 / 改模块界面时 |
+| [`architecture/CODEX.md`](architecture/CODEX.md) §7.7 | **模块界面**：代码声明（窗口/端口/显示源/命令）+ 模块自己的 XAML + 控件库；没有 `view.json` | 写 / 改模块界面时 |
 
-> **怎么写一个模块**：控件机制与文件形态已成文（见上表 `view-declaration/`）；
-> 模块开发工作流（新建模块的步骤、`module.json` 与生命周期约定）仍在重构，见 [`TODO.md`](TODO.md) §3。
+> **怎么写一个模块**：界面 = 代码声明 + 模块 XAML（键用 `{x:Static}`）；控件库只承载标准控件做不到的行为。
+> 模块开发工作流（新建模块的步骤、`module.json` 与生命周期约定）见 [`TODO.md`](TODO.md) §3。
 
 ### ② 正在做什么
 

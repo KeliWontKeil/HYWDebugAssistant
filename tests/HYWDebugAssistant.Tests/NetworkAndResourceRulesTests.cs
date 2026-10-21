@@ -1,4 +1,5 @@
 using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Sdk.Views;
 using HYWDebugAssistant.Core.Changes;
 using HYWDebugAssistant.Core.Composition;
 using HYWDebugAssistant.Core.Runtime;
@@ -286,7 +287,15 @@ public class NetworkAndResourceRulesTests
     [ModuleDefinition("test", "view-sender", "1.0.0")]
     public sealed class ViewSenderModule : IModule
     {
-        public void OnRegistered(IModuleContext context) =>
+        public void OnRegistered(IModuleContext context)
+        {
             context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, F32));
+
+            // 订阅缓冲只为**声明过的**显示源建立：这条源就是本用例要观察的那一条。
+            context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(
+                "value",
+                HYWDebugAssistant.Sdk.Views.ViewDataSourceKind.Value,
+                ContractPrimitive.F32));
+        }
     }
 }

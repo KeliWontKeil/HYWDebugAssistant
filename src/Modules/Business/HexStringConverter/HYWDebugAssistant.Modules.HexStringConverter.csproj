@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\..\..\Sdk.Ui\HYWDebugAssistant.Sdk.Ui.csproj" />
   </ItemGroup>
 
   <ItemGroup>

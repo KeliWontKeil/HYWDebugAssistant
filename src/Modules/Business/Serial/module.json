@@ -1,0 +1,8 @@
+{
+  "id": "hyw/serial/1.0.0",
+  "entryAssembly": "HYWDebugAssistant.Modules.Serial.dll",
+  "entryType": "HYWDebugAssistant.Modules.Serial.SerialModule",
+  "frameworkCompatibility": ">=1.0.0 <2.0.0",
+  "dependsOn": [],
+  "resources": []
+}

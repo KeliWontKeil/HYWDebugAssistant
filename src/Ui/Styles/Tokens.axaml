@@ -38,7 +38,7 @@
             <SolidColorBrush x:Key="DirectionReceive" Color="#0891B2" />
             <SolidColorBrush x:Key="SemanticOk" Color="#16A34A" />
             <SolidColorBrush x:Key="SemanticWarn" Color="#D97706" />
-            <SolidColorBrush x:Key="SemanticError" Color="#DC2626" />
+            <SolidColorBrush x:Key="SemanticError" Color="#EF4444" />
             <SolidColorBrush x:Key="SemanticIdle" Color="#9CA3AF" />
             <SolidColorBrush x:Key="OverlaySelection" Color="#2563EB" Opacity="0.20" />
             <SolidColorBrush x:Key="OverlayHighlight" Color="#2563EB" Opacity="0.12" />
@@ -233,3 +233,4 @@
     <x:String x:Key="GlyphClose">&#xE8BB;</x:String>
     <x:String x:Key="GlyphReset">&#xE72C;</x:String>
 </ResourceDictionary>
+

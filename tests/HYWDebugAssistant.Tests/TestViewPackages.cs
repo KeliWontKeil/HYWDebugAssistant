@@ -1,51 +1,23 @@
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// 桩模块的包内声明：给数据面端口一个位置、声明它会写的数据源。
+/// 测试用的**模块包目录**（只提供一个存在的目录）。
 /// </summary>
 /// <remarks>
-/// 数据面端口**没有包内声明就没有位置**（框架不按惯例推断）⇒ 任何要跑通数据流的桩模块都得带一份声明。
-/// 按入口类型的名字挑一份现成的，别在每个用例文件里重写一遍 JSON。
+/// 界面改由模块自带视图（代码）之后，框架不再从包目录读任何界面事实，
+/// 因此这里只承担"给宿主一个能打开的目录"这一件事。保留它是因为大量用例
+/// 只需"一个包目录"，不该为此各自建临时目录。
 /// </remarks>
 internal static class TestViewPackages
 {
-    /// <summary>取该桩模块应挂的包目录。</summary>
-    public static string For(Type entryType)
+    /// <summary>取某个模块类型对应的包目录（不存在则创建）。</summary>
+    /// <param name="moduleType">模块入口类型（用它的名字分目录）。</param>
+    public static string For(Type moduleType)
     {
-        var name = entryType.Name;
+        ArgumentNullException.ThrowIfNull(moduleType);
 
-        if (name.Contains("Drain", StringComparison.Ordinal))
-        {
-            return Drain;
-        }
-
-        if (name.Contains("ViewSender", StringComparison.Ordinal))
-        {
-            return ViewSender;
-        }
-
-        if (name.Contains("Dual", StringComparison.Ordinal))
-        {
-            return DualReceiver;
-        }
-
-        return name.Contains("Receiver", StringComparison.Ordinal) ? Receiver : Sender;
+        var directory = Path.Combine(Path.GetTempPath(), "hyw-test-packages", moduleType.Name);
+        Directory.CreateDirectory(directory);
+        return directory;
     }
-
-    private static readonly string Sender =
-        TempViewPackage.Create("stub-sender", [("out", "right")], []);
-
-    private static readonly string Receiver =
-        TempViewPackage.Create("stub-receiver", [("in", "left")], []);
-
-    private static readonly string DualReceiver =
-        TempViewPackage.Create("stub-dual-receiver", [("in1", "left"), ("in2", "left")], []);
-
-    /// <summary>带读数控件的发送桩：把发出去的量写进 <c>value</c>。</summary>
-    private static readonly string ViewSender =
-        TempViewPackage.Create("stub-view-sender", [("out", "right")], [("value", "F64")]);
-
-    /// <summary>主动接收桩：把收到多少单元写进 <c>received</c>。</summary>
-    private static readonly string Drain =
-        TempViewPackage.Create("stub-drain", [("in", "left")], [("received", "U64")]);
 }

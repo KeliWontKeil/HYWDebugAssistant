@@ -36,7 +36,12 @@ namespace HYWDebugAssistant.Modules.DataMonitor;
     DisplayName = "数据显示器",
     Description = "把收到的字节显示出来（文本 / 十六进制）；可暂停、按包换行、加时间戳、清空、保存为 .txt",
     Tags = ["monitor", "display"],
-    ParticipatesInDataFlow = true)]
+    ParticipatesInDataFlow = true,
+    WindowWidth = 400,
+    WindowHeight = 400,
+    MinWidth = 400,
+    MinHeight = 400,
+    ViewFactory = typeof(Views.DataMonitorViewFactory))]
 public sealed class DataMonitorModule : IModule, IActivitySource
 {
     // ---------------------------------------------------------------- ① 标识与常量
@@ -146,6 +151,9 @@ public sealed class DataMonitorModule : IModule, IActivitySource
         context.Declaration.DeclarePort(new PortDeclaration(InPort, PortDirection.Receive, RawBytesShape)
         {
             Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
+
+            // 接收口在**上边**（与两个发送器的下边配对：上下叠放即可连）。
+            Edge = PortEdge.Top,
         });
 
         context.Declaration.DeclareRole(RoleDeclaration.Input(
@@ -154,11 +162,35 @@ public sealed class DataMonitorModule : IModule, IActivitySource
             InPort,
             "显示"));
 
-        // ---------------------------------------------------------------- 视图
-        // 界面形态**不在代码里声明**：控件树、数据源、命令、窗口尺寸与端口默认边都在
-        // 包内 `view.json`（唯一事实源），由框架读取并按 schema 补齐默认值。
-        // 本模块的数据源名（`log` / `paused` / `hexView` / `wrap` / `timestamp` / `savePath`）与
-        // 命令名（`clear`）必须与 `view.json` 一致；改名要同时改声明文件。
+        DeclareUi(context);
+    }
+
+    /// <summary>
+    /// **界面契约**：显示源 / 输入源 / 命令。
+    /// </summary>
+    /// <remarks>
+    /// <b>`savePath` 必须登记为输入源</b>：它**没有界面实体**，用户是在系统保存对话框里选的路径，
+    /// 框架把路径投回这条输入。不登记它，选完文件就会被"模块未声明该输入"拒掉 ——
+    /// 表现是"对话框选完了却什么都没发生"，而没有任何报错。
+    /// </remarks>
+    private static void DeclareUi(IModuleContext context)
+    {
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(LogSource, ViewDataSourceKind.Text));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(PausedSource, ViewDataSourceKind.Value, ContractPrimitive.Bool));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(HexViewSource, ViewDataSourceKind.Value, ContractPrimitive.Bool));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(LineBreakSource, ViewDataSourceKind.Value, ContractPrimitive.Bool));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(TimestampSource, ViewDataSourceKind.Value, ContractPrimitive.Bool));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(SavePathSource, ViewDataSourceKind.Text));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(StatusSource, ViewDataSourceKind.Text));
+
+        context.Declaration.DeclareInput(PausedSource);
+        context.Declaration.DeclareInput(HexViewSource);
+        context.Declaration.DeclareInput(LineBreakSource);
+        context.Declaration.DeclareInput(TimestampSource);
+        context.Declaration.DeclareInput(SavePathSource);
+
+        context.Declaration.DeclareCommand(ClearCommand, "清空");
+        context.Declaration.DeclareCommand(SaveCommand, "保存");
     }
 
     // ---------------------------------------------------------------- ③ 钩子块

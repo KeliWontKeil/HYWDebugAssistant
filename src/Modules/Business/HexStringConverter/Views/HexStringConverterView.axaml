@@ -1,0 +1,99 @@
+<ui:ModuleView xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+             xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:views="using:HYWDebugAssistant.Modules.HexStringConverter.Views"
+             x:Class="HYWDebugAssistant.Modules.HexStringConverter.Views.HexStringConverterView"
+             x:CompileBindings="True"
+             x:DataType="contracts:IModuleViewContext"
+             d:DesignWidth="358" d:DesignHeight="252">
+
+  <!--
+    转换器（内容区 358×252）：上下两半等分。
+    每半 = 一个页签控件；页签头固定，选中页内容内部再等分为“输入文字区 / 结果文字区”。
+    结果放在页签内容里，页签头就不会参与这两块文字的等分。
+  -->
+  <Grid RowDefinitions="Auto,*,6,Auto,*">
+
+    <TextBlock Grid.Row="0" Classes="module-field-label" Text="文本 → HEX" />
+
+    <ui:ModuleTabs Grid.Row="1" StateKey="{x:Static views:HexStringConverterViewKeys.CharPagesKey}">
+      <TabItem Header="1">
+        <Grid RowDefinitions="*,*">
+          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Char1}" Multiline="True" />
+          <ui:ModuleTextSurface Grid.Row="1" Mode="Display" ShowNewlineMarks="False"
+                            Source="{x:Static views:HexStringConverterViewKeys.HexResult}" />
+        </Grid>
+      </TabItem>
+      <TabItem Header="2">
+        <Grid RowDefinitions="*,*">
+          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Char2}" Multiline="True" />
+          <ui:ModuleTextSurface Grid.Row="1" Mode="Display" ShowNewlineMarks="False"
+                            Source="{x:Static views:HexStringConverterViewKeys.HexResult}" />
+        </Grid>
+      </TabItem>
+      <TabItem Header="3">
+        <Grid RowDefinitions="*,*">
+          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Char3}" Multiline="True" />
+          <ui:ModuleTextSurface Grid.Row="1" Mode="Display" ShowNewlineMarks="False"
+                            Source="{x:Static views:HexStringConverterViewKeys.HexResult}" />
+        </Grid>
+      </TabItem>
+      <TabItem Header="4">
+        <Grid RowDefinitions="*,*">
+          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Char4}" Multiline="True" />
+          <ui:ModuleTextSurface Grid.Row="1" Mode="Display" ShowNewlineMarks="False"
+                            Source="{x:Static views:HexStringConverterViewKeys.HexResult}" />
+        </Grid>
+      </TabItem>
+      <TabItem Header="5">
+        <Grid RowDefinitions="*,*">
+          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Char5}" Multiline="True" />
+          <ui:ModuleTextSurface Grid.Row="1" Mode="Display" ShowNewlineMarks="False"
+                            Source="{x:Static views:HexStringConverterViewKeys.HexResult}" />
+        </Grid>
+      </TabItem>
+    </ui:ModuleTabs>
+
+    <TextBlock Grid.Row="3" Classes="module-field-label" Text="HEX → 文本" />
+
+    <ui:ModuleTabs Grid.Row="4" StateKey="{x:Static views:HexStringConverterViewKeys.HexPagesKey}">
+      <TabItem Header="1">
+        <Grid RowDefinitions="*,*">
+          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Hex1}" Multiline="True" ShowNewlineMarks="False" />
+          <ui:ModuleTextSurface Grid.Row="1" Mode="Display"
+                            Source="{x:Static views:HexStringConverterViewKeys.CharResult}" />
+        </Grid>
+      </TabItem>
+      <TabItem Header="2">
+        <Grid RowDefinitions="*,*">
+          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Hex2}" Multiline="True" ShowNewlineMarks="False" />
+          <ui:ModuleTextSurface Grid.Row="1" Mode="Display"
+                            Source="{x:Static views:HexStringConverterViewKeys.CharResult}" />
+        </Grid>
+      </TabItem>
+      <TabItem Header="3">
+        <Grid RowDefinitions="*,*">
+          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Hex3}" Multiline="True" ShowNewlineMarks="False" />
+          <ui:ModuleTextSurface Grid.Row="1" Mode="Display"
+                            Source="{x:Static views:HexStringConverterViewKeys.CharResult}" />
+        </Grid>
+      </TabItem>
+      <TabItem Header="4">
+        <Grid RowDefinitions="*,*">
+          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Hex4}" Multiline="True" ShowNewlineMarks="False" />
+          <ui:ModuleTextSurface Grid.Row="1" Mode="Display"
+                            Source="{x:Static views:HexStringConverterViewKeys.CharResult}" />
+        </Grid>
+      </TabItem>
+      <TabItem Header="5">
+        <Grid RowDefinitions="*,*">
+          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Hex5}" Multiline="True" ShowNewlineMarks="False" />
+          <ui:ModuleTextSurface Grid.Row="1" Mode="Display"
+                            Source="{x:Static views:HexStringConverterViewKeys.CharResult}" />
+        </Grid>
+      </TabItem>
+    </ui:ModuleTabs>
+  </Grid>
+</ui:ModuleView>

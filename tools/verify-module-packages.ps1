@@ -8,7 +8,7 @@
       · 模块项目构建  → artifacts\modules\<包名>\
       · App 项目构建  → <应用输出>\modules\<包名>\（**内置包目录**，启动默认扫描）
     本脚本只做两件事：
-      ① 默认（-Verify）：校验两处包目录是否齐全（module.json + 实现程序集；**可选的 view.json 也必须能解析**），供 build.ps1 作为门禁的一步；
+      ① 默认（-Verify）：校验两处包目录是否齐全（module.json + 实现程序集），供 build.ps1 作为门禁的一步；
       ② -ExportDirectory <目录>：把包复制出去，**用于发布打包**（不再维护模块清单——遍历 artifacts\modules 即可）。
     注：原文件名 `stage-reference-modules.ps1` 是"参考模块"时代的产物；参考模块已按 2026-09 用户裁定删除
       ⇒ 改名 `verify-module-packages.ps1`（**包来源零改动**：仍由构建自动归拢，本脚本只校验/导出）。
@@ -53,21 +53,8 @@ function Test-ModulePackages {
             throw "包目录缺少实现程序集：$($package.FullName) → $($manifestJson.entryAssembly)"
         }
 
-        # 控件布局文件是**可选件**（`decisions.md` 7.56）：没有它 = 用框架默认排布；有它就必须能被读出来，
-        # 否则运行期只会静默退回默认排布 + 报一条 Issue —— 那种"包看着齐全、布局却没生效"必须挡在门禁里。
-        $layout = Join-Path $package.FullName 'view.json'
-        if (Test-Path $layout) {
-            try {
-                $layoutJson = Get-Content $layout -Raw | ConvertFrom-Json
-            }
-            catch {
-                throw "包目录的布局文件无法解析：$layout → $($_.Exception.Message)"
-            }
-
-            if ("$($layoutJson.version)" -ne '1') {
-                throw "包目录的布局文件版本不受支持（读到「$($layoutJson.version)」）：$layout（本框架只认识 version 1）"
-            }
-        }
+        # 界面是模块自己的 XAML（编译进程序集），包目录里**不再有**任何界面声明文件：
+        # 这里只校验包的身份清单与实现程序集。
     }
 
     Write-Host "[verify] $($packages.Count) 个模块包齐全：$Directory" -ForegroundColor Green

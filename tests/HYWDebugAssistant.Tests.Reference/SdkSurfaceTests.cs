@@ -2,10 +2,10 @@ using System.Reflection;
 using HYWDebugAssistant.Modules.TextSender;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Contracts;
-using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
-using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Testing;
+using HYWDebugAssistant.Sdk.Views;
 using Shouldly;
 using Xunit;
 
@@ -86,94 +86,41 @@ public class SdkSurfaceTests
         attribute!.Id.ToString().ShouldBe("hyw/text-sender/1.0.0");
         attribute.DisplayName.ShouldBe("文本发送器");
         attribute.ParticipatesInDataFlow.ShouldBeTrue();
+        attribute.ViewFactory.ShouldNotBeNull("界面由模块自己的视图工厂提供");
+        attribute.WindowWidth.ShouldBeGreaterThan(0);
+        attribute.WindowHeight.ShouldBeGreaterThan(0);
     }
 
     [Fact]
-    public void 正式模块_应可实例化并声明口与数据类型()
+    public void 正式模块_应可实例化并声明口与界面契约()
     {
         var module = new TextSenderModule();
         module.ShouldBeAssignableTo<IModule>();
         module.ShouldBeAssignableTo<IActivitySource>();
         module.Kind.ShouldBe(ActivityKind.Periodic);
 
-        var context = new DeclarationRecorder();
+        var context = new TestModuleContext();
         module.OnRegistered(context);
 
         context.DeclaredPorts.Count.ShouldBe(1);
-        context.DeclaredPorts[0].Name.ShouldBe(TextSenderModule.OutPort);
-        context.DeclaredPorts[0].Direction.ShouldBe(PortDirection.Send);
-        context.DeclaredPorts[0].Shape.SizeInBytes.ShouldBe(2 + 1472, "`{ len:u16, data:bytes[1472] }`");
-        context.DeclaredPorts[0].ParticipatesInAutoNetwork.ShouldBeTrue();
-
-        // 口的默认边只有一个来源：包内 `view.json`（`PortDeclaration.Edge` 不存在）
-        // ⇒ 这条事实由 `BusinessModulesContractTests.DeclaredEdge` 从包里断言（模块代码里再写会被 AR-18 判红）。
+        var port = context.DeclaredPorts[0];
+        port.Name.ShouldBe(TextSenderModule.OutPort);
+        port.Direction.ShouldBe(PortDirection.Send);
+        port.Shape.SizeInBytes.ShouldBe(2 + 1472, "`{ len:u16, data:bytes[1472] }`");
+        port.ParticipatesInAutoNetwork.ShouldBeTrue();
+        port.Edge.ShouldBe(PortEdge.Bottom, "口的默认边是代码声明的一部分");
 
         context.DeclaredDataTypes.ShouldHaveSingleItem().TypeId.ShouldBe(TextSenderModule.RawBytesTypeId);
 
-        // 视图（控件树、数据源、命令）**不在模块代码里声明**：整份声明在包内 `view.json`，
-        // 由框架的读取器按 schema 解析 ⇒ 模块作者面到这里为止。
-    }
-
-    /// <summary>
-    /// 测试替身：只实现声明面，其余服务在 M1-3 冒烟中不使用（完整夹具见 M1-12 的参考组合）。
-    /// </summary>
-    private sealed class DeclarationRecorder : IModuleContext
-    {
-        public DeclarationRecorder() => Declaration = new DeclarationSink(DeclaredPorts, DeclaredDataTypes);
-
-        public List<PortDeclaration> DeclaredPorts { get; } = [];
-
-        /// <summary>已声明的数据类型。</summary>
-        public List<HYWDebugAssistant.Sdk.Contracts.DataTypeDeclaration> DeclaredDataTypes { get; } = [];
-
-        public ModuleId ModuleId => ModuleId.Create("hyw", "test-host", "1.0.0");
-
-        public IModuleDeclaration Declaration { get; }
-
-        /// <summary>元素外观的设定面 —— 本替身不使用。</summary>
-        public HYWDebugAssistant.Sdk.Context.IViewAppearanceAccess Appearance => null!;
-
-        public IPortAccess Ports => null!;
-
-        public IConfigurationAccess Configuration => null!;
-
-        public IIssueReporter Issues => null!;
-
-        public IModuleLogger Log => null!;
-
-        public IBusinessStateReporter State => null!;
-
-        public IStopSignal StopSignal => null!;
-
-        public HYWDebugAssistant.Sdk.Context.IModuleInbox Inbox => null!;
-
-        /// <summary>视图状态回读——本替身不使用。</summary>
-        public HYWDebugAssistant.Sdk.Context.IViewStateReader ViewState => null!;
-
-        /// <summary>显示内容请求面——本替身不使用。</summary>
-        public HYWDebugAssistant.Sdk.Context.IViewDisplayAccess Display => null!;
-
-        /// <summary>文件选择请求面——本替身不使用。</summary>
-        public HYWDebugAssistant.Sdk.Context.IFileAccess Files => null!;
-
-        private sealed class DeclarationSink(
-            List<PortDeclaration> ports,
-            List<HYWDebugAssistant.Sdk.Contracts.DataTypeDeclaration> types)
-            : IModuleDeclaration
-        {
-            public void DeclareDataType(HYWDebugAssistant.Sdk.Contracts.DataTypeDeclaration type) => types.Add(type);
-
-            public void DeclarePort(PortDeclaration port) => ports.Add(port);
-
-            public void DeclareRole(HYWDebugAssistant.Sdk.Contracts.RoleDeclaration role)
-            {
-                // 测试替身：角色只用于呈现，本替身不记录
-            }
-
-            public void DeclareFlow(FlowDeclaration flow)
-            {
-                // 测试替身：内部处理关系只用于呈现，本替身不记录
-            }
-        }
+        // **界面契约也在代码里**：显示源 / 输入源 / 命令是视图能读什么、能提交什么的唯一来源。
+        context.DeclaredDisplaySources.ShouldContain(source =>
+            string.Equals(source.Name, TextSenderModule.StatusSource, StringComparison.Ordinal)
+            && source.Kind == ViewDataSourceKind.Text);
+        context.DeclaredDisplaySources.ShouldContain(source =>
+            string.Equals(source.Name, TextSenderModule.SentSource, StringComparison.Ordinal));
+        context.DeclaredInputs.ShouldContain(TextSenderModule.TextSourceOf(0));
+        context.DeclaredInputs.ShouldContain(TextSenderModule.IntervalSource);
+        context.DeclaredCommands.ShouldContain(command =>
+            string.Equals(command.Name, TextSenderModule.SendCommand, StringComparison.Ordinal));
     }
 }

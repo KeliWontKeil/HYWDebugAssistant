@@ -9,14 +9,23 @@
     <Project Path="src/Infrastructure/HYWDebugAssistant.Infrastructure.csproj" />
     <Project Path="src/Sdk.Testing/HYWDebugAssistant.Sdk.Testing.csproj" />
     <Project Path="src/Sdk/HYWDebugAssistant.Sdk.csproj" />
+    <Project Path="src/Sdk.Ui/HYWDebugAssistant.Sdk.Ui.csproj" />
     <Project Path="src/Ui/HYWDebugAssistant.Ui.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <!-- XAML 预览器的可执行宿主（类库模块本身不能作为预览目标）。 -->
+    <Project Path="tools/PreviewHost/HYWDebugAssistant.PreviewHost.csproj" />
   </Folder>
   <Folder Name="/src/Modules/" />
   <Folder Name="/src/Modules/Business/">
     <Project Path="src/Modules/Business/DataMonitor/HYWDebugAssistant.Modules.DataMonitor.csproj" />
     <Project Path="src/Modules/Business/HexSender/HYWDebugAssistant.Modules.HexSender.csproj" />
     <Project Path="src/Modules/Business/HexStringConverter/HYWDebugAssistant.Modules.HexStringConverter.csproj" />
+    <Project Path="src/Modules/Business/Serial/HYWDebugAssistant.Modules.Serial.csproj" />
+    <Project Path="src/Modules/Business/TcpClient/HYWDebugAssistant.Modules.TcpClient.csproj" />
+    <Project Path="src/Modules/Business/TcpServer/HYWDebugAssistant.Modules.TcpServer.csproj" />
     <Project Path="src/Modules/Business/TextSender/HYWDebugAssistant.Modules.TextSender.csproj" />
+    <Project Path="src/Modules/Business/Udp/HYWDebugAssistant.Modules.Udp.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/HYWDebugAssistant.ArchitectureTests/HYWDebugAssistant.ArchitectureTests.csproj" />

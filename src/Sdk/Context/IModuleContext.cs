@@ -57,6 +57,42 @@ public interface IModuleDeclaration
     /// <remarks>只呈现：不参与建网/兼容/停流/投递/计量，也不进组合件；两端角色必须已声明（否则报 Issue 并忽略该条）。</remarks>
     /// <param name="flow">内部处理关系（角色 → 角色）。</param>
     void DeclareFlow(FlowDeclaration flow);
+
+    /// <summary>
+    /// 声明一条**显示源**（界面按名字读它；框架据此建订阅缓冲）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>这是契约，不是界面</b>：它只回答"我有哪些可以给界面读的源"，不回答"画在哪、画成什么"。
+    /// 名字重复 ⇒ 拒绝后者并报 Issue（**不静默改名**，否则界面读到的会是一个意料之外的源）。
+    /// </para>
+    /// <para>
+    /// 未声明的名字被写入时，框架**丢弃并只提示一次**（不刷屏、也不静默吞掉）。
+    /// </para>
+    /// </remarks>
+    /// <param name="source">显示源声明。</param>
+    void DeclareDisplaySource(DisplaySourceDeclaration source);
+
+    /// <summary>
+    /// 声明一个**输入源**（用户把值提交给模块的那条通道的名字）。
+    /// </summary>
+    /// <remarks>
+    /// 界面的输入控件提交时，框架要判断"这个名字模块登记过吗"——没登记就拒收并报 Issue，
+    /// 而不是把一个谁都不认的名字写进模块的收件箱。名字重复只登记一次。
+    /// </remarks>
+    /// <param name="sourceName">输入源名。</param>
+    void DeclareInput(string sourceName);
+
+    /// <summary>
+    /// 声明一条**命令**（按钮点一下要触发的那件事）。
+    /// </summary>
+    /// <remarks>
+    /// 未登记的命令名由框架拒收并报 Issue；<paramref name="title"/> 只用于**诊断文案**
+    /// （"执行「打开」失败"这种一句话），不参与任何判定。
+    /// </remarks>
+    /// <param name="name">命令名（模块内唯一）。</param>
+    /// <param name="title">给人看的命令名（空 = 用命令名本身）。</param>
+    void DeclareCommand(string name, string title);
 }
 
 /// <summary>

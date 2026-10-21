@@ -31,7 +31,12 @@ namespace HYWDebugAssistant.Modules.TextSender;
     DisplayName = "文本发送器",
     Description = "发送一串文本；单次点击 + 连续发送（开关 + 间隔）",
     Tags = ["text", "sender"],
-    ParticipatesInDataFlow = true)]
+    ParticipatesInDataFlow = true,
+    WindowWidth = 400,
+    WindowHeight = 240,
+    MinWidth = 400,
+    MinHeight = 240,
+    ViewFactory = typeof(Views.TextSenderViewFactory))]
 public sealed class TextSenderModule : IModule, IActivitySource
 {
     // ---------------------------------------------------------------- ① 标识与常量
@@ -56,11 +61,32 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// </remarks>
     public const int PageCount = 5;
 
+    /// <summary>第 1 页输入源名。</summary>
+    public const string Text1 = "text1";
+
+    /// <summary>第 2 页输入源名。</summary>
+    public const string Text2 = "text2";
+
+    /// <summary>第 3 页输入源名。</summary>
+    public const string Text3 = "text3";
+
+    /// <summary>第 4 页输入源名。</summary>
+    public const string Text4 = "text4";
+
+    /// <summary>第 5 页输入源名。</summary>
+    public const string Text5 = "text5";
+
     /// <summary>第 n 页输入源名（<c>text1</c> … <c>text5</c>）。</summary>
     /// <param name="page">页序号（0 基）。</param>
     /// <returns>输入源名（越界时回落到第 1 页 —— 表格是声明的一部分，不该因越界崩）。</returns>
-    public static string TextSourceOf(int page) =>
-        $"text{Math.Clamp(page, 0, PageCount - 1) + 1}";
+    public static string TextSourceOf(int page) => Math.Clamp(page, 0, PageCount - 1) switch
+    {
+        0 => Text1,
+        1 => Text2,
+        2 => Text3,
+        3 => Text4,
+        _ => Text5,
+    };
 
     /// <summary>输入源 / 数据源：连续发送开关。</summary>
     public const string ContinuousSource = "continuous";
@@ -163,6 +189,9 @@ public sealed class TextSenderModule : IModule, IActivitySource
         context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, RawBytesShape)
         {
             Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
+
+            // 发送口在**下边**（与监视器的上边配对：上下叠放即可连）。用户仍可拖动覆盖。
+            Edge = PortEdge.Bottom,
         });
 
         // 纯源角色：**只有输出口** ⇒ α（两侧同型）天然满足；单角色 ⇒ 不声明 DeclareFlow
@@ -172,11 +201,38 @@ public sealed class TextSenderModule : IModule, IActivitySource
             OutPort,
             "发送"));
 
-        // ---------------------------------------------------------------- 视图
-        // 界面形态**不在代码里声明**：控件树、数据源、命令、窗口尺寸与端口默认边都在
-        // 包内 `view.json`（唯一事实源），由框架读取并按 schema 补齐默认值。
-        // 本模块的数据源名（`text1…text5` / `continuous` / `interval` / `sent`）与命令名（`send`）
-        // 必须与 `view.json` 一致；「间隔」是文本输入，"这是数字" 由声明文件的 `inputKind` 表达。
+        DeclareUi(context);
+    }
+
+    /// <summary>
+    /// **界面契约**：显示源 / 输入源 / 命令。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 这些名字只在这里写一次：界面按名字读、用户按名字提交、按钮按名字触发 ——
+    /// 三处若各写一份，改名时必然漏一处。
+    /// </para>
+    /// <para>
+    /// 「间隔」同时是**显示源**（界面要显示它的当前值）与**输入源**（用户能改它），所以两条都要声明。
+    /// </para>
+    /// </remarks>
+    private static void DeclareUi(IModuleContext context)
+    {
+        foreach (var name in new[] { Text1, Text2, Text3, Text4, Text5 })
+        {
+            context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(name, ViewDataSourceKind.Text));
+            context.Declaration.DeclareInput(name);
+        }
+
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(ContinuousSource, ViewDataSourceKind.Value, ContractPrimitive.Bool));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(IntervalSource, ViewDataSourceKind.Text));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(SentSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(StatusSource, ViewDataSourceKind.Text));
+
+        context.Declaration.DeclareInput(ContinuousSource);
+        context.Declaration.DeclareInput(IntervalSource);
+
+        context.Declaration.DeclareCommand(SendCommand, "发送");
     }
 
     // ---------------------------------------------------------------- ③ 钩子块

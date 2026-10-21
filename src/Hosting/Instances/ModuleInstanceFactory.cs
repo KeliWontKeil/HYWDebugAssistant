@@ -81,10 +81,13 @@ public static class ModuleInstanceFactory
         // ②c **内部处理顺序**（角色 → 角色）：两端角色必须已声明
         var flows = BuildFlows(context, roles, objectPath, issues);
 
-        // ③ 视图声明（包内 `view.json`）：**界面形态的唯一事实源**
-        var view = ReadView(definition, objectPath, ports, issues);
+        // ②d **界面契约**（显示源 / 输入源 / 命令）：框架据此建缓冲与闸门，与"画在哪"无关
+        var displaySources = BuildDisplaySources(context, objectPath, issues);
+        var inputs = BuildInputs(context, objectPath, issues);
+        var commands = BuildCommands(context, objectPath, issues);
         var instance = new ModuleInstance(
-            instanceId, definition, module, ports, dataTypes, roles, flows, view, context)
+            instanceId, definition, module, ports, dataTypes, roles, flows,
+            displaySources, inputs, commands, context)
         {
             State = ModuleInstanceState.Registered,
         };
@@ -92,97 +95,92 @@ public static class ModuleInstanceFactory
         return instance;
     }
 
-    /// <summary>
-    /// 框架视图 schema（进程内只读一次：它是**框架资产**，不是每实例的输入）。
     /// </summary>
-    private static readonly Lazy<(Packages.ViewSchema? Schema, string? Error)> SchemaSlot = new(() =>
-        Packages.ViewSchema.TryLoad(out var schema, out var error)
-            ? (schema, null)
-            : (null, error ?? "界面声明面 schema 加载失败"));
-
-    /// <summary>
-    /// **整份声明不可用时的兜底文档**：窗口取框架地板（= schema 里 <c>window.minWidth</c> / <c>minHeight</c>
-    /// 的缺省值，见 <c>ViewSchema.WindowFloor</c>）—— 框架对"实例要开窗但没有任何可用声明"的口径是
-    /// **给一个能用的最小窗口**，而不是 0×0（零尺寸窗口只会把"声明写错"伪装成"窗口不见了"）。
-    /// </summary>
-    /// <remarks>
-    /// 地板值只在这里取一次：schema 读不到（框架资产坏了，已另有 Issue）时退到 0 —— 那是"框架自己坏了"
-    /// 的退化场景，不再为它造第二份地板字面量。
-    /// </remarks>
-    private static readonly Lazy<Sdk.Views.ViewDocument> FallbackView = new(() =>
-    {
-        var (schema, _) = SchemaSlot.Value;
-        var floor = schema?.WindowFloor;
-        var window = floor is null
-            ? Sdk.Views.ViewWindowDeclaration.None
-            : Sdk.Views.ViewWindowDeclaration.Floor(floor.MinWidth, floor.MinHeight);
-        return Sdk.Views.ViewDocument.Fallback(window);
-    });
-
-    /// <summary>
-    /// 读取包内视图声明（<c>view.json</c>）：**没有这个文件是合法的**（全走 schema 缺省）；
-    /// 有但读不动/校验不过 ⇒ 报一条 Issue 并整份忽略（半份生效的界面比不生效更难查）。
-    /// </summary>
-    /// <remarks>
-    /// schema 加载失败说明框架自己坏了 ⇒ 报错误级 Issue 并按"没有声明"处理。
-    /// 声明里写的口名与数据面已注册的口对不上只报警告：**通信事实源是数据面，不是声明面**。
-    /// </remarks>
-    private static Sdk.Views.ViewDocument ReadView(
-        Registry.ModuleDefinition definition,
+    private static List<Sdk.Views.DisplaySourceDeclaration> BuildDisplaySources(
+        Context.ModuleContext context,
         string objectPath,
-        IReadOnlyList<PortInstance> ports,
         Diagnostics.IIssueSink issues)
     {
-        var (schema, schemaError) = SchemaSlot.Value;
-        if (schema is null)
+        var list = new List<Sdk.Views.DisplaySourceDeclaration>(context.DeclaredDisplaySources.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var source in context.DeclaredDisplaySources)
         {
-            issues.Report(objectPath, new Sdk.Reporting.IssueReport(
-                Sdk.Reporting.IssueCategory.InterfaceError,
-                Sdk.Reporting.IssueSeverity.Error,
-                schemaError ?? "界面声明面 schema 加载失败"));
-            return FallbackView.Value;
+            if (string.IsNullOrWhiteSpace(source.Name))
+            {
+                Report("显示源的名字不能为空（已忽略该条）");
+                continue;
+            }
+
+            if (!seen.Add(source.Name))
+            {
+                Report($"显示源「{source.Name}」重复声明（已忽略重复项）");
+                continue;
+            }
+
+            list.Add(source);
         }
 
-        if (!Packages.ViewDeclarationReader.TryRead(
-                definition.PackageDirectory, schema, out var document, out var warnings, out var error)
-            || document is null)
-        {
-            ReportViewIssue(
-                issues,
-                objectPath,
-                error ?? $"{Packages.ViewDeclarationReader.FileName} 读取失败（已按无控件处理）");
-            return FallbackView.Value;
-        }
+        return list;
 
-        foreach (var warning in warnings)
-        {
-            ReportViewIssue(issues, objectPath, warning);
-        }
-
-        if (!Packages.ViewDeclarationReader.TryCheckLabels(
-                document,
-                ports.Select(port => port.Name),
-                // **判据 = 读到了包内声明**：没有 `view.json` 的模块是无界面模块（没有窗口放端口），
-                // 不做界面侧完备性判定；有声明文件却漏了某个口的边，才是"未声明就没有位置"。
-                Packages.ViewDeclarationReader.HasDeclaration(definition.PackageDirectory),
-                out var labelWarnings,
-                out var labelError))
-        {
-            ReportViewIssue(
-                issues,
-                objectPath,
-                labelError ?? "包内声明与数据面对不上（已按无控件处理）",
-                Sdk.Reporting.IssueSeverity.Error);
-            return FallbackView.Value;
-        }
-
-        foreach (var warning in labelWarnings)
-        {
-            ReportViewIssue(issues, objectPath, warning);
-        }
-
-        return document;
+        void Report(string message) => issues.Report(objectPath, new Sdk.Reporting.IssueReport(
+            Sdk.Reporting.IssueCategory.InterfaceError,
+            Sdk.Reporting.IssueSeverity.Warning,
+            message));
     }
+
+    /// <summary>校验**输入源**声明：名字唯一（空名已由上下文丢弃）。重复 ⇒ 报 Issue 并跳过。</summary>
+    private static List<string> BuildInputs(
+        Context.ModuleContext context,
+        string objectPath,
+        Diagnostics.IIssueSink issues)
+    {
+        var list = new List<string>(context.DeclaredInputs.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var name in context.DeclaredInputs)
+        {
+            if (!seen.Add(name))
+            {
+                issues.Report(objectPath, new Sdk.Reporting.IssueReport(
+                    Sdk.Reporting.IssueCategory.InterfaceError,
+                    Sdk.Reporting.IssueSeverity.Warning,
+                    $"输入源「{name}」重复声明（已忽略重复项）"));
+                continue;
+            }
+
+            list.Add(name);
+        }
+
+        return list;
+    }
+
+    /// <summary>校验**命令**声明：名字唯一。重复 ⇒ 报 Issue 并跳过（标题以先声明者为准）。</summary>
+    private static List<(string Name, string Title)> BuildCommands(
+        Context.ModuleContext context,
+        string objectPath,
+        Diagnostics.IIssueSink issues)
+    {
+        var list = new List<(string Name, string Title)>(context.DeclaredCommands.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var (name, title) in context.DeclaredCommands)
+        {
+            if (!seen.Add(name))
+            {
+                issues.Report(objectPath, new Sdk.Reporting.IssueReport(
+                    Sdk.Reporting.IssueCategory.InterfaceError,
+                    Sdk.Reporting.IssueSeverity.Warning,
+                    $"命令「{name}」重复声明（已忽略重复项）"));
+                continue;
+            }
+
+            list.Add((name, title));
+        }
+
+        return list;
+    }
+
 
     private static void ReportViewIssue(
         Diagnostics.IIssueSink issues,

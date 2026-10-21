@@ -1,0 +1,8 @@
+{
+  "id": "hyw/tcp-client/1.0.0",
+  "entryAssembly": "HYWDebugAssistant.Modules.TcpClient.dll",
+  "entryType": "HYWDebugAssistant.Modules.TcpClient.TcpClientModule",
+  "frameworkCompatibility": ">=1.0.0 <2.0.0",
+  "dependsOn": [],
+  "resources": []
+}

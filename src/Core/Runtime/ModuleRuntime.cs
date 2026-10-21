@@ -297,7 +297,7 @@ public sealed partial class ModuleRuntime : IDisposable
                     {
                         failures.Add($"实例不存在：{command.InstanceId}");
                     }
-                    else if (!DeclaresCommand(commandInstance.View, command.CommandName))
+                    else if (!DeclaresCommand(commandInstance, command.CommandName))
                     {
                         // 未声明的命令**不静默**：直接拒绝，避免"点了没反应"
                         failures.Add($"模块未声明命令：{command.InstanceId}.{command.CommandName}");
@@ -314,11 +314,11 @@ public sealed partial class ModuleRuntime : IDisposable
                     {
                         failures.Add($"实例不存在：{input.InstanceId}");
                     }
-                    else if (!DeclaresInput(inputInstance.View, input.Source))
+                    else if (!DeclaresInput(inputInstance, input.Source))
                     {
-                        // **必须**在**整棵声明树**里找：输入可以声明在容器里（`tabs` 的页内、`group` 内……）
-                        // —— 只看顶层会把"页内输入的回车/失焦提交"误判成"模块未声明该输入"而拒绝；
-                        // 整树判定也让"声明在页内、容器里的输入"与文本框走同一条通道。
+                        // **判定看的是模块声明的输入源集合**，不是"界面上有没有控件绑它"：
+                        // 一条输入可以没有任何界面实体（例如系统对话框选完文件后回填的路径），
+                        // 只认界面会让那种源被整个拒掉，表现是"选完了却什么都没发生"。
                         failures.Add($"模块未声明该输入：{input.InstanceId}.{input.Source}");
                     }
                     else
@@ -458,7 +458,7 @@ public sealed partial class ModuleRuntime : IDisposable
             Content.AddInstance(instance);
             _adapters[instance.InstanceId] = adapter;
             _subscriptions[instance.InstanceId] = new Views.SubscriptionSet(
-                instance.InstanceId, instance.View);
+                instance.InstanceId, instance.DisplaySources);
             instance.Context.AttachDataPlane(new RuntimePortAccess(this, instance.InstanceId, instance.Context));
 
             if (!Carriers.TryActivate(adapter, out _, out var failure))
@@ -525,7 +525,7 @@ public sealed partial class ModuleRuntime : IDisposable
             {
                 commandInstance.Context.EnqueueCommand(commandName);
 
-                var title = CommandTitle(commandInstance.View, commandName) ?? commandName;
+                var title = CommandTitle(commandInstance, commandName) ?? commandName;
                 notices.Add($"已投递命令「{title}」→ {commandInstance.Definition.DisplayName}");
             }
         }
@@ -568,57 +568,17 @@ public sealed partial class ModuleRuntime : IDisposable
         ReconcileNetworks(notices, AlignAutoNetwork);
     }
 
-    /// <summary>
-    /// **声明树全序**（含容器与页节点本身）—— 判定"声明了什么"时**一律遍历整棵树**，
-    /// 不要只看顶层（输入/命令可以声明在 `tabs` 的页内或 `group` 里）。
-    /// </summary>
-    /// <param name="view">实例的视图声明。</param>
-    /// <returns>前序遍历的节点序列。</returns>
-    private static IEnumerable<HYWDebugAssistant.Sdk.Views.ViewNode> FlattenNodes(
-        HYWDebugAssistant.Sdk.Views.ViewDocument view)
-    {
-        foreach (var definition in view.Views)
-        {
-            foreach (var node in Descend(definition.Root))
-            {
-                yield return node;
-            }
-        }
+    // **界面契约由模块在代码里声明**（显示源 / 输入源 / 命令）：运行期判定只读这一份，
+    // 不再从任何界面数据文件里翻找 —— 那会让"同一件事有两个来源"，而两个来源迟早会打架。
+    private static bool DeclaresInput(Hosting.Instances.ModuleInstance instance, string source) =>
+        instance.Inputs.Contains(source, StringComparer.Ordinal);
 
-        static IEnumerable<HYWDebugAssistant.Sdk.Views.ViewNode> Descend(
-            HYWDebugAssistant.Sdk.Views.ViewNode node)
-        {
-            yield return node;
+    private static bool DeclaresCommand(Hosting.Instances.ModuleInstance instance, string commandName) =>
+        instance.Commands.Any(command => string.Equals(command.Name, commandName, StringComparison.Ordinal));
 
-            foreach (var child in node.Children)
-            {
-                foreach (var nested in Descend(child))
-                {
-                    yield return nested;
-                }
-            }
-        }
-    }
-
-    // 绑定角色由读取器按 schema 落成节点上的键（`Input` / `Command`）：判定"声明了什么"只需查键，
-    // 不再按 kind 抄一份清单 —— 清单一旦分叉，新控件就会漏判（历史上开关、文件选择器都踩过）。
-    //
-    // **但"声明了输入"不等于"有界面元素绑定它"**：模块的数据源可以没有任何界面实体
-    // （例如「选一个保存位置」那条源 —— 它由模块自己的逻辑决定何时产生值，界面上没有对应的控件）。
-    // 这种源的合法声明处就是 `sources` 段，故两处都算：
-    //   · 元素用 `input` 绑了它（用户能打字的那种），或
-    //   · `sources` 里登记了它（没有界面实体、由别处投递的那种 —— 例如系统对话框选完的回填）。
-    // 只认前者会把后者**整个拒掉**，而表现是"对话框选了位置却什么都没发生、也没有文件"。
-    private static bool DeclaresInput(HYWDebugAssistant.Sdk.Views.ViewDocument view, string source) =>
-        FlattenNodes(view).Any(node => string.Equals(node.Input, source, StringComparison.Ordinal))
-        || view.Sources.Any(declared => string.Equals(declared.Name, source, StringComparison.Ordinal));
-
-    private static bool DeclaresCommand(HYWDebugAssistant.Sdk.Views.ViewDocument view, string commandName) =>
-        FlattenNodes(view).Any(node => string.Equals(node.Command, commandName, StringComparison.Ordinal));
-
-    private static string? CommandTitle(HYWDebugAssistant.Sdk.Views.ViewDocument view, string commandName) =>
-        FlattenNodes(view)
-            .FirstOrDefault(node => string.Equals(node.Command, commandName, StringComparison.Ordinal))?
+    private static string? CommandTitle(Hosting.Instances.ModuleInstance instance, string commandName) =>
+        instance.Commands
+            .FirstOrDefault(command => string.Equals(command.Name, commandName, StringComparison.Ordinal))
             .Title;
 
     // ---------------------------------------------------------------- 增量重建与自动建网

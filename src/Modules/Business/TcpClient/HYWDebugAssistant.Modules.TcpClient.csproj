@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    业务模块（第二批 #2）：TCP 客户端 `hyw/tcp-client`。
+    **本版只有形态**：声明 + 配置 + 界面，没有 IO 逻辑（外部接入接线见执行计划的 P1/P4）。
+    与第三方模块**同构同路径**：只引 Sdk（AR-1）；不得引用其他模块（AR-2）。
+  -->
+  <PropertyGroup>
+    <ModulePackageName>tcp-client</ModulePackageName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\..\..\Sdk.Ui\HYWDebugAssistant.Sdk.Ui.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

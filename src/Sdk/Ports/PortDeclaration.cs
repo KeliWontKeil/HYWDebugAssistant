@@ -104,4 +104,30 @@ public sealed record PortDeclaration
     /// 用法：<c>new PortDeclaration("in", PortDirection.Receive, shape) { Type = new("hyw/f32", 1) }</c>
     /// </remarks>
     public DataTypeRef? Type { get; init; }
+
+    /// <summary>
+    /// 本口默认挂在**哪条边**（空 = 沿用数据流惯例：发送在右、接收在左）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 用户可以把标记拖到任意边，**拖动结果优先于本声明**（随组合件保存）；这里只是"第一次出现时在哪"。
+    /// </para>
+    /// <para>
+    /// 它是**模块的契约事实**（这个口在现实中长在哪侧），因此写在代码里、与口名/方向/形状同处，
+    /// 而不是放进任何外部数据文件。
+    /// </para>
+    /// </remarks>
+    public PortEdge Edge { get; init; } = PortEdge.Auto;
+
+    /// <summary>本口在所属边上的默认位置（0–1；默认居中）。</summary>
+    public double AnchorOffset { get; init; } = 0.5;
+
+    /// <summary>
+    /// 本口的标记**默认是否可拖动**（<see langword="false"/> = 框架固定项）。
+    /// </summary>
+    /// <remarks>
+    /// 用户显式解锁 / 锁定的结果优先于本项。默认固定：绝大多数口的位置由模块的形态决定，
+    /// 允许拖动是例外而非常态。
+    /// </remarks>
+    public bool AnchorDraggable { get; init; }
 }

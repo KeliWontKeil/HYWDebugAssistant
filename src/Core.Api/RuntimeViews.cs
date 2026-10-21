@@ -95,7 +95,12 @@ public sealed record PortView(
 /// <param name="NominalRateHz">该类型的**标称速率**（Hz；未声明 ⇒ null）——有了它才能看"掉速"。</param>
 /// <param name="PayloadRateBytesPerSecond">
 /// **该角色自身的有效载荷字节速率**（B/s）：
-/// 取该角色**产出侧**所承载网络的**有效载荷字节速率**之和（有输出口 ⇒ 输出网络；纯汇分块 ⇒ 输入网络）。
+/// 取该角色**选定侧每个口所承载的绑定**的 <see cref="BindingDiagnosticView.PayloadByteRate"/> 之和
+/// （有输出口 ⇒ 输出侧各口；纯汇分块 ⇒ 输入侧各口）；**同一绑定只计一次**。
+/// <para>
+/// 速率**按源计**：一条 `源 → N 宿` 绑定的有效字节只在发布时累加一次 ⇒ 多宿/多播**不会放大**。
+/// 这与 <see cref="Delivered"/>（绑定级按宿）是两个口径，不可混用。
+/// </para>
 /// 这是**角色维度**的量（"这块功能自己在跑多快"），与端口标记上的**通路速率**（"这条网络在跑多快"）
 /// 是两个维度——两者读**同一份**框架诊断，但表达的对象不同（底层同源不等于同一个维度）。
 /// <para>
@@ -105,8 +110,11 @@ public sealed record PortView(
 /// 不是含补零/对齐填充的 <see cref="BindingDiagnosticView.BusByteRate"/>。
 /// </para>
 /// </param>
-/// <param name="Delivered">该角色产出侧承载网络的**投递单元数**合计。</param>
-/// <param name="Dropped">该角色产出侧承载网络的**传输丢弃**合计（不含停流未投递）。</param>
+/// <param name="Delivered">
+/// 该角色选定侧各口所承载绑定的**投递单元数**合计。
+/// **绑定级按宿**：一条 `源 → N 宿` 绑定的 `Delivered` 是 N 份，故本字段会随宿数放大（与速率口径不同）。
+/// </param>
+/// <param name="Dropped">该角色选定侧各口所承载绑定的**传输丢弃**合计（不含停流未投递）。</param>
 public sealed record RoleView(
     string Key,
     string RoleId,
@@ -175,9 +183,12 @@ public static class RuntimeStateNames
 /// <param name="HasView">是否声明了视图（false = 无 UI 模块）。</param>
 /// <param name="Ports">口视图。</param>
 /// <param name="IsPlaceholder">是否占位实例（模块定义缺失/版本不兼容：无活动、只保留配置与网络成员声明，§9.3）。</param>
-/// <param name="View">
-/// 视图声明（包内 <c>view.json</c> 的解析结果）：**界面形态的唯一事实源**，框架按它渲染，
-/// 模块不提供 View 类型；`View.Views` 为空 = 这个实例没有任何控件。
+/// <param name="ViewType">
+/// 模块的**视图工厂类型**（<c>[ModuleDefinition(ViewFactory = …)]</c>）；<see langword="null"/> = 无自绘界面。
+/// 界面形态由模块自己的 XAML 决定，框架只负责挂载与按帧刷新。
+/// </param>
+/// <param name="Window">
+/// 模块**代码声明**的窗口尺寸（<c>[ModuleDefinition]</c>；<c>0</c> = 未声明，由框架地板兜底）。
 /// </param>
 public sealed record ModuleInstanceView(
     string InstanceId,
@@ -187,7 +198,17 @@ public sealed record ModuleInstanceView(
     bool HasView,
     IReadOnlyList<PortView> Ports,
     bool IsPlaceholder = false,
-    HYWDebugAssistant.Sdk.Views.ViewDocument? View = null);
+    Type? ViewType = null,
+    ModuleWindowView? Window = null);
+
+/// <summary>
+/// 模块窗口的**声明尺寸**（来自模块的代码声明；<c>0</c> = 未声明，由框架给缺省/地板）。
+/// </summary>
+/// <param name="Width">默认宽（DIP）。</param>
+/// <param name="Height">默认高（DIP）。</param>
+/// <param name="MinWidth">最小宽（DIP；0 = 框架地板）。</param>
+/// <param name="MinHeight">最小高（DIP；0 = 框架地板）。</param>
+public sealed record ModuleWindowView(double Width, double Height, double MinWidth, double MinHeight);
 
 /// <summary>
 /// 某个元素**运行时被设定的外观**（经 <c>IRuntimeQuery.GetAppearance</c> 取得）。
@@ -229,6 +250,7 @@ public sealed record AppearanceView(
 /// </param>
 /// <param name="Source">
 /// **主源**（`实例ID.口名` = <see cref="Sources"/> 的第一个；**停流时为首个未锚定的声明源**）。
+/// <b>只是兼容访问器：多源场景的成员判定/展示一律用 <see cref="Sources"/>，不得用它。</b>
 /// </param>
 /// <param name="Targets">在场（已锚定）的宿成员列表。</param>
 /// <param name="UnresolvedMembers">
@@ -263,10 +285,21 @@ public sealed record NetworkView(
     /// </summary>
     /// <remarks>
     /// 单源网络为 1 个元素；位置参数 `Source` = 主源（= 本列表第一个）保留兼容。
+    /// **成员判定必须用本列表**（不能用位置参数 `Source`：多源时它只代表第一个源）。
     /// **在场与否**：<see cref="IsStalled"/> 回答"还有没有活着的源"，逐源归属看
-    /// <see cref="BindingDiagnosticView.Key"/>（每个在场的源一条诊断）。
+    /// <see cref="BindingDiagnosticView.Key"/>（每个在场的源一条诊断）；悬空的源见
+    /// <see cref="UnresolvedSources"/>。
     /// </remarks>
     public IReadOnlyList<string> Sources { get; init; } = [];
+
+    /// <summary>
+    /// **悬空的源成员**（加载重锚失败、声明保留但未建立绑定的源；`实例.口名`）。
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Sources"/> 已包含它们（在场在前、悬空在后）；本属性只用于把它们与“在场的源”区分呈现
+    /// （例如拓扑诊断的“悬空”行）。未锚定的源不参与绑定，故其指标恒为 0。
+    /// </remarks>
+    public IReadOnlyList<string> UnresolvedSources { get; init; } = [];
 }
 
 /// <summary>
@@ -530,6 +563,13 @@ public sealed record PortQueueDepthView(
 ///     那会让端口标记与角色方块（<see cref="RoleView.PayloadRateBytesPerSecond"/>）分叉，正是本次要消除的问题；</item>
 ///   <item>单源单宿（最常见）时两者数值相同，看不出差别。</item>
 /// </list>
+/// </para>
+/// <para>
+/// <b>速率 vs 计数（多宿/多播）</b>：<see cref="UnitRateHz"/> / <see cref="PayloadBytesPerSecond"/> 等
+/// 速率的分子按**源**累计（一次发布只算一次）⇒ **多宿不会放大**；而
+/// <see cref="Delivered"/> / <see cref="BytesPerSecond"/> 是绑定级**按宿**计数（一条绑定 N 个宿即 N 份）。
+/// 界面显示的速率只取前者；宿口在 1:N / N:M 下的 <see cref="Delivered"/> 含同源其他宿的份额，
+/// 这是文档化的**流口径**，不是"落到本口队列"的口径。
 /// </para>
 /// <para>
 /// <b>速率与角色方块同一口径</b>：界面显示的那一个速率 = <see cref="PayloadBytesPerSecond"/>

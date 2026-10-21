@@ -99,6 +99,10 @@ public sealed class RejectCountingSenderStubModule : IModule, IActivitySource
         });
 
         context.Declaration.DeclareRole(RoleDeclaration.Output(RoleId, new DataTypeRef(RawBytesTypeId, RawBytesVersion), OutPort, "发数"));
+
+        // 测试按名字读这两个计数 ⇒ 必须在代码里声明显示源（声明是缓冲的唯一来源）。
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(SentSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(RejectedSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
     }
 
     /// <inheritdoc />

@@ -29,6 +29,9 @@ public sealed class ModuleContext : IModuleContext
     private readonly List<DataTypeDeclaration> _dataTypes = [];
     private readonly List<FlowDeclaration> _flows = [];
     private readonly List<RoleDeclaration> _roles = [];
+    private readonly List<DisplaySourceDeclaration> _displaySources = [];
+    private readonly List<string> _inputs = [];
+    private readonly List<(string Name, string Title)> _commands = [];
     private readonly Dictionary<string, ReceiveHandler> _receiveHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, object> _configuration = new(StringComparer.Ordinal);
     private readonly Lock _configurationGate = new();
@@ -47,7 +50,7 @@ public sealed class ModuleContext : IModuleContext
         InstanceId = instanceId;
         ModuleId = moduleId;
 
-        Declaration = new DeclarationCollector(_ports, _dataTypes, _flows, _roles);
+        Declaration = new DeclarationCollector(_ports, _dataTypes, _flows, _roles, _displaySources, _inputs, _commands);
         Issues = new IssueReporter(issues, _objectPath);
         Log = new NullModuleLogger();
         State = new NullBusinessStateReporter();
@@ -154,6 +157,15 @@ public sealed class ModuleContext : IModuleContext
 
     /// <summary>已声明的**角色**（按声明顺序）——合法性由工厂在成员实例化后统一校验。</summary>
     public IReadOnlyList<RoleDeclaration> DeclaredRoles => _roles;
+
+    /// <summary>已声明的**显示源**（按声明顺序）——合法性由工厂统一校验（重名/空名）。</summary>
+    public IReadOnlyList<DisplaySourceDeclaration> DeclaredDisplaySources => _displaySources;
+
+    /// <summary>已声明的**输入源名**（按声明顺序）——提交闸门据此判定。</summary>
+    public IReadOnlyList<string> DeclaredInputs => _inputs;
+
+    /// <summary>已声明的**命令**（名字 + 给人看的标题，按声明顺序）——触发闸门与诊断文案据此判定。</summary>
+    public IReadOnlyList<(string Name, string Title)> DeclaredCommands => _commands;
 
     /// <summary>
     /// 替换投递面实现（**由 L4 运行时在承载启动前调用**；模块作者不使用本方法）。
@@ -270,7 +282,10 @@ public sealed class ModuleContext : IModuleContext
         List<PortDeclaration> ports,
         List<DataTypeDeclaration> types,
         List<FlowDeclaration> flows,
-        List<RoleDeclaration> roles) : IModuleDeclaration
+        List<RoleDeclaration> roles,
+        List<DisplaySourceDeclaration> displaySources,
+        List<string> inputs,
+        List<(string Name, string Title)> commands) : IModuleDeclaration
     {
         public void DeclareDataType(DataTypeDeclaration type)
         {
@@ -296,6 +311,29 @@ public sealed class ModuleContext : IModuleContext
             flows.Add(flow);
         }
 
+        // **三条界面契约的收集**：只登记，重名/空名由工厂统一判（这里不抛、也不改名 ——
+        // 模块的写法归模块，判定与上报归框架，两件事不混在一处）。
+        public void DeclareDisplaySource(DisplaySourceDeclaration source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            displaySources.Add(source);
+        }
+
+        public void DeclareInput(string sourceName)
+        {
+            if (!string.IsNullOrWhiteSpace(sourceName))
+            {
+                inputs.Add(sourceName);
+            }
+        }
+
+        public void DeclareCommand(string name, string title)
+        {
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                commands.Add((name, string.IsNullOrWhiteSpace(title) ? name : title));
+            }
+        }
     }
 
     private sealed class IssueReporter(IIssueSink sink, string objectPath) : IIssueReporter

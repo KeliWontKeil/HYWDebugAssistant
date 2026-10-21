@@ -86,23 +86,19 @@ internal sealed class MonitorLineFormatter(MonitorFormat format)
     /// <returns>文本（不可显示的部分用 `⟨XX⟩` 标出）。</returns>
     /// <remarks>
     /// <para>
-    /// <b>一条统一的标准（两个方向都一样）</b>：凡是**屏幕上没有可见形状**的东西，一律写成
+    /// <b>换行是格式声明，不是不可显示字符</b>：`0x0A` / `0x0D0A` 原样输出为真实换行，
+    /// 由显示层画 `↵`；只有**没有可见形状、也没有格式语义**的控制字符才写成
     /// <c>⟨XX⟩</c>（该字符的原始字节，大写十六进制、逐字节排列）——
     /// <list type="bullet">
-    ///   <item>ASCII 控制字符：`0x0C` ⇒ <c>⟨0C⟩</c>、换行 `0x0A` ⇒ <c>⟨0A⟩</c>、制表 `0x09` ⇒ <c>⟨09⟩</c>；</item>
+    ///   <item>`0x0C`（换页）⇒ <c>⟨0C⟩</c>、制表 `0x09` ⇒ <c>⟨09⟩</c>；</item>
     ///   <item>被删字符 `0x7F` ⇒ <c>⟨7F⟩</c>；</item>
     ///   <item>非 ASCII 的不可显示码位（如 U+0085）⇒ 它的 UTF-8 原始字节，如 <c>⟨C2 85⟩</c>；</item>
     ///   <item>非法 / 被截断的字节 ⇒ 单独那个字节，如 <c>⟨A1⟩</c>。</item>
     /// </list>
     /// </para>
     /// <para>
-    /// <b>为什么不能"按原样塞进去"</b>：控制字符进到文本里，显示层要么不画（看起来像丢了数据），
-    /// 要么按它自己的语义走 —— `0x0C`（换页）/ `0x0A`（换行）会让**显示自己跳行**，
-    /// 而那个"换行"并不是数据里的一条记录边界，用户看到的行结构于是与数据对不上。
-    /// </para>
-    /// <para>
-    /// <b>它是"所见即所存"的一部分</b>：显示的就是存下来的 —— 保存出来的 `.txt` 里同样是 <c>⟨0A⟩</c>，
-    /// 不会在文件里突然变成真实换行（那样"屏幕上看到的行数"与"文件里的行数"就再也对不上了）。
+    /// **换行保留为字符**：数据里真实的换行是数据的一部分，不能吞掉；显示层用 `↵` 告诉用户
+    /// "这里有一个换行字符"，自动折行不会画它。保存的 `.txt` 里对应位置也是真实换行。
     /// </para>
     /// </remarks>
     private static string DecodeUtf8(ReadOnlySpan<byte> chunk)
@@ -113,6 +109,22 @@ internal sealed class MonitorLineFormatter(MonitorFormat format)
         while (index < chunk.Length)
         {
             var status = Rune.DecodeFromUtf8(chunk[index..], out var rune, out var consumed);
+
+            if (status == System.Buffers.OperationStatus.Done && rune.Value is '\n' or '\r')
+            {
+                // CRLF 只产出一个换行；孤立的 CR 也按换行处理。
+                if (rune.Value == '\r'
+                    && index + consumed < chunk.Length
+                    && chunk[index + consumed] == (byte)'\n')
+                {
+                    index += consumed;
+                    continue;
+                }
+
+                _ = builder.Append('\n');
+                index += consumed;
+                continue;
+            }
 
             if (status == System.Buffers.OperationStatus.Done && IsVisible(rune))
             {

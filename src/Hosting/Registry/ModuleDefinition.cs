@@ -25,7 +25,12 @@ public sealed class ModuleDefinition
         bool participatesInDataFlow,
         Type entryType,
         string packageDirectory,
-        string assemblyPath)
+        string assemblyPath,
+        Type? viewFactory = null,
+        double windowWidth = 0,
+        double windowHeight = 0,
+        double minWidth = 0,
+        double minHeight = 0)
     {
         Id = id;
         DisplayName = displayName;
@@ -38,6 +43,11 @@ public sealed class ModuleDefinition
         EntryType = entryType;
         PackageDirectory = packageDirectory;
         AssemblyPath = assemblyPath;
+        ViewFactory = viewFactory;
+        WindowWidth = windowWidth;
+        WindowHeight = windowHeight;
+        MinWidth = minWidth;
+        MinHeight = minHeight;
     }
 
     /// <summary>模块标识（结构化三元组，含版本）。</summary>
@@ -73,6 +83,26 @@ public sealed class ModuleDefinition
     /// <summary>实现程序集路径。</summary>
     public string AssemblyPath { get; }
 
+    /// <summary>
+    /// 本模块的**视图工厂类型**（实现 <c>Hyw…Sdk.Ui.IModuleViewFactory</c>）；<see langword="null"/> = 无自绘界面。
+    /// </summary>
+    /// <remarks>
+    /// 用类型而不是实例：视图每个实例各造一次，而模块对象本身有状态、不能为造视图再实例化一份。
+    /// </remarks>
+    public Type? ViewFactory { get; }
+
+    /// <summary>窗口默认宽（DIP）；<c>0</c> = 框架缺省。</summary>
+    public double WindowWidth { get; }
+
+    /// <summary>窗口默认高（DIP）；<c>0</c> = 框架缺省。</summary>
+    public double WindowHeight { get; }
+
+    /// <summary>窗口最小宽（DIP）；<c>0</c> = 框架地板。</summary>
+    public double MinWidth { get; }
+
+    /// <summary>窗口最小高（DIP）；<c>0</c> = 框架地板。</summary>
+    public double MinHeight { get; }
+
     /// <summary>由已校验的包构造定义。</summary>
     public static ModuleDefinition FromPackage(ModulePackage package)
     {
@@ -90,7 +120,12 @@ public sealed class ModuleDefinition
             attribute.ParticipatesInDataFlow,
             package.EntryType,
             package.PackageDirectory,
-            package.AssemblyPath);
+            package.AssemblyPath,
+            attribute.ViewFactory,
+            attribute.WindowWidth,
+            attribute.WindowHeight,
+            attribute.MinWidth,
+            attribute.MinHeight);
     }
 
     /// <inheritdoc />

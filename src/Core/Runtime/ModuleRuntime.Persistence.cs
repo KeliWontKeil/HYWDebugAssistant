@@ -343,7 +343,7 @@ public sealed partial class ModuleRuntime
         Content.AddInstance(instance);
         _adapters[instance.InstanceId] = adapter;
         _subscriptions[instance.InstanceId] = new SubscriptionSet(
-            instance.InstanceId, instance.View);
+            instance.InstanceId, instance.DisplaySources);
         instance.Context.AttachDataPlane(new RuntimePortAccess(this, instance.InstanceId, instance.Context));
 
         if (!Carriers.TryActivate(adapter, out _, out var failure))

@@ -80,26 +80,26 @@ public sealed partial class TopologyViewModel : ViewModelBase
                 ? "停流"
                 : (network.UnresolvedMembers?.Count ?? 0) > 0 ? "悬空" : "正常";
 
-            // 统一取数口径：源行的指标 = **该网络各源端口指标之和**
-            // （端口指标由框架的**唯一**查询 `GetPortMetrics` 给出：该口参与的全部"流"之和）。
-            //
-            // **旧写法错在哪**（本行就是缺陷现场）：它拿 `network.Key`（= `源集合 → 宿集合`）去查
-            // `GetDiagnostics()` 的 `Key` 字典 —— 而后者是**逐源键**（= `单源 → 宿子集`）。
-            // 多源网络下两个键**永不相等** ⇒ **源行恒显示 0 / 0 / —**（1:1 单源单宿时两个键恰好字面相同，
-            // 所以这个缺陷一直没被看见）。现在改为向框架要"该口参与了哪些流"，不再猜键。
-            var sourceMetrics = SourceMetricsOf(network);
+            // **每个声明的源各一行**（旧实现只给 network.Source 一行，却把全部源之和填进去 ⇒
+            // 多源时第二个源不可见，第一行还背着别人的数）。每行只读它自己的口指标。
+            // 指标 = 该口参与的全部流（GetPortMetrics 的唯一口径）；悬空源不在任何绑定上 ⇒ 0。
+            foreach (var source in network.Sources)
+            {
+                var unresolved = network.UnresolvedSources.Contains(source, StringComparer.Ordinal);
+                var metrics = PortMetricsOf(source);
 
-            rows.Add(new TopologyRowViewModel(
-                name,
-                kind,
-                network.Source,
-                "源",
-                state,
-                sourceMetrics.Delivered,
-                sourceMetrics.Dropped,
-                FormatTime(sourceMetrics.LastDataTime)));
+                rows.Add(new TopologyRowViewModel(
+                    name,
+                    kind,
+                    source,
+                    "源",
+                    unresolved ? "悬空" : state,
+                    metrics.Delivered,
+                    metrics.Dropped,
+                    FormatTime(metrics.LastDataTime)));
 
-            members++;
+                members++;
+            }
 
             // 宿行按既有设计**不显示计数**（见 `TopologyRowViewModel` 的文档："仅源行显示"）
             foreach (var target in network.Targets)
@@ -122,43 +122,22 @@ public sealed partial class TopologyViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 该网络**源行的指标** = 它的**各源端口**指标之和（源行是**网络级**行；单源网络下 = 该源口自己的数）。
+    /// 取某个成员字面量（`实例.口名`）的端口指标。
     /// </summary>
     /// <remarks>
-    /// <list type="bullet">
-    ///   <item>端口字面量一律按**最后一个 `.`** 拆成（实例, 口）——与本仓库其余字面量解析同一约定；</item>
-    ///   <item><see cref="PortMetricsView.Dropped"/> 只含**传输丢弃**（停流未投递是合法状态，
-    ///     不得混算），故本表的「丢弃」列不把停流未投递算进去；</item>
-    ///   <item>悬空/停流的源口由框架给出全 0（它不在任何流上）——这正是本表该显示的降级事实。</item>
-    /// </list>
+    /// 端口字面量一律按**最后一个 `.`** 拆成（实例, 口）——与仓库其余字面量解析同一约定。
+    /// 非法字面量不猜，返回全 0（宁可少显示，不让界面崩）；悬空成员不在任何绑定上 ⇒ 全 0。
+    /// <see cref="PortMetricsView.Dropped"/> 只含**传输丢弃**（停流未投递是合法状态，不得混算）。
     /// </remarks>
-    /// <param name="network">网络视图。</param>
-    private (long Delivered, long Dropped, DateTimeOffset? LastDataTime) SourceMetricsOf(NetworkView network)
+    private PortMetricsView PortMetricsOf(string literal)
     {
-        long delivered = 0;
-        long dropped = 0;
-        DateTimeOffset? last = null;
-
-        foreach (var literal in network.Sources)
+        var separator = literal.LastIndexOf('.');
+        if (separator <= 0)
         {
-            var separator = literal.LastIndexOf('.');
-            if (separator <= 0)
-            {
-                continue;   // 非法字面量：不猜，跳过（宁可少显示，不让界面崩）
-            }
-
-            var metrics = _query.GetPortMetrics(literal[..separator], literal[(separator + 1)..]);
-
-            delivered += metrics.Delivered;
-            dropped += metrics.Dropped;
-
-            if (metrics.LastDataTime is { } time && (last is null || time > last))
-            {
-                last = time;
-            }
+            return new PortMetricsView(0, 0, 0);
         }
 
-        return (delivered, dropped, last);
+        return _query.GetPortMetrics(literal[..separator], literal[(separator + 1)..]);
     }
 
     /// <summary>最后数据时间的呈现文本（无数据 = 破折号）。</summary>

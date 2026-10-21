@@ -51,7 +51,7 @@ public sealed class WorkspaceLayout
     /// 取某端口的几何，并告知**用户是否调整过它**。
     /// </summary>
     /// <remarks>
-    /// 用途：包内 `view.json` 声明的 `ports[].default.offset` / `label` 只是"**用户没动过时的缺省**"，
+    /// 用途：模块 `PortDeclaration` 声明的偏移 / 标签只是"**用户没动过时的缺省**"，
     /// 所以消费侧必须能区分"有记录"与"没记录"——<see cref="GetPort"/> 把两者都归成缺省值，区分不开。
     /// </remarks>
     /// <param name="instanceId">实例 id。</param>

@@ -1,10 +1,13 @@
 using System.Collections.ObjectModel;
 using Avalonia;
+using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
 using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Sdk.Ui;
+using HYWDebugAssistant.Sdk.Ui.Controls;
 using HYWDebugAssistant.Sdk.Views;
 using HYWDebugAssistant.Ui.Geometry;
-using HYWDebugAssistant.Ui.ModuleSurface.Hosting;
+using HYWDebugAssistant.Ui.ModuleViews;
 
 namespace HYWDebugAssistant.Ui.ViewModels;
 
@@ -23,53 +26,34 @@ namespace HYWDebugAssistant.Ui.ViewModels;
 /// </remarks>
 public sealed partial class ModuleViewViewModel : ViewModelBase
 {
-    /// <summary>
-    /// 最小宽（DIP；缩放下限）—— **框架地板**：声明面的 <c>frame.window.minWidth</c> 只能把它抬高。
-    /// </summary>
+    /// <summary>最小宽（DIP；缩放下限）—— **模块代码声明**；<c>0</c> = 未声明。</summary>
     /// <remarks>
-    /// <para>
-    /// 地板与缺省**都不是这里的字面量**：唯一来源是包声明 schema 的 <c>window.minWidth</c> 缺省值，
-    /// 读取器在读 <c>view.json</c> 时就已把小于地板的声明**夹到地板**（并记一条 warning），
-    /// 故这里直接采用 <see cref="ViewWindowDeclaration.EffectiveMinWidth"/>。
-    /// 实例连声明都没有时（整份被忽略）宿主给的是 <see cref="ViewDocument.Fallback"/>，
-    /// 其窗口同样已按地板填好 ⇒ 本类**不需要、也不允许**再自带一份地板字面量。
-    /// </para>
-    /// <para>
     /// **地板为什么存在**：端口标记沿边长度 150（<see cref="PortMarkerMetrics.Length"/>），
     /// 窗口比它短就会把标记**裁掉一截**（面板把起点夹到 0 并让它溢出）
     /// ⇒ 地板由标记长度推出来（<see cref="PortMarkerMetrics.MinWindowExtent"/> = 160），不能是随手取的一个数。
-    /// </para>
-    /// <para>
-    /// 这里**没有"默认尺寸"常量**：默认尺寸的唯一来源是包内 `view.json` 的 `frame.window`
-    /// （缺省值由 schema 补齐），框架只在"整个实例没有任何可用声明"时按地板兜底。
-    /// 代码里也**没有"按内容估算尺寸"的逻辑**（内容排不下由内容区滚动条处理）。
-    /// </para>
     /// </remarks>
     public double MinWidth { get; }
 
-    /// <summary>最小高（DIP；缩放下限）—— **框架地板**，含义与 <see cref="MinWidth"/> 完全相同。</summary>
+    /// <summary>最小高（DIP；缩放下限）—— **模块代码声明**，含义与 <see cref="MinWidth"/> 完全相同。</summary>
     public double MinHeight { get; }
 
     /// <summary>
-    /// 本模块**声明面给出的**默认窗口尺寸（DIP）——新窗口按它开，「还原」也回到它。
+    /// 本模块**代码声明**的默认窗口尺寸（DIP）——新窗口按它开，「还原」也回到它。
     /// </summary>
     /// <remarks>
-    /// 尺寸的唯一来源是**声明面**（包内 `view.json` 的 `frame.window.width`，缺省由 schema 补齐）；
-    /// 模块代码里**不声明** <c>PreferredWidth/PreferredHeight</c>。实例连声明都没有（整份被忽略）时
-    /// 由宿主按框架地板给一份兜底声明（<see cref="ViewDocument.Fallback"/>）。
+    /// 尺寸的唯一来源是 <c>[ModuleDefinition(WindowWidth/WindowHeight = …)]</c>；
+    /// <c>0</c> = 未声明，由框架地板兜底。代码里**没有"按内容估算尺寸"的逻辑**（内容排不下由内容区滚动）。
     /// </remarks>
     public double PreferredWidth { get; }
 
-    /// <summary>默认窗口高度（DIP；同上来自 `frame.window.height`）。</summary>
+    /// <summary>默认窗口高度（DIP；同上来自 <c>[ModuleDefinition]</c>）。</summary>
     public double PreferredHeight { get; }
 
-    /// <summary>
-    /// **有效最小宽**（DIP）= <c>max(框架地板, 声明的 `window.minWidth`)</c> —— 读取器已夹好，这里等于声明值。
-    /// </summary>
+    /// <summary>**有效最小宽**（DIP）= <c>max(框架地板, 模块声明值)</c>。</summary>
     /// <remarks>声明的最小尺寸只用于**约束用户缩放**；框架地板永远在（标记长度推出来的那条）。</remarks>
     public double EffectiveMinWidth { get; }
 
-    /// <summary>**有效最小高**（DIP）= <c>max(框架地板, 声明的 `window.minHeight`)</c> —— 读取器已夹好，这里等于声明值。</summary>
+    /// <summary>**有效最小高**（DIP）= <c>max(框架地板, 模块声明值)</c>。</summary>
     public double EffectiveMinHeight { get; }
 
     /// <summary>**有效最大宽**（DIP；<see langword="null"/> = 无上限 = 声明面没给）。</summary>
@@ -91,7 +75,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// 三档：<c>CtrlEnter</c>（默认：回车换行 / Ctrl+Enter 提交 / **失焦不提交** —— 否则"点按钮 ⇒ 先失焦提交 ⇒ 按钮又发"会双发）·
     /// <c>Enter</c>（回车提交 / Shift+Enter 换行）· <c>None</c>（键盘都不提交）。
     /// **只影响多行输入**；单行输入保持"回车 / 失焦一次提交"。
-    /// 新表面**每次按键现读这个值**（经 <c>ISurfaceHost.MultilineSubmitKey</c>），
+    /// 新表面**每次按键现读这个值**（经 <see cref="MultilineSubmitKey"/>），
     /// 因此改设置**不重建任何东西** —— 重建会丢掉焦点、未提交文本与滚动位置。
     /// </remarks>
     public string MultilineSubmitKey
@@ -145,25 +129,21 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         _query = query;
         _command = command;
         _viewState = viewState;
-        // 尺寸来源优先级：① 组合件里的布局（用户拖过）② **包内 `view.json` 的 `frame.window`**
-        // ③ 框架地板（schema 的 `window.minWidth`/`minHeight` 缺省值，由端口标记长度推出）。
-        // 三者的缺省都在读取侧就位：读取器保证 `frame.window` 恒有值、且小于地板的 min 已被**夹到地板**；
-        // 整份声明被忽略时宿主给的是 `ViewDocument.Fallback`（窗口 = 地板）
-        // ⇒ 本类不再自带任何尺寸字面量，也不再自己夹一次地板。
-        var window = view.View?.Frame.Window;
-        MinWidth = window?.EffectiveMinWidth ?? 0;
-        MinHeight = window?.EffectiveMinHeight ?? 0;
+        // 尺寸来源优先级：① 组合件里的布局（用户拖过）② 模块**代码声明**的窗口尺寸
+        // ③ 框架地板（0 = 未声明 ⇒ 由地板兜底）。
+        var window = view.Window;
+        MinWidth = window is { MinWidth: > 0 } declaredMin ? declaredMin.MinWidth : 0;
+        MinHeight = window is { MinHeight: > 0 } declaredMinHeight ? declaredMinHeight.MinHeight : 0;
         PreferredWidth = window is { Width: > 0 } declaredWidth ? declaredWidth.Width : MinWidth;
         PreferredHeight = window is { Height: > 0 } declaredHeight ? declaredHeight.Height : MinHeight;
 
-        // 有效下限 = 声明的 min（已在读取侧夹过地板）；有效上限 = 声明的 max（缺省 = 无上限）。
-        // 声明的上限若小于有效下限（例如写了 100）就**整条忽略** —— 声明自相矛盾时不该给用户造出一个 min > max 的死区。
         EffectiveMinWidth = MinWidth;
         EffectiveMinHeight = MinHeight;
-        EffectiveMaxWidth = window?.MaxWidth is { } maxWidth && maxWidth >= EffectiveMinWidth ? maxWidth : null;
-        EffectiveMaxHeight = window?.MaxHeight is { } maxHeight && maxHeight >= EffectiveMinHeight ? maxHeight : null;
+        EffectiveMaxWidth = null;
+        EffectiveMaxHeight = null;
 
         InstanceId = view.InstanceId;
+        ModuleId = view.ModuleId;
         Title = view.DisplayName;
         IsPlaceholder = view.IsPlaceholder;
         HasLayout = layout is not null;
@@ -195,8 +175,11 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         Rebuild(view);
     }
 
-    /// <summary>实例 ID（工作现场内唯一、稳定）。</summary>
+    /// <summary>实例 ID（工作现场内唯一、稳定；**不直接展示给用户**）。</summary>
     public string InstanceId { get; }
+
+    /// <summary>模块标识字面量（同一模块类型的所有实例共享；用于外部展示编号的分组）。</summary>
+    public string ModuleId { get; }
 
     /// <summary>展示名（内容区顶部一行轻量文本）。</summary>
     public string Title { get; private set; }
@@ -364,12 +347,10 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <summary>**叠加层画布高（DIP）** = <see cref="Height"/>（口径见 <see cref="CanvasWidth"/>）。</summary>
     public double CanvasHeight => Height;
 
-    /// <summary>刷新实例状态（实例视图变化时调用；元素与数据源声明在实例生命周期内不变）。</summary>
+    /// <summary>刷新实例状态（实例视图变化时调用；视图类型在实例生命周期内不变）。</summary>
     /// <remarks>
-    /// **声明树换了就重建**：本方法每次刷新都走，而"实例先建、声明后到"是真实存在的时序
-    /// （模块加入现场与包内 `view.json` 的解析不必同拍完成）。不重建的话内容区会**永远空着**
-    /// —— 屏幕上表现为"模块窗口开了、里面什么都没有"，而 `RootLayout` 是 `null`、面上一句话都不报。
-    /// 判据取"根节点**引用**是否换了"：同一个根节点反复刷新不会重建（重建会丢焦点与滚动位置）。
+    /// **视图类型换了就重建**：本方法每次刷新都走，而视图只在实例的代码声明改变时才换。
+    /// 判据取"工厂类型是否换了"：同一种视图反复刷新不会重建（重建会丢焦点与滚动位置）。
     /// </remarks>
     public void Apply(ModuleInstanceView view)
     {
@@ -380,14 +361,13 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         ApplyState(view.State);
         SyncPorts(view);
 
-        var root = view.View?.Views.Count > 0 ? view.View.Views[0].Root : null;
-        if (!ReferenceEquals(root, RootLayout))
+        if (!ReferenceEquals(view.ViewType, ViewType))
         {
             Rebuild(view);
         }
 
         // 输入反馈（红框 / 就地结果 / 日志角落）不在这里：它属于内容区，
-        // 由表面在每帧刷新时按 `ISurfaceFeedbackSink` 分派。
+        // 由控件库在每帧刷新时按各自的控件分派。
 
         OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(IsPlaceholder));
@@ -408,12 +388,6 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
     /// <summary>导出当前几何（保存/提交用）。</summary>
     public ModuleLayoutView ToLayout() => new(InstanceId, X, Y, Width, Height, IsViewVisible);
-
-    /// <summary>提交一个字段的写回（返回是否成功；失败原因由返回消息带回）。</summary>
-    /// <param name="fieldName">字段名。</param>
-    /// <param name="value">文本值。</param>
-    public CommandResult ApplyConfigurationField(string fieldName, string value) =>
-        _command.UpdateConfigurationField(InstanceId, fieldName, value);
 
     private void ApplyState(string state)
     {
@@ -439,74 +413,114 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsEnabled));
     }
 
-    /// <summary>
-    /// 模块内容**根**（声明树路径 <c>v</c>）—— 声明面里的根节点；<see langword="null"/> = 这个实例没有任何声明
-    /// （整份被忽略 / 无声明文件），此时渲染面**不补任何缺省**。
-    /// </summary>
-    /// <remarks>布局是**加载时的一次性声明**：随实例的视图声明一起来，模块运行期不提供在线的排布调整。</remarks>
-    public ViewNode? RootLayout { get; private set; }
 
     private void Rebuild(ModuleInstanceView view)
     {
-        // 声明树换了 ⇒ 旧表面整块作废（它的排布树、控件缓存、状态都绑在旧声明上）。
-        Surface = null;
+        // 模块自带的视图也一起作废（它绑的是同一个实例的上下文）。
+        _view = null;
+        _viewContext = null;
+        ViewType = view.ViewType;
+        OnPropertyChanged(nameof(ViewType));
+        OnPropertyChanged(nameof(HasModuleView));
+
+        // 内容宿主监听的是 `ModuleView`：换了视图类型必须让它重新 `EnsureView`，
+        // 否则窗口还挂着上一个工厂造的控件树（看似"改了模块没生效"）。
+        OnPropertyChanged(nameof(ModuleView));
 
         SyncPorts(view);
 
-        // 声明面：整个实例的根节点（框架只渲染第一个视图）+ 它引用的数据源声明。
-        // 每个节点的尺寸/位置/排布键都随节点一起来（**没有第二份布局**）。
-        var document = view.View;
-        var definition = document?.Views.Count > 0 ? document.Views[0] : null;
-        RootLayout = definition?.Root;
-
-        OnPropertyChanged(nameof(RootLayout));
-
-        // **每个模块实例都有一个窗口**：声明了视图就按声明渲染；
-        // 未声明视图的模块也照常开窗（至少显示模块名行），不引入"无界面模块"这一例外概念。
+        // **每个模块实例都有一个窗口**：声明了视图工厂就按它渲染；没有视图工厂的模块也照常开窗
+        // （至少显示模块名行），不引入"无界面模块"这一例外概念。
         //
-        // **窗口尺寸不由内容计算**：默认尺寸来自**声明面**（包内 `view.json` 的 `frame.window`，
-        // 缺省由 schema 补齐），内容排不下时由内容区的 ScrollViewer 滚动 —— 代码里不按
-        // "元素类型 → 高度表"估算尺寸（那样等于把布局写死在代码里，模块作者无法在声明文件里调整）。
-        //
-        // 表面在这里**不构造**（见 EnsureSurface）：隐藏的窗口不该为"声明树 → 控件树"付钱。
-        Surface = null;
-
-        OnPropertyChanged(nameof(Surface));
+        // **窗口尺寸不由内容计算**：默认尺寸来自模块的 `[ModuleDefinition]`，内容排不下时由内容区滚动。
     }
 
-    /// <summary>新的模块内容表面（声明树 → 控件树）；没有声明视图 ⇒ <see langword="null"/>。</summary>
-    /// <remarks>
-    /// 由内容区在第一次渲染时构造一次（<see cref="EnsureSurface"/>）；<see cref="Rebuild"/> 会把它丢掉，
-    /// 因为排布树与控件缓存都绑在旧声明上。
-    /// </remarks>
-    public ModuleSurfaceHost? Surface { get; private set; }
 
-    /// <summary>取表面；没有就按当前声明建一个（幂等）。</summary>
-    /// <returns>表面；没有声明视图 ⇒ <see langword="null"/>。</returns>
-    public ModuleSurfaceHost? EnsureSurface()
+    /// <summary>模块自带的视图宿主（没有自带视图 ⇒ <see langword="null"/>）。</summary>
+    private ModuleViewHost? _view;
+
+    /// <summary>模块视图的上下文（每个实例一份；视图重建时一起换）。</summary>
+    private ModuleViewContext? _viewContext;
+
+
+    /// <summary>
+    /// 本实例的**视图工厂类型**（模块自带视图）；<see langword="null"/> = 这个模块没有自绘界面。
+    /// </summary>
+    public Type? ViewType { get; private set; }
+
+    /// <summary>这个实例是否有模块自带的视图。</summary>
+    public bool HasModuleView => ViewType is not null;
+
+    /// <summary>取模块自带的视图宿主；没有就建一个（幂等）。</summary>
+    /// <returns>视图宿主；这个模块没有自带视图 ⇒ <see langword="null"/>。</returns>
+    /// <remarks>
+    /// <para>
+    /// 视图**每个实例造一次**：它绑的是这个实例的上下文（取数、命令、配置、外观），
+    /// 换实例必须换视图。构造失败**不让窗口崩**：给一块写明原因的内容 + 一条 Issue。
+    /// </para>
+    /// <para>
+    /// 它**不在这里刷新**（见 <see cref="RefreshView"/>）：隐藏的窗口不该为刷新付钱。
+    /// </para>
+    /// </remarks>
+    public ModuleViewHost? EnsureView()
     {
-        if (Surface is null && RootLayout is { } root)
+        if (_view is not null || ViewType is null)
         {
-            // 提交键传**取值函数**：设置改了控件下次按键就取到新值，不必重建控件树。
-            Surface = new ModuleSurfaceHost(
-                InstanceId,
-                root,
-                _query,
-                _command,
-                _viewState,
-                () => MultilineSubmitKey);
-            OnPropertyChanged(nameof(Surface));
+            return _view;
         }
 
-        return Surface;
+        _viewContext ??= new ModuleViewContext(
+            InstanceId,
+            _query,
+            _command,
+            _viewState,
+            () => MultilineSubmitKey);
+
+        try
+        {
+            var control = Activator.CreateInstance(ViewType) is IModuleViewFactory factory
+                ? factory.Create(_viewContext)
+                : BuildViewFailure($"视图工厂 {ViewType.Name} 没有实现 IModuleViewFactory");
+
+            _view = new ModuleViewHost(_viewContext, control);
+        }
+        catch (Exception ex)
+        {
+            _view = new ModuleViewHost(
+                _viewContext,
+                BuildViewFailure($"界面构造失败：{ex.GetType().Name} — {ex.Message}"));
+        }
+
+        OnPropertyChanged(nameof(ModuleView));
+        return _view;
     }
 
-    /// <summary>驱动一次表面刷新（取数 + 就地更新）。框架每帧调一次。</summary>
-    public void RefreshSurface() => Surface?.Refresh();
+    /// <summary>当前模块自带的视图宿主（没有 ⇒ <see langword="null"/>）。</summary>
+    public ModuleViewHost? ModuleView => _view;
 
-    /// <summary>告诉表面"这块缓冲被清空了"（提高世代号，让控件把过期副本整块换掉）。</summary>
-    /// <param name="sourceName">显示缓冲名。</param>
-    public void ForgetSurfaceBuffer(string sourceName) => Surface?.ForgetBuffer(sourceName);
+    /// <summary>驱动一次模块视图刷新（没有自带视图 ⇒ 什么都不做）。</summary>
+    public void RefreshView()
+    {
+        if (_view is { } view)
+        {
+            // 每帧先刷新数据源快照，再让视图读它（数据源视图对象是每帧重建的）。
+            _viewContext?.BeginFrame();
+            view.Refresh();
+        }
+    }
+
+    /// <summary>造一块"这个模块的界面没起来"的说明（**窗口不崩**，原因写清楚）。</summary>
+    /// <param name="reason">一句话原因。</param>
+    private static TextBlock BuildViewFailure(string reason) => new()
+    {
+        Text = reason,
+        TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+        Margin = new Thickness(8),
+    };
+
+    /// <summary>驱动一次表面刷新（取数 + 就地更新）。框架每帧调一次。</summary>
+    public void RefreshSurface() => RefreshView();
+
 
     /// <summary>
     /// 同步口标记的**身份与几何**（口名/方向/标签/锚点位置/类型）——**不写任何"当前状态"**。
@@ -568,4 +582,3 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     }
 
 }
-

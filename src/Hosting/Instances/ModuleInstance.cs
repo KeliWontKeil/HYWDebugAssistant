@@ -1,7 +1,6 @@
 using HYWDebugAssistant.Hosting.Registry;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Lifecycle;
-using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Hosting.Instances;
 
@@ -27,7 +26,9 @@ public sealed class ModuleInstance
         IReadOnlyList<DataTypeDeclaration> dataTypes,
         IReadOnlyList<Sdk.Contracts.RoleDeclaration> roles,
         IReadOnlyList<Sdk.Ports.FlowDeclaration> flows,
-        ViewDocument view,
+        IReadOnlyList<Sdk.Views.DisplaySourceDeclaration> displaySources,
+        IReadOnlyList<string> inputs,
+        IReadOnlyList<(string Name, string Title)> commands,
         Context.ModuleContext context)
     {
         InstanceId = instanceId;
@@ -37,7 +38,9 @@ public sealed class ModuleInstance
         DataTypes = dataTypes;
         Roles = roles;
         Flows = flows;
-        View = view;
+        DisplaySources = displaySources;
+        Inputs = inputs;
+        Commands = commands;
         Context = context;
 
         // 机械镜像：按（标识, 版本）索引，供口/数据源的引用解析（同键重复时以**先声明者**为准，重复已由工厂报 Issue）
@@ -82,14 +85,25 @@ public sealed class ModuleInstance
     public IReadOnlyList<Sdk.Ports.FlowDeclaration> Flows { get; }
 
     /// <summary>
-    /// 该实例的视图声明（包内 <c>view.json</c> 的解析结果）——**界面形态的唯一事实源**。
+    /// 该实例声明的**显示源**（框架据此建订阅缓冲；界面按名字读）。
     /// </summary>
     /// <remarks>
-    /// **非空**：没有声明文件时 = 全 schema 缺省（含默认窗口尺寸与地板），整份被忽略（硬伤）时 =
-    /// <see cref="ViewDocument.Fallback"/>（没有任何控件，但**窗口尺寸取框架地板**，与"无 UI 模块"在呈现上等价）。
-    /// 默认值不在这里，全部由框架 schema 解出后落进本对象。
+    /// 未在此登记的名字被写入时丢弃并只提示一次 —— 于是"声明漏了一条"表现为
+    /// **一条明确的提示**，而不是"界面永远空白"。
     /// </remarks>
-    public ViewDocument View { get; }
+    public IReadOnlyList<Sdk.Views.DisplaySourceDeclaration> DisplaySources { get; }
+
+    /// <summary>该实例声明的**输入源名**（提交闸门：未登记的名字拒收并报 Issue）。</summary>
+    public IReadOnlyList<string> Inputs { get; }
+
+    /// <summary>该实例声明的**命令**（名字 + 诊断用标题；触发闸门据此判定）。</summary>
+    public IReadOnlyList<(string Name, string Title)> Commands { get; }
+
+    /// <summary>
+    /// 本实例的**视图工厂类型**（模块自带视图）；<see langword="null"/> = 无自绘界面（窗口只显示身份与状态）。
+    /// </summary>
+    public Type? ViewType => Definition.ViewFactory;
+
 
     /// <summary>
     /// 该实例的模块上下文（框架侧使用：L4 运行时要接入真实投递面、取接收处理、置停止信号）。

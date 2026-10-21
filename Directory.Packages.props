@@ -34,6 +34,11 @@
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
   </ItemGroup>
 
+  <ItemGroup Label="外部接入（模块侧）">
+    <!-- 串口访问：MIT（.NET 平台扩展）；版本与运行时大版本一致 -->
+    <PackageVersion Include="System.IO.Ports" Version="10.0.2" />
+  </ItemGroup>
+
   <ItemGroup Label="测试">
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageVersion Include="xunit" Version="2.9.3" />

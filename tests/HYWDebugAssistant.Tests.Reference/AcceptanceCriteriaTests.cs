@@ -77,12 +77,15 @@ public class AcceptanceCriteriaTests
                 $"{assembly} 不得引用模块程序集（模块是新增物，框架不认识它）");
         }
 
-        // ② 四个正式模块自身只引 SDK（AR-1 在真实模块上的复核）
+        // ② 四个正式模块只引 SDK + 界面契约（AR-1 在真实模块上的复核）：
+        //    模块自带 XAML 视图后，Avalonia 控件与视图契约住在 `Sdk.Ui`，它是模块允许的第二个程序集。
         foreach (var module in BusinessModules)
         {
             var references = ReadAssemblyReferences($"HYWDebugAssistant.Modules.{module}");
             references.Where(r => r.StartsWith("HYWDebugAssistant.", StringComparison.Ordinal))
-                .ShouldBe(["HYWDebugAssistant.Sdk"], $"{module} 只允许引用 Sdk");
+                .ShouldBe(
+                    ["HYWDebugAssistant.Sdk", "HYWDebugAssistant.Sdk.Ui"],
+                    $"{module} 只允许引用 Sdk 与 Sdk.Ui");
         }
 
         // ③ 装包 → 加入 → 建网 → 数据流：**一个源、两个下游**（1:N 多播）
@@ -453,6 +456,7 @@ public class AcceptanceCriteriaTests
         public void OnRegistered(IModuleContext context)
         {
             context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape));
+            context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration("value", ViewDataSourceKind.Value, ContractPrimitive.F32));
         }
 
         public void RunActivity(IModuleContext context)
@@ -533,6 +537,7 @@ public class AcceptanceCriteriaTests
         public void OnRegistered(IModuleContext context)
         {
             context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape));
+            context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(ValueSource, ViewDataSourceKind.Value, ContractPrimitive.U32));
         }
 
         public void RunActivity(IModuleContext context)

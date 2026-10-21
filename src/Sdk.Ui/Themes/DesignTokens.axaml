@@ -1,0 +1,42 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    **设计时兜底 token**：只在 XAML 预览器里由 `ModuleView` 合并。
+    运行时应用有自己的 `Ui/Styles/Tokens.axaml`（唯一色源），不会加载这一份。
+    这里的目的不是"第二套主题"，而是让预览器在**没有启动 App**时也能把控件模板画出来；
+    值取浅色主题的同值，仅供预览。
+  -->
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="TextPrimary" Color="#18181B" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="TextSecondary" Color="#52525B" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="TextMuted" Color="#A1A1AA" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="BgModule" Color="#FFFFFF" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="BorderDefault" Color="#D4D4D8" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="BorderStrong" Color="#A1A1AA" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="AccentPrimary" Color="#2563EB" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="SemanticOk" Color="#16A34A" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="SemanticWarn" Color="#D97706" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="SemanticError" Color="#EF4444" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="SemanticIdle" Color="#9CA3AF" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="SurfaceToggleTrackOffBrush" Color="#E4E4E7" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="SurfaceToggleTrackOffHoverBrush" Color="#D4D4D8" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="SurfaceToggleKnobBrush" Color="#FFFFFF" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="SurfaceToggleKnobEdgeBrush" Color="#D4D4D8" />
+  <FontFamily x:Key="FontData">Consolas, Cascadia Mono</FontFamily>
+</ResourceDictionary>
+
