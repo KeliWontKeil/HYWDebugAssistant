@@ -55,6 +55,26 @@ function Test-ModulePackages {
 
         # 界面是模块自己的 XAML（编译进程序集），包目录里**不再有**任何界面声明文件：
         # 这里只校验包的身份清单与实现程序集。
+        #
+        # 外部接入的四个包必须自带 Access.dll（插件包不共享宿主目录里的程序集）；
+        # 串口包还必须带 System.IO.Ports 的平台实现分片，否则运行期会报"平台不支持"。
+        $externalAccessPackages = @('serial', 'tcp-client', 'tcp-server', 'udp')
+        if ($externalAccessPackages -contains $package.Name) {
+            $access = Join-Path $package.FullName 'HYWDebugAssistant.Access.dll'
+            if (-not (Test-Path $access)) {
+                throw "外部接入包缺少 Access 程序集：$($package.FullName)"
+            }
+        }
+
+        if ($package.Name -eq 'serial') {
+            if (-not (Test-Path (Join-Path $package.FullName 'System.IO.Ports.dll'))) {
+                throw "串口包缺少 System.IO.Ports.dll：$($package.FullName)"
+            }
+
+            if (-not (Test-Path (Join-Path $package.FullName 'runtimes'))) {
+                throw "串口包缺少平台实现分片（runtimes/）：$($package.FullName)"
+            }
+        }
     }
 
     Write-Host "[verify] $($packages.Count) 个模块包齐全：$Directory" -ForegroundColor Green

@@ -70,7 +70,8 @@ public sealed class ModuleCarrier : IDisposable
     private readonly ICarrierTarget _target;
     private readonly PooledPayloadBufferPool _pool;
     private readonly CarrierOptions _options;
-    private readonly SemaphoreSlim _dataAvailable = new(0);
+    /// <summary>二值"有活干"信号：口入队、会话就绪、命令/输入入队都投它（不累积计数）。</summary>
+    private readonly SemaphoreSlim _dataAvailable = new(0, 1);
     private readonly Thread _thread;
 
     /// <summary>接收口名 → 队列下标（构造后**不变**：口集合在实例激活时已定）。</summary>
@@ -139,6 +140,15 @@ public sealed class ModuleCarrier : IDisposable
 
     /// <summary>专属线程是否仍在运行。</summary>
     public bool IsRunning => _thread.IsAlive;
+
+    /// <summary>
+    /// 投一个"有活干"信号（命令/输入/会话就绪等辅助工作源使用）。
+    /// </summary>
+    /// <remarks>
+    /// 与口入队投的是**同一个**信号：实例循环醒来后自己判断该处理哪些工作源。
+    /// 二值信号：重复投递不会累积；已有未消费信号时静默合并。
+    /// </remarks>
+    public void SignalWork() => SignalDataAvailable();
 
     /// <summary>启动专属线程（进入 Active）。</summary>
     public void Start()
@@ -344,9 +354,25 @@ public sealed class ModuleCarrier : IDisposable
     {
         while (!_stopRequested)
         {
-            if (TryDequeueAny(out var unit))
+            var didWork = false;
+
+            // 工作源 ②/③：外部接入会话 + 收件箱（没有活动体时由框架驱动）
+            if (_target.HasAuxiliaryWork)
+            {
+                didWork |= _target.PumpAuxiliary();
+            }
+
+            // 工作源 ①：口队列（现有逻辑；一次醒来尽量排空，避免每个单元都回等待）
+            while (TryDequeueAny(out var unit))
             {
                 Deliver(unit);
+                didWork = true;
+            }
+
+            if (didWork)
+            {
+                // 只提示"这一拍有工作"；状态/计量的唯一事实源仍是快照。
+                _target.NotifyWorkCompleted();
                 continue;
             }
 

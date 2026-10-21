@@ -1,3 +1,4 @@
+using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Lifecycle;
@@ -28,7 +29,8 @@ public sealed record ContractProbeResult(
     IReadOnlyList<string> Problems,
     IReadOnlyList<FlowDeclaration>? Flows = null,
     IReadOnlyList<RoleDeclaration>? Roles = null,
-    IReadOnlyList<string>? Advice = null)
+    IReadOnlyList<string>? Advice = null,
+    IReadOnlyList<ExternalAccessDeclaration>? ExternalAccesses = null)
 {
     /// <summary>契约是否合法。</summary>
     public bool IsValid => Problems.Count == 0;
@@ -41,6 +43,9 @@ public sealed record ContractProbeResult(
 
     /// <summary>**建议**（空 = 没有可说的）；**不影响 <see cref="IsValid"/>**。</summary>
     public IReadOnlyList<string> Advisories => Advice ?? [];
+
+    /// <summary>已声明的**外部接入**（按声明顺序）。</summary>
+    public IReadOnlyList<ExternalAccessDeclaration> DeclaredExternalAccesses => ExternalAccesses ?? [];
 }
 
 /// <summary>
@@ -94,6 +99,8 @@ public static class ModuleContract
         CheckDataTypes(probeContext.DeclaredDataTypes, probeContext.DeclaredPorts, problems);
         CheckRoles(probeContext.DeclaredRoles, probeContext.DeclaredPorts, probeContext.DeclaredDataTypes, problems, advice);
         CheckFlows(probeContext.DeclaredFlows, probeContext.DeclaredRoles, problems);
+        CheckExternalAccesses(probeContext.DeclaredExternalAccesses, problems);
+        CheckInteractionModes(entryType, advice);
         CheckConfiguration(entryType, problems);
 
         return new ContractProbeResult(
@@ -103,7 +110,8 @@ public static class ModuleContract
             problems,
             probeContext.DeclaredFlows,
             probeContext.DeclaredRoles,
-            advice);
+            advice,
+            probeContext.DeclaredExternalAccesses);
     }
 
     /// <summary>多个模块类型一次探测（返回全部**问题**）。</summary>
@@ -457,6 +465,77 @@ public static class ModuleContract
             {
                 problems.Add($"内部处理顺序重复声明：{flow}");
             }
+        }
+    }
+
+    /// <summary>
+    /// 校验**外部接入声明**：名字非空且唯一、适配件与参数类型可实例化、单元上限合法。
+    /// </summary>
+    /// <remarks>
+    /// 参数类型可以在模块程序集，也可以在模块引用的外部接入层里 ——
+    /// 这一项只按**声明给出的类型**校验，不扫描程序集。
+    /// </remarks>
+    private static void CheckExternalAccesses(
+        IReadOnlyList<ExternalAccessDeclaration> accesses,
+        List<string> problems)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var access in accesses)
+        {
+            if (string.IsNullOrWhiteSpace(access.Name))
+            {
+                problems.Add("外部接入的名字不能为空（名字是模块内唯一的接入身份）");
+                continue;
+            }
+
+            if (!names.Add(access.Name))
+            {
+                problems.Add($"外部接入名重复：'{access.Name}'（模块内唯一）");
+            }
+
+            if (access.Adapter is null)
+            {
+                problems.Add($"外部接入 '{access.Name}' 的适配件为空");
+                continue;
+            }
+
+            var parametersType = access.Adapter.ParametersType;
+            if (parametersType is null)
+            {
+                problems.Add($"外部接入 '{access.Name}' 的适配件未给出参数类型");
+            }
+            else if (!parametersType.IsClass || parametersType.IsAbstract || !parametersType.IsPublic)
+            {
+                problems.Add(
+                    $"外部接入 '{access.Name}' 的参数类型 {parametersType.Name} 必须是公开、非抽象的类");
+            }
+            else if (parametersType.GetConstructor(Type.EmptyTypes) is null)
+            {
+                problems.Add(
+                    $"外部接入 '{access.Name}' 的参数类型 {parametersType.Name} 缺少公共无参构造函数（框架按 class + new() 登记配置）");
+            }
+
+            if (access.MaxUnitBytes <= 0)
+            {
+                problems.Add($"外部接入 '{access.Name}' 的单元上限必须大于 0（当前 {access.MaxUnitBytes}）");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 检查两种消费方式是否同时存在：活动体优先、交互回调不会投递。
+    /// </summary>
+    /// <remarks>
+    /// 这是**建议**不是问题：框架能跑（活动体赢），但模块作者应当知道另一半代码永远不会被调用。
+    /// </remarks>
+    private static void CheckInteractionModes(Type entryType, List<string> advice)
+    {
+        if (typeof(IActivitySource).IsAssignableFrom(entryType)
+            && typeof(IModuleInteractionSink).IsAssignableFrom(entryType))
+        {
+            advice.Add(
+                "模块同时实现 IActivitySource 与 IModuleInteractionSink：运行时活动体优先，交互回调不会投递；请只选一种消费方式");
         }
     }
 

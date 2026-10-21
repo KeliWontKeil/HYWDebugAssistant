@@ -6,7 +6,9 @@ using HYWDebugAssistant.Core.Composition;
 using HYWDebugAssistant.Core.Issues;
 using HYWDebugAssistant.Core.Services;
 using HYWDebugAssistant.Core.Workspace;
+using HYWDebugAssistant.DataPlane.Access;
 using HYWDebugAssistant.DataPlane.Carriers;
+using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.DataPlane.Queues;
 using HYWDebugAssistant.Hosting.Context;
 using HYWDebugAssistant.Hosting.Instances;
@@ -37,6 +39,7 @@ public sealed partial class ModuleRuntime : IDisposable
 {
     private readonly Lock _changeGate = new();
     private readonly Dictionary<string, ModuleCarrierAdapter> _adapters = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, RuntimeExternalAccess> _accesses = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Views.SubscriptionSet> _subscriptions = new(StringComparer.Ordinal);
     private readonly ModuleLifecycleController _lifecycle;
 
@@ -57,6 +60,11 @@ public sealed partial class ModuleRuntime : IDisposable
     {
         Issues = issues ?? new IssueCenter();
         Carriers = new CarrierHost(options: carrierOptions);
+        ExternalAccessHost = new ExternalAccessHost(carrierOptions);
+        ExternalAccessHost.SignalResolver = instanceId =>
+            Carriers.TryGet(instanceId, out var carrier) && carrier is not null
+                ? carrier.SignalWork
+                : null;
         Content = new WorkspaceContent();
         _lifecycle = new ModuleLifecycleController(Issues);
         ViewState = viewState;
@@ -84,6 +92,9 @@ public sealed partial class ModuleRuntime : IDisposable
 
     /// <summary>数据面宿主（承载者与缓冲池）。</summary>
     public CarrierHost Carriers { get; }
+
+    /// <summary>外部接入宿主（会话、队列、状态；与承载者共用 <see cref="CarrierOptions"/>）。</summary>
+    public ExternalAccessHost ExternalAccessHost { get; }
 
     /// <summary>当前工作现场内容（实例 + 网络）。</summary>
     public WorkspaceContent Content { get; }
@@ -461,6 +472,13 @@ public sealed partial class ModuleRuntime : IDisposable
                 instance.InstanceId, instance.DisplaySources);
             instance.Context.AttachDataPlane(new RuntimePortAccess(this, instance.InstanceId, instance.Context));
 
+            // 外部接入必须在承载启动前挂上：实例循环的第一拍就会用到它。
+            var runtimeAccess = AttachExternalAccess(instance);
+            if (runtimeAccess is not null)
+            {
+                _accesses[instance.InstanceId] = runtimeAccess;
+            }
+
             if (!Carriers.TryActivate(adapter, out _, out var failure))
             {
                 Issues.Report($"module:{instance.InstanceId}", new IssueReport(
@@ -524,6 +542,7 @@ public sealed partial class ModuleRuntime : IDisposable
             if (Content.TryGetInstance(instanceId, out var commandInstance) && commandInstance is not null)
             {
                 commandInstance.Context.EnqueueCommand(commandName);
+                SignalCarrier(instanceId);
 
                 var title = CommandTitle(commandInstance, commandName) ?? commandName;
                 notices.Add($"已投递命令「{title}」→ {commandInstance.Definition.DisplayName}");
@@ -535,6 +554,7 @@ public sealed partial class ModuleRuntime : IDisposable
             if (Content.TryGetInstance(instanceId, out var inputInstance) && inputInstance is not null)
             {
                 inputInstance.Context.EnqueueInput(source, text);
+                SignalCarrier(instanceId);
                 notices.Add($"已写入输入「{source}」= {text} → {inputInstance.Definition.DisplayName}");
             }
         }
@@ -881,6 +901,56 @@ public sealed partial class ModuleRuntime : IDisposable
         while (!ReferenceEquals(Interlocked.CompareExchange(ref _bindings, updated, current), current));
     }
 
+    /// <summary>
+    /// 为实例创建并挂上外部接入存取面（没有声明时返回 <see langword="null"/>）。
+    /// </summary>
+    /// <remarks>
+    /// 必须在承载启动**之前**调用：实例循环的第一拍就可能用到它。参数对象按声明类型从当前配置快照取，
+    /// 因此配置改完之后的重开会自动拿到新值。
+    /// </remarks>
+    private RuntimeExternalAccess? AttachExternalAccess(Hosting.Instances.ModuleInstance instance)
+    {
+        if (instance.ExternalAccesses.Count == 0)
+        {
+            return null;
+        }
+
+        var access = new RuntimeExternalAccess(ExternalAccessHost, instance.InstanceId, Issues);
+
+        object? ParametersOf(ExternalAccessDeclaration declaration)
+        {
+            var typeName = declaration.ParametersType.FullName;
+            return typeName is not null
+                && instance.Context.ConfigurationSnapshot.TryGetValue(typeName, out var parameters)
+                    ? parameters
+                    : null;
+        }
+
+        if (!ExternalAccessHost.TryActivate(
+                instance.InstanceId,
+                instance.ExternalAccesses,
+                ParametersOf,
+                out var failure))
+        {
+            Issues.Report($"module:{instance.InstanceId}", new IssueReport(
+                IssueCategory.RuntimeError,
+                IssueSeverity.Error,
+                $"外部接入初始化失败：{failure}（该实例继续以未接线状态运行）"));
+            return null;
+        }
+
+        instance.Context.AttachAccess(access);
+        return access;
+    }
+
+    private void SignalCarrier(string instanceId)
+    {
+        if (Carriers.TryGet(instanceId, out var carrier) && carrier is not null)
+        {
+            carrier.SignalWork();
+        }
+    }
+
     private void ApplyEnabled(string instanceId, bool enabled)
     {
         if (!Content.TryGetInstance(instanceId, out var instance) || instance is null)
@@ -897,8 +967,13 @@ public sealed partial class ModuleRuntime : IDisposable
             _lifecycle.Disable(instance);
         }
 
-        // Disabled = 保留实例/拓扑/配置、**暂停数据流**（绑定保留，只停流）
+        // Disabled = 保留实例/拓扑/配置、**暂停数据流**（绑定保留，只停流；会话关闭但保留意图）
         SetSuspended(instanceId, suspended: !enabled);
+
+        if (_accesses.TryGetValue(instanceId, out var access))
+        {
+            access.SetSuspended(!enabled);
+        }
     }
 
     /// <summary>置某实例相关绑定为停流 / 恢复（禁用与加载降级态共用同一语义）。</summary>
@@ -939,6 +1014,7 @@ public sealed partial class ModuleRuntime : IDisposable
         if (notify)
         {
             _lifecycle.NotifyConfigurationChanged(instance);
+            NotifyAccessConfigurationChanged(instanceId);
         }
     }
 
@@ -948,6 +1024,15 @@ public sealed partial class ModuleRuntime : IDisposable
         if (Content.TryGetInstance(instanceId, out var instance) && instance is not null)
         {
             _lifecycle.NotifyConfigurationChanged(instance);
+            NotifyAccessConfigurationChanged(instanceId);
+        }
+    }
+
+    private void NotifyAccessConfigurationChanged(string instanceId)
+    {
+        if (_accesses.TryGetValue(instanceId, out var access))
+        {
+            access.NotifyConfigurationChanged();
         }
     }
 
@@ -990,6 +1075,19 @@ public sealed partial class ModuleRuntime : IDisposable
                 "模块未在期限内停止活动：框架已放弃等待（线程成为孤儿），该实例的队列与缓冲不再归还池"));
         }
 
+        // 承载已停：宿主兜底关闭会话（模块循环通常已在停止信号里关过一次）。
+        if (ExternalAccessHost.TryDeactivate(instanceId, out var accessFailures))
+        {
+            foreach (var failure in accessFailures)
+            {
+                Issues.Report($"module:{instanceId}", new IssueReport(
+                    IssueCategory.CommunicationError,
+                    IssueSeverity.Error,
+                    $"外部接入「{failure.AccessName}」：{failure.Message}"));
+            }
+        }
+
+        _accesses.Remove(instanceId);
         _lifecycle.Remove(instance);
         _adapters.Remove(instanceId);
         _ = _subscriptions.Remove(instanceId);
@@ -1194,6 +1292,7 @@ public sealed partial class ModuleRuntime : IDisposable
         }
 
         _disposed = true;
+        ExternalAccessHost.Dispose();
         Carriers.Dispose();
     }
 

@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using HYWDebugAssistant.Sdk.Configuration;
 
-namespace HYWDebugAssistant.Modules.Udp;
+namespace HYWDebugAssistant.Access.Parameters;
 
 /// <summary>
 /// **UDP 参数**（随组合件保存的实例参数）。

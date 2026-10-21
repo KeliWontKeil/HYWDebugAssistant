@@ -1,9 +1,7 @@
+using HYWDebugAssistant.Access;
+using HYWDebugAssistant.Access.Adapters;
 using HYWDebugAssistant.Sdk;
-using HYWDebugAssistant.Sdk.Contracts;
-using HYWDebugAssistant.Sdk.Context;
-using HYWDebugAssistant.Sdk.Lifecycle;
-using HYWDebugAssistant.Sdk.Ports;
-using HYWDebugAssistant.Sdk.Views;
+using HYWDebugAssistant.Sdk.Access;
 
 namespace HYWDebugAssistant.Modules.Udp;
 
@@ -13,9 +11,9 @@ namespace HYWDebugAssistant.Modules.Udp;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>本版只有形态</b>：声明（类型 / 口 / 角色 / 界面契约）+ 配置；**没有 IO 逻辑**；</item>
 ///   <item><b>绑定 = 一个会话</b>：UDP 无连接 ⇒ 会话里没有"连接状态"，只有"绑定没绑定"；</item>
-///   <item><b>契约沿用原始字节</b>：与既有模块同一标识同一形状才开箱即连。</item>
+///   <item>一次接收 = 一个数据报；超过单元容量的部分被截断并计数；</item>
+///   <item><b>不自动重试</b>：绑定失败/解绑后用户再次〔绑定〕。</item>
 /// </list>
 /// </remarks>
 [ModuleDefinition(
@@ -32,9 +30,10 @@ namespace HYWDebugAssistant.Modules.Udp;
     MinWidth = 400,
     MinHeight = 190,
     ViewFactory = typeof(Views.UdpViewFactory))]
-public sealed class UdpModule : IModule
+public sealed class UdpModule : ExternalAccessModule
 {
-    // ---------------------------------------------------------------- ① 标识与常量
+    /// <summary>接入名（模块内唯一）。</summary>
+    public const string AccessName = "udp";
 
     /// <summary>**发送口**（本模块是源）：收到的数据报。</summary>
     public const string RxPort = "rx";
@@ -66,73 +65,39 @@ public sealed class UdpModule : IModule
     /// <summary>命令：解绑。</summary>
     public const string CloseCommand = "close";
 
-    /// <summary>数据类型标识 —— 与既有模块逐字相同。</summary>
-    public const string RawBytesTypeId = "RawBytes";
-
-    /// <summary>数据类型版本。</summary>
-    public const int RawBytesVersion = 1;
-
-    /// <summary>单个数据单元的字节区容量。</summary>
-    public const int Capacity = 1472;
-
-    /// <summary><c>RawBytes@v1</c> 的契约形状。</summary>
-    public static ContractShape RawBytesShape { get; } = ContractShape.OfStruct(
-        ("len", ContractShape.OfPrimitive(ContractPrimitive.U16)),
-        ("data", ContractShape.OfBytes(Capacity)));
-
-    // ---------------------------------------------------------------- ② 声明块
+    /// <inheritdoc />
+    protected override AccessModuleSpec Spec { get; } = new(
+        AccessName,
+        RxPort,
+        TxPort,
+        RoleId,
+        "数据报",
+        LinkSource,
+        StateSource,
+        RxCountSource,
+        TxCountSource,
+        DropCountSource,
+        OpenCommand,
+        "绑定",
+        CloseCommand,
+        "解绑");
 
     /// <inheritdoc />
-    public void OnRegistered(IModuleContext context)
+    protected override IExternalAccessAdapter CreateAdapter() => new UdpAccessAdapter();
+
+    /// <inheritdoc />
+    protected override string Describe(ExternalAccessSnapshot snapshot) => snapshot.State switch
     {
-        ArgumentNullException.ThrowIfNull(context);
-
-        _ = context.Configuration.Read<UdpConfig>();
-
-        context.Declaration.DeclareDataType(new DataTypeDeclaration(
-            RawBytesTypeId,
-            RawBytesVersion,
-            RawBytesShape)
-        {
-            Metering = new MeteringBlock { PayloadLengthField = "len" },
-        });
-
-        context.Declaration.DeclarePort(new PortDeclaration(RxPort, PortDirection.Send, RawBytesShape)
-        {
-            Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
-            Edge = PortEdge.Bottom,
-        });
-
-        context.Declaration.DeclarePort(new PortDeclaration(TxPort, PortDirection.Receive, RawBytesShape)
-        {
-            Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
-            Edge = PortEdge.Top,
-        });
-
-        context.Declaration.DeclareRole(RoleDeclaration.Both(
-            RoleId,
-            new DataTypeRef(RawBytesTypeId, RawBytesVersion),
-            TxPort,
-            RxPort,
-            "通道"));
-
-        DeclareUi(context);
-    }
-
-    /// <summary>界面契约（显示源 / 命令）。</summary>
-    private static void DeclareUi(IModuleContext context)
-    {
-        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(LinkSource, ViewDataSourceKind.Text));
-        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(StateSource, ViewDataSourceKind.Text));
-        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(RxCountSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
-        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(TxCountSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
-        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(DropCountSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
-
-        context.Declaration.DeclareCommand(OpenCommand, "绑定");
-        context.Declaration.DeclareCommand(CloseCommand, "解绑");
-    }
-
-    // ---------------------------------------------------------------- ③ 钩子块 / ④ 接线与业务
-
-    // 本版不实现任何钩子与业务：绑定、收数据报、发数据报都在 P4（外部接入接线）。
+        ExternalAccessState.Open => string.IsNullOrWhiteSpace(snapshot.Detail)
+            ? "已绑定"
+            : $"已绑定 {snapshot.Detail}",
+        ExternalAccessState.Opening => string.IsNullOrWhiteSpace(snapshot.Detail)
+            ? "正在绑定…"
+            : $"正在绑定 {snapshot.Detail}",
+        ExternalAccessState.Closing => "正在解绑…",
+        ExternalAccessState.Faulted => string.IsNullOrWhiteSpace(snapshot.LastError)
+            ? "绑定失败"
+            : snapshot.LastError,
+        _ => snapshot.Suspended ? "实例已停用" : "未绑定",
+    };
 }

@@ -28,6 +28,24 @@ public interface ICarrierTarget
     /// <summary>是否实现自发活动（<c>IActivitySource</c>）——决定承载模式。</summary>
     bool HasActivity { get; }
 
+    /// <summary>
+    /// 无活动体时，是否有"口队列之外"的辅助工作源（外部接入会话 / 命令输入收件箱）。
+    /// </summary>
+    /// <remarks>有活动体时恒为 <see langword="false"/>：实例线程归活动体，框架不投递辅助工作。</remarks>
+    bool HasAuxiliaryWork => false;
+
+    /// <summary>
+    /// 推进辅助工作源（应用会话开关、把就绪数据取进队列、把命令/输入交给模块回调）。
+    /// </summary>
+    /// <returns>这一拍是否做了工作。</returns>
+    /// <remarks>仅在没有活动体时由承载者的投递循环调用；实现必须非阻塞或只有有界等待。</remarks>
+    bool PumpAuxiliary() => false;
+
+    /// <summary>本拍工作处理完（用于模块侧的 <c>OnWork</c>；只提示去读快照，不携带状态值）。</summary>
+    void NotifyWorkCompleted()
+    {
+    }
+
     /// <summary>运行模块活动体（由承载者在**该实例的专属线程**上调用；实现内部可阻塞）。</summary>
     void RunActivity();
 

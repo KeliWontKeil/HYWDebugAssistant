@@ -21,6 +21,7 @@ public class ArchitectureRulesTests
 {
     private const string SdkName = "HYWDebugAssistant.Sdk";
     private const string SdkUiName = "HYWDebugAssistant.Sdk.Ui";
+    private const string AccessName = "HYWDebugAssistant.Access";
     private const string ModulesPrefix = "HYWDebugAssistant.Modules.";
 
     /// <summary>AR-3~AR-11：各框架程序集**允许直接引用**的框架内程序集（穷举）。</summary>
@@ -31,6 +32,8 @@ public class ArchitectureRulesTests
         [SdkUiName] = [SdkName],
         // SDK 测试套件（T6）：与 Sdk 同源的零框架依赖（模块作者在自己的测试项目里引用它）
         ["HYWDebugAssistant.Sdk.Testing"] = [SdkName],
+        // 外部接入层（**模块侧**，不是框架件）：只依赖契约层；框架程序集不得引用它（AR-3/AR-12 精神）
+        [AccessName] = [SdkName],
         ["HYWDebugAssistant.Infrastructure"] = [],                                          // AR-10：不引框架程序集
         ["HYWDebugAssistant.Hosting"] = [SdkName, "HYWDebugAssistant.Infrastructure"],       // AR-4
         ["HYWDebugAssistant.DataPlane"] = [SdkName, "HYWDebugAssistant.Infrastructure"],     // AR-3：不得反向依赖 L2/L4/L5
@@ -76,7 +79,11 @@ public class ArchitectureRulesTests
         new(@"^\s*using\s+(?:static\s+)?([A-Za-z_][\w\.]*)\s*;", RegexOptions.Multiline);
 
     private static readonly Regex ProjectRefRegex =
-        new(@"<ProjectReference\s+Include=""(?<path>[^""]+)""", RegexOptions.IgnoreCase);
+        new(@"<ProjectReference\b(?<attrs>[^>]*)>", RegexOptions.IgnoreCase);
+
+    /// <summary>从 ProjectReference 的属性串里取 Include 路径。</summary>
+    private static readonly Regex ProjectRefIncludeRegex =
+        new(@"Include=""(?<path>[^""]+)""", RegexOptions.IgnoreCase);
 
     // ---------------------------------------------------------------- 基础设施
 
@@ -182,6 +189,8 @@ public class ArchitectureRulesTests
             SdkUiName,
             // T6 契约测试套件（M1-12 加入；与 Sdk 同源的零框架依赖，供模块作者在自己的测试项目里引用）
             "HYWDebugAssistant.Sdk.Testing",
+            // 外部接入层（模块侧实现：适配件 + 参数 + 共用骨架）；不是框架层
+            AccessName,
             "HYWDebugAssistant.Infrastructure", "HYWDebugAssistant.Hosting",
             "HYWDebugAssistant.DataPlane", "HYWDebugAssistant.Core", "HYWDebugAssistant.Core.Api",
             "HYWDebugAssistant.Ui", "HYWDebugAssistant.FrameworkUi", "HYWDebugAssistant.App",
@@ -214,10 +223,11 @@ public class ArchitectureRulesTests
             foreach (var reference in ReferencedAssemblies(module.DllPath).Where(IsFrameworkOrModule))
             {
                 if (!string.Equals(reference, SdkName, StringComparison.Ordinal)
-                    && !string.Equals(reference, SdkUiName, StringComparison.Ordinal))
+                    && !string.Equals(reference, SdkUiName, StringComparison.Ordinal)
+                    && !string.Equals(reference, AccessName, StringComparison.Ordinal))
                 {
                     violations.Add(
-                        $"{module.ProjectName} 引用了 {reference}；模块**只允许**引用 {SdkName} / {SdkUiName}（AR-1），" +
+                        $"{module.ProjectName} 引用了 {reference}；模块**只允许**引用 {SdkName} / {SdkUiName} / {AccessName}（AR-1），" +
                         "模块之间不得互相引用（AR-2 / P12）");
                 }
             }
@@ -278,7 +288,8 @@ public class ArchitectureRulesTests
             string[]? allowed;
             if (projectName.StartsWith(ModulesPrefix, StringComparison.Ordinal))
             {
-                allowed = [SdkName, SdkUiName]; // AR-1 / AR-2（视图契约与控件库是第二个允许引用）
+                // AR-1 / AR-2：契约层 + 视图控件库 + 外部接入层（模块侧实现）
+                allowed = [SdkName, SdkUiName, AccessName];
             }
             else if (!AllowedFrameworkRefs.TryGetValue(projectName, out allowed))
             {
@@ -286,8 +297,15 @@ public class ArchitectureRulesTests
             }
 
             var references = ProjectRefRegex.Matches(File.ReadAllText(csproj))
-                .Select(m => Path.GetFileNameWithoutExtension(m.Groups["path"].Value.Replace('\\', Path.DirectorySeparatorChar)))
-                .Where(r => !string.Equals(r, projectName, StringComparison.Ordinal))
+                // `ReferenceOutputAssembly=false` 只表达**构建顺序**（例如应用要等模块包归拢后再镜像），
+                // 不产生程序集引用 ⇒ 不构成编译期依赖，AR-1~AR-12 的判定只看真实引用。
+                .Where(reference => !reference.Groups["attrs"].Value.Contains(
+                    "ReferenceOutputAssembly=\"false\"", StringComparison.OrdinalIgnoreCase))
+                .Select(reference => ProjectRefIncludeRegex.Match(reference.Groups["attrs"].Value))
+                .Where(include => include.Success)
+                .Select(include => Path.GetFileNameWithoutExtension(
+                    include.Groups["path"].Value.Replace('\\', Path.DirectorySeparatorChar)))
+                .Where(reference => !string.Equals(reference, projectName, StringComparison.Ordinal))
                 .ToList();
 
             foreach (var reference in references)

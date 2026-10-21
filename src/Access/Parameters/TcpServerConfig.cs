@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using HYWDebugAssistant.Sdk.Configuration;
 
-namespace HYWDebugAssistant.Modules.TcpServer;
+namespace HYWDebugAssistant.Access.Parameters;
 
 /// <summary>
 /// **TCP 服务端参数**（随组合件保存的实例参数）。

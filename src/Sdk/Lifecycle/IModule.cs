@@ -53,24 +53,29 @@ public interface IModule
     }
 }
 
-/// <summary>自发活动的形式（C3-2：可选接口 + **框架承载**）。</summary>
+/// <summary>自发活动的形式（可选接口 + **框架承载**；只用于非 IO 活动）。</summary>
 public enum ActivityKind
 {
     /// <summary>周期活动（框架按 <see cref="IActivitySource.Interval"/> 触发）。</summary>
     Periodic = 0,
 
-    /// <summary>事件驱动（由模块在收到投递/外部事件时自行推进，框架只给线程）。</summary>
+    /// <summary>事件驱动（由模块在收到投递时自行推进，框架只给线程）。</summary>
     EventDriven = 1,
 }
 
 /// <summary>
-/// 可选能力：模块需要**自发活动**时实现该接口（如数据源周期性采集）——C3-2。
+/// 可选能力：模块需要**非 IO 的周期活动**时实现该接口（如周期采样、定时发送、批处理）。
 /// </summary>
 /// <remarks>
-/// 框架为该实例分配专属线程并调用 <see cref="RunActivity"/>；
-/// 实现内部**可以阻塞、循环、做同步 IO**（Q4-5 允许阻塞），但必须响应
-/// <see cref="IModuleContext.StopSignal"/>（收到停止信号后尽快返回）。
-/// 模块**不得自建线程或定时器**（框架承担线程分配，模块只在该线程上做自发活动）。
+/// <para>
+/// 框架为该实例分配专属线程并调用 <see cref="RunActivity"/>；实现内部可以阻塞、循环，
+/// 但必须响应 <see cref="IModuleContext.StopSignal"/>（收到停止信号后尽快返回）。
+/// </para>
+/// <para>
+/// <b>外部 IO 不在这里</b>：串口 / TCP / UDP 等外部标准由外部接入的适配件实现，框架驱动会话；
+/// 模块不因外部 IO 建活动体。有活动体的模块在外部接入上走**读取面**，没有活动体的模块由框架回调投递。
+/// </para>
+/// <para>模块**不得自建线程或定时器**（框架承担线程分配，模块只在该线程上做自发活动）。</para>
 /// </remarks>
 public interface IActivitySource
 {

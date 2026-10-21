@@ -1,6 +1,6 @@
 using HYWDebugAssistant.Sdk.Configuration;
 
-namespace HYWDebugAssistant.Modules.TcpClient;
+namespace HYWDebugAssistant.Access.Parameters;
 
 /// <summary>
 /// **TCP 客户端参数**（随组合件保存的实例参数）。

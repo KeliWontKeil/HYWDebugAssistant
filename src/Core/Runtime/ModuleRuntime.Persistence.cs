@@ -346,6 +346,13 @@ public sealed partial class ModuleRuntime
             instance.InstanceId, instance.DisplaySources);
         instance.Context.AttachDataPlane(new RuntimePortAccess(this, instance.InstanceId, instance.Context));
 
+        // 外部接入必须在承载启动前挂上（加载路径与"加入现场"同口径）。
+        var runtimeAccess = AttachExternalAccess(instance);
+        if (runtimeAccess is not null)
+        {
+            _accesses[instance.InstanceId] = runtimeAccess;
+        }
+
         if (!Carriers.TryActivate(adapter, out _, out var failure))
         {
             Issues.Report($"module:{instance.InstanceId}", new IssueReport(
@@ -361,6 +368,11 @@ public sealed partial class ModuleRuntime
         if (!enabled)
         {
             _lifecycle.Disable(instance);
+
+            if (_accesses.TryGetValue(instance.InstanceId, out var access))
+            {
+                access.SetSuspended(true);
+            }
         }
     }
 
@@ -409,9 +421,17 @@ public sealed partial class ModuleRuntime
         }
     }
 
-    private static Type? ResolveConfigurationType(ModuleInstance instance, string typeName) =>
-        instance.Definition.EntryType.Assembly.GetType(typeName, throwOnError: false)
-        ?? Type.GetType(typeName, throwOnError: false);
+    private static Type? ResolveConfigurationType(ModuleInstance instance, string typeName)
+    {
+        // 适配件参数类型可能不在模块入口程序集：先按声明的参数类型逐字匹配。
+        var fromAccess = instance.ExternalAccesses
+            .Select(access => access.ParametersType)
+            .FirstOrDefault(type => string.Equals(type.FullName, typeName, StringComparison.Ordinal));
+
+        return fromAccess
+            ?? instance.Definition.EntryType.Assembly.GetType(typeName, throwOnError: false)
+            ?? Type.GetType(typeName, throwOnError: false);
+    }
 
     private void AddPlaceholder(CompositeInstanceRecord record, string reason)
     {

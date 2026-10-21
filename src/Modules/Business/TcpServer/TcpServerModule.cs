@@ -1,9 +1,7 @@
+using HYWDebugAssistant.Access;
+using HYWDebugAssistant.Access.Adapters;
 using HYWDebugAssistant.Sdk;
-using HYWDebugAssistant.Sdk.Contracts;
-using HYWDebugAssistant.Sdk.Context;
-using HYWDebugAssistant.Sdk.Lifecycle;
-using HYWDebugAssistant.Sdk.Ports;
-using HYWDebugAssistant.Sdk.Views;
+using HYWDebugAssistant.Sdk.Access;
 
 namespace HYWDebugAssistant.Modules.TcpServer;
 
@@ -13,10 +11,9 @@ namespace HYWDebugAssistant.Modules.TcpServer;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>本版只有形态</b>：声明（类型 / 口 / 角色 / 界面契约）+ 配置；**没有 IO 逻辑**；</item>
-///   <item><b>监听 = 一个会话，连接 = 它的多路</b>：对数据面而言仍是一进一出两个口 ——
-///     "哪条连接"是会话内部的事，不该让下游按连接数分叉；</item>
-///   <item><b>契约沿用原始字节</b>：与既有模块同一标识同一形状才开箱即连。</item>
+///   <item><b>监听 = 一个会话，连接 = 它的多路</b>：对数据面而言仍是一进一出两个口；</item>
+///   <item><b>单条客户端断开只清该连接</b>，不把监听打成故障；监听本身失败才变红；</item>
+///   <item><b>不自动重试</b>：停止/失败后用户再次〔启动〕。</item>
 /// </list>
 /// </remarks>
 [ModuleDefinition(
@@ -33,9 +30,10 @@ namespace HYWDebugAssistant.Modules.TcpServer;
     MinWidth = 400,
     MinHeight = 190,
     ViewFactory = typeof(Views.TcpServerViewFactory))]
-public sealed class TcpServerModule : IModule
+public sealed class TcpServerModule : ExternalAccessModule
 {
-    // ---------------------------------------------------------------- ① 标识与常量
+    /// <summary>接入名（模块内唯一）。</summary>
+    public const string AccessName = "tcp-server";
 
     /// <summary>**发送口**（本模块是源）：客户端 → 框架。</summary>
     public const string RxPort = "rx";
@@ -70,74 +68,40 @@ public sealed class TcpServerModule : IModule
     /// <summary>命令：停止监听。</summary>
     public const string CloseCommand = "close";
 
-    /// <summary>数据类型标识 —— 与既有模块逐字相同。</summary>
-    public const string RawBytesTypeId = "RawBytes";
-
-    /// <summary>数据类型版本。</summary>
-    public const int RawBytesVersion = 1;
-
-    /// <summary>单个数据单元的字节区容量。</summary>
-    public const int Capacity = 1472;
-
-    /// <summary><c>RawBytes@v1</c> 的契约形状。</summary>
-    public static ContractShape RawBytesShape { get; } = ContractShape.OfStruct(
-        ("len", ContractShape.OfPrimitive(ContractPrimitive.U16)),
-        ("data", ContractShape.OfBytes(Capacity)));
-
-    // ---------------------------------------------------------------- ② 声明块
+    /// <inheritdoc />
+    protected override AccessModuleSpec Spec { get; } = new(
+        AccessName,
+        RxPort,
+        TxPort,
+        RoleId,
+        "监听",
+        LinkSource,
+        StateSource,
+        RxCountSource,
+        TxCountSource,
+        DropCountSource,
+        OpenCommand,
+        "启动",
+        CloseCommand,
+        "停止",
+        ConnCountSource);
 
     /// <inheritdoc />
-    public void OnRegistered(IModuleContext context)
+    protected override IExternalAccessAdapter CreateAdapter() => new TcpServerAccessAdapter();
+
+    /// <inheritdoc />
+    protected override string Describe(ExternalAccessSnapshot snapshot) => snapshot.State switch
     {
-        ArgumentNullException.ThrowIfNull(context);
-
-        _ = context.Configuration.Read<TcpServerConfig>();
-
-        context.Declaration.DeclareDataType(new DataTypeDeclaration(
-            RawBytesTypeId,
-            RawBytesVersion,
-            RawBytesShape)
-        {
-            Metering = new MeteringBlock { PayloadLengthField = "len" },
-        });
-
-        context.Declaration.DeclarePort(new PortDeclaration(RxPort, PortDirection.Send, RawBytesShape)
-        {
-            Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
-            Edge = PortEdge.Bottom,
-        });
-
-        context.Declaration.DeclarePort(new PortDeclaration(TxPort, PortDirection.Receive, RawBytesShape)
-        {
-            Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
-            Edge = PortEdge.Top,
-        });
-
-        context.Declaration.DeclareRole(RoleDeclaration.Both(
-            RoleId,
-            new DataTypeRef(RawBytesTypeId, RawBytesVersion),
-            TxPort,
-            RxPort,
-            "监听"));
-
-        DeclareUi(context);
-    }
-
-    /// <summary>界面契约（显示源 / 命令）。</summary>
-    private static void DeclareUi(IModuleContext context)
-    {
-        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(LinkSource, ViewDataSourceKind.Text));
-        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(StateSource, ViewDataSourceKind.Text));
-        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(RxCountSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
-        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(TxCountSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
-        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(DropCountSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
-        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(ConnCountSource, ViewDataSourceKind.Value, ContractPrimitive.U32));
-
-        context.Declaration.DeclareCommand(OpenCommand, "启动");
-        context.Declaration.DeclareCommand(CloseCommand, "停止");
-    }
-
-    // ---------------------------------------------------------------- ③ 钩子块 / ④ 接线与业务
-
-    // 本版不实现任何钩子与业务：监听、接受连接、收发字节都在 P4（外部接入接线）。
+        ExternalAccessState.Open => string.IsNullOrWhiteSpace(snapshot.Detail)
+            ? $"已监听 · {snapshot.ActiveConnections} 路"
+            : $"已监听 {snapshot.Detail} · {snapshot.ActiveConnections} 路",
+        ExternalAccessState.Opening => string.IsNullOrWhiteSpace(snapshot.Detail)
+            ? "正在启动…"
+            : $"正在启动 {snapshot.Detail}",
+        ExternalAccessState.Closing => "正在停止…",
+        ExternalAccessState.Faulted => string.IsNullOrWhiteSpace(snapshot.LastError)
+            ? "监听失败"
+            : snapshot.LastError,
+        _ => snapshot.Suspended ? "实例已停用" : "未监听",
+    };
 }

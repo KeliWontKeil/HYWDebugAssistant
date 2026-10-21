@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Data;
@@ -27,6 +28,7 @@ public sealed class TestModuleContext : IModuleContext
     private readonly List<DisplaySourceDeclaration> _displaySources = [];
     private readonly List<string> _inputs = [];
     private readonly List<(string Name, string Title)> _commands = [];
+    private readonly List<ExternalAccessDeclaration> _externalAccesses = [];
     private readonly List<AppearanceReport> _appearances = [];
     private readonly Dictionary<string, ReceiveHandler> _receiveHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, object> _configuration = new(StringComparer.Ordinal);
@@ -46,7 +48,7 @@ public sealed class TestModuleContext : IModuleContext
         InstanceId = instanceId;
         ModuleId = moduleId ?? HYWDebugAssistant.Sdk.ModuleId.Create("test", "under-test", "1.0.0");
         Declaration = new DeclarationCollector(
-            _ports, _dataTypes, _flows, _roles, _displaySources, _inputs, _commands);
+            _ports, _dataTypes, _flows, _roles, _displaySources, _inputs, _commands, _externalAccesses);
         Issues = new IssueCollector(ReportedIssues);
         Configuration = new InMemoryConfigurationAccess(_configuration);
         StopSignal = _stopSignal;
@@ -132,6 +134,14 @@ public sealed class TestModuleContext : IModuleContext
         _inbound,
         _published,
         Sent);
+
+    /// <summary>
+    /// **测试里的外部接入面**（可脚本化数据、记录打开/关闭请求与写入）。
+    /// </summary>
+    public TestExternalAccess Access { get; } = new();
+
+    /// <inheritdoc />
+    IExternalAccess IModuleContext.Access => Access;
 
     /// <inheritdoc />
     public IConfigurationAccess Configuration { get; }
@@ -287,6 +297,9 @@ public sealed class TestModuleContext : IModuleContext
     /// <summary>已声明的**命令**（名字 + 标题，按声明顺序；测试断言用）。</summary>
     public IReadOnlyList<(string Name, string Title)> DeclaredCommands => _commands;
 
+    /// <summary>已声明的**外部接入**（按声明顺序；测试断言用）。</summary>
+    public IReadOnlyList<ExternalAccessDeclaration> DeclaredExternalAccesses => _externalAccesses;
+
     /// <summary>模块经发送口发出的数据单元（口名 → 字节序列）。</summary>
     public List<(string PortName, byte[] Payload)> Sent { get; } = [];
 
@@ -335,7 +348,8 @@ public sealed class TestModuleContext : IModuleContext
         List<RoleDeclaration> roles,
         List<DisplaySourceDeclaration> displaySources,
         List<string> inputs,
-        List<(string Name, string Title)> commands) : IModuleDeclaration
+        List<(string Name, string Title)> commands,
+        List<ExternalAccessDeclaration> externalAccesses) : IModuleDeclaration
     {
         public void DeclareDataType(DataTypeDeclaration type) => types.Add(type);
 
@@ -350,6 +364,8 @@ public sealed class TestModuleContext : IModuleContext
         public void DeclareInput(string sourceName) => inputs.Add(sourceName);
 
         public void DeclareCommand(string name, string title) => commands.Add((name, title));
+
+        public void DeclareExternalAccess(ExternalAccessDeclaration access) => externalAccesses.Add(access);
     }
 
     private sealed class IssueCollector(List<IssueReport> sink) : IIssueReporter

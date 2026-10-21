@@ -7,11 +7,13 @@
   -->
   <PropertyGroup>
     <ModulePackageName>udp</ModulePackageName>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
     <ProjectReference Include="..\..\..\Sdk.Ui\HYWDebugAssistant.Sdk.Ui.csproj" />
+    <ProjectReference Include="..\..\..\Access\HYWDebugAssistant.Access.csproj" />
   </ItemGroup>
 
   <ItemGroup>

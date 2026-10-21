@@ -1,3 +1,4 @@
+using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Contracts;
 
 namespace HYWDebugAssistant.Hosting.Instances;
@@ -85,12 +86,25 @@ public static class ModuleInstanceFactory
         var displaySources = BuildDisplaySources(context, objectPath, issues);
         var inputs = BuildInputs(context, objectPath, issues);
         var commands = BuildCommands(context, objectPath, issues);
+
+        // ②e **外部接入**（名唯一 + 适配件/参数类型可实例化 + 单元上限合法）
+        var externalAccesses = BuildExternalAccesses(context, objectPath, issues);
+
         var instance = new ModuleInstance(
             instanceId, definition, module, ports, dataTypes, roles, flows,
-            displaySources, inputs, commands, context)
+            displaySources, inputs, commands, externalAccesses, context)
         {
             State = ModuleInstanceState.Registered,
         };
+
+        // 两种消费方式不能同时生效：活动体优先，交互回调不会被投递（提醒模块作者，不阻断）。
+        if (module is Sdk.Lifecycle.IActivitySource && module is Sdk.Lifecycle.IModuleInteractionSink)
+        {
+            issues.Report(objectPath, new Sdk.Reporting.IssueReport(
+                Sdk.Reporting.IssueCategory.ModuleError,
+                Sdk.Reporting.IssueSeverity.Warning,
+                "模块同时实现活动体与交互回调：框架按活动体模式运行，交互回调不会投递（请只选一种消费方式）"));
+        }
 
         return instance;
     }
@@ -153,6 +167,85 @@ public static class ModuleInstanceFactory
         }
 
         return list;
+    }
+
+    /// <summary>
+    /// 校验**外部接入**声明：名字非空/唯一、适配件与参数类型可实例化、单元上限合法。
+    /// </summary>
+    /// <remarks>
+    /// 参数类型在声明期已经登记进配置快照（<see cref="Context.ModuleContext.TryEnsureConfiguration"/>）；
+    /// 这里再登记一次是幂等的，同时把“类型不合法”从模块的注册钩子里挪到统一校验处报 Issue。
+    /// </remarks>
+    private static List<ExternalAccessDeclaration> BuildExternalAccesses(
+        Context.ModuleContext context,
+        string objectPath,
+        Diagnostics.IIssueSink issues)
+    {
+        const int maxUnitBytes = 1024 * 1024;
+        var accesses = new List<ExternalAccessDeclaration>(context.DeclaredExternalAccesses.Count);
+        var names = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var access in context.DeclaredExternalAccesses)
+        {
+            if (string.IsNullOrWhiteSpace(access.Name))
+            {
+                Report("外部接入的名字不能为空（已忽略该条）");
+                continue;
+            }
+
+            if (!names.Add(access.Name))
+            {
+                Report($"外部接入名重复：'{access.Name}'（模块内唯一；已忽略重复项）");
+                continue;
+            }
+
+            if (access.Adapter is null)
+            {
+                Report($"外部接入 '{access.Name}' 的适配件为空（已忽略该条）");
+                continue;
+            }
+
+            var parametersType = access.Adapter.ParametersType;
+            if (parametersType is null
+                || !parametersType.IsClass
+                || parametersType.IsAbstract
+                || !parametersType.IsPublic)
+            {
+                Report(
+                    $"外部接入 '{access.Name}' 的参数类型必须是公开、非抽象的类（已忽略该条）");
+                continue;
+            }
+
+            if (parametersType.GetConstructor(Type.EmptyTypes) is null)
+            {
+                Report(
+                    $"外部接入 '{access.Name}' 的参数类型 {parametersType.Name} 缺少公共无参构造函数（已忽略该条）");
+                continue;
+            }
+
+            if (access.MaxUnitBytes <= 0 || access.MaxUnitBytes > maxUnitBytes)
+            {
+                Report(
+                    $"外部接入 '{access.Name}' 的单元上限必须在 1–{maxUnitBytes} 字节之间（当前 {access.MaxUnitBytes}；已忽略该条）");
+                continue;
+            }
+
+            if (context.TryEnsureConfiguration(parametersType) is null)
+            {
+                Report(
+                    $"外部接入 '{access.Name}' 的参数类型 {parametersType.Name} 无法实例化（已忽略该条）");
+                continue;
+            }
+
+            accesses.Add(access);
+        }
+
+        return accesses;
+
+        void Report(string message) => issues.Report(objectPath, new Sdk.Reporting.IssueReport(
+            Sdk.Reporting.IssueCategory.InterfaceError,
+            Sdk.Reporting.IssueSeverity.Error,
+            message));
     }
 
     /// <summary>校验**命令**声明：名字唯一。重复 ⇒ 报 Issue 并跳过（标题以先声明者为准）。</summary>

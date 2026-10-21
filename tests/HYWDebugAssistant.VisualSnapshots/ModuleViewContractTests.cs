@@ -5,6 +5,7 @@ using Avalonia.Headless;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using HYWDebugAssistant.Access.Parameters;
 using HYWDebugAssistant.Modules.DataMonitor;
 using HYWDebugAssistant.Modules.DataMonitor.Views;
 using HYWDebugAssistant.Modules.HexSender;

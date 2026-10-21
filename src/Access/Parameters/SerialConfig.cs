@@ -1,7 +1,7 @@
 using System.IO.Ports;
 using HYWDebugAssistant.Sdk.Configuration;
 
-namespace HYWDebugAssistant.Modules.Serial;
+namespace HYWDebugAssistant.Access.Parameters;
 
 /// <summary>
 /// **串口参数**（随组合件保存的实例参数）。

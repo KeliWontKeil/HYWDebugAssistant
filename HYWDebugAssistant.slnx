@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Access/HYWDebugAssistant.Access.csproj" />
     <Project Path="src/App/HYWDebugAssistant.App.csproj" />
     <Project Path="src/Core.Api/HYWDebugAssistant.Core.Api.csproj" />
     <Project Path="src/Core/HYWDebugAssistant.Core.csproj" />

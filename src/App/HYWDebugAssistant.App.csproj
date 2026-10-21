@@ -14,6 +14,20 @@
     <ProjectReference Include="..\FrameworkUi\HYWDebugAssistant.FrameworkUi.csproj" />
     <ProjectReference Include="..\Core\HYWDebugAssistant.Core.csproj" />
     <ProjectReference Include="..\Core.Api\HYWDebugAssistant.Core.Api.csproj" />
+
+    <!--
+      **只表达构建顺序**：应用要把模块包镜像到输出目录，必须在模块包归拢之后。
+      `ReferenceOutputAssembly=false` ⇒ 不产生程序集引用（AR-12 仍然成立），
+      只是让 MSBuild 先构建这些模块项目；不要把这几条当成"应用依赖模块"。
+    -->
+    <ProjectReference Include="..\Modules\Business\DataMonitor\HYWDebugAssistant.Modules.DataMonitor.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="..\Modules\Business\HexSender\HYWDebugAssistant.Modules.HexSender.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="..\Modules\Business\HexStringConverter\HYWDebugAssistant.Modules.HexStringConverter.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="..\Modules\Business\Serial\HYWDebugAssistant.Modules.Serial.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="..\Modules\Business\TcpClient\HYWDebugAssistant.Modules.TcpClient.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="..\Modules\Business\TcpServer\HYWDebugAssistant.Modules.TcpServer.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="..\Modules\Business\TextSender\HYWDebugAssistant.Modules.TextSender.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="..\Modules\Business\Udp\HYWDebugAssistant.Modules.Udp.csproj" ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
 
   <ItemGroup>

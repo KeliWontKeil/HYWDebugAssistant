@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using HYWDebugAssistant.Hosting.Diagnostics;
 using HYWDebugAssistant.Sdk;
+using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Ports;
@@ -32,6 +33,7 @@ public sealed class ModuleContext : IModuleContext
     private readonly List<DisplaySourceDeclaration> _displaySources = [];
     private readonly List<string> _inputs = [];
     private readonly List<(string Name, string Title)> _commands = [];
+    private readonly List<ExternalAccessDeclaration> _externalAccesses = [];
     private readonly Dictionary<string, ReceiveHandler> _receiveHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, object> _configuration = new(StringComparer.Ordinal);
     private readonly Lock _configurationGate = new();
@@ -50,7 +52,9 @@ public sealed class ModuleContext : IModuleContext
         InstanceId = instanceId;
         ModuleId = moduleId;
 
-        Declaration = new DeclarationCollector(_ports, _dataTypes, _flows, _roles, _displaySources, _inputs, _commands);
+        Declaration = new DeclarationCollector(
+            _ports, _dataTypes, _flows, _roles, _displaySources, _inputs, _commands,
+            _externalAccesses, TryEnsureConfiguration);
         Issues = new IssueReporter(issues, _objectPath);
         Log = new NullModuleLogger();
         State = new NullBusinessStateReporter();
@@ -167,6 +171,22 @@ public sealed class ModuleContext : IModuleContext
     /// <summary>已声明的**命令**（名字 + 给人看的标题，按声明顺序）——触发闸门与诊断文案据此判定。</summary>
     public IReadOnlyList<(string Name, string Title)> DeclaredCommands => _commands;
 
+    /// <summary>已声明的**外部接入**（按声明顺序；合法性由工厂统一校验）。</summary>
+    public IReadOnlyList<ExternalAccessDeclaration> DeclaredExternalAccesses => _externalAccesses;
+
+    /// <summary>
+    /// **外部接入的存取面**（由 L4 在承载启动前挂上）；未挂时回落到"请求被忽略、读无数据"的空实现。
+    /// </summary>
+    public IExternalAccess Access { get; private set; } = ExternalAccessDefaults.Empty;
+
+    /// <summary>挂上外部接入存取面（**由 L4 在承载启动前调用**；模块作者不使用本方法）。</summary>
+    /// <param name="access">按实例绑定的存取面。</param>
+    public void AttachAccess(IExternalAccess access)
+    {
+        ArgumentNullException.ThrowIfNull(access);
+        Access = access;
+    }
+
     /// <summary>
     /// 替换投递面实现（**由 L4 运行时在承载启动前调用**；模块作者不使用本方法）。
     /// </summary>
@@ -210,6 +230,54 @@ public sealed class ModuleContext : IModuleContext
             lock (_configurationGate)
             {
                 return new Dictionary<string, object>(_configuration, StringComparer.Ordinal);
+            }
+        }
+    }
+
+    /// <summary>
+    /// **按类型登记一份配置**（框架内部：外部接入的适配件参数类型由声明交出，框架据此让配置表单
+    /// 与持久化自动复用该类型）。
+    /// </summary>
+    /// <param name="type">配置类型（公开、非抽象、有公共无参构造）。</param>
+    /// <returns>登记后的对象；类型不合法或无法实例化时为 <see langword="null"/>（由调用方报 Issue）。</returns>
+    public object? TryEnsureConfiguration(Type? type)
+    {
+        if (type is null || !type.IsClass || type.IsAbstract)
+        {
+            return null;
+        }
+
+        var key = type.FullName;
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return null;
+        }
+
+        lock (_configurationGate)
+        {
+            if (_configuration.TryGetValue(key, out var existing) && existing.GetType() == type)
+            {
+                return existing;
+            }
+
+            try
+            {
+                if (Activator.CreateInstance(type) is not { } created)
+                {
+                    return null;
+                }
+
+                _configuration[key] = created;
+                return created;
+            }
+            catch (Exception ex) when (ex is MissingMethodException
+                                          or MemberAccessException
+                                          or System.Reflection.TargetInvocationException
+                                          or TypeInitializationException
+                                          or NotSupportedException
+                                          or ArgumentException)
+            {
+                return null;
             }
         }
     }
@@ -285,7 +353,9 @@ public sealed class ModuleContext : IModuleContext
         List<RoleDeclaration> roles,
         List<DisplaySourceDeclaration> displaySources,
         List<string> inputs,
-        List<(string Name, string Title)> commands) : IModuleDeclaration
+        List<(string Name, string Title)> commands,
+        List<ExternalAccessDeclaration> externalAccesses,
+        Func<Type?, object?> ensureConfiguration) : IModuleDeclaration
     {
         public void DeclareDataType(DataTypeDeclaration type)
         {
@@ -332,6 +402,18 @@ public sealed class ModuleContext : IModuleContext
             if (!string.IsNullOrWhiteSpace(name))
             {
                 commands.Add((name, string.IsNullOrWhiteSpace(title) ? name : title));
+            }
+        }
+
+        public void DeclareExternalAccess(ExternalAccessDeclaration access)
+        {
+            ArgumentNullException.ThrowIfNull(access);
+            externalAccesses.Add(access);
+
+            // 参数类型**读即登记**：配置表单与持久化不需要模块再写一行 Read<T>()。
+            if (access.Adapter is not null)
+            {
+                _ = ensureConfiguration(access.Adapter.ParametersType);
             }
         }
     }

@@ -129,12 +129,15 @@ public sealed class SettingsService
     private void ApplyToRuntime(ApplicationSettings settings)
     {
         // 承载参数：对**新建**队列/后续停止操作生效；既有队列保持创建时容量
-        _runtime.Carriers.UpdateOptions(new CarrierOptions
+        var carrierOptions = new CarrierOptions
         {
             QueueCapacity = settings.InputQueueCapacity,
             DropPolicy = DropPolicy.DropOldest,
             StopTimeout = TimeSpan.FromSeconds(settings.StopTimeoutSeconds),
-        });
+        };
+
+        _runtime.Carriers.UpdateOptions(carrierOptions);
+        _runtime.ExternalAccessHost.UpdateOptions(carrierOptions);
 
         // 快速建网开关即时生效
         _runtime.UpdateAlignAutoNetwork(settings.AlignAutoNetworkEnabled);

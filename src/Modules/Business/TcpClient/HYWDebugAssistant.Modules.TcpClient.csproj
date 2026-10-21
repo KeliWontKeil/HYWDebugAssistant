@@ -7,11 +7,14 @@
   -->
   <PropertyGroup>
     <ModulePackageName>tcp-client</ModulePackageName>
+    <!-- 包必须自带 Access.dll 与它的传递依赖（模块是插件，宿主不替它带）。 -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
     <ProjectReference Include="..\..\..\Sdk.Ui\HYWDebugAssistant.Sdk.Ui.csproj" />
+    <ProjectReference Include="..\..\..\Access\HYWDebugAssistant.Access.csproj" />
   </ItemGroup>
 
   <ItemGroup>

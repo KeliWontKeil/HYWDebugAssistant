@@ -1,3 +1,5 @@
+using HYWDebugAssistant.Access.Parameters;
+
 namespace HYWDebugAssistant.Modules.Serial.Views;
 
 /// <summary>

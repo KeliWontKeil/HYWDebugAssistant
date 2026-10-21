@@ -3,6 +3,7 @@ using HYWDebugAssistant.Hosting.Diagnostics;
 using HYWDebugAssistant.Hosting.Context;
 using HYWDebugAssistant.Hosting.Instances;
 using HYWDebugAssistant.Sdk.Context;
+using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 
@@ -59,7 +60,48 @@ public sealed class ModuleCarrierAdapter : ICarrierTarget
     public bool HasActivity => _instance.ActivitySource is not null;
 
     /// <inheritdoc />
+    public bool HasAuxiliaryWork =>
+        !HasActivity
+        && (_instance.Context.Access is RuntimeExternalAccess || Sink is not null);
+
+    /// <inheritdoc />
+    public bool PumpAuxiliary()
+    {
+        var didWork = false;
+
+        // 外部接入：应用开关/重启/停用，把就绪数据取进队列并按需投递给回调。
+        if (_instance.Context.Access is RuntimeExternalAccess access)
+        {
+            didWork |= access.Pump();
+        }
+
+        // 收件箱：没有活动体的模块由实例循环推给它（命令 / 输入）。
+        if (Sink is { } sink)
+        {
+            while (_context.Inbox.TryDequeueCommand(out var command))
+            {
+                sink.OnCommand(command);
+                didWork = true;
+            }
+
+            while (_context.Inbox.TryDequeueInput(out var source, out var text))
+            {
+                sink.OnInput(source, text);
+                didWork = true;
+            }
+        }
+
+        return didWork;
+    }
+
+    /// <inheritdoc />
+    public void NotifyWorkCompleted() => Sink?.OnWork();
+
+    /// <inheritdoc />
     public void RunActivity() => _instance.ActivitySource?.RunActivity(_context);
+
+    /// <summary>模块的交互回调面（没有实现时为 <see langword="null"/>）。</summary>
+    private IModuleInteractionSink? Sink => _instance.Module as IModuleInteractionSink;
 
     /// <inheritdoc />
     public IStopSignal StopSignal => _context.StopSignal;

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    外部接入层（**随模块包**、不是框架件）：
+      · 四个适配件（懂外部标准：串口 / TCP 客户端 / TCP 服务端 / UDP）
+      · 四个参数类型（配置表单与持久化复用）
+      · 模块侧共用骨架（声明 → 接线 → 状态/计数发布）
+    依赖纪律：只引 Sdk + System.IO.Ports；**不引任何框架程序集**；框架也不得引用本工程（AR-3 / AR-13）。
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 串口：适配件的实现依赖；平台实现分片由模块包的归拢目标负责 -->
+    <PackageReference Include="System.IO.Ports" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 适配件的逻辑用例（假串口传输）需要看到内部测试缝。 -->
+    <InternalsVisibleTo Include="HYWDebugAssistant.Modules.Tests" />
+  </ItemGroup>
+
+</Project>

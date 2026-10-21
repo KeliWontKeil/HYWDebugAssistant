@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Ports;
@@ -93,6 +94,22 @@ public interface IModuleDeclaration
     /// <param name="name">命令名（模块内唯一）。</param>
     /// <param name="title">给人看的命令名（空 = 用命令名本身）。</param>
     void DeclareCommand(string name, string title);
+
+    /// <summary>
+    /// 声明一条**外部接入**：模块内唯一的名字 + 适配件（懂某个外部标准的实现件）。
+    /// </summary>
+    /// <remarks>
+    /// 与数据类型 / 口 / 角色同级：声明期一次性、运行期不重读。框架据此创建会话、登记适配件的参数类型
+    /// （配置表单与持久化自动复用），并在实例状态/用户请求/参数变更时执行打开、关闭、重开。
+    /// <para>
+    /// <b>默认空实现</b>：只为一件事——已有测试替身 / 自定义实现不因新增成员而编译失败。真实框架与
+    /// <c>Sdk.Testing</c> 的测试上下文都会覆盖它。
+    /// </para>
+    /// </remarks>
+    /// <param name="access">接入声明。</param>
+    void DeclareExternalAccess(ExternalAccessDeclaration access)
+    {
+    }
 }
 
 /// <summary>
@@ -316,6 +333,15 @@ public interface IModuleContext
 
     /// <summary>口的存取与投递。</summary>
     IPortAccess Ports { get; }
+
+    /// <summary>
+    /// **外部接入的存取面**（双向数据 + 打开/关闭请求 + 状态/计量快照）。
+    /// </summary>
+    /// <remarks>
+    /// 未接线时回落到 <see cref="ExternalAccessDefaults.Empty"/>：请求被忽略、读无数据、写失败，
+    /// **不抛异常**（"框架还没接线"不该让模块崩）。
+    /// </remarks>
+    IExternalAccess Access => ExternalAccessDefaults.Empty;
 
     /// <summary>配置读写。</summary>
     IConfigurationAccess Configuration { get; }

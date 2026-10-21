@@ -1,4 +1,5 @@
 using HYWDebugAssistant.Hosting.Registry;
+using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Lifecycle;
 
@@ -29,6 +30,7 @@ public sealed class ModuleInstance
         IReadOnlyList<Sdk.Views.DisplaySourceDeclaration> displaySources,
         IReadOnlyList<string> inputs,
         IReadOnlyList<(string Name, string Title)> commands,
+        IReadOnlyList<ExternalAccessDeclaration> externalAccesses,
         Context.ModuleContext context)
     {
         InstanceId = instanceId;
@@ -41,6 +43,7 @@ public sealed class ModuleInstance
         DisplaySources = displaySources;
         Inputs = inputs;
         Commands = commands;
+        ExternalAccesses = externalAccesses;
         Context = context;
 
         // 机械镜像：按（标识, 版本）索引，供口/数据源的引用解析（同键重复时以**先声明者**为准，重复已由工厂报 Issue）
@@ -98,6 +101,12 @@ public sealed class ModuleInstance
 
     /// <summary>该实例声明的**命令**（名字 + 诊断用标题；触发闸门据此判定）。</summary>
     public IReadOnlyList<(string Name, string Title)> Commands { get; }
+
+    /// <summary>
+    /// 该实例声明的**外部接入**（已由工厂校验：名字唯一、适配件与参数类型可实例化）。
+    /// </summary>
+    /// <remarks>框架据此创建会话；模块只通过 <c>IModuleContext.Access</c> 发请求与读写。</remarks>
+    public IReadOnlyList<ExternalAccessDeclaration> ExternalAccesses { get; }
 
     /// <summary>
     /// 本实例的**视图工厂类型**（模块自带视图）；<see langword="null"/> = 无自绘界面（窗口只显示身份与状态）。

@@ -20,6 +20,8 @@
     <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
     <!-- 模块自带的视图：Avalonia 控件 + 视图契约（AR-1 允许的第二个程序集）。 -->
     <ProjectReference Include="..\..\..\Sdk.Ui\HYWDebugAssistant.Sdk.Ui.csproj" />
+    <!-- 外部接入层：适配件 + 参数类型 + 模块侧共用骨架（随模块包，不是框架件）。 -->
+    <ProjectReference Include="..\..\..\Access\HYWDebugAssistant.Access.csproj" />
   </ItemGroup>
 
   <ItemGroup>
