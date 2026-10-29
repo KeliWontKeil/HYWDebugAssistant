@@ -41,7 +41,7 @@ if (-not (Test-Path (Join-Path $root 'HYWDebugAssistant.slnx'))) {
 
 # 整体豁免的文件（**每条都要有理由**；加白名单等于承认"这里就是颜色的定义处"）
 $fileAllow = @{
-    'src/Ui/Styles/Tokens.axaml'                = '色板定义处（相对色的唯一家：全项目只有这一份色值）'
+    'src/Ui/Styles/Tokens.axaml'                = '色板定义处（相对色的唯一家：浅/深两套色值）'
     'src/Core.Api/ThemePresets.cs'              = '推荐色目录（canned colors：递给用户挑的候选，不是主题色值）'
     'src/Ui/ViewModels/PacketTypePalette.cs'    = '按数据身份算出来的颜色（自动色），不属主题观感'
 }
@@ -129,6 +129,14 @@ $paletteFiles = @(
 $manifestRel = 'src/Ui/Styles/palette.json'
 
 $problems = @()
+
+# 白名单条目必须指向**真实存在**的文件：死条目会让审计悄悄放过它本该放过的地方
+# （文件已经删了 = 配置过期；不检查的话，"这里已无颜色"与"这里没人审"看起来一样）。
+foreach ($allowedPath in ($fileAllow.Keys | Sort-Object)) {
+    if (-not (Test-Path -LiteralPath (Join-Path $root $allowedPath) -PathType Leaf)) {
+        $problems += "白名单条目指向的文件不存在：$allowedPath（$($fileAllow[$allowedPath])）"
+    }
+}
 
 function ConvertTo-Rgb([string]$hex) {
     if ([string]::IsNullOrWhiteSpace($hex)) { return $null }

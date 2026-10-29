@@ -116,6 +116,38 @@ public sealed class ModuleSurfaceView : UserControl
         }
     }
 
+    /// <summary>
+    /// 断开当前模块视图的父级（窗口关闭前调用）。
+    /// </summary>
+    /// <remarks>
+    /// 模块的 <c>ModuleViewHost</c> 是**按实例缓存**的；窗口关闭时若只关闭窗口而不摘掉
+    /// <c>_frame.Child</c>，旧窗口仍握着视图。再次“显示全部”时新内容区把同一个视图挂到
+    /// 第二个父级 ⇒ <c>InvalidOperationException: The Control already has a parent.</c>
+    /// </remarks>
+    public void Detach()
+    {
+        if (_frame is { } frame)
+        {
+            frame.Child = null;
+        }
+
+        if (_host is { } host)
+        {
+            host.Child = null;
+        }
+
+        Content = null;
+        _host = null;
+        _frame = null;
+
+        if (_module is { } module)
+        {
+            module.PropertyChanged -= OnModulePropertyChanged;
+        }
+
+        _module = null;
+    }
+
     /// <summary>模块内容区四周的预留带（来自 `Ui/Styles/ModuleMetrics.axaml`）。</summary>
     private Thickness ContentInset() => new(
         Dip("SurfaceContentInsetLeft", 20),

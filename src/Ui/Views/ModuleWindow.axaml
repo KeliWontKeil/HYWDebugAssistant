@@ -3,11 +3,12 @@
         xmlns:vm="using:HYWDebugAssistant.Ui.ViewModels"
         xmlns:ctrl="using:HYWDebugAssistant.Ui.Controls"
         xmlns:views="using:HYWDebugAssistant.Ui.Views"
+        xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
         x:Class="HYWDebugAssistant.Ui.Views.ModuleWindow"
         x:DataType="vm:ModuleViewViewModel"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         d:DesignWidth="320" d:DesignHeight="220"
-        Title="模块"
+        Title="{loc:Tr moduleWindow.title}"
         WindowDecorations="None"
         CanResize="False"
         ShowInTaskbar="False"
@@ -173,14 +174,21 @@
         </Style>
     </Window.Styles>
 
-    <Border Name="Frame"
-            Background="{DynamicResource BgModule}"
-            BorderBrush="{DynamicResource BorderDefault}"
-            BorderThickness="1"
-            CornerRadius="{DynamicResource ModuleCornerRadius}"
-            ClipToBounds="True"
-            PointerPressed="OnFramePressed">
+    <Grid>
+        <Border Name="Frame"
+                Background="{DynamicResource BgModule}"
+                BorderBrush="{DynamicResource BorderDefault}"
+                BorderThickness="1"
+                CornerRadius="{DynamicResource ModuleCornerRadius}"
+                ClipToBounds="True"
+                PointerPressed="OnFramePressed">
         <Grid>
+            <!-- 模块壁纸（只影响本模块）：静态柔化画刷 + 当前主题色 veil；不参与命中。 -->
+            <Border Background="{Binding WallpaperBrush}" IsHitTestVisible="False" />
+            <Border Background="{DynamicResource WallpaperVeil}"
+                    Opacity="{Binding WallpaperVeilOpacity}"
+                    IsVisible="{Binding HasWallpaper}"
+                    IsHitTestVisible="False" />
 
             <!-- 内容（**整块窗口**都是内容区：没有标题栏、没有身份行） -->
             <views:ModuleSurfaceView Name="ModuleArea"
@@ -507,8 +515,8 @@
                                                            FontSize="11"
                                                            TextTrimming="CharacterEllipsis"
                                                            Foreground="{DynamicResource TextPrimary}"
-                                                           Text="{Binding PortName, StringFormat='设置网络名：{0}'}" />
-                                                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="建网规则">
+                                                           Text="{Binding EditTitle}" />
+                                                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="{loc:Tr moduleWindow.portLabel.helpTip}">
                                                     <Button.Flyout>
                                                         <Flyout Placement="TopEdgeAlignedRight">
                                                             <TextBlock MaxWidth="300"
@@ -520,7 +528,7 @@
                                                 </Button>
                                             </Grid>
                                             <TextBox FontFamily="{DynamicResource FontData}"
-                                                     PlaceholderText="网络名（留空 = 清除）"
+                                                     PlaceholderText="{loc:Tr moduleWindow.portLabel.placeholder}"
                                                      Text="{Binding EditText, Mode=TwoWay}"
                                                      KeyDown="OnPortLabelKeyDown"
                                                      AttachedToVisualTree="OnLabelEditorAttached" />
@@ -530,9 +538,9 @@
                                                        Foreground="{DynamicResource SemanticError}"
                                                        Text="{Binding EditError}" />
                                             <StackPanel Orientation="Horizontal" Spacing="4">
-                                                <Button Content="确定" Padding="8,0" Click="OnPortLabelCommit" />
-                                                <Button Content="清除" Padding="8,0" Click="OnPortLabelClear" />
-                                                <Button Content="取消" Padding="8,0" Click="OnPortLabelCancel" />
+                                                <Button Content="{loc:Tr moduleWindow.portLabel.confirm}" Padding="8,0" Click="OnPortLabelCommit" />
+                                                <Button Content="{loc:Tr moduleWindow.portLabel.clear}" Padding="8,0" Click="OnPortLabelClear" />
+                                                <Button Content="{loc:Tr moduleWindow.portLabel.cancel}" Padding="8,0" Click="OnPortLabelCancel" />
                                             </StackPanel>
                                         </StackPanel>
                                     </Border>
@@ -676,24 +684,49 @@
                     BorderBrush="{DynamicResource BorderDefault}"
                     BorderThickness="1">
                 <StackPanel Orientation="Horizontal" Spacing="1">
+                    <Button Name="WallpaperButton" Classes="icon"
+                            ToolTip.Tip="{loc:Tr moduleWindow.wallpaper.tip}">
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                <MenuItem Header="{loc:Tr moduleWindow.wallpaper.pick}" Click="OnChooseWallpaper" />
+                                <MenuItem Header="{loc:Tr moduleWindow.wallpaper.clear}" Click="OnClearWallpaper" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                        <TextBlock Classes="icon" Text="{DynamicResource GlyphImage}" />
+                    </Button>
                     <Button Name="ResetButton" Classes="icon" Click="OnReset"
-                            ToolTip.Tip="还原：默认尺寸，或尺寸与配置一起还原（会先确认）">
+                            ToolTip.Tip="{loc:Tr moduleWindow.reset.tip}">
                         <TextBlock Classes="icon" Text="{DynamicResource GlyphReset}" />
                     </Button>
                     <Button Name="LockButton" Classes="icon" Click="OnToggleLock"
-                            ToolTip.Tip="锁定后不可拖动、缩放与选中（仍显示数据）">
+                            ToolTip.Tip="{loc:Tr moduleWindow.lock.tip}">
                         <TextBlock Name="LockIcon" Classes="icon" Text="{DynamicResource GlyphLock}" />
                     </Button>
                     <Button Name="HideButton" Classes="icon" Click="OnHide"
-                            ToolTip.Tip="隐藏窗口（模块继续运行；恢复入口：交互页 → 显示全部）">
+                            ToolTip.Tip="{loc:Tr moduleWindow.hide.tip}">
                         <TextBlock Classes="icon" Text="{DynamicResource GlyphHide}" />
                     </Button>
                     <Button Name="CloseButton" Classes="icon" Click="OnClose"
-                            ToolTip.Tip="关闭窗口 = 移除该模块实例">
+                            ToolTip.Tip="{loc:Tr moduleWindow.close.tip}">
                         <TextBlock Classes="icon" Text="{DynamicResource GlyphClose}" />
                     </Button>
                 </StackPanel>
             </Border>
         </Grid>
     </Border>
+
+        <!--
+          **选择框**：所有选中模块都有；**不带角点/边中点**（手柄只属于锚点）。
+          放在 Frame 的兄弟层、0 边距 ⇒ 蓝线盖住 Frame 的 1px 外框，完全贴客户区外沿，不留白圈。
+          半透明、不命中；端口标记只被 2px 覆盖。
+        -->
+        <Border Name="SelectionOutline"
+                BorderBrush="{DynamicResource AccentPrimary}"
+                BorderThickness="2"
+                CornerRadius="{DynamicResource ModuleCornerRadius}"
+                Margin="0"
+                Opacity="0.9"
+                IsVisible="{Binding IsSelected}"
+                IsHitTestVisible="False" />
+    </Grid>
 </Window>

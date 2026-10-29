@@ -27,7 +27,7 @@ public sealed class Composite
     ///     **在解析期归一**（按屏幕缩放 ÷ 换算，见 <c>CompositeSerializer</c>），写回一律升到 v3。</item>
     /// </list>
     /// </remarks>
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
 
     /// <summary>Schema 版本（文件内嵌，加载时用于迁移判断）。</summary>
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -48,13 +48,24 @@ public sealed class Composite
     public IReadOnlyList<ModuleLayoutView> Layout { get; set; } = [];
 
     /// <summary>
+    /// 组合件包内的图片资产（键 = 纯 sha256；值 = PNG 字节）。不写进 JSON，
+    /// 由 <c>CompositeService</c> 在保存/加载时与 <c>assets/</c> 目录互转。
+    /// </summary>
+    public IReadOnlyDictionary<string, byte[]> Assets { get; set; } =
+        new Dictionary<string, byte[]>(StringComparer.Ordinal);
+
+    /// <summary>工作区快照的外壳绝对矩形（普通组合件为 null）。</summary>
+    public WorkspacePlacementView? WorkspacePlacement { get; set; }
+
+    /// <summary>
     /// 未知字段底稿（根层）：加载时保留原始根对象，保存时**只更新已知字段**——
     /// 未识别字段原样带回（C3-3 / AC-4 无损往返）。
     /// </summary>
     internal JsonObject? RootFragment { get; set; }
 
     /// <inheritdoc />
-    public override string ToString() => $"{Name}（{Instances.Count} 实例 / {Networks.Count} 网络）";
+    public override string ToString() =>
+        CoreText.Get("core.composite.toString", Name, Instances.Count, Networks.Count);
 }
 
 /// <summary>
@@ -82,6 +93,12 @@ public sealed class CompositeInstanceRecord
 
     /// <summary>端口几何（只记录**被用户调整过**的端口；未出现的端口用默认值）。</summary>
     public IReadOnlyList<PortGeometryView> Ports { get; set; } = [];
+
+    /// <summary>可持久化的用户输入/当前页/折叠态（空 = 不写）。</summary>
+    public HYWDebugAssistant.Core.Api.ViewStateSnapshot? ViewState { get; set; }
+
+    /// <summary>模块壁纸的包内引用（<c>assets/&lt;sha256&gt;.png</c>；空 = 无）。</summary>
+    public string? Wallpaper { get; set; }
 
     /// <summary>实例记录片段的未知字段底稿（按实例 ID 与文件对应）。</summary>
     internal JsonObject? Fragment { get; set; }

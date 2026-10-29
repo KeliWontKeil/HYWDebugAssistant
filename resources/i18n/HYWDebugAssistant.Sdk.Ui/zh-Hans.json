@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "language": "zh-Hans",
+  "entries": {
+    "moduleField.reject.missingFieldName": "缺少字段名（ModuleConfigField.Field）",
+    "moduleField.reject.unknownField": "配置里没有可编辑字段「{0}」",
+    "moduleText.contextMenu.copy": "复制",
+    "moduleText.contextMenu.selectAll": "全选",
+    "moduleTextSurface.dropped": "已丢弃 {0} 行（缓冲上限 {1} 行）"
+  }
+}

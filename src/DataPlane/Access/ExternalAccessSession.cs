@@ -17,6 +17,8 @@ namespace HYWDebugAssistant.DataPlane.Access;
 public sealed class ExternalAccessSession : IExternalAccessReady
 {
     private readonly ExternalAccessDeclaration _declaration;
+    private readonly IExternalAccessAdapter _adapter;
+    private readonly Type _parametersType;
     private readonly Func<ExternalAccessDeclaration, object?> _parametersProvider;
     private readonly AccessInboundBuffer _queue;
     private readonly TimeSpan _closeTimeout;
@@ -46,22 +48,30 @@ public sealed class ExternalAccessSession : IExternalAccessReady
 
     /// <summary>创建会话。</summary>
     /// <param name="declaration">接入声明。</param>
+    /// <param name="adapter">该标准创建出的适配件（每会话独立）。</param>
+    /// <param name="parametersType">该标准的参数类型（框架按 catalog 解析）。</param>
     /// <param name="parametersProvider">按声明取当前参数对象（框架配置快照）。</param>
     /// <param name="queue">该会话的有界队列。</param>
     /// <param name="closeTimeout">关闭的有界等待时限。</param>
     /// <param name="signal">"有活干"信号（实例循环被唤醒）。</param>
     public ExternalAccessSession(
         ExternalAccessDeclaration declaration,
+        IExternalAccessAdapter adapter,
+        Type parametersType,
         Func<ExternalAccessDeclaration, object?> parametersProvider,
         AccessInboundBuffer queue,
         TimeSpan closeTimeout,
         Action? signal)
     {
         ArgumentNullException.ThrowIfNull(declaration);
+        ArgumentNullException.ThrowIfNull(adapter);
+        ArgumentNullException.ThrowIfNull(parametersType);
         ArgumentNullException.ThrowIfNull(parametersProvider);
         ArgumentNullException.ThrowIfNull(queue);
 
         _declaration = declaration;
+        _adapter = adapter;
+        _parametersType = parametersType;
         _parametersProvider = parametersProvider;
         _queue = queue;
         _closeTimeout = closeTimeout;
@@ -72,6 +82,9 @@ public sealed class ExternalAccessSession : IExternalAccessReady
 
     /// <summary>接入名。</summary>
     public string Name => _declaration.Name;
+
+    /// <summary>该接入的参数类型（框架按标准标识登记；供模块骨架反射配置字段）。</summary>
+    public Type ParametersType => _parametersType;
 
     /// <summary>是否已设接收回调（回调模式下框架负责投递；读取面不可再取）。</summary>
     public bool HasReceiveHandler
@@ -300,7 +313,7 @@ public sealed class ExternalAccessSession : IExternalAccessReady
 
         try
         {
-            var sent = _declaration.Adapter.Write(payload);
+            var sent = _adapter.Write(payload);
 
             lock (_gate)
             {
@@ -320,8 +333,8 @@ public sealed class ExternalAccessSession : IExternalAccessReady
         }
         catch (Exception ex)
         {
-            RecordFailure(AccessFailureKind.Write, $"写入失败：{ex.GetType().Name} — {ex.Message}");
-            Fail($"写入失败：{ex.Message}");
+            RecordFailure(AccessFailureKind.Write, DataPlaneText.Get("dataplane.access.writeFailedDetail", ex.GetType().Name, ex.Message));
+            Fail(DataPlaneText.Get("dataplane.access.writeFailed", ex.Message));
             return false;
         }
     }
@@ -374,6 +387,33 @@ public sealed class ExternalAccessSession : IExternalAccessReady
         return CloseCore(timeout);
     }
 
+    /// <summary>
+    /// **激活中途失败时的兜底释放**：无论会话是否打开过，都通知适配件 <see cref="IExternalAccessAdapter.Close"/>，
+    /// 并清空队列。清理路径不抛、不记录失败（不能掩盖最初的激活失败原因）。
+    /// </summary>
+    public void Discard()
+    {
+        lock (_gate)
+        {
+            _wantedOpen = false;
+            _state = ExternalAccessState.Closed;
+            _ready = false;
+            _detail = string.Empty;
+            _connections = 0;
+        }
+
+        try
+        {
+            _adapter.Close(_closeTimeout);
+        }
+        catch (Exception)
+        {
+            // 清理路径：适配器关闭异常不得掩盖最初的激活失败原因。
+        }
+
+        _queue.Clear();
+    }
+
     // ---------------------------------------------------------------- 状态机内部
 
     private bool OpenCore()
@@ -394,18 +434,18 @@ public sealed class ExternalAccessSession : IExternalAccessReady
         var parameters = _parametersProvider(_declaration);
         if (parameters is null)
         {
-            Fail($"参数类型 {_declaration.ParametersType.Name} 未登记进配置快照（框架没有拿到参数对象）");
+            Fail(DataPlaneText.Get("dataplane.access.parametersNotRegistered", _parametersType.Name));
             return true;
         }
 
         try
         {
-            _declaration.Adapter.Open(parameters, this);
+            _adapter.Open(parameters, this);
         }
         catch (Exception ex)
         {
-            RecordFailure(AccessFailureKind.Open, $"打开失败：{ex.GetType().Name} — {ex.Message}");
-            Fail($"打开失败：{ex.Message}");
+            RecordFailure(AccessFailureKind.Open, DataPlaneText.Get("dataplane.access.openFailedDetail", ex.GetType().Name, ex.Message));
+            Fail(DataPlaneText.Get("dataplane.access.openFailed", ex.Message));
         }
 
         return true;
@@ -428,14 +468,14 @@ public sealed class ExternalAccessSession : IExternalAccessReady
 
         try
         {
-            _declaration.Adapter.Close(timeout);
+            _adapter.Close(timeout);
         }
         catch (Exception ex)
         {
-            RecordFailure(AccessFailureKind.Close, $"关闭失败：{ex.GetType().Name} — {ex.Message}");
+            RecordFailure(AccessFailureKind.Close, DataPlaneText.Get("dataplane.access.closeFailedDetail", ex.GetType().Name, ex.Message));
             lock (_gate)
             {
-                _lastError = $"关闭失败：{ex.Message}";
+                _lastError = DataPlaneText.Get("dataplane.access.closeFailed", ex.Message);
             }
         }
 
@@ -471,15 +511,15 @@ public sealed class ExternalAccessSession : IExternalAccessReady
             int length;
             try
             {
-                if (!_declaration.Adapter.TryRead(_readBuffer, out length))
+                if (!_adapter.TryRead(_readBuffer, out length))
                 {
                     break;
                 }
             }
             catch (Exception ex)
             {
-                RecordFailure(AccessFailureKind.Adapter, $"读取失败：{ex.GetType().Name} — {ex.Message}");
-                Fail($"读取失败：{ex.Message}");
+                RecordFailure(AccessFailureKind.Adapter, DataPlaneText.Get("dataplane.access.readFailedDetail", ex.GetType().Name, ex.Message));
+                Fail(DataPlaneText.Get("dataplane.access.readFailed", ex.Message));
                 return true;
             }
 
@@ -494,7 +534,7 @@ public sealed class ExternalAccessSession : IExternalAccessReady
                 _queue.RecordDropped(1, length);
                 RecordFailureOnce(
                     AccessFailureKind.Queue,
-                    $"适配件交出的单元长度 {length} 超过声明上限 {_declaration.MaxUnitBytes}（已丢弃）");
+                    DataPlaneText.Get("dataplane.access.unitTooLong", length, _declaration.MaxUnitBytes));
                 break;
             }
 
@@ -627,7 +667,7 @@ public sealed class ExternalAccessSession : IExternalAccessReady
     {
         if (string.IsNullOrWhiteSpace(message))
         {
-            message = "适配件报告失败（未给出原因）";
+            message = DataPlaneText.Get("dataplane.access.adapterFailureNoReason");
         }
 
         Fail(message);

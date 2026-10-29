@@ -33,7 +33,7 @@ internal static class RoleModel
     {
         var declaration = instance.FindDataType(role.Type);
         return declaration is null
-            ? $"（未声明类型 {role.Type}）"
+            ? CoreText.Get("core.services.roleUndeclaredType", role.Type)
             : declaration.Shape.Describe();
     }
 

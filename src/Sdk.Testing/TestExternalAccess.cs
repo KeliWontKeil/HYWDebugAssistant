@@ -20,6 +20,7 @@ public sealed class TestExternalAccess : IExternalAccess
     private readonly Dictionary<string, Queue<byte[]>> _inbound = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ReceiveHandler> _handlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ExternalAccessSnapshot> _snapshots = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Type> _parametersTypes = new(StringComparer.Ordinal);
 
     /// <summary>模块发出的打开请求（按顺序）。</summary>
     public List<string> OpenRequests { get; } = [];
@@ -127,7 +128,21 @@ public sealed class TestExternalAccess : IExternalAccess
         return WriteSucceeds;
     }
 
+    /// <summary>预置一条接入的参数类型（模拟框架按标准目录登记的类型）。</summary>
+    /// <param name="accessName">接入名。</param>
+    /// <param name="parametersType">参数类型。</param>
+    public void SetParametersType(string accessName, Type parametersType)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accessName);
+        ArgumentNullException.ThrowIfNull(parametersType);
+        _parametersTypes[accessName] = parametersType;
+    }
+
     /// <inheritdoc />
     public ExternalAccessSnapshot GetSnapshot(string accessName) =>
         _snapshots.TryGetValue(accessName, out var snapshot) ? snapshot : ExternalAccessSnapshot.None;
+
+    /// <inheritdoc />
+    public Type? GetParametersType(string accessName) =>
+        _parametersTypes.TryGetValue(accessName, out var parametersType) ? parametersType : null;
 }

@@ -18,7 +18,7 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 /// 只有"哪条命令"与外观；外观直接由应用级按钮主题给（五态、焦点、禁用），不必再造一遍。
 /// </para>
 /// </remarks>
-public sealed class ModuleButton : Button
+public sealed class ModuleButton : Button, IModuleViewElement
 {
     private IModuleViewContext? _context;
 
@@ -53,10 +53,29 @@ public sealed class ModuleButton : Button
         }
     }
 
+    /// <inheritdoc />
+    public void Refresh(IModuleViewContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        _context ??= context;
+
+        if (CommandName.Length == 0)
+        {
+            return;
+        }
+
+        var enabled = context.Appearance(CommandName).Enabled ?? true;
+        if (IsEnabled != enabled)
+        {
+            IsEnabled = enabled;
+        }
+    }
+
     /// <summary>触发一次（供测试直接调用）。</summary>
     public void Invoke()
     {
-        if (_context is null || CommandName.Length == 0)
+        if (!IsEnabled || _context is null || CommandName.Length == 0)
         {
             return;
         }

@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using HYWDebugAssistant.FrameworkUi.ViewModels;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.FrameworkUi.Views;
 
@@ -28,10 +29,10 @@ public partial class DialogWindow : Window
 
         Title = kind switch
         {
-            DialogKind.ModuleCatalog => "模块清单",
+            DialogKind.ModuleCatalog => Loc("dialog.title.catalog"),
             DialogKind.Issues => "Issue",
-            DialogKind.Settings => "设置",
-            _ => "拓扑诊断（只读）",
+            DialogKind.Settings => Loc("dialog.title.settings"),
+            _ => Loc("dialog.title.topology"),
         };
 
         // 侧边栏各弹窗的默认大小必须一致化：这里若按种类覆盖尺寸
@@ -41,4 +42,8 @@ public partial class DialogWindow : Window
         Body.DataContext = DataContext;
         DataContextChanged += (_, _) => Body.DataContext = DataContext;
     }
+
+    /// <summary>取一条本程序集文本表里的文案。</summary>
+    /// <param name="key">键。</param>
+    private static string Loc(string key) => TextCatalog.Get(typeof(DialogWindow).Assembly, key);
 }

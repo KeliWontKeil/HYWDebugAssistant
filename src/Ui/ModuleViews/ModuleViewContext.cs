@@ -5,6 +5,8 @@ using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Views;
 
 
+using HYWDebugAssistant.Sdk.Text;
+
 namespace HYWDebugAssistant.Ui.ModuleViews;
 
 /// <summary>
@@ -100,7 +102,9 @@ internal sealed class ModuleViewContext : IModuleViewContext
     {
         if (command.Length == 0)
         {
-            return CommandOutcome.Fail("这个控件没有声明命令名");
+            return CommandOutcome.Fail(TextCatalog.Get(
+                typeof(ModuleViewContext).Assembly,
+                "ui.moduleView.commandNameMissing"));
         }
 
         var result = _command.SendCommand(InstanceId, command);
@@ -132,7 +136,8 @@ internal sealed class ModuleViewContext : IModuleViewContext
                 field.Value,
                 field.Choices?.Select(choice => new ConfigChoice(choice.Value, choice.Title)).ToArray(),
                 field.Unit,
-                field.Description);
+                field.Description,
+                field.Group);
         }
 
         return null;
@@ -175,6 +180,7 @@ internal sealed class ModuleViewContext : IModuleViewContext
                 TextToken = textToken.Length > 0 ? textToken : null,
                 TextSize = appearance.TextSize,
                 ReadOnly = appearance.ReadOnly,
+                Enabled = appearance.Enabled,
             };
         }
 

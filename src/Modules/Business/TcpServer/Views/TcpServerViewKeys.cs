@@ -1,4 +1,4 @@
-using HYWDebugAssistant.Access.Parameters;
+using HYWDebugAssistant.Sdk.Access;
 
 namespace HYWDebugAssistant.Modules.TcpServer.Views;
 
@@ -14,8 +14,8 @@ public static class TcpServerViewKeys
     public const string Open = TcpServerModule.OpenCommand;
     public const string Close = TcpServerModule.CloseCommand;
 
-    public const string LocalAddress = nameof(TcpServerConfig.LocalAddress);
-    public const string LocalPort = nameof(TcpServerConfig.LocalPort);
-    public const string MaxConnections = nameof(TcpServerConfig.MaxConnections);
-    public const string NoDelay = nameof(TcpServerConfig.NoDelay);
+    public const string LocalAddress = ExternalAccessFieldNames.LocalAddress;
+    public const string LocalPort = ExternalAccessFieldNames.LocalPort;
+    public const string MaxConnections = ExternalAccessFieldNames.MaxConnections;
+    public const string NoDelay = ExternalAccessFieldNames.NoDelay;
 }

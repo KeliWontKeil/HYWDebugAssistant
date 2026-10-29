@@ -15,8 +15,17 @@ namespace HYWDebugAssistant.Ui.Theming;
 /// </remarks>
 public static class ShellLayout
 {
-    /// <summary>比例档位（设置界面下拉用）。</summary>
-    public static readonly IReadOnlyList<string> Aspects = ["9:19.5", "9:16", "16:9"];
+    /// <summary>比例档位（设置界面下拉用）。**只保留窄体**；宽体由用户自由缩放。</summary>
+    public static readonly IReadOnlyList<string> Aspects = ["9:19.5", "9:16"];
+
+    /// <summary>默认比例（用户没有显式选择时）。</summary>
+    public const string DefaultAspect = "9:19.5";
+
+    /// <summary>把旧值/非法值收敛到当前支持的档位。</summary>
+    public static string Normalize(string? aspect) =>
+        aspect is not null && Aspects.Contains(aspect, StringComparer.Ordinal)
+            ? aspect
+            : DefaultAspect;
 
     /// <summary>短边基准尺寸（DIP）。</summary>
     public const double BaseShortSide = 396;
@@ -27,7 +36,7 @@ public static class ShellLayout
     /// <param name="aspect">比例档位（如 <c>9:19.5</c>）。</param>
     public static (double Width, double Height) Measure(string? aspect)
     {
-        var (w, h) = Parse(aspect);
+        var (w, h) = Parse(Normalize(aspect));
         var ratio = h / w;   // 长边 / 短边
 
         return ratio >= 1
@@ -50,6 +59,6 @@ public static class ShellLayout
             }
         }
 
-        return (9, 19.5);   // 默认：手机竖屏常用比例
+        return (9, 19.5);   // 默认：手机竖屏常用比例（16:9 已撤掉，避免主窗口宽体）
     }
 }

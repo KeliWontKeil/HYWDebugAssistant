@@ -20,11 +20,47 @@ public static class ThemeIds
     /// <summary>内置主题：深色。</summary>
     public const string Dark = "dark";
 
+    /// <summary>预置自定义方案「樱色」的 id（由编译期 seed 投放，**不是内置主题**）。</summary>
+    public const string Sakura = "sakura";
+
     /// <summary>**选择项**：跟随系统（不是一套主题，故不受"覆盖"影响）。</summary>
     public const string System = "System";
 
-    /// <summary>内置主题（顺序 = 设置里列出的顺序 = 浅色在前）。</summary>
+    /// <summary>系统内置主题（只有浅色 / 深色）。</summary>
     public static IReadOnlyList<string> BuiltIn { get; } = [Light, Dark];
+
+    /// <summary>原始两套基础主题（旧外观迁移/折叠只作用于这两套）。</summary>
+    public static IReadOnlyList<string> BaseBuiltIn { get; } = [Light, Dark];
+
+    /// <summary>是不是“跟随系统”（选择项，不是主题）。</summary>
+    /// <param name="id">主题名 / 选择值。</param>
+    public static bool IsSystem(string? id) =>
+        !string.IsNullOrWhiteSpace(id) && id.Trim().Equals(System, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>是不是系统内置主题（<c>light</c> / <c>dark</c>）。</summary>
+    /// <param name="id">主题名。</param>
+    public static bool IsBuiltIn(string? id)
+    {
+        var normalized = Normalize(id);
+        return BuiltIn.Any(theme => string.Equals(theme, normalized, StringComparison.Ordinal));
+    }
+
+    /// <summary>是不是保留名（<c>System</c> / <c>light</c> / <c>dark</c>），自定义方案不能用。</summary>
+    /// <param name="id">主题名 / 选择值。</param>
+    public static bool IsReserved(string? id) => IsSystem(id) || IsBuiltIn(id);
+
+    /// <summary>内置主题的基类型（<c>light</c> = 浅色，<c>dark</c> = 深色；非内置 ⇒ null）。</summary>
+    /// <param name="id">主题名。</param>
+    public static ThemeBaseKind? BuiltInKind(string? id)
+    {
+        var normalized = Normalize(id);
+        return normalized switch
+        {
+            Dark => ThemeBaseKind.Dark,
+            Light => ThemeBaseKind.Light,
+            _ => null,
+        };
+    }
 
     /// <summary>
     /// 规范化主题名：空 ⇒ <see cref="System"/>；`System`（任意大小写）⇒ <see cref="System"/>；其余 ⇒ 小写。

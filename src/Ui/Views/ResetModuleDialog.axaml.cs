@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Ui.Views;
 
@@ -20,7 +21,7 @@ public partial class ResetModuleDialog : Window
     /// <param name="moduleTitle">模块展示名（写进提示文本）。</param>
     public ResetModuleDialog(string moduleTitle)
         : this() =>
-        Message.Text = $"要还原「{moduleTitle}」吗？请选择还原范围：";
+        Message.Text = TextCatalog.Get(typeof(ResetModuleDialog).Assembly, "reset.titleWithModule", moduleTitle);
 
     private void OnSizeOnly(object? sender, RoutedEventArgs e) => Close(ModuleResetScope.SizeOnly);
 

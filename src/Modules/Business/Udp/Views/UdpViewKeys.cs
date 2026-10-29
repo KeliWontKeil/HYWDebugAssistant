@@ -1,4 +1,4 @@
-using HYWDebugAssistant.Access.Parameters;
+using HYWDebugAssistant.Sdk.Access;
 
 namespace HYWDebugAssistant.Modules.Udp.Views;
 
@@ -13,9 +13,9 @@ public static class UdpViewKeys
     public const string Open = UdpModule.OpenCommand;
     public const string Close = UdpModule.CloseCommand;
 
-    public const string LocalAddress = nameof(UdpConfig.LocalAddress);
-    public const string LocalPort = nameof(UdpConfig.LocalPort);
-    public const string RemoteAddress = nameof(UdpConfig.RemoteAddress);
-    public const string RemotePort = nameof(UdpConfig.RemotePort);
-    public const string Broadcast = nameof(UdpConfig.Broadcast);
+    public const string LocalAddress = ExternalAccessFieldNames.LocalAddress;
+    public const string LocalPort = ExternalAccessFieldNames.LocalPort;
+    public const string RemoteAddress = ExternalAccessFieldNames.RemoteAddress;
+    public const string RemotePort = ExternalAccessFieldNames.RemotePort;
+    public const string Broadcast = ExternalAccessFieldNames.Broadcast;
 }

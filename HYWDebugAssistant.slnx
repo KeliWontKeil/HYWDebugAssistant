@@ -8,13 +8,14 @@
     <Project Path="src/FrameworkUi/HYWDebugAssistant.FrameworkUi.csproj" />
     <Project Path="src/Hosting/HYWDebugAssistant.Hosting.csproj" />
     <Project Path="src/Infrastructure/HYWDebugAssistant.Infrastructure.csproj" />
+    <Project Path="src/Sdk.AccessKit/HYWDebugAssistant.Sdk.AccessKit.csproj" />
     <Project Path="src/Sdk.Testing/HYWDebugAssistant.Sdk.Testing.csproj" />
-    <Project Path="src/Sdk/HYWDebugAssistant.Sdk.csproj" />
     <Project Path="src/Sdk.Ui/HYWDebugAssistant.Sdk.Ui.csproj" />
+    <Project Path="src/Sdk/HYWDebugAssistant.Sdk.csproj" />
     <Project Path="src/Ui/HYWDebugAssistant.Ui.csproj" />
   </Folder>
   <Folder Name="/tools/">
-    <!-- XAML 预览器的可执行宿主（类库模块本身不能作为预览目标）。 -->
+    <Project Path="tools/HYWDebugAssistant.Tests.ModuleFixtures/HYWDebugAssistant.Tests.ModuleFixtures.csproj" />
     <Project Path="tools/PreviewHost/HYWDebugAssistant.PreviewHost.csproj" />
   </Folder>
   <Folder Name="/src/Modules/" />

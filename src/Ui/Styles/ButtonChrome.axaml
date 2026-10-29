@@ -15,6 +15,14 @@
        部件的 Background 才是页面像素的直接来源（实测：常态 #33000000、指针 #FF000000，
        屏幕上就是"我们的色叠 20% 黑"）。
   -->
+
+  <!--
+    **只服务 Button / ModuleButton，不服务 Toggle 派生控件**：
+    `CheckBox` / `RadioButton` 派生自 `ToggleButton`，而 `ToggleButton` 派生自 `Button`。
+    所以 `:is(Button)` 会同时匹配它们，把这里的 Button 控制主题套到它们身上 ——
+    表现为"所有开关都变成了按钮"（实测：设置页与交互页的 CheckBox 全变成按钮）。
+    下面所有按钮规则都必须排除 Toggle 派生类型。
+  -->
   <Styles.Resources>
     <!--
       按钮的控制主题：x:Key="{x:Type Button}"（对所有 Button），由下面的 Theme setter 指过来。
@@ -63,8 +71,13 @@
     **`:is(Button)` 而不是 `Button`**：Avalonia 的类型选择器**只匹配精确类型**，
     派生自 Button 的控件（例如模块控件库里的 `ModuleButton`）不会命中 `Button` 那一条。
     实测症状：模块里的按钮只剩一行字 —— 没有面、没有边、没有五态，看起来"按钮不见了"。
+
+    **但必须排除 Toggle 派生控件**：CheckBox / RadioButton 派生自 ToggleButton，
+    ToggleButton 又派生自 Button；不排除时它们会拿到 Button 的控制主题，表现为"开关变成按钮"。
+    `:not(:is(CheckBox))` / `:not(:is(RadioButton))` 是冗余保险：即使 `:is(ToggleButton)`
+    在某版本的选择器实现里不匹配派生类型，也不会再把这两类卷进来。
   -->
-  <Style Selector=":is(Button)">
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton))">
     <Setter Property="Theme" Value="{DynamicResource {x:Type Button}}" />
   </Style>
 
@@ -80,24 +93,24 @@
     所以"面"会自动跟着走；`TemplateBinding` 是绑定、优先级高于按部件名的样式，
     这也正好把它从 Fluent 的半透明黑里摘出来。
   -->
-  <Style Selector=":is(Button):not(.tab):not(.rail):not(.icon):not(.helpIcon)">
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.icon):not(.helpIcon)">
     <Setter Property="Background" Value="{DynamicResource SurfaceButtonFaceBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource SurfaceButtonEdgeBrush}" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>
 
-  <Style Selector=":is(Button):not(.tab):not(.rail):not(.icon):not(.helpIcon):pointerover">
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.icon):not(.helpIcon):pointerover">
     <Setter Property="Background" Value="{DynamicResource SurfaceButtonFaceHoverBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
   </Style>
 
-  <Style Selector=":is(Button):not(.tab):not(.rail):not(.icon):not(.helpIcon):pressed">
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.icon):not(.helpIcon):pressed">
     <Setter Property="Background" Value="{DynamicResource SurfaceButtonFacePressedBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
   </Style>
 
   <!-- 键盘焦点：边换主色、厚度不变（改厚度按钮会长胖、把旁边的控件挤动 —— 与滑块同一条纪律） -->
-  <Style Selector=":is(Button):focus-visible">
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):focus-visible">
     <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
   </Style>
 
@@ -108,15 +121,15 @@
     这里给回**它们各自类样式用的那个边框色**（而不是主色）：标签用 `BorderDefault`、活动栏用
     `TextSecondary` —— 与它们平时的样子一致，只是不再"发蓝"。
   -->
-  <Style Selector=":is(Button).tab:focus-visible">
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)).tab:focus-visible">
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
   </Style>
 
-  <Style Selector=":is(Button).rail:focus-visible">
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)).rail:focus-visible">
     <Setter Property="BorderBrush" Value="{DynamicResource TextSecondary}" />
   </Style>
 
-  <Style Selector=":is(Button):disabled">
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):disabled">
     <Setter Property="Opacity" Value="0.5" />
   </Style>
 </Styles>

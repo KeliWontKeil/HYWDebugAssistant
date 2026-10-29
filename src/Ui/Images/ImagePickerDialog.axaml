@@ -1,0 +1,41 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:images="using:HYWDebugAssistant.Ui.Images"
+        xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+        x:Class="HYWDebugAssistant.Ui.Images.ImagePickerDialog"
+        Title="{loc:Tr picker.dialog.title}"
+        SizeToContent="WidthAndHeight"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgModule}"
+        FontSize="12">
+    <StackPanel Margin="12" Spacing="8">
+        <TextBlock Name="HintText" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" />
+        <Border Background="{DynamicResource BgWorkspace}"
+                BorderBrush="{DynamicResource BorderDefault}"
+                BorderThickness="1"
+                CornerRadius="3"
+                ClipToBounds="True">
+            <images:ImageCropView Name="CropView" />
+        </Border>
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr picker.scale}" />
+            <Slider Grid.Column="1" Name="ZoomSlider" Minimum="1" Maximum="8" Value="1"
+                    IsSnapToTickEnabled="False" />
+            <TextBlock Grid.Column="2" Name="ZoomText" Width="42" VerticalAlignment="Center"
+                       HorizontalAlignment="Right" FontFamily="{DynamicResource FontData}"
+                       Text="100%" />
+        </Grid>
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+            <Button Grid.Column="0" Name="ResetButton" Content="{loc:Tr picker.reset}" />
+            <TextBlock Grid.Column="1" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextMuted}"
+                       Text="{loc:Tr picker.note}" />
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                <Button Name="CancelButton" Content="{loc:Tr picker.cancel}" MinWidth="70" />
+                <Button Name="ConfirmButton" Content="{loc:Tr picker.confirm}" MinWidth="70" Classes="accent" />
+            </StackPanel>
+        </Grid>
+    </StackPanel>
+</Window>

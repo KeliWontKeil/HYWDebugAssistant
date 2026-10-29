@@ -71,7 +71,7 @@ public static class CompositeStore
         if (string.IsNullOrWhiteSpace(filePath))
         {
             outcome = CompositeReadOutcome.NotFound;
-            error = "文件路径为空";
+            error = CoreText.Get("core.composite.store.emptyPath");
             return false;
         }
 
@@ -83,7 +83,7 @@ public static class CompositeStore
             if (!File.Exists(fullPath))
             {
                 outcome = CompositeReadOutcome.NotFound;
-                error = "文件不存在";
+                error = CoreText.Get("core.composite.store.notFound");
                 return false;
             }
 
@@ -99,7 +99,7 @@ public static class CompositeStore
         if (length > MaxFileSizeBytes)
         {
             outcome = CompositeReadOutcome.TooLarge;
-            error = $"文件过大：{length} 字节（上限 {MaxFileSizeBytes} 字节）";
+            error = CoreText.Get("core.composite.store.tooLarge", length, MaxFileSizeBytes);
             return false;
         }
 
@@ -118,7 +118,7 @@ public static class CompositeStore
         if (string.IsNullOrWhiteSpace(text))
         {
             outcome = CompositeReadOutcome.Malformed;
-            error = "文件内容为空";
+            error = CoreText.Get("core.composite.store.emptyContent");
             return false;
         }
 
@@ -136,21 +136,21 @@ public static class CompositeStore
         if (root is null)
         {
             outcome = CompositeReadOutcome.Malformed;
-            error = "文件根节点不是 JSON 对象";
+            error = CoreText.Get("core.composite.store.rootNotObject");
             return false;
         }
 
         if (!TryMeasureDepth(root, out var depth))
         {
             outcome = CompositeReadOutcome.Malformed;
-            error = "结构深度无法确定（文件不是合法 JSON 结构）";
+            error = CoreText.Get("core.composite.store.depthUnknown");
             return false;
         }
 
         if (depth > MaxStructureDepth)
         {
             outcome = CompositeReadOutcome.TooDeep;
-            error = $"结构深度超限：{depth} 层（上限 {MaxStructureDepth} 层）";
+            error = CoreText.Get("core.composite.store.depthTooDeep", depth, MaxStructureDepth);
             return false;
         }
 

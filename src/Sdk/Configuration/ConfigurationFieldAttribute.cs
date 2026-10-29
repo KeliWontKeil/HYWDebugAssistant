@@ -30,11 +30,29 @@ public sealed class ConfigurationFieldAttribute : Attribute
     /// <summary>显示标题（可为空 = 由属性名生成）。</summary>
     public string? Title { get; }
 
+    /// <summary>
+    /// 标题的**文本表键**（拥有者 = 特性所在类型——即配置类型——的程序集；命中优先于 <see cref="Title"/>）。
+    /// </summary>
+    /// <remarks>空 = 不用表，回退到 <see cref="Title"/> / 属性名。</remarks>
+    public string? TitleKey { get; init; }
+
     /// <summary>分组标题（同类字段归一组；空 = 不分组）。</summary>
     public string? Group { get; init; }
 
+    /// <summary>
+    /// 分组标题的**文本表键**（拥有者 = 配置类型所在程序集；命中优先于 <see cref="Group"/>）。
+    /// </summary>
+    /// <remarks>空 = 不用表，回退到 <see cref="Group"/> / 不分组。</remarks>
+    public string? GroupKey { get; init; }
+
     /// <summary>说明文本（界面上的辅助提示；空 = 不显示）。</summary>
     public string? Description { get; init; }
+
+    /// <summary>
+    /// 说明文本的**文本表键**（拥有者 = 配置类型所在程序集；命中优先于 <see cref="Description"/>）。
+    /// </summary>
+    /// <remarks>空 = 不用表，回退到 <see cref="Description"/>。</remarks>
+    public string? DescriptionKey { get; init; }
 
     /// <summary>数值下限（含；仅用于编辑界面约束与校验提示）。<see cref="double.NaN"/> = 不限制。</summary>
     public double Minimum { get; init; } = double.NaN;

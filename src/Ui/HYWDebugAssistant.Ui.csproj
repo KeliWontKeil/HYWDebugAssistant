@@ -26,6 +26,7 @@
       · 同一个文件也给 `docs/tools/audit-colors.ps1` 读（它校验清单与两份色板 XAML 一一对应）。
     -->
     <EmbeddedResource Include="Styles\palette.json" LogicalName="HYWDebugAssistant.Ui.Styles.palette.json" />
+    <!-- 樱色是出厂种子（resources/seeds/settings/appearance/themes/sakura），不嵌入 Ui 运行时。 -->
   </ItemGroup>
 
 </Project>

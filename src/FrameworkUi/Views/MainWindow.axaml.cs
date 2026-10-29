@@ -1,9 +1,14 @@
+using System.Diagnostics;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Platform.Storage;
-using Avalonia.Threading;
+using Avalonia.VisualTree;
+using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.FrameworkUi.ViewModels;
+using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Ui.Controls;
+using HYWDebugAssistant.Ui.Theming;
 using HYWDebugAssistant.Ui.Views;
 
 namespace HYWDebugAssistant.FrameworkUi.Views;
@@ -21,8 +26,12 @@ namespace HYWDebugAssistant.FrameworkUi.Views;
 /// </remarks>
 public partial class MainWindow : Window
 {
-    private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(1000d / 60) };
     private readonly Dictionary<DialogKind, DialogWindow> _dialogs = [];
+    private bool _allowClose;
+    private bool _closePrompting;
+    private string? _lastGeometryAspect;
+    private bool _lastGeometryFixed;
+    private bool _preparedForShow;
 
     /// <summary>创建外壳窗口。</summary>
     public MainWindow()
@@ -32,16 +41,13 @@ public partial class MainWindow : Window
         // 点外壳 = 点「别处」 → **清除模块选中**（否则点空白处无法取消选中）
         AddHandler(PointerPressedEvent, OnShellPressed, RoutingStrategies.Tunnel);
 
-        _refreshTimer.Tick += (_, _) => Shell?.Refresh();
         Opened += (_, _) =>
         {
-            Shell?.LoadSettings();
-
-            // **尺寸默认值在 XAML**；设置只在"用户显式改过比例"时覆盖
-            ApplyShellSizeFromSettings();
+            // 尺寸已在 PrepareForShow 中按“工作区优先”落定；这里只恢复位置。
+            ApplyStartupPosition();
 
             Shell?.Refresh();
-            _refreshTimer.Start();
+            UiFrameClock.Subscribe(OnRefreshTick);
 
             // 快捷键：按设置重建绑定，并挂到**本应用每一个窗口**（外壳 + 模块窗口 + 弹窗）
             if (Shell is { } shell)
@@ -57,41 +63,215 @@ public partial class MainWindow : Window
             }
         };
 
-        Closed += (_, _) => _refreshTimer.Stop();
+        Closed += (_, _) => UiFrameClock.Unsubscribe(OnRefreshTick);
+        Closing += OnClosing;
         DataContextChanged += (_, _) => Hook();
 
+        // 跟随系统时壁纸随平台浅/深切；显式主题由 Settings.Applied 刷新。
+        ActualThemeVariantChanged += (_, _) => Shell?.RefreshThemeWallpaper();
+
+    }
+
+    private void OnRefreshTick() => Shell?.Refresh();
+
+    /// <summary>
+    /// 关闭前询问是否保存工作区：保存失败或取消 ⇒ 留在应用；不保存只丢弃本次未保存修改。
+    /// </summary>
+    private async void OnClosing(object? sender, WindowClosingEventArgs e)
+    {
+        if (_allowClose)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+
+        if (_closePrompting || Shell is not { } shell)
+        {
+            return;
+        }
+
+        _closePrompting = true;
+        try
+        {
+            var behavior = shell.WorkspaceExitBehavior;
+            if (behavior == "Save")
+            {
+                if (!await SaveWorkspaceAndReportAsync(shell))
+                {
+                    return;
+                }
+
+                _allowClose = true;
+                Close();
+                return;
+            }
+
+            if (behavior == "Discard")
+            {
+                _allowClose = true;
+                Close();
+                return;
+            }
+
+            var result = await WorkspaceCloseDialog.ShowAsync(this, shell.Windows.ModuleCount);
+            if (result.Choice == WorkspaceCloseChoice.Cancel)
+            {
+                return;
+            }
+
+            if (result.Choice == WorkspaceCloseChoice.Save
+                && !await SaveWorkspaceAndReportAsync(shell))
+            {
+                return;
+            }
+
+            if (result.Remember)
+            {
+                var policy = result.Choice == WorkspaceCloseChoice.Save ? "Save" : "Discard";
+                var persisted = shell.SetWorkspaceExitBehavior(policy);
+                if (!persisted.Succeeded)
+                {
+                    await ShowMessageAsync(
+                        Loc("shell.message.exitPolicySaveFailed.title"),
+                        Loc("shell.message.exitPolicySaveFailed.message", string.Join("；", persisted.Failures)));
+                }
+            }
+
+            _allowClose = true;
+            Close();
+        }
+        finally
+        {
+            _closePrompting = false;
+        }
+    }
+
+    /// <summary>保存工作区；失败时显示原因并返回 false（调用方不得关闭）。</summary>
+    private async Task<bool> SaveWorkspaceAndReportAsync(ShellViewModel shell)
+    {
+        var result = shell.SaveWorkspace(CurrentWorkspacePlacement());
+        if (result.Succeeded)
+        {
+            return true;
+        }
+
+        await ShowMessageAsync(
+            Loc("shell.message.workspaceSaveFailed.title"),
+            Loc("shell.message.workspaceSaveFailed", string.Join("；", result.Failures)));
+        return false;
     }
 
     /// <summary>模块窗口管理器（由组合根在显示前注入并负责释放）。</summary>
     public ModuleWindowManager? WindowManager { get; set; }
 
-    private ShellViewModel? Shell => DataContext as ShellViewModel;
-
     /// <summary>
-    /// 按设置里的「主窗口比例」覆盖窗口尺寸（**默认值在 XAML**，此处只在设置与默认不一致时才改）。
+    /// **首次显示前**载入设置并落定几何：有工作区按保存的尺寸，无工作区按比例设置。
+    /// 组合根在 `Show` 之前调用一次；避免首帧默认尺寸跳变。
     /// </summary>
-    /// <remarks>
-    /// 外层容器尺寸**必须固定**：默认值写在 `MainWindow.axaml`；
-    /// 设置只承载"用户显式选择的比例档"；**不存在任何按内容计算尺寸的逻辑**。
-    /// </remarks>
-    private void ApplyShellSizeFromSettings()
+    public void PrepareForShow()
+    {
+        if (_preparedForShow || Shell is not { } shell)
+        {
+            return;
+        }
+
+        _preparedForShow = true;
+        shell.LoadSettings();
+
+        var settings = shell.GetCommittedSettings();
+        var geometry = ShellGeometryPlanner.Startup(
+            settings.ShellAspect,
+            settings.ShellFixedSize,
+            shell.GetWorkspacePlacement());
+
+        ApplyShellGeometry(geometry);
+        _lastGeometryAspect = settings.ShellAspect;
+        _lastGeometryFixed = settings.ShellFixedSize;
+    }
+
+    /// <summary>把纯规划结果落到窗口；几何写入只在这里和设置应用回调发生。</summary>
+    private void ApplyShellGeometry(ShellGeometry geometry)
+    {
+        var width = Math.Max(1, geometry.Width);
+        var height = Math.Max(1, geometry.Height);
+
+        CanResize = geometry.CanResize;
+
+        if (Math.Abs(Width - width) > 0.01)
+        {
+            Width = width;
+        }
+
+        if (Math.Abs(Height - height) > 0.01)
+        {
+            Height = height;
+        }
+    }
+
+    /// <summary>设置应用后：显式改比例才重算尺寸；只切固定不改变尺寸。</summary>
+    private void ApplyGeometryAfterSettings()
     {
         if (Shell is not { } shell)
         {
             return;
         }
 
-        var (width, height) = Ui.Theming.ShellLayout.Measure(shell.ShellAspect);
+        var settings = shell.GetCommittedSettings();
+        var geometry = ShellGeometryPlanner.AfterSettings(
+            _lastGeometryAspect,
+            _lastGeometryFixed,
+            settings.ShellAspect,
+            settings.ShellFixedSize,
+            Width,
+            Height);
 
-        if (Math.Abs(Width - width) > 0.5 || Math.Abs(Height - height) > 0.5)
-        {
-            Width = width;
-            Height = height;
-        }
+        ApplyShellGeometry(geometry);
+        _lastGeometryAspect = settings.ShellAspect;
+        _lastGeometryFixed = settings.ShellFixedSize;
     }
 
-    /// <summary>外壳内任意按下 → 清除模块选中（"点别处取消选中"）。</summary>
-    private void OnShellPressed(object? sender, PointerPressedEventArgs e) => Shell?.Windows.ClearSelection();
+    /// <summary>当前外壳在工作区快照里的绝对矩形（DIP）。</summary>
+    private WorkspacePlacementView CurrentWorkspacePlacement()
+    {
+        var scaling = RenderScaling > 0 ? RenderScaling : 1.0;
+        return new WorkspacePlacementView(
+            Position.X / scaling,
+            Position.Y / scaling,
+            ClientSize.Width,
+            ClientSize.Height);
+    }
+
+    /// <summary>应用工作区里保存的外壳位置；尺寸已由 PrepareForShow 落定，这里绝不改尺寸。</summary>
+    private void ApplyStartupPosition()
+    {
+        if (Shell?.GetWorkspacePlacement() is not { } placement)
+        {
+            return;
+        }
+
+        var scaling = RenderScaling > 0 ? RenderScaling : 1.0;
+        Position = new PixelPoint(
+            (int)Math.Round(placement.X * scaling),
+            (int)Math.Round(placement.Y * scaling));
+    }
+
+    private ShellViewModel? Shell => DataContext as ShellViewModel;
+
+    /// <summary>外壳内任意按下 → 清除模块选中（"点别处取消选中"）；侧边栏与页面内的点击不在此列。</summary>
+    private void OnShellPressed(object? sender, PointerPressedEventArgs e)
+    {
+        // 侧边栏按钮与常驻页面上的点击（含组合页复选框）都是有效操作，不能触发“点外壳清空选择”。
+        if (e.Source is Visual visual
+            && visual.GetVisualAncestors().Any(ancestor =>
+                ancestor is ModuleCatalogView or CompositePageView or InteractionView
+                || ancestor is StackPanel { Name: "RailButtons" }))
+        {
+            return;
+        }
+
+        Shell?.Windows.ClearSelection();
+    }
 
     private void Hook()
     {
@@ -99,6 +279,7 @@ public partial class MainWindow : Window
         {
             shell.DialogRequested += (_, kind) => ShowDialog(kind);
             shell.RaiseAllWindowsRequested += (_, _) => WindowManager?.WindowGroup.RaiseAll();
+            shell.RestartRequested += (_, _) => _ = RestartAsync();
             shell.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(ShellViewModel.AppTopmost))
@@ -112,8 +293,105 @@ public partial class MainWindow : Window
             {
                 shell.ReloadHotkeys();
                 shell.AppTopmost = shell.Settings.AppTopmost;
+                ApplyGeometryAfterSettings();
+                shell.RefreshThemeWallpaper();
                 WindowManager?.WindowGroup.SetTopmost(shell.AppTopmost);
             };
+        }
+    }
+
+    // ---------------------------------------------------------------- 重启
+
+    /// <summary>
+    /// **重新加载**：保存一次性现场快照 → 启动新进程 → 关闭当前进程。
+    /// </summary>
+    private async Task RestartAsync()
+    {
+        if (Shell is not { } shell)
+        {
+            return;
+        }
+
+        var confirmed = await ConfirmDialog.ShowAsync(
+            this,
+            Loc("shell.dialog.restart.title"),
+            Loc("shell.dialog.restart.message"),
+            Loc("shell.dialog.restart.confirm"),
+            Loc("shell.dialog.cancel"));
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        var snapshot = shell.SaveWorkspace(CurrentWorkspacePlacement());
+        if (!snapshot.Succeeded)
+        {
+            await ShowMessageAsync(
+                Loc("shell.message.restartFailed.title"),
+                Loc("shell.message.restartWorkspaceFailed", string.Join("；", snapshot.Failures)));
+            return;
+        }
+
+        if (!TryStartNewProcess(out var error))
+        {
+            await ShowMessageAsync(
+                Loc("shell.message.restartFailed.title"),
+                Loc("shell.message.restartProcessFailed", error));
+            return;
+        }
+
+        _allowClose = true;
+        Close();
+    }
+
+    /// <summary>启动一个与当前进程同参数的新实例（处理 dotnet 宿主与普通 exe 两种形态）。</summary>
+    private static bool TryStartNewProcess(out string? error)
+    {
+        error = null;
+        var processPath = Environment.ProcessPath;
+
+        if (string.IsNullOrWhiteSpace(processPath))
+        {
+            error = Loc("shell.error.processPathUnknown");
+            return false;
+        }
+
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = processPath,
+                UseShellExecute = false,
+                WorkingDirectory = AppContext.BaseDirectory,
+                WindowStyle = ProcessWindowStyle.Normal,
+            };
+
+            var arguments = Environment.GetCommandLineArgs();
+            var isDotnetHost = string.Equals(
+                Path.GetFileNameWithoutExtension(processPath),
+                "dotnet",
+                StringComparison.OrdinalIgnoreCase);
+
+            if (isDotnetHost && arguments.Length > 0)
+            {
+                startInfo.ArgumentList.Add(arguments[0]);
+            }
+
+            for (var index = 1; index < arguments.Length; index++)
+            {
+                startInfo.ArgumentList.Add(arguments[index]);
+            }
+
+            _ = Process.Start(startInfo);
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException
+                                      or System.ComponentModel.Win32Exception
+                                      or FileNotFoundException)
+        {
+            error = ex.Message;
+            return false;
         }
     }
 
@@ -174,86 +452,25 @@ public partial class MainWindow : Window
     }
 
     // ---------------------------------------------------------------- 文件
-
-    private async void OnOpenComposite(object? sender, RoutedEventArgs e)
-    {
-        if (Shell is not { } shell)
-        {
-            return;
-        }
-
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "打开组合件",
-            AllowMultiple = false,
-            FileTypeFilter = [new FilePickerFileType("组合件") { Patterns = ["*.json"] }],
-        });
-
-        if (files.Count == 0)
-        {
-            return;
-        }
-
-        var path = files[0].TryGetLocalPath();
-        if (path is null)
-        {
-            return;
-        }
-
-        var result = shell.Load(path);
-        WindowManager?.SyncAll();
-
-        await ShowMessageAsync(
-            "加载组合件",
-            result.Succeeded
-                ? $"已加载：{path}" + (result.Notices.Count > 0 ? $"\n{string.Join("\n", result.Notices)}" : string.Empty)
-                : $"被拒绝：{string.Join("；", result.Failures)}");
-    }
-
-    private async void OnSaveComposite(object? sender, RoutedEventArgs e)
-    {
-        if (Shell is not { } shell)
-        {
-            return;
-        }
-
-        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "保存全部为组合件",
-            SuggestedFileName = "workspace.json",
-            DefaultExtension = "json",
-            FileTypeChoices = [new FilePickerFileType("组合件") { Patterns = ["*.json"] }],
-        });
-
-        var path = file?.TryGetLocalPath();
-        if (path is null)
-        {
-            return;
-        }
-
-        var result = shell.SaveAll(path);
-
-        await ShowMessageAsync(
-            "保存组合件",
-            result.Succeeded
-                ? $"已保存：{path}" + (result.Notices.Count > 0 ? $"\n{string.Join("\n", result.Notices)}" : string.Empty)
-                : $"失败：{string.Join("；", result.Failures)}");
-    }
-
     private void OnExit(object? sender, RoutedEventArgs e) => Close();
 
     private void OnShowHotkeys(object? sender, RoutedEventArgs e) => _ = ShowMessageAsync(
-        "快捷键与用法",
-        "M 模块清单 · I Issue · S 设置 · T 拓扑诊断\n" +
-        "L 叠加信息层 · G 几何吸附 · Ctrl+L 全部锁定\n\n" +
-        "模块窗口：拖边框移动（Ctrl 独立拖动、Alt 临时不吸附）；边中点/角点缩放；\n" +
-        "右下角按钮：停（运行/停用）· 锁（锁定/解锁）· 隐（隐藏）· ×（移除模块）\n\n" +
-        "建网：双击窗口边缘的口标记块 → 填网络名 → 两侧同名即自动连成一条网络；\n" +
-        "清空网络名即退出该网络。连接关系可在「拓扑诊断」中查看（只读）。");
+        Loc("shell.help.hotkeys.title"),
+        Loc("shell.help.hotkeys.body"));
 
     private void OnShowAbout(object? sender, RoutedEventArgs e) => _ = ShowMessageAsync(
-        "关于",
-        "何译位调试助手（HYWDebugAssistant）\n模块 = 独立窗口的拼图式工程调试助手");
+        Loc("shell.help.about.title"),
+        Loc("shell.help.about.body"));
+
+    /// <summary>取一条本程序集文本表里的文案。</summary>
+    /// <param name="key">键。</param>
+    private static string Loc(string key) => TextCatalog.Get(typeof(MainWindow).Assembly, key);
+
+    /// <summary>取一条带占位符的文案。</summary>
+    /// <param name="key">键。</param>
+    /// <param name="args">格式化参数。</param>
+    private static string Loc(string key, params object?[] args) =>
+        TextCatalog.Get(typeof(MainWindow).Assembly, key, args);
 
     private async Task ShowMessageAsync(string title, string message)
     {

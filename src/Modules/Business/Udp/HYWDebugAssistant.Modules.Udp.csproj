@@ -2,22 +2,24 @@
 
   <!--
     业务模块（第二批 #4）：UDP `hyw/udp`。
-    **本版只有形态**：声明 + 配置 + 界面，没有 IO 逻辑（外部接入接线见执行计划的 P1/P4）。
     UDP 是**无连接**的：本地是"绑定"，远端是"默认收件人"，两者都只是参数，不是会话的两端。
+    与第三方模块**同构同路径**：只引 Sdk / Sdk.Ui / Sdk.AccessKit；不引 Access、不直接引 UI 框架、不引其他模块（AR-1 / AR-2）。
   -->
   <PropertyGroup>
     <ModulePackageName>udp</ModulePackageName>
-    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
     <ProjectReference Include="..\..\..\Sdk.Ui\HYWDebugAssistant.Sdk.Ui.csproj" />
-    <ProjectReference Include="..\..\..\Access\HYWDebugAssistant.Access.csproj" />
+    <!-- 外部接入骨架：模块只声明标准标识，适配器与参数类型由框架按标准创建/登记。 -->
+    <ProjectReference Include="..\..\..\Sdk.AccessKit\HYWDebugAssistant.Sdk.AccessKit.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 模块文本表：随输出并被 StageModulePackage 收进包；包内 `i18n/<程序集简名>/`。 -->
+    <Content Include="i18n\**\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

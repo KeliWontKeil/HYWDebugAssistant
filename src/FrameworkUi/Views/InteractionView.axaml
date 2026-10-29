@@ -1,6 +1,8 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
+             xmlns:ui="using:HYWDebugAssistant.Ui.Controls"
+             xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
              x:Class="HYWDebugAssistant.FrameworkUi.Views.InteractionView"
              x:DataType="vm:ShellViewModel"
              xmlns:design="using:HYWDebugAssistant.FrameworkUi.Design"
@@ -19,65 +21,65 @@
 
             <!-- 分区：显示 -->
             <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="显示" />
-                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="显示相关说明">
+                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="{loc:Tr interaction.section.display}" />
+                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="{loc:Tr interaction.help.display.tip}">
                     <Button.Flyout>
                         <Flyout Placement="TopEdgeAlignedRight">
                             <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
-                                       Text="「叠加信息层」在模块窗口内绘制连接线与数据流向；端口标记（网络标签）始终显示——双击标记即可填网络名建网。" />
+                                       Text="{loc:Tr interaction.help.display.body}" />
                         </Flyout>
                     </Button.Flyout>
                 </Button>
             </Grid>
-            <CheckBox Content="叠加信息层" IsChecked="{Binding ShowInfoOverlay, Mode=TwoWay}" />
+            <ui:UiToggle Content="{loc:Tr interaction.overlay}" IsChecked="{Binding ShowInfoOverlay, Mode=TwoWay}" />
 
             <Rectangle Height="1" Margin="0,2" Fill="{DynamicResource BorderDefault}" />
 
             <!-- 分区：交互 -->
             <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="交互" />
-                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="吸附说明">
+                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="{loc:Tr interaction.section.snap}" />
+                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="{loc:Tr interaction.help.snap.tip}">
                     <Button.Flyout>
                         <Flyout Placement="TopEdgeAlignedRight">
                             <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
-                                       Text="吸附参照 = 其他模块窗口 + 外壳右边缘（拼图向右展开）；拖动中按住 Alt 可临时停用。建网请用端口标签，或让两个模块「接触且标记对齐」自动连上。" />
+                                       Text="{loc:Tr interaction.help.snap.body}" />
                         </Flyout>
                     </Button.Flyout>
                 </Button>
             </Grid>
-            <CheckBox Content="几何吸附" IsChecked="{Binding SnapEnabled, Mode=TwoWay}" />
+            <ui:UiToggle Content="{loc:Tr interaction.snap}" IsChecked="{Binding SnapEnabled, Mode=TwoWay}" />
 
             <Rectangle Height="1" Margin="0,2" Fill="{DynamicResource BorderDefault}" />
 
             <!-- 分区：窗口 -->
             <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="窗口" />
-                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="窗口与层级说明">
+                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="{loc:Tr interaction.section.window}" />
+                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="{loc:Tr interaction.help.window.tip}">
                     <Button.Flyout>
                         <Flyout Placement="TopEdgeAlignedRight">
                             <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
-                                       Text="应用内层级：弹窗 &gt; 模块窗口 &gt; 外壳；相对其他应用只有两种统一状态（普通 / 全体置顶），不提供单窗口置顶。「全部锁定」后模块不可拖动/缩放/选中但仍刷新数据。" />
+                                       Text="{loc:Tr interaction.help.window.body}" />
                         </Flyout>
                     </Button.Flyout>
                 </Button>
             </Grid>
-            <CheckBox Content="全部锁定" IsChecked="{Binding AllLocked, Mode=TwoWay}" />
-            <CheckBox Content="应用置顶" IsChecked="{Binding AppTopmost, Mode=TwoWay}" />
+            <ui:UiToggle Content="{loc:Tr interaction.lockAll}" IsChecked="{Binding AllLocked, Mode=TwoWay}" />
+            <ui:UiToggle Content="{loc:Tr interaction.topmost}" IsChecked="{Binding AppTopmost, Mode=TwoWay}" />
             <StackPanel Orientation="Horizontal" Spacing="4">
-                <Button Content="全部置前" Command="{Binding RaiseAllWindowsCommand}" />
-                <Button Content="显示全部" Command="{Binding ShowAllWindowsCommand}" />
+                <Button Content="{loc:Tr interaction.raiseAll}" Command="{Binding RaiseAllWindowsCommand}" />
+                <Button Content="{loc:Tr interaction.showAll}" Command="{Binding ShowAllWindowsCommand}" />
             </StackPanel>
 
             <Rectangle Height="1" Margin="0,2" Fill="{DynamicResource BorderDefault}" />
 
             <!-- 分区：快捷键 -->
             <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="快捷键" />
-                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="默认快捷键">
+                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="{loc:Tr interaction.section.hotkeys}" />
+                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="{loc:Tr interaction.help.hotkeys.tip}">
                     <Button.Flyout>
                         <Flyout Placement="TopEdgeAlignedRight">
                             <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
-                                       Text="M 模块清单 · I Issue · S 设置 · T 拓扑诊断 · L 叠加信息层 · G 吸附 · Ctrl+L 全部锁定。作用域 = 应用内（任一本应用窗口聚焦即生效）；可在「设置 → 快捷键」里修改。" />
+                                       Text="{loc:Tr interaction.help.hotkeys.body}" />
                         </Flyout>
                     </Button.Flyout>
                 </Button>
@@ -95,12 +97,12 @@
                 · 只呈现：改色不参与建网/兼容/判定，也不进组合件。
             -->
             <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="数据结构 · 颜色" />
-                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="颜色映射说明">
+                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="{loc:Tr interaction.section.dataTypeColors}" />
+                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="{loc:Tr interaction.help.dataTypeColors.tip}">
                     <Button.Flyout>
                         <Flyout Placement="TopEdgeAlignedRight">
                             <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
-                                       Text="颜色按**数据类型身份**（标识@版本）映射，因此同一类型在所有窗口里同色（不同标识即使形状相同也分开配色）。点色块可自定义；「自动」= 按身份哈希出的稳定色（重启后不变）。改色只影响呈现，不参与建网与判定。" />
+                                       Text="{loc:Tr interaction.help.dataTypeColors.body}" />
                         </Flyout>
                     </Button.Flyout>
                 </Button>
@@ -118,7 +120,7 @@
                             <!-- 色块：点开**调色板窗口**（可任选颜色 / 恢复自动色）【ADR-0054】 -->
                             <Button Grid.Column="0" Padding="0" Width="26" Height="20" MinHeight="20"
                                     Click="OnPickDataTypeColor"
-                                    ToolTip.Tip="更改该数据类型的颜色（调色板窗口）">
+                                    ToolTip.Tip="{loc:Tr interaction.colorPick.tip}">
                                 <Border Width="22" Height="16" CornerRadius="3"
                                         Background="{Binding Brush}"
                                         BorderBrush="{DynamicResource BorderStrong}"

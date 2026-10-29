@@ -128,9 +128,16 @@
     <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
   </Style>
 
+  <!--
+    **悬停提示必须不透明**：它跟着指针走、会叠在各种界面之上，半透明会让文字对比度变低
+    （与"控件表面不透明度"是两回事：控件不会互相堆叠）。
+    因此这里**不用 `BgChrome`** —— 它带 `surface` 标记，会被 `surfaceOpacity` 乘出 70% 的透明度；
+    改用不参与该乘算的 `BgWorkspace`，并用更重一档的边框把它与下面的内容分开。
+  -->
   <Style Selector="ToolTip">
-    <Setter Property="Background" Value="{DynamicResource BgChrome}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="Background" Value="{DynamicResource BgWorkspace}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
     <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+    <Setter Property="Opacity" Value="1" />
   </Style>
 </Styles>

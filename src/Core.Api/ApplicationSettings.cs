@@ -1,7 +1,9 @@
+using HYWDebugAssistant.Sdk.Text;
+
 namespace HYWDebugAssistant.Core.Api;
 
 /// <summary>
-/// **应用级设置**（独立于组合件；便携式存放于应用目录的 <c>settings.json</c>）。
+/// **应用级设置**（独立于组合件；便携式存放于 `settings\settings.json`）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -14,7 +16,15 @@ namespace HYWDebugAssistant.Core.Api;
 public sealed class ApplicationSettings
 {
     /// <summary>当前设置 Schema 版本（写入文件，用于迁移判断）。</summary>
-    public const int CurrentSchemaVersion = 1;
+    /// <remarks>
+    /// v2：外观块新增 <c>appearance.schemes</c>（自定义主题方案元数据）；
+    /// 旧文件里的内置主题覆盖会在读时迁移为自定义方案。
+    /// v3：樱色改为编译期 seed 生成的普通自定义方案，新增 <c>appearance.seededThemes</c>。
+    /// v4：**主题收回设置内部的一个子项** —— 外观块只剩 `theme` / `systemLightScheme` / `systemDarkScheme` /
+    /// <c>seeded[]</c> / <c>fonts</c>；内联方案与色板覆盖删除，主题住 `settings\appearance\themes\&lt;id&gt;\`。
+    /// v3 及更低版本的设置文件**不做内联迁移**：只读已知标量键、外观主题回落内置、记一条 Warning、不写回。
+    /// </remarks>
+    public const int CurrentSchemaVersion = 4;
 
     /// <summary>设置 Schema 版本。</summary>
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -78,6 +88,20 @@ public sealed class ApplicationSettings
     public AppearanceSettings Appearance { get; set; } = new();
 
     /// <summary>
+    /// **界面语言**：<see cref="TextLanguages.System"/>（跟随系统，默认）或受支持的语言标识（如 <c>zh-Hans</c>）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>JSON 键 <c>uiLanguage</c>；合法值 = <see cref="TextLanguages.System"/> 或一个**合法的文化名**
+    ///     （按规范形式落盘，如 <c>zh-Hans</c>）；</item>
+    ///   <item>**只影响界面文案**：数值 / 日期格式仍按用户的区域设置（不动 <c>CurrentCulture</c>）；</item>
+    ///   <item>界面文本在载入时解析一次 ⇒ 切换后**重启完全生效**；</item>
+    ///   <item>非法值 ⇒ 回落 <see cref="TextLanguages.System"/>（与外观类设置同一容错口径：不做校验、不提示）。</item>
+    /// </list>
+    /// </remarks>
+    public string UiLanguage { get; set; } = TextLanguages.System;
+
+    /// <summary>
     /// **多行文本输入的提交键**：
     /// <c>CtrlEnter</c>（默认：**回车换行 · Ctrl+Enter 提交 · 失焦不提交**）/
     /// <c>Enter</c>（回车提交 · Shift+Enter 换行）/
@@ -95,7 +119,7 @@ public sealed class ApplicationSettings
     public string MultilineSubmitKey { get; set; } = "CtrlEnter";
 
     /// <summary>
-    /// **外壳窗口比例**：<c>9:19.5</c>（默认，手机竖屏常用比例）/ <c>9:16</c> / <c>16:9</c>。
+    /// **外壳窗口比例**：<c>9:19.5</c>（默认，手机竖屏常用比例）/ <c>9:16</c>；宽体由自由缩放解决。
     /// </summary>
     public string ShellAspect { get; set; } = "9:19.5";
 
@@ -106,14 +130,10 @@ public sealed class ApplicationSettings
     public bool ShellFixedSize { get; set; } = true;
 
     /// <summary>
-    /// **模块来源根列表**（**有序**）——启动与「立即重扫」按顺序逐根扫描：
-    /// 每根只扫**直接子目录**中含模块清单文件者；先到者胜（同 ID 同版本重复只记 Info）。
+    /// **关闭主窗口时的行为**：<c>Ask</c>（每次询问，默认）/ <c>Save</c>（自动保存并退出）/
+    /// <c>Discard</c>（不保存直接退出）。
     /// </summary>
-    /// <remarks>
-    /// 空列表 = 只用**内置包目录**（应用目录下的 <c>modules\</c>，由构建产出）。
-    /// 内置目录始终**排在首位**（由组合根拼接），不可由用户移除。
-    /// </remarks>
-    public IList<string> ModuleSourceDirectories { get; set; } = [];
+    public string WorkspaceExitBehavior { get; set; } = "Ask";
 
     /// <summary>日志级别（Trace/Debug/Information/Warning/Error）。默认 Information。</summary>
     public string LogLevel { get; set; } = "Information";
@@ -159,10 +179,11 @@ public sealed class ApplicationSettings
         // **外观块要深拷**：它自己持两层字典（按主题分层的覆盖），浅拷会让"改一份影响另一份"。
         // 纪律：`Clone` 必须与**全部可持久化属性**一一对应 —— `SettingsServiceTests` 有一条反射式用例钉住它。
         Appearance = Appearance.Clone(),
+        UiLanguage = UiLanguage,
         MultilineSubmitKey = MultilineSubmitKey,
         ShellAspect = ShellAspect,
         ShellFixedSize = ShellFixedSize,
-        ModuleSourceDirectories = [.. ModuleSourceDirectories],
+        WorkspaceExitBehavior = WorkspaceExitBehavior,
         LogLevel = LogLevel,
         AppTopmost = AppTopmost,
         Hotkeys = new Dictionary<string, string>(Hotkeys, StringComparer.Ordinal),

@@ -84,7 +84,9 @@ public class SdkSurfaceTests
 
         attribute.ShouldNotBeNull();
         attribute!.Id.ToString().ShouldBe("hyw/text-sender/1.0.0");
-        attribute.DisplayName.ShouldBe("文本发送器");
+        attribute.DisplayName.ShouldBeEmpty("字面量已进文本表（DisplayNameKey）");
+        attribute.DisplayNameKey.ShouldBe("module.title");
+        attribute.DescriptionKey.ShouldBe("module.description");
         attribute.ParticipatesInDataFlow.ShouldBeTrue();
         attribute.ViewFactory.ShouldNotBeNull("界面由模块自己的视图工厂提供");
         attribute.WindowWidth.ShouldBeGreaterThan(0);

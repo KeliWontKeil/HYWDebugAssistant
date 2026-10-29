@@ -30,7 +30,7 @@ public sealed class ModuleRegistry
 
         if (!_definitions.TryAdd(definition.Id.ToString(), definition))
         {
-            failure = $"模块已注册（同 ID 同版本）：{definition.Id}";
+            failure = HostingText.Get("hosting.registry.alreadyRegistered", definition.Id);
             return false;
         }
 

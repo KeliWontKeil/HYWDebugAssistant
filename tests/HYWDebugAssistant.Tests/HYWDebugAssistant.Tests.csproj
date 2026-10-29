@@ -37,6 +37,20 @@
     <ProjectReference Include="..\..\src\DataPlane\HYWDebugAssistant.DataPlane.csproj" />
     <ProjectReference Include="..\..\src\Core\HYWDebugAssistant.Core.csproj" />
     <ProjectReference Include="..\..\src\Core.Api\HYWDebugAssistant.Core.Api.csproj" />
+    <!-- 框架侧外部接入（内置标准目录 + 参数类型）：真实包/集成用例显式注入 catalog。 -->
+    <ProjectReference Include="..\..\src\Access\HYWDebugAssistant.Access.csproj" />
+    <!-- 模块来源发现用例的"模块实现件"夹具：只引 Sdk，复制进临时包走真实加载器。 -->
+    <ProjectReference Include="..\..\tools\HYWDebugAssistant.Tests.ModuleFixtures\HYWDebugAssistant.Tests.ModuleFixtures.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      **模块随包文本**：本项目经 App 间接引用模块，`Content` 不会随引用传到本输出；
+      显式 Link 到 `<输出>/i18n/<程序集简名>/`，让"程序集旁"那级在测试宿主里也可命中。
+      （模块直接引用方 VisualSnapshots 由 ProjectReference 自动获得，无需这条。）
+    -->
+    <Content Include="..\..\src\Modules\Business\TextSender\i18n\**\*.json"
+             Link="i18n\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

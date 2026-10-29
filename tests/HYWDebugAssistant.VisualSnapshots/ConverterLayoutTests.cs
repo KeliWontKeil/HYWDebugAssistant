@@ -19,7 +19,7 @@ public sealed class ConverterLayoutTests
     [Fact]
     public async Task 转换器_不同窗口高度上下对应文本面等高()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>

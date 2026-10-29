@@ -179,6 +179,47 @@ public class DataPlaneCarrierTests
     }
 
     [Fact]
+    public void 活动体模块_每次投递不得向框架信号溢出()
+    {
+        // 回归：活动体实例的线程在 RunActivity 里，从不 Wait(_dataAvailable)。
+        // 二值信号若仍对活动体投递，第一次入队后永远为满 ⇒ 后续每个数据单元都抛/捕
+        // SemaphoreFullException（表现为“每一次文本投递都卡”）。
+        using var host = new CarrierHost();
+        var target = new TestTarget("activity-signal")
+        {
+            HasActivity = true,
+            ActivityBody = self =>
+            {
+                while (!self.StopSignal.IsStopRequested)
+                {
+                    _ = self.StopSignal.Wait(TimeSpan.FromMilliseconds(5));
+                }
+            },
+        };
+
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+        try
+        {
+            for (var i = 0; i < 20; i++)
+            {
+                carrier!.TryEnqueue("in", BuildUnit(host.Buffers, (ulong)i, i))
+                    .ShouldBe(CarrierEnqueueResult.Accepted);
+
+                // 命令/输入同样走这个信号；活动体实例也必须 no-op。
+                carrier.SignalWork();
+            }
+
+            carrier!.Diagnostics.SignalOverflows.ShouldBe(
+                0,
+                "活动体模块不等待框架信号；不能在每个数据单元上走 SemaphoreFullException 的抛/捕路径");
+        }
+        finally
+        {
+            host.TryDeactivate("activity-signal", out _);
+        }
+    }
+
+    [Fact]
     public void 停止_模块响应时应正常停止且停止信号已置位()
     {
         using var host = new CarrierHost();

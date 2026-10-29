@@ -144,6 +144,73 @@ public sealed class ViewStateStore : IViewStateAccess
         }
     }
 
+    /// <summary>
+    /// 捕获一个实例的可持久化视图状态：只收声明为持久化的输入文本；
+    /// 当前页与折叠态全量保留（它们是界面状态，不属于任何输入的动作语义）。
+    /// </summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="persistentInputs">声明为持久化的输入源名。</param>
+    public ViewStateSnapshot Capture(string instanceId, IEnumerable<string> persistentInputs)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
+        ArgumentNullException.ThrowIfNull(persistentInputs);
+
+        var names = new HashSet<string>(persistentInputs, StringComparer.Ordinal);
+
+        lock (_gate)
+        {
+            if (!_instances.TryGetValue(instanceId, out var state))
+            {
+                return ViewStateSnapshot.Empty;
+            }
+
+            var inputs = state.InputTexts
+                .Where(pair => names.Contains(pair.Key))
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+
+            return new ViewStateSnapshot(
+                inputs,
+                new Dictionary<string, int>(state.SelectedPages, StringComparer.Ordinal),
+                new Dictionary<string, bool>(state.Collapsed, StringComparer.Ordinal));
+        }
+    }
+
+    /// <summary>恢复一个实例的视图状态（加载组合件/工作区时、激活模块之前调用）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="snapshot">快照；null/空 = 不写。</param>
+    public void Restore(string instanceId, ViewStateSnapshot? snapshot)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
+
+        if (snapshot is null || snapshot.IsEmpty)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            var state = Get(instanceId);
+            state.InputTexts.Clear();
+            state.SelectedPages.Clear();
+            state.Collapsed.Clear();
+
+            foreach (var (source, text) in snapshot.InputTexts)
+            {
+                state.InputTexts[source] = text;
+            }
+
+            foreach (var (key, page) in snapshot.SelectedPages)
+            {
+                state.SelectedPages[key] = page;
+            }
+
+            foreach (var (key, collapsed) in snapshot.Collapsed)
+            {
+                state.Collapsed[key] = collapsed;
+            }
+        }
+    }
+
     /// <inheritdoc />
     public void RemoveInstance(string instanceId)
     {

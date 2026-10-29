@@ -2,7 +2,7 @@
   "id": "hyw/data-monitor/1.0.0",
   "entryAssembly": "HYWDebugAssistant.Modules.DataMonitor.dll",
   "entryType": "HYWDebugAssistant.Modules.DataMonitor.DataMonitorModule",
-  "frameworkCompatibility": ">=1.0.0 <2.0.0",
+  "frameworkCompatibility": ">=2.0.0 <3.0.0",
   "dependsOn": [],
   "resources": []
 }

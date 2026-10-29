@@ -2,10 +2,10 @@
 
   <!--
     业务模块（第一批 #1）：文本发送器 `hyw/text-sender`（docs/modules/hyw-text-sender.md）
-    与第三方模块**同构同路径**：只引 Sdk（AR-1）；不得引用其他模块（AR-2）。
+    与第三方模块**同构同路径**：只引 Sdk / Sdk.Ui / Sdk.AccessKit；不引 Access、不直接引 UI 框架、不引其他模块（AR-1 / AR-2）。
   -->
   <PropertyGroup>
-    <!-- 包目录名（artifacts\modules\text-sender\ 与应用输出 modules\text-sender\）—— 用户可见 -->
+    <!-- 包目录名（artifacts\modules\<Configuration>\text-sender\ 与应用输出 modules\text-sender\）—— 用户可见 -->
     <ModulePackageName>text-sender</ModulePackageName>
   </PropertyGroup>
 
@@ -17,6 +17,11 @@
   <ItemGroup>
     <!-- 模块清单随构建输出（M1 物理形式：目录 + module.json + 实现程序集） -->
     <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
+    <!--
+      **模块文本表**：随模块输出（并被 `StageModulePackage` 原样收进包）。
+      包内路径 = `i18n/<程序集简名>/<culture>.json` ⇒ `TextCatalog` 的"程序集旁"那级自动命中，无需注册。
+    -->
+    <Content Include="i18n\**\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

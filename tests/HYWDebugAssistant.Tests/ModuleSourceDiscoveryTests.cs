@@ -62,10 +62,11 @@ public class ModuleSourceDiscoveryTests
         SourceFixture.CreatePackage(first, "hyw", "alpha", "1.0.0", FixtureModuleType.Alpha);
         SourceFixture.CreatePackage(second, "hyw", "alpha", "1.0.0", FixtureModuleType.Alpha);
 
-        fixture.Services.ScanModuleSources([first, second]).ShouldBe(1, "第二个同 ID 同版本包被拒绝");
+        fixture.Services.ScanModuleSources([first, second]).ShouldBe(1, "第二个同 ID 同版本包不重复装入");
 
         fixture.Services.GetModuleCatalog().ShouldHaveSingleItem().SourceDirectory.ShouldBe(first, "先到者胜");
-        fixture.Services.GetModuleSources()[1].FailedPackages.ShouldBe(1);
+        fixture.Services.GetModuleSources()[1].DuplicatePackages.ShouldBe(1);
+        fixture.Services.GetModuleSources()[1].FailedPackages.ShouldBe(0, "重复包不是失败");
     }
 
     [Fact]
@@ -94,19 +95,19 @@ public class ModuleSourceDiscoveryTests
         SourceFixture.CreatePackage(root, "hyw", "second", "1.0.0", FixtureModuleType.Second);
         fixture.Services.ScanModuleSources([root]).ShouldBe(1, "只新增一个包");
         fixture.Services.GetModuleCatalog().Count.ShouldBe(2);
+        fixture.Runtime.Issues.Recent(50)
+            .Count(entry => entry.Issue.Severity == Sdk.Reporting.IssueSeverity.Error)
+            .ShouldBe(0, "已载入/内容变化的包不应产生 Error（内容变化只是 Warning + 需重启）");
     }
 
     [Fact]
-    public void 重扫命令_应经设置里的根列表并给出结果()
+    public void 重扫命令_应扫描固定的默认根并给出结果()
     {
         using var fixture = new SourceFixture();
-        var root = fixture.CreateRoot("root-a");
+        var root = fixture.CreateRoot("built-in");
         SourceFixture.CreatePackage(root, "hyw", "from-settings", "1.0.0", FixtureModuleType.FromSettings);
 
-        fixture.Services.UpdateSettings(new ApplicationSettings
-        {
-            ModuleSourceDirectories = [root],
-        }).Succeeded.ShouldBeTrue();
+        fixture.Services.BuiltInModuleDirectory = root;
 
         var result = fixture.Services.RescanModuleSources();
 
@@ -158,6 +159,52 @@ public class ModuleSourceDiscoveryTests
         // 重扫绝不删磁盘文件（"消失的只是列表内容"）
         File.Exists(Path.Combine(builtIn, "from-settings-1.0.0", "module.json")).ShouldBeTrue();
     }
+
+    [Fact]
+    public void 外部导入_应复制到外部目录并标注来源()
+    {
+        using var fixture = new SourceFixture();
+        var builtIn = fixture.CreateRoot("built-in");
+        var external = fixture.CreateRoot("external");
+        var source = fixture.CreateRoot("source");
+        SourceFixture.CreatePackage(source, "hyw", "alpha", "1.0.0", FixtureModuleType.Alpha);
+        File.WriteAllBytes(Path.Combine(source, "alpha-1.0.0", "preview.png"), [0x89, 0x50, 0x4E, 0x47]);
+
+        fixture.Services.BuiltInModuleDirectory = builtIn;
+        fixture.Services.ExternalModuleDirectory = external;
+
+        var result = fixture.Services.ImportModuleDirectory(source);
+
+        result.Succeeded.ShouldBeTrue(string.Join("；", result.Failures));
+        var entry = fixture.Services.GetModuleCatalog().ShouldHaveSingleItem();
+        entry.ModuleId.ShouldBe("hyw/alpha/1.0.0");
+        entry.IsExternal.ShouldBeTrue("导入包位于 modules/external，必须标注外部");
+        entry.PreviewImagePath.ShouldNotBeNull();
+        File.Exists(entry.PreviewImagePath).ShouldBeTrue("包内 preview.png 应作为模块封面路径");
+        Directory.Exists(Path.Combine(external, "alpha-1.0.0")).ShouldBeTrue("包应复制进默认外部目录");
+    }
+
+    [Fact]
+    public void 外部导入_同ID同版本应拒绝且不复制()
+    {
+        using var fixture = new SourceFixture();
+        var builtIn = fixture.CreateRoot("built-in");
+        var external = fixture.CreateRoot("external");
+        var first = fixture.CreateRoot("source-a");
+        var second = fixture.CreateRoot("source-b");
+        SourceFixture.CreatePackage(first, "hyw", "alpha", "1.0.0", FixtureModuleType.Alpha);
+        SourceFixture.CreatePackage(second, "hyw", "alpha", "1.0.0", FixtureModuleType.Alpha);
+
+        fixture.Services.BuiltInModuleDirectory = builtIn;
+        fixture.Services.ExternalModuleDirectory = external;
+        fixture.Services.ImportModuleDirectory(first).Succeeded.ShouldBeTrue();
+
+        var duplicate = fixture.Services.ImportModuleDirectory(second);
+
+        duplicate.Succeeded.ShouldBeFalse("同 ID 同版本不允许静默覆盖");
+        Directory.GetDirectories(external).Length.ShouldBe(1, "被拒绝的包不得复制");
+    }
+
 
     [Fact]
     public void 缺少实现程序集的包_应失败并计入诊断()
@@ -219,7 +266,7 @@ public class ModuleSourceDiscoveryTests
             var package = Path.Combine(root, $"{name}-{version}");   // 包目录名可自由：扫描按 module.json 识别
             _ = Directory.CreateDirectory(package);
 
-            var testAssemblyPath = typeof(SourceFixture).Assembly.Location;
+            var testAssemblyPath = typeof(FixtureModuleType).Assembly.Location;
             var assemblyName = Path.GetFileName(testAssemblyPath);
             File.Copy(testAssemblyPath, Path.Combine(package, assemblyName), overwrite: true);
 
@@ -230,7 +277,7 @@ public class ModuleSourceDiscoveryTests
                   "id": "{{author}}/{{name}}/{{version}}",
                   "entryAssembly": "{{assemblyName}}",
                   "entryType": "{{entryType.FullName}}",
-                  "frameworkCompatibility": ">=1.0.0 <2.0.0",
+                  "frameworkCompatibility": ">=2.0.0 <3.0.0",
                   "dependsOn": [],
                   "resources": []
                 }
@@ -250,63 +297,4 @@ public class ModuleSourceDiscoveryTests
             }
         }
     }
-}
-
-/// <summary>
-/// 模块来源发现测试用的**入口类型集合**（标识必须与 <c>module.json</c> 完全一致）。
-/// </summary>
-/// <remarks>
-/// 每个类型对应一个"模块包身份"：同名的不同版本需要不同标识 → 用不同类型区分。
-/// 这些类型不参与任何真实运行，只用于"能被加载器加载"。
-/// </remarks>
-public static class FixtureModuleType
-{
-    /// <summary><c>hyw/alpha/1.0.0</c>（多根场景与重复包场景共用）。</summary>
-    public static readonly Type Alpha = typeof(AlphaModule);
-
-    /// <summary><c>hyw/beta/1.0.0</c>。</summary>
-    public static readonly Type Beta = typeof(BetaModule);
-
-    /// <summary><c>hyw/multi/1.0.0</c>。</summary>
-    public static readonly Type MultiV1 = typeof(MultiModuleV1);
-
-    /// <summary><c>hyw/multi/2.0.0</c>。</summary>
-    public static readonly Type MultiV2 = typeof(MultiModuleV2);
-
-    /// <summary><c>hyw/first/1.0.0</c>。</summary>
-    public static readonly Type First = typeof(FirstModule);
-
-    /// <summary><c>hyw/second/1.0.0</c>。</summary>
-    public static readonly Type Second = typeof(SecondModule);
-
-    /// <summary><c>hyw/from-settings/1.0.0</c>。</summary>
-    public static readonly Type FromSettings = typeof(FromSettingsModule);
-
-    /// <summary><c>hyw/alpha/1.0.0</c> 入口。</summary>
-    [HYWDebugAssistant.Sdk.ModuleDefinition("hyw", "alpha", "1.0.0", DisplayName = "夹具 alpha")]
-    public sealed class AlphaModule : HYWDebugAssistant.Sdk.Lifecycle.IModule;
-
-    /// <summary><c>hyw/beta/1.0.0</c> 入口。</summary>
-    [HYWDebugAssistant.Sdk.ModuleDefinition("hyw", "beta", "1.0.0", DisplayName = "夹具 beta")]
-    public sealed class BetaModule : HYWDebugAssistant.Sdk.Lifecycle.IModule;
-
-    /// <summary><c>hyw/multi/1.0.0</c> 入口。</summary>
-    [HYWDebugAssistant.Sdk.ModuleDefinition("hyw", "multi", "1.0.0", DisplayName = "夹具 multi v1")]
-    public sealed class MultiModuleV1 : HYWDebugAssistant.Sdk.Lifecycle.IModule;
-
-    /// <summary><c>hyw/multi/2.0.0</c> 入口。</summary>
-    [HYWDebugAssistant.Sdk.ModuleDefinition("hyw", "multi", "2.0.0", DisplayName = "夹具 multi v2")]
-    public sealed class MultiModuleV2 : HYWDebugAssistant.Sdk.Lifecycle.IModule;
-
-    /// <summary><c>hyw/first/1.0.0</c> 入口。</summary>
-    [HYWDebugAssistant.Sdk.ModuleDefinition("hyw", "first", "1.0.0", DisplayName = "夹具 first")]
-    public sealed class FirstModule : HYWDebugAssistant.Sdk.Lifecycle.IModule;
-
-    /// <summary><c>hyw/second/1.0.0</c> 入口。</summary>
-    [HYWDebugAssistant.Sdk.ModuleDefinition("hyw", "second", "1.0.0", DisplayName = "夹具 second")]
-    public sealed class SecondModule : HYWDebugAssistant.Sdk.Lifecycle.IModule;
-
-    /// <summary><c>hyw/from-settings/1.0.0</c> 入口。</summary>
-    [HYWDebugAssistant.Sdk.ModuleDefinition("hyw", "from-settings", "1.0.0", DisplayName = "夹具 from-settings")]
-    public sealed class FromSettingsModule : HYWDebugAssistant.Sdk.Lifecycle.IModule;
 }

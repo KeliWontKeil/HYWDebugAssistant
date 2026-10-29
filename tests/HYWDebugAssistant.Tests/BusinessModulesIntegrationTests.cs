@@ -1,3 +1,4 @@
+using HYWDebugAssistant.Access;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Services;
@@ -12,7 +13,7 @@ namespace HYWDebugAssistant.Tests;
 /// <remarks>
 /// <para>
 /// 与模块级测试（`HYWDebugAssistant.Modules.Tests`）的分工：那里用测试上下文驱动模块的**单步入口**；
-/// 这里**装入真实的模块包**（`artifacts/modules` 里构建产出的四个包）→ 走真实加载路径
+/// 这里**装入真实的模块包**（按构建配置归拢的包；本用例用四个基础模块）→ 走真实加载路径
 /// （`Assembly.LoadFrom` + 清单校验）→ 建实例 → **建网** → 用**回读**模拟界面操作 → 断言**数据真的到了显示区**。
 /// </para>
 /// <para>
@@ -27,15 +28,25 @@ public class BusinessModulesIntegrationTests
     private const string MonitorId = "hyw/data-monitor/1.0.0";
     private const string ConverterId = "hyw/hex-string-converter/1.0.0";
 
+    private static readonly string Configuration =
+        AppContext.BaseDirectory.Contains(
+            $"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}",
+            StringComparison.OrdinalIgnoreCase)
+            ? "Release"
+            : "Debug";
+
+    /// <summary>模块包归拢目录（按构建配置）。</summary>
+    private static string StagedModules => Path.Combine(FindRepoRoot(), "artifacts", "modules", Configuration);
+
     /// <summary>四个真实模块包：装入 → 建网 → 发一条文本 → 显示区里能看到它。</summary>
     [Fact]
     public void 整体测试单元_四个真实模块包应能装入_连上_并端到端投递到显示区()
     {
-        var staged = Path.Combine(FindRepoRoot(), "artifacts", "modules");
+        var staged = StagedModules;
         Directory.Exists(staged).ShouldBeTrue($"模块包未归拢：{staged}（请先运行 ./build.ps1）");
 
         var viewState = new ViewStateStore();
-        using var runtime = new ModuleRuntime(viewState: viewState);
+        using var runtime = new ModuleRuntime(viewState: viewState, catalog: new BuiltInExternalAccessCatalog());
         var services = new RuntimeServices(runtime);
 
         services.ScanModuleSources([staged]).ShouldBeGreaterThanOrEqualTo(
@@ -92,6 +103,45 @@ public class BusinessModulesIntegrationTests
         converter!.HasView.ShouldBeTrue("转换器自带 XAML 视图");
     }
 
+    /// <summary>
+    /// **1 ms 连续发送应走全局计时服务**：TextSender 不再自建 Timer，实际发送量应与 1 kHz 档位相符，
+    /// 而不是 Windows 通用 Timer 的约 10–15 ms。
+    /// </summary>
+    [Fact]
+    public void 文本发送器_1毫秒连续发送_应达到全局计时服务的档位()
+    {
+        var staged = StagedModules;
+        Directory.Exists(staged).ShouldBeTrue($"模块包未归拢：{staged}（请先运行 ./build.ps1）");
+
+        var viewState = new ViewStateStore();
+        using var runtime = new ModuleRuntime(viewState: viewState, catalog: new BuiltInExternalAccessCatalog());
+        var services = new RuntimeServices(runtime);
+        services.ScanModuleSources([staged]).ShouldBeGreaterThan(0);
+
+        services.AddModule("t1", TextSenderId).Succeeded.ShouldBeTrue();
+        services.AddModule("m1", MonitorId).Succeeded.ShouldBeTrue();
+        SetLabel(runtime, "t1", "out", "bus1");
+        SetLabel(runtime, "m1", "in", "bus1");
+
+        viewState.SetSelectedPage("t1", "text-pages", 0);
+        viewState.SetInputText("t1", "text1", "tick");
+        viewState.SetInputText("t1", "interval", "1");
+        viewState.SetInputText("t1", "continuous", "true");
+
+        Thread.Sleep(400);
+
+        var sent = services.GetPortMetrics("t1", "out").Delivered;
+        sent.ShouldBeGreaterThan(
+            100,
+            $"1 ms 连续发送在 400 ms 窗口内应远超 10 ms 定时器的约 40 条（实测 {sent}）");
+
+        viewState.SetInputText("t1", "continuous", "false");
+        Thread.Sleep(80);
+        var stopped = services.GetPortMetrics("t1", "out").Delivered;
+        Thread.Sleep(120);
+        services.GetPortMetrics("t1", "out").Delivered.ShouldBe(stopped, "停止后不得再有幽灵发送");
+    }
+
 
     /// <summary>
     /// **串口模块（第二批样板）的参数应进配置表单**：读即登记 ⇒ Schema 有字段；枚举的显示名与写回名各司其职。
@@ -104,11 +154,11 @@ public class BusinessModulesIntegrationTests
     [Fact]
     public void 串口模块_参数应进配置表单_且枚举的显示名与写回名各司其职()
     {
-        var staged = Path.Combine(FindRepoRoot(), "artifacts", "modules");
+        var staged = StagedModules;
         Directory.Exists(staged).ShouldBeTrue($"模块包未归拢：{staged}（请先运行 ./build.ps1）");
 
         var viewState = new ViewStateStore();
-        using var runtime = new ModuleRuntime(viewState: viewState);
+        using var runtime = new ModuleRuntime(viewState: viewState, catalog: new BuiltInExternalAccessCatalog());
         var services = new RuntimeServices(runtime);
         services.ScanModuleSources([staged]).ShouldBeGreaterThan(0);
 
@@ -134,15 +184,12 @@ public class BusinessModulesIntegrationTests
         schema.Fields.Single(field => field.Name == "PortName").Kind
             .ShouldBe(ConfigurationFieldKind.Enum, "端口号的可选值随环境变 ⇒ 它是下拉，不是文本框");
 
-        // ④ 包内依赖必须是**当前平台的实现**：平台无关的那份引用版会把枚举变成"静默空表"
-        //    （实测过：平铺在包根的是引用版，真实现在 runtimes/<rid>/lib/<tfm>/ 下）
+        // ④ System.IO.Ports 由**宿主**提供（模块包不再自带）：解析到的必须是宿主输出里的那一份
         var ports = AppDomain.CurrentDomain.GetAssemblies()
             .FirstOrDefault(assembly => assembly.GetName().Name == "System.IO.Ports");
-        ports.ShouldNotBeNull("模块包自带的依赖必须被解析到（否则端口枚举会静默变成空表）");
-
-        var getPortNames = ports!.GetType("System.IO.Ports.SerialPort")!
-            .GetMethod("GetPortNames", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!;
-        Should.NotThrow(() => getPortNames.Invoke(null, null));
+        ports.ShouldNotBeNull("宿主必须提供 System.IO.Ports（模块包已不再携带）");
+        ports!.Location.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase)
+            .ShouldBeTrue($"System.IO.Ports 必须来自宿主输出（实际：{ports.Location}）");
 
         // ⑤ 写回走框架入口，读回来的是新值
         services.UpdateConfigurationField("s1", "BaudRate", "Baud9600").Succeeded.ShouldBeTrue();
@@ -174,11 +221,11 @@ public class BusinessModulesIntegrationTests
         string remoteField,
         string portField)
     {
-        var staged = Path.Combine(FindRepoRoot(), "artifacts", "modules");
+        var staged = StagedModules;
         Directory.Exists(staged).ShouldBeTrue($"模块包未归拢：{staged}（请先运行 ./build.ps1）");
 
         var viewState = new ViewStateStore();
-        using var runtime = new ModuleRuntime(viewState: viewState);
+        using var runtime = new ModuleRuntime(viewState: viewState, catalog: new BuiltInExternalAccessCatalog());
         var services = new RuntimeServices(runtime);
         services.ScanModuleSources([staged]).ShouldBeGreaterThan(0);
         services.AddModule(instanceId, moduleId).Succeeded.ShouldBeTrue();
@@ -278,10 +325,10 @@ public class BusinessModulesIntegrationTests
     [Fact]
     public void 整体测试单元_显示器的清空应真的把显示缓冲清掉()
     {
-        var staged = Path.Combine(FindRepoRoot(), "artifacts", "modules");
+        var staged = StagedModules;
 
         var viewState = new ViewStateStore();
-        using var runtime = new ModuleRuntime(viewState: viewState);
+        using var runtime = new ModuleRuntime(viewState: viewState, catalog: new BuiltInExternalAccessCatalog());
         var services = new RuntimeServices(runtime);
 
         _ = services.ScanModuleSources([staged]);
@@ -363,11 +410,11 @@ public class BusinessModulesIntegrationTests
     [Fact]
     public void 数据显示器的保存_在真实运行时上应当请求对话框并落盘()
     {
-        var staged = Path.Combine(FindRepoRoot(), "artifacts", "modules");
+        var staged = StagedModules;
         Directory.Exists(staged).ShouldBeTrue($"模块包未归拢：{staged}（请先运行 ./build.ps1）");
 
         var viewState = new ViewStateStore();
-        using var runtime = new ModuleRuntime(viewState: viewState);
+        using var runtime = new ModuleRuntime(viewState: viewState, catalog: new BuiltInExternalAccessCatalog());
         var services = new RuntimeServices(runtime);
 
         // **与外壳同序**：请求面先挂上（外壳是在组合根建好之后挂的），再加模块。

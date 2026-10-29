@@ -1,19 +1,25 @@
 using System.Text.Json;
 
+using HYWDebugAssistant.Sdk.Text;
+
 namespace HYWDebugAssistant.Ui.Theming;
 
 /// <summary>**色板契约里的一支色**（一行）。</summary>
 /// <param name="Key">token 名（与色板 XAML 的 <c>x:Key</c> 逐字相同）。</param>
+/// <param name="Title">面板上的中文友好名（空 ⇒ 回落到 <paramref name="Key"/>）。</param>
 /// <param name="Group">面板里的分组 id。</param>
 /// <param name="Purpose">用途（一行；面板的悬停提示与文档共用它）。</param>
 /// <param name="Roles">这一支承担的**角色词**（可为空；声明面与运行期共用一份词表）。</param>
 /// <param name="Derive">派生规则（<see langword="null"/> = 不派生）。</param>
+/// <param name="Surface">是否属于可受“控件表面不透明度”影响的背景/表面 token。</param>
 public sealed record PaletteToken(
     string Key,
+    string Title,
     string Group,
     string Purpose,
     IReadOnlyList<string> Roles,
-    PaletteDeriveRule? Derive)
+    PaletteDeriveRule? Derive,
+    bool Surface = false)
 {
     /// <summary>它是不是"跟随别的支"（是 ⇒ 面板显示"跟随 &lt;源&gt;"，用户仍可显式改它）。</summary>
     public bool IsDerived => Derive is { Mode: not PaletteDeriveMode.None };
@@ -66,7 +72,10 @@ public static class PaletteManifest
     {
         using var stream = typeof(PaletteManifest).Assembly.GetManifestResourceStream(ResourceName)
             ?? throw new InvalidOperationException(
-                $"色板契约资源缺失：{ResourceName}（它由 Ui 工程嵌入，见 `Styles/palette.json`）");
+                TextCatalog.Get(
+                    typeof(PaletteManifest).Assembly,
+                    "ui.palette.resourceMissing",
+                    ResourceName));
 
         using var document = JsonDocument.Parse(stream);
         var root = document.RootElement;
@@ -104,7 +113,14 @@ public static class PaletteManifest
                 }
             }
 
-            tokens.Add(new PaletteToken(key, Text(item, "group"), Text(item, "purpose"), roleList, Derive(item)));
+            tokens.Add(new PaletteToken(
+                key,
+                Text(item, "title") is { Length: > 0 } title ? title : key,
+                Text(item, "group"),
+                Text(item, "purpose"),
+                roleList,
+                Derive(item),
+                Flag(item, "surface")));
         }
 
         Groups = groups;
@@ -155,8 +171,11 @@ public static class PaletteManifest
             "shift" => PaletteDeriveMode.Shift,
             "none" => PaletteDeriveMode.None,
             var other => throw new InvalidOperationException(
-                $"色板契约里 {Text(token, "key")} 的派生规则种类不认识：'{other}'"
-                + "（可用：tint / darken / shift / none —— 加一种要同时在 `PaletteDerivation` 里实现）"),
+                TextCatalog.Get(
+                    typeof(PaletteManifest).Assembly,
+                    "ui.palette.derivationUnknown",
+                    Text(token, "key"),
+                    other)),
         };
 
         var amount = node.TryGetProperty("amount", out var amountNode) && amountNode.TryGetDouble(out var parsed)
@@ -165,7 +184,10 @@ public static class PaletteManifest
 
         if (source.Length == 0)
         {
-            throw new InvalidOperationException($"色板契约里 {Text(token, "key")} 的派生规则缺 `from`（源 token 名）");
+            throw new InvalidOperationException(TextCatalog.Get(
+                typeof(PaletteManifest).Assembly,
+                "ui.palette.derivationMissingFrom",
+                Text(token, "key")));
         }
 
         return new PaletteDeriveRule(mode, source, amount);

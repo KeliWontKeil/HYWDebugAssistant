@@ -199,7 +199,8 @@ public sealed record ModuleInstanceView(
     IReadOnlyList<PortView> Ports,
     bool IsPlaceholder = false,
     Type? ViewType = null,
-    ModuleWindowView? Window = null);
+    ModuleWindowView? Window = null,
+    long WallpaperRevision = 0);
 
 /// <summary>
 /// 模块窗口的**声明尺寸**（来自模块的代码声明；<c>0</c> = 未声明，由框架给缺省/地板）。
@@ -239,7 +240,8 @@ public sealed record AppearanceView(
     long Revision = 0,
     bool? ReadOnly = null,
     string? OutlineRole = null,
-    string? TextRole = null);
+    string? TextRole = null,
+    bool? Enabled = null);
 
 /// <summary>网络视图。</summary>
 /// <param name="Name">网络名（匿名网络为空串）。</param>
@@ -677,6 +679,17 @@ public sealed record IssueView(
     DateTimeOffset Timestamp,
     string Source = "Framework");
 
+/// <summary>Issue 汇总（全量计数；不受 Issue 面板的“最近 N 条”显示上限影响）。</summary>
+/// <param name="Total">总条数。</param>
+/// <param name="Error">错误级条数。</param>
+/// <param name="Warning">警告级条数。</param>
+/// <param name="Info">信息级条数。</param>
+public sealed record IssueSummaryView(
+    int Total,
+    int Error,
+    int Warning,
+    int Info);
+
 /// <summary>模块目录项（可用模块清单）。</summary>
 /// <param name="ModuleId">模块标识字面量。</param>
 /// <param name="DisplayName">展示名。</param>
@@ -698,7 +711,9 @@ public sealed record ModuleCatalogEntryView(
     string Capabilities,
     string? SourceDirectory = null,
     bool NeedsRestart = false,
-    IReadOnlyList<string>? Tags = null);
+    IReadOnlyList<string>? Tags = null,
+    bool IsExternal = false,
+    string? PreviewImagePath = null);
 
 /// <summary>
 /// **建网候选**：发送端 → 接收端，**即将**因「接触且对齐」而连上。
@@ -740,12 +755,88 @@ public sealed record AnchorDockHintView(
 /// <param name="Exists">该根是否存在（不存在 = 跳过并提示）。</param>
 /// <param name="PackagesFound">扫到的模块包目录数（含失败的）。</param>
 /// <param name="SkippedDirectories">被跳过的子目录数（不含模块清单文件）。</param>
-/// <param name="FailedPackages">装入失败的包数。</param>
+/// <param name="FailedPackages">真正装入失败的包数（**只有真失败**）。</param>
 /// <param name="Messages">逐包结果与提示（成功/失败原因/重复/需重启等，面向用户）。</param>
+/// <param name="AlreadyLoadedPackages">同包同版本、内容未变的包数。</param>
+/// <param name="DuplicatePackages">同 ID 同版本但来自另一目录的包数（先到者胜）。</param>
+/// <param name="ChangedPackages">同版本内容已变化、需重启的包数。</param>
 public sealed record ModuleSourceView(
     string Directory,
     bool Exists,
     int PackagesFound,
     int SkippedDirectories,
     int FailedPackages,
-    IReadOnlyList<string> Messages);
+    IReadOnlyList<string> Messages,
+    int AlreadyLoadedPackages = 0,
+    int DuplicatePackages = 0,
+    int ChangedPackages = 0);
+
+/// <summary>
+/// **用户可见的存储位置**（只读信息）：设置 / 模块 / 组合 / 工作区 / 日志 五个功能根 + 出厂种子。
+/// </summary>
+/// <param name="AppRoot">程序目录。</param>
+/// <param name="ModulesRoot">模块包目录（内置包；外部导入在 `external` 子目录）。</param>
+/// <param name="CompositesRoot">组合文件默认目录（与 modules 同级）。</param>
+/// <param name="SettingsFile">应用设置文件（设置根下）。</param>
+/// <param name="WorkspaceRoot">工作区快照根（含一次性重启恢复快照）。</param>
+/// <param name="LogsRoot">日志目录（预留）。</param>
+/// <param name="SeedsRoot">出厂种子根（只读；只有投放器读）。</param>
+public sealed record StorageLocationsView(
+    string AppRoot,
+    string ModulesRoot,
+    string CompositesRoot,
+    string SettingsFile,
+    string WorkspaceRoot,
+    string LogsRoot,
+    string SeedsRoot);
+
+/// <summary>
+/// 默认组合目录中的**一个文件**（供组合列表显示；含只读检查结果，不实例化组合）。
+/// </summary>
+/// <param name="Path">完整路径。</param>
+/// <param name="FileName">文件名（含扩展名）。</param>
+/// <param name="LastWriteTime">最后修改时间。</param>
+/// <param name="SizeBytes">文件大小（字节）。</param>
+/// <param name="ModuleCount">组合内的实例数。</param>
+/// <param name="MissingModules">缺失/不兼容的模块标识（去重；空 = 全部可加载）。</param>
+/// <param name="ReadError">无法读取的原因（空 = 可读取）。</param>
+public sealed record CompositeFileView(
+    string Path,
+    string FileName,
+    DateTimeOffset LastWriteTime,
+    long SizeBytes,
+    int ModuleCount = 0,
+    IReadOnlyList<string>? MissingModules = null,
+    string? ReadError = null,
+    string? PreviewImagePath = null,
+    string? DirectoryPath = null,
+    bool IsPackage = false,
+    string? DisplayName = null);
+
+/// <summary>外壳窗口在工作区快照里的绝对矩形（DIP）。</summary>
+public readonly record struct WorkspacePlacementView(double X, double Y, double Width, double Height);
+
+/// <summary>模块实例壁纸（PNG 字节 + 版本；无壁纸时查询返回 null）。</summary>
+/// <param name="Revision">版本号（每次设置/清除/加载递增）。</param>
+/// <param name="Png">PNG 字节。</param>
+public sealed record ModuleWallpaperView(long Revision, byte[] Png);
+
+/// <summary>组合文件导入结果（复制到默认目录后的目标路径）。</summary>
+/// <param name="Succeeded">是否成功（含“已存在且复用”）。</param>
+/// <param name="TargetPath">默认目录中的目标文件（失败时为空）。</param>
+/// <param name="Notices">提示。</param>
+/// <param name="Failures">失败原因。</param>
+public readonly record struct CompositeImportResult(
+    bool Succeeded,
+    string? TargetPath,
+    IReadOnlyList<string> Notices,
+    IReadOnlyList<string> Failures);
+
+/// <summary>组合文件重命名结果。</summary>
+/// <param name="Succeeded">是否成功。</param>
+/// <param name="TargetPath">新文件路径（失败时为空）。</param>
+/// <param name="Failures">失败原因。</param>
+public readonly record struct CompositeRenameResult(
+    bool Succeeded,
+    string? TargetPath,
+    IReadOnlyList<string> Failures);

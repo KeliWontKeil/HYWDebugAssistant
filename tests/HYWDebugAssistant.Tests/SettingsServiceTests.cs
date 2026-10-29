@@ -3,6 +3,8 @@ using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Services;
 using HYWDebugAssistant.Core.Settings;
+using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Text;
 using Shouldly;
 using Xunit;
 
@@ -93,29 +95,122 @@ public class SettingsServiceTests
     }
 
     /// <summary>
-    /// **外观块 = 覆盖层**（方向的例子）：默认不写（跟随主题内容）、写了就落盘、清掉就回跟随；
-    /// 同时验证**旧外观扁平键读时折叠**进来、写侧只留新形状。
+    /// **低版本（v3 及更低）设置**：只读已知标量键，外观主题回落内置，**不做内联主题迁移**，
+    /// 且**载入时不得写回**（原文件保持原样）。
     /// </summary>
     /// <remarks>
-    /// 一条用例走三个出口：① 折叠（旧形状 → 外观块）② 覆盖落盘（文件里只有新形状）③ 重启读回。
-    /// 只断言其中一个出口会漏 —— 例如"折叠了但没写出去"或"写出去了但读不回"。
+    /// 一条用例走三个出口：① 读到的值 ② 警告 ③ 文件字节未变 ——
+    /// 少了 ③ 就可能"读对了但把用户的原文件悄悄改写成 v4"。
     /// </remarks>
     [Fact]
-    public void 更新_方向语义色应落盘并往返_且旧外观扁平键折叠进外观块()
+    public void 加载_旧版本设置应只读标量并回落内置且不写回()
     {
         using var scope = new SettingsScope();
+        var original = """
+        {
+          "schemaVersion": 3,
+          "inputQueueCapacity": 512,
+          "appearance": {
+            "theme": "sakura",
+            "systemLightScheme": "sakura",
+            "systemDarkScheme": "sakura",
+            "schemes": [ { "id": "sakura", "title": "樱色", "base": "light" } ],
+            "seededThemes": [ "sakura" ],
+            "paletteOverrides": { "sakura": { "AccentPrimary": "#112233" } },
+            "fonts": { "ui": "Georgia", "data": "Cascadia Code" }
+          }
+        }
+        """;
+        File.WriteAllText(scope.SettingsPath, original);
 
-        // 预置**旧形状**：主题 / 主题色 / 背景档位 / 字体 / 方向色都在顶层
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load().ShouldBe(SettingsLoadOutcome.Loaded);
+
+        // ① 已知标量键照读
+        service.Current.InputQueueCapacity.ShouldBe(512);
+        service.Current.Appearance.UiFontFamily.ShouldBe("Georgia");
+        service.Current.Appearance.DataFontFamily.ShouldBe("Cascadia Code");
+
+        // 外观主题回落内置：旧自定义主题没有文件夹 ⇒ 选择回落"跟随系统"，两种模式回到内置浅深
+        service.Current.Appearance.ThemeSelection.ShouldBe(ThemeIds.System);
+        service.Current.Appearance.SystemLightScheme.ShouldBe(ThemeIds.Light);
+        service.Current.Appearance.SystemDarkScheme.ShouldBe(ThemeIds.Dark);
+
+        // ② 一条 Warning
+        runtime.Issues.Recent(10).ShouldContain(
+            entry => entry.Issue.Severity == IssueSeverity.Warning
+                && entry.Issue.Message.Contains("旧版本", StringComparison.Ordinal));
+
+        // ③ 原文件保持不变（没有把内联主题"迁移"并写回）
+        File.ReadAllText(scope.SettingsPath).ShouldBe(original);
+    }
+
+    /// <summary>外观块 v4 的形状：`theme / systemLightScheme / systemDarkScheme / seeded[] / fonts`，不再有内联主题。</summary>
+    [Fact]
+    public void 往返_外观块应写成v4形状()
+    {
+        using var scope = new SettingsScope();
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load();
+
+        var updated = service.Current.Clone();
+        updated.Appearance.ThemeSelection = "custom-abc";
+        updated.Appearance.SystemLightScheme = ThemeIds.Light;
+        updated.Appearance.SystemDarkScheme = ThemeIds.Dark;
+        updated.Appearance.UiFontFamily = "Georgia";
+        updated.Appearance.DataFontFamily = "Cascadia Code";
+        updated.Appearance.Seeded = ["appearance/themes/sakura"];
+
+        // 选择必须指向真实存在的主题（否则载入时会回落内置）
+        service.Themes.Save(new ThemeSaveRequest(
+            "custom-abc",
+            "自定义 ABC",
+            ThemeBaseKind.Light,
+            new Dictionary<string, string>(StringComparer.Ordinal),
+            null,
+            ClearWallpaper: false,
+            0.55,
+            0.70)).Succeeded.ShouldBeTrue();
+
+        service.Update(updated).Succeeded.ShouldBeTrue();
+
+        var root = JsonNode.Parse(File.ReadAllText(scope.SettingsPath))!.AsObject();
+        root["schemaVersion"]!.GetValue<int>().ShouldBe(4);
+
+        var block = root["appearance"]!.AsObject();
+        block["theme"]!.GetValue<string>().ShouldBe("custom-abc");
+        block["systemLightScheme"]!.GetValue<string>().ShouldBe(ThemeIds.Light);
+        block["systemDarkScheme"]!.GetValue<string>().ShouldBe(ThemeIds.Dark);
+        block["fonts"]!["ui"]!.GetValue<string>().ShouldBe("Georgia");
+        block["fonts"]!["data"]!.GetValue<string>().ShouldBe("Cascadia Code");
+        block["seeded"]!.AsArray().Select(item => item!.GetValue<string>()).ShouldBe(["appearance/themes/sakura"]);
+
+        block.ContainsKey("schemes").ShouldBeFalse("外观块不再内联主题方案");
+        block.ContainsKey("paletteOverrides").ShouldBeFalse("外观块不再内联色板覆盖");
+        block.ContainsKey("seededThemes").ShouldBeFalse("seededThemes 已折进 seeded");
+
+        // 重启读回
+        var reloaded = new SettingsService(runtime, scope.SettingsPath);
+        reloaded.Load();
+        reloaded.Current.Appearance.ThemeSelection.ShouldBe("custom-abc", "主题选择是标量，原样保留");
+        reloaded.Current.Appearance.Seeded.ShouldContain("appearance/themes/sakura");
+        reloaded.Current.Appearance.UiFontFamily.ShouldBe("Georgia");
+    }
+
+    [Fact]
+    public void 加载_已删除的主题在设置里的选择应回落内置()
+    {
+        using var scope = new SettingsScope();
         File.WriteAllText(scope.SettingsPath, """
         {
-          "schemaVersion": 1,
-          "theme": "Dark",
-          "accentColor": "#EA580C",
-          "backgroundMode": "LightGray",
-          "uiFontFamily": "Georgia",
-          "dataFontFamily": "Cascadia Code",
-          "directionSendColor": "#123456",
-          "directionReceiveColor": ""
+          "schemaVersion": 4,
+          "appearance": {
+            "theme": "gone-theme",
+            "systemLightScheme": "gone-theme",
+            "systemDarkScheme": "gone-theme"
+          }
         }
         """);
 
@@ -123,75 +218,9 @@ public class SettingsServiceTests
         var service = new SettingsService(runtime, scope.SettingsPath);
         service.Load();
 
-        // ① 折叠：旧字段进了外观块（按主题分层）
-        var appearance = service.Current.Appearance;
-        appearance.ThemeSelection.ShouldBe(ThemeIds.Dark, "旧值 `Dark` 规范成 `dark`");
-        appearance.Override(ThemeIds.Light, "AccentPrimary").ShouldBe("#EA580C", "旧主题色折叠成两套的覆盖");
-        appearance.Override(ThemeIds.Dark, "AccentPrimary").ShouldBe("#EA580C");
-        appearance.Override(ThemeIds.Light, "BgWorkspace").ShouldBe("#E8EAED", "旧背景档位折叠成三支底色");
-        appearance.Override(ThemeIds.Light, "BgModule").ShouldBe("#F7F8FA");
-        appearance.Override(ThemeIds.Light, "BgChrome").ShouldBe("#F1F2F5");
-        appearance.Override(ThemeIds.Light, "DirectionSend").ShouldBe("#123456", "旧方向色折叠进覆盖层");
-        appearance.Override(ThemeIds.Light, "DirectionReceive").ShouldBeNull("旧值空 = 跟随 ⇒ 不写");
-        appearance.UiFontFamily.ShouldBe("Georgia", "旧顶层字体键折叠进外观块");
-        appearance.DataFontFamily.ShouldBe("Cascadia Code");
-
-        // ② 覆盖落盘：清掉方向色、留一支没动过的 ⇒ 文件里只有被改过的那几支
-        var updated = service.Current.Clone();
-        updated.Appearance.SetOverride(ThemeIds.Light, "DirectionSend", null);
-        updated.Appearance.SetOverride(ThemeIds.Dark, "DirectionReceive", "#0891B2");
-        service.Update(updated).Succeeded.ShouldBeTrue();
-
-        var root = JsonNode.Parse(File.ReadAllText(scope.SettingsPath))!.AsObject();
-
-        // **按结构判**而不是按文本判：`"theme"` 在新形状里也有（`appearance.theme`）⇒ 文本包含会误报
-        foreach (var legacy in new[]
-        {
-            "theme", "paletteOverrides", "uiFontFamily", "dataFontFamily",
-            "accentColor", "backgroundMode", "backgroundColor",
-            "directionSendColor", "directionReceiveColor",
-        })
-        {
-            root.ContainsKey(legacy).ShouldBeFalse($"旧键 {legacy} 不该再出现在顶层");
-        }
-
-        var block = root["appearance"]!.AsObject();
-        block["theme"]!.GetValue<string>().ShouldBe(ThemeIds.Dark);
-        block["fonts"]!["ui"]!.GetValue<string>().ShouldBe("Georgia");
-        block["paletteOverrides"]!["light"]!["AccentPrimary"]!.GetValue<string>().ShouldBe("#EA580C");
-        block["paletteOverrides"]!["dark"]!["DirectionReceive"]!.GetValue<string>().ShouldBe("#0891B2");
-
-        // ③ 重启读回：改过的在、清掉的没了
-        var reloaded = new SettingsService(runtime, scope.SettingsPath);
-        reloaded.Load();
-        reloaded.Current.Appearance.Override(ThemeIds.Dark, "DirectionReceive").ShouldBe("#0891B2", "重新加载应保留用户设置");
-        reloaded.Current.Appearance.Override(ThemeIds.Light, "DirectionSend").ShouldBeNull("清掉的那一支应回到跟随");
-        reloaded.Current.Appearance.Override(ThemeIds.Light, "AccentPrimary").ShouldBe("#EA580C", "折叠来的覆盖同样落盘");
-    }
-
-    /// <summary>清掉覆盖 = 回到跟随（**不做任何合法性/对比度校验**：完全尊重用户选择）。</summary>
-    [Fact]
-    public void 更新_方向语义色清空应回到跟随主题()
-    {
-        using var scope = new SettingsScope();
-        using var runtime = new ModuleRuntime();
-        var service = new SettingsService(runtime, scope.SettingsPath);
-        service.Load();
-
-        var custom = service.Current.Clone();
-        custom.Appearance.SetOverride(ThemeIds.Light, "DirectionSend", "#123456");
-        service.Update(custom).Succeeded.ShouldBeTrue();
-
-        var cleared = service.Current.Clone();
-        cleared.Appearance.SetOverride(ThemeIds.Light, "DirectionSend", null);
-        service.Update(cleared).Succeeded.ShouldBeTrue();
-
-        var reloaded = new SettingsService(runtime, scope.SettingsPath);
-        reloaded.Load();
-        reloaded.Current.Appearance.Override(ThemeIds.Light, "DirectionSend").ShouldBeNull();
-
-        // 清空后文件里连"这套主题的桶"都不该留下（空桶 = 死数据）
-        File.ReadAllText(scope.SettingsPath).ShouldNotContain("#123456");
+        service.Current.Appearance.ThemeSelection.ShouldBe(ThemeIds.System, "主题文件夹不存在 ⇒ 跟随系统（内置）");
+        service.Current.Appearance.SystemLightScheme.ShouldBe(ThemeIds.Light);
+        service.Current.Appearance.SystemDarkScheme.ShouldBe(ThemeIds.Dark);
     }
 
     [Fact]
@@ -327,16 +356,15 @@ public class SettingsServiceTests
         {
             [$"key-{name}"] = "value",
         },
-        // **外观块**（主题选择 + 按主题分层的覆盖 + 字体）：三层各给一个哨兵值
+        // **外观块**（选择 / 跟随系统两套 / 已投放 / 字体）：逐项给一个哨兵值
         _ when type == typeof(HYWDebugAssistant.Core.Api.AppearanceSettings) => new HYWDebugAssistant.Core.Api.AppearanceSettings
         {
             ThemeSelection = $"sentinel-{name}",
+            SystemLightScheme = $"sentinel-light-{name}",
+            SystemDarkScheme = $"sentinel-dark-{name}",
             UiFontFamily = $"sentinel-ui-{name}",
             DataFontFamily = $"sentinel-data-{name}",
-            PaletteOverrides =
-            {
-                ["sentinel-theme"] = new Dictionary<string, string>(StringComparer.Ordinal) { ["TextPrimary"] = "#010203" },
-            },
+            Seeded = { $"appearance/themes/sentinel-{name}" },
         },
         _ => throw new NotSupportedException(
             $"新增了可写属性 {name}（{type.Name}）：请在 {nameof(Sentinel)} 里补一个哨兵值，让 Clone 完整性用例继续生效"),
@@ -348,19 +376,17 @@ public class SettingsServiceTests
         switch (expected)
         {
             case HYWDebugAssistant.Core.Api.AppearanceSettings appearance:
-                // 外观块自带两层字典 ⇒ 逐项比，而不是比引用（比引用会让"浅拷"这条缺陷漏网）
                 var copiedAppearance = actual.ShouldBeAssignableTo<HYWDebugAssistant.Core.Api.AppearanceSettings>()!;
                 copiedAppearance.ThemeSelection.ShouldBe(appearance.ThemeSelection, $"{name}：Clone 漏了外观块（主题选择）");
+                copiedAppearance.SystemLightScheme.ShouldBe(appearance.SystemLightScheme, $"{name}：Clone 漏了跟随系统浅色主题");
+                copiedAppearance.SystemDarkScheme.ShouldBe(appearance.SystemDarkScheme, $"{name}：Clone 漏了跟随系统深色主题");
                 copiedAppearance.UiFontFamily.ShouldBe(appearance.UiFontFamily, $"{name}：Clone 漏了外观块（界面字体）");
                 copiedAppearance.DataFontFamily.ShouldBe(appearance.DataFontFamily, $"{name}：Clone 漏了外观块（数据字体）");
 
-                foreach (var (themeId, map) in appearance.PaletteOverrides)
+                copiedAppearance.Seeded.Count.ShouldBe(appearance.Seeded.Count, $"{name}：Clone 漏了外观块的已投放列表");
+                for (var index = 0; index < appearance.Seeded.Count; index++)
                 {
-                    copiedAppearance.OverridesOf(themeId).Count.ShouldBe(map.Count, $"{name}：Clone 漏了外观块的色板覆盖");
-                    foreach (var (token, hex) in map)
-                    {
-                        copiedAppearance.Override(themeId, token).ShouldBe(hex, $"{name}：Clone 漏了外观块的色板覆盖");
-                    }
+                    copiedAppearance.Seeded[index].ShouldBe(appearance.Seeded[index], $"{name}：Clone 漏了已投放记录");
                 }
 
                 ReferenceEquals(actual, expected).ShouldBeFalse($"{name}：外观块必须深拷（否则改一份会影响另一份）");
@@ -434,6 +460,54 @@ public class SettingsServiceTests
     }
 
     [Fact]
+    public void 往返_应用整体置顶应落盘并在重启后保留()
+    {
+        using var scope = new SettingsScope();
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load();
+
+        var updated = service.Current.Clone();
+        updated.AppTopmost = true;
+        service.Update(updated).Succeeded.ShouldBeTrue();
+
+        File.ReadAllText(scope.SettingsPath).ShouldContain("\"appTopmost\": true");
+
+        var reloaded = new SettingsService(runtime, scope.SettingsPath);
+        reloaded.Load();
+        reloaded.Current.AppTopmost.ShouldBeTrue("应用整体置顶必须落盘（旧实现只在界面生效，重启回 false）");
+    }
+
+    [Fact]
+    public void 加载_未来版本应使用默认值并禁止写回()
+    {
+        using var scope = new SettingsScope();
+        var original = """
+        {
+          "schemaVersion": 999,
+          "inputQueueCapacity": 256,
+          "appTopmost": true
+        }
+        """;
+        File.WriteAllText(scope.SettingsPath, original);
+
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+
+        service.Load().ShouldBe(SettingsLoadOutcome.FutureVersion);
+        service.Current.InputQueueCapacity.ShouldBe(1024, "未来版本不猜测语义 ⇒ 使用本版本默认值");
+        service.Current.AppTopmost.ShouldBeFalse();
+
+        var updated = service.Current.Clone();
+        updated.InputQueueCapacity = 128;
+        service.Update(updated).Succeeded.ShouldBeFalse("未来版本必须禁止写回，保护原文件");
+        service.Save(out var error).ShouldBeFalse();
+        error.ShouldNotBeNullOrWhiteSpace();
+
+        File.ReadAllText(scope.SettingsPath).ShouldBe(original, "原文件必须保持不变");
+    }
+
+    [Fact]
     public void 服务_应可经公开面读写设置()
     {
         using var scope = new SettingsScope();
@@ -456,7 +530,82 @@ public class SettingsServiceTests
         services.GetSettings().UiRefreshRateHz.ShouldBe(120);
     }
 
-    /// <summary>测试用临时目录（设置文件路径）。</summary>
+    /// <summary>
+    /// **界面语言**：落盘 → 往返 → 未知值回落 `system`（与外观类设置同一容错口径）。
+    /// </summary>
+    /// <remarks>
+    /// 三个出口缺一不可：① 文件里真的写了 `uiLanguage` ② 重新加载读得回来 ③ 未知值不炸、不写怪值。
+    /// </remarks>
+    [Fact]
+    public void 更新_界面语言应落盘并往返且未知值回落跟随系统()
+    {
+        using var scope = new SettingsScope();
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load();
+
+        service.Current.UiLanguage.ShouldBe(TextLanguages.System, "默认跟随系统");
+
+        var updated = service.Current.Clone();
+        updated.UiLanguage = TextLanguages.ZhHans;
+        service.Update(updated).Succeeded.ShouldBeTrue("写入语言不该失败");
+
+        File.ReadAllText(scope.SettingsPath).ShouldContain("\"uiLanguage\": \"zh-Hans\"");
+
+        var reloaded = new SettingsService(runtime, scope.SettingsPath);
+        reloaded.Load();
+        reloaded.Current.UiLanguage.ShouldBe(TextLanguages.ZhHans, "重新加载应保留语言");
+
+        File.WriteAllText(scope.SettingsPath, """{ "schemaVersion": 4, "uiLanguage": "klingon" }""");
+
+        var invalid = new SettingsService(runtime, scope.SettingsPath);
+        invalid.Load().ShouldBe(SettingsLoadOutcome.Loaded);
+        invalid.Current.UiLanguage.ShouldBe(TextLanguages.System, "未知语言 ⇒ 跟随系统");
+    }
+
+    /// <summary>
+    /// **`--emit-default-settings` 的产物必须能被设置服务正常解析**（发布打包用的出厂设置基线就是它）。
+    /// </summary>
+    /// <remarks>
+    /// 走两个出口：① 隐藏开关真的写出了文件（且不初始化 Avalonia）② 写出的文件能作为本版本 v4 设置载入。
+    /// 只断言"文件存在"会漏掉"写出来的根本不是设置文件"。
+    /// </remarks>
+    [Fact]
+    public void 默认设置发射_产物应可被设置服务解析()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "hyw-emit-defaults-" + Guid.NewGuid().ToString("N"));
+        _ = Directory.CreateDirectory(directory);
+
+        try
+        {
+            var path = Path.Combine(directory, "settings.json");
+
+            HYWDebugAssistant.App.Program.TryEmitDefaultSettings(
+                [HYWDebugAssistant.App.Program.EmitDefaultSettingsSwitch, path],
+                out var exitCode).ShouldBeTrue();
+            exitCode.ShouldBe(0);
+            File.Exists(path).ShouldBeTrue();
+
+            using var runtime = new ModuleRuntime();
+            var service = new SettingsService(runtime, path);
+            service.Load().ShouldBe(SettingsLoadOutcome.Loaded, "发射出来的必须是本版本可读的 v4 设置文件");
+
+            var defaults = new ApplicationSettings();
+            service.Current.SchemaVersion.ShouldBe(ApplicationSettings.CurrentSchemaVersion);
+            service.Current.InputQueueCapacity.ShouldBe(defaults.InputQueueCapacity);
+            service.Current.Appearance.ThemeSelection.ShouldBe(ThemeIds.System);
+            runtime.Issues.Count.ShouldBe(0, "发射默认设置不是异常");
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>测试用临时目录（设置文件路径；主题根会落在同级的 `appearance\themes`）。</summary>
     private sealed class SettingsScope : IDisposable
     {
         public SettingsScope()

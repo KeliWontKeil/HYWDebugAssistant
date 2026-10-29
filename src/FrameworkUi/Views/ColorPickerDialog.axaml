@@ -1,9 +1,10 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
         xmlns:controls="using:Avalonia.Controls"
         xmlns:views="using:HYWDebugAssistant.FrameworkUi.Views"
         x:Class="HYWDebugAssistant.FrameworkUi.Views.ColorPickerDialog"
-        Title="编辑颜色"
+        Title="{loc:Tr picker.title}"
         SizeToContent="WidthAndHeight"
         CanResize="False"
         ShowInTaskbar="False"
@@ -51,7 +52,7 @@
             <StackPanel Grid.Column="1" Margin="10,0,0,0" Spacing="6">
                 <TextBlock FontSize="10"
                            Foreground="{DynamicResource TextSecondary}"
-                           Text="推荐色" />
+                           Text="{loc:Tr picker.recommended}" />
                 <ItemsControl x:Name="RecommendedColors" Width="94">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
@@ -64,7 +65,7 @@
                                     Background="{Binding Brush}"
                                     BorderBrush="{DynamicResource BorderStrong}"
                                     BorderThickness="1"
-                                    ToolTip.Tip="{Binding Name}"
+                                    ToolTip.Tip="{Binding Label}"
                                     Click="OnPickRecommended" />
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -76,12 +77,12 @@
                    TextWrapping="Wrap"
                    FontSize="10"
                    Foreground="{DynamicResource TextMuted}"
-                   Text="推荐色与主题同一套；确定后立即生效。" />
+                   Text="{loc:Tr picker.recommended.note}" />
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
             <Button x:Name="ResetButton" IsVisible="False" />
-            <Button x:Name="ConfirmButton" Content="确定" MinWidth="72" />
-            <Button x:Name="CancelButton" Content="取消" MinWidth="72" />
+            <Button x:Name="ConfirmButton" Content="{loc:Tr picker.confirm}" MinWidth="72" />
+            <Button x:Name="CancelButton" Content="{loc:Tr picker.cancel}" MinWidth="72" />
         </StackPanel>
     </StackPanel>
 </Window>

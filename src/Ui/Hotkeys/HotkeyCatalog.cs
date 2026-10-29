@@ -1,4 +1,5 @@
 using Avalonia.Input;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Ui.Hotkeys;
 
@@ -51,17 +52,17 @@ public static class HotkeyCatalog
     /// <summary>动作定义（顺序即设置界面的展示顺序）。</summary>
     public static readonly IReadOnlyList<HotkeyAction> Actions =
     [
-        new(OpenCatalog, "打开模块清单", "M"),
-        new(OpenIssues, "打开 Issue", "I"),
-        new(OpenSettings, "打开设置", "S"),
-        new(OpenTopology, "打开拓扑诊断", "T"),
-        new(ToggleMarkers, "切换叠加信息层", "L"),
-        new(ToggleSnap, "切换几何吸附", "G"),
-        new(ToggleLockAll, "全部锁定 / 解锁", "Ctrl+L"),
-        new(ToggleAnchorFixed, "固定 / 解锁端口锚点", "Ctrl+P"),
-        new(ToggleAppTopmost, "应用整体置顶", "Ctrl+T"),
-        new(RaiseAllWindows, "全部置前", "Ctrl+R"),
-        new(ShowAllWindows, "显示全部模块窗口", "Ctrl+W"),
+        new(OpenCatalog, "hotkey.action.openCatalog.label", "M"),
+        new(OpenIssues, "hotkey.action.openIssues.label", "I"),
+        new(OpenSettings, "hotkey.action.openSettings.label", "S"),
+        new(OpenTopology, "hotkey.action.openTopology.label", "T"),
+        new(ToggleMarkers, "hotkey.action.toggleMarkers.label", "L"),
+        new(ToggleSnap, "hotkey.action.toggleSnap.label", "G"),
+        new(ToggleLockAll, "hotkey.action.toggleLockAll.label", "Ctrl+L"),
+        new(ToggleAnchorFixed, "hotkey.action.toggleAnchorFixed.label", "Ctrl+P"),
+        new(ToggleAppTopmost, "hotkey.action.toggleAppTopmost.label", "Ctrl+T"),
+        new(RaiseAllWindows, "hotkey.action.raiseAllWindows.label", "Ctrl+R"),
+        new(ShowAllWindows, "hotkey.action.showAllWindows.label", "Ctrl+W"),
     ];
 
     /// <summary>取动作定义（未知动作返回 null）。</summary>
@@ -76,9 +77,13 @@ public static class HotkeyCatalog
 
 /// <summary>快捷键动作定义。</summary>
 /// <param name="Id">动作标识（存进设置的键）。</param>
-/// <param name="Title">界面标题。</param>
+/// <param name="LabelKey">界面文案的键（文本表里的 <c>hotkey.action.&lt;id&gt;.label</c>）。</param>
 /// <param name="DefaultBinding">默认绑定（如 <c>Ctrl+L</c>、<c>M</c>）。</param>
-public sealed record HotkeyAction(string Id, string Title, string DefaultBinding);
+public sealed record HotkeyAction(string Id, string LabelKey, string DefaultBinding)
+{
+    /// <summary>界面文案（按当前语言解析；解析一次，不返回绑定）。</summary>
+    public string Label => TextCatalog.Get(typeof(HotkeyCatalog).Assembly, LabelKey);
+}
 
 /// <summary>
 /// 快捷键**绑定**（键 + 修饰键）：解析 / 格式化 / 匹配。

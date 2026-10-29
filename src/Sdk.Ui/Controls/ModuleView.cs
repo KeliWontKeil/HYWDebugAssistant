@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
@@ -31,6 +32,40 @@ public class ModuleView : UserControl
     /// 不再依赖某个框架布尔值是否被设置。产品 App 不置位。
     /// </remarks>
     public static bool IsPreviewHost { get; set; }
+
+    private static readonly ConcurrentDictionary<string, Type> StandardConfigTypes = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// 注册**外部标准标识 → 设计时配置类型**（预览宿主/框架接线在启动时调用）。
+    /// </summary>
+    /// <remarks>
+    /// 外部模块的参数类型在框架侧，模块只声明标准标识；预览器没有运行时上下文，
+    /// 只能用这张表把标准标识映射回配置类型以画出字段。
+    /// </remarks>
+    /// <param name="standardId">外部标准标识（见 <c>ExternalAccessStandardIds</c>）。</param>
+    /// <param name="configType">带配置标注的配置类型。</param>
+    public static void RegisterStandardConfig(string standardId, Type configType)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(standardId);
+        ArgumentNullException.ThrowIfNull(configType);
+        StandardConfigTypes[standardId] = configType;
+    }
+
+    /// <summary>按外部标准标识取设计时配置类型。</summary>
+    /// <param name="standardId">外部标准标识。</param>
+    /// <param name="configType">映射到的配置类型（未注册时为空）。</param>
+    public static bool TryGetStandardConfig(string standardId, out Type configType)
+    {
+        if (!string.IsNullOrWhiteSpace(standardId)
+            && StandardConfigTypes.TryGetValue(standardId, out var found))
+        {
+            configType = found;
+            return true;
+        }
+
+        configType = null!;
+        return false;
+    }
 
     private static bool IsDesignEnvironment => Design.IsDesignMode || IsPreviewHost;
 
@@ -69,11 +104,20 @@ public class ModuleView : UserControl
             });
 
             // 配置字段在运行时靠宿主上下文才有标题/编辑器；预览器没有宿主，
-            // 由视图上的 `[ModuleViewDesignData]` 指定配置类型，从同一份标注反射出字段。
+            // 由视图上的 `[ModuleViewDesignData]` 指定配置类型（或标准标识 → 配置类型的注册表），
+            // 从同一份标注反射出字段。
             if (GetType().GetCustomAttribute<ModuleViewDesignDataAttribute>() is { } designData
                 && DataContext is null)
             {
-                DataContext = new DesignModuleViewContext(designData.ConfigType);
+                var configType = designData.ConfigType
+                    ?? (designData.StandardId is { } standardId && TryGetStandardConfig(standardId, out var mapped)
+                        ? mapped
+                        : null);
+
+                if (configType is not null)
+                {
+                    DataContext = new DesignModuleViewContext(configType);
+                }
             }
         }
     }

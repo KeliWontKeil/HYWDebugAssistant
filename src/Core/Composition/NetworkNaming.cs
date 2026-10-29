@@ -12,6 +12,9 @@ public static class NetworkNaming
     /// <summary>自动命名前缀。</summary>
     public const string AutoPrefix = "net-";
 
+    /// <summary>网络名长度上限（字符）。</summary>
+    public const int MaxNameLength = 64;
+
     /// <summary>生成一个未被占用的自动名字。</summary>
     /// <param name="isTaken">判定名字是否已被占用。</param>
     public static string NextAutoName(Func<string, bool> isTaken)
@@ -27,32 +30,66 @@ public static class NetworkNaming
             }
         }
 
-        throw new InvalidOperationException("无法生成可用的网络名（序号耗尽）");
+        throw new InvalidOperationException(CoreText.Get("core.composite.network.exhausted"));
     }
 
-    /// <summary>名字是否合法（非空、不含空白、长度受限）。</summary>
-    public static bool IsValidName(string? name, out string? reason)
+    /// <summary>名字是否合法（非空、不含空白、长度受限）；不合法时给出**枚举原因**。</summary>
+    /// <param name="name">候选名字（可空/空白）。</param>
+    /// <param name="error">不合法原因（合法时 = <see cref="NetworkNameError.None"/>）。</param>
+    /// <remarks>
+    /// 原因用枚举而不是文案：文案要进文本表、可换语言，**不能当控制流或协议**。
+    /// 调用方按枚举取文案（表：<c>core.network.name.*</c>）。
+    /// </remarks>
+    public static bool TryValidateName(string? name, out NetworkNameError error)
     {
-        reason = null;
-
         if (string.IsNullOrWhiteSpace(name))
         {
-            reason = "网络名不能为空";
+            error = NetworkNameError.Empty;
             return false;
         }
 
-        if (name.Length > 64)
+        if (name.Length > MaxNameLength)
         {
-            reason = "网络名过长（上限 64 字符）";
+            error = NetworkNameError.TooLong;
             return false;
         }
 
         if (name.Any(char.IsWhiteSpace))
         {
-            reason = "网络名不能包含空白字符";
+            error = NetworkNameError.ContainsWhitespace;
             return false;
         }
 
+        error = NetworkNameError.None;
         return true;
     }
+}
+
+/// <summary>网络名校验失败的原因（枚举，**不是文案**）。</summary>
+public enum NetworkNameError
+{
+    /// <summary>合法。</summary>
+    None,
+
+    /// <summary>空 / 全空白。</summary>
+    Empty,
+
+    /// <summary>超过长度上限。</summary>
+    TooLong,
+
+    /// <summary>含空白字符。</summary>
+    ContainsWhitespace,
+}
+
+/// <summary>网络名校验文案的文本表键（表属 Core）。</summary>
+public static class NetworkNameText
+{
+    /// <summary>空 / 全空白。</summary>
+    public const string Empty = "core.network.name.empty";
+
+    /// <summary>超过长度上限（<c>{0}</c> = <see cref="NetworkNaming.MaxNameLength"/>）。</summary>
+    public const string TooLong = "core.network.name.tooLong";
+
+    /// <summary>含空白字符。</summary>
+    public const string ContainsWhitespace = "core.network.name.containsWhitespace";
 }

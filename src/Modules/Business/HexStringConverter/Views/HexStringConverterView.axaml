@@ -1,6 +1,7 @@
 <ui:ModuleView xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+             xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
              xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:views="using:HYWDebugAssistant.Modules.HexStringConverter.Views"
@@ -16,7 +17,7 @@
   -->
   <Grid RowDefinitions="Auto,*,6,Auto,*">
 
-    <TextBlock Grid.Row="0" Classes="module-field-label" Text="文本 → HEX" />
+    <TextBlock Grid.Row="0" Classes="module-field-label" Text="{loc:Tr view.textToHex}" />
 
     <ui:ModuleTabs Grid.Row="1" StateKey="{x:Static views:HexStringConverterViewKeys.CharPagesKey}">
       <TabItem Header="1">
@@ -56,7 +57,7 @@
       </TabItem>
     </ui:ModuleTabs>
 
-    <TextBlock Grid.Row="3" Classes="module-field-label" Text="HEX → 文本" />
+    <TextBlock Grid.Row="3" Classes="module-field-label" Text="{loc:Tr view.hexToText}" />
 
     <ui:ModuleTabs Grid.Row="4" StateKey="{x:Static views:HexStringConverterViewKeys.HexPagesKey}">
       <TabItem Header="1">

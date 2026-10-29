@@ -1,13 +1,13 @@
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
-using HYWDebugAssistant.Access.Parameters;
+using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
 
 namespace HYWDebugAssistant.Modules.Udp.Views;
 
 /// <summary>UDP 窗口的视图（布局在 <c>UdpView.axaml</c>）。</summary>
-[ModuleViewDesignData(typeof(UdpConfig))]
+[ModuleViewDesignData(ExternalAccessStandardIds.Udp)]
 public sealed partial class UdpView : ModuleView
 {
     /// <summary>构造视图。</summary>

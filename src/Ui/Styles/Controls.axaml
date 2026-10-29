@@ -1,5 +1,6 @@
 <Styles xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="using:HYWDebugAssistant.Ui.Controls">
 
     <!--
       统一控件尺寸与字号【M1-16 / ADR-0040 D4】：
@@ -7,6 +8,75 @@
       · 尺寸只从 token 取，**禁止逐处写死高度**；
       · 应用范围 = 全局（模块窗口内的配置表单、发送器视图、外壳与弹窗一致）。
     -->
+
+    <Styles.Resources>
+      <!--
+        宿主界面的滑块开关（设置页 / 交互页）：轨道 + 圆钮，ON 走主题色。
+        它派生自 ToggleButton，`ButtonChrome` 的按钮规则已排除 Toggle 派生控件，
+        所以这里必须给它自己的 ControlTheme；不要再让 Fluent CheckBox 出场。
+      -->
+      <ControlTheme x:Key="{x:Type ui:UiToggle}" TargetType="ui:UiToggle">
+        <Setter Property="MinHeight" Value="24" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+          <ControlTemplate>
+            <Grid ColumnDefinitions="Auto,*" VerticalAlignment="Center">
+              <Border Name="PART_Track" Width="36" Height="18" CornerRadius="9"
+                      Background="{DynamicResource SurfaceToggleTrackOffBrush}"
+                      BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                      VerticalAlignment="Center">
+                <Border Name="PART_Knob" Width="14" Height="14" CornerRadius="7"
+                        Background="{DynamicResource SurfaceToggleKnobBrush}"
+                        BorderBrush="{DynamicResource SurfaceToggleKnobEdgeBrush}" BorderThickness="1"
+                        HorizontalAlignment="Left" VerticalAlignment="Center" Margin="2,0,2,0">
+                  <Border.Transitions>
+                    <Transitions>
+                      <ThicknessTransition Property="Margin" Duration="0:0:0.16" />
+                    </Transitions>
+                  </Border.Transitions>
+                </Border>
+              </Border>
+              <ContentPresenter Grid.Column="1" Margin="6,0,0,0"
+                                Content="{TemplateBinding Content}"
+                                ContentTemplate="{TemplateBinding ContentTemplate}"
+                                Foreground="{TemplateBinding Foreground}"
+                                FontSize="{TemplateBinding FontSize}"
+                                VerticalAlignment="Center" />
+            </Grid>
+          </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^:pointerover /template/ Border#PART_Track">
+          <Setter Property="Background" Value="{DynamicResource SurfaceToggleTrackOffHoverBrush}" />
+        </Style>
+
+        <Style Selector="^:checked /template/ Border#PART_Track">
+          <Setter Property="Background" Value="{DynamicResource AccentPrimary}" />
+          <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+        </Style>
+
+        <Style Selector="^:checked:pointerover /template/ Border#PART_Track">
+          <Setter Property="Background" Value="{DynamicResource AccentPrimary}" />
+          <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+        </Style>
+
+        <Style Selector="^:checked /template/ Border#PART_Knob">
+          <Setter Property="Margin" Value="18,0,2,0" />
+        </Style>
+
+        <Style Selector="^:disabled">
+          <Setter Property="Opacity" Value="0.5" />
+        </Style>
+      </ControlTheme>
+    </Styles.Resources>
+
+    <Style Selector="ui|UiToggle">
+      <Setter Property="Theme" Value="{DynamicResource {x:Type ui:UiToggle}}" />
+    </Style>
 
     <!--
       【2026-09 缺陷修复 · 用户实测"界面字体改了没反应"】**把 `FontUi` 真正用起来**：
@@ -121,11 +191,57 @@
         <Setter Property="Background" Value="{DynamicResource BgChrome}" />
     </Style>
 
+    <!--
+      **操作状态行**（模块清单 / 组合页共用）：固定高度，单行省略；完整详情放 ToolTip/Issue。
+    -->
+    <Style Selector="TextBlock.operationStatus">
+        <Setter Property="Height" Value="18" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+    </Style>
+    <Style Selector="TextBlock.operationStatus.error">
+        <Setter Property="Foreground" Value="{DynamicResource SemanticError}" />
+    </Style>
+    <Style Selector="TextBlock.operationHint">
+        <Setter Property="Height" Value="18" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        <Setter Property="Foreground" Value="{DynamicResource SemanticWarn}" />
+    </Style>
+
     <!-- 分区标题（小号半粗；与区域边框配套） -->
     <Style Selector="TextBlock.paneTitle">
         <Setter Property="FontSize" Value="11" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+    </Style>
+
+    <!--
+      **列表预览图块**（模块清单与组合列表共用同一套尺寸/边框/圆角）：
+      当前用占位字形；以后接真实缩略图时只替换内容，尺寸与边框不变。
+    -->
+    <Style Selector="Border.previewTile">
+        <Setter Property="Width" Value="72" />
+        <Setter Property="Height" Value="40" />
+        <Setter Property="Background" Value="{DynamicResource BgWorkspace}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="2" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+
+    <!-- 预览图占位字形：无图时居中显示，不再是一块全空。 -->
+    <Style Selector="TextBlock.previewGlyph">
+        <Setter Property="FontSize" Value="18" />
+        <Setter Property="Opacity" Value="0.55" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
 
     <!--

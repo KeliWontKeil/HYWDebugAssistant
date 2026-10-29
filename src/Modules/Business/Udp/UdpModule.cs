@@ -1,7 +1,7 @@
-using HYWDebugAssistant.Access;
-using HYWDebugAssistant.Access.Adapters;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Access;
+using HYWDebugAssistant.Sdk.AccessKit;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Modules.Udp;
 
@@ -20,8 +20,8 @@ namespace HYWDebugAssistant.Modules.Udp;
     "hyw",
     "udp",
     "1.0.0",
-    DisplayName = "UDP",
-    Description = "绑定本地端口收发数据报：收到的从 rx 出，要发的从 tx 进",
+    DisplayNameKey = UdpText.Title,
+    DescriptionKey = UdpText.Description,
     Tags = ["udp", "io"],
     Capabilities = ModuleCapability.Network,
     ParticipatesInDataFlow = true,
@@ -65,39 +65,44 @@ public sealed class UdpModule : ExternalAccessModule
     /// <summary>命令：解绑。</summary>
     public const string CloseCommand = "close";
 
+    /// <summary>取一条本模块文本表里的文案（拥有者 = 本模块程序集）。</summary>
+    private static string Tr(string key) => TextCatalog.Get(typeof(UdpModule).Assembly, key);
+
+    /// <summary>取一条带占位符的本模块文案。</summary>
+    private static string Tr(string key, params object?[] args) =>
+        TextCatalog.Get(typeof(UdpModule).Assembly, key, args);
+
     /// <inheritdoc />
     protected override AccessModuleSpec Spec { get; } = new(
         AccessName,
+        ExternalAccessStandardIds.Udp,
         RxPort,
         TxPort,
         RoleId,
-        "数据报",
+        Tr(UdpText.RoleDatagram),
         LinkSource,
         StateSource,
         RxCountSource,
         TxCountSource,
         DropCountSource,
         OpenCommand,
-        "绑定",
+        Tr(UdpText.Open),
         CloseCommand,
-        "解绑");
-
-    /// <inheritdoc />
-    protected override IExternalAccessAdapter CreateAdapter() => new UdpAccessAdapter();
+        Tr(UdpText.Close));
 
     /// <inheritdoc />
     protected override string Describe(ExternalAccessSnapshot snapshot) => snapshot.State switch
     {
         ExternalAccessState.Open => string.IsNullOrWhiteSpace(snapshot.Detail)
-            ? "已绑定"
-            : $"已绑定 {snapshot.Detail}",
+            ? Tr(UdpText.StatusBound)
+            : Tr(UdpText.StatusBoundDetail, snapshot.Detail),
         ExternalAccessState.Opening => string.IsNullOrWhiteSpace(snapshot.Detail)
-            ? "正在绑定…"
-            : $"正在绑定 {snapshot.Detail}",
-        ExternalAccessState.Closing => "正在解绑…",
+            ? Tr(UdpText.StatusBinding)
+            : Tr(UdpText.StatusBindingDetail, snapshot.Detail),
+        ExternalAccessState.Closing => Tr(UdpText.StatusUnbinding),
         ExternalAccessState.Faulted => string.IsNullOrWhiteSpace(snapshot.LastError)
-            ? "绑定失败"
+            ? Tr(UdpText.StatusFailed)
             : snapshot.LastError,
-        _ => snapshot.Suspended ? "实例已停用" : "未绑定",
+        _ => snapshot.Suspended ? Tr(UdpText.StatusSuspended) : Tr(UdpText.StatusIdle),
     };
 }

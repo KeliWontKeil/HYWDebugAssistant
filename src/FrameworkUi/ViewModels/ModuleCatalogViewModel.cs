@@ -1,10 +1,25 @@
 using System.Collections.ObjectModel;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Ui.Images;
 using HYWDebugAssistant.Ui.ViewModels;
 
 namespace HYWDebugAssistant.FrameworkUi.ViewModels;
+
+/// <summary>本文件各视图模型的文本表入口（拥有者 = FrameworkUi 程序集）。</summary>
+internal static class CatalogText
+{
+    /// <summary>取一条文案。</summary>
+    public static string Get(string key) => TextCatalog.Get(typeof(CatalogText).Assembly, key);
+
+    /// <summary>取一条带占位符的文案。</summary>
+    public static string Get(string key, params object?[] args) =>
+        TextCatalog.Get(typeof(CatalogText).Assembly, key, args);
+}
 
 /// <summary>可用模块行（**界面不显示模块标识字面量**，只在内部用于加入现场 —— 意见 3）。</summary>
 /// <param name="ModuleId">模块标识字面量（加入现场用，不显示）。</param>
@@ -14,6 +29,7 @@ namespace HYWDebugAssistant.FrameworkUi.ViewModels;
 /// <param name="SourceDirectory">装入该模块的来源根（诊断用）。</param>
 /// <param name="NeedsRestart">是否"本次启动后被重新构建过"（需重启应用才生效；框架不实现热重载）。</param>
 /// <param name="CategoryKey">分类键（由标签推导；见 <see cref="ModuleCategories"/>）。</param>
+/// <param name="IsExternal">是否来自默认目录下的外部导入区（`modules\external`）。</param>
 public sealed record ModuleCatalogRowViewModel(
     string ModuleId,
     string DisplayName,
@@ -21,10 +37,26 @@ public sealed record ModuleCatalogRowViewModel(
     string Capabilities,
     string? SourceDirectory = null,
     bool NeedsRestart = false,
-    string CategoryKey = ModuleCategories.Other)
+    string CategoryKey = ModuleCategories.Other,
+    bool IsExternal = false,
+    Bitmap? PreviewImage = null)
 {
-    /// <summary>需重启提示（空 = 不需要）。</summary>
-    public string RestartNotice => NeedsRestart ? "该包在本次启动后重新构建 —— 重启应用才生效" : string.Empty;
+    /// <summary>整行悬停提示：标题 + 换行 + 描述（描述为空就只标题）。</summary>
+    /// <remarks>条目根 `Grid` 有透明背景 ⇒ 整行任意位置都能出提示，而不是只有压在文字上。</remarks>
+    public string TooltipText => Description.Length > 0
+        ? DisplayName + Environment.NewLine + Description
+        : DisplayName;
+
+    /// <summary>来源标注（内置/外部；需要重启时并入同一行，保持列表行高一致）。</summary>
+    public string OriginNotice =>
+        (IsExternal ? CatalogText.Get("catalog.origin.external") : CatalogText.Get("catalog.origin.builtin"))
+        + (NeedsRestart ? CatalogText.Get("catalog.origin.needsRestart") : string.Empty);
+
+    /// <summary>居中裁切的预览画刷（无图 ⇒ null）。</summary>
+    public ImageBrush? PreviewBrush => WallpaperImageCache.Preview(PreviewImage);
+
+    /// <summary>是否有预览图（无图显示占位字形）。</summary>
+    public bool HasPreview => PreviewImage is not null;
 }
 
 /// <summary>
@@ -53,11 +85,11 @@ public static class ModuleCategories
     /// <summary>分类目录（键 · 图标字形 · 悬停说明）。</summary>
     public static readonly IReadOnlyList<(string Key, string Glyph, string Title)> Definitions =
     [
-        (All, "\uE8FD", "全部模块"),
-        (Source, "\uE768", "数据源（发生器 / 发送器）"),
-        (Sink, "\uE890", "显示与接收"),
-        (Verify, "\uE73E", "记录与断言"),
-        (Other, "\uE712", "其他"),
+        (All, "\uE8FD", CatalogText.Get("catalog.category.all")),
+        (Source, "\uE768", CatalogText.Get("catalog.category.source")),
+        (Sink, "\uE890", CatalogText.Get("catalog.category.sink")),
+        (Verify, "\uE73E", CatalogText.Get("catalog.category.verify")),
+        (Other, "\uE712", CatalogText.Get("catalog.category.other")),
     ];
 
     /// <summary>按标签推导分类键（不识别 → <see cref="Other"/>）。</summary>
@@ -234,10 +266,6 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
     /// <summary>占位实例（可指定替代模块）。</summary>
     public ObservableCollection<PlaceholderRowViewModel> Placeholders { get; } = [];
 
-    /// <summary>模块包目录（显式加载入口）。</summary>
-    [ObservableProperty]
-    public partial string? PackageDirectory { get; set; }
-
     /// <summary>选中的可用模块。</summary>
     [ObservableProperty]
     public partial ModuleCatalogRowViewModel? SelectedCatalogEntry { get; set; }
@@ -246,44 +274,43 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
     [ObservableProperty]
     public partial PlaceholderRowViewModel? SelectedPlaceholder { get; set; }
 
-    /// <summary>选中的来源根（打开目录用）。</summary>
-    [ObservableProperty]
-    public partial string? SelectedSource { get; set; }
-
-    /// <summary>模块包目录提示（内置模块包位置与"该选哪个目录"）。</summary>
-    public string PackageHint { get; } =
-        $@"内置模块包已自动装入（应用目录下 {Path.Combine(AppContext.BaseDirectory, "modules")}）。"
-        + @"显式加载第三方模块包时，请选择**构建产物目录**（含 module.json 与实现程序集的目录），不要选源码目录。";
-
-    /// <summary>状态提示。</summary>
+    /// <summary>状态提示（单行短句）。</summary>
     [ObservableProperty]
     public partial string? StatusMessage { get; set; }
+
+    /// <summary>状态详情（ToolTip；完整路径/逐条结果）。</summary>
+    [ObservableProperty]
+    public partial string? StatusDetail { get; set; }
 
     /// <summary>上次操作是否成功。</summary>
     [ObservableProperty]
     public partial bool StatusIsOk { get; set; } = true;
 
-    /// <summary>请求选择模块包目录（由视图打开文件夹选择器）。</summary>
-    public event EventHandler? PickPackageDirectoryRequested;
+    /// <summary>状态是否为错误（XAML 着色用）。</summary>
+    public bool StatusIsError => !StatusIsOk;
 
-    /// <summary>加载模块包并注册（显式加载）。</summary>
-    [RelayCommand]
-    private void Install()
+    partial void OnStatusIsOkChanged(bool value) => OnPropertyChanged(nameof(StatusIsError));
+
+    /// <summary>请求**保存现场并重启应用**（“重新加载”）；由外壳/主窗口执行。</summary>
+    public event EventHandler? RestartRequested;
+
+    /// <summary>本次扫描发现的“需重启”的包数。</summary>
+    [ObservableProperty]
+    public partial int NeedsRestartCount { get; set; }
+
+    /// <summary>需重启提示（空 = 没有）。</summary>
+    public string RestartHint => NeedsRestartCount > 0
+        ? CatalogText.Get("catalog.restartHint", NeedsRestartCount)
+        : string.Empty;
+
+    /// <summary>是否有包需要重启。</summary>
+    public bool HasNeedsRestart => NeedsRestartCount > 0;
+
+    partial void OnNeedsRestartCountChanged(int value)
     {
-        if (string.IsNullOrWhiteSpace(PackageDirectory))
-        {
-            SetStatus(false, "请先选择模块包目录");
-            return;
-        }
-
-        var result = _command.InstallModulePackage(PackageDirectory);
-        SetStatus(result.Succeeded, result.Succeeded ? "模块包已加载" : $"失败：{string.Join("；", result.Failures)}");
-        Refresh();
+        OnPropertyChanged(nameof(RestartHint));
+        OnPropertyChanged(nameof(HasNeedsRestart));
     }
-
-    /// <summary>请求打开文件夹选择器。</summary>
-    [RelayCommand]
-    private void PickPackageDirectory() => PickPackageDirectoryRequested?.Invoke(this, EventArgs.Empty);
 
     /// <summary>
     /// 把选中的模块加入现场（**按钮与"双击列表项"共用这一条路径**）。
@@ -297,13 +324,17 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
     {
         if (SelectedCatalogEntry is not { } entry)
         {
-            SetStatus(false, "请先在可用模块中选择一个模块");
+            SetStatus(false, CatalogText.Get("catalog.status.selectModule"));
             return false;
         }
 
         var instanceId = NextInstanceId(entry.ModuleId);
         var result = _command.AddModule(instanceId, entry.ModuleId);
-        SetStatus(result.Succeeded, result.Succeeded ? $"已加入：{entry.DisplayName}" : $"失败：{string.Join("；", result.Failures)}");
+        SetStatus(
+            result.Succeeded,
+            result.Succeeded
+                ? CatalogText.Get("catalog.status.added", entry.DisplayName)
+                : CatalogText.Get("catalog.status.failed", string.Join("；", result.Failures)));
         Refresh();
         return result.Succeeded;
     }
@@ -318,103 +349,47 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
     {
         if (SelectedPlaceholder is not { } placeholder || SelectedCatalogEntry is not { } entry)
         {
-            SetStatus(false, "请选中一个占位实例，并在可用模块中选中替代模块");
+            SetStatus(false, CatalogText.Get("catalog.status.selectPlaceholder"));
             return;
         }
 
         var result = _command.ResolvePlaceholder(placeholder.InstanceId, entry.ModuleId);
-        SetStatus(result.Succeeded, result.Succeeded ? $"已指定替代模块：{entry.DisplayName}" : $"失败：{string.Join("；", result.Failures)}");
+        SetStatus(
+            result.Succeeded,
+            result.Succeeded
+                ? CatalogText.Get("catalog.status.replaced", entry.DisplayName)
+                : CatalogText.Get("catalog.status.failed", string.Join("；", result.Failures)));
         Refresh();
     }
 
-    /// <summary>来源根扫描诊断（让用户看到扫了哪些目录、每个目录发生了什么）。</summary>
-    public ObservableCollection<ModuleSourceRowViewModel> Sources { get; } = [];
+    /// <summary>请求选择外部模块目录（由视图打开文件夹选择器）。</summary>
+    public event EventHandler? ImportModulesRequested;
 
-    /// <summary>请求在文件管理器里打开某个来源根（由视图实现）。</summary>
-    public event EventHandler<string>? OpenSourceDirectoryRequested;
-
-    /// <summary>待添加的来源根（输入框；来源管理**显式放在外面**）。</summary>
-    [ObservableProperty]
-    public partial string? NewSourceDirectory { get; set; }
-
-    /// <summary>打开某个来源根（**行尾小按钮**用；参数为目录）。</summary>
-    /// <param name="directory">来源根目录。</param>
+    /// <summary>打开外部模块目录选择器。</summary>
     [RelayCommand]
-    private void OpenDirectory(string? directory)
-    {
-        var target = directory ?? SelectedSource;
-        if (target is { Length: > 0 })
-        {
-            SelectedSource = target;
-            OpenSourceDirectoryRequested?.Invoke(this, target);
-        }
-    }
+    private void ImportModules() => ImportModulesRequested?.Invoke(this, EventArgs.Empty);
 
-    /// <summary>添加一个来源根（写入应用级设置；重复/空值不写入）。</summary>
-    [RelayCommand]
-    private void AddSourceDirectory()
+    /// <summary>导入外部模块目录（视图选好目录后调用）。</summary>
+    /// <param name="directory">外部包目录或包含多个包的上级目录。</param>
+    public void ImportDirectory(string directory)
     {
-        if (NewSourceDirectory is not { Length: > 0 } directory)
+        if (string.IsNullOrWhiteSpace(directory))
         {
-            SetStatus(false, "请先填写来源根目录");
             return;
         }
 
-        var settings = _query.GetSettings();
-        var roots = settings.ModuleSourceDirectories.ToList();
-
-        if (roots.Any(r => string.Equals(r, directory, StringComparison.OrdinalIgnoreCase)))
-        {
-            SetStatus(false, "该来源根已在列表中");
-            return;
-        }
-
-        roots.Add(directory);
-        settings.ModuleSourceDirectories = roots;
-
-        var result = _command.UpdateSettings(settings);
-        SetStatus(result.Succeeded, result.Succeeded ? $"已添加来源根：{directory}" : $"失败：{string.Join("；", result.Failures)}");
-
-        if (result.Succeeded)
-        {
-            NewSourceDirectory = null;
-            RefreshSources();
-        }
+        var result = _command.ImportModuleDirectory(directory);
+        SetStatus(
+            result.Succeeded,
+            result.Succeeded
+                ? CatalogText.Get("catalog.status.imported")
+                : CatalogText.Get("catalog.status.importFailed"),
+            string.Join(Environment.NewLine, result.Succeeded ? result.Notices : result.Failures));
+        Refresh();
     }
-
-    /// <summary>移除选中的来源根（内置包目录不在本列表里，故都可移除）。</summary>
-    [RelayCommand]
-    private void RemoveSourceDirectory()
-    {
-        if (SelectedSource is not { Length: > 0 } directory)
-        {
-            SetStatus(false, "请先选中一个来源根");
-            return;
-        }
-
-        var settings = _query.GetSettings();
-        var roots = settings.ModuleSourceDirectories
-            .Where(r => !string.Equals(r, directory, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        settings.ModuleSourceDirectories = roots;
-
-        var result = _command.UpdateSettings(settings);
-        SetStatus(result.Succeeded, result.Succeeded ? $"已移除来源根：{directory}" : $"失败：{string.Join("；", result.Failures)}");
-
-        if (result.Succeeded)
-        {
-            SelectedSource = null;
-            RefreshSources();
-        }
-    }
-
-    /// <summary>打开选中的来源根。</summary>
-    [RelayCommand]
-    private void OpenSourceDirectory() => OpenDirectory(SelectedSource);
 
     /// <summary>
-    /// **立刻重扫**全部来源根：装入新增的模块包并刷新诊断（改过代码的包需重启应用才生效）。
+    /// **立刻重扫**默认模块目录：装入新增的模块包（改过代码的包需重启应用才生效）。
     /// </summary>
     [RelayCommand]
     private void Rescan()
@@ -425,9 +400,16 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
         SetStatus(
             result.Succeeded,
             result.Succeeded
-                ? result.Notices.Count > 0 ? result.Notices[0] : "重扫完成"
-                : $"重扫失败：{string.Join("；", result.Failures)}");
+                ? CatalogText.Get("catalog.status.rescanDone")
+                : CatalogText.Get("catalog.status.rescanFailed"),
+            result.Succeeded
+                ? string.Join(Environment.NewLine, result.Notices)
+                : string.Join(Environment.NewLine, result.Failures));
     }
+
+    /// <summary>保存现场并重启应用（完整重新加载全部模块）。</summary>
+    [RelayCommand]
+    private void Reload() => RestartRequested?.Invoke(this, EventArgs.Empty);
 
     /// <summary>
     /// 按刷新节拍同步目录与清单（保持选中项）。
@@ -449,12 +431,15 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
                 entry.Capabilities,
                 entry.SourceDirectory,
                 entry.NeedsRestart,
-                ModuleCategories.FromTags(entry.Tags)))
+                ModuleCategories.FromTags(entry.Tags),
+                entry.IsExternal,
+                PreviewImageStore.Load(entry.PreviewImagePath)))
             .ToList();
 
         // 全量保存 + 分类计数 + 应用"分类 + 搜索"过滤（列表用增量同步，避免每帧重建 → 闪烁）
         _allModules.Clear();
         _allModules.AddRange(catalog);
+        NeedsRestartCount = _allModules.Count(row => row.NeedsRestart);
         RebuildCategories();
         ApplyFilter();
 
@@ -479,19 +464,6 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
         {
             SelectedPlaceholder = Placeholders.FirstOrDefault(p => string.Equals(p.InstanceId, selectedPlaceholderId, StringComparison.Ordinal));
         }
-
-        RefreshSources();
-    }
-
-    /// <summary>刷新来源根诊断（每根的路径 · 包数 · 失败数与逐包结果）。</summary>
-    public void RefreshSources()
-    {
-        var sources = _query.GetModuleSources().Select(source => new ModuleSourceRowViewModel(source)).ToList();
-
-        if (CollectionSync.Sync(Sources, sources) && SelectedSource is null)
-        {
-            SelectedSource = Sources.FirstOrDefault()?.Directory;
-        }
     }
 
     private string NextInstanceId(string moduleIdLiteral)
@@ -509,9 +481,10 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
         }
     }
 
-    private void SetStatus(bool ok, string message)
+    private void SetStatus(bool ok, string message, string? detail = null)
     {
         StatusIsOk = ok;
         StatusMessage = message;
+        StatusDetail = string.IsNullOrWhiteSpace(detail) ? message : detail;
     }
 }

@@ -1,19 +1,22 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    构建与验证门禁（ADR-0025 §4）：文档机械审计 → 还原 → 构建 → 依赖许可审计 → 测试。
+    构建与验证门禁（ADR-0025 §4）：文档 / 颜色 / 资源与文本审计 → 还原 → 构建 → 模块包与资源校验 → 依赖许可审计 → 测试。
 
 .DESCRIPTION
     0) 清除被污染的环境变量 Platform（否则 MSBuild 会把它当作目标平台，报 MSB4126）
     1) 文档机械审计（docs/tools/audit-docs.ps1，只读）—— 规定就在该脚本头部注释的「判据」清单里
+       颜色口径审计（docs/tools/audit-colors.ps1）与资源与文本审计（tools/audit-resources.ps1）
+       —— 三者都只读，且同受 -SkipDocAudit 控制
     2) dotnet restore / build
     3) 校验内置模块包归拢（应用输出 modules\ + artifacts\modules\）
-    4) 依赖许可审计（tools/audit-licenses.ps1，白名单：MIT/Apache-2.0/BSD 等宽松许可）
+    4) 校验输出资源包（tools/verify-resources.ps1）+ 依赖许可审计（tools/audit-licenses.ps1，
+       白名单：MIT/Apache-2.0/BSD 等宽松许可）
     5) dotnet test
 
 .EXAMPLE
     ./build.ps1                 # 完整门禁
-    ./build.ps1 -SkipTests      # 只做文档审计 + 构建 + 许可审计
+    ./build.ps1 -SkipTests      # 只做文档/颜色/资源审计 + 构建 + 模块包/资源校验 + 许可审计
 #>
 [CmdletBinding()]
 param(
@@ -88,6 +91,14 @@ if (-not $SkipDocAudit) {
     if ($LASTEXITCODE -ne 0) { throw '颜色口径审计未通过（见上方 文件:行号；判据见 docs/tools/audit-colors.ps1 头部注释）' }
 }
 
+# ---- 1c) 资源与文本审计（只读；判据见该脚本头部注释）----
+# 出厂种子形状 / 主题清单 / 文本表 / 迁移锁死 / {loc:Tr} 键 / 死键 都是"编译期看不见"的事实，
+# 放在构建之前：坏种子与死键不该等到发布打包才发现。与颜色审计同受 -SkipDocAudit 控制。
+if (-not $SkipDocAudit) {
+    & (Join-Path $root 'tools\audit-resources.ps1')
+    if ($LASTEXITCODE -ne 0) { throw '资源与文本审计未通过（见上方 文件:行号；判据见 tools/audit-resources.ps1 头部注释）' }
+}
+
 Write-Host "===== 2/5 还原 =====" -ForegroundColor Cyan
 dotnet restore $sln
 if ($LASTEXITCODE -ne 0) { throw '还原失败' }
@@ -99,9 +110,14 @@ if ($LASTEXITCODE -ne 0) { throw '构建失败' }
 # ---- 4) 校验模块包归拢结果（应用输出 modules\ + artifacts\modules\）----
 # 包由**构建自动归拢**（src/Modules/Directory.Build.targets + App 镜像目标）；
 # 本步只做一致性校验：让"内置模块开箱可用"这件事在门禁里可验证。
-Write-Host "===== 4/5 校验模块包 + 依赖许可审计 =====" -ForegroundColor Cyan
+Write-Host "===== 4/5 校验模块包 + 资源包 + 依赖许可审计 =====" -ForegroundColor Cyan
 & (Join-Path $root 'tools\verify-module-packages.ps1') -Configuration $Configuration
 if ($LASTEXITCODE -ne 0) { throw '模块包校验失败' }
+
+# 输出 resources\ 必须与仓库 resources\ 逐字节一致：构建的 StageResources 若跳过更新、
+# 或有人直接改输出目录，都会在这里暴露（源侧审计不覆盖产物）。
+& (Join-Path $root 'tools\verify-resources.ps1') -Configuration $Configuration
+if ($LASTEXITCODE -ne 0) { throw '资源包校验失败（输出 resources\ 与仓库不一致）' }
 
 if (-not $SkipAudit) {
     & (Join-Path $root 'tools\audit-licenses.ps1') -Root $root
@@ -140,7 +156,7 @@ if (-not $SkipTests) {
 $testNote = if ($SkipTests) { ' · 测试已跳过' } else { '' }
 $docNote = if ($SkipDocAudit) { ' · 文档审计已跳过' } else { '' }
 Write-Host ""
-Write-Host "✅ 门禁全部通过：文档审计 · 构建成功 · 许可合规$testNote$docNote" -ForegroundColor Green
+Write-Host "✅ 门禁全部通过：文档 · 颜色 · 资源与文本审计 · 构建成功 · 模块包与资源校验 · 许可合规$testNote$docNote" -ForegroundColor Green
 
 if ($RunBenchmarks) {
     Write-Host ""

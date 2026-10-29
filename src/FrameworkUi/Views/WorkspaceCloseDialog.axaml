@@ -1,0 +1,25 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+        x:Class="HYWDebugAssistant.FrameworkUi.Views.WorkspaceCloseDialog"
+        Title="{loc:Tr workspaceClose.title}"
+        SizeToContent="WidthAndHeight"
+        MinWidth="360"
+        MaxWidth="520"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgModule}"
+        FontSize="12">
+    <StackPanel Margin="14" Spacing="10">
+        <TextBlock Name="MessageText" TextWrapping="Wrap" MaxWidth="460" />
+        <TextBlock Classes="note" FontSize="10" TextWrapping="Wrap" MaxWidth="460"
+                   Foreground="{DynamicResource TextMuted}"
+                   Text="{loc:Tr workspaceClose.note}" />
+        <CheckBox Name="RememberCheckBox" Content="{loc:Tr workspaceClose.remember}" FontSize="11" />
+        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+            <Button Name="CancelButton" Content="{loc:Tr workspaceClose.cancel}" MinWidth="70" />
+            <Button Name="DiscardButton" Content="{loc:Tr workspaceClose.discard}" MinWidth="86" />
+            <Button Name="SaveButton" Content="{loc:Tr workspaceClose.save}" MinWidth="86" Classes="accent" />
+        </StackPanel>
+    </StackPanel>
+</Window>

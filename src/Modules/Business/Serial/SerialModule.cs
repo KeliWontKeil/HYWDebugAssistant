@@ -1,7 +1,7 @@
-using HYWDebugAssistant.Access;
-using HYWDebugAssistant.Access.Adapters;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Access;
+using HYWDebugAssistant.Sdk.AccessKit;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Modules.Serial;
 
@@ -11,18 +11,18 @@ namespace HYWDebugAssistant.Modules.Serial;
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>一个通道 = 一个会话</b>：一进一出两个口只是它的两个端点，不是两件事；</item>
-///   <item><b>会话由框架持有并驱动</b>：模块只发打开/关闭请求，适配件在外部接入层；</item>
+///   <item><b>会话由框架持有并驱动</b>：模块只发打开/关闭请求，适配器与参数类型在框架侧；</item>
 ///   <item><b>契约沿用原始字节</b>：与文本发送器 / HEX 发送器 / 数据监视器**同一标识同一形状**才开箱即连；</item>
 ///   <item><b>结构约定</b>：声明 / 接线 / 状态计数由共用骨架 <see cref="ExternalAccessModule"/> 承担，
-///     本类只提供接入名、口名、显示源、按钮文案与状态文案。</item>
+///     本类只提供标准标识、接入名、口名、显示源、按钮文案与状态文案。</item>
 /// </list>
 /// </remarks>
 [ModuleDefinition(
     "hyw",
     "serial",
     "1.0.0",
-    DisplayName = "串口",
-    Description = "把一路串口接到工作区：设备来的字节从 rx 出，发往设备的字节从 tx 进",
+    DisplayNameKey = SerialText.Title,
+    DescriptionKey = SerialText.Description,
     Tags = ["serial", "io"],
     Capabilities = ModuleCapability.SerialPort,
     ParticipatesInDataFlow = true,
@@ -66,39 +66,44 @@ public sealed class SerialModule : ExternalAccessModule
     /// <summary>命令：关闭串口。</summary>
     public const string CloseCommand = "close";
 
+    /// <summary>取一条本模块文本表里的文案（拥有者 = 本模块程序集）。</summary>
+    private static string Tr(string key) => TextCatalog.Get(typeof(SerialModule).Assembly, key);
+
+    /// <summary>取一条带占位符的本模块文案。</summary>
+    private static string Tr(string key, params object?[] args) =>
+        TextCatalog.Get(typeof(SerialModule).Assembly, key, args);
+
     /// <inheritdoc />
     protected override AccessModuleSpec Spec { get; } = new(
         AccessName,
+        ExternalAccessStandardIds.Serial,
         RxPort,
         TxPort,
         RoleId,
-        "串口",
+        Tr(SerialText.RoleSerial),
         LinkSource,
         StateSource,
         RxCountSource,
         TxCountSource,
         DropCountSource,
         OpenCommand,
-        "打开",
+        Tr(SerialText.Open),
         CloseCommand,
-        "关闭");
-
-    /// <inheritdoc />
-    protected override IExternalAccessAdapter CreateAdapter() => new SerialAccessAdapter();
+        Tr(SerialText.Close));
 
     /// <inheritdoc />
     protected override string Describe(ExternalAccessSnapshot snapshot) => snapshot.State switch
     {
         ExternalAccessState.Open => string.IsNullOrWhiteSpace(snapshot.Detail)
-            ? "已打开"
-            : $"已打开 {snapshot.Detail}",
+            ? Tr(SerialText.StatusOpened)
+            : Tr(SerialText.StatusOpenedDetail, snapshot.Detail),
         ExternalAccessState.Opening => string.IsNullOrWhiteSpace(snapshot.Detail)
-            ? "正在打开…"
-            : $"正在打开 {snapshot.Detail}",
-        ExternalAccessState.Closing => "正在关闭…",
+            ? Tr(SerialText.StatusOpening)
+            : Tr(SerialText.StatusOpeningDetail, snapshot.Detail),
+        ExternalAccessState.Closing => Tr(SerialText.StatusClosing),
         ExternalAccessState.Faulted => string.IsNullOrWhiteSpace(snapshot.LastError)
-            ? "打开失败"
+            ? Tr(SerialText.StatusFailed)
             : snapshot.LastError,
-        _ => snapshot.Suspended ? "实例已停用" : "未打开",
+        _ => snapshot.Suspended ? Tr(SerialText.StatusSuspended) : Tr(SerialText.StatusIdle),
     };
 }

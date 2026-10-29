@@ -16,6 +16,13 @@
     <ProjectReference Include="..\Core.Api\HYWDebugAssistant.Core.Api.csproj" />
 
     <!--
+      外部接入的框架侧实现（适配器 + 参数类型 + 内置标准目录）：**只有组合根引用**（AR-3 / AR-12）。
+      Sdk.AccessKit 是模块侧骨架的宿主副本：随宿主提供，模块包不带。
+    -->
+    <ProjectReference Include="..\Access\HYWDebugAssistant.Access.csproj" />
+    <ProjectReference Include="..\Sdk.AccessKit\HYWDebugAssistant.Sdk.AccessKit.csproj" />
+
+    <!--
       **只表达构建顺序**：应用要把模块包镜像到输出目录，必须在模块包归拢之后。
       `ReferenceOutputAssembly=false` ⇒ 不产生程序集引用（AR-12 仍然成立），
       只是让 MSBuild 先构建这些模块项目；不要把这几条当成"应用依赖模块"。
@@ -42,13 +49,36 @@
   </ItemGroup>
 
   <!--
-    **内置模块包镜像**（M1-17 / ADR-0036 D2）：模块项目构建已把包归拢到 artifacts\modules\，
-    应用构建后再把它们镜像到 <应用输出>\modules\ —— 应用启动默认扫描该目录，内置模块开箱可用。
+    **出厂种子镜像**（阶段 C）：仓库 `resources\**`（只读出厂种子，当前只有主题包）
+    原样复制到 `<应用输出>\resources\`。程序启动时由投放器把 `resources\seeds\` 合并进程序目录；
+    用户数据（`settings\` / `workspace\` / `logs\` …）**不进发布、也不由构建写入**。
+  -->
+  <Target Name="StageResources" AfterTargets="Build">
+    <ItemGroup>
+      <ResourceSeedFile Include="$(MSBuildThisFileDirectory)..\..\resources\**\*" />
+    </ItemGroup>
+
+    <RemoveDir Directories="$(OutDir)resources" Condition="Exists('$(OutDir)resources')" />
+    <MakeDir Directories="$(OutDir)resources" Condition="'@(ResourceSeedFile)' != ''" />
+    <Copy SourceFiles="@(ResourceSeedFile)"
+          DestinationFolder="$(OutDir)resources\%(RecursiveDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(ResourceSeedFile)' != ''" />
+
+    <Message Importance="high"
+             Text="[resources] @(ResourceSeedFile->'%(RecursiveDir)'->Distinct()) → $(OutDir)resources"
+             Condition="'@(ResourceSeedFile)' != ''" />
+  </Target>
+
+  <!--
+    **内置模块包镜像**（M1-17 / ADR-0036 D2）：模块项目构建已把包归拢到
+    `artifacts\modules\<Configuration>\`，应用构建后再把它们镜像到
+    `<应用输出>\modules\` —— 应用启动默认扫描该目录，内置模块开箱可用。
     该目录是**构建产物**（每次构建重建），不要手工往里放东西。
   -->
   <Target Name="MirrorBuiltInModulePackages" AfterTargets="Build">
     <ItemGroup>
-      <BuiltInModuleFile Include="$(MSBuildThisFileDirectory)..\..\artifacts\modules\**\*" />
+      <BuiltInModuleFile Include="$(MSBuildThisFileDirectory)..\..\artifacts\modules\$(Configuration)\**\*" />
     </ItemGroup>
 
     <RemoveDir Directories="$(OutDir)modules" Condition="Exists('$(OutDir)modules')" />

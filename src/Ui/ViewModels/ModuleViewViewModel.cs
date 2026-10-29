@@ -1,12 +1,15 @@
 using System.Collections.ObjectModel;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
 using HYWDebugAssistant.Sdk.Views;
 using HYWDebugAssistant.Ui.Geometry;
+using HYWDebugAssistant.Ui.Images;
 using HYWDebugAssistant.Ui.ModuleViews;
 
 namespace HYWDebugAssistant.Ui.ViewModels;
@@ -173,6 +176,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
         ApplyState(view.State);
         Rebuild(view);
+        SyncWallpaper(view.WallpaperRevision);
     }
 
     /// <summary>实例 ID（工作现场内唯一、稳定；**不直接展示给用户**）。</summary>
@@ -208,26 +212,81 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
     /// <summary>状态文本（Active/Disabled/Missing…）。</summary>
     [ObservableProperty]
-    public partial string StateText { get; set; } = "Active";
+    public partial string StateText { get; set; } = TextCatalog.Get(typeof(ModuleViewViewModel).Assembly, "moduleView.state.active");
+
+    private string _stateKey = "Active";
+
+    /// <summary>状态机键（`Active`/`Disabled`/…；界面文本只是它的显示，两者不可混用）。</summary>
+    public string StateKey => _stateKey;
 
     /// <summary>状态语义（颜色 + 形状双重编码）。</summary>
     [ObservableProperty]
     public partial StateVisual State { get; set; } = StateVisual.Active;
 
-    /// <summary>是否选中（点击边框带 → 主色边框 + 手柄 + 按钮簇）。</summary>
+    /// <summary>是否选中（点击边框带/Shift+点击；选中即显示选择框）。</summary>
     [ObservableProperty]
     public partial bool IsSelected { get; set; }
 
+    /// <summary>是否**锚点**（多选里第一个选中的模块；按钮簇与缩放手柄的归属）。</summary>
+    [ObservableProperty]
+    public partial bool IsPrimary { get; set; }
+
     /// <summary>是否处于运行态（Active）；false = 已停用（保留实例/拓扑/配置，只停流）。</summary>
-    public bool IsEnabled => string.Equals(StateText, "运行中", StringComparison.Ordinal);
+    public bool IsEnabled => string.Equals(StateKey, "Active", StringComparison.Ordinal);
 
     /// <summary>是否隐藏视图（false 时窗口关闭但模块仍在运行）。</summary>
     [ObservableProperty]
     public partial bool IsViewVisible { get; set; } = true;
 
-    /// <summary>是否锁定（不可拖动/缩放/选中；仍显示数据）。</summary>
+    /// <summary>是否锁定（不可拖动/缩放；仍显示数据；**可被选中**，以便纳入组合范围）。</summary>
     [ObservableProperty]
     public partial bool IsLocked { get; set; }
+
+    /// <summary>模块壁纸画刷（null = 无；只影响本模块）。</summary>
+    [ObservableProperty]
+    public partial ImageBrush? WallpaperBrush { get; set; }
+
+    /// <summary>本模块是否有壁纸。</summary>
+    public bool HasWallpaper => WallpaperBrush is not null;
+
+    /// <summary>当前主题的壁纸遮罩浓度（由控制器下发）。</summary>
+    [ObservableProperty]
+    public partial double WallpaperVeilOpacity { get; set; } = 0.55;
+
+    partial void OnWallpaperBrushChanged(ImageBrush? value) => OnPropertyChanged(nameof(HasWallpaper));
+
+    private long _wallpaperRevision = -1;
+
+    /// <summary>按实例视图的壁纸版本懒加载（同版本不重复解码）。</summary>
+    private void SyncWallpaper(long revision)
+    {
+        if (revision == _wallpaperRevision)
+        {
+            return;
+        }
+
+        _wallpaperRevision = revision;
+
+        if (revision <= 0 || _query.GetModuleWallpaper(InstanceId) is not { } wallpaper)
+        {
+            WallpaperBrush = null;
+            return;
+        }
+
+        WallpaperBrush = WallpaperImageCache.FromBytes(
+            $"module:{InstanceId}:{wallpaper.Revision}",
+            wallpaper.Png);
+    }
+
+    /// <summary>命令设置壁纸后立即重读（版本变化时重建画刷）。</summary>
+    public void ReloadWallpaper()
+    {
+        _wallpaperRevision = -1;
+        if (_query.TryGetInstance(InstanceId, out var view) && view is not null)
+        {
+            SyncWallpaper(view.WallpaperRevision);
+        }
+    }
 
     /// <summary>本窗口的**对齐辅助线**（**屏幕 DIP**，与模型几何同单位；拖动中命中吸附时由控制器写入，窗内以虚线绘制）。</summary>
     [ObservableProperty]
@@ -360,6 +419,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         IsPlaceholder = view.IsPlaceholder;
         ApplyState(view.State);
         SyncPorts(view);
+        SyncWallpaper(view.WallpaperRevision);
 
         if (!ReferenceEquals(view.ViewType, ViewType))
         {
@@ -391,13 +451,14 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
     private void ApplyState(string state)
     {
+        _stateKey = state;
         StateText = state switch
         {
-            "Active" => "运行中",
-            "Disabled" => "已停用",
-            "Missing" => "定义缺失",
-            "Placeholder" => "占位",
-            "Removed" => "已移除",
+            "Active" => TextCatalog.Get(typeof(ModuleViewViewModel).Assembly, "moduleView.state.active"),
+            "Disabled" => TextCatalog.Get(typeof(ModuleViewViewModel).Assembly, "moduleView.state.disabled"),
+            "Missing" => TextCatalog.Get(typeof(ModuleViewViewModel).Assembly, "moduleView.state.missing"),
+            "Placeholder" => TextCatalog.Get(typeof(ModuleViewViewModel).Assembly, "moduleView.state.placeholder"),
+            "Removed" => TextCatalog.Get(typeof(ModuleViewViewModel).Assembly, "moduleView.state.removed"),
             _ => state,
         };
 
@@ -410,6 +471,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
             _ => StateVisual.Warn,
         };
 
+        OnPropertyChanged(nameof(StateKey));
         OnPropertyChanged(nameof(IsEnabled));
     }
 
@@ -480,7 +542,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         {
             var control = Activator.CreateInstance(ViewType) is IModuleViewFactory factory
                 ? factory.Create(_viewContext)
-                : BuildViewFailure($"视图工厂 {ViewType.Name} 没有实现 IModuleViewFactory");
+                : BuildViewFailure(TextCatalog.Get(typeof(ModuleViewViewModel).Assembly, "moduleView.failure.factory", ViewType.Name));
 
             _view = new ModuleViewHost(_viewContext, control);
         }
@@ -488,7 +550,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         {
             _view = new ModuleViewHost(
                 _viewContext,
-                BuildViewFailure($"界面构造失败：{ex.GetType().Name} — {ex.Message}"));
+                BuildViewFailure(TextCatalog.Get(typeof(ModuleViewViewModel).Assembly, "moduleView.failure.construct", ex.GetType().Name, ex.Message)));
         }
 
         OnPropertyChanged(nameof(ModuleView));

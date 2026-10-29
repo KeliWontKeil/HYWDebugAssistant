@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Shouldly;
 using Xunit;
@@ -21,7 +22,9 @@ public class ArchitectureRulesTests
 {
     private const string SdkName = "HYWDebugAssistant.Sdk";
     private const string SdkUiName = "HYWDebugAssistant.Sdk.Ui";
+    private const string SdkAccessKitName = "HYWDebugAssistant.Sdk.AccessKit";
     private const string AccessName = "HYWDebugAssistant.Access";
+    private const string AppName = "HYWDebugAssistant.App";
     private const string ModulesPrefix = "HYWDebugAssistant.Modules.";
 
     /// <summary>AR-3~AR-11：各框架程序集**允许直接引用**的框架内程序集（穷举）。</summary>
@@ -30,9 +33,11 @@ public class ArchitectureRulesTests
         [SdkName] = [],                                                                     // AR-9：零框架依赖
         // 模块界面契约与控件库：只依赖 Sdk（Avalonia 由包引用带入，属外部框架，不在这张表里判）
         [SdkUiName] = [SdkName],
+        // 模块侧外部接入骨架：只依赖契约层（宿主随附，模块包不带）
+        [SdkAccessKitName] = [SdkName],
         // SDK 测试套件（T6）：与 Sdk 同源的零框架依赖（模块作者在自己的测试项目里引用它）
         ["HYWDebugAssistant.Sdk.Testing"] = [SdkName],
-        // 外部接入层（**模块侧**，不是框架件）：只依赖契约层；框架程序集不得引用它（AR-3/AR-12 精神）
+        // 外部接入层（**框架扩展**，不是独立层）：只依赖契约层；只有 App 可引用（AR-3/AR-12）
         [AccessName] = [SdkName],
         ["HYWDebugAssistant.Infrastructure"] = [],                                          // AR-10：不引框架程序集
         ["HYWDebugAssistant.Hosting"] = [SdkName, "HYWDebugAssistant.Infrastructure"],       // AR-4
@@ -40,12 +45,13 @@ public class ArchitectureRulesTests
         ["HYWDebugAssistant.Core"] = [SdkName, "HYWDebugAssistant.Core.Api", "HYWDebugAssistant.Hosting", "HYWDebugAssistant.DataPlane", "HYWDebugAssistant.Infrastructure"], // AR-5（含实现自身公开面 Core.Api）
         ["HYWDebugAssistant.Core.Api"] = [SdkName],                                          // AR-6
         ["HYWDebugAssistant.Ui"] = [SdkName, SdkUiName, "HYWDebugAssistant.Core.Api"],       // AR-7
-        ["HYWDebugAssistant.FrameworkUi"] = [SdkName, "HYWDebugAssistant.Core.Api", "HYWDebugAssistant.Ui"], // AR-8
+        ["HYWDebugAssistant.FrameworkUi"] = [SdkName, SdkUiName, "HYWDebugAssistant.Core.Api", "HYWDebugAssistant.Ui"], // AR-8（Sdk.Ui 只为 {loc:Tr}）
         // AR-11：App 是**唯一白名单**（组合根，同时可见 L4 内部与 L5）
         ["HYWDebugAssistant.App"] =
         [
-            SdkName, SdkUiName, "HYWDebugAssistant.Infrastructure", "HYWDebugAssistant.Hosting", "HYWDebugAssistant.DataPlane",
-            "HYWDebugAssistant.Core", "HYWDebugAssistant.Core.Api", "HYWDebugAssistant.Ui", "HYWDebugAssistant.FrameworkUi",
+            SdkName, SdkUiName, SdkAccessKitName, "HYWDebugAssistant.Infrastructure", "HYWDebugAssistant.Hosting",
+            "HYWDebugAssistant.DataPlane", "HYWDebugAssistant.Core", "HYWDebugAssistant.Core.Api", "HYWDebugAssistant.Ui",
+            "HYWDebugAssistant.FrameworkUi", AccessName,
         ],
     };
 
@@ -84,6 +90,14 @@ public class ArchitectureRulesTests
     /// <summary>从 ProjectReference 的属性串里取 Include 路径。</summary>
     private static readonly Regex ProjectRefIncludeRegex =
         new(@"Include=""(?<path>[^""]+)""", RegexOptions.IgnoreCase);
+
+    /// <summary>AR-17 / AR-25：用户数据文件名——只允许出现在路径解析器里。</summary>
+    private static readonly string[] UserDataFileNames =
+        ["\"settings.json\"", "\"workspace.json\"", "\"restart.json\""];
+
+    /// <summary>从 C# 源码行里取字符串字面量（AR-25 的路径段检查用）。</summary>
+    private static readonly Regex StringLiteralRegex =
+        new(@"""(?<value>(?:[^""\\]|\\.)*)""", RegexOptions.Compiled);
 
     // ---------------------------------------------------------------- 基础设施
 
@@ -185,11 +199,13 @@ public class ArchitectureRulesTests
         var expected = new[]
         {
             "HYWDebugAssistant.Sdk",
+            // 模块侧外部接入骨架（宿主随附）：只依赖 Sdk，模块包不带
+            SdkAccessKitName,
             // 模块界面契约与控件库（模块自带视图引用的那一层；只依赖 Sdk + Avalonia）
             SdkUiName,
             // T6 契约测试套件（M1-12 加入；与 Sdk 同源的零框架依赖，供模块作者在自己的测试项目里引用）
             "HYWDebugAssistant.Sdk.Testing",
-            // 外部接入层（模块侧实现：适配件 + 参数 + 共用骨架）；不是框架层
+            // 外部接入层（**框架扩展**：适配器 + 参数 + 内置标准目录）；只有 App 引用
             AccessName,
             "HYWDebugAssistant.Infrastructure", "HYWDebugAssistant.Hosting",
             "HYWDebugAssistant.DataPlane", "HYWDebugAssistant.Core", "HYWDebugAssistant.Core.Api",
@@ -224,11 +240,11 @@ public class ArchitectureRulesTests
             {
                 if (!string.Equals(reference, SdkName, StringComparison.Ordinal)
                     && !string.Equals(reference, SdkUiName, StringComparison.Ordinal)
-                    && !string.Equals(reference, AccessName, StringComparison.Ordinal))
+                    && !string.Equals(reference, SdkAccessKitName, StringComparison.Ordinal))
                 {
                     violations.Add(
-                        $"{module.ProjectName} 引用了 {reference}；模块**只允许**引用 {SdkName} / {SdkUiName} / {AccessName}（AR-1），" +
-                        "模块之间不得互相引用（AR-2 / P12）");
+                        $"{module.ProjectName} 引用了 {reference}；模块**只允许**引用 {SdkName} / {SdkUiName} / {SdkAccessKitName}（AR-1），" +
+                        "不得引用 Access（框架扩展）或其它模块（AR-2 / P12）");
                 }
             }
         }
@@ -288,8 +304,8 @@ public class ArchitectureRulesTests
             string[]? allowed;
             if (projectName.StartsWith(ModulesPrefix, StringComparison.Ordinal))
             {
-                // AR-1 / AR-2：契约层 + 视图控件库 + 外部接入层（模块侧实现）
-                allowed = [SdkName, SdkUiName, AccessName];
+                // AR-1 / AR-2：契约层 + 视图控件库 + 外部接入骨架；Access（框架扩展）不得被模块引用
+                allowed = [SdkName, SdkUiName, SdkAccessKitName];
             }
             else if (!AllowedFrameworkRefs.TryGetValue(projectName, out allowed))
             {
@@ -316,6 +332,52 @@ public class ArchitectureRulesTests
                     violations.Add(
                         $"{Path.GetRelativePath(RepoRoot, csproj)} 引用了 {reference}；允许集合为：{permitted}（docs/architecture/01 §1.3）");
                 }
+            }
+        }
+
+        violations.ShouldBeEmpty(string.Join(Environment.NewLine, violations));
+    }
+
+    /// <summary>
+    /// **AR-3 / AR-12：`Access` 是框架扩展，只允许组合根（App）引用**。
+    /// </summary>
+    [Fact]
+    public void AR3_AR12_Access只允许被App引用()
+    {
+        var violations = new List<string>();
+
+        foreach (var assembly in ProductAssemblies().Where(a => !string.Equals(a.ProjectName, AppName, StringComparison.Ordinal)))
+        {
+            EnsureBuilt(assembly);
+            if (ReferencedAssemblies(assembly.DllPath).Contains(AccessName))
+            {
+                violations.Add(
+                    $"{assembly.ProjectName} 引用了 {AccessName}；只有 {AppName} 可引用（AR-3 / AR-12）");
+            }
+        }
+
+        var csprojFiles = Directory
+            .EnumerateFiles(Path.Combine(RepoRoot, "src"), "*.csproj", SearchOption.AllDirectories)
+            .Where(p => !p.Contains($"{Separator}obj{Separator}") && !p.Contains($"{Separator}bin{Separator}"));
+
+        foreach (var csproj in csprojFiles)
+        {
+            var projectName = Path.GetFileNameWithoutExtension(csproj);
+            if (string.Equals(projectName, AppName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var references = ProjectRefRegex.Matches(File.ReadAllText(csproj))
+                .Select(match => ProjectRefIncludeRegex.Match(match.Groups["attrs"].Value))
+                .Where(include => include.Success)
+                .Select(include => Path.GetFileNameWithoutExtension(
+                    include.Groups["path"].Value.Replace('\\', Path.DirectorySeparatorChar)));
+
+            if (references.Contains(AccessName, StringComparer.Ordinal))
+            {
+                violations.Add(
+                    $"{Path.GetRelativePath(RepoRoot, csproj)} 引用了 {AccessName}；只有 {AppName} 可引用（AR-3 / AR-12）");
             }
         }
 
@@ -514,37 +576,18 @@ public class ArchitectureRulesTests
     /// </summary>
     /// <remarks>
     /// <para>
-    /// 纪律：所有需要持久化的数据**全部进 data**。落盘路径若散落多处（组合根 / 服务 / 设置 / 读取点…）
-    /// ⇒ 「用户数据在哪」就没有单一答案（`architecture/10` 甚至并存两套互相矛盾的包根说法）。
+    /// 纪律：设置 / 工作区 / 重启快照的文件名只能从路径解析器取。落盘路径若散落多处
+    /// ⇒「用户数据在哪」就没有单一答案。
     /// </para>
     /// <para>
-    /// 本用例把这条纪律变成**可执行检查**：`settings.json` 这个文件名**只允许**出现在路径解析器里
+    /// 本用例把这条纪律变成**可执行检查**：这三个文件名**只允许**出现在路径解析器里
     /// （`StoragePaths`）—— 谁再在别处拼一份，这里当场红。
     /// </para>
     /// </remarks>
     [Fact]
     public void AR17_用户数据文件名必须只有一处来源()
     {
-        var allowed = Path.Combine("Infrastructure", "Storage", "StoragePaths.cs");
-        var offenders = new List<string>();
-
-        foreach (var file in SourceFiles())
-        {
-            if (file.EndsWith(allowed, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var lineNumber = 0;
-            foreach (var line in File.ReadAllLines(file))
-            {
-                lineNumber++;
-                if (line.Contains("\"settings.json\"", StringComparison.Ordinal))
-                {
-                    offenders.Add($"{Path.GetRelativePath(RepoRoot, file)}:{lineNumber} 自己拼了设置文件名");
-                }
-            }
-        }
+        var offenders = FindUserDataFileNameOffenders();
 
         offenders.ShouldBeEmpty(
             "用户数据路径只能从 `StoragePaths` 取（AR-17）：" + Environment.NewLine + string.Join(Environment.NewLine, offenders));
@@ -821,6 +864,319 @@ public class ArchitectureRulesTests
             "模块 XAML 的 Source / Field / CommandName / StateKey 必须引用模块常量（AR-22）："
             + Environment.NewLine + string.Join(Environment.NewLine, offenders));
     }
+
+    /// <summary>
+    /// **AR-23：模块包不得自行调度或调用平台专有 API**。
+    /// </summary>
+    /// <remarks>
+    /// 模块的周期/延时一律经 <c>IModuleTiming</c>；定时器、Sleep、DispatcherTimer、P/Invoke
+    /// 都会让“全局唯一计时机制”失效，并让模块包无法跨平台。
+    /// </remarks>
+    [Fact]
+    public void AR23_模块包不得使用定时器或平台专有调度()
+    {
+        string[] forbidden =
+        [
+            "System.Threading.Timer", "System.Timers", "new Timer(", "DispatcherTimer",
+            "PeriodicTimer", "Task.Delay", "Thread.Sleep", "Thread.SpinWait",
+            "DllImport", "LibraryImport", "OperatingSystem.IsWindows",
+            "winmm", "user32", "kernel32",
+        ];
+
+        var offenders = new List<string>();
+        var modulesRoot = Path.Combine(RepoRoot, "src", "Modules");
+
+        foreach (var file in Directory.EnumerateFiles(modulesRoot, "*.cs", SearchOption.AllDirectories)
+                     .Where(p => !p.Contains($"{Separator}obj{Separator}", StringComparison.OrdinalIgnoreCase)
+                         && !p.Contains($"{Separator}bin{Separator}", StringComparison.OrdinalIgnoreCase)))
+        {
+            var lineNumber = 0;
+            foreach (var line in File.ReadAllLines(file))
+            {
+                lineNumber++;
+                foreach (var token in forbidden)
+                {
+                    if (line.Contains(token, StringComparison.Ordinal))
+                    {
+                        offenders.Add($"{Path.GetRelativePath(RepoRoot, file)}:{lineNumber} 出现 '{token}'");
+                    }
+                }
+            }
+        }
+
+        offenders.ShouldBeEmpty(
+            "模块必须经 IModuleTiming 等待；不得自建定时器、Sleep、DispatcherTimer 或平台 API（AR-23）："
+            + Environment.NewLine + string.Join(Environment.NewLine, offenders));
+    }
+
+    /// <summary>
+    /// **AR-24：全 8 模块包不得包含宿主提供的程序集**（Sdk / Sdk.Ui / Sdk.AccessKit / Access /
+    /// Avalonia / System.IO.Ports / SkiaSharp / HarfBuzzSharp / MicroCom.Runtime / *.deps.json）。
+    /// </summary>
+    [Fact]
+    public void AR24_模块包不得包含宿主提供程序集()
+    {
+        var packageRoot = Path.Combine(RepoRoot, "artifacts", "modules", Configuration);
+        Directory.Exists(packageRoot).ShouldBeTrue(
+            $"模块包未归拢：{Path.GetRelativePath(RepoRoot, packageRoot)}（请先运行 build.ps1）");
+
+        var sourceManifests = Directory
+            .EnumerateFiles(Path.Combine(RepoRoot, "src", "Modules"), "module.json", SearchOption.AllDirectories)
+            .Where(path => !path.Contains($"{Separator}bin{Separator}") && !path.Contains($"{Separator}obj{Separator}"))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToList();
+        sourceManifests.ShouldNotBeEmpty("源码模块清单为空（模块包门禁无法对账）");
+
+        var expectedIds = sourceManifests
+            .Select(ReadModuleId)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+
+        var packages = Directory
+            .EnumerateDirectories(packageRoot)
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToList();
+
+        packages.Count.ShouldBe(
+            expectedIds.Length,
+            $"归拢目录应有 {expectedIds.Length} 个包，实际 {packages.Count}（{packageRoot}）");
+
+        var actualIds = new List<string>(packages.Count);
+        var violations = new List<string>();
+
+        foreach (var package in packages)
+        {
+            var relative = Path.GetRelativePath(RepoRoot, package);
+            var manifestPath = Path.Combine(package, "module.json");
+            File.Exists(manifestPath).ShouldBeTrue($"模块包缺少 module.json：{relative}");
+            actualIds.Add(ReadModuleId(manifestPath));
+
+            foreach (var file in Directory.EnumerateFiles(package, "*", SearchOption.AllDirectories))
+            {
+                var fileName = Path.GetFileName(file);
+                if (IsHostProvidedFile(fileName))
+                {
+                    violations.Add($"{relative} 含宿主提供程序集 {fileName}（AR-24）");
+                }
+            }
+        }
+
+        actualIds.OrderBy(id => id, StringComparer.Ordinal).ToArray().ShouldBe(expectedIds);
+        violations.ShouldBeEmpty(
+            "模块包必须只含模块自有文件（AR-24）："
+            + Environment.NewLine + string.Join(Environment.NewLine, violations));
+    }
+
+    /// <summary>
+    /// **AR-8 加强：FrameworkUi 的 XAML 只允许用 `loc` 前缀引用 `Sdk.Ui`**。
+    /// </summary>
+    /// <remarks>
+    /// 外壳可以用文本扩展（`{loc:Tr}`，现已住 `Sdk.Ui`），但**不得顺手用模块控件库**：
+    /// 别的前缀（如 `xmlns:ui="using:HYWDebugAssistant.Sdk.Ui…"`）会让外壳依赖模块控件，
+    /// 把模块 UI 的演进绑到框架外壳上。
+    /// </remarks>
+    [Fact]
+    public void AR8_FrameworkUi的XAML只允许loc前缀引用SdkUi()
+    {
+        var offenders = new List<string>();
+        var root = Path.Combine(RepoRoot, "src", "FrameworkUi");
+
+        foreach (var file in Directory
+                     .EnumerateFiles(root, "*.axaml", SearchOption.AllDirectories)
+                     .Where(path => !path.Contains($"{Separator}bin{Separator}", StringComparison.OrdinalIgnoreCase)
+                         && !path.Contains($"{Separator}obj{Separator}", StringComparison.OrdinalIgnoreCase)))
+        {
+            var lineNumber = 0;
+            foreach (var line in File.ReadAllLines(file))
+            {
+                lineNumber++;
+                foreach (Match match in Regex.Matches(
+                             line,
+                             "xmlns:(?<prefix>[A-Za-z0-9_.-]+)=\"using:HYWDebugAssistant\\.Sdk\\.Ui[^\"]*\""))
+                {
+                    if (!string.Equals(match.Groups["prefix"].Value, "loc", StringComparison.Ordinal))
+                    {
+                        offenders.Add(
+                            $"{Path.GetRelativePath(RepoRoot, file)}:{lineNumber} "
+                            + $"xmlns:{match.Groups["prefix"].Value}=…Sdk.Ui…");
+                    }
+                }
+            }
+        }
+
+        offenders.ShouldBeEmpty(
+            "FrameworkUi 的 XAML 只允许用 `loc` 前缀引用 Sdk.Ui（文本扩展）；不得使用模块控件库（AR-8）："
+            + Environment.NewLine + string.Join(Environment.NewLine, offenders));
+    }
+
+    /// <summary>
+    /// **AR-25：旧布局的根字面量与资源路径段必须只有一处来源**。
+    /// </summary>
+    /// <remarks>
+    /// <list type="number">
+    ///   <item><b>旧根字面量</b>：`"framework"` / `"theme-seeds"` 不得重新出现在源码里
+    ///     （`frameworkCompatibility` 是模块契约字段，不受影响）；</item>
+    ///   <item><b>用户数据文件名</b>：设置 / 工作区 / 重启快照三个文件名只允许出现在路径解析器
+    ///     （与 AR-17 同一扫描，文件名清单已扩到三个）；</item>
+    ///   <item><b>资源路径段</b>：`resources` / `seeds` 作为路径段只允许出现在路径解析器、
+    ///     投放器、设置服务的种子装配处与文本包根解析器（`TextCatalog`）；设计时桩 `EmptyRuntime` 是例外——
+    ///     它刻意不引 Infrastructure，只用字面量给设计预览一份路径。</item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public void AR25_旧根字面量与资源路径段必须只有一处来源()
+    {
+        // ① 旧根字面量
+        string[] oldRootTokens = ["\"framework\"", "\"framework\\", "\"framework/", "theme-seeds"];
+        string[] scannedExtensions = [".cs", ".axaml", ".json", ".csproj", ".props", ".targets"];
+        var oldRootOffenders = new List<string>();
+
+        foreach (var file in Directory
+                     .EnumerateFiles(Path.Combine(RepoRoot, "src"), "*", SearchOption.AllDirectories)
+                     .Where(path => !path.Contains($"{Separator}bin{Separator}", StringComparison.OrdinalIgnoreCase)
+                         && !path.Contains($"{Separator}obj{Separator}", StringComparison.OrdinalIgnoreCase))
+                     .Where(path => scannedExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)))
+        {
+            var lineNumber = 0;
+            foreach (var line in File.ReadAllLines(file))
+            {
+                lineNumber++;
+                foreach (var token in oldRootTokens)
+                {
+                    if (line.Contains(token, StringComparison.Ordinal))
+                    {
+                        oldRootOffenders.Add($"{Path.GetRelativePath(RepoRoot, file)}:{lineNumber} 出现旧根字面量 {token}");
+                    }
+                }
+            }
+        }
+
+        oldRootOffenders.ShouldBeEmpty(
+            "旧布局的根目录字面量不得复活（AR-25）：" + Environment.NewLine + string.Join(Environment.NewLine, oldRootOffenders));
+
+        // ② 用户数据文件名（与 AR-17 同一扫描：三个名字只允许出现在路径解析器）
+        var fileNameOffenders = FindUserDataFileNameOffenders();
+        fileNameOffenders.ShouldBeEmpty(
+            "用户数据文件名只允许出现在 `StoragePaths`（AR-17 / AR-25）："
+            + Environment.NewLine + string.Join(Environment.NewLine, fileNameOffenders));
+
+        // ③ resources / seeds 作为路径段
+        string[] pathSegments = ["resources", "seeds"];
+        string[] allowedSuffixes =
+        [
+            Path.Combine("Infrastructure", "Storage", "StoragePaths.cs"),
+            Path.Combine("Core", "Seeding", "SeedService.cs"),
+            Path.Combine("Core", "Settings", "SettingsService.cs"),
+            // 文本包根解析器：`resources/i18n` 是它的唯一关注点（文本资源化 §2.3 根解析）
+            Path.Combine("Sdk", "Text", "TextCatalog.cs"),
+            // 设计时桩：Ui 不得引 Infrastructure，故只用字面量拼给设计预览的路径
+            Path.Combine("Ui", "Design", "EmptyRuntime.cs"),
+        ];
+
+        var segmentOffenders = new List<string>();
+
+        foreach (var file in SourceFiles())
+        {
+            if (allowedSuffixes.Any(suffix => file.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            var lineNumber = 0;
+            var inBlockComment = false;
+            foreach (var line in File.ReadAllLines(file))
+            {
+                lineNumber++;
+                var trimmed = line.TrimStart();
+
+                if (inBlockComment)
+                {
+                    if (trimmed.Contains("*/", StringComparison.Ordinal)) { inBlockComment = false; }
+                    continue;
+                }
+
+                if (trimmed.StartsWith("//", StringComparison.Ordinal)
+                    || trimmed.StartsWith('*'))
+                {
+                    continue;
+                }
+
+                if (trimmed.StartsWith("/*", StringComparison.Ordinal))
+                {
+                    if (!trimmed.Contains("*/", StringComparison.Ordinal)) { inBlockComment = true; }
+                    continue;
+                }
+
+                foreach (Match match in StringLiteralRegex.Matches(line))
+                {
+                    var parts = match.Groups["value"].Value.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var segment in pathSegments)
+                    {
+                        if (parts.Contains(segment, StringComparer.Ordinal))
+                        {
+                            segmentOffenders.Add(
+                                $"{Path.GetRelativePath(RepoRoot, file)}:{lineNumber} 字符串字面量里出现资源路径段 '{segment}'");
+                        }
+                    }
+                }
+            }
+        }
+
+        segmentOffenders.ShouldBeEmpty(
+            "`resources` / `seeds` 作为路径段只允许在 `StoragePaths`、`SeedService`、`SettingsService`、"
+            + "`TextCatalog` 与设计时桩 `EmptyRuntime`（AR-25）：" + Environment.NewLine + string.Join(Environment.NewLine, segmentOffenders));
+    }
+
+    /// <summary>AR-17 / AR-25 ②：扫描"自己拼了用户数据文件名"的位置。</summary>
+    private static List<string> FindUserDataFileNameOffenders()
+    {
+        var allowed = Path.Combine("Infrastructure", "Storage", "StoragePaths.cs");
+        var offenders = new List<string>();
+
+        foreach (var file in SourceFiles())
+        {
+            if (file.EndsWith(allowed, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var lineNumber = 0;
+            foreach (var line in File.ReadAllLines(file))
+            {
+                lineNumber++;
+                if (UserDataFileNames.Any(name => line.Contains(name, StringComparison.Ordinal)))
+                {
+                    offenders.Add($"{Path.GetRelativePath(RepoRoot, file)}:{lineNumber} 自己拼了用户数据文件名");
+                }
+            }
+        }
+
+        return offenders;
+    }
+
+    /// <summary>读取 module.json 的 id（AR-24 对账）。</summary>
+    private static string ReadModuleId(string manifestPath)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(manifestPath));
+        return document.RootElement.TryGetProperty("id", out var id)
+            && id.GetString() is { Length: > 0 } value
+                ? value
+                : throw new InvalidOperationException($"module.json 缺少 id：{manifestPath}");
+    }
+
+    /// <summary>AR-24：判断文件名是否是宿主提供、不得进包的程序集。</summary>
+    private static bool IsHostProvidedFile(string fileName) =>
+        string.Equals(fileName, "HYWDebugAssistant.Sdk.dll", StringComparison.Ordinal)
+        || string.Equals(fileName, "HYWDebugAssistant.Sdk.pdb", StringComparison.Ordinal)
+        || fileName.StartsWith("HYWDebugAssistant.Sdk.Ui.", StringComparison.Ordinal)
+        || fileName.StartsWith("HYWDebugAssistant.Sdk.AccessKit.", StringComparison.Ordinal)
+        || fileName.StartsWith("HYWDebugAssistant.Access.", StringComparison.Ordinal)
+        || fileName.StartsWith("Avalonia", StringComparison.Ordinal)
+        || fileName.StartsWith("System.IO.Ports", StringComparison.Ordinal)
+        || fileName.StartsWith("SkiaSharp", StringComparison.Ordinal)
+        || fileName.StartsWith("HarfBuzzSharp", StringComparison.Ordinal)
+        || fileName.StartsWith("MicroCom.Runtime", StringComparison.Ordinal)
+        || fileName.EndsWith(".deps.json", StringComparison.Ordinal);
 
     /// <summary>
     /// 去掉字符串与字符字面量的内容，只留代码骨架。

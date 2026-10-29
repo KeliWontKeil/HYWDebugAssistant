@@ -64,8 +64,38 @@ public interface IRuntimeQuery
     /// <returns>该端口的指标（**永不返回 null**；未入网 / 实例或口不存在 ⇒ 全 0）。</returns>
     PortMetricsView GetPortMetrics(string instanceId, string portName);
 
+    /// <summary>
+    /// **全部磁盘主题**（`settings\appearance\themes\&lt;id&gt;\theme.json`；内置 `light` / `dark` 不在这里）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>顺序稳定</b>（按 id 序），设置页与主题目录拿到的是同一份；</item>
+    ///   <item><b>坏清单不返回</b>（版本不认识 / 字段非法 / 壁纸名越界）：框架记一条 Warning，该主题不进目录；</item>
+    ///   <item><b>只是元数据、不含图片字节</b>：壁纸按需经 <see cref="TryGetThemeWallpaper"/> 读取。</item>
+    /// </list>
+    /// </remarks>
+    IReadOnlyList<ThemeFileView> GetThemeFiles();
+
+    /// <summary>
+    /// 读取某个磁盘主题的壁纸（与清单同目录；文件名由清单的 `wallpaper` 字段给出）。
+    /// </summary>
+    /// <remarks>内置主题没有壁纸 ⇒ false；无壁纸 / 文件缺失 / 超大小上限 ⇒ false（主题仍可用）。</remarks>
+    /// <param name="themeId">主题 id（**不是**文件路径或资源引用）。</param>
+    /// <param name="png">PNG 字节（失败为 null）。</param>
+    bool TryGetThemeWallpaper(string themeId, out byte[]? png);
+
+    /// <summary>某模块实例的壁纸（无 ⇒ null）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    ModuleWallpaperView? GetModuleWallpaper(string instanceId);
+
+    /// <summary>本次启动从工作区恢复的外壳绝对矩形；没有工作区 ⇒ null。</summary>
+    WorkspacePlacementView? GetWorkspacePlacement();
+
     /// <summary>最近的问题（最新在前）。</summary>
     IReadOnlyList<IssueView> GetIssues(int maxCount);
+
+    /// <summary>Issue 全量汇总（总数 + 按严重度计数；不受面板显示上限影响）。</summary>
+    IssueSummaryView GetIssueSummary();
 
     /// <summary>模块目录（已注册的可用模块）。</summary>
     IReadOnlyList<ModuleCatalogEntryView> GetModuleCatalog();
@@ -106,6 +136,15 @@ public interface IRuntimeQuery
 
     /// <summary>读取应用级设置的当前值（返回副本，修改它不影响生效值）。</summary>
     ApplicationSettings GetSettings();
+
+    /// <summary>
+    /// **存储位置**（只读）：组合文件默认目录、框架设置/重启快照/日志位置。
+    /// </summary>
+    /// <remarks>UI 只用于文件选择器的初始目录与设置页的只读展示；路径本身仍由路径解析器唯一给出。</remarks>
+    StorageLocationsView GetStorageLocations();
+
+    /// <summary>默认组合目录中的文件（供“加载组合”列表；按修改时间倒序）。</summary>
+    IReadOnlyList<CompositeFileView> GetCompositeFiles();
 
     /// <summary>模块视图布局（位置/尺寸/视图开关）；**未摆放过的实例**不在结果中（UI 自行取默认位）。</summary>
     IReadOnlyList<ModuleLayoutView> GetLayout();
@@ -209,6 +248,12 @@ public interface IRuntimeCommand
     CommandResult InstallModulePackage(string packageDirectory);
 
     /// <summary>
+    /// **导入外部模块目录**：扫描目录中的模块包，校验后复制到默认外部目录，再重扫。
+    /// </summary>
+    /// <param name="sourceDirectory">外部包目录或包含多个包目录的上级目录。</param>
+    CommandResult ImportModuleDirectory(string sourceDirectory);
+
+    /// <summary>
     /// **重扫模块来源根**：按设置里的根列表（内置目录在首位）重新扫描，
     /// 装入**新增**的模块包并刷新诊断结果。
     /// </summary>
@@ -248,6 +293,40 @@ public interface IRuntimeCommand
 
     /// <summary>更新应用级设置（校验 → **即时生效** → 原子写盘）。</summary>
     CommandResult UpdateSettings(ApplicationSettings settings);
+
+    /// <summary>
+    /// **写一个主题文件夹**（`settings\appearance\themes\&lt;id&gt;\`）：清单原子写 + 可选壁纸字节。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>id 过规范名收敛并拒绝保留名（`system` / `light` / `dark`）；</item>
+    ///   <item>清单里只有**稀疏**色板（用户改过的 token）；壁纸与清单同目录；</item>
+    ///   <item>不修改设置文件：主题选择仍走 <see cref="UpdateSettings"/>（三键语义不变）。</item>
+    /// </list>
+    /// </remarks>
+    /// <param name="request">清单字段 + 可选壁纸字节。</param>
+    CommandResult SaveTheme(ThemeSaveRequest request);
+
+    /// <summary>**删除一个主题文件夹**（含壁纸；不存在视为已删除）。</summary>
+    /// <param name="themeId">主题 id。</param>
+    CommandResult DeleteTheme(string themeId);
+
+    /// <summary>设置/清除某模块实例的壁纸（null = 清除）；只影响该模块。</summary>
+    CommandResult SetModuleWallpaper(string instanceId, byte[]? png);
+
+    /// <summary>严格持久化关闭行为（写盘失败即回滚并返回失败）。</summary>
+    /// <param name="behavior"><c>Ask</c> / <c>Save</c> / <c>Discard</c>。</param>
+    CommandResult SetWorkspaceExitBehavior(string behavior);
+
+    /// <summary>
+    /// **移除指定的 Issue**（按 <see cref="IssueView.Sequence"/>；用户删除单条）。
+    /// </summary>
+    /// <remarks>只影响 Issue 列表与计数，不影响模块、网络或配置；不存在的序号忽略。</remarks>
+    /// <param name="sequences">要移除的序号集合。</param>
+    CommandResult RemoveIssues(IReadOnlyCollection<long> sequences);
+
+    /// <summary>**清空全部 Issue**（用户确认后的“清空全部”）；不影响运行中的模块。</summary>
+    CommandResult ClearIssues();
 
     /// <summary>更新模块视图布局（位置/尺寸/视图开关；坐标非法即整体拒绝）。</summary>
     CommandResult UpdateModuleLayout(ModuleLayoutView layout);
@@ -310,11 +389,58 @@ public interface IRuntimeCommand
     CommandResult SaveComposite(string filePath, string? name = null, IReadOnlyList<string>? instanceIds = null);
 
     /// <summary>
+    /// **导入外部组合文件**：检查可读后复制到默认目录（同名内容相同则复用，不同则唯一命名）。
+    /// </summary>
+    /// <param name="sourceFile">外部组合文件路径。</param>
+    CompositeImportResult ImportCompositeFile(string sourceFile);
+
+    /// <summary>
+    /// **删除默认目录中的一个组合文件**（只删文件，不移除当前现场模块）。
+    /// </summary>
+    /// <param name="filePath">默认目录下的组合文件路径。</param>
+    CommandResult DeleteCompositeFile(string filePath);
+
+    /// <summary>
+    /// **重命名默认目录中的组合文件**（只改文件名，不覆盖已有文件）。
+    /// </summary>
+    /// <param name="filePath">原文件路径。</param>
+    /// <param name="newName">新文件名（可带/不带 .json；不允许路径分隔符）。</param>
+    CompositeRenameResult RenameCompositeFile(string filePath, string newName);
+
+    /// <summary>把外部图片复制为组合封面（旧扁平件为同名 .preview.png，包为 cover.png）。</summary>
+    /// <param name="filePath">组合 JSON/文档路径。</param>
+    /// <param name="imagePath">外部图片路径。</param>
+    CommandResult SetCompositeCover(string filePath, string imagePath);
+
+    /// <summary>用全局图片选择器裁切后的 PNG 字节设置组合封面。</summary>
+    /// <param name="filePath">组合 JSON/文档路径。</param>
+    /// <param name="png">PNG 字节。</param>
+    CommandResult SetCompositeCoverPng(string filePath, byte[] png);
+
+    /// <summary>
     /// 加载组合件：实例化进**当前工作区**（追加，不清空现场）。
+    /// **加载 = 加载一批模块**：实例 ID 与现场冲突时只重映射冲突项，标签/网络名/配置/位置原样保留。
     /// 异常加载为**降级式**：缺失定义 → 占位 + Issue；口消失 → 悬空成员 + Issue；
     /// 不可解析 / 版本过新 → **拒绝并保持原文件不变**（§9.3）。
     /// </summary>
     CommandResult LoadComposite(string filePath);
+
+    /// <summary>
+    /// 保存**当前工作区快照**（`workspace\workspace.json`）：全部模块、配置、用户输入、
+    /// 壁纸、布局与网络；下次启动在空现场恢复。
+    /// </summary>
+    CommandResult SaveWorkspace(WorkspacePlacementView placement);
+
+    /// <summary>
+    /// **保存一次性重启恢复快照**（`workspace\restart.json`）：当前全部模块的关系快照。
+    /// </summary>
+    /// <remarks>
+    /// 旧入口，保留兼容；「重新加载」已改用 <see cref="SaveWorkspace"/>。
+    /// </remarks>
+    CommandResult SaveRestartSnapshot();
+
+    /// <summary>删除一次性重启恢复快照（重启进程启动失败时回滚，避免下次启动误恢复）。</summary>
+    CommandResult DeleteRestartSnapshot();
 
     /// <summary>
     /// 为占位实例手动指定替代模块（"可手动指定替代版本"，§9.3）：实例化该定义并**沿用占位保存的配置**，

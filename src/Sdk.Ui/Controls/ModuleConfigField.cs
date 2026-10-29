@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.VisualTree;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
@@ -158,7 +159,7 @@ public sealed class ModuleConfigField : ModuleElement
 
         if (Field.Length == 0)
         {
-            Reject("这一格没写字段名（ModuleConfigField.Field）");
+            Reject(TextCatalog.Get(typeof(ModuleConfigField).Assembly, "moduleField.reject.missingFieldName"));
             return;
         }
 
@@ -166,7 +167,7 @@ public sealed class ModuleConfigField : ModuleElement
 
         if (field is null)
         {
-            Reject($"配置里没有可编辑字段「{Field}」");
+            Reject(TextCatalog.Get(typeof(ModuleConfigField).Assembly, "moduleField.reject.unknownField", Field));
             return;
         }
 
@@ -523,6 +524,7 @@ public sealed class ModuleConfigField : ModuleElement
 
         ApplyErrorRing(appearance);
         ApplyReadOnly(appearance.ReadOnly is true);
+        ApplyEnabled(appearance.Enabled);
     }
 
     /// <summary>错误圈画在编辑器之上：焦点/选择边框不会把它盖掉。</summary>

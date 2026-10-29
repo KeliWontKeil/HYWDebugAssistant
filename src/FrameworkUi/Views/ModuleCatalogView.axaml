@@ -3,6 +3,7 @@
              xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
              xmlns:ui="using:HYWDebugAssistant.Ui.ViewModels"
              xmlns:views="using:HYWDebugAssistant.Ui.Views"
+             xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
              x:Class="HYWDebugAssistant.FrameworkUi.Views.ModuleCatalogView"
              x:DataType="vm:ModuleCatalogViewModel"
              xmlns:design="using:HYWDebugAssistant.FrameworkUi.Design"
@@ -19,12 +20,23 @@
                  ⑤ **来源根列表（固定高度 + 内部滚动；每行尾部一个小按钮「打开」）** + 行尾省略
                  ⑥ 从目录加载模块包（显式放在外面，不藏进帮助）
         规则：**区域尺寸固定**（列表不随模块数量/分类变化改变大小）；边界用边框显式表达；
-              帮助 = **右下角小问号按钮 + 弹窗文本**（不改变布局，Flyout 关闭后不留痕）。
+              帮助 = **页面顶行右侧的小问号按钮 + 弹窗文本**（页面级帮助不放列表框里）。
     -->
-    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto" Margin="8" RowSpacing="6">
+    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="8" RowSpacing="4">
 
-        <!-- ① 搜索 -->
-        <TextBox Grid.Row="0" PlaceholderText="搜索模块名称…" Text="{Binding SearchText, Mode=TwoWay}" />
+        <!-- ① 搜索（**页面级**帮助放在页面顶行、列表框外：它不是某个控件的帮助） -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="4">
+            <TextBox Grid.Column="0" PlaceholderText="{loc:Tr catalog.search.placeholder}" Text="{Binding SearchText, Mode=TwoWay}" />
+            <Button Grid.Column="1" Classes="helpIcon" VerticalAlignment="Center"
+                    ToolTip.Tip="{loc:Tr catalog.help.tip}">
+                <Button.Flyout>
+                    <Flyout Placement="BottomEdgeAlignedRight">
+                        <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
+                                   Text="{loc:Tr catalog.help.body}" />
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+        </Grid>
 
         <!-- ② 横向分类标签（**固定宽度** 64：切换分类不会移动其它控件） -->
         <ItemsControl Grid.Row="1" ItemsSource="{Binding Categories}">
@@ -51,141 +63,71 @@
         <!-- ③ 模块列表：**固定区域**（占满中间行；内部滚动）——不随数量/分类改变大小；窗口过矮时保留最小高度 -->
         <Border Grid.Row="2" Classes="pane" Padding="4" MinHeight="120">
             <Grid RowDefinitions="Auto,*,Auto">
-                <TextBlock Grid.Row="0" Classes="paneTitle" Margin="2,0,0,2" Text="可用模块" />
+                <TextBlock Grid.Row="0" Classes="paneTitle" Margin="2,0,0,2" Text="{loc:Tr catalog.title}" />
                 <ListBox Grid.Row="1"
                          Background="Transparent"
                          BorderThickness="0"
                          ItemsSource="{Binding Catalog}"
                          DoubleTapped="OnCatalogDoubleTapped"
-                         ToolTip.Tip="双击一项即可直接加入现场（等同选中后点「加入现场」）"
                          SelectedItem="{Binding SelectedCatalogEntry, Mode=TwoWay}">
                     <ListBox.ItemTemplate>
                         <DataTemplate DataType="vm:ModuleCatalogRowViewModel">
-                            <Grid ColumnDefinitions="72,*" Margin="0,2" ToolTip.Tip="{Binding Description}">
-                                <Border Grid.Column="0"
-                                        Width="72" Height="40"
-                                        Background="{DynamicResource BgWorkspace}"
-                                        BorderBrush="{DynamicResource BorderDefault}"
-                                        BorderThickness="1"
-                                        CornerRadius="2"
-                                        VerticalAlignment="Center">
-                                    <TextBlock Classes="icon" FontSize="14" Text="{DynamicResource GlyphModules}" />
+                            <!-- 整行命中：条目根给透明背景，空白处也能出提示 -->
+                            <Grid ColumnDefinitions="72,*" Margin="0,2" Background="Transparent"
+                                  ToolTip.Tip="{Binding TooltipText}">
+                                <Border Grid.Column="0" Classes="previewTile">
+                                    <Grid>
+                                        <Border Background="{Binding PreviewBrush}" />
+                                        <TextBlock Classes="icon previewGlyph"
+                                                   FontSize="18"
+                                                   IsVisible="{Binding !HasPreview}"
+                                                   Text="{DynamicResource GlyphModules}" />
+                                    </Grid>
                                 </Border>
 
                                 <StackPanel Grid.Column="1" Margin="8,0,0,0" Spacing="1" VerticalAlignment="Center">
                                     <TextBlock Text="{Binding DisplayName}"
                                                TextTrimming="CharacterEllipsis"
                                                Foreground="{DynamicResource TextPrimary}" />
-                                    <TextBlock Text="{Binding RestartNotice}"
+                                    <TextBlock Text="{Binding OriginNotice}"
                                                FontSize="10"
                                                TextWrapping="Wrap"
-                                               IsVisible="{Binding NeedsRestart}"
-                                               Foreground="{DynamicResource SemanticWarn}" />
+                                               Foreground="{DynamicResource TextMuted}" />
                                 </StackPanel>
                             </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <!-- 区域底行：左「加入现场」/ 右帮助（**右下角**；右边距与其它分区的 4 px 一致 → 各帮助按钮 X 对齐） -->
-                <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="2,4,0,0">
-                    <Button Grid.Column="0"
-                            HorizontalAlignment="Left"
-                            Content="加入现场"
+                <!-- 区域底行：左「加入现场」（页面级帮助在页面顶行，不在框内） -->
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="2,4,0,0">
+                    <Button HorizontalAlignment="Left"
+                            Content="{loc:Tr catalog.add}"
                             Command="{Binding AddCommand}"
-                            ToolTip.Tip="把选中模块的一个实例加入当前工作现场（每个实例都会开一个自己的窗口）；**双击列表项**同样可直接加入" />
-                    <Button Grid.Column="1" Classes="helpIcon" VerticalAlignment="Bottom" ToolTip.Tip="模块列表说明">
-                        <Button.Flyout>
-                            <Flyout Placement="TopEdgeAlignedRight">
-                                <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
-                                           Text="左侧缩略图为模块呈现信息的占位（后续由模块截图填充）。分类标签按模块声明的标签归类；搜索匹配名称与描述。选中一行后点「加入现场」创建实例。" />
-                            </Flyout>
-                        </Button.Flyout>
-                    </Button>
-                </Grid>
+                            ToolTip.Tip="{loc:Tr catalog.add.tip}" />
+                </StackPanel>
             </Grid>
         </Border>
 
-        <!-- ④ 目录操作行（来源根的增删与重扫 —— **显式放在外面**） -->
+        <!-- ④ 操作行：外部导入、重扫、完整重载 -->
         <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Left">
-            <Button Content="添加目录…" Command="{Binding AddSourceDirectoryCommand}" />
-            <Button Content="删除选中" Command="{Binding RemoveSourceDirectoryCommand}" />
-            <Button Content="重新加载" Command="{Binding RescanCommand}"
-                    ToolTip.Tip="重扫全部来源根，装入新增的包；改过代码的包需重启应用才生效" />
+            <Button Content="{loc:Tr catalog.import}" Command="{Binding ImportModulesCommand}"
+                    ToolTip.Tip="{loc:Tr catalog.import.tip}" />
+            <Button Content="{loc:Tr catalog.rescan}" Command="{Binding RescanCommand}"
+                    ToolTip.Tip="{loc:Tr catalog.rescan.tip}" />
+            <Button Content="{loc:Tr catalog.reload}" Command="{Binding ReloadCommand}"
+                    ToolTip.Tip="{loc:Tr catalog.reload.tip}" />
         </StackPanel>
 
-        <!-- ⑤ 来源根列表（固定高度 + 内部滚动；每行尾部「打开」小按钮） -->
-        <Border Grid.Row="4" Classes="pane" Padding="4" Height="120">
-            <Grid RowDefinitions="Auto,*">
-                <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto">
-                    <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center"
-                               Text="模块来源目录" />
-                    <TextBox Grid.Column="1" Width="150" MinHeight="22" Height="22"
-                             PlaceholderText="新增来源根…"
-                             Text="{Binding NewSourceDirectory, Mode=TwoWay}" />
-                    <Button Grid.Column="2" Classes="helpIcon" Margin="4,0,0,0" ToolTip.Tip="来源目录说明">
-                        <Button.Flyout>
-                            <Flyout Placement="TopEdgeAlignedRight">
-                                <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
-                                           Text="此处列出所有被扫描的目录（一行一个）。内置包目录（应用目录下 modules\）始终生效、不在此列表；每行尾部的按钮可在资源管理器中打开该目录。路径过长时中间省略，鼠标悬停可看全路径。" />
-                            </Flyout>
-                        </Button.Flyout>
-                    </Button>
-                </Grid>
-
-                <ListBox Grid.Row="1"
-                         Margin="0,4,0,0"
-                         Background="Transparent"
-                         BorderThickness="0"
-                         ItemsSource="{Binding Sources}"
-                         SelectedItem="{Binding SelectedSource, Mode=TwoWay}">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate DataType="vm:ModuleSourceRowViewModel">
-                            <Grid ColumnDefinitions="*,Auto" ToolTip.Tip="{Binding Directory}">
-                                <TextBlock Grid.Column="0"
-                                           VerticalAlignment="Center"
-                                           FontFamily="{DynamicResource FontData}"
-                                           FontSize="10"
-                                           TextTrimming="CharacterEllipsis"
-                                           Foreground="{DynamicResource TextPrimary}"
-                                           Text="{Binding Display}" />
-                                <Button Grid.Column="1"
-                                        Classes="icon"
-                                        Width="18" Height="18" MinHeight="18"
-                                        Margin="4,0,0,0"
-                                        ToolTip.Tip="在资源管理器中打开"
-                                        Command="{Binding $parent[ItemsControl].((vm:ModuleCatalogViewModel)DataContext).OpenDirectoryCommand}"
-                                        CommandParameter="{Binding Directory}">
-                                    <TextBlock Classes="icon" FontSize="11" Text="&#xE8B7;" />
-                                </Button>
-                            </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </Grid>
-        </Border>
-
-        <!-- ⑥ 从目录加载模块包（显式放在外面） -->
-        <Border Grid.Row="5" Classes="pane" Padding="4">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="4">
-                <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="加载模块包" />
-                <TextBox Grid.Column="1"
-                         MinHeight="24" Height="24"
-                         PlaceholderText="构建产物目录（含 module.json 与实现程序集）"
-                         Text="{Binding PackageDirectory, Mode=TwoWay}" />
-                <Button Grid.Column="2" Content="选择…" MinHeight="24" Height="24"
-                        Command="{Binding PickPackageDirectoryCommand}" />
-                <Button Grid.Column="3" Content="加载" MinHeight="24" Height="24"
-                        Command="{Binding InstallCommand}" />
-                <Button Grid.Column="4" Classes="helpIcon" ToolTip.Tip="加载说明">
-                    <Button.Flyout>
-                        <Flyout Placement="TopEdgeAlignedRight">
-                            <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
-                                       Text="显式加载第三方模块包：请选择**构建产物目录**（含 module.json 与实现程序集的目录），不要选源码目录。一次性加载的包在本次会话内有效；把它加入「模块来源目录」可在下次启动时自动扫描。" />
-                        </Flyout>
-                    </Button.Flyout>
-                </Button>
-            </Grid>
-        </Border>
+        <!-- ⑤ 提示 + 状态：固定行，间距紧凑；详情进 ToolTip/Issue -->
+        <StackPanel Grid.Row="4" Spacing="2">
+            <TextBlock Classes="operationHint"
+                       ToolTip.Tip="{Binding RestartHint}"
+                       Text="{Binding RestartHint}" />
+            <TextBlock Classes="operationStatus"
+                       Classes.error="{Binding StatusIsError}"
+                       ToolTip.Tip="{Binding StatusDetail}"
+                       Text="{Binding StatusMessage}" />
+        </StackPanel>
     </Grid>
 </UserControl>

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    测试夹具模块程序集：模拟"只含模块自有代码"的模块包实现件。
+    **只引 Sdk**：模块包不得引用 Access / Sdk.Ui / 其它框架程序集（AR-1），
+    模块来源发现用例把本程序集复制进临时包，走真实加载器的引用校验。
+  -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Sdk\HYWDebugAssistant.Sdk.csproj" />
+  </ItemGroup>
+
+</Project>

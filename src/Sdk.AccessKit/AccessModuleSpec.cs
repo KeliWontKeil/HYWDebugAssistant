@@ -1,13 +1,14 @@
-namespace HYWDebugAssistant.Access;
+namespace HYWDebugAssistant.Sdk.AccessKit;
 
 /// <summary>
-/// 一个**外部接入模块**的共用骨架参数：接入名、两个口、显示源、命令、容量。
+/// 一个**外部接入模块**的共用骨架参数：接入名、标准标识、两个口、显示源、命令、容量。
 /// </summary>
 /// <remarks>
-/// 四个模块的形态相同（一个会话 + 一进一出 + 状态/计数），差异只在接入名、口名、角色名、按钮文案与状态文案。
+/// 四个模块的形态相同（一个会话 + 一进一出 + 状态/计数），差异只在接入名、标准标识、口名、角色名、按钮文案与状态文案。
 /// 把差异收在这份声明里，模块类只提供 <see cref="AccessModuleSpec"/> 与文案，不再各写一遍接线。
 /// </remarks>
 /// <param name="AccessName">接入名（模块内唯一）。</param>
+/// <param name="StandardId">外部标准标识（<see cref="HYWDebugAssistant.Sdk.Access.ExternalAccessStandardIds"/>）；框架据此创建适配器与参数类型。</param>
 /// <param name="RxPort">发送口名（设备/外部 → 框架）。</param>
 /// <param name="TxPort">接收口名（框架 → 设备/外部）。</param>
 /// <param name="RoleId">角色标识。</param>
@@ -25,6 +26,7 @@ namespace HYWDebugAssistant.Access;
 /// <param name="Capacity">单单元字节区容量（默认与 RawBytes 一致）。</param>
 public sealed record AccessModuleSpec(
     string AccessName,
+    string StandardId,
     string RxPort,
     string TxPort,
     string RoleId,

@@ -3,7 +3,7 @@
   <!--
     业务模块（第一批 #4）：HEX ↔ 字符串转换器 `hyw/hex-string-converter`
     （docs/modules/hyw-hex-string-converter.md）—— **零口零角色**的纯工具型模块。
-    与第三方模块**同构同路径**：只引 Sdk（AR-1）；不得引用其他模块（AR-2）。
+    与第三方模块**同构同路径**：只引 Sdk / Sdk.Ui / Sdk.AccessKit；不引 Access、不直接引 UI 框架、不引其他模块（AR-1 / AR-2）。
   -->
   <PropertyGroup>
     <ModulePackageName>hex-string-converter</ModulePackageName>
@@ -16,6 +16,8 @@
 
   <ItemGroup>
     <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 模块文本表：随输出并被 StageModulePackage 收进包；包内 `i18n/<程序集简名>/`。 -->
+    <Content Include="i18n\**\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

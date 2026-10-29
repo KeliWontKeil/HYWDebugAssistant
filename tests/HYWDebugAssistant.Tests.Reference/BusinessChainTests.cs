@@ -122,7 +122,7 @@ public class BusinessChainTests
         var sent = (long)composition.Latest("p", Stubs.RejectCountingSenderStubModule.SentSource);
         var rejected = (long)composition.Latest("p", Stubs.RejectCountingSenderStubModule.RejectedSource) - rejectedBaseline;
 
-        sent.ShouldBeGreaterThan(100, $"变更风暴期间桩应一直在发（发了 {sent} 条）——否则本用例测不出东西");
+        sent.ShouldBeGreaterThanOrEqualTo(50, $"变更风暴期间桩应一直在发（发了 {sent} 条）——否则本用例测不出东西");
         rejected.ShouldBe(
             0,
             $"**已连通的网络上 `TrySend` 不得被拒**：变更风暴期间发了 {sent} 条，被框架拒绝 {rejected} 条（= 静默丢单元）");

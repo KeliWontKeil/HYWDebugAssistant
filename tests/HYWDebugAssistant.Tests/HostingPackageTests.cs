@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using HYWDebugAssistant.Access;
 using HYWDebugAssistant.Core.Changes;
 using HYWDebugAssistant.Core.Issues;
 using HYWDebugAssistant.Core.Runtime;
@@ -65,15 +66,27 @@ public class HostingPackageTests
         var package = result.Package!;
         package.Id.ToString().ShouldBe("hyw/text-sender/1.0.0");
         package.EntryType.Name.ShouldBe("TextSenderModule");
-        package.DefinitionAttribute.DisplayName.ShouldBe("文本发送器");
+        package.DefinitionAttribute.DisplayName.ShouldBeEmpty("字面量已进文本表（DisplayNameKey）");
+        package.DefinitionAttribute.DisplayNameKey.ShouldBe("module.title");
+
+        var tablePath = Path.Combine(
+            Path.GetDirectoryName(package.EntryType.Assembly.Location)!,
+            "i18n",
+            package.EntryType.Assembly.GetName().Name!,
+            "zh-Hans.json");
+        File.Exists(tablePath).ShouldBeTrue($"随包文本应存在：{tablePath}");
+
+        ModuleDefinition.FromPackage(package).DisplayName.ShouldBe(
+            "文本发送器",
+            $"随包文本应解析出模块标题（程序集：{package.EntryType.Assembly.Location}）");
         File.Exists(package.AssemblyPath).ShouldBeTrue();
     }
 
     [Fact]
-    public void 加载外部接入模块包_应能解析包内Access并实例化()
+    public void 加载外部接入模块包_应能解析标准并实例化()
     {
-        // 串口包依赖 Access.dll（随包分发）；这个用例走真实包 + 默认加载上下文，
-        // 证明"模块包自带依赖"在外部接入上真的成立。
+        // 外部接入由框架提供（Access.dll 随宿主，不再随模块包）；这个用例走真实包 + 默认加载上下文，
+        // 证明"模块只声明标准、宿主解析适配器/参数类型"在真实包上成立。
         var packageDirectory = Path.Combine(
             RepoRoot, "src", "Modules", "Business", "Serial", "bin", Configuration, "net10.0");
 
@@ -81,7 +94,11 @@ public class HostingPackageTests
 
         result.Succeeded.ShouldBeTrue(result.FailureReason);
         var definition = ModuleDefinition.FromPackage(result.Package!);
-        var instance = ModuleInstanceFactory.Create("serial-package-1", definition, new IssueCenter());
+        var instance = ModuleInstanceFactory.Create(
+            "serial-package-1",
+            definition,
+            new IssueCenter(),
+            catalog: new BuiltInExternalAccessCatalog());
 
         instance.ExternalAccesses.ShouldHaveSingleItem().Name.ShouldBe("serial");
         instance.Context.ConfigurationSnapshot.ContainsKey(
@@ -102,7 +119,7 @@ public class HostingPackageTests
             QueueCapacity = 16,
             StopTimeout = TimeSpan.FromSeconds(2),
             IdleWait = TimeSpan.FromMilliseconds(1),
-        });
+        }, catalog: new BuiltInExternalAccessCatalog());
 
         var added = runtime.Apply(ChangeSet.OfOne(new AddModuleOperation(
             "serial-integration",
@@ -144,7 +161,7 @@ public class HostingPackageTests
             QueueCapacity = 16,
             StopTimeout = TimeSpan.FromSeconds(2),
             IdleWait = TimeSpan.FromMilliseconds(1),
-        });
+        }, catalog: new BuiltInExternalAccessCatalog());
 
         var added = runtime.Apply(ChangeSet.OfOne(new AddModuleOperation(
             "tcp-server-integration",
@@ -197,7 +214,7 @@ public class HostingPackageTests
             QueueCapacity = 16,
             StopTimeout = TimeSpan.FromSeconds(2),
             IdleWait = TimeSpan.FromMilliseconds(1),
-        });
+        }, catalog: new BuiltInExternalAccessCatalog());
 
         var added = runtime.Apply(ChangeSet.OfOne(new AddModuleOperation(
             "udp-integration",
@@ -233,6 +250,47 @@ public class HostingPackageTests
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var received = await peer.ReceiveAsync(timeout.Token);
         received.Buffer.ShouldBe(new byte[] { 4, 5 });
+    }
+
+    [Fact]
+    public void 旧包引用了模块侧Access_应拒绝并提示重编()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "hyw-legacy-" + Guid.NewGuid().ToString("N"));
+        _ = Directory.CreateDirectory(directory);
+
+        try
+        {
+            var assemblyPath = typeof(HostingPackageTests).Assembly.Location;
+            var assemblyName = Path.GetFileName(assemblyPath);
+            File.Copy(assemblyPath, Path.Combine(directory, assemblyName), overwrite: true);
+            File.WriteAllText(
+                Path.Combine(directory, "module.json"),
+                $$"""
+                {
+                  "id": "test/nested-input/1.0.0",
+                  "entryAssembly": "{{assemblyName}}",
+                  "entryType": "HYWDebugAssistant.Tests.BusinessModulesIntegrationTests+NestedInputModule",
+                  "frameworkCompatibility": ">=2.0.0 <3.0.0"
+                }
+                """);
+
+            var result = ModulePackageLoader.Load(directory);
+
+            result.Succeeded.ShouldBeFalse();
+            result.FailureReason.ShouldNotBeNull();
+            result.FailureReason.ShouldContain("旧包引用了模块侧 Access，请用 SDK 2.0 重编");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 已加载程序集会锁定文件；清理失败不影响测试结论。
+            }
+        }
     }
 
     [Fact]
@@ -341,13 +399,25 @@ public class HostingPackageTests
     {
         public TempPackage(string sourceDirectory, string manifestId)
         {
-            Directory = Path.Combine(Path.GetTempPath(), "hyw-pkg-" + Guid.NewGuid().ToString("N"));
-            System.IO.Directory.CreateDirectory(Directory);
+            // **确定性临时目录**：跨进程复用同一个名字；启动时先尝试删掉上一次的副本
+            // （上一进程的锁已释放），本进程内因 LoadFrom 仍锁定而不删 ⇒ 不会无限堆积。
+            Directory = Path.Combine(Path.GetTempPath(), "hyw-test-package-text-sender");
+            TryDeleteTempDirectory(Directory);
+            _ = System.IO.Directory.CreateDirectory(Directory);
 
-            foreach (var file in System.IO.Directory.EnumerateFiles(sourceDirectory)
-                         .Where(f => !f.EndsWith(".json", StringComparison.OrdinalIgnoreCase)))
+            // 真实包含子目录（如随包 `i18n/`）：临时副本必须同样带上，否则"换了目录就丢文本"。
+            foreach (var file in System.IO.Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
             {
-                File.Copy(file, Path.Combine(Directory, Path.GetFileName(file)), overwrite: true);
+                if (Path.GetDirectoryName(file) == sourceDirectory
+                    && file.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;   // 顶层 module.json 由下面的篡改版替代
+                }
+
+                var relative = Path.GetRelativePath(sourceDirectory, file);
+                var target = Path.Combine(Directory, relative);
+                _ = System.IO.Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(file, target, overwrite: true);
             }
 
             var manifest = $$"""
@@ -363,17 +433,27 @@ public class HostingPackageTests
 
         public string Directory { get; }
 
-        public void Dispose()
+        /// <summary>删掉上一次运行留下的副本（失败 = 本进程仍锁着，直接复用/覆盖）。</summary>
+        private static void TryDeleteTempDirectory(string directory)
         {
             try
             {
-                System.IO.Directory.Delete(Directory, recursive: true);
+                if (System.IO.Directory.Exists(directory))
+                {
+                    System.IO.Directory.Delete(directory, recursive: true);
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // 经 LoadFrom 加载的程序集会锁定其文件（进程退出前无法删除）；
-                // 清理失败不影响测试结论，临时目录由系统回收。
+                // 上一个进程的残留删不掉就保留：下面的文件复制会覆盖它。
             }
+        }
+
+        public void Dispose()
+        {
+            // **不删临时目录**：`Assembly.LoadFrom` 会锁定程序集；递归删除会先删掉未锁的
+            // `i18n/**` 再在 DLL 上失败 ⇒ 后续用例复用已加载程序集时"随包文本凭空消失"。
+            // 目录在系统 temp 下，由操作系统回收。
         }
     }
 }

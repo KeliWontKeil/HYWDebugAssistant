@@ -20,23 +20,26 @@ namespace HYWDebugAssistant.Access.Parameters;
 public sealed class SerialConfig : IConfigurationChoices
 {
     /// <summary>端口号（如 <c>COM3</c>）。</summary>
-    [ConfigurationField("端口号", Group = "串口参数", Description = "本机当前可用的串口；打开失败时也会在消息里列出")]
+    [ConfigurationField(
+        TitleKey = SerialConfigText.PortName,
+        GroupKey = SerialConfigText.GroupSerial,
+        DescriptionKey = SerialConfigText.PortDescription)]
     public string PortName { get; set; } = string.Empty;
 
     /// <summary>波特率。</summary>
-    [ConfigurationField("波特率", Group = "串口参数")]
+    [ConfigurationField(TitleKey = SerialConfigText.BaudRate, GroupKey = SerialConfigText.GroupSerial)]
     public SerialBaudRate BaudRate { get; set; } = SerialBaudRate.Baud115200;
 
     /// <summary>数据位。</summary>
-    [ConfigurationField("数据位", Group = "串口参数")]
+    [ConfigurationField(TitleKey = SerialConfigText.DataBits, GroupKey = SerialConfigText.GroupSerial)]
     public SerialDataBits DataBits { get; set; } = SerialDataBits.Eight;
 
     /// <summary>停止位。</summary>
-    [ConfigurationField("停止位", Group = "串口参数")]
+    [ConfigurationField(TitleKey = SerialConfigText.StopBits, GroupKey = SerialConfigText.GroupSerial)]
     public SerialStopBits StopBits { get; set; } = SerialStopBits.One;
 
     /// <summary>校验位。</summary>
-    [ConfigurationField("校验位", Group = "串口参数")]
+    [ConfigurationField(TitleKey = SerialConfigText.Parity, GroupKey = SerialConfigText.GroupSerial)]
     public SerialParity Parity { get; set; } = SerialParity.None;
 
     /// <inheritdoc />
@@ -139,22 +142,22 @@ public enum SerialStopBits
 public enum SerialParity
 {
     /// <summary>无校验。</summary>
-    [ConfigurationChoice("无")]
+    [ConfigurationChoice(TitleKey = SerialConfigText.ParityNone)]
     None = 0,
 
     /// <summary>奇校验。</summary>
-    [ConfigurationChoice("奇")]
+    [ConfigurationChoice(TitleKey = SerialConfigText.ParityOdd)]
     Odd = 1,
 
     /// <summary>偶校验。</summary>
-    [ConfigurationChoice("偶")]
+    [ConfigurationChoice(TitleKey = SerialConfigText.ParityEven)]
     Even = 2,
 
     /// <summary>标记校验。</summary>
-    [ConfigurationChoice("标记")]
+    [ConfigurationChoice(TitleKey = SerialConfigText.ParityMark)]
     Mark = 3,
 
     /// <summary>空格校验。</summary>
-    [ConfigurationChoice("空格")]
+    [ConfigurationChoice(TitleKey = SerialConfigText.ParitySpace)]
     Space = 4,
 }

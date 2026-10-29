@@ -32,7 +32,7 @@ public class ModuleSurfaceWindowTests
     [Fact]
     public async Task 文本发送器真实窗口_内容不压端口标记()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -91,7 +91,7 @@ public class ModuleSurfaceWindowTests
     [Fact]
     public async Task 数据监视器真实窗口_追加日志应进入增量显示控件()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -132,6 +132,47 @@ public class ModuleSurfaceWindowTests
                 _output.WriteLine(path);
 
                 window.Close();
+                Pump();
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>
+    /// 隐藏后再「显示全部」：缓存的模块视图必须先脱离旧窗口，不能成为第二个父级的子控件。
+    /// </summary>
+    [Fact]
+    public async Task 隐藏后重新显示_同一个模块视图不得重复挂载()
+    {
+        var session = SnapshotSession.Shared;
+
+        await session.Dispatch(
+            () =>
+            {
+                using var harness = new OverlaySnapshotTests.SnapshotHarness();
+                harness.Register(
+                    "hide-show-text-sender",
+                    typeof(TextSenderModule),
+                    typeof(TextSenderViewFactory),
+                    windowWidth: 400,
+                    windowHeight: 240);
+
+                harness.AddModule("hide-show", "test/hide-show-text-sender/1.0.0", 400, 240);
+                var module = harness.Windows.Modules.Single(item => item.InstanceId == "hide-show");
+
+                var first = harness.OpenWindow(module);
+                Pump();
+                first.GetVisualDescendants().OfType<ModuleViewHost>().ShouldHaveSingleItem();
+
+                // 关闭路径由窗口自身的 Closing 事件摘掉缓存视图；管理器也会显式调用同一入口。
+                first.Close();
+                Pump();
+
+                var second = harness.OpenWindow(module);
+                Pump();
+                second.GetVisualDescendants().OfType<ModuleViewHost>().ShouldHaveSingleItem()
+                    .Content.ShouldNotBeNull();
+
+                second.Close();
                 Pump();
             },
             CancellationToken.None);

@@ -20,7 +20,7 @@
 **T3 必须跑的三种情况**（其余一律 T0/T1/T2）：
 
 1. 要把东西**交给用户手工验证之前**；
-2. **改了验收事实源**：`Sdk` 公开面 · `Core.Api` 契约 · 设置/组合件文件格式 · 架构规则与项目引用（AR-0~AR-19）· 依赖（`Directory.Packages.props`）；
+2. **改了验收事实源**：`Sdk` 公开面 · `Core.Api` 契约 · 设置/组合件文件格式 · 架构规则与项目引用（AR-0~AR-24）· 依赖（`Directory.Packages.props`）；
 3. **一个步骤宣布完成时**（写状态回写之前）。
 
 > 现行例外：**「最小验收指标就绪」之前，UI / 交互 / 模块改动只跑 T0 + 受影响的 T1/T2**，T3 与手工验收一起推迟。
@@ -51,7 +51,27 @@
 | `-KeepDesignerHost` | 不先停 VS 的 Avalonia 设计器宿主 |
 
 **完整门禁**：`.\build.ps1 [-StopDesignerHost] [-RunBenchmarks]`
-= 文档审计 → 还原 → 构建（**0 error / 0 warning**）→ 模块包校验 → 许可审计 → 全部测试。
+= 文档审计 → 颜色口径审计 → **资源与文本审计** → 还原 → 构建（**0 error / 0 warning**）→ 模块包校验 → **资源包校验** → 许可审计 → 全部测试。
+
+**资源、SDK / 独立编译 / release**：
+
+```
+.\tools\audit-resources.ps1                        # 源侧：种子包 / 主题清单 / 16 张文本表 / 可本地化层零中文 / {loc:Tr} 键 / 死键
+.\tools\verify-resources.ps1                       # 产物侧：输出 resources\ 与仓库 resources\ 逐文件 + SHA256 一致
+.\tools\pack-sdk.ps1                               # 生成 artifacts/sdk-packages（三个契约包）
+.\tools\verify-standalone-module.ps1               # 示例模块只靠 PackageReference 构建 + 宿主加载
+.\tools\verify-module-packages.ps1 -Configuration Release
+.\tools\package-release.ps1 -OutputDirectory <仓库外空目录>
+```
+
+`package-release.ps1` 只导出程序层（程序文件 + `modules/` + `resources/`），并在导出后调用 `HYWDebugAssistant.App.exe --emit-default-settings` 生成出厂设置基线；`settings/` `workspace/` `logs/` `composites/` `modules/external/` 一律不导出。`release.json` 记录 `layoutVersion` 与 `resources[]`（全树相对路径 + SHA256）。
+
+**加一种语言**（框架与模块各自加，互不牵连）：
+
+1. 框架：在 `resources/i18n/<程序集简名>/` 下加 `<culture>.json`（如 `en.json`；长文案可拆 `<culture>.help.json` 分片，键不重复）。
+2. 模块：在该模块的包内 `i18n/<程序集简名>/` 下加同名文件（源码里放 `src/Modules/.../i18n/<程序集简名>/`，构建会随包带走）。
+3. 表格式与键集合必须与中文表**逐键一致**（占位符也要一致），否则审计判红；改完重编，或发布后直接替换发布目录里的表文件（文本是数据，不在 DLL 里）。
+4. 语言下拉会自动出现新语言（`TextCatalog.SupportedLanguages` 扫表目录得出）；缺某语言的模块按回退链显示中文。
 
 ---
 
@@ -59,11 +79,12 @@
 
 | 项 | 规定 |
 |---|---|
-| 判据重心 | **模块级 + 组合级**；框架机制以**参考组合**（四个正式模块 + 判据项目内测试桩）验证。**不做**框架级「MCU 式」单元测试 |
+| 判据重心 | **模块级 + 组合级**；框架机制以**参考组合**（八个正式模块：四个基础模块 + 四个外部接入模块，加判据项目内测试桩）验证。**不做**框架级「MCU 式」单元测试 |
 | 覆盖率 | **不设百分比**；判据 = 「机制改动必须有组合级验证」 |
 | 命名 | `Method_Scenario_ExpectedResult` |
 | 警告 | 测试项目同样 `TreatWarningsAsErrors`；豁免用 `NoWarn` + **在 csproj 注明理由** |
 | 架构规则 | `tests/HYWDebugAssistant.ArchitectureTests`，**自研**（程序集元数据 + 源码扫描），**不引第三方架构测试框架**；**目标程序集缺失即失败**（禁止「无对象则跳过」） |
+| 模块包边界 | `tools/verify-module-packages.ps1` + AR-24：8 个模块包只含模块自有文件；不得含 `Sdk*` / `Sdk.Ui*` / `Sdk.AccessKit*` / `Access*` / Avalonia / 外部接入第三方依赖；宿主输出必须提供这些程序集 |
 | 数值 | **测试不重复声明面的数值**：断言的对象是「**声明被框架正确应用**」（声明 → 模型 / 渲染），不是「数值等于某个常量」。写法 = 读同一份声明的**原始字节**（包内 `.json` / schema）与框架产出的模型逐项比对；观感类数值（尺寸 / 颜色 / 字号 / 间距）不得成为测试的判据，改声明就该继续绿 |
 | UI | 自动化只有两处：`tests/HYWDebugAssistant.VisualSnapshots`（真实渲染出 PNG，**必须独立进程**）与无头 UI 用例；其余由用户手工验证 |
 | 基准 | `HYWDebugAssistant.Benchmarks` **不进常规门禁**（`build.ps1 -RunBenchmarks` 按需）；热路径改动要给出分配数据 |

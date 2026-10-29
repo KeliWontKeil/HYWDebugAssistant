@@ -2,7 +2,7 @@
   "id": "hyw/tcp-server/1.0.0",
   "entryAssembly": "HYWDebugAssistant.Modules.TcpServer.dll",
   "entryType": "HYWDebugAssistant.Modules.TcpServer.TcpServerModule",
-  "frameworkCompatibility": ">=1.0.0 <2.0.0",
+  "frameworkCompatibility": ">=2.0.0 <3.0.0",
   "dependsOn": [],
   "resources": []
 }

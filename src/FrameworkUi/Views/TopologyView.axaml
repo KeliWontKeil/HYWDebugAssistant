@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
+             xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
              x:Class="HYWDebugAssistant.FrameworkUi.Views.TopologyView"
              x:DataType="vm:TopologyViewModel"
              xmlns:design="using:HYWDebugAssistant.FrameworkUi.Design"
@@ -9,87 +10,396 @@
              d:DesignWidth="780" d:DesignHeight="620"
              FontSize="12">
 
-    <!--
-      拓扑诊断弹窗（R-4）：**只读**。
-      这是界面中唯一出现代码化标识（`实例ID.口名`）的地方——它的用途就是诊断端口与连接关系。
-      v1 不做跨窗口长连线（`11` §2.3），"谁连着谁"由本表 + 口上标记 + 选中高亮共同表达。
-    -->
-    <Grid RowDefinitions="Auto,*,Auto" Margin="10">
-        <TextBlock Grid.Row="0"
-                   Margin="0,0,0,6"
-                   Foreground="{DynamicResource TextSecondary}"
-                   Text="{Binding Summary}" />
+    <UserControl.Styles>
+        <Style Selector="Button.stateFilter">
+            <Setter Property="MinHeight" Value="26" />
+            <Setter Property="Padding" Value="8,2" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="3" />
+        </Style>
+        <Style Selector="Button.stateFilter.active">
+            <Setter Property="Background" Value="{DynamicResource OverlaySelection}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentPrimary}" />
+        </Style>
 
-        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto">
-            <ItemsControl ItemsSource="{Binding Rows}">
+        <Style Selector="Border.listPane">
+            <Setter Property="Background" Value="{DynamicResource BgModule}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="3" />
+        </Style>
+        <Style Selector="Border.detailPane">
+            <Setter Property="Background" Value="{DynamicResource BgModule}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="3" />
+            <Setter Property="Padding" Value="10" />
+        </Style>
+        <Style Selector="Border.diagnostic">
+            <Setter Property="Background" Value="{DynamicResource OverlayHighlight}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="3" />
+            <Setter Property="Padding" Value="8,5" />
+        </Style>
+        <Style Selector="Border.diagnostic.problem">
+            <Setter Property="BorderBrush" Value="{DynamicResource SemanticWarn}" />
+        </Style>
+
+        <Style Selector="Ellipse.stateDot">
+            <Setter Property="Width" Value="8" />
+            <Setter Property="Height" Value="8" />
+            <Setter Property="Fill" Value="{DynamicResource SemanticOk}" />
+        </Style>
+        <Style Selector="Ellipse.stateDot.problem">
+            <Setter Property="Fill" Value="{DynamicResource SemanticWarn}" />
+        </Style>
+
+        <Style Selector="TextBlock.mutedSmall">
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+        </Style>
+        <Style Selector="TextBlock.groupLabel">
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="Margin" Value="2,8,0,2" />
+        </Style>
+        <Style Selector="TextBlock.warnText">
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="Foreground" Value="{DynamicResource SemanticWarn}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.errorText">
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="Foreground" Value="{DynamicResource SemanticError}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
+        <Style Selector="Border.memberChip">
+            <Setter Property="Background" Value="{DynamicResource OverlayHighlight}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="3" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="Margin" Value="0,2,4,0" />
+        </Style>
+        <Style Selector="Border.memberChip.unresolved">
+            <Setter Property="BorderBrush" Value="{DynamicResource SemanticWarn}" />
+        </Style>
+
+        <!-- 选中行用淡主题色，避免 Fluent 默认强强调色压住深色文字 -->
+        <Style Selector="ListBoxItem">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="ListBoxItem:selected">
+            <Setter Property="Background" Value="{DynamicResource OverlaySelection}" />
+        </Style>
+        <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource OverlaySelection}" />
+        </Style>
+
+        <Style Selector="Expander /template/ ToggleButton">
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+        </Style>
+    </UserControl.Styles>
+
+    <!--
+      拓扑诊断：左侧网络列表，右侧只描述选中的一条网络。
+      这里不画自由节点图；网络 = 源集合 → 宿集合，用列表 + 链路带 + 源指标表表达。
+    -->
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="10">
+
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <StackPanel Grid.Column="0" Spacing="2">
+                <TextBlock Text="{loc:Tr topology.title}" FontSize="12" FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextPrimary}" />
+                <TextBlock Text="{Binding Summary}" Classes="mutedSmall" TextWrapping="Wrap" />
+            </StackPanel>
+            <Button Grid.Column="1" Content="?" VerticalAlignment="Top" ToolTip.Tip="{loc:Tr topology.help.tip}">
+                <Button.Flyout>
+                    <Flyout>
+                        <StackPanel Width="330" Spacing="4">
+                            <TextBlock Text="{loc:Tr topology.help.title}" FontWeight="SemiBold" />
+                            <TextBlock TextWrapping="Wrap" Classes="mutedSmall"
+                                       Text="{loc:Tr topology.help.readonly}" />
+                            <TextBlock TextWrapping="Wrap" Classes="mutedSmall"
+                                       Text="{loc:Tr topology.help.stalled}" />
+                            <TextBlock TextWrapping="Wrap" Classes="mutedSmall"
+                                       Text="{loc:Tr topology.help.rate}" />
+                            <TextBlock TextWrapping="Wrap" Classes="mutedSmall"
+                                       Text="{loc:Tr topology.help.raw}" />
+                        </StackPanel>
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+        </Grid>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
+            <TextBox Width="200" PlaceholderText="{loc:Tr topology.search.placeholder}"
+                     Text="{Binding SearchText, Mode=TwoWay}" />
+            <ItemsControl ItemsSource="{Binding StateFilters}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="6" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
-                    <DataTemplate DataType="vm:TopologyRowViewModel">
-                        <Grid ColumnDefinitions="120,50,170,40,50,70,60,80" Margin="0,1">
-                            <TextBlock Grid.Column="0" Text="{Binding NetworkName}"
-                                       FontFamily="{DynamicResource FontData}"
-                                       FontSize="11" Foreground="{DynamicResource TextPrimary}"
-                                       TextTrimming="CharacterEllipsis" />
-                            <TextBlock Grid.Column="1" Text="{Binding Kind}"
-                                       FontSize="11" Foreground="{DynamicResource TextSecondary}" />
-                            <TextBlock Grid.Column="2" Text="{Binding Member}"
-                                       FontFamily="{DynamicResource FontData}"
-                                       FontSize="11" Foreground="{DynamicResource TextSecondary}"
-                                       TextTrimming="CharacterEllipsis" />
-                            <TextBlock Grid.Column="3" Text="{Binding Direction}"
-                                       FontSize="11" Foreground="{DynamicResource TextMuted}" />
-                            <TextBlock Grid.Column="4" Text="{Binding State}"
-                                       FontSize="11" Foreground="{DynamicResource TextMuted}" />
-                            <TextBlock Grid.Column="5" Text="{Binding Delivered}"
-                                       FontFamily="{DynamicResource FontData}"
-                                       FontSize="11" Foreground="{DynamicResource TextSecondary}" />
-                            <TextBlock Grid.Column="6" Text="{Binding Dropped}"
-                                       FontFamily="{DynamicResource FontData}"
-                                       FontSize="11" Foreground="{DynamicResource TextSecondary}" />
-                            <TextBlock Grid.Column="7" Text="{Binding LastDataTime}"
-                                       FontFamily="{DynamicResource FontData}"
-                                       FontSize="11" Foreground="{DynamicResource TextMuted}" />
-                        </Grid>
+                    <DataTemplate DataType="vm:TopologyStateFilterViewModel">
+                        <Button Classes="stateFilter" Classes.active="{Binding IsSelected}"
+                                Click="OnSelectState">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="{Binding Label}" />
+                                <TextBlock Text="{Binding Count}" Classes="mutedSmall" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-        </ScrollViewer>
-
-        <!--
-          **占位实例（诊断）**【修正 · 用户第六轮反馈】：它属于诊断，不放在"模块清单"页；
-          数据与命令仍由模块清单视图模型提供（`Catalog` 引用），此处只呈现。
-        -->
-        <StackPanel Grid.Row="2" Margin="0,10,0,0" Spacing="4">
-            <TextBlock Text="占位实例（模块定义缺失：保留配置与连线声明）"
-                       TextWrapping="Wrap"
-                       Foreground="{DynamicResource TextPrimary}" />
-
-            <Grid ColumnDefinitions="*,Auto">
-                <ListBox Grid.Column="0"
-                         MaxHeight="96"
-                         ItemsSource="{Binding Catalog.Placeholders}"
-                         SelectedItem="{Binding Catalog.SelectedPlaceholder, Mode=TwoWay}">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate DataType="vm:PlaceholderRowViewModel">
-                            <TextBlock Margin="0,2"
-                                       FontFamily="{DynamicResource FontData}"
-                                       FontSize="11"
-                                       Text="{Binding InstanceId}"
-                                       Foreground="{DynamicResource TextPrimary}" />
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-                <Button Grid.Column="1"
-                        Content="指定替代"
-                        Margin="6,0,0,0"
-                        VerticalAlignment="Top"
-                        Command="{Binding Catalog.ResolveCommand}"
-                        ToolTip.Tip="用「模块清单」里选中的模块替代该占位实例（版本不兼容时的补救路径）" />
-            </Grid>
-
-            <TextBlock FontSize="11"
-                       TextWrapping="Wrap"
-                       Foreground="{DynamicResource TextMuted}"
-                       Text="提示：每个模块实例都有自己的窗口——运行/停用、锁定、隐藏、移除与配置都在它自己的窗口上操作。" />
         </StackPanel>
+
+        <Grid Grid.Row="2" ColumnDefinitions="220,1,*" ColumnSpacing="0" Margin="0,8,0,0">
+            <!-- 左：网络列表（不在列表里放指标） -->
+            <Border Grid.Column="0" Classes="listPane">
+                <Panel>
+                    <ListBox ItemsSource="{Binding Networks}"
+                             SelectedItem="{Binding SelectedNetwork, Mode=TwoWay}"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Padding="2"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="vm:TopologyNetworkViewModel">
+                                <StackPanel Margin="2,1">
+                                    <TextBlock Text="{Binding GroupLabel}" Classes="groupLabel"
+                                               IsVisible="{Binding HasGroupLabel}" />
+                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6" MinHeight="34">
+                                        <Ellipse Grid.Column="0" Classes="stateDot"
+                                                 Classes.problem="{Binding IsProblem}"
+                                                 VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="1">
+                                            <TextBlock Text="{Binding DisplayName}"
+                                                       FontSize="11"
+                                                       Foreground="{DynamicResource TextPrimary}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding MemberSummary}"
+                                                       Classes="mutedSmall" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2" Text="{Binding KindLabel}"
+                                                   Classes="mutedSmall" VerticalAlignment="Top" />
+                                    </Grid>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <TextBlock IsVisible="{Binding !HasFilteredNetworks}"
+                               Margin="12" TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextMuted}"
+                               Text="{loc:Tr topology.empty.filtered}" />
+                </Panel>
+            </Border>
+
+            <Rectangle Grid.Column="1" Fill="{DynamicResource BorderDefault}" />
+
+            <!-- 右：选中网络的诊断详情 -->
+            <Border Grid.Column="2" Classes="detailPane">
+                <Panel>
+                    <TextBlock IsVisible="{Binding !HasSelection}"
+                               Margin="6" TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextMuted}"
+                               Text="{loc:Tr topology.empty.noSelection}" />
+
+                    <Grid IsVisible="{Binding HasSelection}" RowDefinitions="Auto,Auto,*">
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="{Binding SelectedNetwork.DisplayName}"
+                                               FontSize="12" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimary}" />
+                                    <TextBlock Text="{Binding SelectedNetwork.KindLabel}"
+                                               Classes="mutedSmall" VerticalAlignment="Center" />
+                                    <TextBlock Text="{loc:Tr topology.state.stalled}" Classes="warnText"
+                                               VerticalAlignment="Center"
+                                               IsVisible="{Binding SelectedNetwork.HasStalled}" />
+                                    <TextBlock Text="{loc:Tr topology.state.unresolved}" Classes="errorText"
+                                               VerticalAlignment="Center"
+                                               IsVisible="{Binding SelectedNetwork.HasUnresolved}" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding SelectedNetwork.MemberSummary}"
+                                           Classes="mutedSmall" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="{loc:Tr topology.copy}"
+                                    VerticalAlignment="Top"
+                                    ToolTip.Tip="{loc:Tr topology.copy.tip}"
+                                    Click="OnCopyNetwork" />
+                        </Grid>
+
+                        <Border Grid.Row="1" Classes="diagnostic"
+                                Classes.problem="{Binding SelectedNetwork.IsProblem}"
+                                Margin="0,8,0,0">
+                            <TextBlock Text="{Binding SelectedNetwork.DiagnosticText}"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource TextPrimary}" />
+                        </Border>
+
+                        <ScrollViewer Grid.Row="2" Margin="0,8,0,0"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Auto">
+                            <StackPanel Spacing="10">
+                                <!-- 链路：只表达谁连谁，不塞指标 -->
+                                <StackPanel Spacing="3">
+                                    <TextBlock Text="{loc:Tr topology.section.links}" Classes="mutedSmall" />
+                                    <Grid ColumnDefinitions="*,Auto,*" ColumnSpacing="6">
+                                        <StackPanel Grid.Column="0" Spacing="2">
+                                            <TextBlock Text="{loc:Tr topology.source}" Classes="mutedSmall" />
+                                            <ItemsControl ItemsSource="{Binding SelectedNetwork.Sources}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <WrapPanel />
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="vm:TopologyMemberViewModel">
+                                                        <Border Classes="memberChip"
+                                                                Classes.unresolved="{Binding IsUnresolved}"
+                                                                ToolTip.Tip="{Binding Raw}">
+                                                            <TextBlock Text="{Binding DisplayName}"
+                                                                       FontSize="11"
+                                                                       Foreground="{DynamicResource TextPrimary}" />
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="→"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextMuted}" />
+                                        <StackPanel Grid.Column="2" Spacing="2">
+                                            <TextBlock Text="{loc:Tr topology.target}" Classes="mutedSmall" />
+                                            <ItemsControl ItemsSource="{Binding SelectedNetwork.Targets}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <WrapPanel />
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="vm:TopologyMemberViewModel">
+                                                        <Border Classes="memberChip"
+                                                                Classes.unresolved="{Binding IsUnresolved}"
+                                                                ToolTip.Tip="{Binding Raw}">
+                                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                                <TextBlock Text="{Binding DisplayName}"
+                                                                           FontSize="11"
+                                                                           Foreground="{DynamicResource TextPrimary}" />
+                                                                <TextBlock Text="{Binding StateText}"
+                                                                           Classes="errorText"
+                                                                           IsVisible="{Binding IsUnresolved}" />
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- 源指标：速率的唯一出现位置 -->
+                                <StackPanel Spacing="3">
+                                    <TextBlock Text="{loc:Tr topology.section.sourceMetrics}" Classes="mutedSmall" />
+                                    <Grid ColumnDefinitions="*,64,52,76,70" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="{loc:Tr topology.source}" Classes="mutedSmall" />
+                                        <TextBlock Grid.Column="1" Text="{loc:Tr topology.metric.delivered}" Classes="mutedSmall"
+                                                   HorizontalAlignment="Right" />
+                                        <TextBlock Grid.Column="2" Text="{loc:Tr topology.metric.dropped}" Classes="mutedSmall"
+                                                   HorizontalAlignment="Right" />
+                                        <TextBlock Grid.Column="3" Text="{loc:Tr topology.metric.rate}" Classes="mutedSmall"
+                                                   HorizontalAlignment="Right" />
+                                        <TextBlock Grid.Column="4" Text="{loc:Tr topology.metric.last}" Classes="mutedSmall"
+                                                   HorizontalAlignment="Right" />
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding SelectedNetwork.Sources}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="vm:TopologyMemberViewModel">
+                                                <Grid ColumnDefinitions="*,64,52,76,70" ColumnSpacing="4"
+                                                      Margin="0,2">
+                                                    <StackPanel Grid.Column="0">
+                                                        <TextBlock Text="{Binding DisplayName}"
+                                                                   FontSize="11"
+                                                                   Foreground="{DynamicResource TextPrimary}"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   ToolTip.Tip="{Binding Raw}" />
+                                                    </StackPanel>
+                                                    <TextBlock Grid.Column="1" Text="{Binding DeliveredText}"
+                                                               FontFamily="{DynamicResource FontData}"
+                                                               FontSize="10"
+                                                               HorizontalAlignment="Right"
+                                                               Foreground="{DynamicResource TextSecondary}" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding DroppedText}"
+                                                               FontFamily="{DynamicResource FontData}"
+                                                               FontSize="10"
+                                                               HorizontalAlignment="Right"
+                                                               Foreground="{DynamicResource TextSecondary}" />
+                                                    <TextBlock Grid.Column="3" Text="{Binding RateText}"
+                                                               FontFamily="{DynamicResource FontData}"
+                                                               FontSize="10"
+                                                               HorizontalAlignment="Right"
+                                                               Foreground="{DynamicResource TextSecondary}" />
+                                                    <TextBlock Grid.Column="4" Text="{Binding LastDataText}"
+                                                               FontFamily="{DynamicResource FontData}"
+                                                               FontSize="10"
+                                                               HorizontalAlignment="Right"
+                                                               Foreground="{DynamicResource TextMuted}" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+
+                                <TextBlock Classes="mutedSmall" TextWrapping="Wrap"
+                                           Text="{loc:Tr topology.help.footer}" />
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+                </Panel>
+            </Border>
+        </Grid>
+
+        <!-- 占位实例：诊断对象，独立折叠；没有时整区隐藏 -->
+        <Expander Grid.Row="3" Margin="0,8,0,0"
+                  IsVisible="{Binding HasPlaceholders}"
+                  IsExpanded="False"
+                  Header="{Binding PlaceholderHeader}">
+            <StackPanel Spacing="4" Margin="0,4,0,0">
+                <Grid ColumnDefinitions="*,Auto">
+                    <ListBox Grid.Column="0" MaxHeight="96"
+                             ItemsSource="{Binding Catalog.Placeholders}"
+                             SelectedItem="{Binding Catalog.SelectedPlaceholder, Mode=TwoWay}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="vm:PlaceholderRowViewModel">
+                                <StackPanel Margin="0,2">
+                                    <TextBlock FontFamily="{DynamicResource FontData}"
+                                               FontSize="11"
+                                               Text="{Binding InstanceId}"
+                                               Foreground="{DynamicResource TextPrimary}" />
+                                    <TextBlock FontSize="10"
+                                               Text="{Binding ModuleId}"
+                                               Foreground="{DynamicResource TextMuted}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <Button Grid.Column="1" Content="{loc:Tr topology.replace}" Margin="6,0,0,0"
+                            VerticalAlignment="Top"
+                            Command="{Binding Catalog.ResolveCommand}"
+                            ToolTip.Tip="{loc:Tr topology.replace.tip}" />
+                </Grid>
+            </StackPanel>
+        </Expander>
     </Grid>
 </UserControl>

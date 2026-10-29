@@ -29,6 +29,7 @@ public sealed class ModuleInstance
         IReadOnlyList<Sdk.Ports.FlowDeclaration> flows,
         IReadOnlyList<Sdk.Views.DisplaySourceDeclaration> displaySources,
         IReadOnlyList<string> inputs,
+        IReadOnlyCollection<string> persistentInputs,
         IReadOnlyList<(string Name, string Title)> commands,
         IReadOnlyList<ExternalAccessDeclaration> externalAccesses,
         Context.ModuleContext context)
@@ -42,6 +43,7 @@ public sealed class ModuleInstance
         Flows = flows;
         DisplaySources = displaySources;
         Inputs = inputs;
+        PersistentInputs = persistentInputs;
         Commands = commands;
         ExternalAccesses = externalAccesses;
         Context = context;
@@ -98,6 +100,9 @@ public sealed class ModuleInstance
 
     /// <summary>该实例声明的**输入源名**（提交闸门：未登记的名字拒收并报 Issue）。</summary>
     public IReadOnlyList<string> Inputs { get; }
+
+    /// <summary>声明为持久化的输入源名（随组合件/工作区保存）。</summary>
+    public IReadOnlyCollection<string> PersistentInputs { get; }
 
     /// <summary>该实例声明的**命令**（名字 + 诊断用标题；触发闸门据此判定）。</summary>
     public IReadOnlyList<(string Name, string Title)> Commands { get; }

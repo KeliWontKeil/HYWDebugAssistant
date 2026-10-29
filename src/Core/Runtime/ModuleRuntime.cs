@@ -18,6 +18,7 @@ using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Text;
 using System.Diagnostics;
 
 namespace HYWDebugAssistant.Core.Runtime;
@@ -41,6 +42,7 @@ public sealed partial class ModuleRuntime : IDisposable
     private readonly Dictionary<string, ModuleCarrierAdapter> _adapters = new(StringComparer.Ordinal);
     private readonly Dictionary<string, RuntimeExternalAccess> _accesses = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Views.SubscriptionSet> _subscriptions = new(StringComparer.Ordinal);
+    private readonly IExternalAccessCatalog? _catalog;
     private readonly ModuleLifecycleController _lifecycle;
 
     private BindingSet _bindings = BindingSet.Empty;
@@ -53,14 +55,20 @@ public sealed partial class ModuleRuntime : IDisposable
     /// **视图状态存取面**：创建实例时按实例绑一份**只读**读取面交给模块
     /// （`IModuleContext.ViewState`），移除实例时清理该实例的视图状态。`null` ⇒ 不注入（模块读到"全部未知"）。
     /// </param>
+    /// <param name="catalog">
+    /// **外部标准目录**：按模块声明的标准标识解析适配器与参数类型；`null` ⇒ 外部接入不接线，
+    /// 模块收到 Error 后以未接线状态继续（老调用点零改动）。
+    /// </param>
     public ModuleRuntime(
         IssueCenter? issues = null,
         CarrierOptions? carrierOptions = null,
-        Api.IViewStateAccess? viewState = null)
+        Api.IViewStateAccess? viewState = null,
+        IExternalAccessCatalog? catalog = null)
     {
         Issues = issues ?? new IssueCenter();
         Carriers = new CarrierHost(options: carrierOptions);
-        ExternalAccessHost = new ExternalAccessHost(carrierOptions);
+        _catalog = catalog;
+        ExternalAccessHost = new ExternalAccessHost(carrierOptions, catalog);
         ExternalAccessHost.SignalResolver = instanceId =>
             Carriers.TryGet(instanceId, out var carrier) && carrier is not null
                 ? carrier.SignalWork
@@ -154,13 +162,13 @@ public sealed partial class ModuleRuntime : IDisposable
                 case AddModuleOperation add:
                     if (Content.IsInstanceIdTaken(add.InstanceId) || !pendingInstanceIds.Add(add.InstanceId))
                     {
-                        failures.Add($"实例 ID 已存在：{add.InstanceId}");
+                        failures.Add(CoreText.Get("core.runtime.instanceIdExists", add.InstanceId));
                         break;
                     }
 
                     if (!typeof(IModule).IsAssignableFrom(add.Definition.EntryType))
                     {
-                        failures.Add($"模块定义无效（入口类型未实现 IModule）：{add.InstanceId}");
+                        failures.Add(CoreText.Get("core.runtime.moduleEntryNotModule", add.InstanceId));
                         break;
                     }
 
@@ -172,14 +180,15 @@ public sealed partial class ModuleRuntime : IDisposable
                         Issues,
                         ViewState?.ReaderFor(add.InstanceId),
                         (ViewState as Services.ViewStateStore)?.DisplayFor(add.InstanceId),
-                        FileAccessFor?.Invoke(add.InstanceId));
+                        FileAccessFor?.Invoke(add.InstanceId),
+                        catalog: _catalog);
                     plan.AddInstances.Add((created, new ModuleCarrierAdapter(created, created.Context, Issues)));
                     break;
 
                 case RemoveModuleOperation remove:
                     if (!Content.TryGetInstance(remove.InstanceId, out _) && !Content.TryGetPlaceholder(remove.InstanceId, out _))
                     {
-                        failures.Add($"实例不存在：{remove.InstanceId}");
+                        failures.Add(CoreText.Get("core.runtime.instanceMissing", remove.InstanceId));
                     }
                     else
                     {
@@ -191,15 +200,15 @@ public sealed partial class ModuleRuntime : IDisposable
                 case SetModuleEnabledOperation toggle:
                     if (!Content.TryGetInstance(toggle.InstanceId, out var toggleTarget) || toggleTarget is null)
                     {
-                        failures.Add($"实例不存在：{toggle.InstanceId}");
+                        failures.Add(CoreText.Get("core.runtime.instanceMissing", toggle.InstanceId));
                     }
                     else if (toggle.Enabled && toggleTarget.State != ModuleInstanceState.Disabled)
                     {
-                        failures.Add($"实例当前不处于禁用状态，无法启用：{toggle.InstanceId}");
+                        failures.Add(CoreText.Get("core.runtime.notDisabled", toggle.InstanceId));
                     }
                     else if (!toggle.Enabled && toggleTarget.State != ModuleInstanceState.Active)
                     {
-                        failures.Add($"实例当前不处于活动状态，无法禁用：{toggle.InstanceId}");
+                        failures.Add(CoreText.Get("core.runtime.notActive", toggle.InstanceId));
                     }
                     else
                     {
@@ -221,11 +230,11 @@ public sealed partial class ModuleRuntime : IDisposable
                 case DisconnectNetworkOperation disconnect:
                     if (string.IsNullOrWhiteSpace(disconnect.NetworkName))
                     {
-                        failures.Add("断开网络必须给出网络名（匿名网络随实例移除级联断开）");
+                        failures.Add(CoreText.Get("core.runtime.disconnectNeedsName"));
                     }
                     else if (!Content.Networks.Any(n => string.Equals(n.Name, disconnect.NetworkName, StringComparison.Ordinal)))
                     {
-                        failures.Add($"网络不存在：{disconnect.NetworkName}（匿名网络请用移除实例的方式级联断开）");
+                        failures.Add(CoreText.Get("core.runtime.networkMissing", disconnect.NetworkName));
                     }
                     else
                     {
@@ -237,7 +246,7 @@ public sealed partial class ModuleRuntime : IDisposable
                 case UpdateConfigurationOperation update:
                     if (!Content.TryGetInstance(update.InstanceId, out _))
                     {
-                        failures.Add($"实例不存在：{update.InstanceId}");
+                        failures.Add(CoreText.Get("core.runtime.instanceMissing", update.InstanceId));
                     }
                     else
                     {
@@ -249,11 +258,11 @@ public sealed partial class ModuleRuntime : IDisposable
                 case UpdateConfigurationsOperation updateMany:
                     if (!Content.TryGetInstance(updateMany.InstanceId, out _))
                     {
-                        failures.Add($"实例不存在：{updateMany.InstanceId}");
+                        failures.Add(CoreText.Get("core.runtime.instanceMissing", updateMany.InstanceId));
                     }
                     else if (updateMany.Configurations.Count == 0)
                     {
-                        failures.Add($"配置集合为空：{updateMany.InstanceId}");
+                        failures.Add(CoreText.Get("core.runtime.configSetEmpty", updateMany.InstanceId));
                     }
                     else
                     {
@@ -270,7 +279,7 @@ public sealed partial class ModuleRuntime : IDisposable
                     }
                     else if (!Content.IsInstanceIdTaken(layout.Layout.InstanceId))
                     {
-                        failures.Add($"实例不存在：{layout.Layout.InstanceId}");
+                        failures.Add(CoreText.Get("core.runtime.instanceMissing", layout.Layout.InstanceId));
                     }
                     else
                     {
@@ -282,19 +291,20 @@ public sealed partial class ModuleRuntime : IDisposable
                 case UpdatePortNetworkOperation portNetwork:
                     if (string.IsNullOrWhiteSpace(portNetwork.PortName))
                     {
-                        failures.Add("端口标签操作缺少口名");
+                        failures.Add(CoreText.Get("core.runtime.portLabelMissingName"));
                     }
                     else if (!Content.TryGetInstance(portNetwork.InstanceId, out var labeledInstance) || labeledInstance is null)
                     {
-                        failures.Add($"实例不存在：{portNetwork.InstanceId}");
+                        failures.Add(CoreText.Get("core.runtime.instanceMissing", portNetwork.InstanceId));
                     }
                     else if (labeledInstance.FindPort(portNetwork.PortName) is null)
                     {
-                        failures.Add($"口不存在：{portNetwork.InstanceId}.{portNetwork.PortName}");
+                        failures.Add(CoreText.Get("core.runtime.portMissing", portNetwork.InstanceId, portNetwork.PortName));
                     }
-                    else if (portNetwork.NetworkName is { Length: > 0 } label && !NetworkNaming.IsValidName(label, out var nameError))
+                    else if (portNetwork.NetworkName is { Length: > 0 } label
+                        && !NetworkNaming.TryValidateName(label, out var nameError))
                     {
-                        failures.Add(nameError!);
+                        failures.Add(DescribeNetworkNameError(nameError, label));
                     }
                     else
                     {
@@ -306,12 +316,12 @@ public sealed partial class ModuleRuntime : IDisposable
                 case SendCommandOperation command:
                     if (!Content.TryGetInstance(command.InstanceId, out var commandInstance) || commandInstance is null)
                     {
-                        failures.Add($"实例不存在：{command.InstanceId}");
+                        failures.Add(CoreText.Get("core.runtime.instanceMissing", command.InstanceId));
                     }
                     else if (!DeclaresCommand(commandInstance, command.CommandName))
                     {
                         // 未声明的命令**不静默**：直接拒绝，避免"点了没反应"
-                        failures.Add($"模块未声明命令：{command.InstanceId}.{command.CommandName}");
+                        failures.Add(CoreText.Get("core.runtime.commandUndeclared", command.InstanceId, command.CommandName));
                     }
                     else
                     {
@@ -323,14 +333,14 @@ public sealed partial class ModuleRuntime : IDisposable
                 case SubmitInputOperation input:
                     if (!Content.TryGetInstance(input.InstanceId, out var inputInstance) || inputInstance is null)
                     {
-                        failures.Add($"实例不存在：{input.InstanceId}");
+                        failures.Add(CoreText.Get("core.runtime.instanceMissing", input.InstanceId));
                     }
                     else if (!DeclaresInput(inputInstance, input.Source))
                     {
                         // **判定看的是模块声明的输入源集合**，不是"界面上有没有控件绑它"：
                         // 一条输入可以没有任何界面实体（例如系统对话框选完文件后回填的路径），
                         // 只认界面会让那种源被整个拒掉，表现是"选完了却什么都没发生"。
-                        failures.Add($"模块未声明该输入：{input.InstanceId}.{input.Source}");
+                        failures.Add(CoreText.Get("core.runtime.inputUndeclared", input.InstanceId, input.Source));
                     }
                     else
                     {
@@ -342,7 +352,7 @@ public sealed partial class ModuleRuntime : IDisposable
                 case ResetModuleConfigurationOperation reset:
                     if (!Content.TryGetInstance(reset.InstanceId, out var resetInstance) || resetInstance is null)
                     {
-                        failures.Add($"实例不存在：{reset.InstanceId}");
+                        failures.Add(CoreText.Get("core.runtime.instanceMissing", reset.InstanceId));
                     }
                     else
                     {
@@ -359,7 +369,7 @@ public sealed partial class ModuleRuntime : IDisposable
                     }
                     else if (!Content.IsInstanceIdTaken(geometry.InstanceId))
                     {
-                        failures.Add($"实例不存在：{geometry.InstanceId}");
+                        failures.Add(CoreText.Get("core.runtime.instanceMissing", geometry.InstanceId));
                     }
                     else
                     {
@@ -369,7 +379,7 @@ public sealed partial class ModuleRuntime : IDisposable
                     break;
 
                 default:
-                    failures.Add($"不支持的变更操作：{operation.GetType().Name}");
+                    failures.Add(CoreText.Get("core.runtime.unsupportedOperation", operation.GetType().Name));
                     break;
             }
         }
@@ -384,20 +394,20 @@ public sealed partial class ModuleRuntime : IDisposable
 
         if (!Content.TryGetInstance(connect.Source.InstanceId, out var sourceInstance) || sourceInstance is null)
         {
-            errors.Add($"源实例不存在：{connect.Source.InstanceId}");
+            errors.Add(CoreText.Get("core.runtime.sourceInstanceMissing", connect.Source.InstanceId));
             return errors;
         }
 
         var sourcePort = sourceInstance.FindPort(connect.Source.PortName);
         if (sourcePort is null)
         {
-            errors.Add($"源口不存在：{connect.Source}");
+            errors.Add(CoreText.Get("core.runtime.sourcePortMissing", connect.Source));
             return errors;
         }
 
         if (sourcePort.Direction != PortDirection.Send)
         {
-            errors.Add($"源必须是发送口：{connect.Source}（当前为 {sourcePort.Direction}）");
+            errors.Add(CoreText.Get("core.runtime.sourceNotSend", connect.Source, sourcePort.Direction));
         }
 
         var targets = new List<NetworkMember>();
@@ -405,20 +415,26 @@ public sealed partial class ModuleRuntime : IDisposable
         {
             if (!Content.TryGetInstance(target.InstanceId, out var targetInstance) || targetInstance is null)
             {
-                errors.Add($"目标实例不存在：{target.InstanceId}");
+                errors.Add(CoreText.Get("core.runtime.targetInstanceMissing", target.InstanceId));
                 continue;
             }
 
             var targetPort = targetInstance.FindPort(target.PortName);
             if (targetPort is null)
             {
-                errors.Add($"目标口不存在：{target}");
+                errors.Add(CoreText.Get("core.runtime.targetPortMissing", target));
                 continue;
             }
 
             if (targetPort.Direction != PortDirection.Receive)
             {
-                errors.Add($"目标必须是接收口：{target}（当前为 {targetPort.Direction}）");
+                errors.Add(CoreText.Get("core.runtime.targetNotReceive", target, targetPort.Direction));
+                continue;
+            }
+
+            if (string.Equals(connect.Source.InstanceId, target.InstanceId, StringComparison.Ordinal))
+            {
+                errors.Add(CoreText.Get("core.runtime.selfConnect", connect.Source, target));
                 continue;
             }
 
@@ -430,7 +446,7 @@ public sealed partial class ModuleRuntime : IDisposable
 
             if (!compatibility.IsCompatible)
             {
-                errors.Add($"契约不兼容（{connect.Source} → {target}）：{compatibility.Reason}");
+                errors.Add(CoreText.Get("core.runtime.contractIncompatible", connect.Source, target, compatibility.Reason));
                 continue;
             }
 
@@ -439,13 +455,13 @@ public sealed partial class ModuleRuntime : IDisposable
 
         if (connect.Name is { Length: > 0 } name)
         {
-            if (!NetworkNaming.IsValidName(name, out var nameError))
+            if (!NetworkNaming.TryValidateName(name, out var nameError))
             {
-                errors.Add(nameError!);
+                errors.Add(DescribeNetworkNameError(nameError, name));
             }
             else if (Content.IsNameTaken(name))
             {
-                errors.Add($"网络名已被占用：{name}");
+                errors.Add(CoreText.Get("core.runtime.networkNameTaken", name));
             }
         }
 
@@ -484,7 +500,7 @@ public sealed partial class ModuleRuntime : IDisposable
                 Issues.Report($"module:{instance.InstanceId}", new IssueReport(
                     IssueCategory.RuntimeError,
                     IssueSeverity.Error,
-                    $"承载启动失败：{failure}（该实例已加入但无活动，可移除后重试）"));
+                    CoreText.Get("core.runtime.carrierStartFailed", failure)));
                 continue;
             }
 
@@ -545,7 +561,7 @@ public sealed partial class ModuleRuntime : IDisposable
                 SignalCarrier(instanceId);
 
                 var title = CommandTitle(commandInstance, commandName) ?? commandName;
-                notices.Add($"已投递命令「{title}」→ {commandInstance.Definition.DisplayName}");
+                notices.Add(CoreText.Get("core.runtime.commandDelivered", title, commandInstance.Definition.DisplayName));
             }
         }
 
@@ -555,7 +571,7 @@ public sealed partial class ModuleRuntime : IDisposable
             {
                 inputInstance.Context.EnqueueInput(source, text);
                 SignalCarrier(instanceId);
-                notices.Add($"已写入输入「{source}」= {text} → {inputInstance.Definition.DisplayName}");
+                notices.Add(CoreText.Get("core.runtime.inputWritten", source, text, inputInstance.Definition.DisplayName));
             }
         }
 
@@ -566,7 +582,7 @@ public sealed partial class ModuleRuntime : IDisposable
             {
                 _ = resetInstance.Context.ResetConfiguration();
                 NotifyConfigurationChanged(instanceId);
-                notices.Add($"已还原默认配置：{resetInstance.Definition.DisplayName}");
+                notices.Add(CoreText.Get("core.runtime.configReset", resetInstance.Definition.DisplayName));
             }
         }
 
@@ -579,8 +595,9 @@ public sealed partial class ModuleRuntime : IDisposable
         {
             RemoveInstanceCore(instanceId);
 
-            // 视图状态随实例移除清理（"不持久化、关闭模块即丢"）
+            // 视图状态/模块壁纸随实例移除清理（关闭模块即丢；保存过的副本在组合件/工作区里）
             ViewState?.RemoveInstance(instanceId);
+            RemoveWallpaper(instanceId);
         }
 
         // **每次变更都重算派生网络**：布局（拖动/缩放）· 增删启停 · 标签变更 · 加载
@@ -592,6 +609,22 @@ public sealed partial class ModuleRuntime : IDisposable
     // 不再从任何界面数据文件里翻找 —— 那会让"同一件事有两个来源"，而两个来源迟早会打架。
     private static bool DeclaresInput(Hosting.Instances.ModuleInstance instance, string source) =>
         instance.Inputs.Contains(source, StringComparer.Ordinal);
+
+    /// <summary>把网络名校验枚举翻成文本表里的文案（拥有者 = Core 程序集）。</summary>
+    private static string DescribeNetworkNameError(NetworkNameError error, string name) => error switch
+    {
+        NetworkNameError.Empty => TextCatalog.Get(typeof(NetworkNaming).Assembly, NetworkNameText.Empty, name),
+        NetworkNameError.TooLong => TextCatalog.Get(
+            typeof(NetworkNaming).Assembly,
+            NetworkNameText.TooLong,
+            name,
+            NetworkNaming.MaxNameLength),
+        NetworkNameError.ContainsWhitespace => TextCatalog.Get(
+            typeof(NetworkNaming).Assembly,
+            NetworkNameText.ContainsWhitespace,
+            name),
+        _ => string.Empty,
+    };
 
     private static bool DeclaresCommand(Hosting.Instances.ModuleInstance instance, string commandName) =>
         instance.Commands.Any(command => string.Equals(command.Name, commandName, StringComparison.Ordinal));
@@ -652,15 +685,19 @@ public sealed partial class ModuleRuntime : IDisposable
             if (layout is null)
             {
                 problems.Add(new IssueReport(
-                    IssueCategory.InterfaceError, IssueSeverity.Error, $"无法解析源口契约（源 {source} 未建立绑定）"));
+                    IssueCategory.InterfaceError, IssueSeverity.Error, CoreText.Get("core.runtime.contractSourceUnbound", source)));
                 continue;
             }
 
-            var targets = network.Targets.Where(target => IsPairCompatible(network, source, target)).ToList();
+            // **同一实例的端口不能自连**：与命名网络构建同一口径，防止历史/显式网络形成自环。
+            var targets = network.Targets
+                .Where(target => !string.Equals(target.InstanceId, source.InstanceId, StringComparison.Ordinal))
+                .Where(target => IsPairCompatible(network, source, target))
+                .ToList();
             if (targets.Count == 0)
             {
                 problems.Add(new IssueReport(
-                    IssueCategory.InterfaceError, IssueSeverity.Warning, $"源 {source} 没有契约兼容的宿（该源未建立绑定）"));
+                    IssueCategory.InterfaceError, IssueSeverity.Warning, CoreText.Get("core.runtime.sourceNoCompatibleTarget", source)));
                 continue;
             }
 
@@ -670,7 +707,7 @@ public sealed partial class ModuleRuntime : IDisposable
         if (additions.Count == 0)
         {
             problems.Add(new IssueReport(
-                IssueCategory.InterfaceError, IssueSeverity.Error, "网络未建立任何绑定（全部源都不可用）"));
+                IssueCategory.InterfaceError, IssueSeverity.Warning, CoreText.Get("core.runtime.noBindings")));
         }
 
         // ② **一次 CAS** 用"该网络的新绑定集"整体替换它的旧绑定集。
@@ -919,7 +956,7 @@ public sealed partial class ModuleRuntime : IDisposable
 
         object? ParametersOf(ExternalAccessDeclaration declaration)
         {
-            var typeName = declaration.ParametersType.FullName;
+            var typeName = ResolveAccessParametersType(declaration.StandardId)?.FullName;
             return typeName is not null
                 && instance.Context.ConfigurationSnapshot.TryGetValue(typeName, out var parameters)
                     ? parameters
@@ -935,12 +972,26 @@ public sealed partial class ModuleRuntime : IDisposable
             Issues.Report($"module:{instance.InstanceId}", new IssueReport(
                 IssueCategory.RuntimeError,
                 IssueSeverity.Error,
-                $"外部接入初始化失败：{failure}（该实例继续以未接线状态运行）"));
+                CoreText.Get("core.runtime.externalAccessInitFailed", failure)));
             return null;
         }
 
         instance.Context.AttachAccess(access);
         return access;
+    }
+
+    /// <summary>
+    /// 按标准标识从 catalog 解析参数类型（无 catalog / 未知标准 ⇒ <see langword="null"/>）。
+    /// </summary>
+    /// <param name="standardId">外部标准标识。</param>
+    private Type? ResolveAccessParametersType(string standardId)
+    {
+        if (_catalog is null || string.IsNullOrWhiteSpace(standardId))
+        {
+            return null;
+        }
+
+        return _catalog.TryResolve(standardId, out var descriptor) ? descriptor.ParametersType : null;
     }
 
     private void SignalCarrier(string instanceId)
@@ -1007,7 +1058,7 @@ public sealed partial class ModuleRuntime : IDisposable
         catch (Exception ex) when (ex is ArgumentException or System.Reflection.TargetInvocationException)
         {
             Issues.Report($"module:{instanceId}", new IssueReport(
-                IssueCategory.ConfigurationError, IssueSeverity.Error, $"配置写回失败：{ex.Message}"));
+                IssueCategory.ConfigurationError, IssueSeverity.Error, CoreText.Get("core.runtime.configWriteFailed", ex.Message)));
             return;
         }
 
@@ -1072,7 +1123,7 @@ public sealed partial class ModuleRuntime : IDisposable
             Issues.Report($"module:{instanceId}", new IssueReport(
                 IssueCategory.ModuleError,
                 IssueSeverity.Error,
-                "模块未在期限内停止活动：框架已放弃等待（线程成为孤儿），该实例的队列与缓冲不再归还池"));
+                CoreText.Get("core.runtime.moduleStopTimeout")));
         }
 
         // 承载已停：宿主兜底关闭会话（模块循环通常已在停止信号里关过一次）。
@@ -1081,9 +1132,9 @@ public sealed partial class ModuleRuntime : IDisposable
             foreach (var failure in accessFailures)
             {
                 Issues.Report($"module:{instanceId}", new IssueReport(
-                    IssueCategory.CommunicationError,
-                    IssueSeverity.Error,
-                    $"外部接入「{failure.AccessName}」：{failure.Message}"));
+                    ExternalAccessIssue.CategoryOf(failure),
+                    ExternalAccessIssue.Severity,
+                    CoreText.Get("core.runtime.externalAccessFailure", failure.AccessName, failure.Message)));
             }
         }
 
@@ -1262,7 +1313,7 @@ public sealed partial class ModuleRuntime : IDisposable
         Issues.Report($"module:{instanceId}", new IssueReport(
             IssueCategory.PresentationError,
             IssueSeverity.Warning,
-            $"订阅写入被丢弃：{dataSourceName} — {failure}"));
+            CoreText.Get("core.runtime.subscriptionDiscarded", dataSourceName, failure)));
     }
 
     /// <summary>取某实例的订阅缓冲集合（框架侧与查询面使用）。</summary>

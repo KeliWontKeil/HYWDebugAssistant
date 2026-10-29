@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Globalization;
 using System.Text;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Modules.HexStringConverter;
 
@@ -76,7 +77,11 @@ internal static class ConverterCodec
         {
             if (segment.Length != 2)
             {
-                failure = $"「{segment}」是 {segment.Length} 位；每段必须恰好两位（如 `0D 0A`）";
+                failure = TextCatalog.Get(
+                    typeof(ConverterCodec).Assembly,
+                    HexStringConverterText.StatusHexSegmentLength,
+                    segment,
+                    segment.Length);
                 return false;
             }
 
@@ -84,7 +89,11 @@ internal static class ConverterCodec
             {
                 if (!Uri.IsHexDigit(ch))
                 {
-                    failure = $"「{segment}」里有非十六进制字符 '{ch}'（只接受 0-9 / A-F / a-f）";
+                    failure = TextCatalog.Get(
+                        typeof(ConverterCodec).Assembly,
+                        HexStringConverterText.StatusHexNonHex,
+                        segment,
+                        ch);
                     return false;
                 }
             }
@@ -112,7 +121,10 @@ internal static class ConverterCodec
         }
         catch (DecoderFallbackException ex)
         {
-            failure = $"不是合法的 UTF-8 字节序列（{ex.Message}）";
+            failure = TextCatalog.Get(
+                typeof(ConverterCodec).Assembly,
+                HexStringConverterText.StatusUtf8Invalid,
+                ex.Message);
             return false;
         }
     }

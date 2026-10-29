@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using Avalonia.Threading;
 
 namespace HYWDebugAssistant.Ui.Controls;
 
@@ -49,13 +48,13 @@ public static class OverlayAnimationClock
 
     private static readonly List<WeakReference<ConnectionOverlay>> Subscribers = [];
 
-    private static DispatcherTimer? _timer;
+    private static bool _running;
 
     /// <summary>相位零点（时钟启动时刻）：相位 = 自此刻起的**真实时间** × 流速。</summary>
     private static long _origin;
 
     /// <summary>时钟当前是否在跑（无订阅者时为 <c>false</c>）。</summary>
-    public static bool IsRunning => _timer is not null;
+    public static bool IsRunning => _running;
 
     /// <summary>当前订阅者数量（测试用）。</summary>
     public static int SubscriberCount => Prune();
@@ -125,30 +124,28 @@ public static class OverlayAnimationClock
 
     private static void Start()
     {
-        if (_timer is not null)
+        if (_running)
         {
             return;
         }
 
         _origin = Stopwatch.GetTimestamp();   // 相位零点：从这里开始按**真实时间**算相位
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(IntervalMs) };
-        _timer.Tick += OnTick;
-        _timer.Start();
+        _running = true;
+        UiFrameClock.Subscribe(OnTick);
     }
 
     private static void Stop()
     {
-        if (_timer is null)
+        if (!_running)
         {
             return;
         }
 
-        _timer.Tick -= OnTick;
-        _timer.Stop();
-        _timer = null;
+        _running = false;
+        UiFrameClock.Unsubscribe(OnTick);
     }
 
-    private static void OnTick(object? sender, EventArgs e)
+    private static void OnTick()
     {
         // 相位由**真实时间**给出（见 `Phase`）⇒ 定时器抖动/合并只影响"多久重绘一次"，
         // 不会让相位走慢或跳变（这正是旧实现"一卡一卡"的原因）。

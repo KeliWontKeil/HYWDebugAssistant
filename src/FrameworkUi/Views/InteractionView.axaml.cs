@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using HYWDebugAssistant.FrameworkUi.ViewModels;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.FrameworkUi.Views;
 
@@ -33,9 +34,9 @@ public partial class InteractionView : UserControl
         var result = await ColorPickerDialog.ShowAsync(
             owner,
             row.CurrentColor,
-            $"编辑颜色 · {row.TypeKey}",
-            resetText: "恢复自动色",
-            hint: "推荐色与主题同一套；「恢复自动色」= 按类型身份哈希出的稳定色。");
+            TextCatalog.Get(typeof(InteractionView).Assembly, "interaction.colorDialog.title", row.TypeKey),
+            resetText: TextCatalog.Get(typeof(InteractionView).Assembly, "interaction.colorDialog.reset"),
+            hint: TextCatalog.Get(typeof(InteractionView).Assembly, "interaction.colorDialog.hint"));
 
         if (!result.Confirmed)
         {

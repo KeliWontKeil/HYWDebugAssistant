@@ -13,18 +13,24 @@ namespace HYWDebugAssistant.Access.Parameters;
 public sealed class TcpClientConfig
 {
     /// <summary>目标地址（主机名或 IP）。</summary>
-    [ConfigurationField("目标地址", Group = "连接", Description = "主机名或 IP 地址")]
+    [ConfigurationField(
+        TitleKey = TcpClientConfigText.Address,
+        GroupKey = TcpClientConfigText.GroupConnection,
+        DescriptionKey = TcpClientConfigText.AddressDescription)]
     public string RemoteHost { get; set; } = "127.0.0.1";
 
     /// <summary>目标端口。</summary>
-    [ConfigurationField("目标端口", Group = "连接", Minimum = 1, Maximum = 65535)]
-    public int RemotePort { get; set; } = 8080;
+    [ConfigurationField(TitleKey = TcpClientConfigText.Port, GroupKey = TcpClientConfigText.GroupConnection, Minimum = 1, Maximum = 65535)]
+    public int RemotePort { get; set; } = 60721;
 
     /// <summary>连接超时（秒）。</summary>
-    [ConfigurationField("超时(秒)", Group = "连接", Minimum = 1, Maximum = 60)]
+    [ConfigurationField(TitleKey = TcpClientConfigText.Timeout, GroupKey = TcpClientConfigText.GroupConnection, Minimum = 1, Maximum = 60)]
     public int ConnectTimeout { get; set; } = 5;
 
     /// <summary>是否禁用 Nagle 算法。</summary>
-    [ConfigurationField("禁用 Nagle", Group = "选项", Description = "勾上 = 小包即时发；不勾 = 允许内核攒包")]
+    [ConfigurationField(
+        TitleKey = TcpClientConfigText.NoDelay,
+        GroupKey = TcpClientConfigText.GroupOptions,
+        DescriptionKey = TcpClientConfigText.NoDelayDescription)]
     public bool NoDelay { get; set; } = true;
 }

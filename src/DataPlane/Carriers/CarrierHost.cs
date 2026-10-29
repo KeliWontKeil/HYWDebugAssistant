@@ -55,7 +55,7 @@ public sealed class CarrierHost : IDisposable
 
         if (!_carriers.TryAdd(target.InstanceId, null!))
         {
-            failure = $"实例已有承载者：{target.InstanceId}";
+            failure = DataPlaneText.Get("dataplane.carrier.alreadyExists", target.InstanceId);
             return false;
         }
 
@@ -69,7 +69,7 @@ public sealed class CarrierHost : IDisposable
         catch (ThreadStateException ex)
         {
             _carriers.TryRemove(target.InstanceId, out _);
-            failure = $"承载启动失败：{ex.Message}";
+            failure = DataPlaneText.Get("dataplane.carrier.startFailed", ex.Message);
             return false;
         }
 

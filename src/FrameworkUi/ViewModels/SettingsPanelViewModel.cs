@@ -1,8 +1,15 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
+using Avalonia;
+using Avalonia.Media;
+using Avalonia.Platform;
+using Avalonia.Styling;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Ui.Hotkeys;
+using HYWDebugAssistant.Ui.Images;
 using HYWDebugAssistant.Ui.Theming;
 using HYWDebugAssistant.Ui.ViewModels;
 namespace HYWDebugAssistant.FrameworkUi.ViewModels;
@@ -32,6 +39,10 @@ public sealed partial class HotkeyRowViewModel : ViewModelBase
     /// <summary>默认绑定（恢复默认用）。</summary>
     public string DefaultBinding { get; }
 
+    /// <summary>默认绑定的显示文本（"默认 {0}"；界面用，不参与持久化）。</summary>
+    public string DefaultBindingText =>
+        TextCatalog.Get(typeof(HotkeyRowViewModel).Assembly, "settings.hotkeys.defaultBinding", DefaultBinding);
+
     /// <summary>当前绑定（文本；空 = 不绑定）。</summary>
     [ObservableProperty]
     public partial string Binding { get; set; }
@@ -41,65 +52,31 @@ public sealed partial class HotkeyRowViewModel : ViewModelBase
     public partial bool IsCapturing { get; set; }
 }
 
-/// <summary>主题下拉里的一项（"跟随系统" 或某一套主题）。</summary>
-/// <param name="Id">选择值：<see cref="ThemeIds.System"/> 或主题名（写进设置的就是它）。</param>
+/// <summary>主题方案下拉项（“跟随系统”的浅色 / 深色模式各选一套）。</summary>
+/// <param name="Id">方案 id（内置或自定义）。</param>
 /// <param name="Title">显示名。</param>
-/// <remarks>下拉框直接显示 <see cref="ToString"/> ⇒ 覆写成显示名，界面侧不必再挂模板。</remarks>
-public sealed record ThemeChoice(string Id, string Title)
+/// <remarks>下拉框直接显示 <see cref="ToString"/> ⇒ 覆写成显示名。</remarks>
+public sealed record ThemeSchemeChoice(string Id, string Title)
 {
     /// <inheritdoc />
     public override string ToString() => Title;
 }
 
-/// <summary>模块来源根的诊断行（「模块清单」与设置页「模块与来源」共用）。</summary>
-public sealed record ModuleSourceRowViewModel
+/// <summary>关闭行为选项（值 = 持久化字符串，标题 = 界面文案）。</summary>
+public sealed record WorkspaceExitChoice(string Value, string Title)
 {
-    /// <summary>由来源根扫描结果创建。</summary>
-    /// <param name="source">扫描结果。</param>
-    public ModuleSourceRowViewModel(ModuleSourceView source)
-    {
-        ArgumentNullException.ThrowIfNull(source);
+    /// <inheritdoc />
+    public override string ToString() => Title;
+}
 
-        Directory = source.Directory;
-        Summary = !source.Exists
-            ? "目录不存在（已跳过）"
-            : $"包 {source.PackagesFound} 个 · 跳过子目录 {source.SkippedDirectories} 个 · 失败 {source.FailedPackages} 个";
-        Details = source.Messages.Count > 0 ? string.Join("\n", source.Messages) : "（没有模块包）";
-        HasFailures = source.FailedPackages > 0 || !source.Exists;
-    }
-
-    /// <summary>根目录路径。</summary>
-    public string Directory { get; }
-
-    /// <summary>
-    /// **紧凑显示路径**（一行一个目录，由于空间限制只显示几级，不显示的用省略号）。
-    /// </summary>
-    /// <remarks>
-    /// 规则：层级 ≤ 3 → 原样；否则 `…\<倒数第二级>\<末级>`（形如 `…\model\modelA`），
-    /// 完整路径仍在悬停提示里可见。
-    /// </remarks>
-    public string Display
-    {
-        get
-        {
-            var parts = Directory.TrimEnd('\\', '/').Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length <= 3)
-            {
-                return Directory;
-            }
-
-            return $"…\\{parts[^2]}\\{parts[^1]}";
-        }
-    }
-
-    /// <summary>一行摘要。</summary>
-    public string Summary { get; }
-
-    /// <summary>逐包结果（多行）。</summary>
-    public string Details { get; }
-
-    /// <summary>是否存在失败/缺失（界面强调用）。</summary>
-    public bool HasFailures { get; }
+/// <summary>界面语言选项（值 = 持久化的语言标识，标题 = 显示名）。</summary>
+/// <param name="Id">语言标识（`system` 或文化名）。</param>
+/// <param name="Title">显示名。</param>
+/// <remarks>下拉框直接显示 <see cref="ToString"/> ⇒ 覆写成显示名。</remarks>
+public sealed record LanguageChoice(string Id, string Title)
+{
+    /// <inheritdoc />
+    public override string ToString() => Title;
 }
 
 /// <summary>
@@ -109,8 +86,14 @@ public sealed record ModuleSourceRowViewModel
 /// <list type="bullet">
 ///   <item><b>与"模块配置"严格区分</b>：本面板改的是**应用行为偏好**（跨组合件、不入组合件）；
 ///     模块实例的参数在"模块"页里改；</item>
-///   <item><b>即时生效</b>：应用后立刻作用于运行时；校验失败**整体拒绝**并显示原因；</item>
-///   <item>键位/吸附模式等 UI 偏好项暂未纳入。</item>
+///   <item><b>三键机制</b>：任何改动都只是待生效；「应用」= 校验 → 生效 → 落盘并留在本页，
+///     「确认」= 应用并关闭，「取消」= 丢弃本次改动并关闭。**主题也走这三键**，
+///     主题卡只切换设置页里显示的色板草稿，不提前改全应用；</item>
+///   <item><b>主题草稿 = 一组主题文件夹的内存副本</b>：每个主题一份草稿（标题 / 基类型 / 色板 /
+///     壁纸字节 / 遮罩 / 表面）；「应用 / 确认」时**只写被编辑过的那几个**（脏集合），
+///     删除单独走 `DeleteTheme`（不经设置文件）；「取消」= 丢掉草稿重新从磁盘读；</item>
+///   <item><b>功能与设置分开</b>：模块来源管理与重扫在模块清单弹窗；日志查看 / Issue / 拓扑是独立功能；
+///     本页只保留真正的设置项。</item>
 /// </list>
 /// </remarks>
 public sealed partial class SettingsPanelViewModel : ViewModelBase
@@ -118,8 +101,76 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     private readonly IRuntimeQuery _query;
     private readonly IRuntimeCommand _command;
 
-    /// <summary>最近一次载入/生效的设置快照（外观即时生效时以此为基础，避免把未应用的编辑一起写盘）。</summary>
+    /// <summary>最近一次载入/生效的设置快照（即时生效开关以此为基础，避免把未应用的编辑一起写盘）。</summary>
     private ApplicationSettings? _lastLoaded;
+
+    /// <summary>外观标量草稿：主题选择 + 跟随系统两套 + 已投放 + 字体；由「应用 / 确认」统一落盘。</summary>
+    private AppearanceSettings _appearanceDraft = new();
+
+    /// <summary>主题草稿（id → 草稿）；磁盘上的主题在 <see cref="Load"/> 时全部读进来。</summary>
+    private readonly Dictionary<string, ThemeDraft> _themeDrafts = new(StringComparer.Ordinal);
+
+    /// <summary>草稿里已经移除、等「应用 / 确认」时才真正删文件夹的主题 id。</summary>
+    private readonly HashSet<string> _pendingDeletes = new(StringComparer.Ordinal);
+
+    /// <summary>载入/回读期间抑制属性变更带来的即时写盘。</summary>
+    private bool _loading;
+
+    /// <summary>切换选中主题时抑制标题 TextBox 的改名回调。</summary>
+    private bool _suppressTitleSync;
+
+    /// <summary>重建“跟随系统”下拉项时抑制选择变更回调。</summary>
+    private bool _suppressSystemChoiceSync;
+
+    /// <summary>
+    /// **一个主题的内存草稿**：磁盘主题的副本，或设置页里刚建出来还没落盘的新主题。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>脏集合</b>：<see cref="Dirty"/> 只对**被改过**的主题为真 ⇒「应用」只写它们
+    ///     （没改过的主题文件一个字节都不动）；</item>
+    ///   <item><b>壁纸字节暂存</b>：选图后先放在 <see cref="PendingWallpaper"/>，应用时随该主题写入；
+    ///     「取消」= 丢掉草稿 ⇒ 字节一起丢，磁盘不变；</item>
+    ///   <item><b>色板就是该主题的稀疏覆盖</b>：token → `#RRGGBB`（没写的跟随基类型内置值）。</item>
+    /// </list>
+    /// </remarks>
+    private sealed class ThemeDraft
+    {
+        public required string Id { get; init; }
+
+        public string Title { get; set; } = string.Empty;
+
+        public required ThemeBaseKind Base { get; set; }
+
+        public ThemeSource Source { get; set; } = ThemeSource.User;
+
+        public Dictionary<string, string> Palette { get; } = new(StringComparer.Ordinal);
+
+        public string? WallpaperFileName { get; set; }
+
+        public byte[]? PendingWallpaper { get; set; }
+
+        public bool ClearWallpaper { get; set; }
+
+        public int WallpaperRevision { get; set; }
+
+        public double WallpaperVeilOpacity { get; set; } = 0.55;
+
+        public double SurfaceOpacity { get; set; } = 0.70;
+
+        public bool Dirty { get; set; }
+
+        /// <summary>草稿身份（色块现算 / 卡片预览用；色板是**同一个字典实例**，改了立刻能刷新）。</summary>
+        public ThemeDescriptor ToDescriptor() => new(
+            Id,
+            string.IsNullOrWhiteSpace(Title) ? Loc("appearance.theme.custom.default") : Title.Trim(),
+            Base == ThemeBaseKind.Dark ? ThemeKind.Dark : ThemeKind.Light,
+            Source,
+            Palette,
+            WallpaperFileName,
+            WallpaperVeilOpacity,
+            SurfaceOpacity);
+    }
 
     /// <summary>创建设置面板视图模型。</summary>
     /// <param name="query">查询面。</param>
@@ -132,6 +183,16 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         _query = query;
         _command = command;
     }
+
+    /// <summary>取一条本程序集文本表里的文案。</summary>
+    /// <param name="key">键。</param>
+    private static string Loc(string key) => TextCatalog.Get(typeof(SettingsPanelViewModel).Assembly, key);
+
+    /// <summary>取一条带占位符的文案。</summary>
+    /// <param name="key">键。</param>
+    /// <param name="args">格式化参数。</param>
+    private static string Loc(string key, params object?[] args) =>
+        TextCatalog.Get(typeof(SettingsPanelViewModel).Assembly, key, args);
 
     // ---- 框架行为 ----
 
@@ -202,7 +263,11 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
             }
 
             OnPropertyChanged();
-            PersistLiveSwitches();
+
+            if (!_loading)
+            {
+                PersistLiveSwitches();
+            }
         }
     }
 
@@ -232,7 +297,11 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
             }
 
             OnPropertyChanged();
-            PersistLiveSwitches();
+
+            if (!_loading)
+            {
+                PersistLiveSwitches();
+            }
         }
     }
 
@@ -247,27 +316,98 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         _ = _command.UpdateSettings(settings);
     }
 
-    /// <summary>
-    /// **可选主题**（"跟随系统" + 目录里的每一套）——改动**即时生效**。
-    /// </summary>
-    /// <remarks>
-    /// 列表来自 <see cref="ThemeCatalog"/>：**加一套主题 = 目录里多一条**，本页不改。
-    /// "跟随系统"不是一个主题（它只是"按系统类型挑一套"），故排在最前。
-    /// </remarks>
-    public IReadOnlyList<ThemeChoice> ThemeChoices { get; } =
+    // ---- 外壳尺寸 ----
+
+    /// <summary>外壳窗口比例档位。</summary>
+    [ObservableProperty]
+    public partial string ShellAspect { get; set; } = "9:19.5";
+
+    /// <summary>外壳尺寸是否固定（默认固定）。</summary>
+    [ObservableProperty]
+    public partial bool ShellFixedSize { get; set; } = true;
+
+    /// <summary>比例档位选项（下拉用）。</summary>
+    public IReadOnlyList<string> ShellAspectOptions { get; } = ShellLayout.Aspects;
+
+    /// <summary>关闭主窗口时的行为选项。</summary>
+    public IReadOnlyList<WorkspaceExitChoice> WorkspaceExitChoices { get; } =
     [
-        new(ThemeIds.System, "跟随系统"),
-        .. ThemeCatalog.Themes.Select(theme => new ThemeChoice(theme.Id, theme.Title)),
+        new("Ask", Loc("settings.interaction.exit.ask")),
+        new("Save", Loc("settings.interaction.exit.save")),
+        new("Discard", Loc("settings.interaction.exit.discard")),
     ];
 
-    /// <summary>当前选中的主题项（**唯一状态**；写设置时取它的 <see cref="ThemeChoice.Id"/>）。</summary>
+    /// <summary>选中的关闭行为（草稿）。</summary>
     [ObservableProperty]
-    public partial ThemeChoice? SelectedThemeChoice { get; set; }
+    public partial WorkspaceExitChoice? SelectedWorkspaceExitChoice { get; set; }
+
+    // ---- 界面语言 ----
+
+    /// <summary>可选界面语言：「跟随系统」+ 文本表里实际存在的语言（显示名用该语言自己的名字）。</summary>
+    public IReadOnlyList<LanguageChoice> Languages { get; } = BuildLanguageChoices();
+
+    /// <summary>语言下拉的选中项（草稿）。</summary>
+    [ObservableProperty]
+    public partial LanguageChoice? SelectedLanguageChoice { get; set; }
+
+    /// <summary>界面语言草稿（持久化值 = 选项 id；「应用 / 确认」写回 <see cref="ApplicationSettings.UiLanguage"/>）。</summary>
+    public string SelectedLanguage => SelectedLanguageChoice?.Id ?? TextLanguages.System;
+
+    private static List<LanguageChoice> BuildLanguageChoices()
+    {
+        var choices = new List<LanguageChoice>(TextCatalog.SupportedLanguages.Count + 1)
+        {
+            new(TextLanguages.System, TextCatalog.Get(typeof(SettingsPanelViewModel).Assembly, "settings.general.language.title")),
+        };
+
+        foreach (var language in TextCatalog.SupportedLanguages)
+        {
+            choices.Add(new LanguageChoice(language, NativeName(language)));
+        }
+
+        return choices;
+    }
+
+    /// <summary>语言自己的显示名（取不到就退回语言标识）。</summary>
+    /// <param name="language">语言标识。</param>
+    private static string NativeName(string language)
+    {
+        try
+        {
+            return CultureInfo.GetCultureInfo(language).NativeName;
+        }
+        catch (CultureNotFoundException)
+        {
+            return language;
+        }
+    }
+
+    // ---- 多行提交键 ----
+
+    /// <summary>
+    /// **多行文本输入的提交键**——三档字符串（值域与 `ApplicationSettings` 一致）。
+    /// </summary>
+    /// <remarks>
+    /// 换行是极常见的行为，且**不同用户习惯不一样** ⇒ 做成**框架级可配置项**，
+    /// 而**不是**模块声明（模块只声明「我要多行」）。**只影响多行输入框**；单行输入仍「回车 / 失焦一次提交」。
+    /// </remarks>
+    [ObservableProperty]
+    public partial string MultilineSubmitKey { get; set; } = "CtrlEnter";
+
+    /// <summary>多行提交键选项（下拉用）：`CtrlEnter`（回车换行 / Ctrl+Enter 提交 / 失焦不提交）· `Enter`（回车提交 / Shift+Enter 换行）· `None`（键盘都不提交）。</summary>
+    public IReadOnlyList<string> MultilineSubmitKeyOptions { get; } = ["CtrlEnter", "Enter", "None"];
+
+    /// <summary>把多行提交键收敛到三档之一（非法/空 ⇒ 默认 `CtrlEnter`；与外观类设置同一容错口径：不校验、不提示）。</summary>
+    /// <param name="value">用户选择或文件里的值。</param>
+    private static string NormalizeSubmitKey(string? value) =>
+        value is "Enter" or "None" or "CtrlEnter" ? value : "CtrlEnter";
+
+    // ---- 字体 ----
 
     /// <summary>
     /// **界面字体**：框架自身界面文字用的字体族（资源键 `FontUi`）。
     /// </summary>
-    /// <remarks>可写**回退列表**（逗号分隔，如 <c>Times New Roman, 宋体</c>）；改动即时生效。</remarks>
+    /// <remarks>可写**回退列表**（逗号分隔，如 <c>Times New Roman, 宋体</c>）；改动随「应用 / 确认」生效。</remarks>
     [ObservableProperty]
     public partial string UiFontFamily { get; set; } = DefaultUiFontFamily;
 
@@ -293,11 +433,14 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     public IReadOnlyList<string> FontFamilyOptions { get; } =
         [DefaultUiFontFamily, DefaultDataFontFamily, .. LoadSystemFonts()];
 
-    /// <summary>界面字体的**框架默认值**（回退列表；与 `ApplicationSettings` 的缺省一致）。</summary>
-    public const string DefaultUiFontFamily = "Segoe UI, Microsoft YaHei UI";
+    /// <summary>框架默认外观（唯一来源 `ApplicationSettings`；静态缓存，避免每次访问都分配）。</summary>
+    private static readonly AppearanceSettings DefaultAppearance = new();
 
-    /// <summary>数据字体的**框架默认值**（回退列表；与 `ApplicationSettings` 的缺省一致）。</summary>
-    public const string DefaultDataFontFamily = "Times New Roman, 宋体";
+    /// <summary>界面字体的**框架默认值**（回退列表；与 `ApplicationSettings` 的缺省同源）。</summary>
+    public static string DefaultUiFontFamily => DefaultAppearance.UiFontFamily;
+
+    /// <summary>数据字体的**框架默认值**（回退列表；与 `ApplicationSettings` 的缺省同源）。</summary>
+    public static string DefaultDataFontFamily => DefaultAppearance.DataFontFamily;
 
     private static List<string> LoadSystemFonts()
     {
@@ -320,65 +463,249 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
             // 无头/无字体服务：回落默认（**不阻断设置界面**）
         }
 
-        return ["Segoe UI", "Microsoft YaHei UI", "Times New Roman", "宋体"];
+        return
+        [
+            .. DefaultUiFontFamily.Split(',', StringSplitOptions.TrimEntries),
+            .. DefaultDataFontFamily.Split(',', StringSplitOptions.TrimEntries),
+        ];
     }
 
-    partial void OnUiFontFamilyChanged(string value) { /* 只改本页下拉框的选中项；生效走「应用 / 确认」 */ }
+    partial void OnUiFontFamilyChanged(string value)
+    {
+        if (!_loading)
+        {
+            _appearanceDraft.UiFontFamily = value;
+        }
+    }
 
-    partial void OnDataFontFamilyChanged(string value) { /* 同上 */ }
+    partial void OnDataFontFamilyChanged(string value)
+    {
+        if (!_loading)
+        {
+            _appearanceDraft.DataFontFamily = value;
+        }
+    }
 
-    /// <summary>外壳窗口比例档位。</summary>
+    // ---- 壁纸 / 主题材质 ----
+
+    /// <summary>当前主题的壁纸遮罩浓度（0–0.9；随主题保存）。</summary>
     [ObservableProperty]
-    public partial string ShellAspect { get; set; } = "9:19.5";
+    public partial double WallpaperVeilOpacity { get; set; } = 0.55;
 
-    /// <summary>外壳尺寸是否固定（默认固定）。</summary>
+    /// <summary>当前主题的控件表面不透明度（0–1；随主题保存）。</summary>
     [ObservableProperty]
-    public partial bool ShellFixedSize { get; set; } = true;
+    public partial double SurfaceOpacity { get; set; } = 0.70;
 
-    /// <summary>比例档位选项（下拉用）。</summary>
-    public IReadOnlyList<string> ShellAspectOptions { get; } = ShellLayout.Aspects;
+    private bool _syncingThemeMaterials;
 
-    /// <summary>
-    /// **背景预设**（两档）：一键把三支底色写进**两套主题**的覆盖里。
-    /// </summary>
-    /// <remarks>
-    /// "背景档位"这个字段已经删掉：底就是三支普通的色（工作区 / 模块 / 外壳），
-    /// 逐项可改、可跟随。预设只是"一次写六格"的**动作**（不是第二处状态）。
-    /// </remarks>
-    public IReadOnlyList<ThemePresets.BackgroundPreset> BackgroundPresets { get; } = ThemePresets.Backgrounds;
+    partial void OnWallpaperVeilOpacityChanged(double value) => ApplyThemeMaterials();
 
-    /// <summary>
-    /// **多行文本输入的提交键**——三档字符串（值域与 `ApplicationSettings` 一致）。
-    /// </summary>
-    /// <remarks>
-    /// 换行是极常见的行为，且**不同用户习惯不一样** ⇒ 做成**框架级可配置项**，
-    /// 而**不是**模块声明（模块只声明「我要多行」）。**只影响多行输入框**；单行输入仍「回车 / 失焦一次提交」。
-    /// </remarks>
+    partial void OnSurfaceOpacityChanged(double value) => ApplyThemeMaterials();
+
+    /// <summary>把当前主题的遮罩/表面值读到界面（装载、切换主题时调用）。</summary>
+    private void SyncThemeMaterials()
+    {
+        var theme = CurrentDisplayTheme();
+        _syncingThemeMaterials = true;
+        try
+        {
+            WallpaperVeilOpacity = Math.Clamp(theme.WallpaperVeilOpacity, 0, 0.9);
+            SurfaceOpacity = Math.Clamp(theme.SurfaceOpacity, 0, 1);
+        }
+        finally
+        {
+            _syncingThemeMaterials = false;
+        }
+    }
+
+    /// <summary>把界面值写回当前主题草稿；内置主题先复制成自定义主题。</summary>
+    private void ApplyThemeMaterials()
+    {
+        if (_loading || _syncingThemeMaterials)
+        {
+            return;
+        }
+
+        var draft = EnsureEditableDraft();
+        draft.WallpaperVeilOpacity = Math.Clamp(WallpaperVeilOpacity, 0, 0.9);
+        draft.SurfaceOpacity = Math.Clamp(SurfaceOpacity, 0, 1);
+        draft.Dirty = true;
+
+        RefreshThemeCards();
+    }
+
+    /// <summary>当前主题壁纸预览（null = 无）。</summary>
     [ObservableProperty]
-    public partial string MultilineSubmitKey { get; set; } = "CtrlEnter";
+    public partial ImageBrush? ThemeWallpaperPreview { get; set; }
 
-    /// <summary>多行提交键选项（下拉用）：`CtrlEnter`（回车换行 / Ctrl+Enter 提交 / 失焦不提交）· `Enter`（回车提交 / Shift+Enter 换行）· `None`（键盘都不提交）。</summary>
-    public IReadOnlyList<string> MultilineSubmitKeyOptions { get; } = ["CtrlEnter", "Enter", "None"];
+    /// <summary>当前主题是否有壁纸。</summary>
+    public bool HasThemeWallpaper => ThemeWallpaperPreview is not null;
 
-    /// <summary>把多行提交键收敛到三档之一（非法/空 ⇒ 默认 `CtrlEnter`；与外观类设置同一容错口径：不校验、不提示）。</summary>
-    /// <param name="value">用户选择或文件里的值。</param>
-    private static string NormalizeSubmitKey(string? value) =>
-        value is "Enter" or "None" or "CtrlEnter" ? value : "CtrlEnter";
+    /// <summary>当前主题壁纸能否清除（有壁纸才可）。</summary>
+    public bool CanClearThemeWallpaper => HasThemeWallpaper;
 
-    // ---- 主题色板（逐项可改；面板按"浅 / 深"两栏呈现两套内置主题） ----
+    partial void OnThemeWallpaperPreviewChanged(ImageBrush? value)
+    {
+        OnPropertyChanged(nameof(HasThemeWallpaper));
+        OnPropertyChanged(nameof(CanClearThemeWallpaper));
+    }
+
+    // ---- 主题草稿 / 色板（应用 / 确认才落盘、才切换全应用） ----
+
+    /// <summary>主题卡（跟随系统 + 内置两套 + 自定义主题）。</summary>
+    public ObservableCollection<ThemeCardViewModel> ThemeCards { get; } = [];
+
+    /// <summary>“跟随系统 · 浅色模式”可选主题（内置 + 浅色基类型的自定义主题）。</summary>
+    public ObservableCollection<ThemeSchemeChoice> SystemLightChoices { get; } = [];
+
+    /// <summary>“跟随系统 · 深色模式”可选主题（内置 + 深色基类型的自定义主题）。</summary>
+    public ObservableCollection<ThemeSchemeChoice> SystemDarkChoices { get; } = [];
+
+    /// <summary>跟随系统 · 浅色模式选中的主题。</summary>
+    [ObservableProperty]
+    public partial ThemeSchemeChoice? SelectedSystemLightChoice { get; set; }
+
+    /// <summary>跟随系统 · 深色模式选中的主题。</summary>
+    [ObservableProperty]
+    public partial ThemeSchemeChoice? SelectedSystemDarkChoice { get; set; }
+
+    partial void OnSelectedSystemLightChoiceChanged(ThemeSchemeChoice? value) =>
+        ApplySystemChoice(ThemeBaseKind.Light, value);
+
+    partial void OnSelectedSystemDarkChoiceChanged(ThemeSchemeChoice? value) =>
+        ApplySystemChoice(ThemeBaseKind.Dark, value);
+
+    private void ApplySystemChoice(ThemeBaseKind baseKind, ThemeSchemeChoice? choice)
+    {
+        if (_loading || _suppressSystemChoiceSync || choice is null || !IsSystemSelected)
+        {
+            return;
+        }
+
+        _appearanceDraft.SetSystemScheme(baseKind, choice.Id);
+        SyncPaletteFromDraft();
+        RefreshThemeCards();
+        SetStatus(true, baseKind == ThemeBaseKind.Dark
+            ? Loc("settings.status.systemScheme.dark")
+            : Loc("settings.status.systemScheme.light"));
+    }
 
     /// <summary>
     /// **色板分区**：按色板契约（`Styles/palette.json`）生成**全部**相对色。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item><b>一行 = 一支 token × 浅深两格</b>：留空 = 跟随（派生支跟随源、其余跟随内置值）；</item>
-    ///   <item><b>没有例外</b>：主题色 / 背景 / 方向色就是普通的几支色（以前它们是独立字段 + 独立控件，
-    ///     于是"一支色两处状态"）；</item>
-    ///   <item><b>只在「应用 / 确认」时生效</b>：与外观区其余项同一机制（改完能「取消」反悔）。</item>
+    ///   <item><b>一行 = 一支 token × 当前主题的一格</b>：留空 = 跟随（派生支跟随源、其余跟随内置值）；</item>
+    ///   <item><b>没有例外</b>：主题色 / 发送 / 接收 / 背景就是普通的几支色；</item>
+    ///   <item><b>只在「应用 / 确认」时生效</b>：主题卡切换只换本页色板，不提前改全应用。</item>
     /// </list>
     /// </remarks>
     public ObservableCollection<PaletteGroupViewModel> PaletteGroups { get; } = [];
+
+    /// <summary>当前在设置页里选中的主题 id（<see cref="ThemeIds.System"/> / 内置名 / 自定义 id）。</summary>
+    public string SelectedThemeId
+    {
+        get => _selectedThemeId;
+        private set
+        {
+            if (string.Equals(_selectedThemeId, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _selectedThemeId = value;
+            OnPropertyChanged();
+            NotifySchemeState();
+        }
+    }
+
+    private string _selectedThemeId = ThemeIds.System;
+
+    /// <summary>当前主题的显示名（内置 / 系统时只读显示其标题）。</summary>
+    [ObservableProperty]
+    public partial string SelectedSchemeTitle { get; set; } = string.Empty;
+
+    partial void OnSelectedSchemeTitleChanged(string value)
+    {
+        if (_loading || _suppressTitleSync || string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        if (!_themeDrafts.TryGetValue(ThemeIds.Normalize(SelectedThemeId), out var draft))
+        {
+            return;
+        }
+
+        var title = value.Trim();
+        if (string.Equals(draft.Title, title, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        draft.Title = title;
+        draft.Dirty = true;
+
+        RefreshThemeCards();
+        RebuildSystemChoices();
+    }
+
+    /// <summary>当前选中的是不是自定义主题（磁盘上的或草稿）。</summary>
+    public bool IsCustomSelected =>
+        ThemeCatalog.Find(AllThemes(), SelectedThemeId) is { Source: not ThemeSource.BuiltIn };
+
+    /// <summary>当前是不是“跟随系统”（选择项，不是主题）。</summary>
+    public bool IsSystemSelected => ThemeIds.IsSystem(SelectedThemeId);
+
+    /// <summary>是否显示“保存方案”（仅自定义主题；等价于底部「应用」）。</summary>
+    public bool CanSaveScheme => IsCustomSelected;
+
+    /// <summary>主题名是否可编辑（仅自定义主题；内置/系统不提供改名输入框）。</summary>
+    public bool CanEditSchemeTitle => IsCustomSelected;
+
+    /// <summary>是否可新建主题（跟随系统时隐藏；内置/自定义可新建）。</summary>
+    public bool CanCreateScheme => !IsSystemSelected;
+
+    /// <summary>是否可“恢复此主题默认”（仅自定义主题）。</summary>
+    public bool CanResetScheme => IsCustomSelected;
+
+    /// <summary>是否可“删除此主题”（仅自定义主题）。</summary>
+    public bool CanDeleteScheme => IsCustomSelected;
+
+    /// <summary>**内置两套 + 全部主题草稿**（设置页的本地清单：色块现算与卡片预览都用它）。</summary>
+    private List<ThemeDescriptor> AllThemes()
+    {
+        var themes = new List<ThemeDescriptor>(ThemeCatalog.Themes);
+
+        foreach (var draft in _themeDrafts.Values
+            .Where(draft => !ThemeIds.IsReserved(draft.Id))
+            .OrderBy(draft => draft.Id, StringComparer.Ordinal))
+        {
+            themes.Add(draft.ToDescriptor());
+        }
+
+        return themes;
+    }
+
+    /// <summary>当前显示用主题（跟随系统 ⇒ 按系统浅/深解析到具体主题）。</summary>
+    private ThemeDescriptor CurrentDisplayTheme() =>
+        ThemeCatalog.ResolveDisplayTheme(AllThemes(), _appearanceDraft, SelectedThemeId, CurrentSystemVariant());
+
+    /// <summary>系统当前浅 / 深；无平台设置（无头/设计器）⇒ 浅色。</summary>
+    private static ThemeVariant CurrentSystemVariant()
+    {
+        try
+        {
+            var values = Application.Current?.PlatformSettings?.GetColorValues();
+            return values?.ThemeVariant == PlatformThemeVariant.Dark
+                ? ThemeVariant.Dark
+                : ThemeVariant.Light;
+        }
+        catch (Exception)
+        {
+            return ThemeVariant.Light;
+        }
+    }
 
     /// <summary>建色板行（**只建一次**：装载与生效只改值、不重建集合 —— 重建会把折叠状态一起丢掉）。</summary>
     private void BuildPaletteGroups()
@@ -399,14 +726,14 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         }
     }
 
-    /// <summary>把设置里的覆盖写进各行（打开设置 / 取消 / 生效后回读时调）。</summary>
-    /// <param name="settings">当前设置。</param>
-    private void SyncPaletteFrom(ApplicationSettings settings)
+    /// <summary>把草稿里当前主题的色板写进各行（打开设置 / 切主题 / 取消 / 生效后回读时调）。</summary>
+    private void SyncPaletteFromDraft()
     {
+        var theme = CurrentDisplayTheme();
+
         foreach (var row in PaletteGroups.SelectMany(group => group.Rows))
         {
-            row.Light.Hex = settings.Appearance.Override(row.Light.Theme, row.Key);
-            row.Dark.Hex = settings.Appearance.Override(row.Dark.Theme, row.Key);
+            row.Sync(theme, theme.PaletteValue(row.Key));
         }
 
         RefreshPalette();
@@ -419,173 +746,522 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         {
             foreach (var row in group.Rows)
             {
-                row.Light.Refresh();
-                row.Dark.Refresh();
+                row.Cell.Refresh();
             }
 
             group.Refresh();
         }
     }
 
-    /// <summary>
-    /// 把各行当前的覆盖写进**外观块**（只写非空 ⇒ **跟随不落盘**，不产生死数据）。
-    /// </summary>
-    /// <param name="appearance">目标外观块（通常是当前设置的那一份副本）。</param>
-    private void CollectPaletteInto(AppearanceSettings appearance)
+    /// <summary>重建主题卡（主题增删 / 载入 / 生效后回读时调；改色只刷新、不重建）。</summary>
+    private void RebuildThemeCards()
     {
-        appearance.PaletteOverrides.Clear();
+        ThemeCards.Clear();
+        ThemeCards.Add(new ThemeCardViewModel(ThemeIds.System, isSystem: true, isBuiltIn: false));
 
-        foreach (var row in PaletteGroups.SelectMany(group => group.Rows))
+        foreach (var theme in AllThemes())
         {
-            foreach (var cell in new[] { row.Light, row.Dark })
+            ThemeCards.Add(new ThemeCardViewModel(
+                theme.Id,
+                isSystem: false,
+                isBuiltIn: theme.Source == ThemeSource.BuiltIn));
+        }
+
+        RefreshThemeCards();
+        RebuildSystemChoices();
+    }
+
+    /// <summary>刷新主题卡的标题 / 预览色 / 选中态（不重建集合）。</summary>
+    private void RefreshThemeCards()
+    {
+        var themes = AllThemes();
+        var light = ThemeCatalog.ResolveSystemScheme(themes, _appearanceDraft, ThemeKind.Light);
+        var dark = ThemeCatalog.ResolveSystemScheme(themes, _appearanceDraft, ThemeKind.Dark);
+
+        foreach (var card in ThemeCards)
+        {
+            var theme = card.IsSystem ? null : ThemeCatalog.Find(themes, card.Id);
+            card.Refresh(theme, light, dark, string.Equals(card.Id, SelectedThemeId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        NotifySchemeState();
+    }
+
+    /// <summary>让“能否保存/删除/恢复/改名”等派生状态重新求值。</summary>
+    private void NotifySchemeState()
+    {
+        OnPropertyChanged(nameof(IsCustomSelected));
+        OnPropertyChanged(nameof(IsSystemSelected));
+        OnPropertyChanged(nameof(CanSaveScheme));
+        OnPropertyChanged(nameof(CanEditSchemeTitle));
+        OnPropertyChanged(nameof(CanCreateScheme));
+        OnPropertyChanged(nameof(CanResetScheme));
+        OnPropertyChanged(nameof(CanDeleteScheme));
+    }
+
+    /// <summary>
+    /// 重建“跟随系统”的两组下拉项，并按草稿里的系统主题设置选中项。
+    /// </summary>
+    private void RebuildSystemChoices()
+    {
+        _suppressSystemChoiceSync = true;
+
+        var lightId = ThemeIds.Normalize(_appearanceDraft.SystemLightScheme);
+        var darkId = ThemeIds.Normalize(_appearanceDraft.SystemDarkScheme);
+
+        SystemLightChoices.Clear();
+        SystemDarkChoices.Clear();
+
+        foreach (var theme in AllThemes())
+        {
+            var choice = new ThemeSchemeChoice(theme.Id, theme.Title);
+
+            if (theme.Kind == ThemeKind.Light)
             {
-                if (cell.Hex is { Length: > 0 } hex)
+                SystemLightChoices.Add(choice);
+            }
+            else
+            {
+                SystemDarkChoices.Add(choice);
+            }
+        }
+
+        SelectedSystemLightChoice = SystemLightChoices.FirstOrDefault(choice =>
+            string.Equals(choice.Id, lightId, StringComparison.OrdinalIgnoreCase));
+        SelectedSystemDarkChoice = SystemDarkChoices.FirstOrDefault(choice =>
+            string.Equals(choice.Id, darkId, StringComparison.OrdinalIgnoreCase));
+
+        _suppressSystemChoiceSync = false;
+    }
+
+    /// <summary>当前显示名（用于主题标题框；内置/系统为对应标题）。</summary>
+    private void SyncSelectedSchemeTitle()
+    {
+        _suppressTitleSync = true;
+        SelectedSchemeTitle = ThemeIds.IsSystem(SelectedThemeId)
+            ? Loc("palette.card.system.title")
+            : ThemeCatalog.Find(AllThemes(), SelectedThemeId)?.Title ?? CurrentDisplayTheme().Title;
+        _suppressTitleSync = false;
+    }
+
+    /// <summary>切换设置页里预览/编辑的主题（**不调用 ThemeApplier**；全应用等「应用 / 确认」）。</summary>
+    /// <param name="id">主题 id（含 <see cref="ThemeIds.System"/>）。</param>
+    public void SelectTheme(string? id)
+    {
+        var normalized = ThemeIds.Normalize(id);
+
+        if (!ThemeIds.IsSystem(normalized) && ThemeCatalog.Find(AllThemes(), normalized) is null)
+        {
+            return;
+        }
+
+        SelectedThemeId = normalized;
+        _appearanceDraft.ThemeSelection = normalized;
+        RebuildSystemChoices();
+        SyncSelectedSchemeTitle();
+        SyncThemeMaterials();
+        SyncPaletteFromDraft();
+        RefreshThemeCards();
+        RefreshThemeWallpaperPreview();
+        SetStatus(true, Loc("settings.status.themePreview"));
+    }
+
+    /// <summary>
+    /// 为**当前主题**选择一张主窗口壁纸（草稿；「应用/确认」才写进主题文件夹）。
+    /// </summary>
+    /// <param name="png">裁切后的 PNG 字节。</param>
+    /// <remarks>
+    /// 内置主题只读：选择壁纸会按现有规则复制成自定义主题；跟随系统时保持 System，
+    /// 只更新当前浅/深模式对应的主题。只影响主窗口壁纸，不改任何模块壁纸。
+    /// </remarks>
+    public void SetThemeWallpaper(byte[] png)
+    {
+        if (png is not { Length: > 0 })
+        {
+            return;
+        }
+
+        var draft = EnsureEditableDraft();
+        draft.PendingWallpaper = png;
+        draft.ClearWallpaper = false;
+        draft.WallpaperRevision++;
+        draft.Dirty = true;
+
+        ThemeWallpaperPreview = WallpaperImageCache.FromBytes(PendingWallpaperKey(draft), png);
+
+        RefreshThemeCards();
+        SetStatus(true, Loc("settings.status.wallpaperSelected"));
+    }
+
+    /// <summary>清除当前主题的主窗口壁纸（草稿）。</summary>
+    public void ClearThemeWallpaper()
+    {
+        var theme = CurrentDisplayTheme();
+        var hasPending = _themeDrafts.TryGetValue(theme.Id, out var existing)
+            && existing.PendingWallpaper is { Length: > 0 };
+
+        if (theme.WallpaperFileName is not { Length: > 0 } && !hasPending)
+        {
+            return;
+        }
+
+        var draft = EnsureEditableDraft();
+        draft.PendingWallpaper = null;
+        draft.ClearWallpaper = true;
+        draft.WallpaperFileName = null;
+        draft.WallpaperRevision++;
+        draft.Dirty = true;
+
+        ThemeWallpaperPreview = null;
+
+        RefreshThemeCards();
+        SetStatus(true, Loc("settings.status.wallpaperCleared"));
+    }
+
+    /// <summary>按当前草稿刷新主窗口壁纸预览。</summary>
+    private void RefreshThemeWallpaperPreview() =>
+        ThemeWallpaperPreview = ResolveThemeWallpaperBrush(CurrentDisplayTheme());
+
+    /// <summary>解析一个主题的壁纸画刷（草稿里的新图优先，其次读主题文件夹里的同名文件）。</summary>
+    private ImageBrush? ResolveThemeWallpaperBrush(ThemeDescriptor theme)
+    {
+        if (_themeDrafts.TryGetValue(theme.Id, out var draft) && draft.PendingWallpaper is { Length: > 0 } pending)
+        {
+            return WallpaperImageCache.FromBytes(PendingWallpaperKey(draft), pending);
+        }
+
+        if (theme.WallpaperFileName is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        return _query.TryGetThemeWallpaper(theme.Id, out var bytes) && bytes is { Length: > 0 }
+            ? WallpaperImageCache.FromBytes(WallpaperCacheKey(theme.Id, bytes), bytes)
+            : null;
+    }
+
+    /// <summary>待保存壁纸的缓存键（同一主题换图 ⇒ 换键，避免读到上一张）。</summary>
+    private static string PendingWallpaperKey(ThemeDraft draft) =>
+        $"pending:{draft.Id}:{draft.WallpaperRevision}";
+
+    /// <summary>磁盘壁纸的缓存键（**按内容寻址**：同一主题换图后不会读到缓存里的旧图）。</summary>
+    private static string WallpaperCacheKey(string themeId, byte[] png) =>
+        themeId + ":" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(png));
+
+    /// <summary>
+    /// 改某一支色（<paramref name="hex"/> = null/空 ⇒ 恢复跟随）。
+    /// </summary>
+    /// <param name="row">色板行。</param>
+    /// <param name="hex">新色值。</param>
+    /// <remarks>
+    /// 内置 ⇒ 先自动复制成自定义主题（草稿），再把这一支写进去；
+    /// 跟随系统 ⇒ 复制后把该模式（浅/深）的系统主题指向新主题，保持“跟随系统”选择不变。
+    /// 真正的全应用切换与落盘仍走「应用 / 确认」。
+    /// </remarks>
+    public void SetPaletteColor(PaletteRowViewModel row, string? hex)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        if (CurrentDisplayTheme().Source == ThemeSource.BuiltIn && string.IsNullOrWhiteSpace(hex))
+        {
+            return;   // 内置主题本来就没有覆盖可清
+        }
+
+        var draft = EnsureEditableDraft();
+
+        if (string.IsNullOrWhiteSpace(hex))
+        {
+            _ = draft.Palette.Remove(row.Key);
+        }
+        else
+        {
+            draft.Palette[row.Key] = hex.Trim();
+        }
+
+        draft.Dirty = true;
+
+        SyncPaletteFromDraft();
+        RefreshThemeCards();
+
+        SetStatus(true, hex is { Length: > 0 }
+            ? Loc("settings.status.colorChanged")
+            : Loc("settings.status.colorReverted"));
+    }
+
+    /// <summary>
+    /// **取当前显示主题的可变草稿**；内置主题先复制成自定义主题，并把选择/跟随系统指向新主题。
+    /// </summary>
+    /// <returns>可写草稿。</returns>
+    private ThemeDraft EnsureEditableDraft()
+    {
+        var theme = CurrentDisplayTheme();
+        if (theme.Source != ThemeSource.BuiltIn
+            && _themeDrafts.TryGetValue(theme.Id, out var existing))
+        {
+            return existing;
+        }
+
+        var wasSystem = IsSystemSelected;
+        var modeKind = theme.Kind;
+
+        var draft = new ThemeDraft
+        {
+            Id = NextThemeId(),
+            Title = NextSchemeTitle(),
+            Base = modeKind == ThemeKind.Dark ? ThemeBaseKind.Dark : ThemeBaseKind.Light,
+            Source = ThemeSource.User,
+            WallpaperFileName = theme.WallpaperFileName,
+            WallpaperVeilOpacity = theme.WallpaperVeilOpacity,
+            SurfaceOpacity = theme.SurfaceOpacity,
+            Dirty = true,
+        };
+
+        if (theme.Palette is { } palette)
+        {
+            foreach (var (token, hex) in palette)
+            {
+                if (!string.IsNullOrWhiteSpace(token) && !string.IsNullOrWhiteSpace(hex))
                 {
-                    appearance.SetOverride(cell.Theme, cell.Token, hex);
+                    draft.Palette[token] = hex;
                 }
             }
         }
-    }
 
-    /// <summary>把全部色板的改动清掉（"恢复默认"用：回到跟随内置值）。</summary>
-    private void ClearPaletteEdits()
-    {
-        foreach (var row in PaletteGroups.SelectMany(group => group.Rows))
+        _themeDrafts[draft.Id] = draft;
+
+        if (wasSystem)
         {
-            row.Light.Hex = null;
-            row.Dark.Hex = null;
+            _appearanceDraft.SetSystemScheme(
+                modeKind == ThemeKind.Dark ? ThemeBaseKind.Dark : ThemeBaseKind.Light,
+                draft.Id);
+            SelectedThemeId = ThemeIds.System;
+            _appearanceDraft.ThemeSelection = ThemeIds.System;
+            RebuildSystemChoices();
+            SyncSelectedSchemeTitle();
+        }
+        else
+        {
+            SelectedThemeId = draft.Id;
+            _appearanceDraft.ThemeSelection = draft.Id;
+            SyncSelectedSchemeTitle();
         }
 
-        RefreshPalette();
+        RebuildThemeCards();
+        SetStatus(true, Loc("settings.status.schemeConverted", draft.Title));
+
+        return draft;
     }
 
-    /// <summary>改某一格（<paramref name="hex"/> = null/空 ⇒ 恢复跟随内置值）。</summary>
-    /// <param name="row">色板行。</param>
-    /// <param name="dark">true = 深色那一格。</param>
-    /// <param name="hex">新色值。</param>
-    public void SetPaletteColor(PaletteRowViewModel row, bool dark, string? hex)
-    {
-        ArgumentNullException.ThrowIfNull(row);
-
-        row.Cell(dark).Hex = string.IsNullOrWhiteSpace(hex) ? null : hex;
-        RefreshPalette();
-    }
-
-    /// <summary>
-    /// **两套同色**：把浅色那一格的当前有效色写成深色那一格的覆盖值。
-    /// </summary>
-    /// <param name="row">色板行。</param>
-    /// <remarks>
-    /// 常见诉求是"这一支两套用同一个色"（而不是"浅深各自调"）；浅色为准是刻意的 ——
-    /// 浅色那一套是默认主题，先调它、再同步过去，比"先想清楚哪一套是源"少一步。
-    /// 深色那一格因此变成**显式覆盖**（不再跟主题色派生），这是用户看得见的结果。
-    /// </remarks>
-    public void SyncPaletteToDark(PaletteRowViewModel row)
-    {
-        ArgumentNullException.ThrowIfNull(row);
-
-        if (row.Light.EffectiveHex is { } hex)
-        {
-            SetPaletteColor(row, dark: true, hex);
-        }
-    }
-
-    /// <summary>某一区全部恢复跟随。</summary>
-    /// <param name="group">色板分区。</param>
-    public void ResetPaletteGroup(PaletteGroupViewModel group)
-    {
-        ArgumentNullException.ThrowIfNull(group);
-
-        foreach (var row in group.Rows)
-        {
-            row.Light.Hex = null;
-            row.Dark.Hex = null;
-        }
-
-        RefreshPalette();
-    }
-
-    /// <summary>**色板全部恢复默认**（全部回到跟随内置值）。</summary>
+    /// <summary>新建一个自定义主题（从当前主题复制色板 / 材质；草稿）。</summary>
     [RelayCommand]
-    private void ResetPalette()
+    private void NewScheme()
     {
-        ClearPaletteEdits();
-        SetStatus(true, "色板已全部恢复默认（跟随内置值）—— 点「应用」或「确认」后生效");
-    }
-
-    // 外观改动**不是「改即生效」**：真正生效统一走「应用 / 确认」按钮。
-    // 注意：换主题后色块要重读资源（跟随项取的是「当前主题的有效值」）⇒ 仍在这里发通知。
-    partial void OnSelectedThemeChoiceChanged(ThemeChoice? value) => RefreshPalette();
-
-    /// <summary>把设置里的主题选择落到下拉的选中项（选择值没有对应项时回落到"跟随系统"）。</summary>
-    /// <param name="selection">设置里的选择值（<see cref="ThemeIds.System"/> 或某套主题的名字）。</param>
-    private ThemeChoice? FindThemeChoice(string? selection)
-    {
-        var normalized = ThemeIds.Normalize(selection);
-
-        return ThemeChoices.FirstOrDefault(choice => string.Equals(choice.Id, normalized, StringComparison.OrdinalIgnoreCase))
-            ?? ThemeChoices.FirstOrDefault(choice => string.Equals(choice.Id, ThemeIds.System, StringComparison.Ordinal));
-    }
-
-    /// <summary>
-    /// **套一档背景预设**：把三支底色写进**两套主题**（"浅灰就是浅灰"，与深浅主题无关）。
-    /// </summary>
-    /// <param name="preset">预设（工作区 / 模块 / 外壳三支底色）。</param>
-    /// <remarks>
-    /// 它是**动作**而不是第二处状态：写的就是色板里那三支的覆盖值，用户之后照样能逐项改。
-    /// </remarks>
-    public void ApplyBackgroundPreset(ThemePresets.BackgroundPreset preset)
-    {
-        ArgumentNullException.ThrowIfNull(preset);
-
-        foreach (var row in PaletteGroups.SelectMany(group => group.Rows))
+        if (IsSystemSelected)
         {
-            switch (row.Key)
+            return;   // 跟随系统用两个下拉框选主题；新建在具体主题（内置/自定义）下进行
+        }
+
+        var baseTheme = CurrentDisplayTheme();
+
+        var draft = new ThemeDraft
+        {
+            Id = NextThemeId(),
+            Title = NextSchemeTitle(),
+            Base = baseTheme.Kind == ThemeKind.Dark ? ThemeBaseKind.Dark : ThemeBaseKind.Light,
+            Source = ThemeSource.User,
+            WallpaperFileName = baseTheme.WallpaperFileName,
+            WallpaperVeilOpacity = baseTheme.WallpaperVeilOpacity,
+            SurfaceOpacity = baseTheme.SurfaceOpacity,
+            Dirty = true,
+        };
+
+        if (baseTheme.Palette is { } palette)
+        {
+            foreach (var (token, hex) in palette)
             {
-                case "BgWorkspace":
-                    row.Light.Hex = preset.Workspace;
-                    row.Dark.Hex = preset.Workspace;
-                    break;
-
-                case "BgModule":
-                    row.Light.Hex = preset.Module;
-                    row.Dark.Hex = preset.Module;
-                    break;
-
-                case "BgChrome":
-                    row.Light.Hex = preset.Chrome;
-                    row.Dark.Hex = preset.Chrome;
-                    break;
-
-                default:
-                    break;
+                if (!string.IsNullOrWhiteSpace(token) && !string.IsNullOrWhiteSpace(hex))
+                {
+                    draft.Palette[token] = hex;
+                }
             }
         }
 
-        RefreshPalette();
-        SetStatus(true, $"已套用背景预设「{preset.Title}」（两套主题）—— 点「应用」或「确认」后生效");
+        _themeDrafts[draft.Id] = draft;
+
+        SelectedThemeId = draft.Id;
+        _appearanceDraft.ThemeSelection = draft.Id;
+        RebuildThemeCards();
+        RebuildSystemChoices();
+        SyncSelectedSchemeTitle();
+        SyncThemeMaterials();
+        SyncPaletteFromDraft();
+        RefreshThemeWallpaperPreview();
+        SetStatus(true, Loc("settings.status.schemeCreated", draft.Title));
     }
 
-    // ---- 模块来源 / 日志 ----
+    /// <summary>保存当前主题（**等同底部「应用」**；写入主题文件夹与设置文件，不关闭弹窗）。</summary>
+    [RelayCommand]
+    private void SaveScheme()
+    {
+        if (!IsCustomSelected)
+        {
+            return;
+        }
 
-    /// <summary>
-    /// 模块来源**根列表**（有序）。内置包目录（应用目录 `modules\`）**始终在首位**、不在此列表中显示为可编辑项。
-    /// </summary>
-    public ObservableCollection<string> ModuleSourceDirectories { get; } = [];
+        Apply();
 
-    /// <summary>待添加的来源根（输入框）。</summary>
-    [ObservableProperty]
-    public partial string? NewSourceDirectory { get; set; }
+        if (StatusIsOk)
+        {
+            SetStatus(true, Loc("settings.status.schemeSaved"));
+        }
+    }
 
-    /// <summary>选中的来源根（删除/排序用）。</summary>
-    [ObservableProperty]
-    public partial string? SelectedSourceDirectory { get; set; }
+    /// <summary>恢复当前自定义主题为基类型默认（清空该主题的色板；草稿）。</summary>
+    [RelayCommand]
+    private void ResetScheme()
+    {
+        if (!_themeDrafts.TryGetValue(ThemeIds.Normalize(SelectedThemeId), out var draft))
+        {
+            return;
+        }
 
-    /// <summary>来源根扫描诊断（每根的路径 · 包数 · 失败数 · 逐包结果）。</summary>
-    public ObservableCollection<ModuleSourceRowViewModel> ModuleSources { get; } = [];
+        draft.Palette.Clear();
+        draft.Dirty = true;
 
-    // ---- 窗口与交互 ----
-    // 注：「应用整体置顶」与「叠加信息层」定义为**联动属性**（见文件上方），此处不再声明本地字段。
+        SyncPaletteFromDraft();
+        RefreshThemeCards();
+        SetStatus(true, Loc("settings.status.schemeReset"));
+    }
+
+    /// <summary>移除当前自定义主题（草稿；「应用」才删文件夹，「取消」可反悔）。</summary>
+    [RelayCommand]
+    private void DeleteScheme()
+    {
+        if (!IsCustomSelected)
+        {
+            return;
+        }
+
+        var deletedId = ThemeIds.Normalize(SelectedThemeId);
+        if (!_themeDrafts.Remove(deletedId))
+        {
+            return;
+        }
+
+        _ = _pendingDeletes.Add(deletedId);
+
+        if (string.Equals(ThemeIds.Normalize(_appearanceDraft.SystemLightScheme), deletedId, StringComparison.Ordinal))
+        {
+            _appearanceDraft.SystemLightScheme = ThemeIds.Light;
+        }
+
+        if (string.Equals(ThemeIds.Normalize(_appearanceDraft.SystemDarkScheme), deletedId, StringComparison.Ordinal))
+        {
+            _appearanceDraft.SystemDarkScheme = ThemeIds.Dark;
+        }
+
+        SelectedThemeId = ThemeIds.System;
+        _appearanceDraft.ThemeSelection = ThemeIds.System;
+        RebuildThemeCards();
+        RebuildSystemChoices();
+        SyncSelectedSchemeTitle();
+        SyncThemeMaterials();
+        SyncPaletteFromDraft();
+        RefreshThemeWallpaperPreview();
+        SetStatus(true, Loc("settings.status.schemeDeleted"));
+    }
+
+    /// <summary>下一个自定义主题的默认名。</summary>
+    private string NextSchemeTitle()
+    {
+        var count = _themeDrafts.Count;
+        return count == 0
+            ? Loc("appearance.theme.custom.default")
+            : Loc("appearance.theme.custom.numbered", count + 1);
+    }
+
+    /// <summary>生成一个当前未被占用的主题 id（形如 <c>custom-ab12cd34</c>）。</summary>
+    private string NextThemeId()
+    {
+        while (true)
+        {
+            var candidate = "custom-" + Guid.NewGuid().ToString("N")[..8];
+
+            if (!ThemeIds.IsReserved(candidate) && !_themeDrafts.ContainsKey(candidate))
+            {
+                return candidate;
+            }
+        }
+    }
+
+    /// <summary>把磁盘主题读进草稿字典（同时清掉待删除集合）。</summary>
+    private void LoadThemeDrafts()
+    {
+        _themeDrafts.Clear();
+        _pendingDeletes.Clear();
+
+        foreach (var file in _query.GetThemeFiles())
+        {
+            if (string.IsNullOrWhiteSpace(file.Id))
+            {
+                continue;
+            }
+
+            var id = ThemeIds.Normalize(file.Id);
+            if (ThemeIds.IsReserved(id) || _themeDrafts.ContainsKey(id))
+            {
+                continue;
+            }
+
+            var draft = new ThemeDraft
+            {
+                Id = id,
+                Title = string.IsNullOrWhiteSpace(file.Title) ? Loc("appearance.theme.custom.default") : file.Title.Trim(),
+                Base = file.Base,
+                Source = ThemeSource.File,
+                WallpaperFileName = file.WallpaperFileName,
+                WallpaperVeilOpacity = Math.Clamp(file.WallpaperVeilOpacity, 0, 0.9),
+                SurfaceOpacity = Math.Clamp(file.SurfaceOpacity, 0, 1),
+            };
+
+            foreach (var (token, hex) in file.Palette)
+            {
+                if (!string.IsNullOrWhiteSpace(token) && !string.IsNullOrWhiteSpace(hex))
+                {
+                    draft.Palette[token] = hex;
+                }
+            }
+
+            _themeDrafts[id] = draft;
+        }
+    }
+
+    /// <summary>把主题选择收敛到真实存在的主题（否则回落到跟随系统）。</summary>
+    /// <param name="id">设置里的选择。</param>
+    private string NormalizeSelection(string? id)
+    {
+        var normalized = ThemeIds.Normalize(id);
+
+        return ThemeIds.IsSystem(normalized) || ThemeCatalog.Find(AllThemes(), normalized) is not null
+            ? normalized
+            : ThemeIds.System;
+    }
+
+    /// <summary>把跟随系统某一模式的 id 收敛到同基类型的主题（否则回落内置）。</summary>
+    /// <param name="baseKind">模式（浅 / 深）。</param>
+    /// <param name="id">设置里的值。</param>
+    private string NormalizeSystemSchemeId(ThemeBaseKind baseKind, string? id)
+    {
+        var normalized = ThemeIds.Normalize(id);
+
+        if (ThemeCatalog.Find(AllThemes(), normalized) is { } theme
+            && (baseKind == ThemeBaseKind.Dark ? theme.Kind == ThemeKind.Dark : theme.Kind == ThemeKind.Light))
+        {
+            return theme.Id;
+        }
+
+        return baseKind == ThemeBaseKind.Dark ? ThemeIds.Dark : ThemeIds.Light;
+    }
 
     // ---- 快捷键 ----
 
@@ -612,10 +1288,35 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     public IReadOnlyList<string> LogLevels { get; } =
         ["Trace", "Debug", "Information", "Warning", "Error"];
 
+    // ---- 存储位置（只读；路径由 Core 的路径解析器唯一给出） ----
+
+    /// <summary>程序目录。</summary>
+    public string StorageAppRoot => _query.GetStorageLocations().AppRoot;
+
+    /// <summary>应用设置文件（设置根下）。</summary>
+    public string StorageSettingsFile => _query.GetStorageLocations().SettingsFile;
+
+    /// <summary>模块包目录（内置包；外部导入在 external 子目录）。</summary>
+    public string StorageModulesRoot => _query.GetStorageLocations().ModulesRoot;
+
+    /// <summary>组合文件默认目录（与 modules 同级）。</summary>
+    public string StorageCompositesRoot => _query.GetStorageLocations().CompositesRoot;
+
+    /// <summary>工作区快照根（含一次性重启恢复快照）。</summary>
+    public string StorageWorkspaceRoot => _query.GetStorageLocations().WorkspaceRoot;
+
+    /// <summary>日志目录（预留）。</summary>
+    public string StorageLogsRoot => _query.GetStorageLocations().LogsRoot;
+
+    // ---- 生命周期 ----
+
     /// <summary>从当前生效值重新载入（启动与"还原"时调用）。</summary>
     public void Load()
     {
         var settings = _query.GetSettings();
+
+        _loading = true;
+        _lastLoaded = settings;
 
         StopTimeoutSeconds = settings.StopTimeoutSeconds;
         InputQueueCapacity = settings.InputQueueCapacity;
@@ -625,29 +1326,34 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         SnapDistance = settings.SnapDistance;
         MultilineSubmitKey = settings.MultilineSubmitKey;
         ShowInfoOverlay = settings.ShowInfoOverlay;
-        SelectedThemeChoice = FindThemeChoice(settings.Appearance.ThemeSelection);
+        AppTopmost = settings.AppTopmost;
+        ShellAspect = ShellLayout.Normalize(settings.ShellAspect);
+        ShellFixedSize = settings.ShellFixedSize;
+        SelectedWorkspaceExitChoice = WorkspaceExitChoices.FirstOrDefault(choice =>
+            string.Equals(choice.Value, settings.WorkspaceExitBehavior, StringComparison.Ordinal))
+            ?? WorkspaceExitChoices[0];
+        LogLevel = settings.LogLevel;
+        SelectedLanguageChoice = Languages.FirstOrDefault(choice =>
+            string.Equals(choice.Id, settings.UiLanguage, StringComparison.OrdinalIgnoreCase)) ?? Languages[0];
         UiFontFamily = settings.Appearance.UiFontFamily;
         DataFontFamily = settings.Appearance.DataFontFamily;
 
-        // 色板：行只建一次（不重建 ⇒ 折叠状态与滚动位置保住），这里只把生效值写进各行
+        _appearanceDraft = settings.Appearance.Clone();
+        LoadThemeDrafts();
+
+        var selection = NormalizeSelection(_appearanceDraft.ThemeSelection);
+        _appearanceDraft.ThemeSelection = selection;
+        _appearanceDraft.SystemLightScheme = NormalizeSystemSchemeId(ThemeBaseKind.Light, _appearanceDraft.SystemLightScheme);
+        _appearanceDraft.SystemDarkScheme = NormalizeSystemSchemeId(ThemeBaseKind.Dark, _appearanceDraft.SystemDarkScheme);
+
+        SelectedThemeId = selection;
+        SyncSelectedSchemeTitle();
+        SyncThemeMaterials();
+
         BuildPaletteGroups();
-        SyncPaletteFrom(settings);
-        ShellAspect = settings.ShellAspect;
-        ShellFixedSize = settings.ShellFixedSize;
-        LogLevel = settings.LogLevel;
-
-        _lastLoaded = settings;
-
-        // 装载 = 把**已生效**的设置套到界面（打开弹窗时保证"看到的 = 实际生效的"）
-        ThemeApplier.Apply(settings);
-
-        ModuleSourceDirectories.Clear();
-        foreach (var directory in settings.ModuleSourceDirectories)
-        {
-            ModuleSourceDirectories.Add(directory);
-        }
-
-        AppTopmost = settings.AppTopmost;
+        RebuildThemeCards();
+        SyncPaletteFromDraft();
+        RefreshThemeWallpaperPreview();
 
         Hotkeys.Clear();
         foreach (var action in HotkeyCatalog.Actions)
@@ -656,19 +1362,21 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
                 ? configured
                 : action.DefaultBinding;
 
-            Hotkeys.Add(new HotkeyRowViewModel(action.Id, action.Title, action.DefaultBinding, binding));
+            Hotkeys.Add(new HotkeyRowViewModel(action.Id, action.Label, action.DefaultBinding, binding));
         }
 
         HotkeyConflicts = DetectConflicts();
 
-        RefreshModuleSources();
+        // 装载 = 把**已生效**的设置套到界面（打开弹窗时保证"看到的 = 实际生效的"）
+        ThemeApplier.Apply(settings, _query.GetThemeFiles());
+
+        _loading = false;
         StatusMessage = null;
     }
 
     /// <summary>设置**应用成功**后触发（供外壳重建快捷键绑定、套用窗口层级等）。</summary>
     public event EventHandler? Applied;
 
-    /// <summary>当前生效的快捷键绑定（供外壳重建绑定；空绑定 = 不绑定，值为空串）。</summary>
     /// <summary>
     /// 当前设置里的**数据结构 → 颜色**映射（键 = 类型身份，值 = `#RRGGBB`）。
     /// </summary>
@@ -720,7 +1428,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
 
         row.Binding = binding ?? string.Empty;
         HotkeyConflicts = DetectConflicts();
-        SetStatus(true, "快捷键已修改 —— 点「应用」后生效");
+        SetStatus(true, Loc("settings.status.hotkeyChanged"));
     }
 
     /// <summary>检测重复绑定（同一按键被多个动作占用 → 后者不生效，先到者胜）。</summary>
@@ -738,7 +1446,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
 
             if (seen.TryGetValue(row.Binding, out var owner))
             {
-                conflicts.Add($"「{row.Title}」与「{owner}」都是 {row.Binding}（前者生效）");
+                conflicts.Add(Loc("settings.hotkey.conflict", row.Title, owner, row.Binding));
                 continue;
             }
 
@@ -758,25 +1466,27 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         }
 
         HotkeyConflicts = DetectConflicts();
-        SetStatus(true, "已恢复默认快捷键 —— 点「应用」后生效");
+        SetStatus(true, Loc("settings.status.hotkeyReset"));
     }
 
     /// <summary>
-    /// **全局恢复默认**（一键还原**所有**设置，含快捷键与外观，做成全局式按钮）。
+    /// **恢复默认设置**（本对话框中的设置；不动模块来源与数据结构颜色）。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item><b>范围</b>：本页全部可配置项（应用行为 / 外观 / 字体 / 快捷键 / 模块来源根 / 日志级别 / 置顶）；
-    ///     取的是 `ApplicationSettings` 的**缺省值本身**（不另写一份"默认值清单"——两份迟早会漂）；</item>
-    ///   <item><b>不落盘</b>：与设置页既有的三键机制一致（"任何改动都只是**待生效**"）⇒ 状态栏提示"点应用/确认生效"，
+    ///   <item><b>范围</b>：本页全部设置项（应用行为 / 外观 / 字体 / 快捷键 / 窗口 / 日志与诊断）；</item>
+    ///   <item><b>主题草稿一并丢弃</b>（重新从主题文件夹读）：主题文件本身不删、不改；</item>
+    ///   <item><b>不落盘</b>：与三键机制一致（"任何改动都只是**待生效**"）⇒ 状态栏提示"点应用/确认生效"，
     ///     用户还能用「取消」反悔；</item>
-    ///   <item>**数据结构颜色表**（类型 → 颜色）不在本页 ⇒ 不动它（那是另一处入口的映射表）。</item>
+    ///   <item>**模块来源**在模块清单弹窗管理、**数据结构颜色**在交互页 ⇒ 本按钮不重置它们。</item>
     /// </list>
     /// </remarks>
     [RelayCommand]
     private void ResetAllSettings()
     {
         var defaults = new ApplicationSettings();
+
+        _loading = true;
 
         StopTimeoutSeconds = defaults.StopTimeoutSeconds;
         InputQueueCapacity = defaults.InputQueueCapacity;
@@ -786,25 +1496,31 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         SnapDistance = defaults.SnapDistance;
         MultilineSubmitKey = NormalizeSubmitKey(defaults.MultilineSubmitKey);
         ShowInfoOverlay = defaults.ShowInfoOverlay;
-        SelectedThemeChoice = FindThemeChoice(defaults.Appearance.ThemeSelection);
+        AppTopmost = defaults.AppTopmost;
+        ShellAspect = ShellLayout.Normalize(defaults.ShellAspect);
+        ShellFixedSize = defaults.ShellFixedSize;
+        SelectedWorkspaceExitChoice = WorkspaceExitChoices[0];
+        LogLevel = defaults.LogLevel;
+        SelectedLanguageChoice = Languages[0];
         UiFontFamily = defaults.Appearance.UiFontFamily;
         DataFontFamily = defaults.Appearance.DataFontFamily;
-        // 色板也回默认：全部回到"跟随内置值"（缺这一段时，"恢复全部默认"对色板毫无作用）
-        ClearPaletteEdits();
-        ShellAspect = defaults.ShellAspect;
-        ShellFixedSize = defaults.ShellFixedSize;
-        LogLevel = defaults.LogLevel;
-        AppTopmost = defaults.AppTopmost;
 
-        ModuleSourceDirectories.Clear();
-        foreach (var directory in defaults.ModuleSourceDirectories)
-        {
-            ModuleSourceDirectories.Add(directory);
-        }
+        _appearanceDraft = defaults.Appearance.Clone();
+        LoadThemeDrafts();
+
+        SelectedThemeId = ThemeIds.System;
+        _appearanceDraft.ThemeSelection = ThemeIds.System;
+        SyncThemeMaterials();
+        SyncSelectedSchemeTitle();
+        RebuildThemeCards();
+        SyncPaletteFromDraft();
+        RefreshThemeWallpaperPreview();
+
+        _loading = false;
 
         // 快捷键走既有那条路径（每行回到 `DefaultBinding`），避免默认值有两个来源。
         ResetHotkeys();
-        SetStatus(true, "已恢复全部默认设置（含快捷键与外观）—— 点「应用」或「确认」后生效");
+        SetStatus(true, Loc("settings.status.defaultsRestored"));
     }
 
     /// <summary>单个动作恢复默认（由界面行的按钮调用）。</summary>
@@ -818,108 +1534,8 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 刷新来源根扫描诊断（来自运行时的最近一次扫描结果）。
-    /// </summary>
-    /// <remarks>增量同步：内容没变就不动列表（避免每帧重建导致悬停/选中状态闪烁）。</remarks>
-    public void RefreshModuleSources()
-    {
-        var sources = _query.GetModuleSources().Select(source => new ModuleSourceRowViewModel(source)).ToList();
-        _ = CollectionSync.Sync(ModuleSources, sources);
-    }
-
-    /// <summary>添加来源根（目录不存在也允许添加：扫描时会明确提示"目录不存在"）。</summary>
-    [RelayCommand]
-    private void AddSourceDirectory()
-    {
-        if (string.IsNullOrWhiteSpace(NewSourceDirectory))
-        {
-            SetStatus(false, "请先填写来源根目录路径");
-            return;
-        }
-
-        var directory = NewSourceDirectory.Trim();
-        if (ModuleSourceDirectories.Contains(directory, StringComparer.OrdinalIgnoreCase))
-        {
-            SetStatus(false, $"该来源根已在列表中：{directory}");
-            return;
-        }
-
-        ModuleSourceDirectories.Add(directory);
-        SelectedSourceDirectory = directory;
-        NewSourceDirectory = null;
-        SetStatus(true, "已加入列表 —— 点「应用」后生效，「立即重扫」可立刻扫描");
-    }
-
-    /// <summary>移除选中的来源根。</summary>
-    [RelayCommand]
-    private void RemoveSourceDirectory()
-    {
-        if (SelectedSourceDirectory is not { Length: > 0 } directory)
-        {
-            SetStatus(false, "请先选中一个来源根");
-            return;
-        }
-
-        _ = ModuleSourceDirectories.Remove(directory);
-        SelectedSourceDirectory = ModuleSourceDirectories.FirstOrDefault();
-        SetStatus(true, "已移除 —— 点「应用」后生效");
-    }
-
-    /// <summary>上移 / 下移来源根（顺序 = 优先级：先扫到的包胜出）。</summary>
-    [RelayCommand]
-    private void MoveSourceDirectoryUp() => MoveSourceDirectory(-1);
-
-    /// <summary>下移来源根。</summary>
-    [RelayCommand]
-    private void MoveSourceDirectoryDown() => MoveSourceDirectory(1);
-
-    /// <summary>
-    /// **立刻重扫**来源根（不重启应用）：装入新增的模块包并刷新诊断。
-    /// </summary>
-    /// <remarks>改过代码的包需要重启应用才生效（框架不实现热重载）——结果里会给出提示。</remarks>
-    [RelayCommand]
-    private void RescanModuleSources()
-    {
-        var result = _command.RescanModuleSources();
-
-        RefreshModuleSources();
-        SetStatus(
-            result.Succeeded,
-            result.Succeeded
-                ? result.Notices.Count > 0 ? result.Notices[0] : "重扫完成"
-                : $"重扫失败：{string.Join("；", result.Failures)}");
-    }
-
-    private void MoveSourceDirectory(int delta)
-    {
-        if (SelectedSourceDirectory is not { Length: > 0 } directory)
-        {
-            SetStatus(false, "请先选中一个来源根");
-            return;
-        }
-
-        var index = ModuleSourceDirectories.IndexOf(directory);
-        var target = index + delta;
-        if (index < 0 || target < 0 || target >= ModuleSourceDirectories.Count)
-        {
-            return;
-        }
-
-        ModuleSourceDirectories.Move(index, target);
-        SetStatus(true, "顺序已调整 —— 点「应用」后生效（顺序 = 优先级）");
-    }
-
-    /// <summary>
     /// **确认**：应用并关闭弹窗（校验失败 ⇒ **不关**，把原因留在状态行）。
     /// </summary>
-    /// <remarks>设置生效机制是常规三键：**确认 / 取消 / 应用**
-    /// （不是「改一下即时生效」）。三者语义：
-    /// <list type="bullet">
-    ///   <item><b>应用</b> = 校验 → 生效 → 落盘，**弹窗留着**（继续改）；</item>
-    ///   <item><b>确认</b> = 应用 + 关闭；失败则不关（用户能看见原因）；</item>
-    ///   <item><b>取消</b> = 丢弃本次改动（回到已生效值）并关闭。</item>
-    /// </list>
-    /// </remarks>
     [RelayCommand]
     private void Confirm()
     {
@@ -942,10 +1558,21 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     /// <summary>请求宿主关闭设置弹窗（由 `MainWindow` 接到后关闭对应的 `DialogWindow`）。</summary>
     public event EventHandler? CloseRequested;
 
-    /// <summary>应用设置（校验 → 即时生效 → 原子写盘）。</summary>
+    /// <summary>
+    /// 应用设置（**先写脏主题文件夹** → 再删被移除的主题 → 最后写设置文件）。
+    /// </summary>
+    /// <remarks>
+    /// 三步的顺序是语义：先保证"选中的主题真的在磁盘上"，再删掉用户移除的，最后把选择写进设置；
+    /// 任何一步失败就停在状态行，**不写设置文件**（避免设置指向一个没写成功的主题）。
+    /// </remarks>
     [RelayCommand]
     private void Apply()
     {
+        if (!CommitThemeDrafts())
+        {
+            return;
+        }
+
         var settings = _query.GetSettings();
 
         settings.StopTimeoutSeconds = StopTimeoutSeconds;
@@ -956,61 +1583,89 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         settings.SnapDistance = Math.Clamp(SnapDistance, 2, 8);
         settings.MultilineSubmitKey = NormalizeSubmitKey(MultilineSubmitKey);
         settings.ShowInfoOverlay = ShowInfoOverlay;
-        settings.Appearance.ThemeSelection = SelectedThemeChoice?.Id ?? ThemeIds.System;
-        settings.Appearance.UiFontFamily = UiFontFamily;
-        settings.Appearance.DataFontFamily = DataFontFamily;
-        // 主题色板：只写用户逐项改过的那几支（跟随 = 不写 ⇒ 不产生死数据）
-        CollectPaletteInto(settings.Appearance);
-        settings.ShellAspect = ShellAspect;
+        settings.ShellAspect = ShellLayout.Normalize(ShellAspect);
         settings.ShellFixedSize = ShellFixedSize;
-        settings.ModuleSourceDirectories = [.. ModuleSourceDirectories];
+        settings.WorkspaceExitBehavior = SelectedWorkspaceExitChoice?.Value ?? "Ask";
         settings.LogLevel = LogLevel;
+        settings.UiLanguage = SelectedLanguage;
         settings.AppTopmost = AppTopmost;
         settings.Hotkeys = new Dictionary<string, string>(HotkeyBindings(), StringComparer.Ordinal);
 
+        // 外观：主题选择 + 跟随系统两套 + 已投放 + 字体（主题内容已在上面写进各自文件夹）
+        _appearanceDraft.UiFontFamily = UiFontFamily;
+        _appearanceDraft.DataFontFamily = DataFontFamily;
+        settings.Appearance = _appearanceDraft.Clone();
+
         var result = _command.UpdateSettings(settings);
+        var successMessage = result.Notices.Count > 0
+            ? Loc("settings.status.appliedWithNotice", result.Notices[0])
+            : Loc("settings.status.applied");
 
         StatusIsOk = result.Succeeded;
         StatusMessage = result.Succeeded
-            ? result.Notices.Count > 0
-                ? $"已生效（{result.Notices[0]}）"
-                : "已生效"
-            : $"未生效：{string.Join("；", result.Failures)}";
+            ? successMessage
+            : Loc("settings.status.notApplied", string.Join("；", result.Failures));
 
-        if (result.Succeeded)
+        if (!result.Succeeded)
         {
-            Applied?.Invoke(this, EventArgs.Empty);
+            return;
         }
 
-        if (_query is { } query && result.Succeeded)
-        {
-            // 生效后回读一次，确保界面显示的就是**实际生效值**
-            var current = query.GetSettings();
-            StopTimeoutSeconds = current.StopTimeoutSeconds;
-            InputQueueCapacity = current.InputQueueCapacity;
-            UiRefreshRateHz = current.UiRefreshRateHz;
-            DiagnosticHintThreshold = current.DiagnosticHintThreshold;
-            AlignAutoNetworkEnabled = current.AlignAutoNetworkEnabled;
-            ShowInfoOverlay = current.ShowInfoOverlay;
-            SelectedThemeChoice = FindThemeChoice(current.Appearance.ThemeSelection);
-            // 字体也必须回读：缺这两行时，界面上显示的是「你刚选的」，而实际生效的是默认值
-            // （真因可能是 `ApplicationSettings.Clone` 漏字段，但这里不同步回读会让
-            //  「界面显示 = 实际生效值」这条纪律再破一次）。
-            UiFontFamily = current.Appearance.UiFontFamily;
-            DataFontFamily = current.Appearance.DataFontFamily;
-            // 色板也要回读：生效值就是我们刚写进去的那张表，回读让"界面上显示的 = 实际生效的"
-            SyncPaletteFrom(current);
-            ShellAspect = current.ShellAspect;
-            ShellFixedSize = current.ShellFixedSize;
-            _lastLoaded = current;
-            ThemeApplier.Apply(current);
-            LogLevel = current.LogLevel;
-        }
+        // 生效后回读一次，确保界面显示的就是**实际生效值**（也把草稿的脏标记一起清掉）
+        Load();
+        SetStatus(true, successMessage);
+        Applied?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>还原为当前生效值。</summary>
-    [RelayCommand]
-    private void Reload() => Load();
+    /// <summary>
+    /// **把脏主题写进各自的主题文件夹，再删掉草稿里移除的主题**（失败即返回 false，不写设置文件）。
+    /// </summary>
+    /// <returns>是否全部成功。</returns>
+    private bool CommitThemeDrafts()
+    {
+        foreach (var draft in _themeDrafts.Values
+            .Where(draft => draft.Dirty)
+            .OrderBy(draft => draft.Id, StringComparer.Ordinal)
+            .ToList())
+        {
+            var result = _command.SaveTheme(new ThemeSaveRequest(
+                draft.Id,
+                draft.Title,
+                draft.Base,
+                new Dictionary<string, string>(draft.Palette, StringComparer.Ordinal),
+                draft.PendingWallpaper,
+                draft.ClearWallpaper,
+                draft.WallpaperVeilOpacity,
+                draft.SurfaceOpacity));
+
+            if (!result.Succeeded)
+            {
+                var reason = result.Failures.Count > 0 ? result.Failures[0] : Loc("settings.status.writeFailed");
+                SetStatus(false, Loc("settings.status.themeSaveFailed", draft.Title, reason));
+                return false;
+            }
+
+            draft.Dirty = false;
+            draft.PendingWallpaper = null;
+            draft.ClearWallpaper = false;
+        }
+
+        foreach (var id in _pendingDeletes.OrderBy(id => id, StringComparer.Ordinal).ToList())
+        {
+            var result = _command.DeleteTheme(id);
+            if (!result.Succeeded)
+            {
+                SetStatus(false, result.Failures.Count > 0
+                    ? result.Failures[0]
+                    : Loc("settings.status.themeDeleteFailed", id));
+                return false;
+            }
+
+            _ = _pendingDeletes.Remove(id);
+        }
+
+        return true;
+    }
 
     private void SetStatus(bool ok, string message)
     {

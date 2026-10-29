@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+        x:Class="HYWDebugAssistant.FrameworkUi.Views.ConfirmDialog"
+        SizeToContent="WidthAndHeight"
+        MinWidth="300"
+        MaxWidth="520"
+        MinHeight="110"
+        MaxHeight="360"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgModule}"
+        FontSize="12">
+    <Grid RowDefinitions="Auto,Auto" Margin="12" RowSpacing="10">
+        <TextBlock Grid.Row="0"
+                   Name="MessageText"
+                   MaxWidth="460"
+                   TextWrapping="Wrap" />
+
+        <StackPanel Grid.Row="1"
+                    Orientation="Horizontal"
+                    Spacing="6"
+                    HorizontalAlignment="Right">
+            <Button Name="CancelButton" Content="{loc:Tr dialog.cancel}" MinWidth="76" />
+            <Button Name="PrimaryButton" Content="{loc:Tr dialog.confirm}" MinWidth="76" />
+        </StackPanel>
+    </Grid>
+</Window>

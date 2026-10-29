@@ -122,6 +122,46 @@ public class BusinessModulesBehaviorTests
     /// 代码、日志、单元测试**全都没有异常**，只有屏幕上"什么都没发生"。
     /// </remarks>
     [Fact]
+    public void 连续发送_开关关再开不得留下第二个发送节拍()
+    {
+        var module = new TextSenderModule();
+        var context = new TestModuleContext();
+        module.OnRegistered(context);
+        context.ViewState.SetInputText(TextSenderModule.TextSourceOf(0), "tick");
+        context.ViewState.SetInputText(TextSenderModule.IntervalSource, "50");
+
+        var runner = new Thread(() => module.RunActivity(context));
+        runner.Start();
+
+        try
+        {
+            context.EnqueueInput(TextSenderModule.ContinuousSource, "true");
+            Thread.Sleep(120);
+
+            context.EnqueueInput(TextSenderModule.ContinuousSource, "false");
+            Thread.Sleep(120);
+            var stopped = OutPortSends(context);
+
+            // 关掉后静置：不允许再有“幽灵”发包
+            Thread.Sleep(120);
+            OutPortSends(context).ShouldBe(stopped, "关闭连续发送后不得继续发包");
+
+            // 再开：应恢复发送，但不是叠出第二个节拍
+            context.EnqueueInput(TextSenderModule.ContinuousSource, "true");
+            Thread.Sleep(160);
+
+            context.EnqueueInput(TextSenderModule.ContinuousSource, "false");
+            Thread.Sleep(120);
+            OutPortSends(context).ShouldBeGreaterThan(stopped, "重新打开后应恢复发送");
+        }
+        finally
+        {
+            context.RequestStop();
+            runner.Join(TimeSpan.FromSeconds(2)).ShouldBeTrue("活动体应能及时停止");
+        }
+    }
+
+    [Fact]
     public void 文本发送器_按发送而当前页为空_应当说清楚并标那一格()
     {
         var module = new TextSenderModule();
@@ -138,9 +178,93 @@ public class BusinessModulesBehaviorTests
         Alerted(context, page).ShouldBeTrue("红色落在**那一格**上，不是落在按钮上");
     }
 
-    /// <summary>
-    /// **红一旦失去依据就必须自己消掉** —— 不能等到"下一次不相关的动作顺带帮忙"。
-    /// </summary>
+    [Fact]
+    public void 文本发送器_写入内容不等于发送_命令只发一次()
+    {
+        var module = new TextSenderModule();
+        var context = new TestModuleContext();
+        module.OnRegistered(context);
+        var page = TextSenderModule.TextSourceOf(context.ViewState.GetSelectedPage("text-pages") ?? 0);
+
+        context.EnqueueCommand(TextSenderModule.SendCommand);
+        module.PumpOnce(context);
+        OutPortSends(context).ShouldBe(0);
+        Message(context).ShouldNotBeNullOrEmpty();
+
+        // 只写视图状态（逐键输入的等价入口）⇒ 不得自己发出去
+        context.ViewState.SetInputText(page, "hello");
+        module.PumpOnce(context, shouldSend: false);
+        OutPortSends(context).ShouldBe(0, "填充内容不是动作：不得自己发送");
+
+        context.EnqueueCommand(TextSenderModule.SendCommand);
+        module.PumpOnce(context);
+        OutPortSends(context).ShouldBe(1, "发送命令必须恰好发一次");
+    }
+
+    [Fact]
+    public void 文本发送器_间隔小于四毫秒应提示但不拦发送不标红()
+    {
+        var module = new TextSenderModule();
+        var context = new TestModuleContext();
+        module.OnRegistered(context);
+        var page = TextSenderModule.TextSourceOf(context.ViewState.GetSelectedPage("text-pages") ?? 0);
+        context.ViewState.SetInputText(page, "hello");
+        context.ViewState.SetInputText(TextSenderModule.IntervalSource, "1");
+
+        module.PumpOnce(context);
+
+        Message(context)!.ShouldContain("间隔小于 4");
+        Alerted(context, page).ShouldBeFalse("提示不标红");
+        Alerted(context, TextSenderModule.IntervalSource).ShouldBeFalse("不标间隔那一格");
+
+        context.ViewState.SetInputText(TextSenderModule.IntervalSource, "4");
+        module.PumpOnce(context);
+        Message(context)!.ShouldNotContain("间隔小于 4", customMessage: "4ms 是可靠下限，不提示");
+    }
+
+    [Fact]
+    public void HEX发送器_写入内容不等于发送_命令只发一次()
+    {
+        var module = new HexSenderModule();
+        var context = new TestModuleContext();
+        module.OnRegistered(context);
+        var page = HexSenderModule.HexSourceOf(context.ViewState.GetSelectedPage("hex-pages") ?? 0);
+
+        context.EnqueueCommand(HexSenderModule.SendCommand);
+        module.PumpOnce(context);
+        OutPortSends(context).ShouldBe(0);
+
+        context.ViewState.SetInputText(page, "0A");
+        module.PumpOnce(context, shouldSend: false);
+        OutPortSends(context).ShouldBe(0, "填充内容不是动作：不得自己发送");
+
+        context.EnqueueCommand(HexSenderModule.SendCommand);
+        module.PumpOnce(context);
+        OutPortSends(context).ShouldBe(1, "发送命令必须恰好发一次");
+    }
+
+    [Fact]
+    public void HEX发送器_间隔小于四毫秒应提示但不拦发送不标红()
+    {
+        var module = new HexSenderModule();
+        var context = new TestModuleContext();
+        module.OnRegistered(context);
+        var page = HexSenderModule.HexSourceOf(context.ViewState.GetSelectedPage("hex-pages") ?? 0);
+        context.ViewState.SetInputText(page, "0A");
+        context.ViewState.SetInputText(HexSenderModule.IntervalSource, "1");
+
+        module.PumpOnce(context);
+
+        Message(context)!.ShouldContain("间隔小于 4");
+        Alerted(context, page).ShouldBeFalse("提示不标红");
+        Alerted(context, HexSenderModule.IntervalSource).ShouldBeFalse("不标间隔那一格");
+
+        context.ViewState.SetInputText(HexSenderModule.IntervalSource, "4");
+        module.PumpOnce(context);
+        Message(context)!.ShouldNotContain("间隔小于 4");
+    }
+
+
     /// <remarks>
     /// <para>
     /// 用户报的路径：在第 2 页点发送（空）⇒ 那一格红；之后**去别的页操作**。

@@ -27,7 +27,8 @@ public readonly record struct AppearanceEntry(
     long Revision = 0,
     bool? ReadOnly = null,
     string? OutlineRole = null,
-    string? TextRole = null);
+    string? TextRole = null,
+    bool? Enabled = null);
 
 /// <summary>
 /// **元素外观的存放处**：模块给的颜色放在这儿，UI 在刷新节拍里取走。
@@ -72,6 +73,10 @@ public sealed class AppearanceStore : IViewAppearanceAccess
     /// <inheritdoc />
     public void SetReadOnly(string sourceName, bool isReadOnly) =>
         Update(sourceName, entry => entry with { ReadOnly = isReadOnly ? true : null });
+
+    /// <inheritdoc />
+    public void SetEnabled(string sourceName, bool isEnabled) =>
+        Update(sourceName, entry => entry with { Enabled = isEnabled });
 
     /// <inheritdoc />
     public void ResetInteraction(string sourceName) =>
@@ -134,7 +139,8 @@ public sealed class AppearanceStore : IViewAppearanceAccess
             // **只剩"没设过颜色/字号/只读"且没有复原信号时**才把条目摘掉
             // （复原信号本身也要留下：它就是"这一格刚被复原过"这条事实）。
             if (updated.Outline is null && updated.Text is null && updated.TextSize is null
-                && updated.ReadOnly is null && updated.OutlineRole is null && updated.TextRole is null
+                && updated.ReadOnly is null && updated.Enabled is null
+                && updated.OutlineRole is null && updated.TextRole is null
                 && updated.Revision == 0)
             {
                 _ = _entries.Remove(sourceName);

@@ -5,14 +5,14 @@ using HYWDebugAssistant.Sdk.Access;
 namespace HYWDebugAssistant.Access.Adapters;
 
 /// <summary>
-/// **串口适配件**：打开一个 COM 口，异步读泵把字节放进暂存队列，框架按就绪信号来取。
+/// **串口适配件**：打开一个 COM 口，数据到达事件把字节放进暂存队列，框架按就绪信号来取。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item>参数类型 = <see cref="SerialConfig"/>（配置表单与持久化复用）；</item>
-///   <item>读用 <see cref="Stream.ReadAsync(Memory{byte}, CancellationToken)"/>，不自建线程；</item>
+///   <item>读用 <see cref="SerialPort.DataReceived"/> 事件，不设读超时、不自建线程；</item>
 ///   <item>写同步、有超时；失败立即报告并停止（<b>不自动重连</b>）；</item>
-///   <item>关闭先取消、再关端口、再有界等待泵退出。</item>
+///   <item>关闭先退订事件、再关端口；读取异常只报一次，不把“空闲无数据”当成故障。</item>
 /// </list>
 /// </remarks>
 public sealed class SerialAccessAdapter : IExternalAccessAdapter
@@ -24,8 +24,6 @@ public sealed class SerialAccessAdapter : IExternalAccessAdapter
     private readonly Lock _gate = new();
 
     private ISerialTransport? _transport;
-    private CancellationTokenSource? _cts;
-    private Task? _pump;
     private IExternalAccessReady? _ready;
     private volatile bool _open;
 
@@ -52,13 +50,13 @@ public sealed class SerialAccessAdapter : IExternalAccessAdapter
 
         if (parameters is not SerialConfig config)
         {
-            ready.SetFaulted($"参数类型不是 {nameof(SerialConfig)}");
+            ready.SetFaulted(AccessText.Get("access.serial.parametersTypeInvalid", nameof(SerialConfig)));
             return;
         }
 
         if (string.IsNullOrWhiteSpace(config.PortName))
         {
-            ready.SetFaulted("未选择串口（端口号为空）");
+            ready.SetFaulted(AccessText.Get("access.serial.portNotSelected"));
             return;
         }
 
@@ -69,29 +67,42 @@ public sealed class SerialAccessAdapter : IExternalAccessAdapter
         try
         {
             transport = _transportFactory();
+
+            // 先订阅再打开：端口打开后立即到达的字节不会因为“还没挂处理器”而丢。
+            transport.DataReceived += OnTransportData;
+            transport.ReadFaulted += OnTransportFaulted;
+
+            lock (_gate)
+            {
+                _transport = transport;
+                _ready = ready;
+                _open = true;
+            }
+
             transport.Open(config);
         }
         catch (Exception ex)
         {
-            transport?.Dispose();
-            ready.SetFaulted($"打开串口失败：{ex.GetType().Name} — {ex.Message}");
+            if (transport is not null)
+            {
+                transport.DataReceived -= OnTransportData;
+                transport.ReadFaulted -= OnTransportFaulted;
+                transport.Dispose();
+            }
+
+            lock (_gate)
+            {
+                _open = false;
+                _transport = null;
+                _ready = null;
+            }
+
+            ready.SetFaulted(AccessText.Get("access.serial.openFailed", ex.GetType().Name, ex.Message));
             return;
-        }
-
-        var cts = new CancellationTokenSource();
-
-        lock (_gate)
-        {
-            _transport = transport;
-            _ready = ready;
-            _cts = cts;
-            _open = true;
         }
 
         ready.SetOpen(
             $"{config.PortName} · {(int)config.BaudRate} · {(int)config.DataBits}{ParityLetter(config.Parity)}{StopBitsText(config.StopBits)}");
-
-        _pump = Task.Run(() => PumpAsync(transport, ready, cts.Token));
     }
 
     /// <inheritdoc />
@@ -125,7 +136,7 @@ public sealed class SerialAccessAdapter : IExternalAccessAdapter
         }
         catch (Exception ex)
         {
-            ready?.SetFaulted($"串口写入失败：{ex.GetType().Name} — {ex.Message}");
+            ready?.SetFaulted(AccessText.Get("access.serial.writeFailed", ex.GetType().Name, ex.Message));
             return false;
         }
     }
@@ -133,96 +144,84 @@ public sealed class SerialAccessAdapter : IExternalAccessAdapter
     /// <inheritdoc />
     public void Close(TimeSpan timeout)
     {
-        CancellationTokenSource? cts;
-        Task? pump;
         ISerialTransport? transport;
 
         lock (_gate)
         {
             _open = false;
-            cts = _cts;
-            _cts = null;
-            pump = _pump;
-            _pump = null;
             transport = _transport;
             _transport = null;
             _ready = null;
         }
 
-        cts?.Cancel();
+        if (transport is not null)
+        {
+            transport.DataReceived -= OnTransportData;
+            transport.ReadFaulted -= OnTransportFaulted;
 
-        try
-        {
-            transport?.Close();
-        }
-        catch
-        {
-            // 关闭失败不改变"已经不再使用该会话"的事实；资源由 Dispose 兜底。
-        }
-
-        if (pump is not null)
-        {
             try
             {
-                _ = pump.Wait(timeout);
+                transport.Close();
             }
-            catch (AggregateException)
+            catch
             {
-                // 泵已经不在（取消/端口关闭）；这是关闭路径，不向外抛。
+                // 关闭失败不改变"已经不再使用该会话"的事实；资源由 Dispose 兜底。
             }
+
+            transport.Dispose();
         }
 
-        cts?.Dispose();
-        transport?.Dispose();
         _buffer.Clear();
     }
 
-    private async Task PumpAsync(ISerialTransport transport, IExternalAccessReady ready, CancellationToken token)
+    private void OnTransportData(byte[] data)
     {
-        var buffer = new byte[RawBytesFraming.Capacity];
+        IExternalAccessReady? ready;
 
-        while (!token.IsCancellationRequested)
+        lock (_gate)
         {
-            int length;
-            try
-            {
-                length = await transport.ReadAsync(buffer, token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
+            if (!_open)
             {
                 return;
             }
-            catch (Exception ex)
-            {
-                if (!token.IsCancellationRequested)
-                {
-                    ready.SetFaulted($"串口读取失败：{ex.GetType().Name} — {ex.Message}");
-                }
 
-                return;
-            }
-
-            if (length <= 0)
-            {
-                if (token.IsCancellationRequested)
-                {
-                    return;
-                }
-
-                continue;
-            }
-
-            if (!_buffer.TryEnqueue(buffer.AsSpan(0, length), out var droppedBytes))
-            {
-                ready.ReportDropped(1, length);
-            }
-            else if (droppedBytes > 0)
-            {
-                ready.ReportDropped(1, droppedBytes);
-            }
-
-            ready.NotifyReady();
+            ready = _ready;
         }
+
+        if (ready is null || data.Length == 0)
+        {
+            return;
+        }
+
+        if (!_buffer.TryEnqueue(data, out var droppedBytes))
+        {
+            ready.ReportDropped(1, data.Length);
+        }
+        else if (droppedBytes > 0)
+        {
+            ready.ReportDropped(1, droppedBytes);
+        }
+
+        ready.NotifyReady();
+    }
+
+    private void OnTransportFaulted(Exception exception)
+    {
+        IExternalAccessReady? ready;
+
+        lock (_gate)
+        {
+            if (!_open)
+            {
+                return;
+            }
+
+            // 故障后不再把它当可写/可读会话；用户重新打开时先走 Close。
+            _open = false;
+            ready = _ready;
+        }
+
+        ready?.SetFaulted(AccessText.Get("access.serial.readFailed", exception.GetType().Name, exception.Message));
     }
 
     private static string ParityLetter(SerialParity parity) => parity switch
@@ -245,9 +244,13 @@ public sealed class SerialAccessAdapter : IExternalAccessAdapter
 /// <summary>串口传输的最小缝（测试可替换；真实实现包 <see cref="SerialPort"/>）。</summary>
 internal interface ISerialTransport : IDisposable
 {
-    void Open(SerialConfig config);
+    /// <summary>串口收到一段字节（已从端口读出；长度 = 本次实际读到的字节数）。</summary>
+    event Action<byte[]>? DataReceived;
 
-    ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken token);
+    /// <summary>读取路径发生故障（设备拔出 / 端口被关闭等）；空闲无数据不触发。</summary>
+    event Action<Exception>? ReadFaulted;
+
+    void Open(SerialConfig config);
 
     void Write(ReadOnlySpan<byte> payload);
 
@@ -258,6 +261,13 @@ internal interface ISerialTransport : IDisposable
 internal sealed class SerialPortTransport : ISerialTransport
 {
     private SerialPort? _port;
+    private volatile bool _faulted;
+
+    /// <inheritdoc />
+    public event Action<byte[]>? DataReceived;
+
+    /// <inheritdoc />
+    public event Action<Exception>? ReadFaulted;
 
     public void Open(SerialConfig config)
     {
@@ -268,16 +278,27 @@ internal sealed class SerialPortTransport : ISerialTransport
             (int)config.DataBits,
             (StopBits)(int)config.StopBits)
         {
-            ReadTimeout = 1000,
+            // 读由 DataReceived 驱动：不设读超时，绝不把“暂时没有数据”变成 IOException。
+            ReadTimeout = SerialPort.InfiniteTimeout,
             WriteTimeout = 1000,
         };
 
-        port.Open();
+        port.DataReceived += OnDataReceived;
+        _faulted = false;
+
+        try
+        {
+            port.Open();
+        }
+        catch
+        {
+            port.DataReceived -= OnDataReceived;
+            port.Dispose();
+            throw;
+        }
+
         _port = port;
     }
-
-    public ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken token) =>
-        Port().BaseStream.ReadAsync(buffer, token);
 
     public void Write(ReadOnlySpan<byte> payload)
     {
@@ -286,24 +307,71 @@ internal sealed class SerialPortTransport : ISerialTransport
         stream.Flush();
     }
 
-    public void Close()
-    {
-        try
-        {
-            _port?.Close();
-        }
-        catch
-        {
-            // 端口已经断开时关闭会抛；关闭路径不向外抛。
-        }
-    }
+    public void Close() => Dispose();
 
     public void Dispose()
     {
-        _port?.Dispose();
+        var port = _port;
+
+        if (port is null)
+        {
+            return;
+        }
+
         _port = null;
+        port.DataReceived -= OnDataReceived;
+
+        try
+        {
+            port.Close();
+        }
+        catch
+        {
+            // 设备已经断开时关闭会抛；关闭路径不向外抛。
+        }
+
+        port.Dispose();
+    }
+
+    private void OnDataReceived(object? sender, SerialDataReceivedEventArgs e)
+    {
+        if (_faulted || sender is not SerialPort port)
+        {
+            return;
+        }
+
+        try
+        {
+            var available = port.BytesToRead;
+
+            if (available <= 0)
+            {
+                return;
+            }
+
+            var buffer = new byte[available];
+            var read = port.Read(buffer, 0, available);
+
+            if (read <= 0)
+            {
+                return;
+            }
+
+            DataReceived?.Invoke(read == buffer.Length ? buffer : buffer[..read]);
+        }
+        catch (TimeoutException)
+        {
+            // 瞬时空闲不是故障：等下一次 DataReceived。绝不把“暂时没有数据”报成读取失败。
+        }
+        catch (Exception ex) when (ex is IOException
+                                      or InvalidOperationException
+                                      or UnauthorizedAccessException)
+        {
+            _faulted = true;
+            ReadFaulted?.Invoke(ex);
+        }
     }
 
     private SerialPort Port() =>
-        _port ?? throw new InvalidOperationException("串口尚未打开");
+        _port ?? throw new InvalidOperationException(AccessText.Get("access.serial.notOpen"));
 }

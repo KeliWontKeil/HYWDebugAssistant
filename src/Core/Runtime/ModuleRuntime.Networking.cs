@@ -80,7 +80,7 @@ public sealed partial class ModuleRuntime
 
             if (DescribeNetwork(network) is { Length: > 0 } description)
             {
-                notices.Add($"已连接：{description}");
+                notices.Add(CoreText.Get("core.runtime.connected", description));
             }
         }
     }
@@ -131,7 +131,7 @@ public sealed partial class ModuleRuntime
 
             if (senders.Count == 0)
             {
-                notices.Add($"网络「{label}」尚无发送端：标签已保留，等发送口填同名标签后自动连上");
+                notices.Add(CoreText.Get("core.runtime.networkNoSender", label));
                 continue;
             }
 
@@ -148,6 +148,12 @@ public sealed partial class ModuleRuntime
 
                 foreach (var sender in senders)
                 {
+                    // **同一实例的端口不能自连**：这不是环检测，而是拒绝结构上无效的源=宿。
+                    if (string.Equals(sender.InstanceId, receiver.InstanceId, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
                     // **三层判据 + 结构回退**（与运行期/重锚同一入口）——类型标识不同默认不兼容，
                     // 派生网络**没有**"用户显式确认"这一步 ⇒ 只能按默认（拒绝）
                     if (CheckCompatibility(
@@ -179,12 +185,15 @@ public sealed partial class ModuleRuntime
                 Issues.Report($"network:{label}", new IssueReport(
                     IssueCategory.InterfaceError,
                     IssueSeverity.Warning,
-                    $"网络「{label}」：成员 {string.Join("、", excluded)} **契约不兼容**（与任何源都不兼容）——**已排除该成员**（不自动转换，§5.4.1）"));
+                    CoreText.Get(
+                        "core.runtime.networkExcluded",
+                        label,
+                        string.Join(CoreText.Get("core.common.listSeparator"), excluded))));
             }
 
             if (targets.Count == 0)
             {
-                notices.Add($"网络「{label}」尚无接收端：标签已保留，等接收口填同名标签后自动连上");
+                notices.Add(CoreText.Get("core.runtime.networkNoReceiver", label));
                 continue;
             }
 

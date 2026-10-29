@@ -59,7 +59,7 @@ public sealed class ModuleLifecycleController
         if (instance.State == ModuleInstanceState.Removed)
         {
             _issues.Report(ObjectPath(instance), Issue(IssueSeverity.Warning,
-                "已移除的实例收到配置变更通知（已忽略）"));
+                HostingText.Get("hosting.lifecycle.configChangedOnRemoved")));
             return;
         }
 
@@ -78,7 +78,7 @@ public sealed class ModuleLifecycleController
 
         if (instance.State == ModuleInstanceState.Removed)
         {
-            _issues.Report(ObjectPath(instance), Issue(IssueSeverity.Warning, "实例已移除（重复移除已忽略）"));
+            _issues.Report(ObjectPath(instance), Issue(IssueSeverity.Warning, HostingText.Get("hosting.lifecycle.alreadyRemoved")));
             return false;
         }
 
@@ -99,7 +99,7 @@ public sealed class ModuleLifecycleController
         if (instance.State != allowedFrom)
         {
             _issues.Report(ObjectPath(instance), Issue(IssueSeverity.Warning,
-                $"非法状态转换：{instance.State} → {target}（仅允许 {allowedFrom} → {target}）；已忽略"));
+                HostingText.Get("hosting.lifecycle.illegalTransition", instance.State, target, allowedFrom)));
             return false;
         }
 
@@ -120,7 +120,7 @@ public sealed class ModuleLifecycleController
             _issues.Report(ObjectPath(instance), new IssueReport(
                 IssueCategory.ModuleError,
                 IssueSeverity.Error,
-                $"模块在 {hookName} 中抛出异常：{ex.GetType().Name} — {ex.Message}"));
+                HostingText.Get("hosting.lifecycle.hookThrew", hookName, ex.GetType().Name, ex.Message)));
         }
     }
 

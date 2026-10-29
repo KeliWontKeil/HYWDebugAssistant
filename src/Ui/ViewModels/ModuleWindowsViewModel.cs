@@ -1,7 +1,10 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Ui.Formatting;
 using HYWDebugAssistant.Ui.Controls;
 using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.Runtime;
@@ -166,6 +169,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     [ObservableProperty]
     public partial bool SnapEnabled { get; set; } = true;
 
+    /// <summary>当前主题的壁纸遮罩浓度（由外壳按主题下发）。</summary>
+    [ObservableProperty]
+    public partial double WallpaperVeilOpacity { get; set; } = 0.55;
+
     /// <summary>
     /// **多行文本输入的提交键**——应用级设置 `multilineSubmitKey` 的镜像，
     /// 由本类下发到每个模块窗口（与 <see cref="ShowInfoOverlay"/> 同一条路径）。
@@ -177,9 +184,277 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     [ObservableProperty]
     public partial string MultilineSubmitKey { get; set; } = "CtrlEnter";
 
-    /// <summary>当前选中的模块实例（选中态视觉）。</summary>
+    /// <summary>当前选中的模块实例（**锚点**；多选时 = 第一个选中的那一个）。</summary>
     [ObservableProperty]
     public partial string? SelectedInstanceId { get; set; }
+
+    /// <summary>当前选择集（有序；包含隐藏/占位实例）。</summary>
+    public IReadOnlyList<string> SelectedInstanceIds => [.. _selectedInstanceIds];
+
+    /// <summary>选择集大小。</summary>
+    public int SelectionCount => _selectedInstanceIds.Count;
+
+    /// <summary>是否有选中项。</summary>
+    public bool HasSelection => _selectedInstanceIds.Count > 0;
+
+    /// <summary>选择集变化（组合页/状态展示订阅）。</summary>
+    public event EventHandler? SelectionChanged;
+
+    /// <summary>
+    /// **窗口点击**要求把整组抬到应用内最前（组内 primary 最后抬 ⇒ 在最上）。
+    /// </summary>
+    /// <remarks>
+    /// 只在窗口点击路径触发（<see cref="SelectGroup"/>）；<see cref="Select"/> / <see cref="SetSelection"/> /
+    /// <see cref="ToggleSelection"/> 不触发 —— 组合页勾选不联动抬窗。
+    /// </remarks>
+    public event EventHandler<ModuleGroupRaiseRequest>? GroupRaiseRequested;
+
+    private readonly List<string> _selectedInstanceIds = [];
+
+    /// <summary>组合页首次打开时才把“全部模块”作为默认选择；未初始化时不显示选中框。</summary>
+    private bool _selectionInitialized;
+
+    /// <summary>
+    /// **组合页首次进入**：还没有初始化过选择时，默认全选。
+    /// </summary>
+    /// <remarks>选择是界面操作状态，不写盘；只在用户第一次打开组合页时初始化，避免启动即满屏选中框。</remarks>
+    public void EnsureSelectionInitialized()
+    {
+        if (_selectionInitialized)
+        {
+            return;
+        }
+
+        SelectAll();
+    }
+
+    /// <summary>
+    /// **单选**（普通点击模块边框/端口标记）：清空后只选它。
+    /// </summary>
+    /// <param name="instanceId">实例 ID（null/未知 = 清空选择）。</param>
+    /// <remarks>
+    /// 锁定模块**可选中**（锁定只禁止拖动/缩放；组合范围仍可包含它）。
+    /// </remarks>
+    public void Select(string? instanceId)
+    {
+        if (instanceId is not { Length: > 0 } id || Find(id) is null)
+        {
+            ClearSelection();
+            return;
+        }
+
+        _selectedInstanceIds.Clear();
+        _selectedInstanceIds.Add(id);
+        _selectionInitialized = true;
+        SelectedInstanceId = id;
+        ApplySelection();
+    }
+
+    /// <summary>加入/移出选择集（Shift+点击模块边框，或组合页勾选）；**加选不移动锚点**。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    public void ToggleSelection(string instanceId)
+    {
+        if (string.IsNullOrWhiteSpace(instanceId) || Find(instanceId) is null)
+        {
+            return;
+        }
+
+        _selectionInitialized = true;
+
+        if (_selectedInstanceIds.Remove(instanceId))
+        {
+            if (string.Equals(SelectedInstanceId, instanceId, StringComparison.Ordinal))
+            {
+                SelectedInstanceId = _selectedInstanceIds.Count > 0 ? _selectedInstanceIds[0] : null;
+            }
+        }
+        else
+        {
+            _selectedInstanceIds.Add(instanceId);
+
+            // **锚点 = 第一个选中**：后续 Shift 加选只扩展集合，不抢走锚点。
+            if (SelectedInstanceId is not { Length: > 0 } anchor
+                || !_selectedInstanceIds.Contains(anchor, StringComparer.Ordinal))
+            {
+                SelectedInstanceId = instanceId;
+            }
+        }
+
+        ApplySelection();
+    }
+
+    /// <summary>替换整个选择集（组合页全选/反选/批量设置用）。</summary>
+    /// <param name="instanceIds">实例 ID 集合（不存在的项被忽略）。</param>
+    /// <param name="primary">锚点（须在集合内；缺省 = 保留仍在集合中的锚点，否则取集合第一项）。</param>
+    public void SetSelection(IEnumerable<string> instanceIds, string? primary = null)
+    {
+        ArgumentNullException.ThrowIfNull(instanceIds);
+
+        _selectionInitialized = true;
+        var previousAnchor = SelectedInstanceId;
+        _selectedInstanceIds.Clear();
+
+        foreach (var id in instanceIds)
+        {
+            if (Find(id) is not null && !_selectedInstanceIds.Contains(id, StringComparer.Ordinal))
+            {
+                _selectedInstanceIds.Add(id);
+            }
+        }
+
+        SelectedInstanceId = primary is { Length: > 0 } candidate && _selectedInstanceIds.Contains(candidate, StringComparer.Ordinal)
+            ? candidate
+            : previousAnchor is { Length: > 0 } kept && _selectedInstanceIds.Contains(kept, StringComparer.Ordinal)
+                ? kept
+                : _selectedInstanceIds.Count > 0 ? _selectedInstanceIds[0] : null;
+
+        ApplySelection();
+    }
+
+    /// <summary>选中全部模块（含隐藏/占位）。</summary>
+    public void SelectAll() =>
+        SetSelection(Modules.Select(module => module.InstanceId));
+
+    /// <summary>把锚点移到某个已选中的模块（不改变集合；普通点击/拖动时用）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    public void SetPrimary(string instanceId)
+    {
+        if (!_selectedInstanceIds.Contains(instanceId, StringComparer.Ordinal))
+        {
+            Select(instanceId);
+            return;
+        }
+
+        SelectedInstanceId = instanceId;
+        ApplySelection();
+    }
+
+    /// <summary>
+    /// **普通点击已拼接模块**：选中整组（锚点 = 被点者）并请求把整组抬到最前。
+    /// </summary>
+    /// <param name="instanceId">被点击的实例 ID。</param>
+    /// <remarks>
+    /// 组 = 与拖动同一份连通分量（<see cref="GroupOfNode"/> / <see cref="GroupTolerance"/>）；
+    /// 过滤掉不存在与不可见（隐藏/占位）的成员；**锁定模块保留**（锁定只禁拖动）。
+    /// 被点者不在可见组里（不存在/隐藏）⇒ 退回 <see cref="Select"/> 语义；不存在时不触发事件。
+    /// </remarks>
+    public void SelectGroup(string instanceId)
+    {
+        if (Find(instanceId) is null)
+        {
+            Select(instanceId);
+            return;
+        }
+
+        var group = GroupOfNode(instanceId)
+            .Where(id => Find(id) is { IsViewVisible: true })
+            .ToList();
+
+        if (!group.Contains(instanceId, StringComparer.Ordinal))
+        {
+            Select(instanceId);
+            return;
+        }
+
+        SetSelection(group, primary: instanceId);
+        GroupRaiseRequested?.Invoke(this, new ModuleGroupRaiseRequest(group, instanceId));
+    }
+
+    /// <summary>若模块未选中则单选它；已选中则只把锚点移过去（保留多选）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    public void SelectOrKeep(string instanceId)
+    {
+        if (Find(instanceId) is null)
+        {
+            return;
+        }
+
+        if (_selectedInstanceIds.Contains(instanceId, StringComparer.Ordinal))
+        {
+            SetPrimary(instanceId);
+        }
+        else
+        {
+            Select(instanceId);
+        }
+    }
+
+    /// <summary>从选择集移除一个实例（关闭模块时用；其余选中保留）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    public void RemoveFromSelection(string instanceId)
+    {
+        if (!_selectedInstanceIds.Remove(instanceId))
+        {
+            return;
+        }
+
+        if (string.Equals(SelectedInstanceId, instanceId, StringComparison.Ordinal))
+        {
+            SelectedInstanceId = _selectedInstanceIds.Count > 0 ? _selectedInstanceIds[0] : null;
+        }
+
+        ApplySelection();
+    }
+
+    /// <summary>
+    /// 清空全部选中：点内容区 / 点外壳 / 点本应用其他窗口。
+    /// </summary>
+    public void ClearSelection()
+    {
+        if (_selectedInstanceIds.Count == 0 && SelectedInstanceId is null)
+        {
+            return;
+        }
+
+        _selectedInstanceIds.Clear();
+        SelectedInstanceId = null;
+        ApplySelection();
+    }
+
+    /// <summary>
+    /// 选择集的**唯一视觉对账点**：所有模块的 `IsSelected/IsPrimary` 一次对齐。
+    /// </summary>
+    private void ApplySelection()
+    {
+        // 现场可能刚移除/重建模块：先剪掉不存在的 ID。
+        _ = _selectedInstanceIds.RemoveAll(id => Find(id) is null);
+
+        var selected = new HashSet<string>(_selectedInstanceIds, StringComparer.Ordinal);
+        var primary = SelectedInstanceId is { Length: > 0 } candidate && selected.Contains(candidate)
+            ? candidate
+            : _selectedInstanceIds.Count > 0 ? _selectedInstanceIds[0] : null;
+
+        var changed = !string.Equals(SelectedInstanceId, primary, StringComparison.Ordinal);
+        if (changed)
+        {
+            SelectedInstanceId = primary;
+        }
+
+        foreach (var module in Modules)
+        {
+            var isSelected = selected.Contains(module.InstanceId);
+            if (module.IsSelected != isSelected)
+            {
+                module.IsSelected = isSelected;
+                changed = true;
+            }
+
+            var isPrimary = isSelected && string.Equals(module.InstanceId, primary, StringComparison.Ordinal);
+            if (module.IsPrimary != isPrimary)
+            {
+                module.IsPrimary = isPrimary;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            OnPropertyChanged(nameof(SelectedInstanceIds));
+            OnPropertyChanged(nameof(SelectionCount));
+            OnPropertyChanged(nameof(HasSelection));
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
 
     /// <summary>UI 刷新率（Hz；来自应用级设置）。</summary>
     [ObservableProperty]
@@ -307,7 +582,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         0 => string.Empty,
         1 => members[0],
         2 => $"{members[0]}、{members[1]}",
-        _ => $"{members[0]} 等 {members.Count} 个",
+        _ => TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.peers.more", members[0], members.Count),
     };
 
     /// <summary>
@@ -332,45 +607,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
     }
 
-    /// <summary>
-    /// 选中一个模块（点击边框带 / 端口标记时调用；**唯一写者**）。
-    /// </summary>
-    /// <param name="instanceId">实例 ID（null = 取消选择）。</param>
-    /// <remarks>
-    /// <b>选中态只有一个事实源 = <see cref="SelectedInstanceId"/></b>：本方法每次调用都把
-    /// <b>全部模块</b>的 <see cref="ModuleViewViewModel.IsSelected"/> 对账成"是否就是目标"。
-    /// 旧实现只在 id 变化时改前后两个模块，且 <c>ClearSelection</c> 不清 <c>SelectedInstanceId</c> ⇒
-    /// "点内容清空后再点同一个模块"会被 early-return 吞掉（边框/手柄再也出不来）。对账式写法同时兜住
-    /// 模块刷新重建、未知 id、历史脏标志。锁定模块不可选中（锁定 = 不可拖动/缩放/选中）。
-    /// </remarks>
-    public void Select(string? instanceId)
-    {
-        var target = instanceId is { Length: > 0 } id
-            ? Modules.FirstOrDefault(m => string.Equals(m.InstanceId, id, StringComparison.Ordinal))
-            : null;
-
-        if (target is { IsLocked: true })
-        {
-            target = null;
-        }
-
-        var next = target?.InstanceId;
-        if (!string.Equals(SelectedInstanceId, next, StringComparison.Ordinal))
-        {
-            SelectedInstanceId = next;
-        }
-
-        foreach (var module in Modules)
-        {
-            var selected = ReferenceEquals(module, target);
-            if (module.IsSelected != selected)
-            {
-                module.IsSelected = selected;
-            }
-        }
-    }
-
-    /// <summary>切换某窗口的锁定（锁定 = 不可拖动/缩放/选中，仍显示数据）。</summary>
+    /// <summary>切换某窗口的锁定（锁定 = 不可拖动/缩放，仍显示数据；**选中保留**，组合范围可包含它）。</summary>
     /// <param name="instanceId">实例 ID。</param>
     public void ToggleLock(string instanceId)
     {
@@ -381,10 +618,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         module.IsLocked = !module.IsLocked;
 
-        if (module.IsLocked && string.Equals(SelectedInstanceId, instanceId, StringComparison.Ordinal))
-        {
-            Select(null);
-        }
+        // 锁定只影响拖动/缩放；选中框与选择集保持。手柄是否显示由视图按 IsLocked 判。
     }
 
     /// <summary>锁定 / 解锁**全部**窗口（工具栏「窗口」组）。</summary>
@@ -397,11 +631,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         AllLocked = locked;
-
-        if (locked)
-        {
-            Select(null);
-        }
+        // 锁定不改变选择集（组合范围仍可包含锁定模块）。
     }
 
     /// <summary>切换某模块的**运行 / 停用**（停用 = 保留实例、拓扑与配置，只停流）。</summary>
@@ -444,11 +674,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         VisibilityChanged?.Invoke(this, new ModuleWindowVisibilityChange(instanceId, IsVisible: true));
     }
 
-    /// <summary>关闭某个模块窗口 = **移除该模块实例**（级联清理绑定）。</summary>
+    /// <summary>关闭某个模块窗口 = **移除该模块实例**（级联清理绑定）；只从选择集移除它本身。</summary>
     /// <param name="instanceId">实例 ID。</param>
     public void CloseModule(string instanceId)
     {
-        Select(null);
+        RemoveFromSelection(instanceId);
         _ = _command.RemoveModule(instanceId);
     }
 
@@ -505,7 +735,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
         _dragPointerOffsetX = pointerX - module.X;
         _dragPointerOffsetY = pointerY - module.Y;
-        Select(instanceId);
+        SelectOrKeep(instanceId);
         return true;
     }
 
@@ -780,7 +1010,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         if (candidates.Count > 0)
         {
-            RaiseNotice($"即将自动建网：{candidates.Count} 条连接（松开鼠标后建立）");
+            RaiseNotice(TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.notice.autoNetwork", candidates.Count));
         }
     }
 
@@ -847,7 +1077,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         if (!string.Equals(_anchorDockNoticeKey, key, StringComparison.Ordinal))
         {
             _anchorDockNoticeKey = key;
-            RaiseNotice($"网络标签已对齐：松手即可与 {key} 建立连接");
+            RaiseNotice(TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.notice.aligned", key));
         }
 
         return hint.Offset;
@@ -881,7 +1111,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             if (!string.Equals(_anchorCenterNoticeKey, marker.PortName, StringComparison.Ordinal))
             {
                 _anchorCenterNoticeKey = marker.PortName;
-                RaiseNotice($"{marker.PortName}：已与模块中线对齐");
+                RaiseNotice(TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.notice.centerAligned", marker.PortName));
             }
         }
         else if (!atCenter)
@@ -1219,14 +1449,14 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
             var notices = result.Notices.Count > 0 ? $" —— {string.Join("；", result.Notices)}" : string.Empty;
             message = text.Length == 0
-                ? $"{module.Title} · {marker.PortName}：已清除网络名（退出该网络）{notices}"
-                : $"{module.Title} · {marker.PortName}：网络名已设为「{text}」{notices}";
+                ? TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.notice.networkCleared", module.Title, marker.PortName) + notices
+                : TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.notice.networkSet", module.Title, marker.PortName, text) + notices;
         }
         else
         {
             // 保持打开：让用户就地改（不清空输入，不丢上下文）
             marker.IsEditing = true;
-            message = $"{module.Title} · {marker.PortName}：网络名未生效 —— {string.Join("；", result.Failures)}";
+            message = TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.notice.networkFailed", module.Title, marker.PortName, string.Join("；", result.Failures));
             marker.EditError = string.Join("；", result.Failures);
         }
 
@@ -1287,9 +1517,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             out var notices);
 
         var message = ok
-            ? $"{module.Title} · {marker.PortName}：锚点已移到{EdgeText(marker.Edge)}（位置 {marker.Offset:0.00}）"
+            ? TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.notice.anchorMoved", module.Title, marker.PortName, EdgeText(marker.Edge), marker.Offset.ToString("0.00", CultureInfo.CurrentCulture))
                 + (notices.Length > 0 ? $" —— {notices}" : string.Empty)
-            : $"{module.Title} · {marker.PortName}：锚点未移动 —— {failure}";
+            : TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.notice.anchorMoveFailed", module.Title, marker.PortName, failure);
 
         RaiseNotice(message, isError: !ok);
         return message;
@@ -1374,9 +1604,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         var ok = TryWriteAnchorFixed(module, marker, fixedState, out var failure);
         var message = ok
             ? fixedState
-                ? $"{module.Title} · {marker.PortName}：锚点已固定（不可拖动）"
-                : $"{module.Title} · {marker.PortName}：锚点已解锁（可拖动）"
-            : $"{module.Title} · {marker.PortName}：固定状态未改变 —— {failure}";
+                ? TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.notice.anchorFixed", module.Title, marker.PortName)
+                : TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.notice.anchorUnlocked", module.Title, marker.PortName)
+            : TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.notice.anchorToggleFailed", module.Title, marker.PortName, failure);
 
         RaiseNotice(message, isError: !ok);
         return message;
@@ -1418,7 +1648,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         if (markers.Count == 0)
         {
-            const string empty = "端口锚点：当前没有端口";
+            var empty = TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.anchor.none");
             RaiseNotice(empty);
             return empty;
         }
@@ -1449,8 +1679,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         var text = target
-            ? $"端口锚点：已固定 {changed} 个（不可拖动）" + (failed > 0 ? $"，{failed} 个失败" : string.Empty)
-            : $"端口锚点：已解锁 {changed} 个（可拖动）" + (failed > 0 ? $"，{failed} 个失败" : string.Empty);
+            ? TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.anchor.fixed", changed)
+                + (failed > 0 ? TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.anchor.failed", failed) : string.Empty)
+            : TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.anchor.unlocked", changed)
+                + (failed > 0 ? TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.anchor.failed", failed) : string.Empty);
 
         RaiseNotice(text, isError: failed > 0);
         return text;
@@ -1460,12 +1692,32 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <param name="edge">边缘。</param>
     private static string EdgeText(PortEdge edge) => edge switch
     {
-        PortEdge.Right => "右边",
-        PortEdge.Top => "上边",
-        PortEdge.Bottom => "下边",
-        PortEdge.Left => "左边",
-        _ => "默认边",
+        PortEdge.Right => TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.edge.right"),
+        PortEdge.Top => TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.edge.top"),
+        PortEdge.Bottom => TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.edge.bottom"),
+        PortEdge.Left => TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.edge.left"),
+        _ => TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.edge.default"),
     };
+
+    /// <summary>设置/清除某模块的壁纸（只影响该模块）。</summary>
+    /// <param name="module">模块视图。</param>
+    /// <param name="png">PNG 字节；null = 清除。</param>
+    public void SetWallpaper(ModuleViewViewModel module, byte[]? png)
+    {
+        ArgumentNullException.ThrowIfNull(module);
+
+        var result = _command.SetModuleWallpaper(module.InstanceId, png);
+        if (result.Succeeded)
+        {
+            module.ReloadWallpaper();
+            RaiseNotice(png is { Length: > 0 }
+                ? TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.wallpaper.changed")
+                : TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.wallpaper.cleared"));
+            return;
+        }
+
+        RaiseNotice(TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.wallpaper.failed", string.Join("；", result.Failures)), isError: true);
+    }
 
     /// <summary>
     /// **还原模块**：回到默认尺寸，可选连配置一起还原。
@@ -1496,13 +1748,13 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
             RaiseNotice(
                 result.Succeeded
-                    ? $"{module.Title}：已还原默认尺寸与配置"
-                    : $"{module.Title}：尺寸已还原，但配置还原失败 —— {string.Join("；", result.Failures)}",
+                    ? TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.reset.done", module.Title)
+                    : TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.reset.configFailed", module.Title, string.Join("；", result.Failures)),
                 isError: !result.Succeeded);
         }
         else
         {
-            RaiseNotice($"{module.Title}：已还原默认尺寸", isError: false);
+            RaiseNotice(TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.reset.sizeDone", module.Title), isError: false);
         }
     }
 
@@ -1519,15 +1771,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(module);
         _ = _command.UpdateModuleLayout(module.ToLayout());
     }
-
-    /// <summary>
-    /// 清除全部选中：点内容区 / 点外壳 / 点本应用其他窗口。
-    /// </summary>
-    /// <remarks>
-    /// **委托给唯一写者 <see cref="Select"/>**：只清各模块的 <c>IsSelected</c> 而不清
-    /// <see cref="SelectedInstanceId"/> 会让"再次选中同一模块"被吞掉（边框/手柄再也出不来）。
-    /// </remarks>
-    public void ClearSelection() => Select(null);
 
     // ---------------------------------------------------------------- 内部
 
@@ -1577,19 +1820,21 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(instance);
 
-        // 模块没有声明默认尺寸时只求"别算出 0 尺寸"：摆放只关心"互不堆叠"，
-        // 不在这里造第二份默认尺寸 —— 默认尺寸的唯一来源是 `[ModuleDefinition]`，
-        // 框架地板在窗口模型构造时由 `PortMarkerMetrics.MinWindowExtent` 兜底。
-        // **尺寸是 DIP（声明就是 DIP）** ⇒ 不乘缩放；而 `ShellRect` / `WorkArea` 由窗口管理器
-        // 按同一口径（DIP）发布 ⇒ 本方法整段都在 DIP 里算，位置与尺寸不再混单位。
         var window = instance.Window;
         var width = Math.Max(1, window is { Width: > 0 } declaredWidth ? declaredWidth.Width : 1);
         var height = Math.Max(1, window is { Height: > 0 } declaredHeight ? declaredHeight.Height : 1);
+        return NextPlacementForSize(width, height);
+    }
 
+    /// <summary>
+    /// 按给定尺寸找空闲摆放位置（DIP）：**按现有模块的真实下沿 + 间距**向下让位，
+    /// 不再按“候选模块声明高度”整块跳过（旧实现会在矮模块之间留下过大的 Y 空隙）。
+    /// </summary>
+    private (double X, double Y) NextPlacementForSize(double width, double height)
+    {
         var shell = ShellRect is { IsValid: true } rect ? rect : (CanvasRect?)null;
         var baseX = shell is { } s ? s.Right + PlaceGap : PlaceOrigin;
         var baseY = shell is { } s2 ? s2.Y : PlaceOrigin;
-
         var work = WorkArea is { IsValid: true } area ? area : (CanvasRect?)null;
 
         var x = baseX;
@@ -1604,15 +1849,44 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 y = baseY;
             }
 
-            if (!OverlapsAnyModule(x, y, width, height))
+            if (LowestOverlappingBottom(x, y, width, height) is not { } bottom)
             {
                 return (x, y);
             }
 
-            y += height + PlaceGap;
+            // **贴住最低障碍物的下沿 + 呼吸间距**：不按候选高度整块跳，避免过大空档。
+            y = bottom + PlaceGap;
         }
 
         return (x, y);
+    }
+
+    /// <summary>候选矩形与现有模块相交时，返回最低的相交下沿；不相交 = null。</summary>
+    private double? LowestOverlappingBottom(double x, double y, double width, double height)
+    {
+        double? lowest = null;
+        var right = x + width;
+        var bottom = y + height;
+
+        foreach (var module in Modules)
+        {
+            var moduleWidth = module.Width > 0 ? module.Width : module.PreferredWidth;
+            var moduleHeight = module.Height > 0 ? module.Height : module.PreferredHeight;
+            if (moduleWidth <= 0 || moduleHeight <= 0)
+            {
+                continue;
+            }
+
+            var moduleRight = module.X + moduleWidth;
+            var moduleBottom = module.Y + moduleHeight;
+            if (x < moduleRight + PlaceGap && right + PlaceGap > module.X
+                && y < moduleBottom + PlaceGap && bottom + PlaceGap > module.Y)
+            {
+                lowest = lowest is { } current ? Math.Max(current, moduleBottom) : moduleBottom;
+            }
+        }
+
+        return lowest;
     }
 
     /// <summary>候选矩形是否与**已有模块**相交（留 <see cref="PlaceGap"/> 的呼吸间距）。全程 DIP。</summary>
@@ -1653,6 +1927,52 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var index = 0;
 
+        // **加载组合时布局必须先于窗口创建**：新窗口若先按 NextPlacement 建、再应用布局，
+        // ModuleWindowManager 会在 Opened 时用初摆位置写回布局，覆盖刚恢复的位置。
+        var layoutById = new Dictionary<string, ModuleLayoutView>(StringComparer.Ordinal);
+        foreach (var layout in _query.GetLayout())
+        {
+            layoutById[layout.InstanceId] = layout;
+        }
+
+        // **组合件整组落位**：文件里的位置是组内相对关系。现场非空时，若整组与现有模块相交，
+        // 就像单个新模块一样找一块空地，再整体平移；空现场则保留文件里的绝对位置。
+        // 平移量写回布局，避免下一次刷新又按文件原位置覆盖。
+        var incoming = instances.Where(instance => Find(instance.InstanceId) is null).ToList();
+        var incomingLayouts = incoming
+            .Select(instance => layoutById.TryGetValue(instance.InstanceId, out var layout) ? layout : null)
+            .ToList();
+
+        if (Modules.Count > 0
+            && incoming.Count > 0
+            && incomingLayouts.All(layout => layout is not null))
+        {
+            var minX = incomingLayouts.Min(layout => layout!.X);
+            var minY = incomingLayouts.Min(layout => layout!.Y);
+            var maxX = incomingLayouts.Max(layout => layout!.X + layout.Width);
+            var maxY = incomingLayouts.Max(layout => layout!.Y + layout.Height);
+            var width = Math.Max(1, maxX - minX);
+            var height = Math.Max(1, maxY - minY);
+
+            if (OverlapsAnyModule(minX, minY, width, height))
+            {
+                var placement = NextPlacementForSize(width, height);
+                var dx = placement.X - minX;
+                var dy = placement.Y - minY;
+                var shifted = incomingLayouts
+                    .Select(layout => layout! with { X = layout.X + dx, Y = layout.Y + dy })
+                    .ToList();
+
+                if (_command.UpdateModuleLayouts(shifted).Succeeded)
+                {
+                    foreach (var layout in shifted)
+                    {
+                        layoutById[layout.InstanceId] = layout;
+                    }
+                }
+            }
+        }
+
         foreach (var instance in instances)
         {
             _ = seen.Add(instance.InstanceId);
@@ -1664,21 +1984,29 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 continue;
             }
 
-            // 新模块：**只分配错位摆放的位置**；尺寸由模块的 `[ModuleDefinition]` 决定。
-            // 窗口打开后（ModuleWindowManager.PublishActualSize）把**实际尺寸**读回并经 CommitInitialLayout 落盘。
-            // 这里若写回"模型算出来的默认尺寸"，等于让代码决定外层容器尺寸（那是模块声明的职责）。
-            // 摆放**在右侧排开、互不堆叠**（见 NextPlacement）—— 从左上角斜着叠会压在主窗口上且互相堆叠。
-            var placement = NextPlacement(instance);
+            // 有已保存布局 ⇒ 直接消费；只有真正的新实例才使用错位摆放。
+            _ = layoutById.TryGetValue(instance.InstanceId, out var savedLayout);
+            var placement = savedLayout is null ? NextPlacement(instance) : (X: 0.0, Y: 0.0);
+
             var created = new ModuleViewViewModel(
                 instance,
-                layout: null,
+                layout: savedLayout,
                 _query,
                 _command,
                 placement.X,
                 placement.Y,
-                _viewState);
+                _viewState)
+            {
+                WallpaperVeilOpacity = WallpaperVeilOpacity,
+            };
 
             Modules.Add(created);
+
+            // 组合页已经初始化过选择 ⇒ 新加入的模块默认进入选择集（刚加的通常就是要保存的）。
+            if (_selectionInitialized && !_selectedInstanceIds.Contains(created.InstanceId, StringComparer.Ordinal))
+            {
+                _selectedInstanceIds.Add(created.InstanceId);
+            }
 
             GeometryChanged?.Invoke(
                 this,
@@ -1697,14 +2025,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         // 几何：拖动/缩放中的成员由交互过程主导（避免与指针打架）
-        var layoutById = new Dictionary<string, ModuleLayoutView>(StringComparer.Ordinal);
-        foreach (var layout in _query.GetLayout())
-        {
-            layoutById[layout.InstanceId] = layout;
-        }
-
         foreach (var module in Modules)
         {
+            module.WallpaperVeilOpacity = WallpaperVeilOpacity;
+
             if (_draggingId is { Length: > 0 } dragging
                 && (string.Equals(module.InstanceId, dragging, StringComparison.Ordinal)
                     || _dragGroup.Contains(module.InstanceId, StringComparer.Ordinal)))
@@ -1737,9 +2061,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             }
         }
 
-        // **选中态对账**：模块可能刚被移除/重建（选中标志默认 false，而 SelectedInstanceId 还在）。
-        // 每帧按唯一事实源重算一次；无变化不触发通知，成本只是 O(模块数) 的相等判断。
-        Select(SelectedInstanceId);
+        // **选中态对账**：模块可能刚被移除/重建；每帧按选择集重算一次，无变化不触发通知。
+        ApplySelection();
 
         OnPropertyChanged(nameof(ModuleCount));
     }
@@ -2009,7 +2332,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             // ——否则同一块标签上"速率"与"流量"会各说一套。
             marker.BytesText = metrics.PayloadBytesDelivered > 0 ? FormatBytes(metrics.PayloadBytesDelivered) : null;
             // 速率**如实显示**：`---` 只表示"**无连接**"（上面那条分支）；
-            // 有连接但这一秒没数据 ⇒ `0.00 B/s`（**不拿 `---` 冒充 0** —— 再低的速率也是有数据，
+            // 有连接但这一秒没数据 ⇒ `0 B/s`（**不拿 `---` 冒充 0** —— 再低的速率也是有数据，
             // 如实显示，没有数据就写 0.00，--- 表示无连接）。
             marker.RateText = FormatRate(metrics.PayloadBytesPerSecond);
         }
@@ -2071,7 +2394,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// </remarks>
     private string OverlayIdentity(ModuleViewViewModel module)
     {
-        var title = string.IsNullOrWhiteSpace(module.Title) ? "模块" : module.Title;
+        var title = string.IsNullOrWhiteSpace(module.Title) ? TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.module.defaultTitle") : module.Title;
         var number = 1;
 
         foreach (var peer in Modules)
@@ -2155,7 +2478,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         if (nominalRateHz is { } nominal)
         {
-            parts.Add($"标称 {nominal:0.#} Hz");
+            parts.Add(TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.role.nominal", nominal.ToString("0.#", CultureInfo.CurrentCulture)));
         }
 
         return string.Join(" · ", parts);
@@ -2221,19 +2544,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// **速率文本**（每秒字节数）：**如实显示**，不做"低于阈值就显示占位符"的模糊化。
     /// </summary>
     /// <param name="bytesPerSecond">每秒搬运字节数（框架算，界面只格式化）。</param>
-    /// <returns>`0.00 B/s` / `12.34 B/s` / `1.44 KB/s` …（再低的速率也是有数据，如实显示）。</returns>
+    /// <returns>`0 B/s` / `512 B/s` / `1.0 KB/s` …（再低的速率也是有数据，如实显示）。</returns>
     private static string FormatRate(double bytesPerSecond) =>
-        bytesPerSecond < 1024
-            ? $"{bytesPerSecond:0.00} B/s"
-            : $"{bytesPerSecond / 1024:0.00} KB/s";
+        ByteQuantity.Format(bytesPerSecond, perSecond: true);
 
-    private static string FormatBytes(long bytes) => bytes switch
-    {
-        < 1024 => $"{bytes} B",
-        < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
-        < 1024L * 1024 * 1024 => $"{bytes / (1024.0 * 1024):F1} MB",
-        _ => $"{bytes / (1024.0 * 1024 * 1024):F2} GB",
-    };
+    private static string FormatBytes(long bytes) => ByteQuantity.Format(bytes);
 
     private IReadOnlyList<(string Id, CanvasRect Rect)> ModuleRects() =>
         [.. Modules.Where(m => m.IsViewVisible).Select(m => (m.InstanceId, m.Rect))];
@@ -2420,3 +2735,8 @@ public sealed record ModuleWindowGeometryChange(string InstanceId, double X, dou
 /// <param name="InstanceId">实例 ID。</param>
 /// <param name="IsVisible">是否应显示。</param>
 public sealed record ModuleWindowVisibilityChange(string InstanceId, bool IsVisible);
+
+/// <summary>窗口点击要求抬起的整组（<paramref name="Primary"/> 最后抬、在最上）。</summary>
+/// <param name="InstanceIds">组内实例 ID（抬升顺序）。</param>
+/// <param name="Primary">被点击的锚点。</param>
+public sealed record ModuleGroupRaiseRequest(IReadOnlyList<string> InstanceIds, string Primary);

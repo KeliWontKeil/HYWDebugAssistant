@@ -51,7 +51,7 @@ public class UiSelectionAndRateProjectionTests
     }
 
     [Fact]
-    public void 清空选中后再次选中同一模块必须生效()
+    public void 清空选中后再次选中同一模块必须生效_且锁定模块仍可选中但不能拖动()
     {
         using var runtime = new ModuleRuntime();
         var services = new RuntimeServices(runtime);
@@ -79,14 +79,58 @@ public class UiSelectionAndRateProjectionTests
         s1.IsSelected.ShouldBeFalse();
         s2.IsSelected.ShouldBeTrue();
 
+        // 锁定只禁止拖动/缩放；**可选中**（组合范围可以包含锁定模块）。
         windows.ToggleLock("s1");
         windows.Select("s1");
-        s1.IsSelected.ShouldBeFalse("锁定 ⇒ 不可选中");
-        s2.IsSelected.ShouldBeFalse("点锁定模块的边框不应把原选中留在半截状态");
-        windows.SelectedInstanceId.ShouldBeNull();
+        s1.IsSelected.ShouldBeTrue("锁定模块仍可被选中（只是不能拖动/缩放）");
+        s2.IsSelected.ShouldBeFalse();
+        windows.SelectedInstanceId.ShouldBe("s1");
+        windows.BeginDrag("s1", 0, 0, independent: false).ShouldBeFalse("锁定模块不得进入拖动");
 
         windows.ToggleLock("s1");
         windows.Select("s1");
         s1.IsSelected.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void 多选_锚点保留第一个选中_移除锚点后顺延()
+    {
+        using var runtime = new ModuleRuntime();
+        var services = new RuntimeServices(runtime);
+
+        CoreRuntimeTests.AddModule(runtime, "s1", "sender", typeof(CoreRuntimeTests.SenderModule));
+        CoreRuntimeTests.AddModule(runtime, "s2", "sender", typeof(CoreRuntimeTests.SenderModule));
+
+        var windows = new ModuleWindowsViewModel(services, services);
+        windows.Refresh();
+
+        var s1 = windows.Modules.Single(m => m.InstanceId == "s1");
+        var s2 = windows.Modules.Single(m => m.InstanceId == "s2");
+
+        windows.EnsureSelectionInitialized();
+        windows.SelectedInstanceIds.ShouldBe(["s1", "s2"], "组合页首次进入默认全选");
+        s1.IsSelected.ShouldBeTrue();
+        s2.IsSelected.ShouldBeTrue();
+
+        windows.ClearSelection();
+        windows.Select("s1");
+        windows.ToggleSelection("s2");
+
+        windows.SelectedInstanceIds.ShouldBe(["s1", "s2"]);
+        s1.IsSelected.ShouldBeTrue();
+        s2.IsSelected.ShouldBeTrue();
+        s1.IsPrimary.ShouldBeTrue("Shift 加选不抢走第一个选中的锚点");
+        s2.IsPrimary.ShouldBeFalse();
+
+        windows.RemoveFromSelection("s1");
+        windows.SelectedInstanceIds.ShouldBe(["s2"]);
+        s1.IsSelected.ShouldBeFalse();
+        s2.IsPrimary.ShouldBeTrue("移除锚点后顺延到下一个选中项");
+
+        windows.SelectAll();
+        windows.SelectionCount.ShouldBe(2);
+        s2.IsPrimary.ShouldBeTrue("全选时应保留仍在集合中的锚点");
+        windows.ClearSelection();
+        windows.HasSelection.ShouldBeFalse();
     }
 }

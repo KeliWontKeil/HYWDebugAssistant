@@ -34,8 +34,20 @@ public sealed class ModuleDefinitionAttribute : Attribute
     /// <summary>目录展示名（不构成框架业务分类，P16）。</summary>
     public string DisplayName { get; init; } = string.Empty;
 
+    /// <summary>
+    /// 目录展示名的**文本表键**（拥有者 = 模块程序集；命中则优先于 <see cref="DisplayName"/>）。
+    /// </summary>
+    /// <remarks>空 = 不用表，回退到 <see cref="DisplayName"/> / 入口类型名。</remarks>
+    public string DisplayNameKey { get; init; } = string.Empty;
+
     /// <summary>描述（目录展示用）。</summary>
     public string Description { get; init; } = string.Empty;
+
+    /// <summary>
+    /// 描述的**文本表键**（拥有者 = 模块程序集；命中则优先于 <see cref="Description"/>）。
+    /// </summary>
+    /// <remarks>空 = 不用表，回退到 <see cref="Description"/>。</remarks>
+    public string DescriptionKey { get; init; } = string.Empty;
 
     /// <summary>可选标签（仅供用户检索，**不是框架分类**）。</summary>
     public string[] Tags { get; init; } = [];

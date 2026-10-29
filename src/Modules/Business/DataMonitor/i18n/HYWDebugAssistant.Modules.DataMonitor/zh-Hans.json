@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "language": "zh-Hans",
+  "entries": {
+    "module.description": "以特定格式(文本/十六进制)显示接收的字节流",
+    "module.title": "数据显示器",
+    "status.saveError": "保存失败：{0} — {1}",
+    "status.saveFailed": "保存失败",
+    "status.saveNoPath": "未选择保存位置",
+    "status.saved": "已保存：{0}（{1} 行）",
+    "view.clear": "清空",
+    "view.hex": "十六进制",
+    "view.paused": "暂停显示",
+    "view.roleDisplay": "显示",
+    "status.savedLog": "内容已保存：{0}（{1} 行）",
+    "status.shortDatagram": "收到 {0} 字节的数据报，小于端口契约 {1} 字节 —— **已丢弃**（通常是发布方版本更旧：接收方必须按到达长度读，`PayloadReader.TryCreate`）。此提示只显示一次。",
+    "status.unknownCommand": "未知命令：{0}（模块未实现）",
+    "view.save": "保存",
+    "view.saveFilter": "文本文件 (*.txt)|*.txt",
+    "view.timestamp": "时间戳",
+    "view.wrap": "数据包换行"
+  }
+}

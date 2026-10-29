@@ -47,7 +47,7 @@ public class OverlaySnapshotTests
     [Fact]
     public async Task 叠加层_应在真实渲染栈下画出方块与连线_并留下快照()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         if (Directory.Exists(OutputDirectory))
         {
@@ -110,7 +110,7 @@ public class OverlaySnapshotTests
         // 这条把 Avalonia/Skia 的 `DashStyle.Offset` 语义**实测出来**（不靠文档、不靠注释）：
         // ① **偏移增大 ⇒ 图案整体朝几何起点移动**（因此"沿绘制方向前进"必须取**负**相位）；
         // ② 偏移的**单位是笔宽的倍数**（不是 DIP）—— 见 `OverlayAnimationClock.DashOffset` 里为什么要除以线宽。
-        using var session = HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         const double thickness = 2;
         var starts = new Dictionary<double, int>();
@@ -140,7 +140,7 @@ public class OverlaySnapshotTests
         // ⇒ 每轮只推进 10÷2.5 = 4 个图案单位就回绕 ⇒ 每次回绕倒跳 6 个图案单位 = 15 DIP）。
         // 本用例是**唯一能证明"没有跳"的方式**：把相位推满**一个真实图案周期**后，
         // 渲染出来的像素必须与零相位**完全一致**（环绕点视觉上不可分辨）。
-        using var session = HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         const double thickness = ConnectionOverlay.LineThickness;
         var pixels = new Dictionary<double, string>();
@@ -170,7 +170,7 @@ public class OverlaySnapshotTests
     [Fact]
     public async Task 叠加层身份_使用语义名与现场连续编号()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>

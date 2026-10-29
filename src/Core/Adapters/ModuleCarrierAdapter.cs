@@ -117,6 +117,9 @@ public sealed class ModuleCarrierAdapter : ICarrierTarget
         _issues.Report(_objectPath, new IssueReport(
             IssueCategory.ModuleError,
             IssueSeverity.Error,
-            $"模块活动体异常退出：{exception.GetType().Name} — {exception.Message}（该实例已停止活动，其余部分不受影响）"));
+            CoreText.Get(
+                "core.runtime.activityFailure",
+                exception.GetType().Name,
+                exception.Message)));
     }
 }

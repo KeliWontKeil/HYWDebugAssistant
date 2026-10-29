@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Reflection;
 using Avalonia.Controls;
 using HYWDebugAssistant.Sdk.Configuration;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
@@ -109,6 +110,7 @@ public sealed class DesignModuleViewContext : IModuleViewContext
         }
 
         var metadata = property.GetCustomAttribute<ConfigurationFieldAttribute>();
+        var owner = property.DeclaringType?.Assembly;
         var value = ReadValue(property);
         var (kind, choices) = Classify(property.PropertyType);
 
@@ -146,14 +148,22 @@ public sealed class DesignModuleViewContext : IModuleViewContext
             }
         }
 
+        var title = ResolveText(owner, metadata?.TitleKey)
+            ?? (string.IsNullOrWhiteSpace(metadata?.Title) ? property.Name : metadata!.Title!);
+        var description = ResolveText(owner, metadata?.DescriptionKey)
+            ?? (string.IsNullOrWhiteSpace(metadata?.Description) ? null : metadata!.Description);
+        var group = ResolveText(owner, metadata?.GroupKey)
+            ?? (string.IsNullOrWhiteSpace(metadata?.Group) ? null : metadata!.Group);
+
         return new ConfigFieldView(
             property.Name,
-            string.IsNullOrWhiteSpace(metadata?.Title) ? property.Name : metadata!.Title!,
+            title,
             kind.Value,
             value,
             choices,
             metadata?.Unit,
-            metadata?.Description);
+            description,
+            group);
     }
 
     /// <summary>读属性当前值的文本形态（配置实例构造失败 ⇒ 空串）。</summary>
@@ -179,6 +189,16 @@ public sealed class DesignModuleViewContext : IModuleViewContext
         }
     }
 
+    /// <summary>按声明里的文本键取值（拥有者 = 特性所在类型/枚举的程序集）；未声明或表里没有 ⇒ null。</summary>
+    /// <param name="assembly">特性所在类型（配置类型 / 枚举）的程序集。</param>
+    /// <param name="key">文本表键（可空）。</param>
+    private static string? ResolveText(Assembly? assembly, string? key) =>
+        assembly is not null
+        && !string.IsNullOrWhiteSpace(key)
+        && TextCatalog.TryGet(assembly, key, out var text)
+            ? text
+            : null;
+
     /// <summary>属性类型 → 编辑器种类 + 枚举选项（与运行时 Schema 的规则同构）。</summary>
     private static (ConfigFieldKind? Kind, IReadOnlyList<ConfigChoice>? Choices) Classify(Type type)
     {
@@ -195,9 +215,10 @@ public sealed class DesignModuleViewContext : IModuleViewContext
 
             foreach (var name in Enum.GetNames(underlying))
             {
-                var title = underlying.GetField(name)
-                    ?.GetCustomAttribute<ConfigurationChoiceAttribute>()
-                    ?.Title;
+                var metadata = underlying.GetField(name)
+                    ?.GetCustomAttribute<ConfigurationChoiceAttribute>();
+                var title = ResolveText(underlying.Assembly, metadata?.TitleKey)
+                    ?? (string.IsNullOrWhiteSpace(metadata?.Title) ? null : metadata!.Title);
 
                 choices.Add(new ConfigChoice(
                     name,

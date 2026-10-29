@@ -1,5 +1,7 @@
 using System.Globalization;
 
+using HYWDebugAssistant.Sdk.Text;
+
 namespace HYWDebugAssistant.Ui.Geometry;
 
 /// <summary>
@@ -53,7 +55,7 @@ public static class RoleTextMetrics
         }
 
         var tag = first.Length > MaxTypeTagLength ? first[..MaxTypeTagLength] + "…" : first;
-        return $"类型：{tag}";
+        return TextCatalog.Get(typeof(RoleTextMetrics).Assembly, "ui.role.typeTag", tag);
     }
 
     /// <summary>方块最小宽度（放得下三个 CJK 字）——再窄就不像"块"了。</summary>

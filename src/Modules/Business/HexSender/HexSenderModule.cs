@@ -1,10 +1,10 @@
-using System.Diagnostics;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Modules.HexSender;
@@ -27,8 +27,8 @@ namespace HYWDebugAssistant.Modules.HexSender;
     "hyw",
     "hex-sender",
     "1.0.0",
-    DisplayName = "HEX 发送器",
-    Description = "把一串十六进制文本解析成字节发出去；单次点击 + 连续发送（开关 + 间隔）",
+    DisplayNameKey = HexSenderText.Title,
+    DescriptionKey = HexSenderText.Description,
     Tags = ["hex", "sender"],
     ParticipatesInDataFlow = true,
     WindowWidth = 400,
@@ -106,7 +106,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// <remarks>用角色词而不是色值：设置里改那一支色 / 换深浅主题时，这一圈跟着变。</remarks>
     public const string AlertRole = ViewInkRoles.Danger;
 
-    /// <summary>活动周期（`implementation/06` §E.2：20 ms）。</summary>
+    /// <summary>活动节拍（1 ms；等待由全局计时面统一提供）。</summary>
     public static readonly TimeSpan ActivityInterval = TimeSpan.FromMilliseconds(1);
 
     /// <summary>数据类型标识（**与两个兄弟模块逐字相同**）。</summary>
@@ -152,7 +152,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
             RoleId,
             new DataTypeRef(RawBytesTypeId, RawBytesVersion),
             OutPort,
-            "发送"));
+            Tr(HexSenderText.RoleSend)));
 
         DeclareUi(context);
     }
@@ -163,7 +163,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
         foreach (var name in new[] { Hex1, Hex2, Hex3, Hex4, Hex5 })
         {
             context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(name, ViewDataSourceKind.Text));
-            context.Declaration.DeclareInput(name);
+            context.Declaration.DeclareInput(new InputDeclaration(name) { Persistence = InputPersistence.Persistent });
         }
 
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(ContinuousSource, ViewDataSourceKind.Value, ContractPrimitive.Bool));
@@ -171,10 +171,11 @@ public sealed class HexSenderModule : IModule, IActivitySource
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(SentSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(StatusSource, ViewDataSourceKind.Text));
 
+        // 连续发送是动作，不恢复；间隔是用户设置，恢复。
         context.Declaration.DeclareInput(ContinuousSource);
-        context.Declaration.DeclareInput(IntervalSource);
+        context.Declaration.DeclareInput(new InputDeclaration(IntervalSource) { Persistence = InputPersistence.Persistent });
 
-        context.Declaration.DeclareCommand(SendCommand, "发送");
+        context.Declaration.DeclareCommand(SendCommand, Tr(HexSenderText.Send));
     }
 
     // ---------------------------------------------------------------- ③ 钩子块
@@ -193,36 +194,42 @@ public sealed class HexSenderModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var schedule = Stopwatch.StartNew();
-        var nextDue = TimeSpan.Zero;
-
         _sent = 0;
         context.Ports.Publish(SentSource, CountPayload(0));
+
+        var nextDue = TimeSpan.Zero;
 
         while (!context.StopSignal.IsStopRequested)
         {
             _ = Tick(context, shouldSend: false);
 
-            if (!_continuous || _intervalMs is not { } scheduled)
+            if (!_continuous || _intervalMs is not { } interval)
             {
                 nextDue = TimeSpan.Zero;
-                _ = context.StopSignal.Wait(ActivityInterval);
+                _ = context.Timing.WaitFor(ActivityInterval);
                 continue;
             }
 
+            var effective = Math.Max(1, interval);
+            var now = context.Timing.Now;
+
             if (nextDue <= TimeSpan.Zero)
             {
-                nextDue = schedule.Elapsed;
+                nextDue = now;
             }
 
-            var due = schedule.Elapsed >= nextDue;
-
-            if (due)
+            if (now >= nextDue)
             {
-                nextDue = schedule.Elapsed + TimeSpan.FromMilliseconds(scheduled);
+                _ = Tick(context, shouldSend: true);
+                nextDue = context.Timing.Now + TimeSpan.FromMilliseconds(effective);
+                continue;
             }
 
-            _ = Tick(context, shouldSend: due);
+            var wakeAt = nextDue < now + ActivityInterval ? nextDue : now + ActivityInterval;
+            if (context.Timing.WaitUntil(wakeAt))
+            {
+                break;
+            }
         }
     }
 
@@ -284,6 +291,9 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// </summary>
     public const int MaxIntervalMs = 86_400_000;
 
+    /// <summary>**可靠的最小间隔（ms）**：Windows 计时器/线程调度粒度下，更小间隔不保证准确。</summary>
+    public const int MinAccurateIntervalMs = 4;
+
 
     /// <summary>连续发送是否开着（测试可读）。</summary>
     /// <remarks>
@@ -301,7 +311,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// 与文本发送器**同一套形状**（两个模块共用一份逻辑，必须同判同形）：
     /// 读状态 → 判定（纯函数）→ 调和开关 → 落地 → 该发就发。
     /// </remarks>
-    public bool PumpOnce(IModuleContext context) => Tick(context, shouldSend: true);
+    public bool PumpOnce(IModuleContext context, bool shouldSend = true) => Tick(context, shouldSend);
 
     /// <summary>一拍一次判定。</summary>
     /// <param name="context">模块上下文。</param>
@@ -338,7 +348,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
             context.Issues.Report(new IssueReport(
                 IssueCategory.ModuleError,
                 IssueSeverity.Warning,
-                $"未知命令：{command}（模块未实现）"));
+                Tr(HexSenderText.StatusUnknownCommand, command)));
         }
 
         // 本拍**刚提交进来**的那一份（`SubmitInput` 本身不写视图状态：真实链路里是 UI 先写状态再提交，
@@ -510,7 +520,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// <remarks>
     /// <para>
     /// 优先级（同一拍只说一句）：① 间隔填错 → ② **HEX 写法不合法** → ③ 间隔没设且要连续发 →
-    /// ④ 这一页空着被拦下 → ⑤ 一切正常。**红按格独立**。
+    /// ④ 这一页空着被拦下 → ⑤ 间隔过小（只提示）→ ⑥ 一切正常。**红按格独立**。
     /// </para>
     /// <para>
     /// 那些"要连续发"的判据依据**他拨过、还没解决**（<see cref="_userWantsContinuous"/> 粘住）
@@ -530,8 +540,8 @@ public sealed class HexSenderModule : IModule, IActivitySource
         if (_intervalState == IntervalState.Invalid)
         {
             var message = wantsContinuous
-                ? $"间隔必须是 0 – {MaxIntervalMs} 的整数（毫秒）：连续发送开着也发不出东西"
-                : $"间隔必须是 0 – {MaxIntervalMs} 的整数（毫秒）";
+                ? Tr(HexSenderText.StatusIntervalInvalidContinuous, MaxIntervalMs)
+                : Tr(HexSenderText.StatusIntervalInvalid, MaxIntervalMs);
 
             return new Verdict(!wantsContinuous, message, IntervalSource);
         }
@@ -540,7 +550,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
         //    "这格写法不对"应在用户填着的时候就说出来，与间隔那一格同一条取向）
         if (!pageEmpty && !HexTextCodec.TryParse(outgoing, out _, out var parseFailure))
         {
-            return new Verdict(false, $"HEX 转换错误：{parseFailure}", pageSource);
+            return new Verdict(false, Tr(HexSenderText.StatusConvertError, parseFailure), pageSource);
         }
 
         // ③ 想连续发送，而那一格是空的 ⇒ 红粘在那一格上（原因还在就一直挂着）
@@ -548,7 +558,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
         {
             return new Verdict(
                 false,
-                "还没有设置间隔（毫秒）：连续发送开着也发不出东西（先补上这一项）",
+                Tr(HexSenderText.StatusIntervalEmptyContinuous),
                 IntervalSource);
         }
 
@@ -556,16 +566,34 @@ public sealed class HexSenderModule : IModule, IActivitySource
         if (pageEmpty && (blocked || _continuous))
         {
             var message = _continuous
-                ? "当前页没有内容：连续发送开着也发不出东西（先补上这一项）"
-                : "当前页没有内容：先写点东西再发送";
+                ? Tr(HexSenderText.StatusPageEmptyContinuous)
+                : Tr(HexSenderText.StatusPageEmpty);
 
             // **空页只让"这一拍发不出去"，不动开关**（开关的成立条件是间隔那一格）
             return new Verdict(false, message, pageSource);
         }
 
-        // ⑤ 一切正常 ⇒ 发得出去、不说话、不标红
+        // ⑤ 间隔过小（可用但不保证准确）：只提示，**不阻止发送、不标红、不动开关**。
+        if (_intervalState == IntervalState.Usable
+            && _intervalMs is { } smallMs
+            && smallMs < MinAccurateIntervalMs)
+        {
+            return new Verdict(
+                !pageEmpty,
+                Tr(HexSenderText.StatusIntervalTooSmall, MinAccurateIntervalMs),
+                null);
+        }
+
+        // ⑥ 一切正常 ⇒ 发得出去、不说话、不标红
         return new Verdict(!pageEmpty, null, null);
     }
+
+    /// <summary>取一条本模块文本表里的文案（拥有者 = 本模块程序集）。</summary>
+    private static string Tr(string key) => TextCatalog.Get(typeof(HexSenderModule).Assembly, key);
+
+    /// <summary>取一条带占位符的本模块文案。</summary>
+    private static string Tr(string key, params object?[] args) =>
+        TextCatalog.Get(typeof(HexSenderModule).Assembly, key, args);
 
     /// <summary>**把一次判定落到界面上**（唯一写"红与消息"的地方）。</summary>
     /// <param name="context">模块上下文。</param>
@@ -762,7 +790,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
         {
             context.Log.Log(
                 ModuleLogLevel.Information,
-                $"字节数超过单包上限，已拆成 {packets} 个数据包发送（接收侧会表现为 {packets} 条）");
+                Tr(HexSenderText.StatusSplitPackets, packets));
         }
 
         return packets > 0;

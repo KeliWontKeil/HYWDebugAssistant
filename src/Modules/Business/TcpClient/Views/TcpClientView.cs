@@ -1,13 +1,13 @@
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
-using HYWDebugAssistant.Access.Parameters;
+using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
 
 namespace HYWDebugAssistant.Modules.TcpClient.Views;
 
 /// <summary>TCP 客户端窗口的视图（布局在 <c>TcpClientView.axaml</c>）。</summary>
-[ModuleViewDesignData(typeof(TcpClientConfig))]
+[ModuleViewDesignData(ExternalAccessStandardIds.TcpClient)]
 public sealed partial class TcpClientView : ModuleView
 {
     /// <summary>构造视图。</summary>

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Ui.ViewModels;
 
 namespace HYWDebugAssistant.Ui;
@@ -15,6 +16,7 @@ namespace HYWDebugAssistant.Ui;
 /// 否则会拦下元素视图模型的显式模板，显示成 "Not Found"。
 /// </remarks>
 [RequiresUnreferencedCode(
+    // i18n-exempt: 裁剪诊断属性说明（开发者提示，不进界面）
     "ViewLocator 依赖反射按命名约定查找视图类型；裁剪（trimming）时可能被移除。",
     Url = "https://docs.avaloniaui.net/docs/concepts/view-locator")]
 public class ViewLocator : IDataTemplate
@@ -31,7 +33,7 @@ public class ViewLocator : IDataTemplate
 
         return Resolve(param.GetType()) is { } type
             ? (Control)Activator.CreateInstance(type)!
-            : new TextBlock { Text = "未找到视图：" + param.GetType().FullName };
+            : new TextBlock { Text = TextCatalog.Get(typeof(ViewLocator).Assembly, "viewLocator.notFound", param.GetType().FullName ?? string.Empty) };
     }
 
     /// <inheritdoc />

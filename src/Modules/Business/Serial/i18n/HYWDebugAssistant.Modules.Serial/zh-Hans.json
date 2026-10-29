@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "language": "zh-Hans",
+  "entries": {
+    "module.description": "将一路串口接入上位机",
+    "module.title": "串口",
+    "status.closing": "正在关闭…",
+    "status.failed": "打开失败",
+    "status.idle": "未打开",
+    "status.opened": "已打开",
+    "status.openedDetail": "已打开 {0}",
+    "status.opening": "正在打开…",
+    "status.openingDetail": "正在打开 {0}",
+    "status.suspended": "实例已停用",
+    "view.close": "关闭",
+    "view.drop": "丢弃",
+    "view.open": "打开",
+    "view.roleSerial": "串口",
+    "view.rx": "收",
+    "view.tx": "发"
+  }
+}

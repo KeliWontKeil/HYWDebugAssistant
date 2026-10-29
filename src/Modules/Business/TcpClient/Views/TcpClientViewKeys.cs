@@ -1,4 +1,4 @@
-using HYWDebugAssistant.Access.Parameters;
+using HYWDebugAssistant.Sdk.Access;
 
 namespace HYWDebugAssistant.Modules.TcpClient.Views;
 
@@ -13,8 +13,8 @@ public static class TcpClientViewKeys
     public const string Open = TcpClientModule.OpenCommand;
     public const string Close = TcpClientModule.CloseCommand;
 
-    public const string RemoteHost = nameof(TcpClientConfig.RemoteHost);
-    public const string RemotePort = nameof(TcpClientConfig.RemotePort);
-    public const string ConnectTimeout = nameof(TcpClientConfig.ConnectTimeout);
-    public const string NoDelay = nameof(TcpClientConfig.NoDelay);
+    public const string RemoteHost = ExternalAccessFieldNames.RemoteHost;
+    public const string RemotePort = ExternalAccessFieldNames.RemotePort;
+    public const string ConnectTimeout = ExternalAccessFieldNames.ConnectTimeout;
+    public const string NoDelay = ExternalAccessFieldNames.NoDelay;
 }

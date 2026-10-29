@@ -2,6 +2,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using HYWDebugAssistant.Access.Parameters;
+using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Ui.Controls;
 
 namespace HYWDebugAssistant.PreviewHost;
@@ -16,6 +18,17 @@ public partial class PreviewApp : Application
     {
         // 预览器宿主自己声明"我在预览"，不依赖 Design.IsDesignMode 是否被外部设置。
         ModuleView.IsPreviewHost = true;
+
+        // 外部模块的配置类型在框架侧：把标准标识映射回来，预览器才能画出配置字段。
+        ModuleView.RegisterStandardConfig(ExternalAccessStandardIds.Serial, typeof(SerialConfig));
+        ModuleView.RegisterStandardConfig(ExternalAccessStandardIds.TcpClient, typeof(TcpClientConfig));
+        ModuleView.RegisterStandardConfig(ExternalAccessStandardIds.TcpServer, typeof(TcpServerConfig));
+        ModuleView.RegisterStandardConfig(ExternalAccessStandardIds.Udp, typeof(UdpConfig));
+
+        // 仅被项目引用、代码未直接使用的模块程序集，预览器不保证会加载；
+        // 先摸一遍视图类型，确保 x:Class 类型在解析时已经可解析。
+        ModuleViewAnchors.Touch();
+
         AvaloniaXamlLoader.Load(this);
     }
 

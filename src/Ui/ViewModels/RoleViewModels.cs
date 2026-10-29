@@ -1,5 +1,6 @@
 using System.Globalization;
 using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Ui.Geometry;
 
 namespace HYWDebugAssistant.Ui.ViewModels;
@@ -134,7 +135,7 @@ public sealed class RoleBoxViewModel
             var lines = new List<RoleInfoLine>(3)
             {
                 new(RateText, RoleTextMetrics.RateFontSize, Primary: true),
-                new($"输入口 {Inputs.Count} / 输出口 {Outputs.Count}", RoleTextMetrics.DetailFontSize, Primary: false),
+                new(TextCatalog.Get(typeof(RoleOverlayInfoBuilder).Assembly, "role.info.ports", Inputs.Count, Outputs.Count), RoleTextMetrics.DetailFontSize, Primary: false),
             };
 
             if (MetaText.Length > 0)
@@ -299,6 +300,8 @@ public static class RoleOverlayInfoBuilder
 
         return new RoleOverlayInfo(
             identity ?? string.Empty,
-            portCount == 0 ? "无数据口" : $"未声明角色（{portCount} 个数据口）");
+            portCount == 0
+                ? TextCatalog.Get(typeof(RoleOverlayInfoBuilder).Assembly, "role.noPorts")
+                : TextCatalog.Get(typeof(RoleOverlayInfoBuilder).Assembly, "role.undeclared", portCount));
     }
 }

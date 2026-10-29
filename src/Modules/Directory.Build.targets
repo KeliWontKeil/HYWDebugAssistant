@@ -7,21 +7,24 @@
     约定：
       · 判定"是模块项目"的依据 = 项目目录下存在 module.json（不引入额外开关）；
       · 包目录名 = $(ModulePackageName)，缺省取项目名最后一个点段（可在模块项目里显式指定更友好的名字）；
-      · 每个包目录**先清空再复制**，避免新旧程序集混放导致"改了代码没生效"的假象。
+      · 包根按**构建配置**分目录（artifacts\modules\Debug|Release\），避免 Debug/Release 包互相覆盖；
+      · 每个包目录**先清空再复制**，避免新旧程序集混放导致"改了代码没生效"的假象；
+      · **包只含模块自有文件**：宿主提供的程序集（Sdk / Sdk.Ui / Sdk.AccessKit / Access / Avalonia /
+        System.IO.Ports / SkiaSharp / HarfBuzzSharp / MicroCom.Runtime）与 *.deps.json 一律不进包。
   -->
   <PropertyGroup>
     <ModulePackageName Condition="'$(ModulePackageName)' == ''">$(MSBuildProjectName.Substring($([MSBuild]::Add($(MSBuildProjectName.LastIndexOf('.')), 1))))</ModulePackageName>
-    <ModulePackageRoot Condition="'$(ModulePackageRoot)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\modules</ModulePackageRoot>
+    <ModulePackageRoot Condition="'$(ModulePackageRoot)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\modules\$(Configuration)</ModulePackageRoot>
     <ModulePackageDirectory>$(ModulePackageRoot)\$(ModulePackageName)</ModulePackageDirectory>
   </PropertyGroup>
 
   <!--
-    **平台实现分片**（`runtimes/<rid>/lib/<tfm>/`）也要进包：
-    带平台分片的包（如 `System.IO.Ports`）在包根平铺的那份是**平台无关的引用版**，方法体直接抛
+    **模块私有平台分片**（`runtimes/<rid>/lib/<tfm>/`）也要进包：
+    带平台分片的**模块私有依赖**在包根平铺的那份是平台无关的引用版，方法体直接抛
     `PlatformNotSupportedException`；真正的实现按 RID 分片放着。库项目的普通构建**不会**把它们
     拷进输出目录（只有 RID 构建 / 发布才拷）⇒ 不给这一条，模块包在真机上会"在 Windows 上报告
     只支持 Windows"这种自相矛盾的失败（实测）。
-    归拢（`StageModulePackage`）在本目标之后跑，所以这些文件会随包一起走。
+    归拢（`StageModulePackage`）在本目标之后跑；**宿主提供的平台分片不在此列**（它们随宿主输出）。
   -->
   <Target Name="StageRuntimeSpecificAssets"
           AfterTargets="Build"
@@ -44,7 +47,9 @@
           Condition="Exists('$(MSBuildProjectDirectory)\module.json')">
 
     <ItemGroup>
-      <ModulePackageFile Include="$(TargetDir)**\*" />
+      <!-- 只归拢**模块自有文件**；宿主提供的程序集即使出现在模块输出目录也不进包。 -->
+      <ModulePackageFile Include="$(TargetDir)**\*"
+                         Exclude="$(TargetDir)HYWDebugAssistant.Sdk.dll;$(TargetDir)HYWDebugAssistant.Sdk.pdb;$(TargetDir)HYWDebugAssistant.Sdk.Ui.*;$(TargetDir)HYWDebugAssistant.Sdk.AccessKit.*;$(TargetDir)HYWDebugAssistant.Access.*;$(TargetDir)Avalonia*;$(TargetDir)System.IO.Ports*;$(TargetDir)SkiaSharp*;$(TargetDir)HarfBuzzSharp*;$(TargetDir)MicroCom.Runtime*;$(TargetDir)**\*.deps.json" />
     </ItemGroup>
 
     <RemoveDir Directories="$(ModulePackageDirectory)" Condition="Exists('$(ModulePackageDirectory)')" />

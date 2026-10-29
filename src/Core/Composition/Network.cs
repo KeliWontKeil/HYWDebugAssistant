@@ -84,7 +84,7 @@ public sealed class Network
         // 不变量：**声明的源至少有一个**（在场或悬空）——没有源的"网络"不是网络
         if (Sources.Count == 0 && UnresolvedSources.Count == 0)
         {
-            throw new ArgumentException("网络至少需要一个源成员（在场或悬空）", nameof(sources));
+            throw new ArgumentException(CoreText.Get("core.composite.network.emptySources"), nameof(sources));
         }
     }
 
@@ -204,6 +204,9 @@ public sealed class Network
 
     /// <inheritdoc />
     public override string ToString() => IsNamed
-        ? $"{Name}（{DeclaredSources.Count} 源 → {Targets.Count} 宿）"
-        : $"(匿名) {string.Join("、", DeclaredSources)} → {Targets.Count}";
+        ? CoreText.Get("core.composite.network.summary", Name, DeclaredSources.Count, Targets.Count)
+        : CoreText.Get(
+            "core.composite.network.anonymousSummary",
+            string.Join(CoreText.Get("core.common.listSeparator"), DeclaredSources),
+            Targets.Count);
 }

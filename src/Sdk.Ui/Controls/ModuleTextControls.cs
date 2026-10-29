@@ -2,8 +2,19 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
+using HYWDebugAssistant.Sdk.Ui.Formatting;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
+
+/// <summary>数值控件的**数量种类**（Bytes = 自动 B/KB/MB/GB，忽略固定 <c>Unit</c>）。</summary>
+public enum ModuleQuantity
+{
+    /// <summary>原样显示 + 固定单位。</summary>
+    None,
+
+    /// <summary>字节数量：按数量级自动选 B/KB/MB/GB。</summary>
+    Bytes,
+}
 
 /// <summary>
 /// **一块会变的文字**：绑一条显示源，显示它当前的内容。
@@ -157,7 +168,7 @@ public sealed class ModuleNumeric : ModuleElement
     private string _unitText = string.Empty;
     private string _titleText = string.Empty;
 
-    /// <summary>单位文本（空 = 不显示）。</summary>
+    /// <summary>单位文本（空 = 不显示）。<see cref="Quantity"/> 为 <see cref="ModuleQuantity.Bytes"/> 时忽略。</summary>
     public string Unit
     {
         get => _unitText;
@@ -172,6 +183,9 @@ public sealed class ModuleNumeric : ModuleElement
             ApplyUnit();
         }
     }
+
+    /// <summary>数量种类（默认 <see cref="ModuleQuantity.None"/> = 原样显示 + 固定 <see cref="Unit"/>）。</summary>
+    public ModuleQuantity Quantity { get; set; }
 
     /// <summary>放在读数**之前**的一行说明（空 = 不显示）。</summary>
     /// <remarks>
@@ -216,6 +230,26 @@ public sealed class ModuleNumeric : ModuleElement
         }
 
         var latest = context.ReadLatest(Source);
+
+        if (Quantity == ModuleQuantity.Bytes && latest is { } bytes)
+        {
+            var parts = ByteQuantity.Split(bytes);
+            _unitText = parts.Unit;
+
+            if (_unit is not null)
+            {
+                _unit.Text = parts.Unit;
+                _unit.IsVisible = true;
+            }
+
+            if (!string.Equals(_value.Text, parts.Value, StringComparison.Ordinal))
+            {
+                _value.Text = parts.Value;
+            }
+
+            return;
+        }
+
         var text = latest is { } number
             ? number.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture)
             : "-";
@@ -271,6 +305,13 @@ public sealed class ModuleNumeric : ModuleElement
     {
         if (_unit is null)
         {
+            return;
+        }
+
+        // Bytes：单位由 Refresh 按数量级写入（B/KB/MB/GB），这里只保证可见，不覆盖动态值。
+        if (Quantity == ModuleQuantity.Bytes)
+        {
+            _unit.IsVisible = true;
             return;
         }
 

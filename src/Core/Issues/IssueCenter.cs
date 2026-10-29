@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Hosting.Diagnostics;
 using HYWDebugAssistant.Sdk.Reporting;
 
@@ -19,48 +19,128 @@ public readonly record struct IssueEntry(long Sequence, string ObjectPath, Issue
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>天然隔离</b>：Issue 不阻断其他部分运行，仅登记与呈现（§8.5）；</item>
-///   <item><b>无锁收集</b>：模块线程可能并发上报 → 无锁并发队列；读取用快照；</item>
-///   <item><b>两条语义</b>：设计/变更问题（Prepare 拒绝等）与运行报告（异常/悬空/超时）共用本模型，语义由类别与描述区分。</item>
+///   <item><b>低频率锁</b>：模块线程可能并发上报；Issue 不在数据热路径上，故用一把私有锁同时保护
+///     上报 / 快照 / 删除 / 清空 / 汇总。任意删除（用户删单条）需要可重排集合，队列做不到；</item>
+///   <item><b>两条语义</b>：设计/变更问题（Prepare 拒绝等）与运行报告（异常/悬空/超时）共用本模型，
+///     语义由类别与描述区分。</item>
 /// </list>
 /// </remarks>
 public sealed class IssueCenter : IIssueSink
 {
-    private readonly ConcurrentQueue<IssueEntry> _entries = new();
+    private readonly object _gate = new();
+    private readonly List<IssueEntry> _entries = [];
     private long _sequence;
 
-    /// <summary>累计条目数（含已滚出的）。</summary>
-    public int Count => _entries.Count;
+    /// <summary>当前条目数（已删除/已清空的不计）。</summary>
+    public int Count
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _entries.Count;
+            }
+        }
+    }
 
     /// <inheritdoc />
     public void Report(string objectPath, IssueReport issue)
     {
         ArgumentNullException.ThrowIfNull(issue);
 
-        var entry = new IssueEntry(
-            Interlocked.Increment(ref _sequence),
-            objectPath ?? string.Empty,
-            issue,
-            DateTimeOffset.UtcNow);
-
-        _entries.Enqueue(entry);
+        lock (_gate)
+        {
+            _entries.Add(new IssueEntry(
+                ++_sequence,
+                objectPath ?? string.Empty,
+                issue,
+                DateTimeOffset.UtcNow));
+        }
     }
 
     /// <summary>按发生顺序取快照。</summary>
-    public IReadOnlyList<IssueEntry> Snapshot() => [.. _entries];
+    public IReadOnlyList<IssueEntry> Snapshot()
+    {
+        lock (_gate)
+        {
+            return [.. _entries];
+        }
+    }
 
     /// <summary>取最近 <paramref name="maxCount"/> 条（最新在前）。</summary>
     public IReadOnlyList<IssueEntry> Recent(int maxCount)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxCount, 1);
-        return [.. _entries.Reverse().Take(maxCount)];
+
+        lock (_gate)
+        {
+            var take = Math.Min(maxCount, _entries.Count);
+            var result = new IssueEntry[take];
+
+            for (var index = 0; index < take; index++)
+            {
+                result[index] = _entries[_entries.Count - 1 - index];
+            }
+
+            return result;
+        }
+    }
+
+    /// <summary>全量汇总（总数 + 按严重度计数）。</summary>
+    public IssueSummaryView Summary()
+    {
+        lock (_gate)
+        {
+            var error = 0;
+            var warning = 0;
+            var info = 0;
+
+            foreach (var entry in _entries)
+            {
+                switch (entry.Issue.Severity)
+                {
+                    case IssueSeverity.Error:
+                        error++;
+                        break;
+                    case IssueSeverity.Warning:
+                        warning++;
+                        break;
+                    default:
+                        info++;
+                        break;
+                }
+            }
+
+            return new IssueSummaryView(_entries.Count, error, warning, info);
+        }
+    }
+
+    /// <summary>移除指定序号（不存在的序号忽略）。</summary>
+    /// <param name="sequences">要移除的序号。</param>
+    /// <returns>实际移除的条数。</returns>
+    public int Remove(IReadOnlyCollection<long> sequences)
+    {
+        ArgumentNullException.ThrowIfNull(sequences);
+
+        if (sequences.Count == 0)
+        {
+            return 0;
+        }
+
+        var targets = new HashSet<long>(sequences);
+
+        lock (_gate)
+        {
+            return _entries.RemoveAll(entry => targets.Contains(entry.Sequence));
+        }
     }
 
     /// <summary>清空（用户操作"清除问题列表"）。</summary>
     public void Clear()
     {
-        while (_entries.TryDequeue(out _))
+        lock (_gate)
         {
-            // 清空
+            _entries.Clear();
         }
     }
 }

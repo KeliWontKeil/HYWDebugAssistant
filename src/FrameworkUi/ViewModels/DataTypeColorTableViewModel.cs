@@ -3,6 +3,7 @@ using System.Globalization;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Ui.Theming;
 using HYWDebugAssistant.Ui.ViewModels;
 
@@ -133,5 +134,6 @@ public sealed partial class DataTypeColorTableViewModel : ViewModelBase
 
     /// <summary>空态文案（一句事实，不喊口号）。</summary>
     [ObservableProperty]
-    public partial string EmptyText { get; set; } = "现场还没有数据类型";
+    public partial string EmptyText { get; set; } =
+        TextCatalog.Get(typeof(DataTypeColorTableViewModel).Assembly, "interaction.dataType.empty");
 }

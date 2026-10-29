@@ -8,8 +8,8 @@ namespace HYWDebugAssistant.Access.Parameters;
 /// **TCP 服务端参数**（随组合件保存的实例参数）。
 /// </summary>
 /// <remarks>
-/// <b>本地地址是动态下拉</b>（见 <see cref="GetChoices"/>）：列表 = <c>0.0.0.0</c>（听全部网卡）+ 本机各
-/// IPv4 地址 —— "该填哪个地址"是这里的常见坑，能选就不该让人手打。
+/// <b>本地地址是动态下拉</b>（见 <see cref="GetChoices"/>）：列表 = <c>0.0.0.0</c>（听全部网卡）+
+/// <c>127.0.0.1</c>（本机回环）+ 本机各 IPv4 地址 —— "该填哪个地址"是这里的常见坑，能选就不该让人手打。
 /// </remarks>
 public sealed class TcpServerConfig : IConfigurationChoices
 {
@@ -17,23 +17,29 @@ public sealed class TcpServerConfig : IConfigurationChoices
     public const string AnyAddress = "0.0.0.0";
 
     /// <summary>本地监听地址。</summary>
-    [ConfigurationField("本地地址", Group = "监听", Description = "0.0.0.0 = 监听全部网卡")]
-    public string LocalAddress { get; set; } = AnyAddress;
+    [ConfigurationField(
+        TitleKey = TcpServerConfigText.Address,
+        GroupKey = TcpServerConfigText.GroupListen,
+        DescriptionKey = TcpServerConfigText.AddressDescription)]
+    public string LocalAddress { get; set; } = "127.0.0.1";
 
     /// <summary>本地监听端口。</summary>
-    [ConfigurationField("本地端口", Group = "监听", Minimum = 1, Maximum = 65535)]
-    public int LocalPort { get; set; } = 8080;
+    [ConfigurationField(TitleKey = TcpServerConfigText.Port, GroupKey = TcpServerConfigText.GroupListen, Minimum = 1, Maximum = 65535)]
+    public int LocalPort { get; set; } = 60721;
 
     /// <summary>最大同时连接数。</summary>
     /// <remarks>
     /// 单独一组（"限额"）：这样它能与"当前连接数"**排在同一行**上（组 = 一块表单，
     /// 一块表单只画它那一组 ⇒ 位置与宽度由声明面用坐标说了算）。
     /// </remarks>
-    [ConfigurationField("最大连接", Group = "限额", Minimum = 1, Maximum = 256)]
+    [ConfigurationField(TitleKey = TcpServerConfigText.MaxConnections, GroupKey = TcpServerConfigText.GroupQuota, Minimum = 1, Maximum = 256)]
     public int MaxConnections { get; set; } = 16;
 
     /// <summary>是否禁用 Nagle 算法（对本服务端接受的每条连接生效）。</summary>
-    [ConfigurationField("禁用 Nagle", Group = "选项", Description = "勾上 = 小包即时发；不勾 = 允许内核攒包")]
+    [ConfigurationField(
+        TitleKey = TcpServerConfigText.NoDelay,
+        GroupKey = TcpServerConfigText.GroupOptions,
+        DescriptionKey = TcpServerConfigText.NoDelayDescription)]
     public bool NoDelay { get; set; } = true;
 
     /// <inheritdoc />
@@ -47,7 +53,7 @@ public sealed class TcpServerConfig : IConfigurationChoices
             return null;
         }
 
-        var list = new List<string> { AnyAddress };
+        var list = new List<string> { AnyAddress, IPAddress.Loopback.ToString() };
 
         try
         {

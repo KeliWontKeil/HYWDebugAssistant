@@ -1,7 +1,8 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
         x:Class="HYWDebugAssistant.Ui.Views.ResetModuleDialog"
-        Title="还原模块"
+        Title="{loc:Tr reset.title}"
         Width="420"
         SizeToContent="Height"
         CanResize="False"
@@ -20,15 +21,15 @@
         <TextBlock x:Name="Message"
                    TextWrapping="Wrap"
                    Foreground="{DynamicResource TextPrimary}"
-                   Text="要还原该模块吗？" />
+                   Text="{loc:Tr reset.message}" />
 
         <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"
-                   Text="「默认尺寸」= 模块声明的首选尺寸（用户拖过的尺寸会被覆盖）；「配置」= 模块自己的默认参数值。" />
+                   Text="{loc:Tr reset.note}" />
 
         <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
-            <Button Content="只还原默认尺寸" Click="OnSizeOnly" />
-            <Button Content="还原尺寸和配置" Click="OnSizeAndConfiguration" />
-            <Button Content="取消" Click="OnCancel" />
+            <Button Content="{loc:Tr reset.sizeOnly}" Click="OnSizeOnly" />
+            <Button Content="{loc:Tr reset.sizeAndConfiguration}" Click="OnSizeAndConfiguration" />
+            <Button Content="{loc:Tr reset.cancel}" Click="OnCancel" />
         </StackPanel>
     </StackPanel>
 </Window>

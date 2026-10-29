@@ -1,19 +1,22 @@
+using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
-using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.FrameworkUi.ViewModels;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Ui.Hotkeys;
+using HYWDebugAssistant.Ui.Images;
 using HYWDebugAssistant.Ui.Theming;
 
 namespace HYWDebugAssistant.FrameworkUi.Views;
 
 /// <summary>
-/// 设置弹窗视图的代码后置：**快捷键捕获**（按下组合键即写入绑定）。
+/// 设置弹窗视图的代码后置：**快捷键捕获**、**主题卡选择**、**色板取色**。
 /// </summary>
 /// <remarks>
-/// 只有窗口相关的一点点逻辑在这里（按键捕获必须拿到真实按键事件）；其余全是绑定。
+/// 只有窗口相关的一点点逻辑在这里（按键捕获必须拿到真实按键事件；取色需要属主窗口）；
+/// 主题 / 色板 / 方案命令本身都在视图模型里。
 /// </remarks>
 public partial class SettingsView : UserControl
 {
@@ -22,6 +25,16 @@ public partial class SettingsView : UserControl
 
     /// <summary>本页的视图模型（设置面板）。</summary>
     private SettingsPanelViewModel? Settings => DataContext as SettingsPanelViewModel;
+
+    /// <summary>取一条本程序集文本表里的文案。</summary>
+    /// <param name="key">键。</param>
+    private static string Loc(string key) => TextCatalog.Get(typeof(SettingsView).Assembly, key);
+
+    /// <summary>取一条带占位符的文案。</summary>
+    /// <param name="key">键。</param>
+    /// <param name="args">格式化参数。</param>
+    private static string Loc(string key, params object?[] args) =>
+        TextCatalog.Get(typeof(SettingsView).Assembly, key, args);
 
     /// <summary>
     /// 在「按键」框里按下组合键 → 记录绑定（支持 Ctrl/Shift/Alt + 键；Delete/Backspace = 清除绑定）。
@@ -69,6 +82,26 @@ public partial class SettingsView : UserControl
         }
     }
 
+    /// <summary>选择当前主题的主窗口壁纸（全局图片裁切器）。</summary>
+    private async void OnPickThemeWallpaper(object? sender, RoutedEventArgs e)
+    {
+        if (Settings is not { } settings || TopLevel.GetTopLevel(this) is not Window owner)
+        {
+            return;
+        }
+
+        var (width, height) = ShellLayout.Measure(settings.ShellAspect);
+        var aspect = width / Math.Max(1, height);
+        var png = await ImagePicker.PickAsync(owner, aspect, Loc("appearance.wallpaper.pickTitle"));
+        if (png is not null)
+        {
+            settings.SetThemeWallpaper(png);
+        }
+    }
+
+    /// <summary>清除当前主题的主窗口壁纸（草稿）。</summary>
+    private void OnClearThemeWallpaper(object? sender, RoutedEventArgs e) => Settings?.ClearThemeWallpaper();
+
     /// <summary>恢复该动作的默认绑定。</summary>
     private void OnResetHotkey(object? sender, RoutedEventArgs e)
     {
@@ -78,31 +111,51 @@ public partial class SettingsView : UserControl
         }
     }
 
-    // ------------------------------------------------------------ 背景预设（动作：一次写六格）
-
-    /// <summary>
-    /// 套一档背景预设：把三支底色写进**两套主题**的色板行（真正的生效仍走「应用 / 确认」）。
-    /// </summary>
-    private void OnApplyBackgroundPreset(object? sender, RoutedEventArgs e)
+    /// <summary>在资源管理器中打开一个存储位置（只读信息区的「打开」按钮）。</summary>
+    private void OnOpenStorageFolder(object? sender, RoutedEventArgs e)
     {
-        if (sender is Button { DataContext: ThemePresets.BackgroundPreset preset })
+        if (sender is not Button { CommandParameter: string path } || string.IsNullOrWhiteSpace(path))
         {
-            Settings?.ApplyBackgroundPreset(preset);
+            return;
+        }
+
+        try
+        {
+            _ = Process.Start(new ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or FileNotFoundException)
+        {
+            // 目录尚未创建或系统无法打开：不抛到界面（设置页仍可继续用）
         }
     }
 
-    // ------------------------------------------------------------ 主题色板（逐项：取色 / 恢复 / 两套同色）
+    // ------------------------------------------------------------ 主题方案
 
-    /// <summary>色板某一行的**浅色**格：打开调色板窗口（窗口里「跟随内置」= 恢复跟随）。</summary>
-    private async void OnPickPaletteLight(object? sender, RoutedEventArgs e) =>
-        await PickPaletteAsync(sender, dark: false);
+    /// <summary>点主题卡 ⇒ 切换**设置页里**显示/编辑的色板草稿（不提前改全应用）。</summary>
+    private void OnSelectThemeCard(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: ThemeCardViewModel card } && Settings is { } settings)
+        {
+            settings.SelectTheme(card.Id);
+        }
+    }
 
-    /// <summary>色板某一行的**深色**格（同上）。</summary>
-    private async void OnPickPaletteDark(object? sender, RoutedEventArgs e) =>
-        await PickPaletteAsync(sender, dark: true);
+    /// <summary>「⋯ → 恢复此方案默认」：清空当前自定义方案的覆盖（草稿）。</summary>
+    private void OnResetScheme(object? sender, RoutedEventArgs e) =>
+        Settings?.ResetSchemeCommand.Execute(null);
 
-    /// <summary>色板一格的取色路径：初值 = 这一格**当前有效色**（已改 ⇒ 改过的；跟随 ⇒ 该套内置值）。</summary>
-    private async Task PickPaletteAsync(object? sender, bool dark)
+    /// <summary>「⋯ → 删除此方案」：删除当前自定义方案（草稿，取消可反悔）。</summary>
+    private void OnDeleteScheme(object? sender, RoutedEventArgs e) =>
+        Settings?.DeleteSchemeCommand.Execute(null);
+
+    // ------------------------------------------------------------ 主题色板（逐项取色）
+
+    /// <summary>点某一行的色块：打开调色板窗口；「恢复默认」在窗口内完成。</summary>
+    private async void OnPickPaletteColor(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: PaletteRowViewModel row } || Settings is not { } settings)
         {
@@ -110,50 +163,18 @@ public partial class SettingsView : UserControl
         }
 
         var owner = TopLevel.GetTopLevel(this) as Window;
-        var initial = ThemeApplier.Parse(row.Cell(dark).EffectiveHex ?? string.Empty) ?? Colors.Gray;
+        var initial = ThemeApplier.Parse(row.Cell.EffectiveHex ?? string.Empty) ?? Colors.Gray;
 
         var result = await ColorPickerDialog.ShowAsync(
             owner,
             initial,
-            $"编辑颜色 · {row.Key}（{(dark ? "深色" : "浅色")}）",
-            resetText: "跟随内置");
+            Loc("palette.dialog.title", row.Title),
+            resetText: row.Cell.IsOverridden ? Loc("palette.dialog.reset") : null,
+            hint: Loc("palette.dialog.hint"));
 
         if (result.Confirmed)
         {
-            settings.SetPaletteColor(row, dark, result.Reset ? null : DataTypeColorRowViewModel.ToHex(result.Color));
-        }
-    }
-
-    /// <summary>浅色那一格恢复跟随。</summary>
-    private void OnResetPaletteLight(object? sender, RoutedEventArgs e) => ResetPaletteCell(sender, dark: false);
-
-    /// <summary>深色那一格恢复跟随。</summary>
-    private void OnResetPaletteDark(object? sender, RoutedEventArgs e) => ResetPaletteCell(sender, dark: true);
-
-    /// <summary>某一格恢复跟随内置值。</summary>
-    private void ResetPaletteCell(object? sender, bool dark)
-    {
-        if (sender is Button { DataContext: PaletteRowViewModel row })
-        {
-            Settings?.SetPaletteColor(row, dark, null);
-        }
-    }
-
-    /// <summary>「两套同色」：浅色那一格的当前色写成深色那一格的覆盖值。</summary>
-    private void OnSyncPaletteRow(object? sender, RoutedEventArgs e)
-    {
-        if (sender is Button { DataContext: PaletteRowViewModel row })
-        {
-            Settings?.SyncPaletteToDark(row);
-        }
-    }
-
-    /// <summary>「本区恢复默认」：这一区全部回到跟随内置值。</summary>
-    private void OnResetPaletteGroup(object? sender, RoutedEventArgs e)
-    {
-        if (sender is Button { DataContext: PaletteGroupViewModel group })
-        {
-            Settings?.ResetPaletteGroup(group);
+            settings.SetPaletteColor(row, result.Reset ? null : DataTypeColorRowViewModel.ToHex(result.Color));
         }
     }
 }

@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Ui.Hotkeys;
 
@@ -63,7 +64,11 @@ public sealed class HotkeyService
 
             if (_bindings.TryGetValue(binding, out var owner))
             {
-                conflicts.Add($"{action.Title}（与「{HotkeyCatalog.Find(owner)?.Title ?? owner}」冲突：{binding}）");
+                conflicts.Add(TextCatalog.Get(typeof(HotkeyService).Assembly, 
+                    "hotkey.conflict",
+                    action.Label,
+                    HotkeyCatalog.Find(owner)?.Label ?? owner,
+                    binding));
                 continue;
             }
 

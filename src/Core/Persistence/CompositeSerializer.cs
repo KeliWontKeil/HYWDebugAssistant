@@ -27,10 +27,18 @@ public static class CompositeSerializer
     private const string InstancesField = "instances";
     private const string NetworksField = "networks";
     private const string LayoutField = "layout";
+    private const string WorkspaceField = "workspace";
+    private const string ShellField = "shell";
     private const string InstanceIdField = "instanceId";
     private const string ModuleIdField = "moduleId";
     private const string EnabledField = "enabled";
     private const string ConfigurationField = "configuration";
+    private const string ViewStateField = "viewState";
+    private const string InputTextsField = "inputTexts";
+    private const string SelectedPagesField = "selectedPages";
+    private const string CollapsedField = "collapsed";
+    private const string PresentationField = "presentation";
+    private const string WallpaperField = "wallpaper";
     private const string PortsField = "ports";
     private const string OffsetField = "offset";
     private const string LockedField = "locked";
@@ -82,28 +90,28 @@ public static class CompositeSerializer
 
         if (!TryReadInt(root, SchemaVersionName, out var schemaVersion) || schemaVersion < 1)
         {
-            failure = $"缺少或非法的 {SchemaVersionName}（组合件必须内嵌 Schema 版本，§9.3）";
+            failure = CoreText.Get("core.composite.schema.missingVersion", SchemaVersionName);
             warnings = issues;
             return false;
         }
 
         if (root[InstancesField] is not null and not JsonArray)
         {
-            failure = $"{InstancesField} 必须是数组";
+            failure = CoreText.Get("core.composite.instancesNotArray", InstancesField);
             warnings = issues;
             return false;
         }
 
         if (root[NetworksField] is not null and not JsonArray)
         {
-            failure = $"{NetworksField} 必须是数组";
+            failure = CoreText.Get("core.composite.networksNotArray", NetworksField);
             warnings = issues;
             return false;
         }
 
         if (root[LayoutField] is not null and not JsonObject)
         {
-            failure = $"{LayoutField} 必须是对象（键 = 实例 ID）";
+            failure = CoreText.Get("core.composite.layoutNotObject", LayoutField);
             warnings = issues;
             return false;
         }
@@ -115,27 +123,28 @@ public static class CompositeSerializer
         {
             if (node is not JsonObject entry)
             {
-                issues.Add($"{InstancesField} 中存在非对象项（已跳过）");
+                issues.Add(CoreText.Get("core.composite.instancesNonObject", InstancesField));
                 continue;
             }
 
             var instanceId = ReadString(entry, InstanceIdField);
             if (string.IsNullOrWhiteSpace(instanceId))
             {
-                issues.Add($"{InstancesField} 中存在缺少 {InstanceIdField} 的项（已跳过）");
+                issues.Add(CoreText.Get("core.composite.instanceMissingId", InstancesField, InstanceIdField));
                 continue;
             }
 
             if (!seenInstanceIds.Add(instanceId))
             {
-                issues.Add($"实例 ID 重复：{instanceId}（重复项已跳过）");
+                issues.Add(CoreText.Get("core.composite.instanceIdDuplicate", instanceId));
                 continue;
             }
 
             var moduleId = ReadString(entry, ModuleIdField);
             if (string.IsNullOrWhiteSpace(moduleId) || !Sdk.ModuleId.TryParse(moduleId, out _))
             {
-                issues.Add($"实例 {instanceId} 的 {ModuleIdField} 非法：'{moduleId}'（该项已跳过）");
+                issues.Add(CoreText.Get(
+                    "core.composite.instanceModuleIdInvalid", instanceId, ModuleIdField, moduleId));
                 continue;
             }
 
@@ -145,6 +154,10 @@ public static class CompositeSerializer
                 ModuleId = moduleId,
                 Enabled = ReadBool(entry, EnabledField, fallback: true),
                 Configuration = entry[ConfigurationField] as JsonObject,
+                ViewState = ReadViewState(entry, instanceId, issues),
+                Wallpaper = entry[PresentationField] is JsonObject presentation
+                    ? NormalizeWallpaper(ReadString(presentation, WallpaperField))
+                    : null,
                 Ports = ReadPorts(entry, instanceId, issues),
                 Fragment = entry,
             });
@@ -157,21 +170,22 @@ public static class CompositeSerializer
         {
             if (node is not JsonObject entry)
             {
-                issues.Add($"{NetworksField} 中存在非对象项（已跳过）");
+                issues.Add(CoreText.Get("core.composite.networksNonObject", NetworksField));
                 continue;
             }
 
             var name = ReadString(entry, NameField) ?? string.Empty;
             if (name.Length > 0 && !seenNames.Add(name))
             {
-                issues.Add($"网络名重复：{name}（重复项已跳过）");
+                issues.Add(CoreText.Get("core.composite.networkNameDuplicate", name));
                 continue;
             }
 
             var sources = ReadSources(entry, name, issues);
             if (sources.Count == 0)
             {
-                issues.Add($"网络 '{Describe(name)}' 没有合法的 {SourcesField}（该项已跳过）");
+                issues.Add(CoreText.Get(
+                    "core.composite.networkNoSources", Describe(name), SourcesField));
                 continue;
             }
 
@@ -182,7 +196,8 @@ public static class CompositeSerializer
                 var target = targetNode?.ToString();
                 if (!TryParseMember(target, out _))
                 {
-                    issues.Add($"网络 '{Describe(name)}' 的宿成员非法：'{target}'（该项已跳过）");
+                    issues.Add(CoreText.Get(
+                        "core.composite.networkTargetInvalid", Describe(name), target));
                     targetsValid = false;
                     break;
                 }
@@ -205,7 +220,8 @@ public static class CompositeSerializer
                 }
                 else
                 {
-                    issues.Add($"网络 '{Describe(name)}' 的悬空成员非法：'{member}'（已忽略）");
+                    issues.Add(CoreText.Get(
+                        "core.composite.networkUnresolvedInvalid", Describe(name), member));
                 }
             }
 
@@ -234,13 +250,14 @@ public static class CompositeSerializer
             {
                 if (value is not JsonObject item)
                 {
-                    issues.Add($"{LayoutField} 中 {instanceId} 不是对象（已跳过）");
+                    issues.Add(CoreText.Get("core.composite.layoutItemNotObject", LayoutField, instanceId));
                     continue;
                 }
 
                 if (!TryReadDouble(item, XField, out var x) || !TryReadDouble(item, YField, out var y))
                 {
-                    issues.Add($"{LayoutField} 中 {instanceId} 缺少数值 {XField}/{YField}（已跳过）");
+                    issues.Add(CoreText.Get(
+                        "core.composite.layoutItemMissingCoords", LayoutField, instanceId, XField, YField));
                     continue;
                 }
 
@@ -254,6 +271,19 @@ public static class CompositeSerializer
             }
         }
 
+        WorkspacePlacementView? workspacePlacement = null;
+        if (root[WorkspaceField] is JsonObject workspace
+            && workspace[ShellField] is JsonObject shell
+            && TryReadDouble(shell, XField, out var shellX)
+            && TryReadDouble(shell, YField, out var shellY))
+        {
+            workspacePlacement = new WorkspacePlacementView(
+                shellX,
+                shellY,
+                ReadDouble(shell, WidthField, fallback: 0),
+                ReadDouble(shell, HeightField, fallback: 0));
+        }
+
         composite = new Composite
         {
             SchemaVersion = schemaVersion,
@@ -262,6 +292,7 @@ public static class CompositeSerializer
             Instances = instances,
             Networks = networks,
             Layout = layout,
+            WorkspacePlacement = workspacePlacement,
             RootFragment = root,
         };
 
@@ -314,6 +345,61 @@ public static class CompositeSerializer
             else
             {
                 entry[ConfigurationField] = record.Configuration.DeepClone();
+            }
+
+            if (record.ViewState is { IsEmpty: false } viewState)
+            {
+                var node = new JsonObject();
+                if (viewState.InputTexts.Count > 0)
+                {
+                    var inputs = new JsonObject();
+                    foreach (var (source, text) in viewState.InputTexts)
+                    {
+                        inputs[source] = text;
+                    }
+
+                    node[InputTextsField] = inputs;
+                }
+
+                if (viewState.SelectedPages.Count > 0)
+                {
+                    var pages = new JsonObject();
+                    foreach (var (key, page) in viewState.SelectedPages)
+                    {
+                        pages[key] = page;
+                    }
+
+                    node[SelectedPagesField] = pages;
+                }
+
+                if (viewState.Collapsed.Count > 0)
+                {
+                    var collapsed = new JsonObject();
+                    foreach (var (key, value) in viewState.Collapsed)
+                    {
+                        collapsed[key] = value;
+                    }
+
+                    node[CollapsedField] = collapsed;
+                }
+
+                entry[ViewStateField] = node;
+            }
+            else
+            {
+                _ = entry.Remove(ViewStateField);
+            }
+
+            if (string.IsNullOrWhiteSpace(record.Wallpaper))
+            {
+                _ = entry.Remove(PresentationField);
+            }
+            else
+            {
+                entry[PresentationField] = new JsonObject
+                {
+                    [WallpaperField] = record.Wallpaper,
+                };
             }
 
             if (record.Ports.Count == 0)
@@ -418,6 +504,24 @@ public static class CompositeSerializer
 
         RemoveUnlisted(layoutRoot, layoutKeys);
         root[LayoutField] = layoutRoot;
+
+        if (composite.WorkspacePlacement is { } workspace)
+        {
+            root[WorkspaceField] = new JsonObject
+            {
+                [ShellField] = new JsonObject
+                {
+                    [XField] = workspace.X,
+                    [YField] = workspace.Y,
+                    [WidthField] = workspace.Width,
+                    [HeightField] = workspace.Height,
+                },
+            };
+        }
+        else
+        {
+            _ = root.Remove(WorkspaceField);
+        }
 
         return root;
     }
@@ -534,7 +638,8 @@ public static class CompositeSerializer
             }
             else
             {
-                issues.Add($"网络 '{Describe(name)}' 的源成员非法：'{literal}'（该项已跳过）");
+                issues.Add(CoreText.Get(
+                    "core.composite.networkSourceInvalid", Describe(name), literal));
             }
         }
 
@@ -546,8 +651,11 @@ public static class CompositeSerializer
 
         if (sources.Count > 0)
         {
-            issues.Add($"网络 '{Describe(name)}' 同时含 {SourcesField} 与旧版 {LegacySourceField}"
-                + $"（**以 {SourcesField} 为准**；保存时旧字段会被移除）");
+            issues.Add(CoreText.Get(
+                "core.composite.networkLegacyConflict",
+                Describe(name),
+                SourcesField,
+                LegacySourceField));
             return sources;
         }
 
@@ -557,7 +665,11 @@ public static class CompositeSerializer
         }
         else
         {
-            issues.Add($"网络 '{Describe(name)}' 的旧版 {LegacySourceField} 非法：'{legacy}'（该项已跳过）");
+            issues.Add(CoreText.Get(
+                "core.composite.networkLegacyInvalid",
+                Describe(name),
+                LegacySourceField,
+                legacy));
         }
 
         return sources;
@@ -594,7 +706,8 @@ public static class CompositeSerializer
         }
     }
 
-    private static string Describe(string name) => name.Length > 0 ? name : "(匿名)";
+    private static string Describe(string name) =>
+        name.Length > 0 ? name : CoreText.Get("core.composite.anonymous");
 
     private static string? ReadString(JsonObject root, string name) =>
         root.TryGetPropertyValue(name, out var node) && node is JsonValue value && value.TryGetValue(out string? text)
@@ -649,6 +762,80 @@ public static class CompositeSerializer
             ? edge
             : HYWDebugAssistant.Sdk.Ports.PortEdge.Auto;
 
+    /// <summary>读实例的 viewState（未知/非法项跳过；不影响该实例其余内容）。</summary>
+    private static HYWDebugAssistant.Core.Api.ViewStateSnapshot? ReadViewState(
+        JsonObject entry,
+        string instanceId,
+        List<string> issues)
+    {
+        if (entry[ViewStateField] is not JsonObject node)
+        {
+            return null;
+        }
+
+        var inputs = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (node[InputTextsField] is JsonObject inputNode)
+        {
+            foreach (var (source, value) in inputNode)
+            {
+                if (value is JsonValue textValue && textValue.TryGetValue(out string? text) && source.Length > 0)
+                {
+                    inputs[source] = text ?? string.Empty;
+                }
+                else
+                {
+                    issues.Add(CoreText.Get("core.composite.viewStateInputInvalid", instanceId, source));
+                }
+            }
+        }
+
+        var pages = new Dictionary<string, int>(StringComparer.Ordinal);
+        if (node[SelectedPagesField] is JsonObject pageNode)
+        {
+            foreach (var (key, value) in pageNode)
+            {
+                if (value is JsonValue pageValue && pageValue.TryGetValue(out int page) && key.Length > 0)
+                {
+                    pages[key] = Math.Max(0, page);
+                }
+                else
+                {
+                    issues.Add(CoreText.Get("core.composite.viewStatePageInvalid", instanceId, key));
+                }
+            }
+        }
+
+        var collapsed = new Dictionary<string, bool>(StringComparer.Ordinal);
+        if (node[CollapsedField] is JsonObject collapsedNode)
+        {
+            foreach (var (key, value) in collapsedNode)
+            {
+                if (value is JsonValue collapsedValue && collapsedValue.TryGetValue(out bool isCollapsed) && key.Length > 0)
+                {
+                    collapsed[key] = isCollapsed;
+                }
+                else
+                {
+                    issues.Add(CoreText.Get("core.composite.viewStateCollapsedInvalid", instanceId, key));
+                }
+            }
+        }
+
+        var snapshot = new HYWDebugAssistant.Core.Api.ViewStateSnapshot(inputs, pages, collapsed);
+        return snapshot.IsEmpty ? null : snapshot;
+    }
+
+    private static string? NormalizeWallpaper(string? wallpaper)
+    {
+        if (string.IsNullOrWhiteSpace(wallpaper))
+        {
+            return null;
+        }
+
+        var value = wallpaper.Replace('\\', '/').Trim();
+        return value.StartsWith("assets/", StringComparison.OrdinalIgnoreCase) ? value : null;
+    }
+
     private static List<PortGeometryView> ReadPorts(JsonObject entry, string instanceId, List<string> issues)
     {
         if (entry[PortsField] is not JsonObject ports)
@@ -661,13 +848,13 @@ public static class CompositeSerializer
         {
             if (portName.Length == 0)
             {
-                issues.Add($"实例 {instanceId} 存在空端口名的几何记录（已跳过）");
+                issues.Add(CoreText.Get("core.composite.portEmptyName", instanceId));
                 continue;
             }
 
             if (value is not JsonObject geometry)
             {
-                issues.Add($"实例 {instanceId} 的端口 {portName} 几何不是对象（已跳过）");
+                issues.Add(CoreText.Get("core.composite.portGeometryNotObject", instanceId, portName));
                 continue;
             }
 

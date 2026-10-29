@@ -1,18 +1,20 @@
 using Avalonia.Controls;
 using Avalonia.Media;
 using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Ui.Theming;
 
 namespace HYWDebugAssistant.FrameworkUi.Views;
 
-/// <summary>推荐色的一格（显示名 + 色值 + 画刷）—— 界面层对推荐色目录的包装。</summary>
-/// <param name="Name">显示名（悬停提示）。</param>
+/// <summary>推荐色的一格（稳定 id + 色值 + 来自 Ui 文本表的显示名）。</summary>
+/// <param name="Id">稳定标识（`ThemePresets.AccentPreset.Id`）。</param>
 /// <param name="Hex">色值文本（`#RRGGBB`）。</param>
+/// <param name="Label">显示名（悬停提示；取自 Ui 表的 `palette.preset.&lt;id&gt;`）。</param>
 /// <remarks>
-/// 数据住在 `Core.Api` 的 <see cref="ThemePresets"/>（那一层零框架依赖，只有文本）；
-/// **画刷是界面的事**，所以在这里包一层。
+/// 数据住在 `Core.Api` 的 <see cref="ThemePresets"/>（那一层零框架依赖，只有 id + 文本）；
+/// **画刷与显示名是界面的事**，所以在这里包一层。
 /// </remarks>
-public sealed record RecommendedColor(string Name, string Hex)
+public sealed record RecommendedColor(string Id, string Hex, string Label)
 {
     /// <summary>色块画刷（解析不了 ⇒ 透明）。</summary>
     public IBrush Brush =>
@@ -39,6 +41,20 @@ public sealed record RecommendedColor(string Name, string Hex)
 /// </remarks>
 public partial class ColorPickerDialog : Window
 {
+    /// <summary>推荐色 id → Ui 文本表里的显示名键（8 档；与 <see cref="ThemePresets.Accents"/> 一一对应）。</summary>
+    private static readonly Dictionary<string, string> PresetLabelKeys =
+        new(StringComparer.Ordinal)
+        {
+            ["blue"] = "palette.preset.blue",
+            ["cyan"] = "palette.preset.cyan",
+            ["green"] = "palette.preset.green",
+            ["orange"] = "palette.preset.orange",
+            ["red"] = "palette.preset.red",
+            ["purple"] = "palette.preset.purple",
+            ["pink"] = "palette.preset.pink",
+            ["gray"] = "palette.preset.gray",
+        };
+
     /// <summary>创建窗口（只给 XAML 加载器用；调用方请走 <see cref="ShowAsync"/>）。</summary>
     public ColorPickerDialog()
     {
@@ -46,9 +62,16 @@ public partial class ColorPickerDialog : Window
 
         // 推荐色 = **与主题同一套**，常驻显示在右侧 8 个（数据来自 `Core.Api` 的推荐色目录）
         RecommendedColors.ItemsSource = ThemePresets.Accents
-            .Select(preset => new RecommendedColor(preset.Name, preset.Hex))
+            .Select(preset => new RecommendedColor(preset.Id, preset.Hex, LabelFor(preset.Id)))
             .ToList();
     }
+
+    /// <summary>取一档推荐色的显示名（Ui 表；未知 id 退回键本身 ⇒ 运行期显示可见标记）。</summary>
+    /// <param name="id">推荐色稳定标识。</param>
+    private static string LabelFor(string id) =>
+        TextCatalog.Get(
+            typeof(HYWDebugAssistant.Ui.ViewLocator).Assembly,
+            PresetLabelKeys.TryGetValue(id, out var key) ? key : id);
 
     /// <summary>当前颜色（= 窗口内取色控件的值；调用方据此设初值 / 读结果）。</summary>
     public Color Color

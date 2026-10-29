@@ -71,7 +71,7 @@ public class ModuleViewContractTests
     [MemberData(nameof(Modules))]
     public async Task 模块视图的键必须与代码声明逐条对上(Type moduleType, Type factoryType, Type configType)
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -120,6 +120,15 @@ public class ModuleViewContractTests
                 }
 
                 var elements = window.GetVisualDescendants().OfType<ModuleElement>().ToList();
+
+                // **随包文本真的命中**：任何 `⟦key⟧` 都是表没进包 / 键拼错（8 个模块全覆盖）。
+                var visibleTexts = window.GetVisualDescendants()
+                    .OfType<TextBlock>()
+                    .Select(text => text.Text ?? string.Empty)
+                    .ToList();
+                visibleTexts.ShouldNotContain(
+                    text => text.Contains('\u27E6'),
+                    $"{moduleType.Name} 的界面出现未命中文本键（⟦…⟧）——随包表必须被解析到");
 
                 foreach (var element in elements.Where(element => element.Source.Length > 0))
                 {

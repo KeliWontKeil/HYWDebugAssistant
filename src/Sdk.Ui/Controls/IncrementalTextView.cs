@@ -9,6 +9,7 @@ using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
@@ -76,9 +77,9 @@ public sealed class IncrementalTextView : TemplatedControl
         Background = Brushes.Transparent;   // 整块可命中（否则只有字形处能选中，空白处点不到）
         Cursor = new Cursor(StandardCursorType.Ibeam);
 
-        var copyItem = new MenuItem { Header = "复制" };
+        var copyItem = new MenuItem { Header = TextCatalog.Get(typeof(IncrementalTextView).Assembly, "moduleText.contextMenu.copy") };
         copyItem.Click += (_, _) => Copy();
-        var selectAllItem = new MenuItem { Header = "全选" };
+        var selectAllItem = new MenuItem { Header = TextCatalog.Get(typeof(IncrementalTextView).Assembly, "moduleText.contextMenu.selectAll") };
         selectAllItem.Click += (_, _) => SelectAll();
         ContextMenu = new ContextMenu { Items = { copyItem, selectAllItem } };
         AttachedToVisualTree += OnAttachedToVisualTree;

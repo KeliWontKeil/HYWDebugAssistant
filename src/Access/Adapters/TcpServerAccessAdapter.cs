@@ -42,19 +42,19 @@ public sealed class TcpServerAccessAdapter : IExternalAccessAdapter
 
         if (parameters is not TcpServerConfig config)
         {
-            ready.SetFaulted($"参数类型不是 {nameof(TcpServerConfig)}");
+            ready.SetFaulted(AccessText.Get("access.tcpServer.parametersTypeInvalid", nameof(TcpServerConfig)));
             return;
         }
 
         if (config.LocalPort is < 0 or > 65535)
         {
-            ready.SetFaulted($"本地端口超出范围：{config.LocalPort}");
+            ready.SetFaulted(AccessText.Get("access.common.localPortOutOfRange", config.LocalPort));
             return;
         }
 
         if (!TryResolveAddress(config.LocalAddress, out var address))
         {
-            ready.SetFaulted($"本地地址不合法：{config.LocalAddress}");
+            ready.SetFaulted(AccessText.Get("access.common.localAddressInvalid", config.LocalAddress));
             return;
         }
 
@@ -70,10 +70,16 @@ public sealed class TcpServerAccessAdapter : IExternalAccessAdapter
             listener.Bind(new IPEndPoint(address, config.LocalPort));
             listener.Listen(Math.Max(16, Math.Max(1, config.MaxConnections)));
         }
+        catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
+        {
+            listener.Dispose();
+            ready.SetFaulted(AccessText.Get("access.common.portInUse", config.LocalPort));
+            return;
+        }
         catch (Exception ex)
         {
             listener.Dispose();
-            ready.SetFaulted($"监听失败：{ex.GetType().Name} — {ex.Message}");
+            ready.SetFaulted(AccessText.Get("access.tcpServer.listenFailed", ex.GetType().Name, ex.Message));
             return;
         }
 
@@ -224,7 +230,7 @@ public sealed class TcpServerAccessAdapter : IExternalAccessAdapter
             {
                 if (!token.IsCancellationRequested)
                 {
-                    ready.SetFaulted($"接受连接失败：{ex.GetType().Name} — {ex.Message}");
+                    ready.SetFaulted(AccessText.Get("access.tcpServer.acceptFailed", ex.GetType().Name, ex.Message));
                 }
 
                 return;
@@ -265,7 +271,7 @@ public sealed class TcpServerAccessAdapter : IExternalAccessAdapter
 
     private async Task ClientLoopAsync(Socket client, IExternalAccessReady ready, CancellationToken token)
     {
-        var buffer = new byte[RawBytesFraming.Capacity];
+        var buffer = new byte[ExternalAccessDeclaration.DefaultUnitBytes];
 
         try
         {

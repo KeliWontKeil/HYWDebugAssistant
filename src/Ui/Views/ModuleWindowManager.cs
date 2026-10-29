@@ -1,6 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Threading;
+using HYWDebugAssistant.Ui.Controls;
 using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.ViewModels;
 
@@ -40,6 +40,7 @@ public sealed class ModuleWindowManager : IDisposable
 
         _controller.GeometryChanged += OnGeometryChanged;
         _controller.VisibilityChanged += OnVisibilityChanged;
+        _controller.GroupRaiseRequested += OnGroupRaiseRequested;
         _controller.Modules.CollectionChanged += (_, _) => SyncAll();
 
         // 外壳移动 → ① 刷新吸附参照矩形 ② **平移与外壳拼成一体的那一组**（用户第十二轮第四轮反馈）
@@ -74,7 +75,7 @@ public sealed class ModuleWindowManager : IDisposable
             }
             else if (_windows.TryGetValue(module.InstanceId, out var hidden))
             {
-                hidden.Close();
+                CloseWindow(hidden);
                 _ = _windows.Remove(module.InstanceId);
             }
         }
@@ -83,7 +84,7 @@ public sealed class ModuleWindowManager : IDisposable
         {
             if (_windows.Remove(staleId, out var window))
             {
-                window.Close();
+                CloseWindow(window);
             }
         }
     }
@@ -99,18 +100,19 @@ public sealed class ModuleWindowManager : IDisposable
         _disposed = true;
         _controller.GeometryChanged -= OnGeometryChanged;
         _controller.VisibilityChanged -= OnVisibilityChanged;
+        _controller.GroupRaiseRequested -= OnGroupRaiseRequested;
         _controller.ShellTranslationRequested -= OnShellTranslationRequested;
 
         // 退出前把"整体平移"造成的位移合并落盘（拖动模块带走外壳时会产生）
-        _shellDragEndTimer?.Stop();
-        _shellDragEndTimer = null;
-        _followCommitTimer?.Stop();
-        _followCommitTimer = null;
+        _shellDragEndSubscription?.Dispose();
+        _shellDragEndSubscription = null;
+        _followCommitSubscription?.Dispose();
+        _followCommitSubscription = null;
         _ = _controller.CommitSceneTranslation();
 
         foreach (var window in _windows.Values)
         {
-            window.Close();
+            CloseWindow(window);
         }
 
         _windows.Clear();
@@ -156,8 +158,35 @@ public sealed class ModuleWindowManager : IDisposable
 
         if (_windows.Remove(e.InstanceId, out var window))
         {
-            window.Close();
+            CloseWindow(window);
         }
+    }
+
+    /// <summary>
+    /// 窗口点击要求把**整组**抬到应用内最前：组内 primary 最后抬（在最上）。
+    /// </summary>
+    /// <remarks>
+    /// **不激活、不改焦点**：抬升只改层级；非 Windows / 平台不支持时门面自动无操作。
+    /// 与 <see cref="AppWindowGroup.RaiseAll"/>（全体置顶）不是同一条路径。
+    /// </remarks>
+    private void OnGroupRaiseRequested(object? sender, ModuleGroupRaiseRequest request)
+    {
+        foreach (var instanceId in request.InstanceIds
+                     .Where(id => !string.Equals(id, request.Primary, StringComparison.Ordinal))
+                     .Append(request.Primary))
+        {
+            if (_windows.TryGetValue(instanceId, out var window))
+            {
+                WindowZOrder.RaiseWithoutActivating(window);
+            }
+        }
+    }
+
+    /// <summary>关闭窗口前先摘掉缓存视图的父级；否则“隐藏后再显示全部”会把同一控件挂到新父级。</summary>
+    private static void CloseWindow(ModuleWindow window)
+    {
+        window.DetachModuleView();
+        window.Close();
     }
 
     private void EnsureWindow(ModuleViewViewModel module)
@@ -273,44 +302,44 @@ public sealed class ModuleWindowManager : IDisposable
     /// </para>
     /// <para>
     /// <b>单位口径</b>：模型四数一律 **DIP**（见 `ModuleLayoutView`）。
-    /// <list type="bullet">
-    ///   <item><b>尺寸</b>：模型是 DIP、<c>Window.Width/Height</c> 也是 DIP ⇒ **直接赋值，不换算**。
-    ///     这一条正是"跨屏后右边框被遮住"的根治点：旧实现把模型当物理像素、再除以主屏缩放，
-    ///     于是模型里的 400 在 150% 的屏上被撑成 600 物理像素，从左上角往右长出屏幕。</item>
-    ///   <item><b>位置</b>：模型是 DIP、<c>Window.Position</c> 要**整数物理像素** ⇒
-    ///     **这是全项目唯一的 DIP → 物理像素换算点**：乘该窗口的 <c>RenderScaling</c> 后取整。</item>
-    /// </list>
+    /// 窗口位置与尺寸都从**同一个整数物理矩形**推出（<see cref="ScreenPixels.PixelRectOf"/>）：
+    /// 位置取 <c>Left/Top</c>，尺寸取 <c>(Right-Left)/scaling</c>。
+    /// 尺寸**不是**"DIP 原样交给平台"——那样平台会对每个窗口独立取整，
+    /// <c>round(x·s) + round(w·s) ≠ round((x+w)·s)</c>，125%/150% 下相邻两窗公共边差 1px。
     /// </para>
     /// </remarks>
     private static void ApplyGeometry(ModuleWindow window, ModuleWindowGeometryChange geometry, ModuleViewViewModel module)
     {
-        // 位置：DIP → 物理像素（**唯一的换算点**；窗口坐标只能是整数物理像素）。
         // 缩放取**本窗口已发布的那一份**（`ModuleWindow.ResolvedScaling`）：`Show` 之前 `RenderScaling`
         // 不可信，用它算出来的位置会在显示后被平台纠正一次（"打开后跳一下"）。
         var scaling = window.ResolvedScaling > 0 ? window.ResolvedScaling : 1.0;
-        var position = new PixelPoint(
-            ScreenPixels.ToPixel(geometry.X * scaling),
-            ScreenPixels.ToPixel(geometry.Y * scaling));
 
+        // 先按现有语义夹出 DIP 尺寸，再由 (x, y, w, h) 求一个整数像素矩形。
+        var widthDip = Fit(module, geometry.Width, isWidth: true);
+        var heightDip = Fit(module, geometry.Height, isWidth: false);
+        var pixels = ScreenPixels.PixelRectOf(
+            new CanvasRect(geometry.X, geometry.Y, widthDip, heightDip),
+            scaling);
+
+        var position = new PixelPoint(pixels.Left, pixels.Top);
         if (window.Position != position)
         {
             window.Position = position;
         }
 
-        // **默认尺寸必须真正应用**：没有布局记录时也要**按模型里的尺寸开窗**，不能直接返回、把尺寸
-        // 交给 XAML 的默认 320×220 —— 那会让模块声明的默认尺寸从未被应用过
-        // （实测：显示器声明 460×380，窗口却是 320×220，内容被挤到要滚动才看得全）。
-        // 模型里的尺寸 = 声明面的 `window.default`（**DIP**，`ModuleViewViewModel` 构造时夹进有效区间）。
+        // **+0.25/scaling 是对平台取整实现的稳健偏置**：客户区尺寸从整数像素反推后常带 .x 小数，
+        // `round` 与 `floor` 两种实现下这个偏置都落在同一个物理像素数（不是业务尺寸，也不进模型）。
         var size = new Size(
-            Fit(module, geometry.Width, isWidth: true),
-            Fit(module, geometry.Height, isWidth: false));
+            ((pixels.Right - pixels.Left) / scaling) + (0.25 / scaling),
+            ((pixels.Bottom - pixels.Top) / scaling) + (0.25 / scaling));
 
-        if (Math.Abs(window.Width - size.Width) > 0.5)
+        // 重设判据按**像素**比较：0.2 DIP 的修正若用 DIP 阈值会被跳过，公共边就仍可能差 1px。
+        if (ScreenPixels.ToPixel(window.Width * scaling) != pixels.Right - pixels.Left)
         {
             window.Width = size.Width;
         }
 
-        if (Math.Abs(window.Height - size.Height) > 0.5)
+        if (ScreenPixels.ToPixel(window.Height * scaling) != pixels.Bottom - pixels.Top)
         {
             window.Height = size.Height;
         }
@@ -379,39 +408,39 @@ public sealed class ModuleWindowManager : IDisposable
         _controller.TranslateShellGroup(current.X - previous.X, current.Y - previous.Y, previous);
 
         // 静默 250ms ⇒ 这次拖动结束：解除分组冻结（下次拖动重新取组）
-        _shellDragEndTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-        _shellDragEndTimer.Stop();
-        _shellDragEndTimer.Tick -= OnShellDragEndTick;
-        _shellDragEndTimer.Tick += OnShellDragEndTick;
-        _shellDragEndTimer.Start();
+        _shellDragEndSubscription?.Dispose();
+        _shellDragEndSubscription = UiFrameClock.ScheduleOnce(
+            TimeSpan.FromMilliseconds(250),
+            OnShellDragEnd);
 
         // 拖动中不逐帧落盘：停下后合并提交（逐帧提交会触发建网重算而卡顿）
-        _followCommitTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
-        _followCommitTimer.Stop();
-        _followCommitTimer.Tick -= OnFollowCommitTick;
-        _followCommitTimer.Tick += OnFollowCommitTick;
-        _followCommitTimer.Start();
+        _followCommitSubscription?.Dispose();
+        _followCommitSubscription = UiFrameClock.ScheduleOnce(
+            TimeSpan.FromMilliseconds(180),
+            OnFollowCommit);
     }
 
     /// <summary>拖动结束（静默到期）：解除分组冻结。</summary>
-    private void OnShellDragEndTick(object? sender, EventArgs e)
+    private void OnShellDragEnd()
     {
-        _shellDragEndTimer?.Stop();
+        _shellDragEndSubscription?.Dispose();
+        _shellDragEndSubscription = null;
         _controller.EndShellDragGesture();
     }
 
     /// <summary>防抖到期：把整体平移合并落盘。</summary>
-    private void OnFollowCommitTick(object? sender, EventArgs e)
+    private void OnFollowCommit()
     {
-        _followCommitTimer?.Stop();
+        _followCommitSubscription?.Dispose();
+        _followCommitSubscription = null;
         _ = _controller.CommitSceneTranslation();
     }
 
-    /// <summary>"这次拖动结束"的静默计时器。</summary>
-    private DispatcherTimer? _shellDragEndTimer;
+    /// <summary>"这次拖动结束"的静默计时订阅。</summary>
+    private IDisposable? _shellDragEndSubscription;
 
-    /// <summary>跟随落盘的防抖计时器。</summary>
-    private DispatcherTimer? _followCommitTimer;
+    /// <summary>跟随落盘的防抖订阅。</summary>
+    private IDisposable? _followCommitSubscription;
 
     /// <summary>把"拖动组带动外壳"的请求落到真实窗口上（见 <see cref="ModuleWindowsViewModel.ShellTranslationRequested"/>）。</summary>
     /// <remarks>

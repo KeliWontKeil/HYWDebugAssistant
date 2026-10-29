@@ -38,6 +38,8 @@
     <ProjectReference Include="..\..\src\DataPlane\HYWDebugAssistant.DataPlane.csproj" />
     <ProjectReference Include="..\..\src\Core\HYWDebugAssistant.Core.csproj" />
     <ProjectReference Include="..\..\src\Core.Api\HYWDebugAssistant.Core.Api.csproj" />
+    <!-- 外部接入参数类型（四个外部模块的视图契约逐字段对账/设计数据注册）。 -->
+    <ProjectReference Include="..\..\src\Access\HYWDebugAssistant.Access.csproj" />
     <!-- 八个业务模块的视图契约：真造 XAML 控件，再按控件上的键对代码声明。 -->
     <ProjectReference Include="..\..\src\Modules\Business\Serial\HYWDebugAssistant.Modules.Serial.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\TcpClient\HYWDebugAssistant.Modules.TcpClient.csproj" />

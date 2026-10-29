@@ -1,4 +1,5 @@
 using System.Globalization;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Modules.HexSender;
 
@@ -44,7 +45,11 @@ internal static class HexTextCodec
         {
             if (segment.Length != 2)
             {
-                failure = $"「{segment}」是 {segment.Length} 位；每段必须恰好两位（如 `0D 0A`）";
+                failure = TextCatalog.Get(
+                    typeof(HexTextCodec).Assembly,
+                    HexSenderText.StatusHexSegmentLength,
+                    segment,
+                    segment.Length);
                 return false;
             }
 
@@ -52,7 +57,11 @@ internal static class HexTextCodec
             {
                 if (!Uri.IsHexDigit(ch))
                 {
-                    failure = $"「{segment}」里有非十六进制字符 '{ch}'（只接受 0-9 / A-F / a-f）";
+                    failure = TextCatalog.Get(
+                        typeof(HexTextCodec).Assembly,
+                        HexSenderText.StatusHexNonHex,
+                        segment,
+                        ch);
                     return false;
                 }
             }

@@ -1,3 +1,4 @@
+using HYWDebugAssistant.Access;
 using HYWDebugAssistant.Modules.DataMonitor;
 using HYWDebugAssistant.Modules.HexSender;
 using HYWDebugAssistant.Modules.HexStringConverter;
@@ -136,7 +137,7 @@ public class BusinessModulesContractTests
     [Fact]
     public void 串口_声明面应自洽_且与四个基础模块同型()
     {
-        var probe = ModuleContract.Probe(typeof(SerialModule));
+        var probe = ModuleContract.Probe(typeof(SerialModule), catalog: new BuiltInExternalAccessCatalog());
 
         probe.Problems.ShouldBeEmpty();
         probe.Advisories.ShouldBeEmpty();
@@ -176,7 +177,7 @@ public class BusinessModulesContractTests
     [InlineData(typeof(UdpModule), "udp")]
     public void 网络类模块_声明面应自洽_且与基础模块同型(Type entryType, string roleId)
     {
-        var probe = ModuleContract.Probe(entryType);
+        var probe = ModuleContract.Probe(entryType, catalog: new BuiltInExternalAccessCatalog());
 
         probe.Problems.ShouldBeEmpty();
         probe.Advisories.ShouldBeEmpty();

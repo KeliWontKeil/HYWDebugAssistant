@@ -1,0 +1,13 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+             x:Class="HYWDebugAssistant.Tests.Probes.TrExtensionProbeView">
+    <!--
+      探针视图：两条文本都来自**本程序集**的文本表（`probe.*`，测试用临时根）。
+      价值在于它走的是**真实的编译期 XAML**：`ProvideValue` 拿到的目标对象/根对象从这里才能验证。
+    -->
+    <StackPanel Spacing="2">
+        <TextBlock Name="ResolvedText" Text="{loc:Tr probe.base.label}" />
+        <TextBlock Name="MissingText" Text="{loc:Tr probe.absent.message}" />
+    </StackPanel>
+</UserControl>

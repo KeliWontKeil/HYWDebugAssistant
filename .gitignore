@@ -200,6 +200,9 @@ PublishScripts/
 **/[Pp]ackages/*
 # except build/, which is used as an MSBuild target.
 !**/[Pp]ackages/build/
+# 源码目录 Hosting/Packages 不是 NuGet 包缓存（上面的 **/[Pp]ackages/* 会误伤）
+!src/Hosting/Packages/
+!src/Hosting/Packages/**
 # Uncomment if necessary however generally it will be regenerated when needed
 #!**/[Pp]ackages/repositories.config
 # NuGet v3's project.json files produces more ignorable files

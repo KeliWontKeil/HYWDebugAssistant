@@ -13,8 +13,8 @@ namespace HYWDebugAssistant.Access.Parameters;
 /// 与<b>目标</b>（默认把数据发去哪 —— 留空就只收不发）。
 /// </para>
 /// <para>
-/// <b>本地地址是动态下拉</b>（见 <see cref="GetChoices"/>）；<b>目标地址是文本框</b> ——
-/// 对端地址没有"可用值"这类来源，能选的只有本机自己。
+/// <b>本地地址是动态下拉</b>（见 <see cref="GetChoices"/>，含 <c>0.0.0.0</c> 与 <c>127.0.0.1</c>）；
+/// <b>目标地址是文本框</b> —— 对端地址没有"可用值"这类来源，能选的只有本机自己。
 /// </para>
 /// </remarks>
 public sealed class UdpConfig : IConfigurationChoices
@@ -23,23 +23,32 @@ public sealed class UdpConfig : IConfigurationChoices
     public const string AnyAddress = "0.0.0.0";
 
     /// <summary>本地绑定地址。</summary>
-    [ConfigurationField("本地地址", Group = "本地", Description = "0.0.0.0 = 绑定全部网卡")]
-    public string LocalAddress { get; set; } = AnyAddress;
+    [ConfigurationField(
+        TitleKey = UdpConfigText.LocalAddress,
+        GroupKey = UdpConfigText.GroupLocal,
+        DescriptionKey = UdpConfigText.LocalAddressDescription)]
+    public string LocalAddress { get; set; } = "127.0.0.1";
 
     /// <summary>本地绑定端口。</summary>
-    [ConfigurationField("本地端口", Group = "本地", Minimum = 1, Maximum = 65535)]
-    public int LocalPort { get; set; } = 9000;
+    [ConfigurationField(TitleKey = UdpConfigText.LocalPort, GroupKey = UdpConfigText.GroupLocal, Minimum = 1, Maximum = 65535)]
+    public int LocalPort { get; set; } = 60721;
 
     /// <summary>默认目标地址（留空 = 只收不发）。</summary>
-    [ConfigurationField("目标地址", Group = "目标", Description = "留空 = 只收不发；主机名或 IP")]
-    public string RemoteAddress { get; set; } = string.Empty;
+    [ConfigurationField(
+        TitleKey = UdpConfigText.TargetAddress,
+        GroupKey = UdpConfigText.GroupTarget,
+        DescriptionKey = UdpConfigText.TargetAddressDescription)]
+    public string RemoteAddress { get; set; } = "127.0.0.1";
 
     /// <summary>默认目标端口（0 = 未指定）。</summary>
-    [ConfigurationField("目标端口", Group = "目标", Minimum = 0, Maximum = 65535)]
-    public int RemotePort { get; set; }
+    [ConfigurationField(TitleKey = UdpConfigText.TargetPort, GroupKey = UdpConfigText.GroupTarget, Minimum = 0, Maximum = 65535)]
+    public int RemotePort { get; set; } = 60721;
 
     /// <summary>是否允许广播（目标地址是广播地址时必须打开）。</summary>
-    [ConfigurationField("允许广播", Group = "选项", Description = "往 255.255.255.255 或网段广播地址发时必须打开")]
+    [ConfigurationField(
+        TitleKey = UdpConfigText.Broadcast,
+        GroupKey = UdpConfigText.GroupOptions,
+        DescriptionKey = UdpConfigText.BroadcastDescription)]
     public bool Broadcast { get; set; }
 
     /// <inheritdoc />
@@ -50,7 +59,7 @@ public sealed class UdpConfig : IConfigurationChoices
             return null;
         }
 
-        var list = new List<string> { AnyAddress };
+        var list = new List<string> { AnyAddress, IPAddress.Loopback.ToString() };
 
         try
         {

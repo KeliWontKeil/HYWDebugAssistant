@@ -130,14 +130,15 @@ public sealed class SubscriptionBuffer
         if (value.Length == 0)
         {
             _ = Interlocked.Increment(ref _dropped);
-            failure = "空样本（已丢弃）";
+            failure = CoreText.Get("core.views.sampleEmpty");
             return false;
         }
 
         if (value.Length > MaxSampleSizeInBytes)
         {
             _ = Interlocked.Increment(ref _dropped);
-            failure = $"样本过大：{value.Length} 字节（上限 {MaxSampleSizeInBytes} 字节）";
+            failure = CoreText.Get(
+                "core.views.sampleTooLarge", value.Length, MaxSampleSizeInBytes);
             return false;
         }
 
@@ -150,7 +151,8 @@ public sealed class SubscriptionBuffer
         if (value.Length > slotSize)
         {
             _ = Interlocked.Increment(ref _dropped);
-            failure = $"样本长度 {value.Length} 超过已定槽尺寸 {slotSize}（已丢弃；同一数据源的样本长度必须一致）";
+            failure = CoreText.Get(
+                "core.views.sampleExceedsSlot", value.Length, slotSize);
             return false;
         }
 

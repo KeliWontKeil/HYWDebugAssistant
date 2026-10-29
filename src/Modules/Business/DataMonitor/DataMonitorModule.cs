@@ -8,6 +8,7 @@ using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Modules.DataMonitor;
@@ -33,8 +34,8 @@ namespace HYWDebugAssistant.Modules.DataMonitor;
     "hyw",
     "data-monitor",
     "1.0.0",
-    DisplayName = "数据显示器",
-    Description = "把收到的字节显示出来（文本 / 十六进制）；可暂停、按包换行、加时间戳、清空、保存为 .txt",
+    DisplayNameKey = DataMonitorText.Title,
+    DescriptionKey = DataMonitorText.Description,
     Tags = ["monitor", "display"],
     ParticipatesInDataFlow = true,
     WindowWidth = 400,
@@ -79,7 +80,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     public const string DefaultSaveFileName = "savetext1.txt";
 
     /// <summary>保存对话框的文件类型过滤串（形如 <c>文本文件 (*.txt)|*.txt</c>）。</summary>
-    public const string SaveFileFilter = "文本文件 (*.txt)|*.txt";
+    public static string SaveFileFilter => Tr(DataMonitorText.SaveFileFilter);
 
     /// <summary>
     /// 显示源：**消息**（"已保存到哪 / 为什么没存成"）。
@@ -160,7 +161,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
             RoleId,
             new DataTypeRef(RawBytesTypeId, RawBytesVersion),
             InPort,
-            "显示"));
+            Tr(DataMonitorText.RoleDisplay)));
 
         DeclareUi(context);
     }
@@ -183,14 +184,16 @@ public sealed class DataMonitorModule : IModule, IActivitySource
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(SavePathSource, ViewDataSourceKind.Text));
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(StatusSource, ViewDataSourceKind.Text));
 
-        context.Declaration.DeclareInput(PausedSource);
-        context.Declaration.DeclareInput(HexViewSource);
-        context.Declaration.DeclareInput(LineBreakSource);
-        context.Declaration.DeclareInput(TimestampSource);
+        // 四个显示开关是用户偏好，恢复；保存路径是一次动作的结果，不恢复。
+        foreach (var source in new[] { PausedSource, HexViewSource, LineBreakSource, TimestampSource })
+        {
+            context.Declaration.DeclareInput(new InputDeclaration(source) { Persistence = InputPersistence.Persistent });
+        }
+
         context.Declaration.DeclareInput(SavePathSource);
 
-        context.Declaration.DeclareCommand(ClearCommand, "清空");
-        context.Declaration.DeclareCommand(SaveCommand, "保存");
+        context.Declaration.DeclareCommand(ClearCommand, Tr(DataMonitorText.Clear));
+        context.Declaration.DeclareCommand(SaveCommand, Tr(DataMonitorText.Save));
     }
 
     // ---------------------------------------------------------------- ③ 钩子块
@@ -205,6 +208,8 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     public void RunActivity(IModuleContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+
+        RestorePersistedState(context);
 
         while (!context.StopSignal.IsStopRequested)
         {
@@ -231,7 +236,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
 
             // 空闲断行在这里没有位置：它只是「按字节流填 96 字节定宽行」的补充（不这么办，短包在 OFF 模式下
             // 永远看不到）。定宽行本身不存在 ⇒ 没有半行/pending tail，**收到即落地**。
-            _ = context.StopSignal.Wait(ActivityInterval);
+            _ = context.Timing.WaitFor(ActivityInterval);
         }
     }
 
@@ -242,6 +247,33 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     private bool _hexView;
     private bool _timestamp;
     private string? _savePath;
+
+    /// <summary>从持久化视图状态恢复四个显示开关（加载时先恢复 ViewState，再激活）。</summary>
+    /// <param name="context">模块上下文。</param>
+    public void RestorePersistedState(IModuleContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (context.ViewState.GetInputText(PausedSource) is { } paused)
+        {
+            _paused = IsTrue(paused);
+        }
+
+        if (context.ViewState.GetInputText(LineBreakSource) is { } lineBreak)
+        {
+            _lineBreakPerPacket = IsTrue(lineBreak);
+        }
+
+        if (context.ViewState.GetInputText(HexViewSource) is { } hex)
+        {
+            _hexView = IsTrue(hex);
+        }
+
+        if (context.ViewState.GetInputText(TimestampSource) is { } timestamp)
+        {
+            _timestamp = IsTrue(timestamp);
+        }
+    }
 
     /// <summary>是否处于"暂停显示"（测试可读）。</summary>
     public bool IsPaused => _paused;
@@ -263,13 +295,20 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     /// <b>为什么让模块回报、而不是视图层自己显示</b>：路径只是"投递出去了"，**写盘成没成功只有模块知道**
     /// （目录不可写 / 被占用 / 非法路径都在模块侧）。视图层若自己写"已保存"就是**预览骗人**。
     /// </remarks>
+    /// <summary>取一条本模块文本表里的文案（拥有者 = 本模块程序集）。</summary>
+    private static string Tr(string key) => TextCatalog.Get(typeof(DataMonitorModule).Assembly, key);
+
+    /// <summary>取一条带占位符的本模块文案。</summary>
+    private static string Tr(string key, params object?[] args) =>
+        TextCatalog.Get(typeof(DataMonitorModule).Assembly, key, args);
+
     private void SaveAndReport(IModuleContext context)
     {
         var saved = Save(context);
 
         var message = saved
-            ? $"已保存：{Path.GetFileName(_savePath)}（{LastSavedLineCount} 行）"
-            : LastSaveFailure ?? "保存失败";
+            ? Tr(DataMonitorText.StatusSaved, Path.GetFileName(_savePath), LastSavedLineCount)
+            : LastSaveFailure ?? Tr(DataMonitorText.StatusSaveFailed);
 
         // **消息走"写文本"这条路**：界面上由一块 `label`（或只读文本面）显示，
         // 落点由声明面决定 —— 不是"某个控件自己弹一块角"。
@@ -310,7 +349,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
             context.Issues.Report(new IssueReport(
                 IssueCategory.ModuleError,
                 IssueSeverity.Warning,
-                $"未知命令：{command}（模块未实现）"));
+                Tr(DataMonitorText.StatusUnknownCommand, command)));
         }
 
         while (context.Inbox.TryDequeueInput(out var source, out var text))
@@ -476,8 +515,10 @@ public sealed class DataMonitorModule : IModule, IActivitySource
         context.Issues.Report(new IssueReport(
             IssueCategory.ModuleError,
             IssueSeverity.Warning,
-            $"收到 {length} 字节的数据报，小于本口契约 {InputLayout.SizeInBytes} 字节 —— **已丢弃**"
-            + "（通常是发布方版本比本口旧：接收方必须按到达长度读，`PayloadReader.TryCreate`）。此提示只报一次。"));
+            Tr(
+                DataMonitorText.StatusShortDatagram,
+                length,
+                InputLayout.SizeInBytes)));
     }
 
     private static int _shortPayloadReported;
@@ -511,7 +552,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
 
         if (string.IsNullOrWhiteSpace(_savePath))
         {
-            LastSaveFailure = "还没有选择保存位置（点界面上的「保存」按钮选一个 .txt）";
+            LastSaveFailure = Tr(DataMonitorText.StatusSaveNoPath);
             context.Issues.Report(new IssueReport(
                 IssueCategory.ModuleError,
                 IssueSeverity.Warning,
@@ -531,13 +572,13 @@ public sealed class DataMonitorModule : IModule, IActivitySource
             LastSaveFailure = null;
             SaveCount++;
             LastSavedLineCount = lines.Count;
-            context.Log.Log(ModuleLogLevel.Information, $"显示内容已保存：{path}（{lines.Count} 行）");
+            context.Log.Log(ModuleLogLevel.Information, Tr(DataMonitorText.StatusSavedLog, path, lines.Count));
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
             // 外部 IO 的失败**就地反馈**（不逸出）：路径不可写 / 被占用 / 非法
-            LastSaveFailure = $"保存失败：{ex.GetType().Name} — {ex.Message}";
+            LastSaveFailure = Tr(DataMonitorText.StatusSaveError, ex.GetType().Name, ex.Message);
             context.Issues.Report(new IssueReport(
                 IssueCategory.ModuleError,
                 IssueSeverity.Warning,

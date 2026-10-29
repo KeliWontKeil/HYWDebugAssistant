@@ -1,7 +1,8 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
-             xmlns:api="using:HYWDebugAssistant.Core.Api"
+             xmlns:ui="using:HYWDebugAssistant.Ui.Controls"
+             xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
              x:Class="HYWDebugAssistant.FrameworkUi.Views.SettingsView"
              x:DataType="vm:SettingsPanelViewModel"
              xmlns:design="using:HYWDebugAssistant.FrameworkUi.Design"
@@ -11,13 +12,13 @@
              FontSize="12">
 
     <!--
-      设置弹窗（R-3 / ADR-0036 D6）：**分类化**（左分类 · 右页面，VSCode 风格）。
-      七类：常规 · 模块与来源 · 窗口与交互 · 外观与显示 · 快捷键 · 日志与诊断 · 关于。
+      设置弹窗：**分类化**（左分类 · 右页面）。
+      五类：常规 · 外观 · 窗口与交互 · 快捷键 · 关于。
 
-      【用户第七轮反馈后重排】
-        · 左分类：字号 12、行高 28、宽 132、**文字居中**；
-        · **说明性长文本不再常显**：改为 ① 控件悬停提示（ToolTip）② 问号按钮折叠（点击展开）；
-        · 行距/内边距收紧（10 / 6），整体紧凑。
+      · 「模块与来源」不在设置里：模块清单弹窗已经承载来源根增删、重扫、诊断与加载包；
+      · 「日志与诊断」不在设置里：Issue / 拓扑 / 日志查看是独立功能；日志级别与诊断提示阈值并入「常规」；
+      · **三键机制**：取消 / 应用 / 确认。外观里的主题卡只切换本页色板草稿，
+        全应用仍在「应用 / 确认」后切换；主题方案随三键落盘。
     -->
     <UserControl.Styles>
         <Style Selector="TabControl.settings TabItem">
@@ -41,482 +42,592 @@
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
         </Style>
+
+        <!-- 主题卡：固定尺寸；选中 = 主题色边框 + 淡主题色底 -->
+        <Style Selector="Button.themeCard">
+            <Setter Property="Width" Value="132" />
+            <Setter Property="Height" Value="72" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="8" />
+            <Setter Property="Margin" Value="0,0,6,6" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+            <Setter Property="Background" Value="{DynamicResource BgModule}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+        <Style Selector="Button.themeCard:pointerover">
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
+            <Setter Property="Background" Value="{DynamicResource BgModule}" />
+        </Style>
+        <Style Selector="Button.themeCard.selected">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+            <Setter Property="Background" Value="{DynamicResource OverlaySelection}" />
+        </Style>
+        <Style Selector="Button.themeCard.selected:pointerover">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+            <Setter Property="Background" Value="{DynamicResource OverlaySelection}" />
+        </Style>
+
+        <Style Selector="TextBlock.themeTitle">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+        <Style Selector="TextBlock.themeBase">
+            <Setter Property="FontSize" Value="9" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+
+        <!-- 色块按钮：只要色块，不要按钮面/边/内边距 -->
+        <Style Selector="Button.swatch">
+            <Setter Property="Width" Value="30" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.swatch:pointerover">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+
+        <Style Selector="Ellipse.overrideDot">
+            <Setter Property="Width" Value="6" />
+            <Setter Property="Height" Value="6" />
+            <Setter Property="Fill" Value="{DynamicResource AccentPrimary}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!-- 分区标题靠左：Fluent 的 Expander 头默认把内容居中，观感像“居中标题” -->
+        <Style Selector="Expander /template/ ToggleButton">
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+        </Style>
     </UserControl.Styles>
 
     <!--
-      【2026-09 用户裁定 · 设置生效机制】底部**三键条**：`取消` / `应用` / `确认`（Windows 常规做法）。
-      用户原话："设置界面建议显式添加确认/取消/应用按钮，修改机制，不使用当前的'修改即应用'机制，
-      而是常见的设置更改生效机制。" ⇒ 页面里**任何**改动都只是"待生效"，
-      只有点「应用」（生效并留在本页）或「确认」（生效并关闭）才写盘；「取消」丢弃本次改动并关闭。
-      左侧状态行显示"已生效 / 未生效：原因"（`StatusMessage`）。
+      底部**三键条**：取消 / 应用 / 确认。任何改动都只是"待生效"；
+      「应用」= 生效并留在本页，「确认」= 应用并关闭，「取消」= 丢弃本次改动并关闭。
+      状态行显示"已生效 / 未生效：原因"。
     -->
     <Grid RowDefinitions="*,Auto">
         <TabControl Grid.Row="0" Classes="settings" TabStripPlacement="Left" Margin="6">
 
-        <!-- ============================ 常规 ============================ -->
-        <TabItem Header="常规">
-            <ScrollViewer>
-                <StackPanel Margin="10" Spacing="6">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0" Classes="sec" VerticalAlignment="Center" Text="应用行为" />
-                        <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="关于本页">
-                            <Button.Flyout>
-                                <Flyout Placement="TopEdgeAlignedRight">
-                                    <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
-                                               Text="本页是应用级设置（跨组合件共享、不随组合件保存）；模块实例的参数在模块自己的窗口里改（配置表单）。" />
-                                </Flyout>
-                            </Button.Flyout>
-                        </Button>
-                    </Grid>
+            <!-- ============================ 常规 ============================ -->
+            <TabItem Header="{loc:Tr settings.general.tab.title}">
+                <ScrollViewer>
+                    <StackPanel Margin="10" Spacing="6">
+                        <TextBlock Classes="sec" Text="{loc:Tr settings.general.behavior.title}" />
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.general.language.label}" />
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding Languages}"
+                                      SelectedItem="{Binding SelectedLanguageChoice, Mode=TwoWay}" />
+                        </Grid>
+                        <TextBlock Classes="note" Text="{loc:Tr settings.general.language.note}" />
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.general.stopTimeout.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.general.stopTimeout.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding StopTimeoutSeconds, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.general.inputQueue.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.general.inputQueue.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding InputQueueCapacity, Mode=TwoWay}" />
+                        </Grid>
+                        <ui:UiToggle Content="{loc:Tr settings.general.alignAutoNetwork.label}"
+                                  IsChecked="{Binding AlignAutoNetworkEnabled, Mode=TwoWay}"
+                                  ToolTip.Tip="{loc:Tr settings.general.alignAutoNetwork.tip}" />
 
-                    <Grid ColumnDefinitions="140,110,*">
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                   ToolTip.Tip="模块停止的有界等待时限（秒）"
-                                   Foreground="{DynamicResource TextSecondary}" Text="停止超时（秒）" />
-                        <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
-                                 Text="{Binding StopTimeoutSeconds, Mode=TwoWay}" />
-                    </Grid>
+                        <TextBlock Classes="sec" Margin="0,8,0,0" Text="{loc:Tr settings.general.performance.title}" />
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.general.refreshRate.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.general.refreshRate.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding UiRefreshRateHz, Mode=TwoWay}" />
+                        </Grid>
 
-                    <Grid ColumnDefinitions="140,110,*">
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                   ToolTip.Tip="对新建的输入队列生效（已存在的队列不变）"
-                                   Foreground="{DynamicResource TextSecondary}" Text="输入队列容量" />
-                        <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
-                                 Text="{Binding InputQueueCapacity, Mode=TwoWay}" />
-                    </Grid>
+                        <Rectangle Height="1" Margin="0,4" Fill="{DynamicResource BorderDefault}" />
 
-                    <CheckBox Content="对齐自动建网"
-                              IsChecked="{Binding AlignAutoNetworkEnabled, Mode=TwoWay}"
-                              ToolTip.Tip="两个模块「接触且标记对齐」时自动连上（只对未打网络标签的口生效）" />
-                </StackPanel>
-            </ScrollViewer>
-        </TabItem>
-
-        <!-- ============================ 模块与来源 ============================ -->
-        <TabItem Header="模块与来源">
-            <ScrollViewer>
-                <StackPanel Margin="10" Spacing="6">
-                    <TextBlock Classes="sec" Text="额外来源根（按顺序扫描，先到者胜）" />
-
-                    <Grid ColumnDefinitions="*,Auto,Auto">
-                        <TextBox Grid.Column="0"
-                                 PlaceholderText="来源根目录（如 D:\my-modules）"
-                                 Text="{Binding NewSourceDirectory, Mode=TwoWay}" />
-                        <Button Grid.Column="1" Content="添加" Margin="4,0,0,0" Command="{Binding AddSourceDirectoryCommand}" />
-                        <Button Grid.Column="2" Content="重扫" Margin="4,0,0,0" Command="{Binding RescanModuleSourcesCommand}"
-                                ToolTip.Tip="立刻重扫全部来源根（装入新增的包）；改过代码的包仍需重启应用" />
-                    </Grid>
-
-                    <ListBox Height="80"
-                             ItemsSource="{Binding ModuleSourceDirectories}"
-                             SelectedItem="{Binding SelectedSourceDirectory, Mode=TwoWay}"
-                             ToolTip.Tip="内置包目录（应用目录下 modules\）始终在首位，无需配置" />
-
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <Button Content="上移" Command="{Binding MoveSourceDirectoryUpCommand}" />
-                        <Button Content="下移" Command="{Binding MoveSourceDirectoryDownCommand}" />
-                        <Button Content="移除" Command="{Binding RemoveSourceDirectoryCommand}" />
+                        <TextBlock Classes="sec" Text="{loc:Tr settings.general.logs.title}" />
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.general.logLevel.label}" />
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding LogLevels}"
+                                      SelectedItem="{Binding LogLevel, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.general.diagnosticThreshold.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.general.diagnosticThreshold.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding DiagnosticHintThreshold, Mode=TwoWay}" />
+                        </Grid>
+                        <TextBlock Classes="note" Text="{loc:Tr settings.general.hint.note}" />
                     </StackPanel>
+                </ScrollViewer>
+            </TabItem>
 
-                    <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
-                        <TextBlock Grid.Column="0" Classes="sec" VerticalAlignment="Center" Text="扫描诊断" />
-                        <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="显示扫描诊断">
-                            <Button.Flyout>
-                                <Flyout Placement="TopEdgeAlignedRight">
-                                    <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
-                                               Text="逐个来源根显示扫到的包数、跳过的子目录、失败包数与逐包结果。改过代码的包需重启应用才生效（框架不实现热重载）。" />
-                                </Flyout>
-                            </Button.Flyout>
-                        </Button>
-                    </Grid>
+            <!-- ============================ 外观 ============================ -->
+            <TabItem Header="{loc:Tr settings.appearance.tab.title}">
+                <ScrollViewer>
+                    <StackPanel Margin="10" Spacing="6">
+                        <TextBlock Classes="sec" Text="{loc:Tr appearance.font.section}" />
+                        <Grid ColumnDefinitions="170,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr appearance.font.ui.tip}"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.font.ui.label}" />
+                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="300"
+                                      IsEditable="True"
+                                      ItemsSource="{Binding FontFamilyOptions}"
+                                      Text="{Binding UiFontFamily, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr appearance.font.data.tip}"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.font.data.label}" />
+                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="300"
+                                      IsEditable="True"
+                                      ItemsSource="{Binding FontFamilyOptions}"
+                                      Text="{Binding DataFontFamily, Mode=TwoWay}" />
+                        </Grid>
+                        <TextBlock Classes="note" Text="{loc:Tr appearance.font.note}" />
 
-                    <ItemsControl ItemsSource="{Binding ModuleSources}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate DataType="vm:ModuleSourceRowViewModel">
-                                <StackPanel Margin="0,2">
-                                    <TextBlock FontFamily="{DynamicResource FontData}"
-                                               FontSize="10"
-                                               TextTrimming="CharacterEllipsis"
-                                               Foreground="{DynamicResource TextPrimary}"
-                                               Text="{Binding Directory}" />
-                                    <TextBlock FontSize="10" Foreground="{DynamicResource TextSecondary}" Text="{Binding Summary}" />
-                                    <TextBlock Classes="note" Text="{Binding Details}" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-            </ScrollViewer>
-        </TabItem>
+                        <Rectangle Height="1" Margin="0,4" Fill="{DynamicResource BorderDefault}" />
 
-        <!-- ============================ 窗口与交互 ============================ -->
-        <TabItem Header="窗口与交互">
-            <ScrollViewer>
-                <StackPanel Margin="10" Spacing="6">
-                    <TextBlock Classes="sec" Text="窗口层级" />
+                        <TextBlock Classes="sec" Text="{loc:Tr appearance.theme.section}" />
 
-                    <CheckBox Content="应用整体置顶"
-                              IsChecked="{Binding AppTopmost, Mode=TwoWay}"
-                              ToolTip.Tip="本应用全部窗口（外壳 + 模块窗口 + 弹窗，含之后新开的）一起置顶；不提供单窗口置顶" />
-
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0" Classes="note" VerticalAlignment="Center"
-                                   Text="应用内：弹窗 &gt; 模块窗口 &gt; 外壳" />
-                        <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="窗口层级说明">
-                            <Button.Flyout>
-                                <Flyout Placement="TopEdgeAlignedRight">
-                                    <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
-                                               Text="相对其他应用只有两种统一状态：普通（激活任一窗口即把其余一并抬前）或全体置顶。模块窗口以外壳为从属窗口（外壳永在其下、最小化随外壳）。" />
-                                </Flyout>
-                            </Button.Flyout>
-                        </Button>
-                    </Grid>
-
-                    <TextBlock Classes="sec" Margin="0,4,0,0" Text="拖动与吸附（修饰键为固定行为）" />
-                    <TextBlock Classes="note"
-                               ToolTip.Tip="拖动窗口边框 = 移动；边中点/角点 = 缩放；Ctrl = 只移动当前窗口；Alt = 本次不吸附"
-                               Text="边框拖动 · 边/角缩放 · Ctrl 独立拖动 · Alt 临时不吸附" />
-                </StackPanel>
-            </ScrollViewer>
-        </TabItem>
-
-        <!-- ============================ 外观与显示 ============================ -->
-        <TabItem Header="外观与显示">
-            <ScrollViewer>
-                <StackPanel Margin="10" Spacing="6">
-                    <Grid ColumnDefinitions="140,110,*">
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                   ToolTip.Tip="界面按此节拍从订阅缓冲抽样读取"
-                                   Foreground="{DynamicResource TextSecondary}" Text="刷新率（Hz）" />
-                        <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
-                                 Text="{Binding UiRefreshRateHz, Mode=TwoWay}" />
-                    </Grid>
-
-                    <Grid ColumnDefinitions="140,110,*">
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                   ToolTip.Tip="拖动时的磁吸半径（2–8px，默认 4）：越小越跟手，越大越容易吸上；贴合（相邻边接触）用它的 2 倍"
-                                   Foreground="{DynamicResource TextSecondary}" Text="吸附距离（px）" />
-                        <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
-                                 Text="{Binding SnapDistance, Mode=TwoWay}" />
-                    </Grid>
-
-                    <CheckBox Content="显示叠加信息层"
-                              IsChecked="{Binding ShowInfoOverlay, Mode=TwoWay}"
-                              ToolTip.Tip="模块窗口内绘制连接线与数据流向；端口标记（网络标签）始终显示" />
-
-                    <Grid ColumnDefinitions="140,140,*">
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                   ToolTip.Tip="只影响**多行**输入框（模块声明了多行的输入）；单行输入始终是“回车 / 失焦一次提交”。CtrlEnter = 回车换行、Ctrl+回车提交、失焦不提交；Enter = 回车提交、Shift+回车换行；None = 键盘都不提交，只用模块的按钮"
-                                   Foreground="{DynamicResource TextSecondary}" Text="多行输入提交键" />
-                        <ComboBox Grid.Column="1" ItemsSource="{Binding MultilineSubmitKeyOptions}"
-                                  SelectedItem="{Binding MultilineSubmitKey, Mode=TwoWay}" />
-                    </Grid>
-
-                    <Rectangle Height="1" Margin="0,2" Fill="{DynamicResource BorderDefault}" />
-
-                    <TextBlock Classes="sec" Text="外观" />
-
-                    <Grid ColumnDefinitions="140,140,*">
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                   Foreground="{DynamicResource TextSecondary}" Text="主题" />
-                        <!-- 列表来自主题目录（"跟随系统" + 每一套）⇒ 加一套主题不必改本页 -->
-                        <ComboBox Grid.Column="1" ItemsSource="{Binding ThemeChoices}"
-                                  SelectedItem="{Binding SelectedThemeChoice, Mode=TwoWay}"
-                                  ToolTip.Tip="浅色 / 深色 / 跟随系统（即时生效）" />
-                    </Grid>
-
-                    <!--
-                      【2026-09 用户裁定】**字体两项**（读系统已有字体；**点「应用 / 确认」才生效**）：
-                        · 界面字体 = 框架自身界面文字（资源键 `FontUi`，由 `Window` 层继承给整棵树）；
-                        · 数据字体 = **所有输入框与显示框**（资源键 `FontData`，元素级引用）。
-                      默认：界面 `Segoe UI / 微软雅黑`；**数据 = Times New Roman + 宋体**（用户指定）。
-                      【2026-09 缺陷修复】下拉框**只绑 `SelectedItem`**（不再同时绑 `Text` —— 非编辑态下两个绑定
-                      互相覆盖，是"选了没反应"的来源之一）。
-                    -->
-                    <Grid ColumnDefinitions="140,*">
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                   ToolTip.Tip="界面文字用的字体（从系统已有字体里选）"
-                                   Foreground="{DynamicResource TextSecondary}" Text="界面字体" />
-                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="260"
-                                  IsEditable="True"
-                                  ItemsSource="{Binding FontFamilyOptions}"
-                                  Text="{Binding UiFontFamily, Mode=TwoWay}"
-                                  ToolTip.Tip="框架界面文字（外壳 / 清单 / 设置页 / 状态栏…）；可手输**回退列表**，如「Segoe UI, Microsoft YaHei UI」" />
-                    </Grid>
-
-                    <Grid ColumnDefinitions="140,*">
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                   ToolTip.Tip="所有输入框与显示框用的字体（默认 Times New Roman + 宋体）"
-                                   Foreground="{DynamicResource TextSecondary}" Text="数据字体" />
-                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="260"
-                                  IsEditable="True"
-                                  ItemsSource="{Binding FontFamilyOptions}"
-                                  Text="{Binding DataFontFamily, Mode=TwoWay}"
-                                  ToolTip.Tip="模块内容区的输入框 / 显示框 + 诊断里的数据列；可手输**回退列表**，如「Times New Roman, 宋体」" />
-                    </Grid>
-
-                    <!--
-                      **背景预设**（两个按钮）：底就是三支普通的色（工作区 / 模块 / 外壳），住在色板里、逐项可改。
-                      预设只是"一次写六格（三支 × 两套）"的**动作** —— 不再是第二个状态字段。
-                    -->
-                    <Grid ColumnDefinitions="140,*">
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                   ToolTip.Tip="一次把三支底色写进两套主题；之后仍可在下面的色板里逐项改"
-                                   Foreground="{DynamicResource TextSecondary}" Text="背景预设" />
-                        <ItemsControl Grid.Column="1" ItemsSource="{Binding BackgroundPresets}">
+                        <ItemsControl x:Name="ThemeCards" ItemsSource="{Binding ThemeCards}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal" Spacing="6" />
+                                    <WrapPanel />
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate DataType="api:ThemePresets+BackgroundPreset">
-                                    <Button Content="{Binding Title}" Click="OnApplyBackgroundPreset"
-                                            ToolTip.Tip="把这三支底色写进浅色与深色两套主题" />
+                                <DataTemplate DataType="vm:ThemeCardViewModel">
+                                    <Button Classes="themeCard"
+                                            Classes.selected="{Binding IsSelected}"
+                                            Click="OnSelectThemeCard"
+                                            ToolTip.Tip="{Binding ToolTip}">
+                                        <Grid RowDefinitions="Auto,Auto,Auto">
+                                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+                                                <TextBlock Grid.Column="0" Classes="themeTitle" Text="{Binding Title}" />
+                                            </Grid>
+                                            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="4" Margin="0,5,0,0">
+                                                <Border Width="18" Height="18" CornerRadius="3"
+                                                        Background="{Binding Preview1}"
+                                                        BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1" />
+                                                <Border Width="18" Height="18" CornerRadius="3"
+                                                        Background="{Binding Preview2}"
+                                                        BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1" />
+                                                <Border Width="18" Height="18" CornerRadius="3"
+                                                        Background="{Binding Preview3}"
+                                                        BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Row="2" Classes="themeBase" Margin="0,4,0,0"
+                                                       Text="{Binding BaseLabel}" />
+                                        </Grid>
+                                    </Button>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                    </Grid>
 
-                    <!--
-                      **主题色板**（相对色的逐项编辑器）—— 全项目**唯一**的颜色编辑面：
-                        · 一行 = 一支 token，浅 / 深两套各一格；**留空 = 跟随**
-                          （派生支跟随它的源、其余跟随该套主题的内置值；跟随不落盘、不产生死数据）；
-                        · 「两套同色」把浅色那一格的当前有效色写成深色的**覆盖值**；
-                        · 带浓度的那几支（页签淡底 / 按钮指向底 / 遮罩）只改**色相**，浓度取该套内置值
-                          （"淡"是观感设计；取色窗口也不提供透明度）；
-                        · **没有例外**：主题色 / 背景 / 方向色就是普通的几支色，列在各自的分区里
-                          （以前它们是独立字段 + 独立控件 —— 同一支色两个状态，迟早漂）。
-                        行的名称、用途、"跟随谁"都来自色板契约 `Styles/palette.json`（唯一事实源）。
-                    -->
-                    <Rectangle Height="1" Margin="0,2" Fill="{DynamicResource BorderDefault}" />
-
-                    <Grid ColumnDefinitions="*,Auto">
-                        <StackPanel Grid.Column="0" Spacing="2">
-                            <TextBlock Classes="sec" Text="主题色板" />
+                        <!-- 跟随系统：不显示改名输入框 / 新建按钮，改为两套模式方案下拉 -->
+                        <StackPanel IsVisible="{Binding IsSystemSelected}" Spacing="6" Margin="0,2,0,0">
+                            <Grid ColumnDefinitions="110,*,110,*" ColumnSpacing="6">
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.system.light.label}" />
+                                <ComboBox Grid.Column="1"
+                                          ItemsSource="{Binding SystemLightChoices}"
+                                          SelectedItem="{Binding SelectedSystemLightChoice, Mode=TwoWay}"
+                                          ToolTip.Tip="{loc:Tr appearance.system.light.tip}" />
+                                <TextBlock Grid.Column="2" VerticalAlignment="Center" Margin="10,0,0,0"
+                                           Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.system.dark.label}" />
+                                <ComboBox Grid.Column="3"
+                                          ItemsSource="{Binding SystemDarkChoices}"
+                                          SelectedItem="{Binding SelectedSystemDarkChoice, Mode=TwoWay}"
+                                          ToolTip.Tip="{loc:Tr appearance.system.dark.tip}" />
+                            </Grid>
                             <TextBlock Classes="note"
-                                       Text="留空 = 跟随（派生支跟随其源）；改哪一支，外壳与模块内容区里用它画的地方一起变。改完点「应用 / 确认」生效。" />
+                                       Text="{loc:Tr appearance.system.note}" />
                         </StackPanel>
-                        <Button Grid.Column="1" Content="色板全部恢复默认" Command="{Binding ResetPaletteCommand}"
-                                ToolTip.Tip="把色板里所有改过的项恢复为跟随（点「应用」或「确认」后生效）" />
-                    </Grid>
 
-                    <Grid ColumnDefinitions="150,80,*,80,*" Margin="0,2,0,0">
-                        <TextBlock Grid.Column="0" Classes="note" VerticalAlignment="Center" Text="名称（悬停看用途）" />
-                        <TextBlock Grid.Column="1" Classes="note" VerticalAlignment="Center" Text="浅色" />
-                        <TextBlock Grid.Column="2" Classes="note" VerticalAlignment="Center" Text="状态" />
-                        <TextBlock Grid.Column="3" Classes="note" VerticalAlignment="Center" Text="深色" />
-                        <TextBlock Grid.Column="4" Classes="note" VerticalAlignment="Center" Text="状态" />
-                    </Grid>
+                        <!-- 内置 / 自定义方案：内置不提供改名输入，只有自定义可改名 / 保存 / 删除 -->
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" Margin="0,2,0,0"
+                              IsVisible="{Binding !IsSystemSelected}">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="0,0,6,0"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.theme.name.label}" />
+                            <TextBlock Grid.Column="1" VerticalAlignment="Center" MaxWidth="280"
+                                       HorizontalAlignment="Left"
+                                       IsVisible="{Binding !CanEditSchemeTitle}"
+                                       TextTrimming="CharacterEllipsis"
+                                       Text="{Binding SelectedSchemeTitle}" />
+                            <TextBox Grid.Column="1" MaxWidth="280" HorizontalAlignment="Left"
+                                     IsVisible="{Binding CanEditSchemeTitle}"
+                                     Text="{Binding SelectedSchemeTitle, Mode=TwoWay}" />
+                            <Button Grid.Column="2" Content="{loc:Tr appearance.theme.save}" Margin="6,0,0,0"
+                                    Command="{Binding SaveSchemeCommand}"
+                                    IsVisible="{Binding CanSaveScheme}"
+                                    ToolTip.Tip="{loc:Tr appearance.theme.save.tip}" />
+                            <Button Grid.Column="3" Content="{loc:Tr appearance.theme.new}" Margin="6,0,0,0"
+                                    Command="{Binding NewSchemeCommand}"
+                                    IsVisible="{Binding CanCreateScheme}" />
+                            <Button Grid.Column="4" Content="{loc:Tr appearance.theme.delete}" Margin="6,0,0,0"
+                                    IsVisible="{Binding CanDeleteScheme}"
+                                    Click="OnDeleteScheme"
+                                    ToolTip.Tip="{loc:Tr appearance.theme.delete.tip}" />
+                            <Button Grid.Column="5" Content="⋯" Margin="6,0,0,0"
+                                    IsVisible="{Binding CanResetScheme}"
+                                    ToolTip.Tip="{loc:Tr appearance.theme.more.tip}">
+                                <Button.Flyout>
+                                    <MenuFlyout>
+                                        <MenuItem Header="{loc:Tr appearance.theme.resetMenu}" Click="OnResetScheme" />
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
+                        </Grid>
 
-                    <ItemsControl ItemsSource="{Binding PaletteGroups}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate DataType="vm:PaletteGroupViewModel">
-                                <Expander Margin="0,2" IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
-                                    <Expander.Header>
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <TextBlock Text="{Binding Title}" Foreground="{DynamicResource TextSecondary}" />
-                                            <TextBlock Text="{Binding CountText}" FontSize="10"
-                                                       Foreground="{DynamicResource SemanticWarn}"
-                                                       IsVisible="{Binding HasOverrides}" />
-                                        </StackPanel>
-                                    </Expander.Header>
+                        <TextBlock Classes="note"
+                                   Text="{loc:Tr appearance.theme.note}" />
 
-                                    <StackPanel>
-                                        <Button Content="本区恢复默认" FontSize="10" Padding="6,1" MinHeight="20"
-                                                HorizontalAlignment="Left" Margin="0,0,0,2"
-                                                Click="OnResetPaletteGroup"
-                                                ToolTip.Tip="这一区的全部项恢复为跟随内置值" />
+                        <Rectangle Height="1" Margin="0,4" Fill="{DynamicResource BorderDefault}" />
 
-                                        <ItemsControl ItemsSource="{Binding Rows}">
+                        <TextBlock Classes="sec" Text="{loc:Tr appearance.wallpaper.section}" />
+                        <Grid ColumnDefinitions="132,*" ColumnSpacing="10">
+                            <Border Width="132" Height="78" VerticalAlignment="Top"
+                                    Background="{DynamicResource BgWorkspace}"
+                                    BorderBrush="{DynamicResource BorderDefault}" BorderThickness="1"
+                                    CornerRadius="3" ClipToBounds="True">
+                                <Panel>
+                                    <Border Background="{Binding ThemeWallpaperPreview}" />
+                                    <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               IsVisible="{Binding !HasThemeWallpaper}"
+                                               Foreground="{DynamicResource TextMuted}"
+                                               FontSize="10" Text="{loc:Tr appearance.wallpaper.none}" />
+                                </Panel>
+                            </Border>
+                            <StackPanel Grid.Column="1" Spacing="4">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="{loc:Tr appearance.wallpaper.pick}" Click="OnPickThemeWallpaper" />
+                                    <Button Content="{loc:Tr appearance.wallpaper.clear}" Click="OnClearThemeWallpaper"
+                                            IsEnabled="{Binding CanClearThemeWallpaper}" />
+                                </StackPanel>
+                                <TextBlock Classes="note"
+                                           Text="{loc:Tr appearance.wallpaper.note}" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid ColumnDefinitions="170,220,Auto" ColumnSpacing="6" Margin="0,2,0,0">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr appearance.wallpaper.veil.tip}"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.wallpaper.veil.label}" />
+                            <Slider Grid.Column="1" Minimum="0" Maximum="0.9"
+                                    Value="{Binding WallpaperVeilOpacity, Mode=TwoWay}"
+                                    VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2" VerticalAlignment="Center"
+                                       FontFamily="{DynamicResource FontData}"
+                                       Text="{Binding WallpaperVeilOpacity, StringFormat='{}{0:P0}'}" />
+                        </Grid>
+                        <TextBlock Classes="note" Text="{loc:Tr appearance.wallpaper.veil.note}" />
+
+                        <Grid ColumnDefinitions="170,220,Auto" ColumnSpacing="6" Margin="0,2,0,0">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr appearance.surface.tip}"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.surface.label}" />
+                            <Slider Grid.Column="1" Minimum="0" Maximum="1.0"
+                                    Value="{Binding SurfaceOpacity, Mode=TwoWay}"
+                                    VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2" VerticalAlignment="Center"
+                                       FontFamily="{DynamicResource FontData}"
+                                       Text="{Binding SurfaceOpacity, StringFormat='{}{0:P0}'}" />
+                        </Grid>
+                        <TextBlock Classes="note" Text="{loc:Tr appearance.surface.note}" />
+
+                        <Rectangle Height="1" Margin="0,4" Fill="{DynamicResource BorderDefault}" />
+
+                        <StackPanel Spacing="2">
+                            <TextBlock Classes="sec" Text="{loc:Tr appearance.palette.section}" />
+                            <TextBlock Classes="note" Text="{loc:Tr appearance.palette.note}" />
+                        </StackPanel>
+
+                        <ItemsControl x:Name="PaletteGroups" ItemsSource="{Binding PaletteGroups}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:PaletteGroupViewModel">
+                                    <Expander Margin="0,2"
+                                              HorizontalAlignment="Stretch"
+                                              HorizontalContentAlignment="Stretch"
+                                              IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
+                                        <Expander.Header>
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="{Binding Title}" Foreground="{DynamicResource TextSecondary}" />
+                                                <TextBlock Text="{Binding CountText}" FontSize="10"
+                                                           Foreground="{DynamicResource SemanticWarn}"
+                                                           IsVisible="{Binding HasOverrides}" />
+                                            </StackPanel>
+                                        </Expander.Header>
+
+                                        <ItemsControl ItemsSource="{Binding Rows}" HorizontalAlignment="Stretch">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate DataType="vm:PaletteRowViewModel">
-                                                    <Grid ColumnDefinitions="150,26,70,Auto,26,70,Auto,Auto" Margin="0,1">
-                                                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                                                   FontFamily="{DynamicResource FontData}" FontSize="10"
-                                                                   TextTrimming="CharacterEllipsis"
-                                                                   ToolTip.Tip="{Binding Purpose}"
-                                                                   Text="{Binding Key}" />
-
-                                                        <Button Grid.Column="1" Padding="0" Width="26" Height="20" MinHeight="20"
-                                                                Click="OnPickPaletteLight"
-                                                                ToolTip.Tip="{Binding Light.ToolTip}">
+                                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,1"
+                                                          HorizontalAlignment="Stretch"
+                                                          ToolTip.Tip="{Binding Purpose}">
+                                                        <Button Grid.Column="0" Classes="swatch"
+                                                                Click="OnPickPaletteColor"
+                                                                ToolTip.Tip="{Binding Cell.ToolTip}">
                                                             <Border Width="22" Height="16" CornerRadius="3"
-                                                                    Background="{Binding Light.Brush}"
+                                                                    Background="{Binding Cell.Brush}"
                                                                     BorderBrush="{DynamicResource BorderStrong}"
                                                                     BorderThickness="1" />
                                                         </Button>
-                                                        <TextBlock Grid.Column="2" Margin="4,0,0,0" VerticalAlignment="Center"
+                                                        <TextBlock Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center"
+                                                                   FontSize="11" TextTrimming="CharacterEllipsis"
+                                                                   ToolTip.Tip="{Binding Key}"
+                                                                   Text="{Binding Title}" />
+                                                        <Ellipse Grid.Column="2" Classes="overrideDot" Margin="6,0,0,0"
+                                                                 IsVisible="{Binding Cell.IsOverridden}" />
+                                                        <TextBlock Grid.Column="3" Margin="6,0,0,0" VerticalAlignment="Center"
                                                                    FontFamily="{DynamicResource FontData}" FontSize="10"
                                                                    Foreground="{DynamicResource TextMuted}"
-                                                                   Text="{Binding Light.StateText}" />
-                                                        <Button Grid.Column="3" Content="恢复" FontSize="10" Padding="4,0" MinHeight="20"
-                                                                Click="OnResetPaletteLight"
-                                                                IsVisible="{Binding Light.IsOverridden}"
-                                                                ToolTip.Tip="这一格恢复为跟随该套主题的内置值" />
-
-                                                        <Button Grid.Column="4" Margin="8,0,0,0" Padding="0" Width="26" Height="20" MinHeight="20"
-                                                                Click="OnPickPaletteDark"
-                                                                ToolTip.Tip="{Binding Dark.ToolTip}">
-                                                            <Border Width="22" Height="16" CornerRadius="3"
-                                                                    Background="{Binding Dark.Brush}"
-                                                                    BorderBrush="{DynamicResource BorderStrong}"
-                                                                    BorderThickness="1" />
-                                                        </Button>
-                                                        <TextBlock Grid.Column="5" Margin="4,0,0,0" VerticalAlignment="Center"
-                                                                   FontFamily="{DynamicResource FontData}" FontSize="10"
-                                                                   Foreground="{DynamicResource TextMuted}"
-                                                                   Text="{Binding Dark.StateText}" />
-                                                        <Button Grid.Column="6" Content="恢复" FontSize="10" Padding="4,0" MinHeight="20"
-                                                                Click="OnResetPaletteDark"
-                                                                IsVisible="{Binding Dark.IsOverridden}"
-                                                                ToolTip.Tip="这一格恢复为跟随该套主题的内置值" />
-
-                                                        <Button Grid.Column="7" Content="两套同色" FontSize="10" Padding="4,0" MinHeight="20"
-                                                                Margin="8,0,0,0" Click="OnSyncPaletteRow"
-                                                                ToolTip.Tip="把浅色那一格的当前色写成深色那一格的覆盖值" />
+                                                                   Text="{Binding Cell.EffectiveHex}" />
                                                     </Grid>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
-                                    </StackPanel>
-                                </Expander>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <Grid ColumnDefinitions="140,140,Auto">
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                   ToolTip.Tip="默认 9:19.5（手机竖屏常用比例）；取消「尺寸固定」后可自由缩放，比例仅作初值"
-                                   Foreground="{DynamicResource TextSecondary}" Text="主窗口比例" />
-                        <ComboBox Grid.Column="1" ItemsSource="{Binding ShellAspectOptions}"
-                                  SelectedItem="{Binding ShellAspect, Mode=TwoWay}" />
-                        <CheckBox Grid.Column="2" Margin="8,0,0,0" Content="尺寸固定"
-                                  IsChecked="{Binding ShellFixedSize, Mode=TwoWay}"
-                                  ToolTip.Tip="勾选 = 不可缩放（尺寸由比例推导）" />
-                    </Grid>
-                </StackPanel>
-            </ScrollViewer>
-        </TabItem>
-
-        <!-- ============================ 快捷键 ============================ -->
-        <TabItem Header="快捷键">
-            <Grid RowDefinitions="Auto,*,Auto" Margin="10">
-
-                <StackPanel Grid.Row="0" Spacing="4">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
-                            <TextBlock Classes="sec" VerticalAlignment="Center" Text="应用内快捷键" />
-                            <TextBlock Classes="note" VerticalAlignment="Center" Text="（任一本应用窗口聚焦时生效）" />
-                        </StackPanel>
-                        <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="编辑方式">
-                            <Button.Flyout>
-                                <Flyout Placement="TopEdgeAlignedRight">
-                                    <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
-                                               Text="点某行的「按键」框后按下新组合键即可修改；「默认」恢复该项；「全部恢复默认」恢复所有；空 = 不绑定。系统级全局热键（未聚焦也响应）v1 不做。" />
-                                </Flyout>
-                            </Button.Flyout>
-                        </Button>
-                    </Grid>
-                    <TextBlock FontSize="11"
-                               TextWrapping="Wrap"
-                               IsVisible="{Binding HotkeyConflicts, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                               Foreground="{DynamicResource SemanticWarn}"
-                               Text="{Binding HotkeyConflicts}" />
-                </StackPanel>
-
-                <ScrollViewer Grid.Row="1" Margin="0,6,0,0">
-                    <ItemsControl ItemsSource="{Binding Hotkeys}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate DataType="vm:HotkeyRowViewModel">
-                                <Grid ColumnDefinitions="180,110,Auto,Auto" Margin="0,2">
-                                    <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               Text="{Binding Title}" />
-                                    <TextBox Grid.Column="1"
-                                             FontFamily="{DynamicResource FontData}"
-                                             Text="{Binding Binding, Mode=OneWay}"
-                                             IsReadOnly="True"
-                                             GotFocus="OnHotkeyBoxFocused"
-                                             KeyDown="OnHotkeyBoxKeyDown" />
-                                    <Button Grid.Column="2" Content="默认" Margin="4,0,0,0"
-                                            Click="OnResetHotkey" />
-                                    <TextBlock Grid.Column="3" Margin="6,0,0,0" VerticalAlignment="Center"
-                                               FontSize="10"
-                                               Foreground="{DynamicResource TextMuted}"
-                                               Text="{Binding DefaultBinding, StringFormat='默认 {0}'}" />
-                                </Grid>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                                    </Expander>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+</StackPanel>
                 </ScrollViewer>
+            </TabItem>
 
-                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
-                    <Button Content="全部恢复默认" Command="{Binding ResetHotkeysCommand}" />
-                </StackPanel>
-            </Grid>
-        </TabItem>
+            <!-- ============================ 窗口与交互 ============================ -->
+            <TabItem Header="{loc:Tr settings.interaction.tab.title}">
+                <ScrollViewer>
+                    <StackPanel Margin="10" Spacing="6">
+                        <TextBlock Classes="sec" Text="{loc:Tr settings.interaction.window.section}" />
+                        <ui:UiToggle Content="{loc:Tr settings.interaction.topmost.label}"
+                                  IsChecked="{Binding AppTopmost, Mode=TwoWay}"
+                                  ToolTip.Tip="{loc:Tr settings.interaction.topmost.tip}" />
+                        <TextBlock Classes="note" Text="{loc:Tr settings.interaction.window.note}" />
 
-        <!-- ============================ 日志与诊断 ============================ -->
-        <TabItem Header="日志与诊断">
-            <ScrollViewer>
-                <StackPanel Margin="10" Spacing="6">
-                    <Grid ColumnDefinitions="140,150,*">
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                   Foreground="{DynamicResource TextSecondary}" Text="日志级别" />
-                        <ComboBox Grid.Column="1" ItemsSource="{Binding LogLevels}"
-                                  SelectedItem="{Binding LogLevel, Mode=TwoWay}" />
-                    </Grid>
+                        <Rectangle Height="1" Margin="0,4" Fill="{DynamicResource BorderDefault}" />
 
-                    <Grid ColumnDefinitions="140,110,*">
-                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                   ToolTip.Tip="队列深度持续达到该值即提示"
-                                   Foreground="{DynamicResource TextSecondary}" Text="诊断提示阈值" />
-                        <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
-                                 Text="{Binding DiagnosticHintThreshold, Mode=TwoWay}" />
-                    </Grid>
+                        <TextBlock Classes="sec" Text="{loc:Tr settings.interaction.display.section}" />
+                        <ui:UiToggle Content="{loc:Tr settings.interaction.overlay.label}"
+                                  IsChecked="{Binding ShowInfoOverlay, Mode=TwoWay}"
+                                  ToolTip.Tip="{loc:Tr settings.interaction.overlay.tip}" />
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.interaction.snap.tip}"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr settings.interaction.snap.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding SnapDistance, Mode=TwoWay}" />
+                        </Grid>
 
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0" Classes="note" VerticalAlignment="Center"
-                                   Text="Issue 与拓扑在各自主页面/弹窗" />
-                        <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="诊断信息在哪">
-                            <Button.Flyout>
-                                <Flyout Placement="TopEdgeAlignedRight">
-                                    <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
-                                               Text="Issue 汇总与过滤在活动栏「Issue」；连接关系与投递/丢弃计数在「拓扑诊断」（只读）；模块来源扫描诊断在「模块与来源」分类。" />
-                                </Flyout>
-                            </Button.Flyout>
-                        </Button>
-                    </Grid>
-                </StackPanel>
-            </ScrollViewer>
-        </TabItem>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.interaction.multiline.tip}"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr settings.interaction.multiline.label}" />
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding MultilineSubmitKeyOptions}"
+                                      SelectedItem="{Binding MultilineSubmitKey, Mode=TwoWay}" />
+                        </Grid>
 
-        <!-- ============================ 关于 ============================ -->
-        <TabItem Header="关于">
-            <ScrollViewer>
-                <StackPanel Margin="10" Spacing="6">
-                    <TextBlock Foreground="{DynamicResource TextPrimary}" Text="何译位调试助手（HYWDebugAssistant）" />
-                    <TextBlock Classes="note" Text="模块 = 独立窗口的拼图式工程调试助手（每个实例一个无边框窗口；建网 = 口上网络名同名即连）。" />
+                        <Rectangle Height="1" Margin="0,4" Fill="{DynamicResource BorderDefault}" />
 
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0" Classes="note" VerticalAlignment="Center"
-                                   Text="用法速查与文件位置" />
-                        <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="用法速查">
-                            <Button.Flyout>
-                                <Flyout Placement="TopEdgeAlignedRight">
-                                    <TextBlock MaxWidth="340" TextWrapping="Wrap" FontSize="11"
-                                               Text="用法：拖动窗口边框移动 · 边中点/角点缩放 · 右上角图标 = 运行/停用、锁定、隐藏、移除 · 双击口标记填网络名。设置存应用目录下 settings.json（跨组合件共享）；组合件（实例/网络/配置/布局）由保存/加载组合件管理。" />
-                                </Flyout>
-                            </Button.Flyout>
-                        </Button>
-                    </Grid>
-                </StackPanel>
-            </ScrollViewer>
-        </TabItem>
-    </TabControl>
+                        <TextBlock Classes="sec" Text="{loc:Tr settings.interaction.shell.section}" />
+                        <Grid ColumnDefinitions="170,190,Auto">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.interaction.aspect.tip}"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr settings.interaction.aspect.label}" />
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding ShellAspectOptions}"
+                                      SelectedItem="{Binding ShellAspect, Mode=TwoWay}" />
+                            <ui:UiToggle Grid.Column="2" Margin="8,0,0,0" Content="{loc:Tr settings.interaction.fixed.label}"
+                                      IsChecked="{Binding ShellFixedSize, Mode=TwoWay}"
+                                      ToolTip.Tip="{loc:Tr settings.interaction.fixed.tip}" />
+                        </Grid>
 
-        <!-- 三键条：左 = 状态行（已生效 / 未生效：原因），右 = 恢复全部默认 · 取消 · 应用 · 确认 -->
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.interaction.exit.tip}"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr settings.interaction.exit.label}" />
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding WorkspaceExitChoices}"
+                                      SelectedItem="{Binding SelectedWorkspaceExitChoice, Mode=TwoWay}" />
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ============================ 存储 ============================ -->
+            <TabItem Header="{loc:Tr settings.storage.tab.title}">
+                <ScrollViewer>
+                    <StackPanel Margin="10" Spacing="8">
+                        <TextBlock Classes="sec" Text="{loc:Tr settings.storage.section}" />
+                        <TextBlock Classes="note" TextWrapping="Wrap"
+                                   Text="{loc:Tr settings.storage.note}" />
+
+                        <Grid ColumnDefinitions="120,*,Auto" ColumnSpacing="6" Margin="0,4,0,0">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr settings.storage.settings}" />
+                            <TextBox Grid.Column="1" IsReadOnly="True"
+                                     FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding StorageSettingsFile}" />
+                            <Button Grid.Column="2" Content="{loc:Tr settings.storage.open}"
+                                    Click="OnOpenStorageFolder"
+                                    CommandParameter="{Binding StorageSettingsFile}" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="120,*,Auto" ColumnSpacing="6">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr settings.storage.modules}" />
+                            <TextBox Grid.Column="1" IsReadOnly="True"
+                                     FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding StorageModulesRoot}" />
+                            <Button Grid.Column="2" Content="{loc:Tr settings.storage.open}"
+                                    Click="OnOpenStorageFolder"
+                                    CommandParameter="{Binding StorageModulesRoot}" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="120,*,Auto" ColumnSpacing="6">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr settings.storage.composites}" />
+                            <TextBox Grid.Column="1" IsReadOnly="True"
+                                     FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding StorageCompositesRoot}" />
+                            <Button Grid.Column="2" Content="{loc:Tr settings.storage.open}"
+                                    Click="OnOpenStorageFolder"
+                                    CommandParameter="{Binding StorageCompositesRoot}" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="120,*,Auto" ColumnSpacing="6">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr settings.storage.workspace}" />
+                            <TextBox Grid.Column="1" IsReadOnly="True"
+                                     FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding StorageWorkspaceRoot}" />
+                            <Button Grid.Column="2" Content="{loc:Tr settings.storage.open}"
+                                    Click="OnOpenStorageFolder"
+                                    CommandParameter="{Binding StorageWorkspaceRoot}" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="120,*,Auto" ColumnSpacing="6">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr settings.storage.logs}" />
+                            <TextBox Grid.Column="1" IsReadOnly="True"
+                                     FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding StorageLogsRoot}" />
+                            <Button Grid.Column="2" Content="{loc:Tr settings.storage.open}"
+                                    Click="OnOpenStorageFolder"
+                                    CommandParameter="{Binding StorageLogsRoot}" />
+                        </Grid>
+
+                        <TextBlock Classes="note" TextWrapping="Wrap"
+                                   Text="{loc:Tr settings.storage.pathNote}" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ============================ 快捷键 ============================ -->
+            <TabItem Header="{loc:Tr settings.hotkeys.tab.title}">
+                <Grid RowDefinitions="Auto,*,Auto" Margin="10">
+                    <StackPanel Grid.Row="0" Spacing="4">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
+                                <TextBlock Classes="sec" VerticalAlignment="Center" Text="{loc:Tr settings.hotkeys.section}" />
+                                <TextBlock Classes="note" VerticalAlignment="Center" Text="{loc:Tr settings.hotkeys.section.note}" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="{loc:Tr settings.hotkeys.edit.tip}">
+                                <Button.Flyout>
+                                    <Flyout Placement="TopEdgeAlignedRight">
+                                        <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
+                                                   Text="{loc:Tr settings.hotkeys.edit.body}" />
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                        </Grid>
+                        <TextBlock FontSize="11"
+                                   TextWrapping="Wrap"
+                                   IsVisible="{Binding HotkeyConflicts, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                   Foreground="{DynamicResource SemanticWarn}"
+                                   Text="{Binding HotkeyConflicts}" />
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="1" Margin="0,6,0,0">
+                        <ItemsControl ItemsSource="{Binding Hotkeys}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:HotkeyRowViewModel">
+                                    <Grid ColumnDefinitions="180,110,Auto,Auto" Margin="0,2">
+                                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   Text="{Binding Title}" />
+                                        <TextBox Grid.Column="1"
+                                                 FontFamily="{DynamicResource FontData}"
+                                                 Text="{Binding Binding, Mode=OneWay}"
+                                                 IsReadOnly="True"
+                                                 GotFocus="OnHotkeyBoxFocused"
+                                                 KeyDown="OnHotkeyBoxKeyDown" />
+                                        <Button Grid.Column="2" Content="{loc:Tr settings.hotkeys.default}" Margin="4,0,0,0"
+                                                Click="OnResetHotkey" />
+                                        <TextBlock Grid.Column="3" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                   FontSize="10"
+                                                   Foreground="{DynamicResource TextMuted}"
+                                                   Text="{Binding DefaultBindingText}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
+                        <Button Content="{loc:Tr settings.hotkeys.resetAll}" Command="{Binding ResetHotkeysCommand}" />
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- ============================ 关于 ============================ -->
+            <TabItem Header="{loc:Tr settings.about.tab.title}">
+                <ScrollViewer>
+                    <StackPanel Margin="10" Spacing="6">
+                        <TextBlock Foreground="{DynamicResource TextPrimary}" Text="{loc:Tr settings.about.title}" />
+                        <TextBlock Classes="note" Text="{loc:Tr settings.about.tagline}" />
+
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Classes="note" VerticalAlignment="Center"
+                                       Text="{loc:Tr settings.about.quickstart.label}" />
+                            <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="{loc:Tr settings.about.quickstart.tip}">
+                                <Button.Flyout>
+                                    <Flyout Placement="TopEdgeAlignedRight">
+                                        <TextBlock MaxWidth="340" TextWrapping="Wrap" FontSize="11"
+                                                   Text="{loc:Tr settings.about.quickstart.body}" />
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+
+        <!-- 三键条：左 = 状态行，右 = 恢复默认设置 · 取消 · 应用 · 确认 -->
         <Border Grid.Row="1"
                 Padding="10,6"
                 BorderThickness="0,1,0,0"
@@ -529,22 +640,16 @@
                            Foreground="{DynamicResource TextSecondary}"
                            Text="{Binding StatusMessage}" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                    <!--
-                      【2026-09 用户裁定】全局式一键还原：**与保存类按钮同一行**（底部那排），
-                      一次把**所有**设置恢复默认（含快捷键与外观）——用户原话："全局还原所有设置，
-                      包括快捷键，外观，这是与'保存'按钮放在同一行的全局式按钮"。
-                      与设置页既有机制一致：它只把本页字段填成默认值，**点「应用 / 确认」才生效**（可「取消」反悔）。
-                    -->
-                    <Button Content="恢复全部默认设置" Command="{Binding ResetAllSettingsCommand}"
-                            ToolTip.Tip="把本页所有设置（含快捷键、外观、字体）恢复为默认值；点「应用」或「确认」后生效" />
+                    <Button Content="{loc:Tr common.resetAll}" Command="{Binding ResetAllSettingsCommand}"
+                            ToolTip.Tip="{loc:Tr common.resetAll.tip}" />
                     <Rectangle Width="1" Margin="4,2" Fill="{DynamicResource BorderDefault}" />
-                    <Button Content="取消" Command="{Binding CancelCommand}"
-                            ToolTip.Tip="丢弃本次改动（回到已生效的值）并关闭" />
-                    <Button Content="应用" Command="{Binding ApplyCommand}"
-                            ToolTip.Tip="校验 → 生效 → 落盘；弹窗保留，可继续修改" />
-                    <Button Content="确认" Command="{Binding ConfirmCommand}"
+                    <Button Content="{loc:Tr common.cancel}" Command="{Binding CancelCommand}"
+                            ToolTip.Tip="{loc:Tr common.cancel.tip}" />
+                    <Button Content="{loc:Tr common.apply}" Command="{Binding ApplyCommand}"
+                            ToolTip.Tip="{loc:Tr common.apply.tip}" />
+                    <Button Content="{loc:Tr common.confirm}" Command="{Binding ConfirmCommand}"
                             Classes="accent"
-                            ToolTip.Tip="应用并关闭（校验不通过时不关闭，原因显示在左下）" />
+                            ToolTip.Tip="{loc:Tr common.confirm.tip}" />
                 </StackPanel>
             </Grid>
         </Border>

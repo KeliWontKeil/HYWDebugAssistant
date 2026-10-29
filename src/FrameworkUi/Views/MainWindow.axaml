@@ -3,17 +3,17 @@
         xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
         xmlns:views="using:HYWDebugAssistant.FrameworkUi.Views"
         xmlns:ui="using:HYWDebugAssistant.Ui.ViewModels"
+        xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
         x:Class="HYWDebugAssistant.FrameworkUi.Views.MainWindow"
         x:DataType="vm:ShellViewModel"
         xmlns:design="using:HYWDebugAssistant.FrameworkUi.Design"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         d:DataContext="{x:Static design:ShellDesignData.Shell}"
         d:DesignWidth="420" d:DesignHeight="880"
-        Title="何译位调试助手"
+        Title="{loc:Tr shell.window.title}"
         FontSize="12"
         Width="396" Height="858"
         MinWidth="360" MinHeight="360"
-        CanResize="{Binding ShellResizable}"
         WindowStartupLocation="Manual">
 
     <!--
@@ -70,10 +70,28 @@
         <Style Selector="TextBlock.notice.error">
             <Setter Property="Foreground" Value="{DynamicResource SemanticError}" />
         </Style>
+
+        <!-- Issue 角标：只显示错误级 Issue；警告/信息只在 Issue 面板里记录 -->
+        <Style Selector="Border.issueBadge">
+            <Setter Property="Background" Value="{DynamicResource SemanticError}" />
+        </Style>
     </Window.Styles>
 
     <!-- 按钮的指针 / 按下态：必须挂在窗口 Resources 上才被 Fluent 的按钮模板读到（见该文件说明） -->
 <Grid ColumnDefinitions="44,*" RowDefinitions="*,Auto">
+        <!--
+          **主窗口壁纸**：属于当前主题（浅色/深色默认无，樱色与自定义主题可带）。
+          壁纸画刷在 ShellViewModel 里按主题解析并居中裁切；上面叠一层主题色 veil，
+          浓度由当前主题方案的「壁纸遮罩浓度」控制。两层都不参与命中。
+        -->
+        <Border Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Grid.ColumnSpan="2"
+                Background="{Binding ThemeWallpaperBrush}"
+                IsHitTestVisible="False" />
+        <Border Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Grid.ColumnSpan="2"
+                Background="{DynamicResource WallpaperVeil}"
+                Opacity="{Binding WallpaperVeilOpacity}"
+                IsVisible="{Binding HasThemeWallpaper}"
+                IsHitTestVisible="False" />
 
         <!-- ==================== A 区：活动栏 ==================== -->
         <Border Grid.Row="0" Grid.RowSpan="2" Grid.Column="0"
@@ -83,16 +101,25 @@
             <StackPanel Name="RailButtons" Orientation="Vertical" Spacing="2" Margin="2,6">
                 <Button Classes="rail" Classes.active="{Binding IsCatalogPage}"
                         Command="{Binding ShowPageCommand}" CommandParameter="catalog"
-                        ToolTip.Tip="模块清单">
+                        ToolTip.Tip="{loc:Tr shell.rail.catalog.tip}">
                     <Grid ColumnDefinitions="3,*">
                         <Rectangle Grid.Column="0" Classes="railMark" Classes.active="{Binding IsCatalogPage}" />
                         <TextBlock Grid.Column="1" Classes="icon" Text="{DynamicResource GlyphModules}" />
                     </Grid>
                 </Button>
 
+                <Button Classes="rail" Classes.active="{Binding IsCompositePage}"
+                        Command="{Binding ShowPageCommand}" CommandParameter="composite"
+                        ToolTip.Tip="{loc:Tr shell.rail.composite.tip}">
+                    <Grid ColumnDefinitions="3,*">
+                        <Rectangle Grid.Column="0" Classes="railMark" Classes.active="{Binding IsCompositePage}" />
+                        <TextBlock Grid.Column="1" Classes="icon" Text="{DynamicResource GlyphComposite}" />
+                    </Grid>
+                </Button>
+
                 <Button Classes="rail" Classes.active="{Binding IsInteractionPage}"
                         Command="{Binding ShowPageCommand}" CommandParameter="interaction"
-                        ToolTip.Tip="交互（显示 / 吸附 / 窗口）">
+                        ToolTip.Tip="{loc:Tr shell.rail.interaction.tip}">
                     <Grid ColumnDefinitions="3,*">
                         <Rectangle Grid.Column="0" Classes="railMark" Classes.active="{Binding IsInteractionPage}" />
                         <TextBlock Grid.Column="1" Classes="icon" Text="{DynamicResource GlyphInteraction}" />
@@ -101,16 +128,16 @@
 
                 <Rectangle Height="1" Margin="6,4" Fill="{DynamicResource BorderDefault}" />
 
-                <Button Classes="rail" Click="OnOpenTopology" ToolTip.Tip="拓扑诊断">
+                <Button Classes="rail" Click="OnOpenTopology" ToolTip.Tip="{loc:Tr shell.rail.topology.tip}">
                     <TextBlock Classes="icon" Text="{DynamicResource GlyphTopology}" />
                 </Button>
 
-                <Button Classes="rail" Click="OnOpenIssues" ToolTip.Tip="Issue（有错误时显示计数）">
+                <Button Classes="rail" Click="OnOpenIssues" ToolTip.Tip="{Binding IssueBadgeToolTip}">
                     <Grid ColumnDefinitions="3,*">
                         <TextBlock Grid.Column="1" Classes="icon" Text="{DynamicResource GlyphIssue}" />
                         <Border Grid.Column="1"
+                                Classes="issueBadge"
                                 IsVisible="{Binding HasErrors}"
-                                Background="{DynamicResource SemanticError}"
                                 CornerRadius="7"
                                 MinWidth="14" Height="14"
                                 HorizontalAlignment="Right" VerticalAlignment="Top"
@@ -124,11 +151,11 @@
                     </Grid>
                 </Button>
 
-                <Button Classes="rail" Click="OnOpenSettings" ToolTip.Tip="设置">
+                <Button Classes="rail" Click="OnOpenSettings" ToolTip.Tip="{loc:Tr shell.rail.settings.tip}">
                     <TextBlock Classes="icon" Text="{DynamicResource GlyphSettings}" />
                 </Button>
 
-                <Button Classes="rail" Click="OnShowAbout" ToolTip.Tip="帮助与关于">
+                <Button Classes="rail" Click="OnShowAbout" ToolTip.Tip="{loc:Tr shell.rail.about.tip}">
                     <TextBlock Classes="icon" Text="{DynamicResource GlyphHelp}" />
                 </Button>
             </StackPanel>
@@ -138,6 +165,10 @@
         <!-- 用 Panel 包一层：可见性绑到**外壳视图模型**，而视图自身的 DataContext 另行指定 -->
         <Panel Grid.Row="0" Grid.Column="1" IsVisible="{Binding IsCatalogPage}">
             <views:ModuleCatalogView DataContext="{Binding Catalog}" />
+        </Panel>
+
+        <Panel Grid.Row="0" Grid.Column="1" IsVisible="{Binding IsCompositePage}">
+            <views:CompositePageView DataContext="{Binding Composites}" />
         </Panel>
 
         <Panel Grid.Row="0" Grid.Column="1" IsVisible="{Binding IsInteractionPage}">

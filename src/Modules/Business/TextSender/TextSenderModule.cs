@@ -1,10 +1,10 @@
-using System.Diagnostics;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Modules.TextSender;
@@ -28,8 +28,8 @@ namespace HYWDebugAssistant.Modules.TextSender;
     "hyw",
     "text-sender",
     "1.0.0",
-    DisplayName = "文本发送器",
-    Description = "发送一串文本；单次点击 + 连续发送（开关 + 间隔）",
+    DisplayNameKey = TextSenderText.Title,
+    DescriptionKey = TextSenderText.Description,
     Tags = ["text", "sender"],
     ParticipatesInDataFlow = true,
     WindowWidth = 400,
@@ -37,8 +37,18 @@ namespace HYWDebugAssistant.Modules.TextSender;
     MinWidth = 400,
     MinHeight = 240,
     ViewFactory = typeof(Views.TextSenderViewFactory))]
-public sealed class TextSenderModule : IModule, IActivitySource
+public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
 {
+    /// <summary>取一条本模块文本表里的文案（拥有者 = 本模块程序集；表随包走）。</summary>
+    /// <param name="key">文本表键。</param>
+    private static string Tr(string key) => TextCatalog.Get(typeof(TextSenderModule).Assembly, key);
+
+    /// <summary>取一条带占位符的本模块文案。</summary>
+    /// <param name="key">文本表键。</param>
+    /// <param name="args">格式化参数。</param>
+    private static string Tr(string key, params object?[] args) =>
+        TextCatalog.Get(typeof(TextSenderModule).Assembly, key, args);
+
     // ---------------------------------------------------------------- ① 标识与常量
 
     /// <summary>输出端口名（唯一的数据端点）。</summary>
@@ -126,7 +136,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
         context.Appearance.SetOutlineRole(subject, alert ? AlertRole : null);
     }
 
-    /// <summary>活动周期（20 ms — 人工操作无感，也让收件箱及时被消费）。</summary>
+    /// <summary>活动节拍（1 ms；只用于处理收件箱与调度判定，真正等待走全局计时面）。</summary>
     public static readonly TimeSpan ActivityInterval = TimeSpan.FromMilliseconds(1);
 
     /// <summary>
@@ -199,7 +209,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
             RoleId,
             new DataTypeRef(RawBytesTypeId, RawBytesVersion),
             OutPort,
-            "发送"));
+            Tr(TextSenderText.RoleSend)));
 
         DeclareUi(context);
     }
@@ -221,7 +231,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
         foreach (var name in new[] { Text1, Text2, Text3, Text4, Text5 })
         {
             context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(name, ViewDataSourceKind.Text));
-            context.Declaration.DeclareInput(name);
+            context.Declaration.DeclareInput(new InputDeclaration(name) { Persistence = InputPersistence.Persistent });
         }
 
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(ContinuousSource, ViewDataSourceKind.Value, ContractPrimitive.Bool));
@@ -229,10 +239,11 @@ public sealed class TextSenderModule : IModule, IActivitySource
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(SentSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(StatusSource, ViewDataSourceKind.Text));
 
+        // 连续发送是“启动就会持续发”的动作，不恢复；间隔是用户设置，恢复。
         context.Declaration.DeclareInput(ContinuousSource);
-        context.Declaration.DeclareInput(IntervalSource);
+        context.Declaration.DeclareInput(new InputDeclaration(IntervalSource) { Persistence = InputPersistence.Persistent });
 
-        context.Declaration.DeclareCommand(SendCommand, "发送");
+        context.Declaration.DeclareCommand(SendCommand, Tr(TextSenderText.Send));
     }
 
     // ---------------------------------------------------------------- ③ 钩子块
@@ -253,42 +264,52 @@ public sealed class TextSenderModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var schedule = Stopwatch.StartNew();
-        var nextDue = TimeSpan.Zero;
-
         // 初始状态：把「已发送」置 0（`OnActivated()` 没有上下文 ⇒ 在这儿做这件"需要上下文"的事）
         _sent = 0;
         context.Ports.Publish(SentSource, CountPayload(0));
 
+        var nextDue = TimeSpan.Zero;
+
         while (!context.StopSignal.IsStopRequested)
         {
-            // **一拍一次判定**：它自己会消费收件箱、必要时真的发一条（见 `Tick`）
+            // 活动体只管命令/输入/界面判定；连续发送由全局计时面驱动。
             _ = Tick(context, shouldSend: false);
 
-            // 关掉连续发送（或它被拦下）⇒ 清除起算（再打开时立即发一条，然后按间隔）
-            if (!_continuous || _intervalMs is not { } scheduled)
+            if (!_continuous || _intervalMs is not { } interval)
             {
                 nextDue = TimeSpan.Zero;
-                _ = context.StopSignal.Wait(ActivityInterval);
+                _ = context.Timing.WaitFor(ActivityInterval);
                 continue;
             }
 
+            var effective = Math.Max(1, interval);
+            var now = context.Timing.Now;
+
             if (nextDue <= TimeSpan.Zero)
             {
-                nextDue = schedule.Elapsed;
+                nextDue = now;
             }
 
-            var due = schedule.Elapsed >= nextDue;
-
-            if (due)
+            if (now >= nextDue)
             {
-                // **先推进时刻再发**：`SendCurrentPage` 自己会回读当前页（所见即所发）。
-                // 不在这里直接发，是因为"能不能发"要由判据说了算（见 `Tick`）。
-                nextDue = schedule.Elapsed + TimeSpan.FromMilliseconds(scheduled);
+                _ = Tick(context, shouldSend: true);
+                nextDue = context.Timing.Now + TimeSpan.FromMilliseconds(effective);
+                continue;
             }
 
-            _ = Tick(context, shouldSend: due);
+            // 低频间隔也要按活动节拍回来看收件箱，不能被 100 ms 间隔拖住界面输入。
+            var wakeAt = nextDue < now + ActivityInterval ? nextDue : now + ActivityInterval;
+            if (context.Timing.WaitUntil(wakeAt))
+            {
+                break;
+            }
         }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        // 定时器已迁到框架全局计时面；模块不再持有可释放的调度资源。
     }
 
     // ---------------------------------------------------------------- ④ 接线与业务
@@ -302,7 +323,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// 每拍由 <see cref="ContinuousSource"/> 那一格的值与"间隔可用吗"算出（见 <c>Tick</c>），
     /// 并把结果**写回那一格**。于是"界面位置 = 那一格的值 = 这个字段"三者同源，只有一个事实。
     /// </remarks>
-    private bool _continuous;
+    private volatile bool _continuous;
 
     /// <summary>**「间隔」那一格现在是不是被我锁着**（只读）—— 幂等写法，不需要记"锁了哪一格"。</summary>
     private bool _intervalLocked;
@@ -379,6 +400,9 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// <remarks>有上限是刻意的：**接受范围 = 存储范围 = 报错文案里的范围**，三者必须同一个值。</remarks>
     public const int MaxIntervalMs = 86_400_000;
 
+    /// <summary>**可靠的最小间隔（ms）**：Windows 计时器/线程调度粒度下，更小间隔不保证准确。</summary>
+    public const int MinAccurateIntervalMs = 4;
+
 
     /// <summary>
     /// **一拍一次判定**（活动体的单步；模块测试直接驱动它，无需起线程）。
@@ -401,7 +425,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// 于是不存在"某一格的红没人认领"或"提示晚一拍"这类残留（旧写法四处各自写红，必然互相顶替）。
     /// </para>
     /// </remarks>
-    public bool PumpOnce(IModuleContext context) => Tick(context, shouldSend: true);
+    public bool PumpOnce(IModuleContext context, bool shouldSend = true) => Tick(context, shouldSend);
 
     /// <summary>一拍一次判定：读状态 → 判定 → 落地 → 该发就发。</summary>
     /// <param name="context">模块上下文。</param>
@@ -441,7 +465,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
             context.Issues.Report(new IssueReport(
                 IssueCategory.ModuleError,
                 IssueSeverity.Warning,
-                $"未知命令：{command}（模块未实现）"));
+                Tr(TextSenderText.StatusUnknownCommand, command)));
         }
 
         // 本拍**刚提交进来**的那一份（`SubmitInput` 本身不写视图状态：真实链路里是 UI 先写状态再提交，
@@ -634,7 +658,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// </para>
     /// <para>
     /// <b>优先级（同一拍只说一句）</b>：① 间隔填错 → ② 间隔没设且用户要连续发 → ③ 这一页空着被拦下 →
-    /// ④ 一切正常（不说话）。<b>红按格独立</b>：间隔错标间隔格、这一页空着被拦下标这一页。
+    /// ④ 间隔过小（只提示）→ ⑤ 一切正常（不说话）。<b>红按格独立</b>：间隔错标间隔格、这一页空着被拦下标这一页。
     /// </para>
     /// <para>
     /// <b>四个"要不要说"的判据各自独立</b>：间隔错（现在填的这份不合法）、间隔缺（用户要连续发但没有可用值）、
@@ -664,8 +688,8 @@ public sealed class TextSenderModule : IModule, IActivitySource
         if (_intervalState == IntervalState.Invalid)
         {
             var message = wantsContinuous
-                ? $"间隔必须是 0 – {MaxIntervalMs} 的整数（毫秒）：连续发送开着也发不出东西"
-                : $"间隔必须是 0 – {MaxIntervalMs} 的整数（毫秒）";
+                ? Tr(TextSenderText.StatusIntervalInvalidContinuous, MaxIntervalMs)
+                : Tr(TextSenderText.StatusIntervalInvalid, MaxIntervalMs);
 
             // **填错了只挡"连续发送"**：用户没想连续发时，那一格填了什么与"这一页发一次"无关 ——
             // 无条件挡下来会把单次发送（回车提交也算）一起挡死。
@@ -677,7 +701,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
         {
             return new Verdict(
                 false,
-                "还没有设置间隔（毫秒）：连续发送开着也发不出东西（先补上这一项）",
+                Tr(TextSenderText.StatusIntervalEmptyContinuous),
                 IntervalSource);
         }
 
@@ -685,14 +709,25 @@ public sealed class TextSenderModule : IModule, IActivitySource
         if (pageEmpty && (blocked || _continuous))
         {
             var message = _continuous
-                ? "当前页没有内容：连续发送开着也发不出东西（先补上这一项）"
-                : "当前页没有内容：先写点东西再发送";
+                ? Tr(TextSenderText.StatusPageEmptyContinuous)
+                : Tr(TextSenderText.StatusPageEmpty);
 
             // **空页只让"这一拍发不出去"，不动开关**（开关的成立条件是间隔那一格）
             return new Verdict(false, message, pageSource);
         }
 
-        // ④ 一切正常 ⇒ 发得出去、不说话、不标红
+        // ④ 间隔过小（可用但不保证准确）：只提示，**不阻止发送、不标红、不动开关**。
+        if (_intervalState == IntervalState.Usable
+            && _intervalMs is { } smallMs
+            && smallMs < MinAccurateIntervalMs)
+        {
+            return new Verdict(
+                !pageEmpty,
+                Tr(TextSenderText.StatusIntervalTooSmall, MinAccurateIntervalMs),
+                null);
+        }
+
+        // ⑤ 一切正常 ⇒ 发得出去、不说话、不标红
         return new Verdict(!pageEmpty, null, null);
     }
 
@@ -904,7 +939,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
         {
             context.Log.Log(
                 ModuleLogLevel.Information,
-                $"文本被拆成 {packets} 个数据包发送（单包上限 {TextCapacity} 字节；接收侧会表现为 {packets} 条）");
+                Tr(TextSenderText.StatusSplitPackets, packets, TextCapacity));
         }
 
         return packets > 0;

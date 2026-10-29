@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using HYWDebugAssistant.Access;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Core.Composition;
 using HYWDebugAssistant.Core.Runtime;
@@ -5,7 +7,9 @@ using HYWDebugAssistant.Core.Services;
 using HYWDebugAssistant.Core.Settings;
 using HYWDebugAssistant.FrameworkUi.ViewModels;
 using HYWDebugAssistant.Infrastructure.Storage;
+using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Text;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HYWDebugAssistant.App;
@@ -38,10 +42,14 @@ internal static class CompositionRoot
         //   它是**视图状态**（不进组合件、不持久化），故不经 L4 的串行变更入口（输入文本逐键变化）。
         _ = services.AddSingleton<IViewStateAccess>(static _ => new ViewStateStore());
 
+        // 外部标准目录：**唯一装配点**（模块只声明标准标识；适配器与参数类型归框架侧）。
+        _ = services.AddSingleton<IExternalAccessCatalog>(static _ => new BuiltInExternalAccessCatalog());
+
         _ = services.AddSingleton(static provider => new ModuleRuntime(
             issues: null,
             carrierOptions: null,
-            viewState: provider.GetRequiredService<IViewStateAccess>()));
+            viewState: provider.GetRequiredService<IViewStateAccess>(),
+            catalog: provider.GetRequiredService<IExternalAccessCatalog>()));
 
         _ = services.AddSingleton(static provider => new SettingsService(
             provider.GetRequiredService<ModuleRuntime>(),
@@ -63,10 +71,32 @@ internal static class CompositionRoot
         var provider = services.BuildServiceProvider();
 
         // ---- ③ 启动动作（顺序即语义）----
+        var runtime = provider.GetRequiredService<RuntimeServices>();
+
+        // **根的唯一来源是 StoragePaths**：Sdk 与 Infrastructure 零依赖，所以由组合根把路径推给
+        // `TextCatalog`（默认解析只服务开发/测试/预览，不参与生产）。设根必须在接线诊断之前/之前均可，
+        // 但两者都必须在 `settings.Load()` 之前 —— 设置载入就会切 UI 语言、首次触发文本表解析。
+        TextCatalog.UseRoot(StoragePaths.TextPacksRoot);
+
+        // **文本表诊断必须先接线**：坏表 / 缺表目录的问题不能等到界面起来后才被看见。
+        // 同类消息去重（同一次加载会重复触发相同原因）。
+        var reportedTextTableIssues = new ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
+        TextCatalog.Diagnostics = message =>
+        {
+            if (!reportedTextTableIssues.TryAdd(message, true))
+            {
+                return;
+            }
+
+            runtime.Runtime.Issues.Report("resources:i18n", new IssueReport(
+                IssueCategory.PresentationError,
+                IssueSeverity.Warning,
+                // i18n-exempt: 文本表自身诊断前缀——表不可用时不能再读表，否则递归
+                "文本表加载问题：" + message));
+        };
+
         var settings = provider.GetRequiredService<SettingsService>();
         _ = settings.Load();   // 损坏 → 默认值 + Issue，**不阻断启动**
-
-        var runtime = provider.GetRequiredService<RuntimeServices>();
 
         // 模块来源根：**内置包目录排首位**（不可移除、不出现在「来源目录」可编辑列表里），
         // 其后是用户配置的根列表。
@@ -74,16 +104,24 @@ internal static class CompositionRoot
         // 若把内置目录只拼进局部的 `roots` 扫描，而「重扫」只读设置里的列表（内置目录**刻意不在设置里**），
         // 则用户没配来源根时重扫的根列表为空 ⇒ 列表被清空、什么也没重扫。
         runtime.BuiltInModuleDirectory = StoragePaths.ModulesRoot;
+        runtime.ExternalModuleDirectory = StoragePaths.ExternalModulesRoot;
 
         var roots = runtime.ResolveScanRoots();
         var installed = runtime.ScanModuleSources(roots);
         var failed = runtime.GetModuleSources().Sum(s => s.FailedPackages);
 
+        // 工作区快照：模块包先扫描（定义齐全），再恢复现场；不存在/损坏都不阻断启动。
+        _ = runtime.LoadWorkspaceIfAny();
+
         runtime.Runtime.Issues.Report("app:startup", new IssueReport(
             IssueCategory.CompositionError,
             failed > 0 ? IssueSeverity.Warning : IssueSeverity.Info,
-            $"模块来源根已扫描（{roots.Count} 个根）：装入 {installed} 个，失败 {failed} 个 —— "
-            + string.Join("；", roots) + "（诊断见「模块清单」弹窗）"));
+            AppText.Get(
+                "app.startup.moduleRootsScanned",
+                roots.Count,
+                installed,
+                failed,
+                string.Join("；", roots))));
 
         return (provider.GetRequiredService<ShellViewModel>(), provider);
     }

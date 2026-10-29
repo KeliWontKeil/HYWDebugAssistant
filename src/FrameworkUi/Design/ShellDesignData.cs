@@ -1,5 +1,6 @@
 using HYWDebugAssistant.FrameworkUi.ViewModels;
 using HYWDebugAssistant.Ui.Design;
+using HYWDebugAssistant.Ui.ViewModels;
 
 namespace HYWDebugAssistant.FrameworkUi.Design;
 
@@ -19,6 +20,9 @@ public static class ShellDesignData
 
     /// <summary>模块清单页样例。</summary>
     public static ModuleCatalogViewModel Catalog { get; } = BuildCatalog();
+
+    /// <summary>组合页样例。</summary>
+    public static CompositePageViewModel Composites { get; } = BuildComposites();
 
     /// <summary>设置弹窗样例。</summary>
     public static SettingsPanelViewModel Settings { get; } = BuildSettings();
@@ -41,8 +45,16 @@ public static class ShellDesignData
     {
         var catalog = new ModuleCatalogViewModel(EmptyRuntime.Instance, EmptyRuntime.Instance);
         catalog.Refresh();
-        catalog.RefreshSources();
         return catalog;
+    }
+
+    private static CompositePageViewModel BuildComposites()
+    {
+        var windows = new ModuleWindowsViewModel(EmptyRuntime.Instance, EmptyRuntime.Instance);
+        windows.Refresh();
+        var page = new CompositePageViewModel(EmptyRuntime.Instance, EmptyRuntime.Instance, windows);
+        page.Activate();
+        return page;
     }
 
     private static SettingsPanelViewModel BuildSettings()
@@ -61,7 +73,7 @@ public static class ShellDesignData
 
     private static IssuesPanelViewModel BuildIssues()
     {
-        var issues = new IssuesPanelViewModel(EmptyRuntime.Instance);
+        var issues = new IssuesPanelViewModel(EmptyRuntime.Instance, EmptyRuntime.Instance);
         issues.Refresh();
         return issues;
     }

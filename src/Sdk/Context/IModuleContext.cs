@@ -4,6 +4,7 @@ using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Timing;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Context;
@@ -13,6 +14,24 @@ namespace HYWDebugAssistant.Sdk.Context;
 /// </summary>
 /// <param name="payload">数据单元的定长负载（生命周期仅限本次调用；需要留存时自行拷贝）。</param>
 public delegate void ReceiveHandler(ReadOnlySpan<byte> payload);
+
+/// <summary>输入源的持久化类别。</summary>
+public enum InputPersistence
+{
+    /// <summary>不持久化（用户输入关闭后即丢；连续发送/文件路径等有副作用的输入用这一档）。</summary>
+    Transient = 0,
+
+    /// <summary>随组合件/工作区保存，并在加载时先恢复视图状态再激活模块。</summary>
+    Persistent = 1,
+}
+
+/// <summary>输入源声明（名称 + 是否持久化）。</summary>
+/// <param name="Name">输入源名（模块内唯一）。</param>
+public sealed record InputDeclaration(string Name)
+{
+    /// <summary>持久化类别（默认 Transient；持久化需模块显式声明）。</summary>
+    public InputPersistence Persistence { get; init; } = InputPersistence.Transient;
+}
 
 /// <summary>
 /// 模块**声明入口**（在 <see cref="Lifecycle.IModule.OnRegistered"/> 中调用一次）。
@@ -83,6 +102,12 @@ public interface IModuleDeclaration
     /// </remarks>
     /// <param name="sourceName">输入源名。</param>
     void DeclareInput(string sourceName);
+
+    /// <summary>
+    /// 声明一个**输入源**及其持久化类别；默认实现保持旧模块的 Transient 行为。
+    /// </summary>
+    /// <param name="input">输入声明。</param>
+    void DeclareInput(InputDeclaration input) => DeclareInput(input.Name);
 
     /// <summary>
     /// 声明一条**命令**（按钮点一下要触发的那件事）。
@@ -171,6 +196,9 @@ public interface IStopSignal
 {
     /// <summary>是否已请求停止。</summary>
     bool IsStopRequested { get; }
+
+    /// <summary>停止取消令牌（等待类操作可直接链接它）。</summary>
+    CancellationToken StoppingToken => CancellationToken.None;
 
     /// <summary>阻塞等待停止信号（可在活动体的空闲等待中使用）。</summary>
     /// <param name="timeout">最长等待时间。</param>
@@ -297,6 +325,20 @@ public interface IViewAppearanceAccess
     void SetReadOnly(string sourceName, bool isReadOnly);
 
     /// <summary>
+    /// **把某一格现在设成可用 / 不可用**（运行期开关）。
+    /// </summary>
+    /// <param name="sourceName">该元素绑定的源名（显示源 / 输入源 / 命令 / 配置字段）。</param>
+    /// <param name="isEnabled">是否可用。</param>
+    /// <remarks>
+    /// <para>
+    /// 与 <see cref="SetReadOnly"/> 的分工：只读解决“能看不能改”；本方法解决“现在整格不可操作”
+    /// （例如会话打开后不允许再点“打开”，或参数在运行中不允许改）。
+    /// </para>
+    /// <para><b>纪律</b>：与同族一样不抛；非法源名只记诊断计数。</para>
+    /// </remarks>
+    void SetEnabled(string sourceName, bool isEnabled);
+
+    /// <summary>
     /// **把这一格上用户刚做的那次交互复原**（勾选框拨回、滑块滑回）。
     /// </summary>
     /// <param name="sourceName">该元素绑定的数据源名。</param>
@@ -366,6 +408,11 @@ public interface IModuleContext
 
     /// <summary>停止信号（长期活动必须响应）。</summary>
     IStopSignal StopSignal { get; }
+
+    /// <summary>
+    /// **全局计时面**：模块的等待/周期节拍一律走它，不得自建 Timer / Thread.Sleep / DispatcherTimer。
+    /// </summary>
+    IModuleTiming Timing { get; }
 
     /// <summary>**人机操作收件箱**（命令 / 输入；模块在自身线程消费）。</summary>
     IModuleInbox Inbox { get; }

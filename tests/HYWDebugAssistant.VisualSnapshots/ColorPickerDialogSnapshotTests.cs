@@ -36,7 +36,7 @@ public class ColorPickerDialogSnapshotTests
     [Fact]
     public async Task 调色板窗口_必须真的画出取色控件_而不是只剩标题与按钮()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         var output = OverlaySnapshotTests.OutputDirectory;
         _ = Directory.CreateDirectory(output);

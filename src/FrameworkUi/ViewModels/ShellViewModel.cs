@@ -1,8 +1,11 @@
 using System.Diagnostics;
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Ui.Hotkeys;
+using HYWDebugAssistant.Ui.Images;
 using HYWDebugAssistant.Ui.Theming;
 using HYWDebugAssistant.Ui.ViewModels;
 
@@ -12,12 +15,15 @@ namespace HYWDebugAssistant.FrameworkUi.ViewModels;
 /// 侧边界面（B 区）的页标识。
 /// </summary>
 /// <remarks>
-/// 模块清单与「交互」是**常驻侧边页面**；设置 / 拓扑诊断 / Issue / 帮助仍为弹窗。
+/// 模块清单、组合与「交互」是**常驻侧边页面**；设置 / 拓扑诊断 / Issue / 帮助仍为弹窗。
 /// </remarks>
 public static class ShellPages
 {
     /// <summary>模块清单页。</summary>
     public const string Catalog = "catalog";
+
+    /// <summary>组合页（选择模块并保存/加载组合关系）。</summary>
+    public const string Composite = "composite";
 
     /// <summary>交互页（显示 / 吸附 / 窗口三组开关与说明）。</summary>
     public const string Interaction = "interaction";
@@ -83,6 +89,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
         Hotkeys = new HotkeyService(this);
         Windows = new ModuleWindowsViewModel(query, command, viewState);
+        Composites = new CompositePageViewModel(query, command, Windows);
 
         // 模块窗口发出的**面向用户提示**（建网/端口标签结果）→ 状态栏
         Windows.NoticeRaised += (_, notice) =>
@@ -93,7 +100,8 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
             UpdateStatus();
         };
         Catalog = new ModuleCatalogViewModel(query, command);
-        Issues = new IssuesPanelViewModel(query);
+        Catalog.RestartRequested += (_, _) => RestartRequested?.Invoke(this, EventArgs.Empty);
+        Issues = new IssuesPanelViewModel(query, command);
         Settings = new SettingsPanelViewModel(query, command);
         Topology = new TopologyViewModel(query);
 
@@ -110,6 +118,9 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
     /// <summary>模块窗口集（模块区 = 一批独立窗口）。</summary>
     public ModuleWindowsViewModel Windows { get; }
+
+    /// <summary>组合页：选择模块并保存/加载一次性的组合关系。</summary>
+    public CompositePageViewModel Composites { get; }
 
     /// <summary>模块清单弹窗视图模型。</summary>
     public ModuleCatalogViewModel Catalog { get; }
@@ -185,7 +196,9 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
             _ = overrides.TryGetValue(key, out var hex);
             _ = seen.Add(key);
 
-            var text = info.Roles > 0 ? $"{info.Ports} 个口 · {info.Roles} 个角色" : $"{info.Ports} 个口";
+            var text = info.Roles > 0
+                ? Loc("shell.dataTypeColors.usage.portsRoles", info.Ports, info.Roles)
+                : Loc("shell.dataTypeColors.usage.ports", info.Ports);
 
             if (existing.TryGetValue(key, out var row))
             {
@@ -206,7 +219,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         }
 
         DataTypeColors.IsEmpty = DataTypeColors.Rows.Count == 0;
-        DataTypeColors.EmptyText = "现场还没有数据类型";
+        DataTypeColors.EmptyText = Loc("shell.dataTypeColors.empty");
 
         // 按类型身份排序插入（新类型插到正确位置，不打断既有行的实例）
         int IndexOf(string typeKey)
@@ -260,6 +273,9 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
     /// <summary>请求打开某个弹窗（由视图创建/显示窗口）。</summary>
     public event EventHandler<DialogKind>? DialogRequested;
+
+    /// <summary>请求“保存现场并重启应用”（由主窗口执行进程重启）。</summary>
+    public event EventHandler? RestartRequested;
 
     /// <summary>请求把本应用全部窗口抬到最前（由视图执行；组抬升是平台行为）。</summary>
     public event EventHandler? RaiseAllWindowsRequested;
@@ -320,20 +336,67 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
     /// <summary>状态栏文本。</summary>
     [ObservableProperty]
-    public partial string StatusText { get; set; } = "模块 0 · Issue 0";
+    public partial string StatusText { get; set; } = Loc("shell.status.initial");
+
+    /// <summary>当前主题的主窗口壁纸画刷（null = 无壁纸）。</summary>
+    [ObservableProperty]
+    public partial ImageBrush? ThemeWallpaperBrush { get; set; }
+
+    /// <summary>当前主题是否有主窗口壁纸。</summary>
+    public bool HasThemeWallpaper => ThemeWallpaperBrush is not null;
+
+    /// <summary>当前主题的壁纸遮罩浓度（0–0.9）。</summary>
+    [ObservableProperty]
+    public partial double WallpaperVeilOpacity { get; set; } = 0.55;
+
+    partial void OnThemeWallpaperBrushChanged(ImageBrush? value) => OnPropertyChanged(nameof(HasThemeWallpaper));
+
+    /// <summary>按当前生效主题刷新主窗口壁纸（主题切换/设置应用/系统浅深切换时调用）。</summary>
+    public void RefreshThemeWallpaper()
+    {
+        var settings = _query.GetSettings();
+        var theme = ThemeCatalog.ResolveDisplayTheme(
+            ThemeCatalog.All(_query.GetThemeFiles()),
+            settings.Appearance,
+            settings.Appearance.ThemeSelection,
+            ThemeCatalog.CurrentSystemVariant());
+
+        ImageBrush? brush = null;
+        if (theme.WallpaperFileName is { Length: > 0 }
+            && _query.TryGetThemeWallpaper(theme.Id, out var png)
+            && png is { Length: > 0 })
+        {
+            // 按内容寻址缓存：同一主题换图后不会读到缓存里的旧图
+            var key = theme.Id + ":" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(png));
+            brush = WallpaperImageCache.FromBytes(key, png);
+        }
+
+        ThemeWallpaperBrush = brush;
+        WallpaperVeilOpacity = Math.Clamp(theme.WallpaperVeilOpacity, 0, 0.9);
+        Windows.WallpaperVeilOpacity = WallpaperVeilOpacity;
+    }
 
     /// <summary>Issue 计数（状态栏可点击打开 Issue 弹窗）。</summary>
     [ObservableProperty]
     public partial int IssueCount { get; set; }
 
-    /// <summary>错误级 Issue 计数（状态栏强调用）。</summary>
+    /// <summary>错误级 Issue 计数（活动栏徽标与状态栏用）。</summary>
     [ObservableProperty]
     public partial int ErrorIssueCount { get; set; }
 
     /// <summary>是否存在错误级 Issue（活动栏徽标显隐）。</summary>
     public bool HasErrors => ErrorIssueCount > 0;
 
-    partial void OnErrorIssueCountChanged(int value) => OnPropertyChanged(nameof(HasErrors));
+    /// <summary>徽标悬停说明（只描述错误；警告/信息不参与角标）。</summary>
+    public string IssueBadgeToolTip => ErrorIssueCount > 0
+        ? Loc("shell.issueBadge.tip.errors", ErrorIssueCount)
+        : Loc("shell.issueBadge.tip.none");
+
+    partial void OnErrorIssueCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(HasErrors));
+        OnPropertyChanged(nameof(IssueBadgeToolTip));
+    }
 
     /// <summary>显示组：是否显示**叠加信息层**（窗内连接线；端口标记本身常显）。</summary>
     public bool ShowInfoOverlay
@@ -371,59 +434,31 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
     // ---- 侧边栏形态 ----
 
-    /// <summary>当前侧边界面页：<c>catalog</c>（模块清单，默认）· <c>interaction</c>（交互）。</summary>
+    /// <summary>当前侧边界面页：<c>catalog</c>（模块清单，默认）· <c>composite</c>（组合）· <c>interaction</c>（交互）。</summary>
     [ObservableProperty]
     public partial string ActivePage { get; set; } = ShellPages.Catalog;
 
     /// <summary>是否显示**模块清单**页（B 区）。</summary>
     public bool IsCatalogPage => string.Equals(ActivePage, ShellPages.Catalog, StringComparison.Ordinal);
 
+    /// <summary>是否显示**组合**页（B 区）。</summary>
+    public bool IsCompositePage => string.Equals(ActivePage, ShellPages.Composite, StringComparison.Ordinal);
+
     /// <summary>是否显示**交互**页（B 区）。</summary>
     public bool IsInteractionPage => string.Equals(ActivePage, ShellPages.Interaction, StringComparison.Ordinal);
 
-    /// <summary>外壳窗口宽度（DIP；按比例档位推导 —— 比例是可改的设置项）。</summary>
-    public double ShellWidth => ShellLayout.Measure(ShellAspect).Width;
+    /// <summary>当前**已生效**的应用设置（不是设置页草稿）。</summary>
+    public ApplicationSettings GetCommittedSettings() => _query.GetSettings();
 
-    /// <summary>外壳窗口高度（DIP）。</summary>
-    public double ShellHeight => ShellLayout.Measure(ShellAspect).Height;
+    /// <summary>已生效的关闭行为：Ask / Save / Discard。</summary>
+    public string WorkspaceExitBehavior => GetCommittedSettings().WorkspaceExitBehavior;
 
-    /// <summary>外壳是否可缩放（设置项：默认固定）。</summary>
-    public bool ShellResizable => !ShellFixedSize;
+    /// <summary>严格持久化关闭行为；失败不回退为成功。</summary>
+    public CommandResult SetWorkspaceExitBehavior(string behavior) =>
+        _command.SetWorkspaceExitBehavior(behavior);
 
-    /// <summary>窗口比例档位（设置项透传）。</summary>
-    public string ShellAspect
-    {
-        get => Settings.ShellAspect;
-        set
-        {
-            if (string.Equals(Settings.ShellAspect, value, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            Settings.ShellAspect = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(ShellWidth));
-            OnPropertyChanged(nameof(ShellHeight));
-        }
-    }
-
-    /// <summary>窗口尺寸是否固定（设置项透传）。</summary>
-    public bool ShellFixedSize
-    {
-        get => Settings.ShellFixedSize;
-        set
-        {
-            if (Settings.ShellFixedSize == value)
-            {
-                return;
-            }
-
-            Settings.ShellFixedSize = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(ShellResizable));
-        }
-    }
+    /// <summary>本次启动从工作区恢复的外壳矩形。</summary>
+    public WorkspacePlacementView? GetWorkspacePlacement() => _query.GetWorkspacePlacement();
 
     /// <summary>切换侧边界面页（活动栏按钮用）。</summary>
     /// <param name="page">页标识（<see cref="ShellPages"/>）。</param>
@@ -439,7 +474,13 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     partial void OnActivePageChanged(string value)
     {
         OnPropertyChanged(nameof(IsCatalogPage));
+        OnPropertyChanged(nameof(IsCompositePage));
         OnPropertyChanged(nameof(IsInteractionPage));
+
+        if (string.Equals(value, ShellPages.Composite, StringComparison.Ordinal))
+        {
+            Composites.Activate();
+        }
     }
 
     /// <summary>窗口组：全部锁定。</summary>
@@ -463,6 +504,12 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     public void Refresh()
     {
         Windows.Refresh();
+
+        if (IsCompositePage)
+        {
+            Composites.Refresh();
+        }
+
         Catalog.Refresh();
         Issues.Refresh();
 
@@ -488,6 +535,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     public void LoadSettings()
     {
         Settings.Load();
+        RefreshThemeWallpaper();
         Windows.ShowInfoOverlay = Settings.ShowInfoOverlay;
 
         // **数据结构 → 颜色**：把设置里的映射灌进色板（启动即生效；色板是唯一色彩来源）
@@ -502,12 +550,6 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
         RefreshDataTypeColors();
 
-        // 外观与外壳尺寸随设置刷新
-        OnPropertyChanged(nameof(ShellAspect));
-        OnPropertyChanged(nameof(ShellFixedSize));
-        OnPropertyChanged(nameof(ShellWidth));
-        OnPropertyChanged(nameof(ShellHeight));
-        OnPropertyChanged(nameof(ShellResizable));
     }
 
     /// <summary>打开模块清单弹窗。</summary>
@@ -590,30 +632,50 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         }
     }
 
-    /// <summary>保存当前全部内容为一个组合件文件（"保存全部内容"）。</summary>
-    /// <param name="filePath">目标文件路径。</param>
-    /// <returns>命令结果。</returns>
-    public CommandResult SaveAll(string filePath)
-    {
-        // 先落盘"整体平移"的待提交位置，否则刚移动完外壳就保存会丢掉最后一段位移
-        _ = Windows.CommitSceneTranslation();
-        return _command.SaveComposite(filePath);
-    }
-
     /// <summary>加载一个组合件文件（降级式）。</summary>
     /// <param name="filePath">文件路径。</param>
     /// <returns>命令结果。</returns>
     public CommandResult Load(string filePath) => _command.LoadComposite(filePath);
 
+    /// <summary>保存当前工作区（先提交未落盘的整体平移）。</summary>
+    /// <param name="placement">外壳绝对矩形（DIP）。</param>
+    public CommandResult SaveWorkspace(WorkspacePlacementView placement)
+    {
+        _ = Windows.CommitSceneTranslation();
+        return _command.SaveWorkspace(placement);
+    }
+
+    /// <summary>保存一次性重启恢复快照（旧入口；重新加载已改用 <see cref="SaveWorkspace"/>）。</summary>
+    public CommandResult SaveRestartSnapshot()
+    {
+        _ = Windows.CommitSceneTranslation();
+        return _command.SaveRestartSnapshot();
+    }
+
+    /// <summary>重启进程启动失败时删除快照，避免下次正常启动误恢复。</summary>
+    public CommandResult DiscardRestartSnapshot() => _command.DeleteRestartSnapshot();
+
+    /// <summary>取一条本程序集文本表里的文案。</summary>
+    /// <param name="key">键。</param>
+    private static string Loc(string key) => TextCatalog.Get(typeof(ShellViewModel).Assembly, key);
+
+    /// <summary>取一条带占位符的文案。</summary>
+    /// <param name="key">键。</param>
+    /// <param name="args">格式化参数。</param>
+    private static string Loc(string key, params object?[] args) =>
+        TextCatalog.Get(typeof(ShellViewModel).Assembly, key, args);
+
     private void UpdateStatus()
     {
-        var links = ShowInfoOverlay ? "叠加层开" : "叠加层关";
-        var snap = SnapEnabled ? "吸附开" : "吸附关";
-        var locked = AllLocked ? " · 已锁定" : string.Empty;
-        var issues = ErrorIssueCount > 0 ? $" · Issue {IssueCount}（错误 {ErrorIssueCount}）" : $" · Issue {IssueCount}";
+        var links = Loc(ShowInfoOverlay ? "shell.status.overlay.on" : "shell.status.overlay.off");
+        var snap = Loc(SnapEnabled ? "shell.status.snap.on" : "shell.status.snap.off");
+        var locked = AllLocked ? " · " + Loc("shell.status.locked") : string.Empty;
+        var issues = ErrorIssueCount > 0
+            ? " · " + Loc("shell.status.issuesWithErrors", IssueCount, ErrorIssueCount)
+            : " · " + Loc("shell.status.issues", IssueCount);
 
         // 提示**不拼进摘要**（那样会被截成「拖动…」）⇒ 摘要只放长期事实，提示另占一列。
         // Issue 计数留在摘要里（信息），**入口**只剩活动栏那个图标（状态栏右侧那个按钮不保留）。
-        StatusText = $"模块 {Windows.ModuleCount} · {links} · {snap} · 刷新 {Windows.RefreshRateHz} Hz{locked}{issues}";
+        StatusText = Loc("shell.status.summary", Windows.ModuleCount, links, snap, Windows.RefreshRateHz, locked, issues);
     }
 }

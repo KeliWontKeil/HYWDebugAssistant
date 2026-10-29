@@ -105,7 +105,7 @@ public sealed partial class ModuleRuntime
                 // 保存单位 = "一组实例 + 连接"：只保存**成员全在选中范围内**的网络（不做静默截断）
                 if (!network.Members.All(m => selection.Contains(m.InstanceId)))
                 {
-                    noteList.Add($"网络 '{Describe(network)}' 未包含：有成员不在选中范围内");
+                    noteList.Add(CoreText.Get("core.runtime.networkNotIncluded", Describe(network)));
                     continue;
                 }
 
@@ -113,6 +113,19 @@ public sealed partial class ModuleRuntime
             }
 
             notices = noteList;
+
+            // 壁纸按实例收集：JSON 只写包内相对引用，字节放 Assets 由包存储落到 assets/。
+            var assets = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            var wallpapers = CaptureWallpapers();
+            foreach (var record in instances)
+            {
+                if (wallpapers.TryGetValue(record.InstanceId, out var wallpaper))
+                {
+                    var hash = NormalizeRef(wallpaper.Ref);
+                    record.Wallpaper = $"assets/{hash}.png";
+                    assets[hash] = wallpaper.Png;
+                }
+            }
 
             return new Composite
             {
@@ -122,6 +135,7 @@ public sealed partial class ModuleRuntime
                 Instances = instances,
                 Networks = networks,
                 Layout = layout,
+                Assets = assets,
 
                 // 以上次加载的根片段为底稿 → 根层未识别字段原样带回
                 RootFragment = _loadedSource?.RootFragment,
@@ -137,9 +151,16 @@ public sealed partial class ModuleRuntime
     /// <param name="composite">已解析的组合件。</param>
     /// <param name="resolveDefinition">按标识字面量解析模块定义（由 L4 服务注入注册表；失败时给出**面向用户的原因**）。</param>
     /// <remarks>
+    /// <para>
+    /// **加载 = 加载一批模块**：与单独加入模块同构。实例 ID 若与当前现场冲突（或文件内重复），
+    /// **只重映射冲突项**，并同步改写网络成员、布局键；端口标签、网络名、配置与位置**原样保留**。
+    /// 因此同一文件可以加载多次，同名标签仍按命名网络语义并入同一张网（与单独加模块一致）。
+    /// </para>
+    /// <para>
     /// **降级式**：单条记录失败不放弃整次加载（§9.3"损坏 → 尽量部分恢复"）——
     /// 缺失定义 → 占位；口消失 → 悬空成员；两者都记 Issue 且**不阻断其余部分运行**。
     /// 自动建网在加载期间**不参与**：网络来自文件，避免"加载复制出一批自动连线"。
+    /// </para>
     /// </remarks>
     internal CompositeLoadResult LoadComposite(Composite composite, ModuleDefinitionResolver resolveDefinition)
     {
@@ -150,9 +171,10 @@ public sealed partial class ModuleRuntime
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
 
+            var notices = new List<string>();
+            composite = RemapConflictingInstanceIds(composite, notices);
             _loadedSource = composite;
 
-            var notices = new List<string>();
             var instancesAdded = 0;
             var placeholdersCreated = 0;
 
@@ -161,7 +183,7 @@ public sealed partial class ModuleRuntime
             {
                 if (Content.IsInstanceIdTaken(record.InstanceId))
                 {
-                    var conflict = $"实例 ID 与当前现场冲突（已跳过）：{record.InstanceId}";
+                    var conflict = CoreText.Get("core.runtime.load.instanceIdConflict", record.InstanceId);
                     notices.Add(conflict);
                     Issues.Report($"composite:{DescribeName(composite)}", new IssueReport(
                         IssueCategory.CompositionError, IssueSeverity.Warning, conflict));
@@ -170,7 +192,7 @@ public sealed partial class ModuleRuntime
 
                 if (!resolveDefinition(record.ModuleId, out var definition, out var reason) || definition is null)
                 {
-                    AddPlaceholder(record, reason ?? "模块定义缺失");
+                    AddPlaceholder(record, reason ?? CoreText.Get("core.runtime.load.definitionMissing"));
                     placeholdersCreated++;
                     continue;
                 }
@@ -200,7 +222,7 @@ public sealed partial class ModuleRuntime
                     notices);
 
                 unresolvedMembers += anchoring.DanglingCount;
-                AddNetworkCore(anchoring.Network);
+                AddOrMergeLoadedNetwork(anchoring.Network, notices);
 
                 // 加载 = **首见**：源侧与宿侧问题全报
                 ReportNetworkAnchoring(anchoring, notices, reportSources: true, reportDangling: true);
@@ -228,6 +250,51 @@ public sealed partial class ModuleRuntime
     }
 
     /// <summary>
+    /// **加载时的网络落位**：同名命名网络**合并成员**（同名 = 同一张网，与标签语义一致），
+    /// 匿名网络按对象独立加入。合并后重建该网络的绑定。
+    /// </summary>
+    private void AddOrMergeLoadedNetwork(Network incoming, List<string> notices)
+    {
+        if (!incoming.IsNamed)
+        {
+            AddNetworkCore(incoming);
+            return;
+        }
+
+        var existing = Content.Networks.FirstOrDefault(n =>
+            n.IsNamed && string.Equals(n.Name, incoming.Name, StringComparison.Ordinal));
+
+        if (existing is null)
+        {
+            AddNetworkCore(incoming);
+            return;
+        }
+
+        var sources = existing.Sources.Concat(incoming.Sources).Distinct().ToList();
+        var unresolvedSources = existing.UnresolvedSources.Concat(incoming.UnresolvedSources).Distinct().ToList();
+        var targets = existing.Targets.Concat(incoming.Targets).Distinct().ToList();
+        var unresolved = existing.UnresolvedMembers.Concat(incoming.UnresolvedMembers).Distinct().ToList();
+
+        if (sources.Count == 0 && unresolvedSources.Count == 0)
+        {
+            return;
+        }
+
+        var merged = new Network(
+            incoming.Name,
+            sources,
+            targets,
+            existing.IsAutoGenerated && incoming.IsAutoGenerated,
+            unresolved,
+            unresolvedSources,
+            existing.AllowUnverifiedTypeMatch || incoming.AllowUnverifiedTypeMatch);
+
+        RemoveNetworkCore(existing);
+        AddNetworkCore(merged);
+        notices.Add(CoreText.Get("core.runtime.load.networkMerged", incoming.Name));
+    }
+
+    /// <summary>
     /// 为占位实例指定替代模块（"可手动指定替代版本"，§9.3）：实例化 + 沿用配置 + **重锚悬空成员**。
     /// </summary>
     /// <param name="instanceId">占位实例 ID。</param>
@@ -250,7 +317,7 @@ public sealed partial class ModuleRuntime
             if (!Content.TryGetPlaceholder(instanceId, out var placeholder) || placeholder is null)
             {
                 notices = [];
-                failure = $"占位实例不存在：{instanceId}";
+                failure = CoreText.Get("core.runtime.placeholderMissing", instanceId);
                 return false;
             }
 
@@ -298,13 +365,44 @@ public sealed partial class ModuleRuntime
         if (!TryInstantiate(record.InstanceId, definition, out var instance, out var failure))
         {
             // 实例化失败也**降级为占位**（部分恢复：配置与网络成员不丢）
-            AddPlaceholder(record, $"实例化失败：{failure}");
+            AddPlaceholder(record, CoreText.Get("core.runtime.load.instantiateFailed", failure));
             return false;
         }
 
+        RestoreViewState(record);
+        RestoreWallpaper(record);
         RestoreConfiguration(instance!, record, notices);
         ActivateInstance(instance!, record.Enabled);
         return true;
+    }
+
+    /// <summary>把实例记录里的 viewState 恢复到共享视图状态存储（必须在激活之前）。</summary>
+    private void RestoreViewState(CompositeInstanceRecord record)
+    {
+        if (record.ViewState is { IsEmpty: false } snapshot && ViewState is Services.ViewStateStore store)
+        {
+            store.Restore(record.InstanceId, snapshot);
+        }
+    }
+
+    /// <summary>把实例记录里的壁纸引用恢复成内存资产（包内 assets/ 字节由 Composite.Assets 提供）。</summary>
+    private void RestoreWallpaper(CompositeInstanceRecord record)
+    {
+        if (record.Wallpaper is not { Length: > 0 } reference)
+        {
+            return;
+        }
+
+        var hash = NormalizeRef(reference);
+        if (hash.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+        {
+            hash = hash[..^4];
+        }
+
+        if (_loadedSource?.Assets.TryGetValue(hash, out var png) == true)
+        {
+            RestoreWallpaper(record.InstanceId, hash, png);
+        }
     }
 
     private bool TryInstantiate(string instanceId, ModuleDefinition definition, out ModuleInstance? instance, out string? failure)
@@ -318,7 +416,8 @@ public sealed partial class ModuleRuntime
                 Issues,
                 ViewState?.ReaderFor(instanceId),
                 (ViewState as Services.ViewStateStore)?.DisplayFor(instanceId),
-                FileAccessFor?.Invoke(instanceId));
+                FileAccessFor?.Invoke(instanceId),
+                catalog: _catalog);
             failure = null;
             return true;
         }
@@ -358,7 +457,7 @@ public sealed partial class ModuleRuntime
             Issues.Report($"module:{instance.InstanceId}", new IssueReport(
                 IssueCategory.RuntimeError,
                 IssueSeverity.Error,
-                $"承载启动失败：{failure}（该实例已加入但无活动，可移除后重试）"));
+                CoreText.Get("core.runtime.carrierStartFailed", failure)));
             return;
         }
 
@@ -399,7 +498,7 @@ public sealed partial class ModuleRuntime
             var type = ResolveConfigurationType(instance, typeName);
             if (type is null)
             {
-                var reason = $"配置类型无法解析：'{typeName}'（**原样保留**——重新保存不丢失）";
+                var reason = CoreText.Get("core.runtime.configTypeUnresolved", typeName);
                 notices.Add($"{instance.InstanceId}：{reason}");
                 Issues.Report(objectPath, new IssueReport(IssueCategory.ConfigurationError, IssueSeverity.Warning, reason));
                 continue;
@@ -414,19 +513,20 @@ public sealed partial class ModuleRuntime
             }
             catch (Exception ex) when (ex is JsonException or NotSupportedException)
             {
-                var reason = $"配置项 '{typeName}' 无法解析（已跳过，原样保留）：{ex.Message}";
+                var reason = CoreText.Get("core.runtime.configItemUnresolved", typeName, ex.Message);
                 notices.Add($"{instance.InstanceId}：{reason}");
                 Issues.Report(objectPath, new IssueReport(IssueCategory.ConfigurationError, IssueSeverity.Warning, reason));
             }
         }
     }
 
-    private static Type? ResolveConfigurationType(ModuleInstance instance, string typeName)
+    private Type? ResolveConfigurationType(ModuleInstance instance, string typeName)
     {
-        // 适配件参数类型可能不在模块入口程序集：先按声明的参数类型逐字匹配。
+        // 外部标准参数类型不在模块程序集：先按 catalog 解析出的参数类型逐字匹配。
         var fromAccess = instance.ExternalAccesses
-            .Select(access => access.ParametersType)
-            .FirstOrDefault(type => string.Equals(type.FullName, typeName, StringComparison.Ordinal));
+            .Select(access => ResolveAccessParametersType(access.StandardId))
+            .FirstOrDefault(type => type is not null
+                && string.Equals(type.FullName, typeName, StringComparison.Ordinal));
 
         return fromAccess
             ?? instance.Definition.EntryType.Assembly.GetType(typeName, throwOnError: false)
@@ -447,7 +547,7 @@ public sealed partial class ModuleRuntime
         Issues.Report(placeholder.ObjectPath, new IssueReport(
             IssueCategory.ModuleError,
             IssueSeverity.Warning,
-            $"{reason}：{record.ModuleId}（**占位保留**配置与网络成员；加载对应模块包后可指定替代版本）"));
+            CoreText.Get("core.runtime.placeholderRetained", reason, record.ModuleId)));
     }
 
     // ---------------------------------------------------------------- 网络重锚
@@ -537,11 +637,11 @@ public sealed partial class ModuleRuntime
             if (TryAnchorTarget(literal, declared, allowUnverifiedTypeMatch, out var anchored, out _))
             {
                 targets.Add(anchored);
-                notices.Add($"已重新锚定：{description} ← {literal}");
+                notices.Add(CoreText.Get("core.runtime.reanchored", description, literal));
                 continue;
             }
 
-            dangling.Add((ParseMemberAs(literal, PortDirection.Receive), "口不存在或与任何源都不兼容"));
+            dangling.Add((ParseMemberAs(literal, PortDirection.Receive), CoreText.Get("core.runtime.reason.portMissingOrIncompatible")));
         }
 
         // **停流 ⇔ 全部声明的源都未锚定**（由 Sources 为空表达，不另存标志）
@@ -581,11 +681,11 @@ public sealed partial class ModuleRuntime
 
         foreach (var (member, reason) in anchoring.DanglingMembers)
         {
-            notices.Add($"网络 '{description}'：成员悬空（{member}）——{reason}");
+            notices.Add(CoreText.Get("core.runtime.danglingNotice", description, member, reason));
             Issues.Report($"network:{description}", new IssueReport(
                 IssueCategory.InterfaceError,
                 IssueSeverity.Warning,
-                $"成员悬空（{reason}）：{member}（声明保留，**不参与绑定**）",
+                CoreText.Get("core.runtime.danglingIssue", reason, member),
                 member.PortName));
         }
     }
@@ -611,11 +711,11 @@ public sealed partial class ModuleRuntime
         if (unanchoredSources.Count == declaredSources.Count)
         {
             var all = string.Join("、", unanchoredSources);
-            notices.Add($"网络 '{description}' 停流：**全部源成员未锚定**（{all}）");
+            notices.Add(CoreText.Get("core.runtime.stalledNotice", description, all));
             Issues.Report($"network:{description}", new IssueReport(
                 IssueCategory.InterfaceError,
                 IssueSeverity.Warning,
-                $"网络停流：**全部源成员未锚定**（{all}）——声明保留，补齐模块或口后自动重锚"));
+                CoreText.Get("core.runtime.stalledIssue", all)));
             return;
         }
 
@@ -627,11 +727,11 @@ public sealed partial class ModuleRuntime
             }
 
             // **部分源不可用 ≠ 停流**：说清"这一个源不走数据"，而不是让用户以为整条网络坏了
-            notices.Add($"网络 '{description}'：源成员未锚定（{member}）——**该源不参与投递**，其余源照常");
+            notices.Add(CoreText.Get("core.runtime.sourceUnanchoredNotice", description, member));
             Issues.Report($"network:{description}", new IssueReport(
                 IssueCategory.InterfaceError,
                 IssueSeverity.Warning,
-                $"源成员未锚定：{member}（**该源不参与投递**；其余源照常，补齐模块或口后自动重锚）",
+                CoreText.Get("core.runtime.sourceUnanchoredIssue", member),
                 member.PortName));
         }
     }
@@ -657,7 +757,9 @@ public sealed partial class ModuleRuntime
 
         if (!TryAnchorPort(anchored, PortDirection.Receive, out var resolved, out var target))
         {
-            reason = anySourceAnchored ? "口不存在或方向不匹配" : "源成员未锚定";
+            reason = anySourceAnchored
+                ? CoreText.Get("core.runtime.reason.portMissingOrDirection")
+                : CoreText.Get("core.runtime.reason.sourceUnanchored");
             return false;
         }
 
@@ -672,7 +774,9 @@ public sealed partial class ModuleRuntime
             }
         }
 
-        reason = anySourceAnchored ? "契约不兼容（与任何源都不兼容）" : "源成员未锚定";
+        reason = anySourceAnchored
+            ? CoreText.Get("core.runtime.reason.contractIncompatible")
+            : CoreText.Get("core.runtime.reason.sourceUnanchored");
         return false;
     }
 
@@ -848,19 +952,19 @@ public sealed partial class ModuleRuntime
 
         if (string.IsNullOrWhiteSpace(layout.InstanceId))
         {
-            failures.Add("布局缺少实例 ID");
+            failures.Add(CoreText.Get("core.runtime.layout.missingInstanceId"));
         }
 
         if (!IsFinite(layout.X) || !IsFinite(layout.Y) || Math.Abs(layout.X) > MaxCoordinate || Math.Abs(layout.Y) > MaxCoordinate)
         {
-            failures.Add($"布局坐标非法：({layout.X}, {layout.Y})");
+            failures.Add(CoreText.Get("core.runtime.layout.invalidCoordinates", layout.X, layout.Y));
         }
 
         if (!IsFinite(layout.Width) || !IsFinite(layout.Height)
             || layout.Width <= 0 || layout.Height <= 0
             || layout.Width > MaxCoordinate || layout.Height > MaxCoordinate)
         {
-            failures.Add($"布局尺寸非法：{layout.Width} × {layout.Height}（必须为正的有限值）");
+            failures.Add(CoreText.Get("core.runtime.layout.invalidSize", layout.Width, layout.Height));
         }
 
         return failures;
@@ -873,17 +977,17 @@ public sealed partial class ModuleRuntime
 
         if (string.IsNullOrWhiteSpace(instanceId))
         {
-            failures.Add("端口几何缺少实例 ID");
+            failures.Add(CoreText.Get("core.runtime.portGeometry.missingInstanceId"));
         }
 
         if (string.IsNullOrWhiteSpace(geometry.PortName))
         {
-            failures.Add("端口几何缺少口名");
+            failures.Add(CoreText.Get("core.runtime.portGeometry.missingPortName"));
         }
 
         if (!IsFinite(geometry.Offset) || geometry.Offset is < 0 or > 1)
         {
-            failures.Add($"端口位置必须在 0–1 之间（当前 {geometry.Offset}）");
+            failures.Add(CoreText.Get("core.runtime.portGeometry.offsetOutOfRange", geometry.Offset));
         }
 
         return failures;
@@ -918,7 +1022,7 @@ public sealed partial class ModuleRuntime
             }
             else
             {
-                notices.Add($"选中的实例不存在（已忽略）：{instanceId}");
+                notices.Add(CoreText.Get("core.runtime.selection.instanceMissing", instanceId));
             }
         }
 
@@ -970,12 +1074,17 @@ public sealed partial class ModuleRuntime
             }
         }
 
+        var viewState = ViewState is Services.ViewStateStore store
+            ? store.Capture(instance.InstanceId, instance.PersistentInputs)
+            : null;
+
         return new CompositeInstanceRecord
         {
             InstanceId = instance.InstanceId,
             ModuleId = instance.Definition.Id.ToString(),
             Enabled = instance.State != ModuleInstanceState.Disabled,
             Configuration = configuration.Count == 0 ? null : configuration,
+            ViewState = viewState is { IsEmpty: false } ? viewState : null,
             Ports = ports,
             Fragment = FindLoadedInstance(instance.InstanceId)?.Fragment,
         };
@@ -1004,6 +1113,127 @@ public sealed partial class ModuleRuntime
         {
             layout.Add(item);
         }
+    }
+
+    /// <summary>
+    /// **只重映射冲突的实例 ID**：新加入的模块保留文件里的 ID；已被当前现场占用的 ID 生成唯一后缀，
+    /// 并同步重写网络成员与布局键。标签/网络名/配置/位置不动。
+    /// </summary>
+    /// <remarks>
+    /// 这是"加载一批模块"的单条规则，**不判断现场是否为空**：空现场没有冲突 ⇒ 原样还原；
+    /// 非空现场只有真正冲突的那几个 ID 变，因此同一文件可以重复加载。
+    /// </remarks>
+    private Composite RemapConflictingInstanceIds(Composite composite, List<string> notices)
+    {
+        var reserved = new HashSet<string>(StringComparer.Ordinal);
+        var idMap = new Dictionary<string, string>(StringComparer.Ordinal);
+        var instances = new List<CompositeInstanceRecord>(composite.Instances.Count);
+        var remapped = 0;
+
+        foreach (var record in composite.Instances)
+        {
+            var newId = record.InstanceId;
+            if (Content.IsInstanceIdTaken(newId) || !reserved.Add(newId))
+            {
+                newId = GenerateUniqueInstanceId(record.InstanceId, reserved);
+                _ = idMap.TryAdd(record.InstanceId, newId);
+                remapped++;
+            }
+
+            instances.Add(newId == record.InstanceId
+                ? record
+                : new CompositeInstanceRecord
+                {
+                    InstanceId = newId,
+                    ModuleId = record.ModuleId,
+                    Enabled = record.Enabled,
+                    Configuration = record.Configuration is null
+                        ? null
+                        : (JsonObject)record.Configuration.DeepClone(),
+                    ViewState = record.ViewState,
+                    Wallpaper = record.Wallpaper,
+                    Ports = [.. record.Ports],
+                    Fragment = record.Fragment is null
+                        ? null
+                        : (JsonObject)record.Fragment.DeepClone(),
+                });
+        }
+
+        if (remapped == 0)
+        {
+            return composite;
+        }
+
+        var networks = new List<CompositeNetworkRecord>(composite.Networks.Count);
+        foreach (var network in composite.Networks)
+        {
+            networks.Add(new CompositeNetworkRecord
+            {
+                Name = network.Name,
+                IsAutoGenerated = network.IsAutoGenerated,
+                AllowUnverifiedTypeMatch = network.AllowUnverifiedTypeMatch,
+                Sources = [.. network.Sources.Select(member => RemapMemberLiteral(member, idMap))],
+                Targets = [.. network.Targets.Select(member => RemapMemberLiteral(member, idMap))],
+                Unresolved = [.. network.Unresolved.Select(member => RemapMemberLiteral(member, idMap))],
+                Fragment = network.Fragment is null
+                    ? null
+                    : (JsonObject)network.Fragment.DeepClone(),
+            });
+        }
+
+        var layout = composite.Layout
+            .Select(item => idMap.TryGetValue(item.InstanceId, out var newId)
+                ? item with { InstanceId = newId }
+                : item)
+            .ToList();
+
+        notices.Add(CoreText.Get("core.runtime.instanceIdRemapped", remapped));
+
+        return new Composite
+        {
+            SchemaVersion = composite.SchemaVersion,
+            Name = composite.Name,
+            SavedAt = composite.SavedAt,
+            Instances = instances,
+            Networks = networks,
+            Layout = layout,
+            Assets = composite.Assets,
+            WorkspacePlacement = composite.WorkspacePlacement,
+            RootFragment = composite.RootFragment is null
+                ? null
+                : (JsonObject)composite.RootFragment.DeepClone(),
+        };
+    }
+
+    /// <summary>为一个冲突 ID 生成当前现场与本次批次都未占用的新 ID。</summary>
+    private string GenerateUniqueInstanceId(string baseId, HashSet<string> reserved)
+    {
+        var prefix = string.IsNullOrWhiteSpace(baseId) ? "instance" : baseId;
+        var index = 2;
+
+        while (true)
+        {
+            var candidate = $"{prefix}-{index++}";
+            if (!Content.IsInstanceIdTaken(candidate) && reserved.Add(candidate))
+            {
+                return candidate;
+            }
+        }
+    }
+
+    /// <summary>把 <c>实例ID.口名</c> 的实例前缀按 ID 映射改写；未知前缀原样保留。</summary>
+    private static string RemapMemberLiteral(string literal, Dictionary<string, string> idMap)
+    {
+        var separator = literal.LastIndexOf('.');
+        if (separator <= 0)
+        {
+            return literal;
+        }
+
+        var instanceId = literal[..separator];
+        return idMap.TryGetValue(instanceId, out var newId)
+            ? $"{newId}{literal[separator..]}"
+            : literal;
     }
 
     private CompositeInstanceRecord? FindLoadedInstance(string instanceId) =>
@@ -1038,12 +1268,15 @@ public sealed partial class ModuleRuntime
 
     private static string Describe(Network network) => network.IsNamed
         ? network.Name
-        : $"(匿名) {string.Join("、", network.DeclaredSources)}";
+        : CoreText.Get(
+            "core.runtime.networkAnonymousDescription",
+            string.Join(CoreText.Get("core.common.listSeparator"), network.DeclaredSources));
 
-    private static string Describe(string name) => name.Length > 0 ? name : "(匿名)";
+    private static string Describe(string name) =>
+        name.Length > 0 ? name : CoreText.Get("core.composite.anonymous");
 
     private static string DescribeName(Composite composite) =>
-        composite.Name.Length > 0 ? composite.Name : "(未命名)";
+        composite.Name.Length > 0 ? composite.Name : CoreText.Get("core.composite.unnamed");
 }
 
 /// <summary>

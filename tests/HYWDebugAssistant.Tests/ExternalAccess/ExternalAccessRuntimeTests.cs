@@ -6,32 +6,37 @@ using HYWDebugAssistant.DataPlane.Access;
 using HYWDebugAssistant.DataPlane.Carriers;
 using HYWDebugAssistant.Hosting.Instances;
 using HYWDebugAssistant.Sdk.Access;
+using HYWDebugAssistant.Sdk.Reporting;
 using Shouldly;
 using Xunit;
 
 namespace HYWDebugAssistant.Tests.ExternalAccess;
 
 /// <summary>
-/// 外部接入的框架级用例：声明 → 配置登记 → 会话开关 → 数据回调 → 失败 → 生命周期。
+/// 外部接入的框架级用例：声明 → catalog 解析 → 配置登记 → 会话开关 → 数据回调 → 失败 → 生命周期。
 /// </summary>
 /// <remarks>
-/// 用假适配件与无活动体模块驱动；不碰真实端口/套接字，判据只看框架行为。
+/// 用假 catalog/适配件与无活动体模块驱动；不碰真实端口/套接字，判据只看框架行为。
 /// </remarks>
 public sealed class ExternalAccessRuntimeTests
 {
     [Fact]
     public void 声明外部接入_应登记参数类型并创建会话()
     {
-        using var runtime = NewRuntime();
-        var module = AddModule(runtime, out var instance);
+        using var runtime = NewRuntime(out var catalog);
+        AddModule(runtime, out var instance);
 
         var access = instance.ExternalAccesses.ShouldHaveSingleItem();
         access.Name.ShouldBe(FakeAccessModule.AccessName);
-        _ = module;
+        access.StandardId.ShouldBe(FakeAccessModule.StandardId);
+        catalog.Standards.ShouldHaveSingleItem();
 
         var typeName = typeof(FakeAccessParameters).FullName!;
         instance.Context.ConfigurationSnapshot.ContainsKey(typeName).ShouldBeTrue(
-            "适配件交出的参数类型必须进实例配置快照（配置表单与持久化据此复用）");
+            "catalog 给出的参数类型必须进实例配置快照（配置表单与持久化据此复用）");
+
+        instance.Context.Access.GetParametersType(FakeAccessModule.AccessName)
+            .ShouldBe(typeof(FakeAccessParameters), "模块骨架要能经 GetParametersType 反射配置字段");
 
         instance.Context.Access.GetSnapshot(FakeAccessModule.AccessName).State
             .ShouldBe(ExternalAccessState.Closed);
@@ -39,22 +44,23 @@ public sealed class ExternalAccessRuntimeTests
         var services = new RuntimeServices(runtime);
         services.TryGetConfigurationSchema("m1", out var schema).ShouldBeTrue();
         schema!.Fields.Any(field => field.Name == nameof(FakeAccessParameters.Value))
-            .ShouldBeTrue("适配件参数类型的字段应出现在配置 Schema 里（参数表单复用配置面）");
+            .ShouldBeTrue("catalog 参数类型的字段应出现在配置 Schema 里（参数表单复用配置面）");
     }
 
     [Fact]
     public void 打开命令应开会话_外部数据应经回调到模块_关闭应关会话()
     {
-        using var runtime = NewRuntime();
+        using var runtime = NewRuntime(out var catalog);
         var module = AddModule(runtime, out var instance);
+        var adapter = catalog.Adapter;
         var snapshot = () => instance.Context.Access.GetSnapshot(FakeAccessModule.AccessName);
 
         Send(runtime, "open");
 
         WaitFor(() => snapshot().State == ExternalAccessState.Open, "会话应打开");
-        module.Adapter.OpenCount.ShouldBe(1);
+        adapter.OpenCount.ShouldBe(1);
 
-        module.Adapter.Publish([1, 2, 3]);
+        adapter.Publish([1, 2, 3]);
 
         WaitFor(() => module.Received.Count == 1, "外部数据应经回调到模块");
         module.Received[0].ShouldBe(new byte[] { 1, 2, 3 });
@@ -62,37 +68,61 @@ public sealed class ExternalAccessRuntimeTests
         Send(runtime, "close");
 
         WaitFor(() => snapshot().State == ExternalAccessState.Closed, "关闭后应回到 Closed");
-        module.Adapter.CloseCount.ShouldBeGreaterThanOrEqualTo(1);
+        adapter.CloseCount.ShouldBeGreaterThanOrEqualTo(1);
     }
 
     [Fact]
     public void 打开失败应转Issue且不自动重试_再次请求才重开()
     {
-        using var runtime = NewRuntime();
-        var module = AddModule(runtime, out var instance);
+        using var runtime = NewRuntime(out var catalog);
+        AddModule(runtime, out var instance);
+        var adapter = catalog.Adapter;
         var snapshot = () => instance.Context.Access.GetSnapshot(FakeAccessModule.AccessName);
 
-        module.Adapter.ThrowOnOpen = true;
+        adapter.ThrowOnOpen = true;
         Send(runtime, "open");
 
         WaitFor(() => snapshot().State == ExternalAccessState.Faulted, "打开失败应进入 Faulted");
         runtime.Issues.Count.ShouldBeGreaterThan(0, "失败应转成 Issue");
+        runtime.Issues.Snapshot().ShouldContain(
+            entry => entry.Issue.Severity == IssueSeverity.Warning,
+            "外部接入失败是可恢复的运行状态，不得占错误角标");
 
         Thread.Sleep(150);
-        module.Adapter.OpenCount.ShouldBe(1, "框架不得自动重试");
+        adapter.OpenCount.ShouldBe(1, "框架不得自动重试");
 
-        module.Adapter.ThrowOnOpen = false;
+        adapter.ThrowOnOpen = false;
         Send(runtime, "open");
 
         WaitFor(() => snapshot().State == ExternalAccessState.Open, "用户再次请求应重开");
-        module.Adapter.OpenCount.ShouldBe(2);
+        adapter.OpenCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public void 对端断开等外部故障_应降级为警告而不是错误()
+    {
+        using var runtime = NewRuntime(out var catalog);
+        AddModule(runtime, out var instance);
+        var adapter = catalog.Adapter;
+        var snapshot = () => instance.Context.Access.GetSnapshot(FakeAccessModule.AccessName);
+
+        Send(runtime, "open");
+        WaitFor(() => snapshot().State == ExternalAccessState.Open, "先打开");
+
+        adapter.Fault("对端已关闭连接");
+
+        WaitFor(() => runtime.Issues.Count > 0, "外部故障应转成 Issue");
+        var issue = runtime.Issues.Snapshot()[^1];
+        issue.Issue.Severity.ShouldBe(IssueSeverity.Warning);
+        issue.Issue.Category.ShouldBe(IssueCategory.CommunicationError);
     }
 
     [Fact]
     public void 禁用应关会话_启用应按意图重开()
     {
-        using var runtime = NewRuntime();
-        var module = AddModule(runtime, out var instance);
+        using var runtime = NewRuntime(out var catalog);
+        AddModule(runtime, out var instance);
+        var adapter = catalog.Adapter;
         var snapshot = () => instance.Context.Access.GetSnapshot(FakeAccessModule.AccessName);
 
         Send(runtime, "open");
@@ -104,15 +134,16 @@ public sealed class ExternalAccessRuntimeTests
         Apply(runtime, new SetModuleEnabledOperation("m1", true));
         WaitFor(() => !snapshot().Suspended && snapshot().State == ExternalAccessState.Open, "启用应重开");
 
-        module.Adapter.OpenCount.ShouldBe(2);
-        module.Adapter.CloseCount.ShouldBeGreaterThanOrEqualTo(1);
+        adapter.OpenCount.ShouldBe(2);
+        adapter.CloseCount.ShouldBeGreaterThanOrEqualTo(1);
     }
 
     [Fact]
     public void 参数变更应重开会话并拿到新参数()
     {
-        using var runtime = NewRuntime();
-        var module = AddModule(runtime, out var instance);
+        using var runtime = NewRuntime(out var catalog);
+        AddModule(runtime, out var instance);
+        var adapter = catalog.Adapter;
         var snapshot = () => instance.Context.Access.GetSnapshot(FakeAccessModule.AccessName);
 
         Send(runtime, "open");
@@ -123,24 +154,25 @@ public sealed class ExternalAccessRuntimeTests
             [new FakeAccessParameters { Value = 42 }]));
 
         WaitFor(
-            () => module.Adapter.OpenCount == 2 && snapshot().State == ExternalAccessState.Open,
+            () => adapter.OpenCount == 2 && snapshot().State == ExternalAccessState.Open,
             "参数变更应关闭并用新参数重开");
 
-        module.Adapter.OpenedWith.ShouldNotBeNull();
-        module.Adapter.OpenedWith!.Value.ShouldBe(42);
+        adapter.OpenedWith.ShouldNotBeNull();
+        adapter.OpenedWith!.Value.ShouldBe(42);
     }
 
     [Fact]
     public void 写失败应计入丢弃且不抛到模块()
     {
-        using var runtime = NewRuntime();
-        var module = AddModule(runtime, out var instance);
+        using var runtime = NewRuntime(out var catalog);
+        AddModule(runtime, out var instance);
+        var adapter = catalog.Adapter;
         var snapshot = () => instance.Context.Access.GetSnapshot(FakeAccessModule.AccessName);
 
         Send(runtime, "open");
         WaitFor(() => snapshot().State == ExternalAccessState.Open, "先打开");
 
-        module.Adapter.WriteOk = false;
+        adapter.WriteOk = false;
 
         instance.Context.Access.Write(FakeAccessModule.AccessName, [1, 2, 3, 4])
             .ShouldBeFalse();
@@ -176,25 +208,58 @@ public sealed class ExternalAccessRuntimeTests
     [Fact]
     public void 移除实例应关闭会话()
     {
-        using var runtime = NewRuntime();
-        var module = AddModule(runtime, out _);
+        using var runtime = NewRuntime(out var catalog);
+        AddModule(runtime, out _);
+        var adapter = catalog.Adapter;
 
         Send(runtime, "open");
-        WaitFor(() => module.Adapter.OpenCount == 1, "先打开");
+        WaitFor(() => adapter.OpenCount == 1, "先打开");
 
         Apply(runtime, new RemoveModuleOperation("m1"));
 
-        WaitFor(() => module.Adapter.CloseCount >= 1, "移除应关闭会话");
+        WaitFor(() => adapter.CloseCount >= 1, "移除应关闭会话");
         runtime.ExternalAccessHost.ActiveInstanceCount.ShouldBe(0);
     }
 
-    private static ModuleRuntime NewRuntime() => new(
-        carrierOptions: new CarrierOptions
+    [Fact]
+    public void 激活中途失败_应关闭已创建的适配器()
+    {
+        var first = new FakeExternalAccessAdapter();
+        var catalog = new TwoStandardCatalog(
+            new ExternalAccessDescriptor("std-a", "A", typeof(FakeAccessParameters), () => first),
+            new ExternalAccessDescriptor(
+                "std-b",
+                "B",
+                typeof(FakeAccessParameters),
+                static () => throw new InvalidOperationException("工厂失败")));
+
+        using var host = new ExternalAccessHost(catalog: catalog);
+        var declarations = new[]
         {
-            QueueCapacity = 16,
-            StopTimeout = TimeSpan.FromSeconds(2),
-            IdleWait = TimeSpan.FromMilliseconds(1),
-        });
+            new ExternalAccessDeclaration("a", "std-a"),
+            new ExternalAccessDeclaration("b", "std-b"),
+        };
+
+        host.TryActivate("i1", declarations, _ => new FakeAccessParameters(), out var failure)
+            .ShouldBeFalse();
+
+        failure.ShouldNotBeNull();
+        failure.ShouldContain("工厂失败");
+        first.CloseCount.ShouldBe(1, "中途失败时已创建的适配器必须被关闭，不能留给 GC");
+    }
+
+    private static ModuleRuntime NewRuntime(out FakeExternalAccessCatalog catalog)
+    {
+        catalog = new FakeExternalAccessCatalog();
+        return new ModuleRuntime(
+            carrierOptions: new CarrierOptions
+            {
+                QueueCapacity = 16,
+                StopTimeout = TimeSpan.FromSeconds(2),
+                IdleWait = TimeSpan.FromMilliseconds(1),
+            },
+            catalog: catalog);
+    }
 
     private static FakeAccessModule AddModule(ModuleRuntime runtime, out ModuleInstance instance)
     {
@@ -229,6 +294,28 @@ public sealed class ExternalAccessRuntimeTests
             }
 
             Thread.Sleep(10);
+        }
+    }
+
+    /// <summary>测试用目录：一组显式 descriptor（用于覆盖激活中途失败的清理路径）。</summary>
+    private sealed class TwoStandardCatalog(params ExternalAccessDescriptor[] standards) : IExternalAccessCatalog
+    {
+        public IReadOnlyList<ExternalAccessDescriptor> Standards { get; } = standards;
+
+        public bool TryResolve(string standardId, out ExternalAccessDescriptor descriptor)
+        {
+            descriptor = null!;
+
+            foreach (var candidate in Standards)
+            {
+                if (string.Equals(candidate.StandardId, standardId, StringComparison.Ordinal))
+                {
+                    descriptor = candidate;
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }

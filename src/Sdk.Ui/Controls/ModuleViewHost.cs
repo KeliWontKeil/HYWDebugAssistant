@@ -90,6 +90,17 @@ public abstract class ModuleElement : ContentControl, IModuleViewElement
 
         ApplyTextSize(appearance.TextSize);
         ApplyReadOnly(appearance.ReadOnly is true);
+        ApplyEnabled(appearance.Enabled);
+    }
+
+    /// <summary>把运行期启用状态落到本元件（只在实际设置时改，null 不干预）。</summary>
+    /// <param name="enabled">启用状态；<see langword="null"/> = 不干预。</param>
+    protected void ApplyEnabled(bool? enabled)
+    {
+        if (enabled is { } value)
+        {
+            IsEnabled = value;
+        }
     }
 
     /// <summary>把文字大小落到真正显示文字的那一块（默认：本元件继承值）。</summary>

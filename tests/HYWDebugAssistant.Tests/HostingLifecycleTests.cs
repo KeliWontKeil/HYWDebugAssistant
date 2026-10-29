@@ -150,19 +150,21 @@ public class HostingLifecycleTests
     // ------------------------------------------------------------ 安装与校验
 
     [Fact]
-    public void 安装器_应成功安装真实包且重复安装被拒绝()
+    public void 安装器_重复安装同一包应返回已载入而不是错误()
     {
         var sink = new CollectingIssueSink();
         var registry = new ModuleRegistry();
         var installer = new ModuleInstaller(registry, sink);
 
-        installer.TryInstall(TextSenderPackage, out var definition).ShouldBeTrue();
-        definition!.Id.ToString().ShouldBe("hyw/text-sender/1.0.0");
+        var first = installer.Install(TextSenderPackage);
+        first.Outcome.ShouldBe(ModuleInstallOutcome.Installed);
+        first.Definition!.Id.ToString().ShouldBe("hyw/text-sender/1.0.0");
         registry.Definitions.Count.ShouldBe(1);
 
-        installer.TryInstall(TextSenderPackage, out _).ShouldBeFalse();
-        sink.Issues.Count.ShouldBe(1);
-        sink.Issues[0].Issue.Message.ShouldContain("已注册");
+        var second = installer.Install(TextSenderPackage);
+        second.Outcome.ShouldBe(ModuleInstallOutcome.AlreadyLoaded);
+        second.Definition!.Id.ToString().ShouldBe("hyw/text-sender/1.0.0");
+        sink.Issues.ShouldBeEmpty("同一包重复安装是正常状态，不是 Error");
     }
 
     [Fact]
@@ -191,15 +193,28 @@ public class HostingLifecycleTests
         sink.Issues[0].Issue.Message.ShouldContain("不满足兼容范围");
     }
 
+    /// <summary>兼容范围样例**从当前 SDK 版本派生**（升级 SDK 不再改测试；TODO G56）。</summary>
+    public static IEnumerable<object?[]> 兼容范围样例()
+    {
+        var current = FrameworkCompatibility.CurrentFrameworkVersion;
+        var parts = current.Split('.');
+        var major = int.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture);
+        var minor = int.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
+        var lower = $"{major - 1}.0.0";
+        var next = $"{major}.{minor + 1}.0";
+
+        yield return [null, true];
+        yield return ["", true];
+        yield return [$">={lower} <{next}", true];
+        yield return [$">={lower}", true];
+        yield return [$"={current}", true];
+        yield return [$">={next}", false];
+        yield return [$"<{lower}", false];
+        yield return [$">{current}", false];
+    }
+
     [Theory]
-    [InlineData(null, true)]
-    [InlineData("", true)]
-    [InlineData(">=1.0.0 <2.0.0", true)]
-    [InlineData(">=1.0.0", true)]
-    [InlineData("=1.0.0", true)]
-    [InlineData(">=2.0.0", false)]
-    [InlineData("<1.0.0", false)]
-    [InlineData(">1.0.0", false)]
+    [MemberData(nameof(兼容范围样例))]
     public void 框架兼容范围_判定应正确(string? range, bool expected)
     {
         FrameworkCompatibility
@@ -308,13 +323,25 @@ public class HostingLifecycleTests
     {
         public TempPackage(string sourceDirectory, string? dependsOn = null, string? frameworkCompatibility = null)
         {
-            Directory = Path.Combine(Path.GetTempPath(), "hyw-lifecycle-" + Guid.NewGuid().ToString("N"));
-            System.IO.Directory.CreateDirectory(Directory);
+            // **确定性临时目录**：跨进程复用同一个名字；启动时先尝试删掉上一次的副本
+            // （上一进程的锁已释放），本进程内因 LoadFrom 仍锁定而不删 ⇒ 不会无限堆积。
+            Directory = Path.Combine(Path.GetTempPath(), "hyw-test-package-lifecycle-text-sender");
+            TryDeleteTempDirectory(Directory);
+            _ = System.IO.Directory.CreateDirectory(Directory);
 
-            foreach (var file in System.IO.Directory.EnumerateFiles(sourceDirectory)
-                         .Where(f => !f.EndsWith(".json", StringComparison.OrdinalIgnoreCase)))
+            // 真实包含子目录（如随包 `i18n/`）：临时副本必须同样带上，否则"换了目录就丢文本"。
+            foreach (var file in System.IO.Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
             {
-                File.Copy(file, Path.Combine(Directory, Path.GetFileName(file)), overwrite: true);
+                if (Path.GetDirectoryName(file) == sourceDirectory
+                    && file.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;   // 顶层 module.json 由下面的篡改版替代
+                }
+
+                var relative = Path.GetRelativePath(sourceDirectory, file);
+                var target = Path.Combine(Directory, relative);
+                _ = System.IO.Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(file, target, overwrite: true);
             }
 
             var depends = dependsOn is null ? "[]" : $"[\"{dependsOn}\"]";
@@ -335,16 +362,27 @@ public class HostingLifecycleTests
 
         public string Directory { get; }
 
-        public void Dispose()
+        /// <summary>删掉上一次运行留下的副本（失败 = 本进程仍锁着，直接复用/覆盖）。</summary>
+        private static void TryDeleteTempDirectory(string directory)
         {
             try
             {
-                System.IO.Directory.Delete(Directory, recursive: true);
+                if (System.IO.Directory.Exists(directory))
+                {
+                    System.IO.Directory.Delete(directory, recursive: true);
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // 已加载程序集锁定文件，清理失败不影响测试结论
+                // 上一个进程的残留删不掉就保留：下面的文件复制会覆盖它。
             }
+        }
+
+        public void Dispose()
+        {
+            // **不删临时目录**：`Assembly.LoadFrom` 会锁定程序集；递归删除会先删掉未锁的
+            // `i18n/**` 再在 DLL 上失败 ⇒ 后续用例复用已加载程序集时"随包文本凭空消失"。
+            // 目录在系统 temp 下，由操作系统回收。
         }
     }
 }

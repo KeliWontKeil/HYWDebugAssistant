@@ -1,0 +1,214 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
+             xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+             x:Class="HYWDebugAssistant.FrameworkUi.Views.CompositePageView"
+             x:DataType="vm:CompositePageViewModel"
+             xmlns:design="using:HYWDebugAssistant.FrameworkUi.Design"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             d:DataContext="{x:Static design:ShellDesignData.Composites}"
+             d:DesignWidth="420" d:DesignHeight="760"
+             FontSize="12">
+
+    <UserControl.Styles>
+        <Style Selector="TextBlock.annotation">
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+            <Setter Property="Opacity" Value="0.7" />
+        </Style>
+        <Style Selector="TextBlock.annotation.warn">
+            <Setter Property="Foreground" Value="{DynamicResource SemanticWarn}" />
+        </Style>
+        <Style Selector="TextBlock.annotation.error">
+            <Setter Property="Foreground" Value="{DynamicResource SemanticError}" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*,Auto,Auto,Auto,Auto" Margin="8" RowSpacing="4">
+
+        <!-- ① 搜索可用组合（**页面级**帮助放在页面顶行、列表框外：它不是某个控件的帮助） -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="4">
+            <TextBox Grid.Column="0"
+                     PlaceholderText="{loc:Tr composite.search.placeholder}"
+                     Text="{Binding CompositeSearchText, Mode=TwoWay}" />
+            <Button Grid.Column="1" Classes="helpIcon" VerticalAlignment="Center"
+                    ToolTip.Tip="{loc:Tr composite.help.tip}">
+                <Button.Flyout>
+                    <Flyout Placement="BottomEdgeAlignedRight">
+                        <TextBlock MaxWidth="340" TextWrapping="Wrap" FontSize="11"
+                                   Text="{loc:Tr composite.help.body}" />
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+        </Grid>
+
+        <!-- ② 可用组合：框内只有「加载」；导入/重扫/删除在框下 -->
+        <Border Grid.Row="1" Classes="pane" Padding="4" MinHeight="200">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <TextBlock Grid.Row="0" Classes="paneTitle" Margin="2,0,0,2" Text="{loc:Tr composite.available.title}" />
+
+                <Grid Grid.Row="1">
+                    <ListBox Background="Transparent"
+                             BorderThickness="0"
+                             ItemsSource="{Binding CompositeFiles}"
+                             SelectedItem="{Binding SelectedCompositeFile, Mode=TwoWay}"
+                             DoubleTapped="OnCompositeFileDoubleTapped">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="vm:CompositeFileRowViewModel">
+                                <!-- 整行命中：条目根给透明背景，空白处也能出提示 -->
+                                <Grid ColumnDefinitions="72,*" Margin="0,2" Background="Transparent"
+                                      ToolTip.Tip="{Binding TooltipText}">
+                                    <Border Grid.Column="0" Classes="previewTile">
+                                        <Grid>
+                                            <Border Background="{Binding PreviewBrush}" />
+                                            <TextBlock Classes="icon previewGlyph"
+                                                       FontSize="18"
+                                                       IsVisible="{Binding !HasPreview}"
+                                                       Text="{DynamicResource GlyphComposite}" />
+                                        </Grid>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="8,0,0,0" Spacing="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding DisplayName}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{DynamicResource TextPrimary}" />
+                                        <TextBlock Classes="annotation"
+                                                   Classes.warn="{Binding HasMissing}"
+                                                   Classes.error="{Binding HasError}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Text="{Binding Annotation}" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <TextBlock HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding IsCompositeFilesEmpty}"
+                               Foreground="{DynamicResource TextMuted}"
+                               Text="{Binding CompositeFilesEmptyText}" />
+                </Grid>
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="4" Margin="2,4,0,0">
+                    <Button Content="{loc:Tr composite.load}"
+                            MinWidth="60"
+                            IsEnabled="{Binding CanLoadFile}"
+                            Click="OnLoadSelectedClicked"
+                            ToolTip.Tip="{loc:Tr composite.load.tip}" />
+                    <Button Content="{loc:Tr composite.delete}"
+                            MinWidth="60"
+                            IsEnabled="{Binding CanDeleteFile}"
+                            Click="OnDeleteClicked"
+                            ToolTip.Tip="{loc:Tr composite.delete.tip}" />
+                    <Button Content="{loc:Tr composite.rename}"
+                            MinWidth="66"
+                            IsEnabled="{Binding CanRenameFile}"
+                            Click="OnRenameClicked"
+                            ToolTip.Tip="{loc:Tr composite.rename.tip}" />
+                    <Button Content="{loc:Tr composite.cover}"
+                            MinWidth="80"
+                            IsEnabled="{Binding CanRenameFile}"
+                            Click="OnChangeCoverClicked"
+                            ToolTip.Tip="{loc:Tr composite.cover.tip}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ③ 组合文件操作：与模块清单同层级，放在选择框下面 -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Left">
+            <Button Content="{loc:Tr composite.import}" Click="OnImportClicked"
+                    ToolTip.Tip="{loc:Tr composite.import.tip}" />
+            <Button Content="{loc:Tr composite.rescan}" Click="OnRefreshFilesClicked"
+                    ToolTip.Tip="{loc:Tr composite.rescan.tip}" />
+        </StackPanel>
+
+        <!-- ④ 已选模块（压缩：只有 × + 名称） -->
+        <Border Grid.Row="3" Classes="pane" Padding="4" Height="180" MinHeight="120">
+            <Grid RowDefinitions="Auto,*">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="2,0,0,2">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <TextBlock Classes="paneTitle" Text="{loc:Tr composite.selected.title}" />
+                        <TextBlock FontSize="10"
+                                   Foreground="{DynamicResource TextSecondary}"
+                                   Text="{Binding SelectionText}" />
+                    </StackPanel>
+                    <Button Grid.Column="1"
+                            Content="{loc:Tr composite.selectAll}"
+                            MinHeight="22" Height="22"
+                            Margin="0,0,4,0"
+                            Command="{Binding SelectAllLiveCommand}"
+                            ToolTip.Tip="{loc:Tr composite.selectAll.tip}" />
+                    <Button Grid.Column="2"
+                            Content="{loc:Tr composite.clear}"
+                            MinHeight="22" Height="22"
+                            Command="{Binding ClearSelectionCommand}" />
+                </Grid>
+
+                <Grid Grid.Row="1">
+                    <ScrollViewer>
+                        <ItemsControl ItemsSource="{Binding Rows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:CompositeModuleRowViewModel">
+                                    <Grid ColumnDefinitions="Auto,*" Margin="0,1">
+                                        <Button Grid.Column="0"
+                                                Classes="icon"
+                                                Width="20" Height="20" MinHeight="20"
+                                                Margin="0,0,4,0"
+                                                ToolTip.Tip="{loc:Tr composite.remove.tip}"
+                                                Command="{Binding $parent[ItemsControl].((vm:CompositePageViewModel)DataContext).RemoveModuleCommand}"
+                                                CommandParameter="{Binding InstanceId}">
+                                            <TextBlock Classes="icon" FontSize="10" Text="{DynamicResource GlyphClose}" />
+                                        </Button>
+                                        <TextBlock Grid.Column="1"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{DynamicResource TextPrimary}"
+                                                   Text="{Binding DisplayName}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <TextBlock HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"
+                               MaxWidth="280"
+                               IsVisible="{Binding IsSelectionEmpty}"
+                               Foreground="{DynamicResource TextMuted}"
+                               Text="{loc:Tr composite.selected.empty}" />
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- ⑤ 保存：名称一行，两个按钮同一行 -->
+        <StackPanel Grid.Row="4" Spacing="4">
+            <TextBox Text="{Binding CompositeName, Mode=TwoWay}"
+                     PlaceholderText="{loc:Tr composite.name.placeholder}" />
+            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left">
+                <Button Content="{loc:Tr composite.save}"
+                        MinWidth="90"
+                        IsEnabled="{Binding CanSave}"
+                        Click="OnSaveClicked"
+                        ToolTip.Tip="{loc:Tr composite.save.tip}" />
+                <Button Content="{loc:Tr composite.saveAs}"
+                        MinWidth="90"
+                        IsEnabled="{Binding CanSave}"
+                        Click="OnSaveAsClicked"
+                        ToolTip.Tip="{loc:Tr composite.saveAs.tip}" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- ⑥ 提示 + 状态：固定行，间距紧凑；详情进 ToolTip/Issue -->
+        <StackPanel Grid.Row="5" Spacing="2">
+            <TextBlock Classes="operationHint"
+                       ToolTip.Tip="{Binding PartialNetworkHint}"
+                       Text="{Binding PartialNetworkHint}" />
+            <TextBlock Classes="operationStatus"
+                       Classes.error="{Binding StatusIsError}"
+                       ToolTip.Tip="{Binding StatusDetail}"
+                       Text="{Binding StatusMessage}" />
+        </StackPanel>
+    </Grid>
+</UserControl>

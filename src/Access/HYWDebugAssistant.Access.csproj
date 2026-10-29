@@ -1,11 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    外部接入层（**随模块包**、不是框架件）：
+    外部接入层（**框架侧**，只有组合根 App 引用）：
       · 四个适配件（懂外部标准：串口 / TCP 客户端 / TCP 服务端 / UDP）
       · 四个参数类型（配置表单与持久化复用）
-      · 模块侧共用骨架（声明 → 接线 → 状态/计数发布）
-    依赖纪律：只引 Sdk + System.IO.Ports；**不引任何框架程序集**；框架也不得引用本工程（AR-3 / AR-13）。
+      · 内置标准目录（BuiltInExternalAccessCatalog：标准标识 → descriptor）
+    依赖纪律：只引 Sdk + System.IO.Ports；**不引任何框架程序集**；模块包不带本程序集（AR-3 / AR-13）。
   -->
   <ItemGroup>
     <ProjectReference Include="..\Sdk\HYWDebugAssistant.Sdk.csproj" />

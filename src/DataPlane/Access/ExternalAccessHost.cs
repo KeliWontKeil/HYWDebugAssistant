@@ -19,13 +19,21 @@ namespace HYWDebugAssistant.DataPlane.Access;
 public sealed class ExternalAccessHost : IDisposable
 {
     private readonly ConcurrentDictionary<string, AccessInstance> _instances = new(StringComparer.Ordinal);
+    private readonly IExternalAccessCatalog? _catalog;
     private CarrierOptions _options;
     private bool _disposed;
 
     /// <summary>创建宿主。</summary>
     /// <param name="options">承载参数（队列容量、丢旧策略、停止超时）。</param>
-    public ExternalAccessHost(CarrierOptions? options = null) =>
+    /// <param name="catalog">
+    /// 外部标准目录；<see langword="null"/> ⇒ 无法按标准标识解析适配器与参数类型
+    /// （有声明时激活失败并给出原因）。
+    /// </param>
+    public ExternalAccessHost(CarrierOptions? options = null, IExternalAccessCatalog? catalog = null)
+    {
         _options = options ?? new CarrierOptions();
+        _catalog = catalog;
+    }
 
     /// <summary>当前承载参数（只影响新建会话）。</summary>
     public CarrierOptions Options => _options;
@@ -69,41 +77,107 @@ public sealed class ExternalAccessHost : IDisposable
             return true;
         }
 
-        var closeTimeout = HalfOfStopTimeout(_options.StopTimeout);
         var sessions = new Dictionary<string, ExternalAccessSession>(declarations.Count, StringComparer.Ordinal);
+        var created = new List<ExternalAccessSession>(declarations.Count);
+        var closeTimeout = HalfOfStopTimeout(_options.StopTimeout);
+        var catalog = _catalog;
 
-        foreach (var declaration in declarations)
+        // 中途失败必须**先释放已创建的会话/适配器**再返回：不能把半成品留给 GC。
+        string? error = null;
+
+        void Fail(string message)
         {
-            if (declaration is null || string.IsNullOrWhiteSpace(declaration.Name))
+            foreach (var session in created)
             {
-                failure = "接入声明的名字为空";
-                return false;
+                session.Discard();
             }
 
-            var session = new ExternalAccessSession(
-                declaration,
-                parametersProvider,
-                new AccessInboundBuffer(_options.QueueCapacity, _options.DropPolicy),
-                closeTimeout,
-                () => SignalResolver?.Invoke(instanceId)?.Invoke());
-
-            if (!sessions.TryAdd(declaration.Name, session))
-            {
-                failure = $"接入名重复：{declaration.Name}";
-                return false;
-            }
+            error = message;
         }
 
-        var instance = new AccessInstance(sessions);
-
-        if (!_instances.TryAdd(instanceId, instance))
+        if (catalog is null)
         {
-            failure = $"实例已有外部接入会话：{instanceId}";
+            failure = DataPlaneText.Get("dataplane.access.catalogMissing");
             return false;
         }
 
-        return true;
+        if (error is null)
+        {
+            foreach (var declaration in declarations)
+            {
+                if (declaration is null || string.IsNullOrWhiteSpace(declaration.Name))
+                {
+                    Fail(DataPlaneText.Get("dataplane.access.nameEmpty"));
+                    break;
+                }
+
+                if (!catalog.TryResolve(declaration.StandardId, out var descriptor) || descriptor is null)
+                {
+                    Fail(DataPlaneText.Get("dataplane.access.unknownStandard", declaration.StandardId, declaration.Name));
+                    break;
+                }
+
+                if (descriptor.ParametersType is null)
+                {
+                    Fail(DataPlaneText.Get("dataplane.access.parametersTypeEmpty", declaration.StandardId, declaration.Name));
+                    break;
+                }
+
+                IExternalAccessAdapter adapter;
+                try
+                {
+                    adapter = descriptor.CreateAdapter();
+                }
+                catch (Exception ex)
+                {
+                    Fail(DataPlaneText.Get("dataplane.access.createAdapterFailed", declaration.StandardId, ex.GetType().Name, ex.Message));
+                    break;
+                }
+
+                if (adapter is null)
+                {
+                    Fail(DataPlaneText.Get("dataplane.access.adapterFactoryReturnedNull", declaration.StandardId));
+                    break;
+                }
+
+                var session = new ExternalAccessSession(
+                    declaration,
+                    adapter,
+                    descriptor.ParametersType,
+                    parametersProvider,
+                    new AccessInboundBuffer(_options.QueueCapacity, _options.DropPolicy),
+                    closeTimeout,
+                    () => SignalResolver?.Invoke(instanceId)?.Invoke());
+
+                created.Add(session);
+
+                if (!sessions.TryAdd(declaration.Name, session))
+                {
+                    Fail(DataPlaneText.Get("dataplane.access.duplicateName", declaration.Name));
+                    break;
+                }
+            }
+        }
+
+        if (error is null)
+        {
+            var instance = new AccessInstance(sessions);
+
+            if (!_instances.TryAdd(instanceId, instance))
+            {
+                Fail(DataPlaneText.Get("dataplane.access.sessionAlreadyExists", instanceId));
+            }
+        }
+
+        failure = error;
+        return error is null;
     }
+
+    /// <summary>取一条接入的参数类型（未知实例/接入 ⇒ <see langword="null"/>）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="accessName">接入名。</param>
+    public Type? GetParametersType(string instanceId, string accessName) =>
+        TryGetSession(instanceId, accessName, out var session) ? session.ParametersType : null;
 
     /// <summary>请求打开一条接入（只置意图；实际执行在实例循环的 <see cref="Pump"/> 里）。</summary>
     public bool RequestOpen(string instanceId, string accessName) =>

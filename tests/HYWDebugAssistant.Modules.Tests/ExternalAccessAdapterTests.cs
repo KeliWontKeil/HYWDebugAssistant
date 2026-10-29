@@ -2,11 +2,11 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using HYWDebugAssistant.Access;
 using HYWDebugAssistant.Access.Adapters;
 using HYWDebugAssistant.Access.Parameters;
 using HYWDebugAssistant.Modules.Serial;
 using HYWDebugAssistant.Sdk.Access;
+using HYWDebugAssistant.Sdk.AccessKit;
 using HYWDebugAssistant.Sdk.Testing;
 using Shouldly;
 using Xunit;
@@ -57,6 +57,155 @@ public sealed class ExternalAccessAdapterTests
 
         ready.State.ShouldBe(ExternalAccessState.Faulted);
         ready.LastError.ShouldNotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public void 串口适配件_读取故障应报告Faulted()
+    {
+        var transport = new FakeSerialTransport();
+        var ready = new ReadySink();
+        var adapter = new SerialAccessAdapter(() => transport);
+
+        adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
+        transport.Fail(new IOException("假串口：读取失败"));
+
+        ready.State.ShouldBe(ExternalAccessState.Faulted);
+        ready.LastError.ShouldNotBeNull().ShouldContain("串口读取失败");
+    }
+
+    [Fact]
+    public void 串口硬件回声不得触发适配器二次写()
+    {
+        var transport = new FakeSerialTransport { EchoWrites = true };
+        var ready = new ReadySink();
+        var adapter = new SerialAccessAdapter(() => transport);
+
+        adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
+        adapter.Write([1, 2, 3]).ShouldBeTrue();
+
+        var buffer = new byte[RawBytesFraming.Capacity];
+        WaitFor(() => adapter.TryRead(buffer, out _), "硬件回声应作为接收数据到达");
+        buffer[..3].ShouldBe([1, 2, 3]);
+
+        // 适配器只写了一次；回声不会触发第二次 Write。
+        transport.Written.Count.ShouldBe(1);
+        adapter.Close(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public void 默认地址与端口应使用本机回环和60721()
+    {
+        var tcpClient = new TcpClientConfig();
+        var tcpServer = new TcpServerConfig();
+        var udp = new UdpConfig();
+
+        tcpClient.RemoteHost.ShouldBe("127.0.0.1");
+        tcpClient.RemotePort.ShouldBe(60721);
+        tcpServer.LocalAddress.ShouldBe("127.0.0.1");
+        tcpServer.LocalPort.ShouldBe(60721);
+        udp.LocalAddress.ShouldBe("127.0.0.1");
+        udp.LocalPort.ShouldBe(60721);
+        udp.RemoteAddress.ShouldBe("127.0.0.1");
+        udp.RemotePort.ShouldBe(60721);
+    }
+
+    [Fact]
+    public void TCP服务端端口占用应给出明确原因()
+    {
+        var occupied = new TcpListener(IPAddress.Loopback, 0);
+        occupied.Start();
+
+        try
+        {
+            var port = ((IPEndPoint)occupied.LocalEndpoint).Port;
+            var ready = new ReadySink();
+            var adapter = new TcpServerAccessAdapter();
+
+            adapter.Open(
+                new TcpServerConfig { LocalAddress = "127.0.0.1", LocalPort = port },
+                ready);
+
+            ready.State.ShouldBe(ExternalAccessState.Faulted);
+            ready.LastError.ShouldNotBeNull().ShouldContain("已被占用");
+        }
+        finally
+        {
+            occupied.Stop();
+        }
+    }
+
+    [Fact]
+    public void UDP端口占用应给出明确原因()
+    {
+        using var occupied = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        occupied.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+
+        var port = ((IPEndPoint)occupied.LocalEndPoint!).Port;
+        var ready = new ReadySink();
+        var adapter = new UdpAccessAdapter();
+
+        adapter.Open(
+            new UdpConfig { LocalAddress = "127.0.0.1", LocalPort = port },
+            ready);
+
+        ready.State.ShouldBe(ExternalAccessState.Faulted);
+        ready.LastError.ShouldNotBeNull().ShouldContain("已被占用");
+    }
+
+    [Fact]
+    public void TCP服务端与UDP的本地地址选项应包含回环()
+    {
+        var tcp = new TcpServerConfig().GetChoices(nameof(TcpServerConfig.LocalAddress));
+        var udp = new UdpConfig().GetChoices(nameof(UdpConfig.LocalAddress));
+
+        tcp.ShouldNotBeNull().ShouldContain("127.0.0.1");
+        udp.ShouldNotBeNull().ShouldContain("127.0.0.1");
+    }
+
+    [Fact]
+    public void UDP本地地址0点0点0点0应能绑定()
+    {
+        var ready = new ReadySink();
+        var adapter = new UdpAccessAdapter();
+
+        adapter.Open(new UdpConfig { LocalAddress = "0.0.0.0", LocalPort = 0 }, ready);
+
+        ready.State.ShouldBe(ExternalAccessState.Open);
+        adapter.Close(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public void UDP目标0点0点0点0应明确拒绝()
+    {
+        var ready = new ReadySink();
+        var adapter = new UdpAccessAdapter();
+
+        adapter.Open(
+            new UdpConfig
+            {
+                LocalAddress = "0.0.0.0",
+                LocalPort = 0,
+                RemoteAddress = "0.0.0.0",
+                RemotePort = 12345,
+            },
+            ready);
+
+        ready.State.ShouldBe(ExternalAccessState.Faulted);
+        ready.LastError.ShouldNotBeNull().ShouldContain("目标地址不能是 0.0.0.0");
+    }
+
+    [Fact]
+    public void TCP客户端目标0点0点0点0应明确拒绝()
+    {
+        var ready = new ReadySink();
+        var adapter = new TcpClientAccessAdapter();
+
+        adapter.Open(
+            new TcpClientConfig { RemoteHost = "0.0.0.0", RemotePort = 12345 },
+            ready);
+
+        ready.State.ShouldBe(ExternalAccessState.Faulted);
+        ready.LastError.ShouldNotBeNull().ShouldContain("目标地址不能是 0.0.0.0");
     }
 
     [Fact]
@@ -415,15 +564,18 @@ public sealed class ExternalAccessAdapterTests
 
     private sealed class FakeSerialTransport : ISerialTransport
     {
-        private readonly Queue<byte[]> _incoming = new();
-        private readonly SemaphoreSlim _signal = new(0);
-        private readonly Lock _gate = new();
+        public event Action<byte[]>? DataReceived;
+
+        public event Action<Exception>? ReadFaulted;
 
         public bool OpenCalled { get; private set; }
 
         public bool Closed { get; private set; }
 
         public bool ThrowOnOpen { get; init; }
+
+        /// <summary>模拟 RXD/TXD 短接：写入后把同一段字节回投到接收事件。</summary>
+        public bool EchoWrites { get; init; }
 
         public List<byte[]> Written { get; } = [];
 
@@ -438,43 +590,26 @@ public sealed class ExternalAccessAdapterTests
             OpenCalled = true;
         }
 
-        public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken token)
+        public void Write(ReadOnlySpan<byte> payload)
         {
-            while (true)
-            {
-                lock (_gate)
-                {
-                    if (_incoming.Count > 0)
-                    {
-                        var payload = _incoming.Dequeue();
-                        var length = Math.Min(payload.Length, buffer.Length);
-                        payload.AsSpan(0, length).CopyTo(buffer.Span);
-                        return length;
-                    }
-                }
+            var copy = payload.ToArray();
+            Written.Add(copy);
 
-                await _signal.WaitAsync(token).ConfigureAwait(false);
+            if (EchoWrites)
+            {
+                DataReceived?.Invoke(copy);
             }
         }
 
-        public void Write(ReadOnlySpan<byte> payload) => Written.Add(payload.ToArray());
+        public void Feed(ReadOnlySpan<byte> payload) =>
+            DataReceived?.Invoke(payload.ToArray());
 
-        public void Feed(ReadOnlySpan<byte> payload)
+        public void Fail(Exception exception) => ReadFaulted?.Invoke(exception);
+
+        public void Close() => Closed = true;
+
+        public void Dispose()
         {
-            lock (_gate)
-            {
-                _incoming.Enqueue(payload.ToArray());
-            }
-
-            _ = _signal.Release();
         }
-
-        public void Close()
-        {
-            Closed = true;
-            _ = _signal.Release();
-        }
-
-        public void Dispose() => _signal.Dispose();
     }
 }

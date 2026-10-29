@@ -1,11 +1,13 @@
 using System.Diagnostics.CodeAnalysis;
 using HYWDebugAssistant.Hosting.Diagnostics;
+using HYWDebugAssistant.Hosting.Timing;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Timing;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Hosting.Context;
@@ -32,6 +34,7 @@ public sealed class ModuleContext : IModuleContext
     private readonly List<RoleDeclaration> _roles = [];
     private readonly List<DisplaySourceDeclaration> _displaySources = [];
     private readonly List<string> _inputs = [];
+    private readonly HashSet<string> _persistentInputs = new(StringComparer.Ordinal);
     private readonly List<(string Name, string Title)> _commands = [];
     private readonly List<ExternalAccessDeclaration> _externalAccesses = [];
     private readonly Dictionary<string, ReceiveHandler> _receiveHandlers = new(StringComparer.Ordinal);
@@ -43,7 +46,12 @@ public sealed class ModuleContext : IModuleContext
     /// <param name="instanceId">实例 ID（上报归属用）。</param>
     /// <param name="moduleId">模块标识。</param>
     /// <param name="issues">框架侧上报口。</param>
-    public ModuleContext(string instanceId, ModuleId moduleId, IIssueSink issues)
+    /// <param name="timing">全局计时面（缺省使用进程共享的全局计时服务）。</param>
+    public ModuleContext(
+        string instanceId,
+        ModuleId moduleId,
+        IIssueSink issues,
+        IModuleTiming? timing = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
         ArgumentNullException.ThrowIfNull(issues);
@@ -53,12 +61,15 @@ public sealed class ModuleContext : IModuleContext
         ModuleId = moduleId;
 
         Declaration = new DeclarationCollector(
-            _ports, _dataTypes, _flows, _roles, _displaySources, _inputs, _commands,
-            _externalAccesses, TryEnsureConfiguration);
+            _ports, _dataTypes, _flows, _roles, _displaySources, _inputs, _persistentInputs, _commands,
+            _externalAccesses);
         Issues = new IssueReporter(issues, _objectPath);
         Log = new NullModuleLogger();
         State = new NullBusinessStateReporter();
         StopSignal = new SimpleStopSignal();
+        Timing = timing ?? new ModuleTiming(
+            GlobalTimerService.Shared,
+            ((SimpleStopSignal)StopSignal).StoppingToken);
         Ports = new PlaceholderPortAccess(_receiveHandlers);
         Configuration = new InMemoryConfigurationAccess(_configuration, _configurationGate);
         Inbox = new BoundedInbox();
@@ -102,6 +113,9 @@ public sealed class ModuleContext : IModuleContext
 
     /// <inheritdoc />
     public IStopSignal StopSignal { get; }
+
+    /// <inheritdoc />
+    public IModuleTiming Timing { get; }
 
     /// <inheritdoc />
     public IModuleInbox Inbox { get; }
@@ -167,6 +181,9 @@ public sealed class ModuleContext : IModuleContext
 
     /// <summary>已声明的**输入源名**（按声明顺序）——提交闸门据此判定。</summary>
     public IReadOnlyList<string> DeclaredInputs => _inputs;
+
+    /// <summary>声明为持久化的输入源名（随组合件/工作区保存）；顺序不保证。</summary>
+    public IReadOnlyCollection<string> PersistentInputs => _persistentInputs;
 
     /// <summary>已声明的**命令**（名字 + 给人看的标题，按声明顺序）——触发闸门与诊断文案据此判定。</summary>
     public IReadOnlyList<(string Name, string Title)> DeclaredCommands => _commands;
@@ -235,8 +252,8 @@ public sealed class ModuleContext : IModuleContext
     }
 
     /// <summary>
-    /// **按类型登记一份配置**（框架内部：外部接入的适配件参数类型由声明交出，框架据此让配置表单
-    /// 与持久化自动复用该类型）。
+    /// **按类型登记一份配置**（框架内部：外部接入的参数类型由标准目录的 descriptor 给出，
+    /// 框架据此让配置表单与持久化自动复用该类型）。
     /// </summary>
     /// <param name="type">配置类型（公开、非抽象、有公共无参构造）。</param>
     /// <returns>登记后的对象；类型不合法或无法实例化时为 <see langword="null"/>（由调用方报 Issue）。</returns>
@@ -353,9 +370,9 @@ public sealed class ModuleContext : IModuleContext
         List<RoleDeclaration> roles,
         List<DisplaySourceDeclaration> displaySources,
         List<string> inputs,
+        HashSet<string> persistentInputs,
         List<(string Name, string Title)> commands,
-        List<ExternalAccessDeclaration> externalAccesses,
-        Func<Type?, object?> ensureConfiguration) : IModuleDeclaration
+        List<ExternalAccessDeclaration> externalAccesses) : IModuleDeclaration
     {
         public void DeclareDataType(DataTypeDeclaration type)
         {
@@ -393,7 +410,25 @@ public sealed class ModuleContext : IModuleContext
         {
             if (!string.IsNullOrWhiteSpace(sourceName))
             {
-                inputs.Add(sourceName);
+                if (!inputs.Contains(sourceName, StringComparer.Ordinal))
+                {
+                    inputs.Add(sourceName);
+                }
+            }
+        }
+
+        public void DeclareInput(InputDeclaration input)
+        {
+            if (string.IsNullOrWhiteSpace(input.Name))
+            {
+                return;
+            }
+
+            DeclareInput(input.Name);
+
+            if (input.Persistence == InputPersistence.Persistent)
+            {
+                _ = persistentInputs.Add(input.Name);
             }
         }
 
@@ -409,12 +444,6 @@ public sealed class ModuleContext : IModuleContext
         {
             ArgumentNullException.ThrowIfNull(access);
             externalAccesses.Add(access);
-
-            // 参数类型**读即登记**：配置表单与持久化不需要模块再写一行 Read<T>()。
-            if (access.Adapter is not null)
-            {
-                _ = ensureConfiguration(access.Adapter.ParametersType);
-            }
         }
     }
 
@@ -544,24 +573,35 @@ public sealed class ModuleContext : IModuleContext
     /// <param name="text">用户输入文本。</param>
     public void EnqueueInput(string source, string text) => ((BoundedInbox)Inbox).EnqueueInput(source, text);
 
-    private sealed class SimpleStopSignal : IStopSignal
+    private sealed class SimpleStopSignal : IStopSignal, IDisposable
     {
+        private readonly CancellationTokenSource _cancellation = new();
         private volatile bool _stopRequested;
 
         public bool IsStopRequested => _stopRequested;
 
-        /// <summary>
-        /// 等待一段时间（**等待 + 自旋补偿混合**，见 <see cref="PreciseWait"/>）。
-        /// </summary>
-        /// <remarks>
-        /// 若退化成裸 `Thread.Sleep(timeout)`，就受 Windows 系统计时器粒度限制
-        /// （实测 1–15 ms）⇒ 模块声明 1 ms 的周期拿不到 1 ms 的精度，定时发送/接收的时序被拉粗。
-        /// 为此统一走框架侧唯一的等待实现（默认精确模式；可切粗粒度对照）。
-        /// </remarks>
-        public bool Wait(TimeSpan timeout) => PreciseWait.Wait(timeout, () => _stopRequested);
+        public CancellationToken StoppingToken => _cancellation.Token;
+
+        /// <summary>等待停止信号；优先使用取消令牌，保证停止能及时打断等待。</summary>
+        public bool Wait(TimeSpan timeout)
+        {
+            if (_stopRequested)
+            {
+                return true;
+            }
+
+            return _cancellation.Token.WaitHandle.WaitOne(timeout) || _stopRequested;
+        }
 
         /// <summary>请求停止（由数据面的停止协议调用——M1-5）。</summary>
-        public void Request() => _stopRequested = true;
+        public void Request()
+        {
+            _stopRequested = true;
+            _cancellation.Cancel();
+        }
+
+        /// <inheritdoc />
+        public void Dispose() => _cancellation.Dispose();
     }
 
     /// <summary>投递面占位：M1-5 由数据面替换为真实队列与绑定投递。</summary>

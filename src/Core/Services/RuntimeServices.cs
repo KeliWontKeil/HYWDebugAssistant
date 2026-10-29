@@ -13,6 +13,7 @@ using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Settings;
 using HYWDebugAssistant.Core.Workspace;
 using HYWDebugAssistant.Hosting.Installation;
+using HYWDebugAssistant.Hosting.Packages;
 using HYWDebugAssistant.Hosting.Registry;
 using HYWDebugAssistant.Infrastructure.Storage;
 using HYWDebugAssistant.Sdk;
@@ -74,17 +75,28 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     /// <summary>本进程启动时刻（判定「包在本次启动后重新构建过」用）。</summary>
     private readonly DateTime _processStartUtc = DateTime.UtcNow;
 
+    /// <summary>扫描期已报告过的“重复/内容变化”包（同一次扫描重复不刷 Issue）。</summary>
+    private readonly HashSet<string> _reportedScanNotices = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>一次性重启恢复快照路径（生产 = `StoragePaths.RestartFile`；测试可注入临时路径）。</summary>
+    private readonly string _restartSnapshotPath;
+
+    /// <summary>本次启动从工作区恢复的外壳矩形。</summary>
+    private WorkspacePlacementView? _workspacePlacement;
+
     /// <summary>创建服务。</summary>
     /// <param name="runtime">运行时。</param>
-    /// <param name="settings">设置服务（缺省：用户数据层下的 `settings.json`，见 `StoragePaths`；未加载时使用默认值）。</param>
-    public RuntimeServices(ModuleRuntime runtime, SettingsService? settings = null)
+    /// <param name="settings">设置服务（缺省：`StoragePaths.SettingsFile`；未加载时使用默认值）。</param>
+    /// <param name="restartSnapshotPath">重启恢复快照路径（缺省 = `StoragePaths.RestartFile`；测试可注入临时路径）。</param>
+    public RuntimeServices(ModuleRuntime runtime, SettingsService? settings = null, string? restartSnapshotPath = null)
     {
         ArgumentNullException.ThrowIfNull(runtime);
 
         _runtime = runtime;
         _settings = settings ?? new SettingsService(runtime, StoragePaths.SettingsFile);
-        _installer = new ModuleInstaller(_registry, runtime.Issues);
+        _installer = new ModuleInstaller(_registry, runtime.Issues, _processStartUtc);
         _composites = new CompositeService(runtime, _registry, runtime.Issues);
+        _restartSnapshotPath = Path.GetFullPath(restartSnapshotPath ?? StoragePaths.RestartFile);
     }
 
     /// <summary>底层运行时（组合根与测试用；UI 不应使用）。</summary>
@@ -100,13 +112,15 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageDirectory);
 
-        if (_installer.TryInstall(packageDirectory, out _))
+        var result = _installer.Install(packageDirectory);
+        if (result.Outcome != ModuleInstallOutcome.Failed)
         {
-            return CommandResult.Ok();
+            // 已载入/重复/内容变化都不是失败：把真实状态告诉用户，不写 Error Issue。
+            return CommandResult.Ok([result.Message]);
         }
 
         var recent = _runtime.Issues.Recent(1);
-        return CommandResult.Fail([recent.Count > 0 ? recent[0].Issue.Message : "模块包加载失败"]);
+        return CommandResult.Fail([recent.Count > 0 ? recent[0].Issue.Message : CoreText.Get("core.services.modulePackageLoadFailed")]);
     }
 
     /// <summary>
@@ -132,14 +146,18 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         {
             if (!Directory.Exists(root))
             {
-                results.Add(new ModuleSourceView(root, Exists: false, 0, 0, 0, [$"目录不存在（已跳过）"]));
+                results.Add(new ModuleSourceView(root, Exists: false, 0, 0, 0, [CoreText.Get("core.services.directoryMissingSkipped")]));
                 continue;
             }
 
+            var isExternal = IsExternalRoot(root);
             var messages = new List<string>();
             var found = 0;
             var skipped = 0;
             var failed = 0;
+            var alreadyLoaded = 0;
+            var duplicates = 0;
+            var changed = 0;
 
             foreach (var directory in Directory.EnumerateDirectories(root))
             {
@@ -151,24 +169,91 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
                 found++;
                 var name = Path.GetFileName(directory);
+                var result = _installer.Install(directory);
 
-                if (!_installer.TryInstall(directory, out var definition) || definition is null)
+                if (result.Outcome == ModuleInstallOutcome.Failed || result.Definition is null)
                 {
                     // 失败原因已由安装器记 Issue 并归属 package:<目录>
                     failed++;
-                    messages.Add($"✗ {name}：装入失败（见 Issue）");
+                    messages.Add(CoreText.Get("core.services.rescan.installFailed", name));
                     continue;
                 }
 
                 var packageDirectory = Path.GetFullPath(directory);
-                _modulePackages[definition.Id.ToString()] = new ModulePackageOrigin(root, packageDirectory, NeedsRestart(packageDirectory));
-                installed++;
+                var key = result.Definition.Id.ToString();
 
-                var restart = NeedsRestart(directory) ? "（**该包在本次启动后重新构建，重启应用才生效**）" : string.Empty;
-                messages.Add($"✓ {name} → {definition.Id}{restart}");
+                switch (result.Outcome)
+                {
+                    case ModuleInstallOutcome.Installed:
+                        installed++;
+                        _modulePackages[key] = new ModulePackageOrigin(root, packageDirectory, NeedsRestart: false, isExternal);
+                        messages.Add($"✓ {name} → {result.Definition.Id}");
+                        break;
+
+                    case ModuleInstallOutcome.AlreadyLoaded:
+                        alreadyLoaded++;
+                        if (_modulePackages.TryGetValue(key, out var origin))
+                        {
+                            _modulePackages[key] = origin with { NeedsRestart = false };
+                        }
+                        else
+                        {
+                            _modulePackages[key] = new ModulePackageOrigin(root, packageDirectory, NeedsRestart: false, isExternal);
+                        }
+
+                        messages.Add(CoreText.Get("core.services.rescan.unchanged", name));
+                        break;
+
+                    case ModuleInstallOutcome.DuplicatePackage:
+                        duplicates++;
+                        messages.Add(CoreText.Get("core.services.rescan.duplicateSource", name));
+                        if (_reportedScanNotices.Add($"duplicate:{packageDirectory}"))
+                        {
+                            _runtime.Issues.Report($"package:{packageDirectory}", new IssueReport(
+                                IssueCategory.ModuleError,
+                                IssueSeverity.Info,
+                                result.Message));
+                        }
+
+                        break;
+
+                    case ModuleInstallOutcome.ContentChanged:
+                        changed++;
+                        if (_modulePackages.TryGetValue(key, out var changedOrigin))
+                        {
+                            _modulePackages[key] = changedOrigin with { NeedsRestart = true };
+                        }
+                        else
+                        {
+                            _modulePackages[key] = new ModulePackageOrigin(root, packageDirectory, NeedsRestart: true, isExternal);
+                        }
+
+                        messages.Add(CoreText.Get("core.services.rescan.contentChanged", name));
+                        if (_reportedScanNotices.Add($"changed:{packageDirectory}"))
+                        {
+                            _runtime.Issues.Report($"package:{packageDirectory}", new IssueReport(
+                                IssueCategory.ModuleError,
+                                IssueSeverity.Warning,
+                                result.Message));
+                        }
+
+                        break;
+
+                    default:
+                        break;
+                }
             }
 
-            results.Add(new ModuleSourceView(root, Exists: true, found, skipped, failed, messages));
+            results.Add(new ModuleSourceView(
+                root,
+                Exists: true,
+                found,
+                skipped,
+                failed,
+                messages,
+                AlreadyLoadedPackages: alreadyLoaded,
+                DuplicatePackages: duplicates,
+                ChangedPackages: changed));
         }
 
         _moduleSources = results;
@@ -213,18 +298,20 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
         var failed = _moduleSources.Sum(s => s.FailedPackages);
         var message = installed > 0
-            ? $"重扫完成：新装入 {installed} 个模块包"
-            : "重扫完成：没有发现新的模块包（已装入的模块若要更新代码，需重启应用）";
+            ? CoreText.Get("core.services.rescan.installed", installed)
+            : CoreText.Get("core.services.rescan.nothingNew");
 
-        return CommandResult.Ok(failed > 0 ? [$"{message}；{failed} 个包装入失败（见 Issue）"] : [message]);
+        return CommandResult.Ok(failed > 0
+            ? [CoreText.Get("core.services.rescan.partialFailure", message, failed)]
+            : [message]);
     }
 
     /// <summary>
-    /// **本次进程扫描的根列表**（唯一来源）：内置包目录（若已注入）**排首位**，其后是设置里的用户根。
+    /// **本次进程扫描的根列表**（唯一来源）：内置模块目录 + 外部导入目录；不再读取用户来源根。
     /// </summary>
     /// <remarks>
-    /// 启动与「重新加载」**必须**都走这里 —— 各写一份 ⇒ 重扫会把内置根丢掉（见
-    /// <see cref="RescanModuleSources"/> 的说明）。
+    /// 外部目录可能尚不存在（首次运行）；导入时创建。扫描结果仍会记录“目录不存在（已跳过）”，
+    /// 但不会阻断启动。
     /// </remarks>
     public IReadOnlyList<string> ResolveScanRoots()
     {
@@ -235,7 +322,11 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             roots.Add(BuiltInModuleDirectory);
         }
 
-        roots.AddRange(_settings.Current.ModuleSourceDirectories);
+        if (!string.IsNullOrWhiteSpace(ExternalModuleDirectory)
+            && !string.Equals(BuiltInModuleDirectory, ExternalModuleDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            roots.Add(ExternalModuleDirectory);
+        }
 
         return NormalizeRoots(roots);
     }
@@ -248,6 +339,9 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     /// 而"内置目录永远参与扫描"这条语义必须在**扫描侧**（本类）兑现。
     /// </remarks>
     public string? BuiltInModuleDirectory { get; set; }
+
+    /// <summary>外部导入包目录（`modules\external`）——由组合根注入；来源标记按此路径判定。</summary>
+    public string? ExternalModuleDirectory { get; set; }
 
     /// <summary>
     /// 单一来源目录扫描（兼容入口）：等价于把该目录作为唯一根扫描。
@@ -270,10 +364,161 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         return true;
     }
 
+    /// <inheritdoc />
+    public CommandResult ImportModuleDirectory(string sourceDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceDirectory);
+
+        if (string.IsNullOrWhiteSpace(ExternalModuleDirectory))
+        {
+            return CommandResult.Fail([CoreText.Get("core.services.externalDirectoryNotConfigured")]);
+        }
+
+        if (!Directory.Exists(sourceDirectory))
+        {
+            return CommandResult.Fail([CoreText.Get("core.services.directoryMissing", sourceDirectory)]);
+        }
+
+        var packages = FindImportPackages(sourceDirectory);
+        if (packages.Count == 0)
+        {
+            return CommandResult.Fail([CoreText.Get("core.services.noModulePackagesInDirectory")]);
+        }
+
+        var notices = new List<string>();
+        var failures = new List<string>();
+        var imported = 0;
+
+        _ = Directory.CreateDirectory(ExternalModuleDirectory);
+
+        foreach (var package in packages)
+        {
+            var packageName = Path.GetFileName(Path.TrimEndingDirectorySeparator(package));
+            var load = ModulePackageLoader.Load(package);
+            if (!load.Succeeded)
+            {
+                failures.Add($"{packageName}：{load.FailureReason}");
+                continue;
+            }
+
+            ModuleDefinition definition;
+            try
+            {
+                definition = ModuleDefinition.FromPackage(load.Package!);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                failures.Add($"{packageName}：{ex.Message}");
+                continue;
+            }
+
+            if (_registry.TryResolve(definition.Id, out _))
+            {
+                failures.Add(CoreText.Get("core.services.import.versionExists", definition.Id));
+                continue;
+            }
+
+            var target = CreateUniqueDirectory(ExternalModuleDirectory, packageName);
+            try
+            {
+                CopyDirectory(package, target);
+                imported++;
+                notices.Add(CoreText.Get("core.services.import.importedToTarget", definition.Id, target));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                TryDeleteDirectory(target);
+                failures.Add(CoreText.Get("core.services.import.copyFailed", packageName, ex.Message));
+            }
+        }
+
+        if (imported > 0)
+        {
+            var rescan = RescanModuleSources();
+            notices.AddRange(rescan.Notices);
+        }
+
+        foreach (var failure in failures)
+        {
+            _runtime.Issues.Report("module:import", new IssueReport(
+                IssueCategory.ModuleError, IssueSeverity.Error, failure));
+        }
+
+        return imported > 0
+            ? new CommandResult(true, failures, notices)
+            : failures.Count > 0
+                ? CommandResult.Fail(failures)
+                : CommandResult.Ok(notices);
+    }
+
+    /// <summary>外部导入时扫描：目录自身是包，或取直接子目录中的包。</summary>
+    private static List<string> FindImportPackages(string sourceDirectory)
+    {
+        if (File.Exists(Path.Combine(sourceDirectory, "module.json")))
+        {
+            return [Path.GetFullPath(sourceDirectory)];
+        }
+
+        return [.. Directory.EnumerateDirectories(sourceDirectory)
+            .Where(directory => File.Exists(Path.Combine(directory, "module.json")))
+            .Select(Path.GetFullPath)];
+    }
+
+    private static string CreateUniqueDirectory(string root, string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var clean = new string(name.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray()).Trim();
+        if (clean.Length == 0)
+        {
+            clean = "module";
+        }
+
+        var target = Path.Combine(root, clean);
+        for (var suffix = 2; Directory.Exists(target); suffix++)
+        {
+            target = Path.Combine(root, $"{clean}-{suffix}");
+        }
+
+        return target;
+    }
+
+    private static void CopyDirectory(string source, string target)
+    {
+        _ = Directory.CreateDirectory(target);
+
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(source, file);
+            var destination = Path.Combine(target, relative);
+            _ = Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(file, destination, overwrite: true);
+        }
+    }
+
+    private static void TryDeleteDirectory(string directory)
+    {
+        try
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private bool IsExternalRoot(string root) =>
+        !string.IsNullOrWhiteSpace(ExternalModuleDirectory)
+        && string.Equals(Path.GetFullPath(root), Path.GetFullPath(ExternalModuleDirectory), StringComparison.OrdinalIgnoreCase);
+
     /// <summary>去重并保持顺序（忽略空白项）。</summary>
     private static List<string> NormalizeRoots(IReadOnlyList<string>? sourceDirectories)
-    {
-        var roots = new List<string>();
+    {        var roots = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var directory in sourceDirectories ?? [])
@@ -293,24 +538,6 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         return roots;
     }
 
-    /// <summary>该包是否在**本进程启动之后**被重新构建过（决定是否提示"需重启"）。</summary>
-    private bool NeedsRestart(string packageDirectory)
-    {
-        try
-        {
-            var newest = Directory.EnumerateFiles(packageDirectory, "*", SearchOption.TopDirectoryOnly)
-                .Select(File.GetLastWriteTimeUtc)
-                .DefaultIfEmpty(DateTime.MinValue)
-                .Max();
-
-            return newest > _processStartUtc;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
     /// <inheritdoc />
     public CommandResult AddModule(string instanceId, string moduleIdLiteral)
     {
@@ -318,7 +545,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             || !_registry.TryResolve(moduleId, out var definition)
             || definition is null)
         {
-            return CommandResult.Fail([$"模块未注册：{moduleIdLiteral}（请先加载模块包）"]);
+            return CommandResult.Fail([CoreText.Get("core.services.moduleNotRegistered", moduleIdLiteral)]);
         }
 
         return Map(_runtime.Apply(ChangeSet.OfOne(new AddModuleOperation(instanceId, definition))));
@@ -360,6 +587,60 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
     /// <inheritdoc />
     public CommandResult UpdateSettings(ApplicationSettings settings) => _settings.Update(settings);
+
+    /// <inheritdoc />
+    public ModuleWallpaperView? GetModuleWallpaper(string instanceId)
+    {
+        if (string.IsNullOrWhiteSpace(instanceId))
+        {
+            return null;
+        }
+
+        return _runtime.GetWallpaper(instanceId) is { } asset
+            ? new ModuleWallpaperView(asset.Revision, asset.Png)
+            : null;
+    }
+
+    /// <inheritdoc />
+    public CommandResult SetModuleWallpaper(string instanceId, byte[]? png)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
+
+        if (!_runtime.SetWallpaper(instanceId, png))
+        {
+            return CommandResult.Fail([CoreText.Get("core.runtime.instanceMissing", instanceId)]);
+        }
+
+        return CommandResult.Ok([png is { Length: > 0 }
+            ? CoreText.Get("core.services.wallpaperSet")
+            : CoreText.Get("core.services.wallpaperCleared")]);
+    }
+
+    /// <inheritdoc />
+    public CommandResult SetWorkspaceExitBehavior(string behavior)
+    {
+        if (behavior is not ("Ask" or "Save" or "Discard"))
+        {
+            return CommandResult.Fail([CoreText.Get("core.services.exitBehaviorInvalid")]);
+        }
+
+        var settings = _settings.Current.Clone();
+        settings.WorkspaceExitBehavior = behavior;
+        return _settings.UpdateStrict(settings);
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<ThemeFileView> GetThemeFiles() => _settings.Themes.LoadAll();
+
+    /// <inheritdoc />
+    public bool TryGetThemeWallpaper(string themeId, out byte[]? png) =>
+        _settings.Themes.TryReadWallpaper(themeId, out png);
+
+    /// <inheritdoc />
+    public CommandResult SaveTheme(ThemeSaveRequest request) => _settings.Themes.Save(request);
+
+    /// <inheritdoc />
+    public CommandResult DeleteTheme(string themeId) => _settings.Themes.Delete(themeId);
 
     /// <inheritdoc />
     public CommandResult UpdateModuleLayout(ModuleLayoutView layout)
@@ -419,10 +700,497 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
     /// <inheritdoc />
     public CommandResult SaveComposite(string filePath, string? name = null, IReadOnlyList<string>? instanceIds = null) =>
-        _composites.Save(filePath, name, instanceIds);
+        filePath.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+            ? _composites.Save(filePath, name, instanceIds)
+            : _composites.SavePackage(filePath, name, instanceIds);
+
+    /// <inheritdoc />
+    public CompositeImportResult ImportCompositeFile(string sourceFile)
+    {
+        if (string.IsNullOrWhiteSpace(sourceFile) || !File.Exists(sourceFile))
+        {
+            return FailCompositeImport(CoreText.Get("core.services.composite.fileMissing"));
+        }
+
+        var inspection = _composites.Inspect(sourceFile);
+        if (inspection.Error is { Length: > 0 } error)
+        {
+            return FailCompositeImport(CoreText.Get("core.services.composite.importFailed", error));
+        }
+
+        try
+        {
+            var root = StoragePaths.CompositesRoot;
+            _ = Directory.CreateDirectory(root);
+
+            var sourcePath = Path.GetFullPath(sourceFile);
+            var sourceDirectory = Path.GetDirectoryName(sourcePath);
+            var isPackage = string.Equals(Path.GetFileName(sourcePath), StoragePaths.CompositeDocumentFileName, StringComparison.OrdinalIgnoreCase)
+                && sourceDirectory is { Length: > 0 };
+
+            if (isPackage)
+            {
+                var packageName = Path.GetFileName(sourceDirectory!);
+                var targetDirectory = UniqueDirectory(root, packageName);
+                CopyCompositePackage(sourceDirectory!, targetDirectory);
+                var targetDocument = CompositeFileStore.DocumentPathFor(targetDirectory);
+                var packageNotices = new List<string> { CoreText.Get("core.services.composite.imported", targetDirectory) };
+                if (inspection.MissingModules.Count > 0)
+                {
+                    packageNotices.Add(CoreText.Get("core.services.composite.missingModules", inspection.MissingModules.Count));
+                }
+
+                return new CompositeImportResult(true, targetDocument, packageNotices, []);
+            }
+
+            var name = Path.GetFileName(sourcePath);
+            var target = Path.Combine(root, name);
+
+            if (string.Equals(sourcePath, Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+            {
+                return new CompositeImportResult(true, target, [CoreText.Get("core.services.composite.inDefaultDirectory")], []);
+            }
+
+            if (File.Exists(target))
+            {
+                if (FilesEqual(sourcePath, target))
+                {
+                    return new CompositeImportResult(true, target, [CoreText.Get("core.services.composite.defaultDirectoryReused")], []);
+                }
+
+                target = UniqueCompositePath(root, name);
+            }
+
+            File.Copy(sourcePath, target, overwrite: false);
+
+            // 外部组合若带同名 `.preview.png` 封面，一并复制到默认目录。
+            var sourceCover = CompositeFileStore.CoverPathFor(sourcePath);
+            if (File.Exists(sourceCover))
+            {
+                File.Copy(sourceCover, CompositeFileStore.CoverPathFor(target), overwrite: true);
+            }
+
+            var notices = new List<string> { CoreText.Get("core.services.composite.imported", target) };
+            if (inspection.MissingModules.Count > 0)
+            {
+                notices.Add(CoreText.Get("core.services.composite.missingModules", inspection.MissingModules.Count));
+            }
+
+            return new CompositeImportResult(true, target, notices, []);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return FailCompositeImport(CoreText.Get("core.services.composite.copyFailed", ex.Message));
+        }
+    }
+
+    private CompositeImportResult FailCompositeImport(string reason)
+    {
+        _runtime.Issues.Report("composite:import", new IssueReport(
+            IssueCategory.ConfigurationError, IssueSeverity.Error, reason));
+        return new CompositeImportResult(false, null, [], [reason]);
+    }
+
+    /// <inheritdoc />
+    public CommandResult DeleteCompositeFile(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return CommandResult.Fail([CoreText.Get("core.services.composite.pathEmpty")]);
+        }
+
+        try
+        {
+            var root = Path.GetFullPath(StoragePaths.CompositesRoot);
+            var full = Path.GetFullPath(filePath);
+            var parent = Path.GetDirectoryName(full);
+
+            var isPackage = string.Equals(Path.GetFileName(full), StoragePaths.CompositeDocumentFileName, StringComparison.OrdinalIgnoreCase)
+                && parent is { Length: > 0 }
+                && string.Equals(Path.GetDirectoryName(parent), root, StringComparison.OrdinalIgnoreCase);
+            var isLegacy = string.Equals(parent, root, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(Path.GetExtension(full), ".json", StringComparison.OrdinalIgnoreCase);
+
+            if (!isPackage && !isLegacy)
+            {
+                return FailCompositeDelete(full, CoreText.Get("core.services.composite.deleteOnlyDefaultDirectory"));
+            }
+
+            if (!File.Exists(full))
+            {
+                return FailCompositeDelete(full, CoreText.Get("core.services.composite.fileMissing"));
+            }
+
+            if (isPackage)
+            {
+                Directory.Delete(parent!, recursive: true);
+                return CommandResult.Ok([CoreText.Get("core.services.composite.deleted", Path.GetFileName(parent))]);
+            }
+
+            File.Delete(full);
+            var cover = CompositeFileStore.CoverPathFor(full);
+            if (File.Exists(cover))
+            {
+                try
+                {
+                    File.Delete(cover);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _runtime.Issues.Report("composite:delete", new IssueReport(
+                        IssueCategory.ConfigurationError, IssueSeverity.Warning, CoreText.Get("core.services.composite.coverDeleteFailed", ex.Message)));
+                }
+            }
+
+            return CommandResult.Ok([CoreText.Get("core.services.composite.deleted", Path.GetFileName(full))]);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return FailCompositeDelete(filePath, CoreText.Get("core.services.composite.deleteFailed", ex.Message));
+        }
+    }
+
+    private CommandResult FailCompositeDelete(string filePath, string reason)
+    {
+        _runtime.Issues.Report("composite:delete", new IssueReport(
+            IssueCategory.ConfigurationError, IssueSeverity.Error, reason));
+        return CommandResult.Fail([reason]);
+    }
+
+    /// <inheritdoc />
+    public CompositeRenameResult RenameCompositeFile(string filePath, string newName)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || string.IsNullOrWhiteSpace(newName))
+        {
+            return FailCompositeRename(CoreText.Get("core.services.composite.rename.nameEmpty"));
+        }
+
+        try
+        {
+            var root = Path.GetFullPath(StoragePaths.CompositesRoot);
+            var source = Path.GetFullPath(filePath);
+            var parent = Path.GetDirectoryName(source);
+            var isPackage = string.Equals(Path.GetFileName(source), StoragePaths.CompositeDocumentFileName, StringComparison.OrdinalIgnoreCase)
+                && parent is { Length: > 0 }
+                && string.Equals(Path.GetDirectoryName(parent), root, StringComparison.OrdinalIgnoreCase);
+            var isLegacy = string.Equals(parent, root, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(Path.GetExtension(source), ".json", StringComparison.OrdinalIgnoreCase);
+
+            if ((!isPackage && !isLegacy) || !File.Exists(source))
+            {
+                return FailCompositeRename(CoreText.Get("core.services.composite.rename.onlyDefaultDirectory"));
+            }
+
+            var stem = newName.Trim();
+            if (stem.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            {
+                stem = stem[..^5];
+            }
+
+            var invalid = Path.GetInvalidFileNameChars();
+            if (stem.Length == 0
+                || stem.Any(ch => invalid.Contains(ch))
+                || !string.Equals(Path.GetFileName(stem), stem, StringComparison.Ordinal))
+            {
+                return FailCompositeRename(CoreText.Get("core.services.composite.rename.invalidChars"));
+            }
+
+            if (isPackage)
+            {
+                var targetDirectory = Path.Combine(root, stem);
+                if (string.Equals(parent, targetDirectory, StringComparison.OrdinalIgnoreCase))
+                {
+                    return FailCompositeRename(CoreText.Get("core.services.composite.rename.sameName"));
+                }
+
+                if (Directory.Exists(targetDirectory) || File.Exists(Path.Combine(root, stem + ".json")))
+                {
+                    return FailCompositeRename(CoreText.Get("core.services.composite.rename.targetExists"));
+                }
+
+                Directory.Move(parent!, targetDirectory);
+                return new CompositeRenameResult(true, CompositeFileStore.DocumentPathFor(targetDirectory), []);
+            }
+
+            var target = Path.Combine(root, stem + ".json");
+            if (string.Equals(source, target, StringComparison.OrdinalIgnoreCase))
+            {
+                return FailCompositeRename(CoreText.Get("core.services.composite.rename.sameName"));
+            }
+
+            if (File.Exists(target))
+            {
+                return FailCompositeRename(CoreText.Get("core.services.composite.rename.targetExists"));
+            }
+
+            var sourceCover = CompositeFileStore.CoverPathFor(source);
+            var targetCover = CompositeFileStore.CoverPathFor(target);
+            if (File.Exists(targetCover))
+            {
+                return FailCompositeRename(CoreText.Get("core.services.composite.rename.coverExists"));
+            }
+
+            File.Move(source, target);
+            if (File.Exists(sourceCover))
+            {
+                try
+                {
+                    File.Move(sourceCover, targetCover);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _runtime.Issues.Report("composite:rename", new IssueReport(
+                        IssueCategory.ConfigurationError, IssueSeverity.Warning, CoreText.Get("core.services.composite.rename.coverMoveFailed", ex.Message)));
+                }
+            }
+
+            return new CompositeRenameResult(true, target, []);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return FailCompositeRename(CoreText.Get("core.services.composite.rename.failed", ex.Message));
+        }
+    }
+
+    /// <inheritdoc />
+    public CommandResult SetCompositeCover(string filePath, string imagePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath)
+            || string.IsNullOrWhiteSpace(imagePath)
+            || !File.Exists(imagePath))
+        {
+            return FailCompositeCover(CoreText.Get("core.services.composite.cover.fileMissing"));
+        }
+
+        try
+        {
+            return SetCompositeCoverPng(filePath, File.ReadAllBytes(imagePath));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return FailCompositeCover(CoreText.Get("core.services.composite.cover.changeFailed", ex.Message));
+        }
+    }
+
+    /// <inheritdoc />
+    public CommandResult SetCompositeCoverPng(string filePath, byte[] png)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || png is not { Length: > 0 })
+        {
+            return FailCompositeCover(CoreText.Get("core.services.composite.cover.empty"));
+        }
+
+        try
+        {
+            var root = Path.GetFullPath(StoragePaths.CompositesRoot);
+            var source = Path.GetFullPath(filePath);
+            if (!File.Exists(source))
+            {
+                return FailCompositeCover(CoreText.Get("core.services.composite.fileMissing"));
+            }
+
+            var isPackage = string.Equals(Path.GetFileName(source), StoragePaths.CompositeDocumentFileName, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(Path.GetDirectoryName(Path.GetDirectoryName(source)), root, StringComparison.OrdinalIgnoreCase);
+            var isLegacy = string.Equals(Path.GetDirectoryName(source), root, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(Path.GetExtension(source), ".json", StringComparison.OrdinalIgnoreCase);
+
+            if (!isPackage && !isLegacy)
+            {
+                return FailCompositeCover(CoreText.Get("core.services.composite.cover.onlyDefaultDirectory"));
+            }
+
+            var target = CompositeFileStore.CoverPathFor(source);
+            File.WriteAllBytes(target, png);
+            return CommandResult.Ok([CoreText.Get("core.services.composite.cover.changed", Path.GetFileName(target))]);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return FailCompositeCover(CoreText.Get("core.services.composite.cover.changeFailed", ex.Message));
+        }
+    }
+
+    private CommandResult FailCompositeCover(string reason)
+    {
+        _runtime.Issues.Report("composite:cover", new IssueReport(
+            IssueCategory.ConfigurationError, IssueSeverity.Error, reason));
+        return CommandResult.Fail([reason]);
+    }
+
+    private CompositeRenameResult FailCompositeRename(string reason)
+    {
+        _runtime.Issues.Report("composite:rename", new IssueReport(
+            IssueCategory.ConfigurationError, IssueSeverity.Error, reason));
+        return new CompositeRenameResult(false, null, [reason]);
+    }
+
+    private static bool FilesEqual(string left, string right)    {
+        var leftInfo = new FileInfo(left);
+        var rightInfo = new FileInfo(right);
+        if (leftInfo.Length != rightInfo.Length)
+        {
+            return false;
+        }
+
+        return File.ReadAllBytes(left).AsSpan().SequenceEqual(File.ReadAllBytes(right));
+    }
+
+    /// <summary>复制一个组合件包的已知文件（JSON/封面/资产），不跟随链接。</summary>
+    private static void CopyCompositePackage(string source, string target)
+    {
+        _ = Directory.CreateDirectory(target);
+
+        var document = Path.Combine(source, StoragePaths.CompositeDocumentFileName);
+        File.Copy(document, Path.Combine(target, StoragePaths.CompositeDocumentFileName), overwrite: false);
+
+        var cover = Path.Combine(source, StoragePaths.CompositeCoverFileName);
+        if (File.Exists(cover))
+        {
+            File.Copy(cover, Path.Combine(target, StoragePaths.CompositeCoverFileName), overwrite: true);
+        }
+
+        var assets = Path.Combine(source, StoragePaths.CompositeAssetsDirectoryName);
+        if (Directory.Exists(assets))
+        {
+            var targetAssets = Path.Combine(target, StoragePaths.CompositeAssetsDirectoryName);
+            _ = Directory.CreateDirectory(targetAssets);
+            foreach (var file in Directory.EnumerateFiles(assets, "*.png", SearchOption.TopDirectoryOnly))
+            {
+                File.Copy(file, Path.Combine(targetAssets, Path.GetFileName(file)), overwrite: true);
+            }
+        }
+    }
+
+    private static string UniqueDirectory(string root, string name)
+    {
+        var baseName = string.IsNullOrWhiteSpace(name) ? "composite" : name;
+        var candidate = Path.Combine(root, baseName);
+        for (var suffix = 2; Directory.Exists(candidate) || File.Exists(candidate + ".json"); suffix++)
+        {
+            candidate = Path.Combine(root, $"{baseName}-{suffix}");
+        }
+
+        return candidate;
+    }
+
+    private static string UniqueCompositePath(string root, string fileName)
+    {
+        var stem = Path.GetFileNameWithoutExtension(fileName);
+        var extension = Path.GetExtension(fileName);
+        for (var suffix = 2; ; suffix++)
+        {
+            var candidate = Path.Combine(root, $"{stem}-{suffix}{extension}");
+            if (!File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+    }
 
     /// <inheritdoc />
     public CommandResult LoadComposite(string filePath) => _composites.Load(filePath);
+
+    /// <inheritdoc />
+    public CommandResult SaveWorkspace(WorkspacePlacementView placement) =>
+        _composites.SavePackage(
+            StoragePaths.WorkspaceRoot,
+            "workspace",
+            instanceIds: null,
+            workspacePlacement: placement,
+            documentFileName: StoragePaths.WorkspaceFileName);
+
+    /// <summary>启动时恢复工作区（存在才做；失败不阻断启动）。</summary>
+    public CommandResult LoadWorkspaceIfAny()
+    {
+        if (!Directory.Exists(StoragePaths.WorkspaceRoot))
+        {
+            return CommandResult.Ok();
+        }
+
+        var document = StoragePaths.WorkspaceFile;
+        if (!File.Exists(document))
+        {
+            return CommandResult.Ok();
+        }
+
+        var result = _composites.Load(document);
+        _workspacePlacement = _composites.LastLoadedWorkspacePlacement;
+        return result;
+    }
+
+    /// <inheritdoc />
+    public WorkspacePlacementView? GetWorkspacePlacement() => _workspacePlacement;
+
+    /// <inheritdoc />
+    public CommandResult SaveRestartSnapshot()
+    {
+        var directory = Path.GetDirectoryName(_restartSnapshotPath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            try
+            {
+                _ = Directory.CreateDirectory(directory);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                var failure = CoreText.Get("core.services.restartSnapshot.createDirFailed", directory, ex.Message);
+                _runtime.Issues.Report("restart", new IssueReport(
+                    IssueCategory.ConfigurationError, IssueSeverity.Error, failure));
+                return CommandResult.Fail([failure]);
+            }
+        }
+
+        // 快照就是“当前全部模块的关系”——复用组合件保存；加载端只看 ID 冲突决定是否重映射。
+        return _composites.Save(_restartSnapshotPath, "restart", instanceIds: null);
+    }
+
+    /// <inheritdoc />
+    public CommandResult DeleteRestartSnapshot()
+    {
+        try
+        {
+            if (File.Exists(_restartSnapshotPath))
+            {
+                File.Delete(_restartSnapshotPath);
+            }
+
+            return CommandResult.Ok();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            var failure = CoreText.Get("core.services.restartSnapshot.deleteFailed", ex.Message, _restartSnapshotPath);
+            _runtime.Issues.Report("restart", new IssueReport(
+                IssueCategory.ConfigurationError, IssueSeverity.Warning, failure));
+            return CommandResult.Fail([failure]);
+        }
+    }
+
+    /// <summary>
+    /// 启动时恢复一次性重启快照（存在才做）：加载后删除；损坏/版本过新也删除，避免每次启动重复失败。
+    /// </summary>
+    /// <remarks>由组合根在模块扫描之后、显示窗口之前调用；不是会话系统。</remarks>
+    public CommandResult RestoreRestartSnapshotIfAny()
+    {
+        if (!File.Exists(_restartSnapshotPath))
+        {
+            return CommandResult.Ok();
+        }
+
+        var result = _composites.Load(_restartSnapshotPath);
+
+        try
+        {
+            File.Delete(_restartSnapshotPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _runtime.Issues.Report("restart", new IssueReport(
+                IssueCategory.ConfigurationError,
+                IssueSeverity.Warning,
+                CoreText.Get("core.services.restartSnapshot.loadedButNotDeleted", ex.Message, _restartSnapshotPath)));
+        }
+
+        return result;
+    }
 
     /// <inheritdoc />
     public CommandResult ResolvePlaceholder(string instanceId, string moduleIdLiteral) =>
@@ -435,12 +1203,12 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
         if (!_runtime.Content.TryGetInstance(instanceId, out var instance) || instance is null)
         {
-            return CommandResult.Fail([$"实例不存在：{instanceId}"]);
+            return CommandResult.Fail([CoreText.Get("core.runtime.instanceMissing", instanceId)]);
         }
 
         if (string.IsNullOrWhiteSpace(json))
         {
-            return CommandResult.Fail(["配置 JSON 为空"]);
+            return CommandResult.Fail([CoreText.Get("core.services.config.jsonEmpty")]);
         }
 
         JsonObject? root;
@@ -450,12 +1218,12 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         }
         catch (JsonException ex)
         {
-            return CommandResult.Fail([$"配置 JSON 无法解析：{ex.Message}"]);
+            return CommandResult.Fail([CoreText.Get("core.services.config.jsonParseFailed", ex.Message)]);
         }
 
         if (root is null)
         {
-            return CommandResult.Fail(["配置 JSON 的根必须是对象（键 = 配置类型完整名）"]);
+            return CommandResult.Fail([CoreText.Get("core.services.config.jsonRootNotObject")]);
         }
 
         // 全部解析成功后才提交（整体应用或整体拒绝，经变更入口）
@@ -474,7 +1242,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
             if (type is null)
             {
-                failures.Add($"配置类型无法解析：{typeName}");
+                failures.Add(CoreText.Get("core.services.config.typeUnresolved", typeName));
                 continue;
             }
 
@@ -486,12 +1254,12 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 }
                 else
                 {
-                    failures.Add($"配置项 {typeName} 反序列化为空");
+                    failures.Add(CoreText.Get("core.services.config.itemDeserializedEmpty", typeName));
                 }
             }
             catch (Exception ex) when (ex is JsonException or NotSupportedException)
             {
-                failures.Add($"配置项 {typeName} 无法解析：{ex.Message}");
+                failures.Add(CoreText.Get("core.services.config.itemUnresolved", typeName, ex.Message));
             }
         }
 
@@ -502,7 +1270,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
         if (pending.Count == 0)
         {
-            return CommandResult.Ok(["配置为空，无变更"]);
+            return CommandResult.Ok([CoreText.Get("core.services.config.emptyNoChange")]);
         }
 
         // 走变更入口：一次 ChangeSet、只触发一次配置变更通知
@@ -843,24 +1611,89 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             e.Issue.Source.ToString()))];
 
     /// <inheritdoc />
+    public IssueSummaryView GetIssueSummary() => _runtime.Issues.Summary();
+
+    /// <inheritdoc />
+    public CommandResult RemoveIssues(IReadOnlyCollection<long> sequences)
+    {
+        ArgumentNullException.ThrowIfNull(sequences);
+
+        var removed = _runtime.Issues.Remove(sequences);
+        return removed > 0
+            ? CommandResult.Ok([CoreText.Get("core.services.issues.removed", removed)])
+            : CommandResult.Ok();
+    }
+
+    /// <inheritdoc />
+    public CommandResult ClearIssues()
+    {
+        _runtime.Issues.Clear();
+        return CommandResult.Ok();
+    }
+
+    /// <inheritdoc />
     public IReadOnlyList<ModuleCatalogEntryView> GetModuleCatalog() =>
-        [.. _registry.Definitions.Select(d => new ModuleCatalogEntryView(
-            d.Id.ToString(),
-            d.DisplayName,
-            d.Description,
-            d.Capabilities.ToString(),
-            _modulePackages.TryGetValue(d.Id.ToString(), out var package) ? package.Root : null,
-            package?.NeedsRestart ?? false,
-            d.Tags))];
+        [.. _registry.Definitions.Select(d =>
+        {
+            _ = _modulePackages.TryGetValue(d.Id.ToString(), out var package);
+            var preview = package?.PackageDirectory is { Length: > 0 } directory
+                ? Path.Combine(directory, "preview.png")
+                : null;
+            if (preview is not null && !File.Exists(preview))
+            {
+                preview = null;
+            }
+
+            return new ModuleCatalogEntryView(
+                d.Id.ToString(),
+                d.DisplayName,
+                d.Description,
+                d.Capabilities.ToString(),
+                package?.Root,
+                package?.NeedsRestart ?? false,
+                d.Tags,
+                package?.IsExternal ?? false,
+                preview);
+        })];
 
     /// <summary>
     /// 模块包的来源信息（**NeedsRestart 在扫描时算一次并缓存**）：
     /// 该判定要访问文件系统，若每次查询都现算，界面每帧刷新就会变成每秒数百次目录枚举。
     /// </summary>
-    private sealed record ModulePackageOrigin(string Root, string PackageDirectory, bool NeedsRestart);
+    private sealed record ModulePackageOrigin(string Root, string PackageDirectory, bool NeedsRestart, bool IsExternal);
 
     /// <inheritdoc />
     public ApplicationSettings GetSettings() => _settings.Current.Clone();
+
+    /// <inheritdoc />
+    public StorageLocationsView GetStorageLocations() => new(
+        StoragePaths.AppRoot,
+        StoragePaths.ModulesRoot,
+        StoragePaths.CompositesRoot,
+        StoragePaths.SettingsFile,
+        StoragePaths.WorkspaceRoot,
+        StoragePaths.LogsRoot,
+        StoragePaths.SeedsRoot);
+
+    /// <inheritdoc />
+    public IReadOnlyList<CompositeFileView> GetCompositeFiles() =>
+        [.. CompositeFileStore.Scan(StoragePaths.CompositesRoot).Select(file =>
+        {
+            try
+            {
+                var inspection = _composites.Inspect(file.Path);
+                return file with
+                {
+                    ModuleCount = inspection.ModuleCount,
+                    MissingModules = inspection.MissingModules,
+                    ReadError = inspection.Error,
+                };
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                return file with { ReadError = CoreText.Get("core.services.composite.readFailed", ex.Message) };
+            }
+        })];
 
     /// <inheritdoc />
     public IReadOnlyList<ModuleLayoutView> GetLayout() => _runtime.Content.Layout.Modules;
@@ -905,7 +1738,8 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             ? []
             : [.. instance.Context.AppearanceStore.Snapshot()
                 .Select(e => new AppearanceView(
-                    e.SourceName, e.Outline, e.Text, e.TextSize, e.Revision, e.ReadOnly, e.OutlineRole, e.TextRole))];
+                    e.SourceName, e.Outline, e.Text, e.TextSize, e.Revision, e.ReadOnly,
+                    e.OutlineRole, e.TextRole, e.Enabled))];
     }
 
     /// <inheritdoc />
@@ -1063,8 +1897,8 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     /// <summary>取端口实例（连接枚举专用；调用前已确认该口存在）。</summary>
     private Hosting.Instances.PortInstance FindPortOrThrow(Composition.NetworkMember member) =>
         _runtime.Content.TryGetInstance(member.InstanceId, out var instance) && instance is not null
-            ? instance.FindPort(member.PortName) ?? throw new InvalidOperationException($"口不存在：{member}")
-            : throw new InvalidOperationException($"实例不存在：{member.InstanceId}");
+            ? instance.FindPort(member.PortName) ?? throw new InvalidOperationException(CoreText.Get("core.runtime.portMissing", member.InstanceId, member.PortName))
+            : throw new InvalidOperationException(CoreText.Get("core.runtime.instanceMissing", member.InstanceId));
 
     /// <inheritdoc />
     public bool TryReadLatest(string instanceId, string dataSourceName, Span<byte> destination, out int length)
@@ -1094,7 +1928,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             // 占位实例：定义缺失 → 没有可编辑字段（配置片段原样保留在组合件里）
             if (_runtime.Content.TryGetPlaceholder(instanceId, out _))
             {
-                schema = new ConfigurationSchemaView(instanceId, [], "占位实例：模块定义缺失，无法生成配置表单");
+                schema = new ConfigurationSchemaView(instanceId, [], CoreText.Get("core.services.config.placeholderSchemaUnavailable"));
                 return true;
             }
 
@@ -1114,7 +1948,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
         if (!_runtime.Content.TryGetInstance(instanceId, out var instance) || instance is null)
         {
-            return CommandResult.Fail([$"实例不存在或为占位实例：{instanceId}"]);
+            return CommandResult.Fail([CoreText.Get("core.services.instanceMissingOrPlaceholder", instanceId)]);
         }
 
         if (!ConfigurationSchemaBuilder.TryCreateUpdated(
@@ -1124,7 +1958,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 out var updated,
                 out var failure) || updated is null)
         {
-            return CommandResult.Fail([failure ?? "按字段写回失败"]);
+            return CommandResult.Fail([failure ?? CoreText.Get("core.services.config.fieldWriteFailed")]);
         }
 
         // 走变更入口：一次 ChangeSet、只触发一次配置变更通知
@@ -1205,7 +2039,8 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 instance.Definition.WindowWidth,
                 instance.Definition.WindowHeight,
                 instance.Definition.MinWidth,
-                instance.Definition.MinHeight));
+                instance.Definition.MinHeight),
+            WallpaperRevision: _runtime.GetWallpaperRevision(instance.InstanceId));
     }
 
     /// <summary>占位实例视图（模块定义缺失/版本不兼容）：无活动、无口，只有 ID 与声明归属。</summary>

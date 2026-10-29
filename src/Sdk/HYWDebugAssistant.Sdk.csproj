@@ -5,5 +5,15 @@
     硬约束：零框架依赖 —— 不得引任何 ProjectReference / PackageReference（AR-9 / C1-4）
     内容：模块特性与声明基元、生命周期钩子接口、上下文服务面、契约形状声明、上报 API
   -->
+  <PropertyGroup>
+    <!-- SDK 契约版本（框架兼容范围的判定基准）；与产品版本 Version=0.1.0 相互独立。 -->
+    <AssemblyVersion>2.3.0.0</AssemblyVersion>
+    <!-- NuGet 包：包版本 = 契约版本；产品 Version 仍是 0.1.0。 -->
+    <IsPackable>true</IsPackable>
+    <PackageId>HYWDebugAssistant.Sdk</PackageId>
+    <PackageVersion>2.3.0</PackageVersion>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Description>HYWDebugAssistant 模块契约层（L1）：模块声明、生命周期、上下文服务面与上报 API。</Description>
+  </PropertyGroup>
 
 </Project>

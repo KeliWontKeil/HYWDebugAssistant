@@ -1,112 +1,85 @@
 namespace HYWDebugAssistant.Core.Api;
 
+/// <summary>一套主题的**基类型**：决定它继承哪一套内置色板（浅 / 深）。</summary>
+public enum ThemeBaseKind
+{
+    /// <summary>浅色基底。</summary>
+    Light = 0,
+
+    /// <summary>深色基底。</summary>
+    Dark = 1,
+}
+
 /// <summary>
-/// **外观块**（设置里"外观"这一层的模型）：选择哪套主题 + 逐项覆盖 + 字体轴。
+/// **外观块**（设置里"外观"这一层的模型，v4）：选了哪套主题 + 跟随系统的两套方案 + 投放过什么 + 字体轴。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>层次</b>：外观（本块）→ 主题（<see cref="ThemeSelection"/> 选中哪一套 + 该套主题的内容）
-///     → 色板（<see cref="PaletteOverrides"/> 是用户覆盖层）→ 渲染。**主题是值的来源，覆盖是用户的差异**；</item>
-///   <item><b>覆盖按主题分层</b>：同一支 token 在两套主题下是两个值 ⇒ 覆盖必须记在**哪一套**上，
-///     所以外层键是主题名（大小写不敏感），内层是 token 名；</item>
-///   <item><b>稀疏</b>：没覆盖的条目**不写**（跟随主题内容）⇒ 不产生死数据，也让"改了什么"一眼可见；</item>
-///   <item><b>本轮只有两个轴有值</b>：色板（覆盖）与字体（用户值）。背景媒体 / 密度等轴留位，
-///     它们的解析链与这两条同形（覆盖 ?? 主题内容 ?? 内置缺省）。</item>
+///   <item><b>主题不再是内联数据</b>：主题是设置内部的一个子项，住
+///     `settings\appearance\themes\&lt;id&gt;\theme.json`（+ 同目录壁纸）；本块只记**选择**与**投放过什么**，
+///     不再内联方案目录、色板覆盖与壁纸引用 —— 于是"导出一个主题 = 复制一个文件夹"；</item>
+///   <item><b>内置 `light` / `dark` 不落盘</b>：它们是代码里的色板，永远只读；自定义主题一律是文件夹；</item>
+///   <item><b>跟随系统是两个选择</b>：浅 / 深模式各指向一套同基类型的主题（内置或自定义 id），
+///     解析时的容错（缺失 / 基类型不匹配 ⇒ 回落内置）由主题目录负责；</item>
+///   <item><b>字体不是主题</b>：字体是外观的第二个轴（全局、不随主题切换），仍住在本块；</item>
+///   <item><b><see cref="Seeded"/></b>：出厂种子投放过的相对路径（如 `appearance/themes/sakura`）；
+///     它不代表主题仍存在 —— 用户删除后由它阻止复活，因此记的是"路径"而不是"id"。</item>
 /// </list>
 /// </remarks>
 public sealed class AppearanceSettings
 {
-    /// <summary>**当前生效哪套主题**：<see cref="ThemeIds.System"/>（跟随系统）或某套主题的名字。</summary>
+    /// <summary>**当前生效哪套主题**：<see cref="ThemeIds.System"/>（跟随系统）、内置主题名，或某个主题文件夹的 id。</summary>
     public string ThemeSelection { get; set; } = ThemeIds.System;
 
-    /// <summary>
-    /// **色板覆盖层**：主题名 → token 名 → `#RRGGBB(AA)`。
-    /// </summary>
-    /// <remarks>外层比较器大小写不敏感（旧文件里写的是 `Light` / `Dark`）；空表 = 全部跟随主题内容。</remarks>
-    public IDictionary<string, IDictionary<string, string>> PaletteOverrides { get; set; } =
-        new Dictionary<string, IDictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+    /// <summary>**跟随系统 · 浅色模式**使用哪套主题（内置 / 自定义 id；必须是浅色基类型）。</summary>
+    public string SystemLightScheme { get; set; } = ThemeIds.Light;
+
+    /// <summary>**跟随系统 · 深色模式**使用哪套主题（内置 / 自定义 id；必须是深色基类型）。</summary>
+    public string SystemDarkScheme { get; set; } = ThemeIds.Dark;
 
     /// <summary>**界面字体**（外观·字体轴的用户值；资源键 `FontUi`）。</summary>
     public string UiFontFamily { get; set; } = "Segoe UI, Microsoft YaHei UI";
 
     /// <summary>**数据字体**（外观·字体轴的用户值；资源键 `FontData`）。</summary>
+    // i18n-exempt: 字体族名（“宋体”是字体标识，不是界面文案）
     public string DataFontFamily { get; set; } = "Times New Roman, 宋体";
 
-    /// <summary>读某一套主题里一支 token 的覆盖值（没有 ⇒ <see langword="null"/> = 跟随主题内容）。</summary>
-    /// <param name="themeId">主题名。</param>
-    /// <param name="token">token 名。</param>
-    public string? Override(string themeId, string token)
-    {
-        var id = ThemeIds.Normalize(themeId);
-
-        return PaletteOverrides.TryGetValue(id, out var map)
-            && map.TryGetValue(token, out var hex)
-            && !string.IsNullOrWhiteSpace(hex)
-                ? hex
-                : null;
-    }
-
-    /// <summary>某一套主题里**全部**覆盖项（空 ⇒ 空表）。</summary>
-    /// <param name="themeId">主题名。</param>
-    public IDictionary<string, string> OverridesOf(string themeId) =>
-        PaletteOverrides.TryGetValue(ThemeIds.Normalize(themeId), out var map)
-            ? map
-            : new Dictionary<string, string>(StringComparer.Ordinal);
-
     /// <summary>
-    /// 写 / 清一支覆盖（<paramref name="hex"/> 空 ⇒ 删除该条；该主题一条不剩时把空桶也删掉）。
+    /// **已经投放过的出厂种子单元**（相对**程序目录**的路径，如 `settings/appearance/themes/sakura`）。
     /// </summary>
-    /// <param name="themeId">主题名；<see cref="ThemeIds.System"/> 不是主题 ⇒ 忽略。</param>
-    /// <param name="token">token 名。</param>
-    /// <param name="hex">色值；空 = 恢复跟随主题内容。</param>
-    public void SetOverride(string themeId, string token, string? hex)
+    /// <remarks>
+    /// 只防"删了又复活"，不要求目标仍存在；值用路径而非 id，是为了与种子投放单元（叶子目录）同一口径。
+    /// B 阶段写入的旧形式 `appearance/themes/&lt;id&gt;`（相对设置根）仍被识别。
+    /// </remarks>
+    public IList<string> Seeded { get; set; } = [];
+
+    /// <summary>设置“跟随系统”某一模式使用哪套主题。</summary>
+    /// <param name="baseKind">模式（浅 / 深）。</param>
+    /// <param name="id">主题 id；空 ⇒ 回落到该模式的内置主题。</param>
+    public void SetSystemScheme(ThemeBaseKind baseKind, string? id)
     {
-        if (string.IsNullOrWhiteSpace(token))
+        var normalized = string.IsNullOrWhiteSpace(id)
+            ? baseKind == ThemeBaseKind.Dark ? ThemeIds.Dark : ThemeIds.Light
+            : ThemeIds.Normalize(id);
+
+        if (baseKind == ThemeBaseKind.Dark)
         {
-            return;
+            SystemDarkScheme = normalized;
         }
-
-        var id = ThemeIds.Normalize(themeId);
-        if (string.Equals(id, ThemeIds.System, StringComparison.Ordinal))
+        else
         {
-            return;   // "跟随系统"不是一个可覆盖的主题：它只是"按系统类型挑一套"
+            SystemLightScheme = normalized;
         }
-
-        if (string.IsNullOrWhiteSpace(hex))
-        {
-            if (PaletteOverrides.TryGetValue(id, out var existing) && existing.Remove(token) && existing.Count == 0)
-            {
-                _ = PaletteOverrides.Remove(id);
-            }
-
-            return;
-        }
-
-        if (!PaletteOverrides.TryGetValue(id, out var map))
-        {
-            map = new Dictionary<string, string>(StringComparer.Ordinal);
-            PaletteOverrides[id] = map;
-        }
-
-        map[token] = hex.Trim();
     }
 
-    /// <summary>复制一份（深拷贝：两层字典都换新实例，避免外部持有共享状态）。</summary>
-    public AppearanceSettings Clone()
+    /// <summary>复制一份（深拷贝：<see cref="Seeded"/> 换新实例，避免外部持有共享状态）。</summary>
+    public AppearanceSettings Clone() => new()
     {
-        var copy = new AppearanceSettings
-        {
-            ThemeSelection = ThemeSelection,
-            UiFontFamily = UiFontFamily,
-            DataFontFamily = DataFontFamily,
-            PaletteOverrides = new Dictionary<string, IDictionary<string, string>>(StringComparer.OrdinalIgnoreCase),
-        };
-
-        foreach (var (themeId, map) in PaletteOverrides)
-        {
-            copy.PaletteOverrides[themeId] = new Dictionary<string, string>(map, StringComparer.Ordinal);
-        }
-
-        return copy;
-    }
+        ThemeSelection = ThemeSelection,
+        SystemLightScheme = SystemLightScheme,
+        SystemDarkScheme = SystemDarkScheme,
+        UiFontFamily = UiFontFamily,
+        DataFontFamily = DataFontFamily,
+        Seeded = [.. Seeded],
+    };
 }

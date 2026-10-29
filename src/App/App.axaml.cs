@@ -58,6 +58,9 @@ public partial class App : Application
                     id => windowManager.WindowFor(id),
                     (source, path) => _ = command.SubmitInput(instanceId, source, path));
 
+            // 首帧之前载入设置并落定几何：有工作区按保存形状，无工作区按比例。
+            window.PrepareForShow();
+
             desktop.MainWindow = window;
 
             desktop.ShutdownRequested += (_, _) =>

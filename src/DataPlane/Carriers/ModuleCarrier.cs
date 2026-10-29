@@ -70,7 +70,10 @@ public sealed class ModuleCarrier : IDisposable
     private readonly ICarrierTarget _target;
     private readonly PooledPayloadBufferPool _pool;
     private readonly CarrierOptions _options;
-    /// <summary>二值"有活干"信号：口入队、会话就绪、命令/输入入队都投它（不累积计数）。</summary>
+    /// <summary>
+    /// 二值“有活干”信号：仅**无活动体**的实例使用（口入队 / 会话就绪 / 命令输入）。
+    /// 有活动体的实例自己轮询读取面，不等待这个信号。
+    /// </summary>
     private readonly SemaphoreSlim _dataAvailable = new(0, 1);
     private readonly Thread _thread;
 
@@ -147,6 +150,10 @@ public sealed class ModuleCarrier : IDisposable
     /// <remarks>
     /// 与口入队投的是**同一个**信号：实例循环醒来后自己判断该处理哪些工作源。
     /// 二值信号：重复投递不会累积；已有未消费信号时静默合并。
+    /// <para>
+    /// **活动体实例是 no-op**：它的专属线程跑活动体，没有人等待这个信号；投了只会让二值信号长期为满。
+    /// 命令/输入由活动体自己的循环从收件箱取。
+    /// </para>
     /// </remarks>
     public void SignalWork() => SignalDataAvailable();
 
@@ -157,7 +164,7 @@ public sealed class ModuleCarrier : IDisposable
 
         if (_thread.IsAlive)
         {
-            throw new InvalidOperationException($"承载者已启动：{InstanceId}");
+            throw new InvalidOperationException(DataPlaneText.Get("dataplane.carrier.alreadyStarted", InstanceId));
         }
 
         _thread.Start();
@@ -443,13 +450,22 @@ public sealed class ModuleCarrier : IDisposable
 
     private void SignalDataAvailable()
     {
+        // 活动体实例的专属线程在 runActivity 里，**从不 Wait 这个信号**。
+        // 若仍投递，二值信号在第一次入队后永远为满：此后每个数据单元都会走一次
+        // SemaphoreFullException 的抛出/捕获路径（文本每次投递都卡顿的根因）。
+        if (_target.HasActivity)
+        {
+            return;
+        }
+
         try
         {
             _dataAvailable.Release();
         }
         catch (SemaphoreFullException)
         {
-            // 已有未消费的信号：无需重复唤醒
+            // 已有未消费的信号：无需重复唤醒。合并是正常的；计入诊断以便发现“本不该投”的活动体路径。
+            Diagnostics.RecordSignalOverflow();
         }
     }
 }

@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Core.Persistence;
 using HYWDebugAssistant.Sdk.Configuration;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Core.Services;
 
@@ -36,7 +37,8 @@ internal static class ConfigurationSchemaBuilder
         if (snapshot.Count == 0)
         {
             // 无配置类型的模块是**合法**的：表单为空并说明原因，不假装有字段
-            return new ConfigurationSchemaView(instanceId, [], "该模块没有可编辑的配置项");
+            return new ConfigurationSchemaView(
+                instanceId, [], CoreText.Get("core.services.schema.noFields"));
         }
 
         var fields = new List<ConfigurationFieldView>();
@@ -57,7 +59,8 @@ internal static class ConfigurationSchemaBuilder
         }
 
         return fields.Count == 0
-            ? new ConfigurationSchemaView(instanceId, [], "该模块的配置项均不可编辑")
+            ? new ConfigurationSchemaView(
+                instanceId, [], CoreText.Get("core.services.schema.noEditableFields"))
             : new ConfigurationSchemaView(instanceId, fields);
     }
 
@@ -96,13 +99,13 @@ internal static class ConfigurationSchemaBuilder
 
         if (matches.Count == 0)
         {
-            failure = $"配置中没有可写字段：{fieldName}";
+            failure = CoreText.Get("core.services.schema.unknownField", fieldName);
             return false;
         }
 
         if (matches.Count > 1)
         {
-            failure = $"字段名在多份配置中重复：{fieldName}（无法判定改哪一份）";
+            failure = CoreText.Get("core.services.schema.duplicateField", fieldName);
             return false;
         }
 
@@ -111,7 +114,7 @@ internal static class ConfigurationSchemaBuilder
         // JSON 中转：序列化当前值 → 覆盖一个属性 → 反序列化为**新实例**
         if (JsonSerializer.SerializeToNode(current, targetType, ConfigurationJson.Options) is not JsonObject node)
         {
-            failure = "当前配置无法序列化为对象（无法按字段写回）";
+            failure = CoreText.Get("core.services.schema.notObject");
             return false;
         }
 
@@ -129,13 +132,13 @@ internal static class ConfigurationSchemaBuilder
         }
         catch (Exception ex) when (ex is JsonException or NotSupportedException)
         {
-            failure = $"写回后配置无法解析：{ex.Message}";
+            failure = CoreText.Get("core.services.schema.writeBackParseFailed", ex.Message);
             return false;
         }
 
         if (updated is null)
         {
-            failure = "写回后配置为空（已拒绝）";
+            failure = CoreText.Get("core.services.schema.writeBackEmpty");
             return false;
         }
 
@@ -150,13 +153,20 @@ internal static class ConfigurationSchemaBuilder
 
         var type = property.PropertyType;
         var metadata = property.GetCustomAttribute<ConfigurationFieldAttribute>();
-        var title = string.IsNullOrWhiteSpace(metadata?.Title) ? DisplayName(property) : metadata!.Title!;
+        var owner = property.DeclaringType?.Assembly;
+        var title = ResolveText(owner, metadata?.TitleKey)
+            ?? (string.IsNullOrWhiteSpace(metadata?.Title) ? DisplayName(property) : metadata!.Title!);
 
         var (kind, choices) = Classify(type);
         if (kind is null)
         {
             return false;   // 非可编辑类型（复杂对象等）：不生成字段
         }
+
+        var description = ResolveText(owner, metadata?.DescriptionKey)
+            ?? (string.IsNullOrWhiteSpace(metadata?.Description) ? null : metadata!.Description);
+        var group = ResolveText(owner, metadata?.GroupKey)
+            ?? (string.IsNullOrWhiteSpace(metadata?.Group) ? null : metadata!.Group);
 
         var current = Format(property.GetValue(configuration), type);
 
@@ -184,18 +194,28 @@ internal static class ConfigurationSchemaBuilder
         field = new ConfigurationFieldView(
             property.Name,
             title,
-            string.IsNullOrWhiteSpace(metadata?.Group) ? null : metadata!.Group,
+            group,
             kind.Value,
             current,
             OrNull(metadata?.Minimum),
             OrNull(metadata?.Maximum),
             OrNull(metadata?.Step),
             string.IsNullOrWhiteSpace(metadata?.Unit) ? null : metadata!.Unit,
-            string.IsNullOrWhiteSpace(metadata?.Description) ? null : metadata!.Description,
+            description,
             choices);
 
         return true;
     }
+
+    /// <summary>按声明里的文本键取值（拥有者 = 特性所在类型/枚举的程序集）；未声明或表里没有 ⇒ null。</summary>
+    /// <param name="assembly">特性所在类型（配置类型 / 枚举）的程序集。</param>
+    /// <param name="key">文本表键（可空）。</param>
+    private static string? ResolveText(Assembly? assembly, string? key) =>
+        assembly is not null
+        && !string.IsNullOrWhiteSpace(key)
+        && TextCatalog.TryGet(assembly, key, out var text)
+            ? text
+            : null;
 
     /// <summary>标注里的 <see cref="double.NaN"/> = 未设置（特性参数只能是常量，故用 NaN 表达"不限制"）。</summary>
     private static double? OrNull(double? value) =>
@@ -217,7 +237,9 @@ internal static class ConfigurationSchemaBuilder
             {
                 // **写回用成员名，显示可用标注**（`[ConfigurationChoice]`）：两者合一会让界面里
                 // 只能看到标识符（"Baud115200"），而人该看到的是"115200"。
-                var title = underlying.GetField(name)?.GetCustomAttribute<ConfigurationChoiceAttribute>()?.Title;
+                var choiceMetadata = underlying.GetField(name)?.GetCustomAttribute<ConfigurationChoiceAttribute>();
+                var title = ResolveText(underlying.Assembly, choiceMetadata?.TitleKey)
+                    ?? (string.IsNullOrWhiteSpace(choiceMetadata?.Title) ? null : choiceMetadata!.Title);
 
                 choices.Add(new ConfigurationFieldChoice(
                     name,
@@ -271,7 +293,7 @@ internal static class ConfigurationSchemaBuilder
                 return true;
             }
 
-            failure = "布尔值必须是 true 或 false";
+            failure = CoreText.Get("core.services.schema.boolFormat");
             return false;
         }
 
@@ -283,7 +305,9 @@ internal static class ConfigurationSchemaBuilder
                 return true;
             }
 
-            failure = $"可选项必须是：{string.Join(" / ", Enum.GetNames(underlying))}";
+            failure = CoreText.Get(
+                "core.services.schema.enumOptions",
+                string.Join(" / ", Enum.GetNames(underlying)));
             return false;
         }
 
@@ -295,7 +319,7 @@ internal static class ConfigurationSchemaBuilder
                 return true;
             }
 
-            failure = "数值格式不正确（示例：3.14）";
+            failure = CoreText.Get("core.services.schema.numberFormat");
             return false;
         }
 
@@ -310,11 +334,11 @@ internal static class ConfigurationSchemaBuilder
                 return true;
             }
 
-            failure = "整数格式不正确（示例：100）";
+            failure = CoreText.Get("core.services.schema.integerFormat");
             return false;
         }
 
-        failure = $"不支持的字段类型：{underlying.Name}";
+        failure = CoreText.Get("core.services.schema.unsupportedType", underlying.Name);
         return false;
     }
 

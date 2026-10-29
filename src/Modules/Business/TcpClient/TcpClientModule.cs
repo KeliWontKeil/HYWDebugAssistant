@@ -1,7 +1,7 @@
-using HYWDebugAssistant.Access;
-using HYWDebugAssistant.Access.Adapters;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Access;
+using HYWDebugAssistant.Sdk.AccessKit;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Modules.TcpClient;
 
@@ -19,8 +19,8 @@ namespace HYWDebugAssistant.Modules.TcpClient;
     "hyw",
     "tcp-client",
     "1.0.0",
-    DisplayName = "TCP 客户端",
-    Description = "连到远端：对端来的字节从 rx 出，发往对端的字节从 tx 进",
+    DisplayNameKey = TcpClientText.Title,
+    DescriptionKey = TcpClientText.Description,
     Tags = ["tcp", "client", "io"],
     Capabilities = ModuleCapability.Network,
     ParticipatesInDataFlow = true,
@@ -64,39 +64,44 @@ public sealed class TcpClientModule : ExternalAccessModule
     /// <summary>命令：断开。</summary>
     public const string CloseCommand = "close";
 
+    /// <summary>取一条本模块文本表里的文案（拥有者 = 本模块程序集）。</summary>
+    private static string Tr(string key) => TextCatalog.Get(typeof(TcpClientModule).Assembly, key);
+
+    /// <summary>取一条带占位符的本模块文案。</summary>
+    private static string Tr(string key, params object?[] args) =>
+        TextCatalog.Get(typeof(TcpClientModule).Assembly, key, args);
+
     /// <inheritdoc />
     protected override AccessModuleSpec Spec { get; } = new(
         AccessName,
+        ExternalAccessStandardIds.TcpClient,
         RxPort,
         TxPort,
         RoleId,
-        "连接",
+        Tr(TcpClientText.RoleConnect),
         LinkSource,
         StateSource,
         RxCountSource,
         TxCountSource,
         DropCountSource,
         OpenCommand,
-        "连接",
+        Tr(TcpClientText.Open),
         CloseCommand,
-        "断开");
-
-    /// <inheritdoc />
-    protected override IExternalAccessAdapter CreateAdapter() => new TcpClientAccessAdapter();
+        Tr(TcpClientText.Close));
 
     /// <inheritdoc />
     protected override string Describe(ExternalAccessSnapshot snapshot) => snapshot.State switch
     {
         ExternalAccessState.Open => string.IsNullOrWhiteSpace(snapshot.Detail)
-            ? "已连接"
-            : $"已连接 {snapshot.Detail}",
+            ? Tr(TcpClientText.StatusConnected)
+            : Tr(TcpClientText.StatusConnectedDetail, snapshot.Detail),
         ExternalAccessState.Opening => string.IsNullOrWhiteSpace(snapshot.Detail)
-            ? "正在连接…"
-            : $"正在连接 {snapshot.Detail}",
-        ExternalAccessState.Closing => "正在断开…",
+            ? Tr(TcpClientText.StatusConnecting)
+            : Tr(TcpClientText.StatusConnectingDetail, snapshot.Detail),
+        ExternalAccessState.Closing => Tr(TcpClientText.StatusDisconnecting),
         ExternalAccessState.Faulted => string.IsNullOrWhiteSpace(snapshot.LastError)
-            ? "连接失败"
+            ? Tr(TcpClientText.StatusFailed)
             : snapshot.LastError,
-        _ => snapshot.Suspended ? "实例已停用" : "未连接",
+        _ => snapshot.Suspended ? Tr(TcpClientText.StatusSuspended) : Tr(TcpClientText.StatusIdle),
     };
 }

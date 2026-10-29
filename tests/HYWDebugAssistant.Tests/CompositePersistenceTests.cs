@@ -395,7 +395,7 @@ public class CompositePersistenceTests
         harness.Services.SaveComposite(resaved, "legacy").Succeeded.ShouldBeTrue();
 
         var root = JsonNode.Parse(File.ReadAllText(resaved))!.AsObject();
-        root["schemaVersion"]!.GetValue<int>().ShouldBe(3, "写回即升版到当前版本（v3 = 布局改用 DIP）");
+        root["schemaVersion"]!.GetValue<int>().ShouldBe(4, "写回即升版到当前版本（v4 = 视图状态/壁纸/工作区）");
 
         var entry = root["networks"]!.AsArray()[0]!.AsObject();
         entry["sources"]!.AsArray().Select(n => n!.GetValue<string>()).ShouldBe(["g1.out"]);
@@ -440,12 +440,12 @@ public class CompositePersistenceTests
         loaded.Width.ShouldBe(200, "Width 按缩放归一为 DIP");
         loaded.Height.ShouldBe(150, "Height 按缩放归一为 DIP");
 
-        // 写回：升版到 v3，且写出的是**已归一**的 DIP 值（不再二次换算）
+        // 写回：升版到当前版本，且写出的是**已归一**的 DIP 值（不再二次换算）
         var resaved = harness.PathFor("legacy-v2-layout-resaved.json");
         harness.Services.SaveComposite(resaved, "legacy").Succeeded.ShouldBeTrue();
 
         var root = JsonNode.Parse(File.ReadAllText(resaved))!.AsObject();
-        root["schemaVersion"]!.GetValue<int>().ShouldBe(3);
+        root["schemaVersion"]!.GetValue<int>().ShouldBe(4);
 
         var saved = root["layout"]!["g1"]!.AsObject();
         saved["width"]!.GetValue<double>().ShouldBe(200, "v3 里写的是 DIP");
@@ -792,6 +792,74 @@ public class CompositePersistenceTests
     private static PortGeometryView AnchorGeometry(Harness harness, string instanceId) =>
         harness.Runtime.Content.Layout.GetPort(instanceId, Anchor(harness, instanceId).Name);
 
+    // ------------------------------------------------------------ 加载 = 加载一批模块
+
+    [Fact]
+    public void 加载_同一文件两次_冲突ID应重映射且同名网络合并()
+    {
+        using var first = new Harness(("gen", typeof(GeneratorModule)), ("sink", typeof(SinkModule)));
+        first.Services.AddModule("g1", "test/gen/1.0.0").Succeeded.ShouldBeTrue();
+        first.Services.AddModule("s1", "test/sink/1.0.0").Succeeded.ShouldBeTrue();
+        first.Services.Connect(new PortRef("g1", GeneratorModule.OutPort), [new PortRef("s1", SinkModule.InPort)], "link-1")
+            .Succeeded.ShouldBeTrue();
+
+        var path = first.PathFor("twice.json");
+        first.Services.SaveComposite(path, "twice").Succeeded.ShouldBeTrue();
+
+        using var second = new Harness(("gen", typeof(GeneratorModule)), ("sink", typeof(SinkModule)));
+
+        // 第一次：空现场，ID 原样
+        second.Services.LoadComposite(path).Succeeded.ShouldBeTrue();
+        second.Services.GetInstances().Count.ShouldBe(2);
+        second.Services.GetInstances().ShouldContain(instance => instance.InstanceId == "g1");
+        second.Services.GetInstances().ShouldContain(instance => instance.InstanceId == "s1");
+
+        // 第二次：冲突 ID 生成新 ID；同名网络成员合并，不出现两条同名网络
+        second.Services.LoadComposite(path).Succeeded.ShouldBeTrue();
+        second.Services.GetInstances().Count.ShouldBe(4);
+        second.Services.GetInstances().ShouldContain(instance => instance.InstanceId == "g1-2");
+        second.Services.GetInstances().ShouldContain(instance => instance.InstanceId == "s1-2");
+
+        var networks = second.Services.GetNetworks();
+        networks.Count.ShouldBe(1, "同名网络必须合并为一条（与标签同名即连一致）");
+        networks[0].Name.ShouldBe("link-1");
+        networks[0].Sources.Count.ShouldBe(2);
+        networks[0].Targets.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public void 重启快照_保存后恢复并删除文件()
+    {
+        using var first = new Harness(("gen", typeof(GeneratorModule)), ("sink", typeof(SinkModule)));
+        first.Services.AddModule("g1", "test/gen/1.0.0").Succeeded.ShouldBeTrue();
+        first.Services.AddModule("s1", "test/sink/1.0.0").Succeeded.ShouldBeTrue();
+        first.Services.Connect(new PortRef("g1", GeneratorModule.OutPort), [new PortRef("s1", SinkModule.InPort)], "link-1")
+            .Succeeded.ShouldBeTrue();
+
+        first.Services.SaveRestartSnapshot().Succeeded.ShouldBeTrue();
+        File.Exists(first.RestartPath).ShouldBeTrue();
+
+        using var second = new Harness(first.RestartPath, ("gen", typeof(GeneratorModule)), ("sink", typeof(SinkModule)));
+        second.Services.RestoreRestartSnapshotIfAny().Succeeded.ShouldBeTrue();
+
+        second.Services.GetInstances().Count.ShouldBe(2);
+        second.Services.GetNetworks().Single().Name.ShouldBe("link-1");
+        File.Exists(first.RestartPath).ShouldBeFalse("恢复成功后快照应删除");
+    }
+
+    [Fact]
+    public void 重启快照_损坏时应拒绝并删除()
+    {
+        using var first = new Harness(("gen", typeof(GeneratorModule)));
+        File.WriteAllText(first.RestartPath, "{ broken restart snapshot");
+
+        using var second = new Harness(first.RestartPath, ("gen", typeof(GeneratorModule)));
+        second.Services.RestoreRestartSnapshotIfAny().Succeeded.ShouldBeFalse();
+
+        second.Services.GetInstances().ShouldBeEmpty();
+        File.Exists(first.RestartPath).ShouldBeFalse("损坏的快照也要删除，避免每次启动重复失败");
+    }
+
     // ------------------------------------------------------------ 测试辅助
 
     private static JsonObject ReadWithoutTimestamp(string path)
@@ -823,13 +891,19 @@ public class CompositePersistenceTests
         private readonly string _directory;
 
         public Harness(params (string Name, Type EntryType)[] modules)
+            : this(restartPath: null, modules)
+        {
+        }
+
+        public Harness(string? restartPath, params (string Name, Type EntryType)[] modules)
         {
             _directory = Path.Combine(Path.GetTempPath(), "hyw-composite-" + Guid.NewGuid().ToString("N"));
             _ = Directory.CreateDirectory(_directory);
+            RestartPath = restartPath ?? Path.Combine(_directory, "restart.json");
 
             Runtime = new ModuleRuntime();
             Runtime.UpdateAlignAutoNetwork(false);
-            Services = new RuntimeServices(Runtime);
+            Services = new RuntimeServices(Runtime, restartSnapshotPath: RestartPath);
 
             foreach (var (name, entryType) in modules)
             {
@@ -840,6 +914,8 @@ public class CompositePersistenceTests
         public ModuleRuntime Runtime { get; }
 
         public RuntimeServices Services { get; }
+
+        public string RestartPath { get; }
 
         public void Register(string name, Type entryType)
         {

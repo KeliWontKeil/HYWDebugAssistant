@@ -1,5 +1,7 @@
+using System.Reflection;
 using HYWDebugAssistant.Hosting.Packages;
 using HYWDebugAssistant.Sdk;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Hosting.Registry;
 
@@ -109,10 +111,15 @@ public sealed class ModuleDefinition
         ArgumentNullException.ThrowIfNull(package);
 
         var attribute = package.DefinitionAttribute;
+        var entryAssembly = package.EntryType.Assembly;
+        var displayName = ResolveText(entryAssembly, attribute.DisplayNameKey)
+            ?? (string.IsNullOrWhiteSpace(attribute.DisplayName) ? package.EntryType.Name : attribute.DisplayName);
+        var description = ResolveText(entryAssembly, attribute.DescriptionKey) ?? attribute.Description;
+
         return new ModuleDefinition(
             package.Id,
-            attribute.DisplayName,
-            attribute.Description,
+            displayName,
+            description,
             attribute.Tags,
             attribute.Capabilities,
             attribute.DependsOn.Length > 0 ? attribute.DependsOn : package.Manifest.DependsOn,
@@ -127,6 +134,12 @@ public sealed class ModuleDefinition
             attribute.MinWidth,
             attribute.MinHeight);
     }
+
+    /// <summary>按声明里的文本键取值（拥有者 = 模块程序集）；未声明或表里没有 ⇒ null。</summary>
+    /// <param name="assembly">模块入口程序集。</param>
+    /// <param name="key">文本表键（可空）。</param>
+    private static string? ResolveText(Assembly assembly, string? key) =>
+        !string.IsNullOrWhiteSpace(key) && TextCatalog.TryGet(assembly, key, out var text) ? text : null;
 
     /// <inheritdoc />
     public override string ToString() => Id.ToString();

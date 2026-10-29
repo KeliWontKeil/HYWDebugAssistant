@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.VisualTree;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
@@ -31,6 +32,10 @@ public enum TextSurfaceMode
 /// <para>
 /// **只读不是另一个控件**：`Mode=Display` 或 `IsReadOnly=true` 只切换呈现叶子；
 /// 数据、外观、错误、换行、尾部跟随都在本类一处。
+/// </para>
+/// <para>
+/// **失焦不提交**：编辑内容逐键写进视图状态，失焦只是"编辑结束"；提交只由 Enter（单行）/
+/// Ctrl+Enter（多行）或显式 <see cref="Commit"/> 触发 —— 否则"填完点别处"会变成一次发送。
 /// </para>
 /// </remarks>
 public sealed class ModuleTextSurface : ModuleElement
@@ -224,7 +229,7 @@ public sealed class ModuleTextSurface : ModuleElement
         Restore();
     }
 
-    /// <summary>把当前编辑文本提交给模块（仅可编辑 Input 面）。</summary>
+    /// <summary>把当前编辑文本提交给模块（仅可编辑 Input 面；**失焦不会调用它**，只由 Enter / 显式调用触发）。</summary>
     public void Commit()
     {
         if (_context is null || Source.Length == 0 || _input is null || IsReadOnlyEffective)
@@ -440,10 +445,8 @@ public sealed class ModuleTextSurface : ModuleElement
             _focusRing.IsVisible = false;
         }
 
-        if (!Multiline && !IsReadOnlyEffective)
-        {
-            Commit();
-        }
+        // **失焦 = 编辑结束，不是动作**：不提交。
+        // 内容已由 OnInputTextChanged 逐键写进视图状态，模块每拍都读得到；提交只属于 Enter / 显式调用。
     }
 
     private void OnInputGotFocus(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -536,7 +539,11 @@ public sealed class ModuleTextSurface : ModuleElement
         _ = _readText.ApplySnapshot(snapshot.Lines, snapshot.Revision);
 
         var dropped = snapshot.Dropped > 0
-            ? $"已丢弃 {snapshot.Dropped} 行（缓冲上限 {snapshot.Capacity} 行）"
+            ? TextCatalog.Get(
+                typeof(ModuleTextSurface).Assembly,
+                "moduleTextSurface.dropped",
+                snapshot.Dropped,
+                snapshot.Capacity)
             : string.Empty;
 
         if (_dropped is not null && !string.Equals(_dropped.Text, dropped, StringComparison.Ordinal))

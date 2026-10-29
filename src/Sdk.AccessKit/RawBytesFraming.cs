@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using HYWDebugAssistant.Sdk.Contracts;
 
-namespace HYWDebugAssistant.Access;
+namespace HYWDebugAssistant.Sdk.AccessKit;
 
 /// <summary>
 /// **应用标准 `RawBytes@v1` 的组帧 / 拆帧**：`{ len: u16, data: bytes[capacity] }`。

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Context;
@@ -5,6 +6,7 @@ using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Timing;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Testing;
@@ -19,7 +21,7 @@ namespace HYWDebugAssistant.Sdk.Testing;
 ///   <item>`Publish` 写入的记录可直接断言（<see cref="Published"/>）。</item>
 /// </list>
 /// </remarks>
-public sealed class TestModuleContext : IModuleContext
+public sealed class TestModuleContext : IModuleContext, IDisposable
 {
     private readonly List<PortDeclaration> _ports = [];
     private readonly List<DataTypeDeclaration> _dataTypes = [];
@@ -52,8 +54,12 @@ public sealed class TestModuleContext : IModuleContext
         Issues = new IssueCollector(ReportedIssues);
         Configuration = new InMemoryConfigurationAccess(_configuration);
         StopSignal = _stopSignal;
+        Timing = new TestTiming(_stopSignal);
         Appearance = new AppearanceRecorder(_appearances);
     }
+
+    /// <inheritdoc />
+    public void Dispose() => _stopSignal.Dispose();
 
     /// <summary>
     /// 模块给元素设定的**外观**（颜色）——只记颜色，**不含语义**（框架不认识"红 = 失败"）。
@@ -81,7 +87,8 @@ public sealed class TestModuleContext : IModuleContext
         bool Reset = false,
         bool? ReadOnly = null,
         string? OutlineRole = null,
-        string? TextRole = null);
+        string? TextRole = null,
+        bool? Enabled = null);
 
     /// <summary>把外观设定记下来的替身。</summary>
     private sealed class AppearanceRecorder : IViewAppearanceAccess
@@ -113,6 +120,10 @@ public sealed class TestModuleContext : IModuleContext
         /// <inheritdoc />
         public void SetReadOnly(string sourceName, bool isReadOnly) =>
             _log.Add(new AppearanceReport(sourceName, Outline: null, Text: null, ReadOnly: isReadOnly));
+
+        /// <inheritdoc />
+        public void SetEnabled(string sourceName, bool isEnabled) =>
+            _log.Add(new AppearanceReport(sourceName, Outline: null, Text: null, Enabled: isEnabled));
 
         /// <inheritdoc />
         public void ResetInteraction(string sourceName) =>
@@ -166,6 +177,9 @@ public sealed class TestModuleContext : IModuleContext
 
     /// <inheritdoc />
     public IStopSignal StopSignal { get; }
+
+    /// <inheritdoc />
+    public IModuleTiming Timing { get; }
 
     /// <inheritdoc />
     public IModuleInbox Inbox { get; } = new TestInbox();
@@ -385,11 +399,14 @@ public sealed class TestModuleContext : IModuleContext
         public void Update(BusinessState state) => sink.Add(state);
     }
 
-    private sealed class TestStopSignal : IStopSignal
+    private sealed class TestStopSignal : IStopSignal, IDisposable
     {
+        private readonly CancellationTokenSource _cancellation = new();
         private volatile bool _requested;
 
         public bool IsStopRequested => _requested;
+
+        public CancellationToken StoppingToken => _cancellation.Token;
 
         public bool Wait(TimeSpan timeout)
         {
@@ -398,11 +415,46 @@ public sealed class TestModuleContext : IModuleContext
                 return true;
             }
 
-            Thread.Sleep(timeout);
-            return _requested;
+            return _cancellation.Token.WaitHandle.WaitOne(timeout) || _requested;
         }
 
-        public void Request() => _requested = true;
+        public void Request()
+        {
+            _requested = true;
+            _cancellation.Cancel();
+        }
+
+        /// <inheritdoc />
+        public void Dispose() => _cancellation.Dispose();
+    }
+
+    private sealed class TestTiming : IModuleTiming
+    {
+        private readonly IStopSignal _stopSignal;
+        private readonly Stopwatch _clock = Stopwatch.StartNew();
+
+        public TestTiming(IStopSignal stopSignal) => _stopSignal = stopSignal;
+
+        public TimeSpan Now => _clock.Elapsed;
+
+        public bool WaitUntil(TimeSpan deadline)
+        {
+            var remaining = deadline - _clock.Elapsed;
+            return remaining > TimeSpan.Zero
+                ? _stopSignal.Wait(remaining)
+                : _stopSignal.IsStopRequested;
+        }
+
+        public bool WaitFor(TimeSpan delay)
+        {
+            if (delay <= TimeSpan.Zero)
+            {
+                Thread.Yield();
+                return _stopSignal.IsStopRequested;
+            }
+
+            return _stopSignal.Wait(delay);
+        }
     }
 
     private sealed class InMemoryConfigurationAccess(Dictionary<string, object> store) : IConfigurationAccess

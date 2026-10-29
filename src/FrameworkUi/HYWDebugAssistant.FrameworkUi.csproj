@@ -2,10 +2,11 @@
 
   <!--
     L5 框架自身 UI（§3.2：不作为普通 Module）：设置界面 / Issue 面板 / 模块清单与管理视图 / 诊断面板 / 模块加载入口
-    依赖：只允许 Sdk + Core.Api + Ui（AR-8）
+    依赖：只允许 Sdk + Core.Api + Ui + Sdk.Ui（AR-8；后者只为 `{loc:Tr}` 文本扩展）
   -->
   <ItemGroup>
     <ProjectReference Include="..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\Sdk.Ui\HYWDebugAssistant.Sdk.Ui.csproj" />
     <ProjectReference Include="..\Core.Api\HYWDebugAssistant.Core.Api.csproj" />
     <ProjectReference Include="..\Ui\HYWDebugAssistant.Ui.csproj" />
   </ItemGroup>

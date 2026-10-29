@@ -59,5 +59,6 @@ public sealed class PlaceholderInstance
     public string ObjectPath => $"module:{InstanceId}";
 
     /// <inheritdoc />
-    public override string ToString() => $"{InstanceId}@{ModuleIdLiteral}（占位：{Reason}）";
+    public override string ToString() =>
+        CoreText.Get("core.workspace.placeholder", InstanceId, ModuleIdLiteral, Reason);
 }

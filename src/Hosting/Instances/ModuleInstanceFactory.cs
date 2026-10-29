@@ -28,20 +28,27 @@ public static class ModuleInstanceFactory
     /// **按实例绑定的文件选择请求面**；`null` ⇒ 模块的"弹一次系统选择器"请求被忽略
     /// （宿主没接线时用户看不到对话框，模块也收不到路径 —— 老调用点零改动）。
     /// </param>
+    /// <param name="timing">全局计时面；`null` ⇒ 用进程共享的全局计时服务。</param>
+    /// <param name="catalog">
+    /// **外部标准目录**：按模块声明的标准标识解析适配器与参数类型；
+    /// `null` ⇒ 有外部接入声明的模块得到 Error 并以未接线状态继续（老调用点零改动）。
+    /// </param>
     public static ModuleInstance Create(
         string instanceId,
         Registry.ModuleDefinition definition,
         Diagnostics.IIssueSink issues,
         Sdk.Context.IViewStateReader? viewState = null,
         Sdk.Context.IViewDisplayAccess? display = null,
-        Sdk.Context.IFileAccess? files = null)
+        Sdk.Context.IFileAccess? files = null,
+        Sdk.Timing.IModuleTiming? timing = null,
+        IExternalAccessCatalog? catalog = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(issues);
 
         var module = (Sdk.Lifecycle.IModule)Activator.CreateInstance(definition.EntryType)!;
-        var context = new Context.ModuleContext(instanceId, definition.Id, issues);
+        var context = new Context.ModuleContext(instanceId, definition.Id, issues, timing);
         var objectPath = $"module:{instanceId}";
 
         if (viewState is not null)
@@ -69,7 +76,7 @@ public static class ModuleInstanceFactory
             issues.Report(objectPath, new Sdk.Reporting.IssueReport(
                 Sdk.Reporting.IssueCategory.ModuleError,
                 Sdk.Reporting.IssueSeverity.Error,
-                $"模块在 OnRegistered 中抛出异常：{ex.GetType().Name} — {ex.Message}"));
+                HostingText.Get("hosting.instance.onRegisteredThrew", ex.GetType().Name, ex.Message)));
         }
 
         // ② 成员实例化：口实例（含口名唯一性校验）+ **数据类型镜像**
@@ -85,14 +92,15 @@ public static class ModuleInstanceFactory
         // ②d **界面契约**（显示源 / 输入源 / 命令）：框架据此建缓冲与闸门，与"画在哪"无关
         var displaySources = BuildDisplaySources(context, objectPath, issues);
         var inputs = BuildInputs(context, objectPath, issues);
+        var persistentInputs = new HashSet<string>(context.PersistentInputs, StringComparer.Ordinal);
         var commands = BuildCommands(context, objectPath, issues);
 
-        // ②e **外部接入**（名唯一 + 适配件/参数类型可实例化 + 单元上限合法）
-        var externalAccesses = BuildExternalAccesses(context, objectPath, issues);
+        // ②e **外部接入**（名唯一 + 标准可解析 + 参数类型可实例化 + 单元上限合法）
+        var externalAccesses = BuildExternalAccesses(context, objectPath, issues, catalog);
 
         var instance = new ModuleInstance(
             instanceId, definition, module, ports, dataTypes, roles, flows,
-            displaySources, inputs, commands, externalAccesses, context)
+            displaySources, inputs, persistentInputs, commands, externalAccesses, context)
         {
             State = ModuleInstanceState.Registered,
         };
@@ -103,7 +111,7 @@ public static class ModuleInstanceFactory
             issues.Report(objectPath, new Sdk.Reporting.IssueReport(
                 Sdk.Reporting.IssueCategory.ModuleError,
                 Sdk.Reporting.IssueSeverity.Warning,
-                "模块同时实现活动体与交互回调：框架按活动体模式运行，交互回调不会投递（请只选一种消费方式）"));
+                HostingText.Get("hosting.instance.dualConsumption")));
         }
 
         return instance;
@@ -122,13 +130,13 @@ public static class ModuleInstanceFactory
         {
             if (string.IsNullOrWhiteSpace(source.Name))
             {
-                Report("显示源的名字不能为空（已忽略该条）");
+                Report(HostingText.Get("hosting.instance.displaySourceEmptyName"));
                 continue;
             }
 
             if (!seen.Add(source.Name))
             {
-                Report($"显示源「{source.Name}」重复声明（已忽略重复项）");
+                Report(HostingText.Get("hosting.instance.displaySourceDuplicate", source.Name));
                 continue;
             }
 
@@ -159,7 +167,7 @@ public static class ModuleInstanceFactory
                 issues.Report(objectPath, new Sdk.Reporting.IssueReport(
                     Sdk.Reporting.IssueCategory.InterfaceError,
                     Sdk.Reporting.IssueSeverity.Warning,
-                    $"输入源「{name}」重复声明（已忽略重复项）"));
+                    HostingText.Get("hosting.instance.inputDuplicate", name)));
                 continue;
             }
 
@@ -170,16 +178,18 @@ public static class ModuleInstanceFactory
     }
 
     /// <summary>
-    /// 校验**外部接入**声明：名字非空/唯一、适配件与参数类型可实例化、单元上限合法。
+    /// 校验**外部接入**声明：名字非空/唯一、标准标识可解析、参数类型可实例化、单元上限合法。
     /// </summary>
     /// <remarks>
-    /// 参数类型在声明期已经登记进配置快照（<see cref="Context.ModuleContext.TryEnsureConfiguration"/>）；
-    /// 这里再登记一次是幂等的，同时把“类型不合法”从模块的注册钩子里挪到统一校验处报 Issue。
+    /// 适配器与参数类型归框架所有：标准标识经 <paramref name="catalog"/> 解析成 descriptor，
+    /// 参数类型随 descriptor 登记进配置快照（表单与持久化复用）。
+    /// 未知标准 / 缺 catalog / 参数类型非法 ⇒ 报 Error 并**忽略该条**（模块以未接线状态继续）。
     /// </remarks>
     private static List<ExternalAccessDeclaration> BuildExternalAccesses(
         Context.ModuleContext context,
         string objectPath,
-        Diagnostics.IIssueSink issues)
+        Diagnostics.IIssueSink issues,
+        IExternalAccessCatalog? catalog)
     {
         const int maxUnitBytes = 1024 * 1024;
         var accesses = new List<ExternalAccessDeclaration>(context.DeclaredExternalAccesses.Count);
@@ -189,51 +199,83 @@ public static class ModuleInstanceFactory
         {
             if (string.IsNullOrWhiteSpace(access.Name))
             {
-                Report("外部接入的名字不能为空（已忽略该条）");
+                Report(HostingText.Get("hosting.instance.accessEmptyName"));
                 continue;
             }
 
             if (!names.Add(access.Name))
             {
-                Report($"外部接入名重复：'{access.Name}'（模块内唯一；已忽略重复项）");
-                continue;
-            }
-
-            if (access.Adapter is null)
-            {
-                Report($"外部接入 '{access.Name}' 的适配件为空（已忽略该条）");
-                continue;
-            }
-
-            var parametersType = access.Adapter.ParametersType;
-            if (parametersType is null
-                || !parametersType.IsClass
-                || parametersType.IsAbstract
-                || !parametersType.IsPublic)
-            {
-                Report(
-                    $"外部接入 '{access.Name}' 的参数类型必须是公开、非抽象的类（已忽略该条）");
-                continue;
-            }
-
-            if (parametersType.GetConstructor(Type.EmptyTypes) is null)
-            {
-                Report(
-                    $"外部接入 '{access.Name}' 的参数类型 {parametersType.Name} 缺少公共无参构造函数（已忽略该条）");
+                Report(HostingText.Get("hosting.instance.accessDuplicateName", access.Name));
                 continue;
             }
 
             if (access.MaxUnitBytes <= 0 || access.MaxUnitBytes > maxUnitBytes)
             {
-                Report(
-                    $"外部接入 '{access.Name}' 的单元上限必须在 1–{maxUnitBytes} 字节之间（当前 {access.MaxUnitBytes}；已忽略该条）");
+                Report(HostingText.Get(
+                    "hosting.instance.accessUnitLimit",
+                    access.Name,
+                    maxUnitBytes,
+                    access.MaxUnitBytes));
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(access.StandardId))
+            {
+                Report(HostingText.Get("hosting.instance.accessStandardEmpty", access.Name));
+                continue;
+            }
+
+            if (catalog is null)
+            {
+                Report(HostingText.Get(
+                    "hosting.instance.accessCatalogMissing",
+                    access.Name,
+                    access.StandardId));
+                continue;
+            }
+
+            if (!catalog.TryResolve(access.StandardId, out var descriptor) || descriptor is null)
+            {
+                Report(HostingText.Get("hosting.instance.accessUnknownStandard", access.StandardId, access.Name));
+                continue;
+            }
+
+            var parametersType = descriptor.ParametersType;
+            if (parametersType is null
+                || !parametersType.IsClass
+                || parametersType.IsAbstract
+                || !parametersType.IsPublic)
+            {
+                Report(HostingText.Get(
+                    "hosting.instance.accessParametersNotPublicClass",
+                    access.StandardId,
+                    access.Name));
+                continue;
+            }
+
+            if (parametersType.GetConstructor(Type.EmptyTypes) is null)
+            {
+                Report(HostingText.Get(
+                    "hosting.instance.accessParametersNoCtor",
+                    access.StandardId,
+                    parametersType.Name,
+                    access.Name));
+                continue;
+            }
+
+            if (descriptor.CreateAdapter is null)
+            {
+                Report(HostingText.Get("hosting.instance.accessAdapterFactoryMissing", access.StandardId, access.Name));
                 continue;
             }
 
             if (context.TryEnsureConfiguration(parametersType) is null)
             {
-                Report(
-                    $"外部接入 '{access.Name}' 的参数类型 {parametersType.Name} 无法实例化（已忽略该条）");
+                Report(HostingText.Get(
+                    "hosting.instance.accessParametersInstantiateFailed",
+                    access.StandardId,
+                    parametersType.Name,
+                    access.Name));
                 continue;
             }
 
@@ -264,7 +306,7 @@ public static class ModuleInstanceFactory
                 issues.Report(objectPath, new Sdk.Reporting.IssueReport(
                     Sdk.Reporting.IssueCategory.InterfaceError,
                     Sdk.Reporting.IssueSeverity.Warning,
-                    $"命令「{name}」重复声明（已忽略重复项）"));
+                    HostingText.Get("hosting.instance.commandDuplicate", name)));
                 continue;
             }
 
@@ -311,25 +353,25 @@ public static class ModuleInstanceFactory
         {
             if (string.IsNullOrWhiteSpace(role.Id))
             {
-                Report("角色的标识不能为空（已忽略该条）");
+                Report(HostingText.Get("hosting.instance.roleIdEmpty"));
                 continue;
             }
 
             if (!ids.Add(role.Id))
             {
-                Report($"角色标识重复：'{role.Id}'（模块内唯一；已忽略重复声明）");
+                Report(HostingText.Get("hosting.instance.roleIdDuplicate", role.Id));
                 continue;
             }
 
             if (!knownTypes.Contains(role.Type))
             {
-                Report($"角色 '{role.Id}' 引用了本模块未声明的数据类型 {role.Type}（已忽略该条）");
+                Report(HostingText.Get("hosting.instance.roleTypeUndeclared", role.Id, role.Type));
                 continue;
             }
 
             if (role.Inputs.Count == 0 && role.Outputs.Count == 0)
             {
-                Report($"角色 '{role.Id}' 既没有输入口也没有输出口（一个分块至少要有一个口；已忽略该条）");
+                Report(HostingText.Get("hosting.instance.roleNoPorts", role.Id));
                 continue;
             }
 
@@ -345,7 +387,7 @@ public static class ModuleInstanceFactory
 
             if (taken is not null)
             {
-                Report($"口 '{taken}' 已属于角色 '{claimed[taken]}'（一个口最多属于一个角色；已忽略角色 '{role.Id}'）");
+                Report(HostingText.Get("hosting.instance.portAlreadyOwned", taken, claimed[taken], role.Id));
                 continue;
             }
 
@@ -373,21 +415,27 @@ public static class ModuleInstanceFactory
             {
                 if (names.Count(n => string.Equals(n, name, StringComparison.Ordinal)) > 1)
                 {
-                    Report($"角色 '{roleId}' 的口 '{name}' 重复出现（已忽略该条）");
+                    Report(HostingText.Get("hosting.instance.rolePortDuplicate", roleId, name));
                     return false;
                 }
 
                 var port = ports.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.Ordinal));
                 if (port is null)
                 {
-                    Report($"角色 '{roleId}' 引用了不存在的口 '{name}'（已忽略该条）");
+                    Report(HostingText.Get("hosting.instance.rolePortMissing", roleId, name));
                     return false;
                 }
 
                 if (port.Direction != expected)
                 {
-                    Report($"角色 '{roleId}' 的{(expected == Sdk.Ports.PortDirection.Receive ? "输入" : "输出")}口 '{name}' " +
-                        $"实际方向是 {port.Direction}（已忽略该条）");
+                    Report(HostingText.Get(
+                        "hosting.instance.rolePortDirection",
+                        roleId,
+                        name,
+                        expected == Sdk.Ports.PortDirection.Receive
+                            ? HostingText.Get("hosting.instance.direction.input")
+                            : HostingText.Get("hosting.instance.direction.output"),
+                        port.Direction));
                     return false;
                 }
 
@@ -396,9 +444,15 @@ public static class ModuleInstanceFactory
                 // 口**未声明类型**（旧模块形态）⇒ 无可比对象，跳过（与「可声明 ≠ 必须声明」一致）。
                 if (port.Declaration.Type is { } portType && portType != roleType)
                 {
-                    Report($"角色 '{roleId}' 的{(expected == Sdk.Ports.PortDirection.Receive ? "输入" : "输出")}口 '{name}' " +
-                        $"类型是 {portType}，与角色的类型 {roleType} 不一致（一个角色的输入口与输出口必须同一种数据类型；" +
-                        "类型转换请拆成两个角色 + DeclareFlow；已忽略该条）");
+                    Report(HostingText.Get(
+                        "hosting.instance.rolePortTypeMismatch",
+                        roleId,
+                        name,
+                        expected == Sdk.Ports.PortDirection.Receive
+                            ? HostingText.Get("hosting.instance.direction.input")
+                            : HostingText.Get("hosting.instance.direction.output"),
+                        portType,
+                        roleType));
                     return false;
                 }
             }
@@ -430,25 +484,25 @@ public static class ModuleInstanceFactory
         {
             if (string.IsNullOrWhiteSpace(flow.FromRoleId) || string.IsNullOrWhiteSpace(flow.ToRoleId))
             {
-                Report($"内部处理关系的角色标识不能为空：{flow}（已忽略该条）");
+                Report(HostingText.Get("hosting.instance.flowRoleIdEmpty", flow));
                 continue;
             }
 
             if (string.Equals(flow.FromRoleId, flow.ToRoleId, StringComparison.Ordinal))
             {
-                Report($"内部处理关系不得自环：{flow}（已忽略该条）");
+                Report(HostingText.Get("hosting.instance.flowSelfLoop", flow));
                 continue;
             }
 
             if (!known.Contains(flow.FromRoleId) || !known.Contains(flow.ToRoleId))
             {
-                Report($"内部处理关系引用了未声明的角色：{flow}（已忽略该条）");
+                Report(HostingText.Get("hosting.instance.flowUndeclaredRole", flow));
                 continue;
             }
 
             if (!seen.Add((flow.FromRoleId, flow.ToRoleId)))
             {
-                Report($"内部处理关系重复声明：{flow}（已忽略重复项）");
+                Report(HostingText.Get("hosting.instance.flowDuplicate", flow));
                 continue;
             }
 
@@ -484,7 +538,7 @@ public static class ModuleInstanceFactory
                 issues.Report(objectPath, new Sdk.Reporting.IssueReport(
                     Sdk.Reporting.IssueCategory.InterfaceError,
                     Sdk.Reporting.IssueSeverity.Error,
-                    $"数据类型重复声明：{declaration.Reference}（同一（标识, 版本）只能声明一次；重复声明已忽略）"));
+                    HostingText.Get("hosting.instance.dataTypeDuplicate", declaration.Reference)));
                 continue;
             }
 
@@ -499,7 +553,7 @@ public static class ModuleInstanceFactory
                 issues.Report(objectPath, new Sdk.Reporting.IssueReport(
                     Sdk.Reporting.IssueCategory.InterfaceError,
                     Sdk.Reporting.IssueSeverity.Warning,
-                    $"口 '{port.Name}' 引用了未声明的数据类型 {reference}——该口按**结构**参与兼容判定",
+                    HostingText.Get("hosting.instance.portUndeclaredType", port.Name, reference),
                     port.Name));
             }
         }
@@ -520,7 +574,7 @@ public static class ModuleInstanceFactory
                 issues.Report(objectPath, new Sdk.Reporting.IssueReport(
                     Sdk.Reporting.IssueCategory.InterfaceError,
                     Sdk.Reporting.IssueSeverity.Error,
-                    $"口名重复：'{declaration.Name}'（口名必须在模块内唯一；重复声明已忽略）",
+                    HostingText.Get("hosting.instance.portNameDuplicate", declaration.Name),
                     declaration.Name));
                 continue;
             }

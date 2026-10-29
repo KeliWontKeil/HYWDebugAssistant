@@ -13,6 +13,7 @@ using Avalonia.Media.TextFormatting;
 using Avalonia.Themes.Fluent;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using HYWDebugAssistant.Access.Parameters;
 using HYWDebugAssistant.Modules.HexSender.Views;
 using HYWDebugAssistant.Modules.HexStringConverter.Views;
 using HYWDebugAssistant.Modules.Serial.Views;
@@ -20,6 +21,7 @@ using HYWDebugAssistant.Modules.TcpClient.Views;
 using HYWDebugAssistant.Modules.TcpServer.Views;
 using HYWDebugAssistant.Modules.TextSender.Views;
 using HYWDebugAssistant.Modules.Udp.Views;
+using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
 using HYWDebugAssistant.Ui.Views;
@@ -49,7 +51,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 串口的自带视图_应画出参数格与读数()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -110,7 +112,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 布尔字段的编辑器_挂树即可用()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -147,7 +149,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 多行输入_逐键写状态且重建后恢复()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -194,7 +196,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 配置字段_编辑中的文本不被刷新覆盖()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -234,7 +236,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 页签选中页_写回状态并在重建后恢复()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -295,7 +297,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 外观通道_描红落到输入框本身()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -336,7 +338,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 模块视图_在无App主题的预览环境自包含控件主题()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(BarePreviewEntryPoint));
+        var session = SnapshotSession.BarePreview;
 
         await session.Dispatch(
             () =>
@@ -374,12 +376,15 @@ public class ModuleViewSmokeTests
     [InlineData(typeof(UdpView))]
     public async Task 设计时配置上下文_参数模块的字段都有编辑器(Type viewType)
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
             {
                 ModuleView.IsPreviewHost = true;
+
+                // 外部模块的参数类型在框架侧：模拟预览宿主先注册标准标识 → 配置类型映射。
+                RegisterPreviewStandardConfigs();
 
                 try
                 {
@@ -418,13 +423,29 @@ public class ModuleViewSmokeTests
     }
 
     /// <summary>
+    /// **预览设计数据映射的测试夹具**：只注册生产同款映射。
+    /// </summary>
+    /// <remarks>
+    /// `ModuleView` 的注册表是进程级、覆盖写：本方法可重复调用；VisualSnapshots 是独立测试进程，
+    /// 其它用例不依赖"注册表为空"。需要不同映射的用例直接再次 <c>RegisterStandardConfig</c> 覆盖即可，
+    /// 因此不需要清理（也不改产品 API）。
+    /// </remarks>
+    private static void RegisterPreviewStandardConfigs()
+    {
+        ModuleView.RegisterStandardConfig(ExternalAccessStandardIds.Serial, typeof(SerialConfig));
+        ModuleView.RegisterStandardConfig(ExternalAccessStandardIds.TcpClient, typeof(TcpClientConfig));
+        ModuleView.RegisterStandardConfig(ExternalAccessStandardIds.TcpServer, typeof(TcpServerConfig));
+        ModuleView.RegisterStandardConfig(ExternalAccessStandardIds.Udp, typeof(UdpConfig));
+    }
+
+    /// <summary>
     /// **转换器上下两个输入框必须同宽同高**：页签内容如果按内容宽而不是拉伸，
     /// 上下两个 TabControl 的可用宽度会看起来不同。
     /// </summary>
     [Fact]
     public async Task 转换器上下输入框_同宽同高()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -492,7 +513,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 发送与转换模块_必须有输入类型标签()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -552,7 +573,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 页签_使用模块自己的容器主题()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -574,6 +595,17 @@ public class ModuleViewSmokeTests
 
                 window.Show();
                 Pump();
+
+                // **随包文本**：视图的静态文案必须命中模块自己的表（不是 `⟦key⟧`）。
+                var viewTexts = view.GetVisualDescendants()
+                    .OfType<TextBlock>()
+                    .Select(text => text.Text ?? string.Empty)
+                    .ToList();
+                viewTexts.ShouldContain("文本输入", "模块视图文案应命中随包文本表");
+                viewTexts.ShouldContain("连续发送", "开关文案应命中随包文本表");
+                viewTexts.ShouldNotContain(
+                    text => text.Contains('\u27E6'),
+                    "随包文本表命中时不得出现可见缺失标记");
 
                 var tabs = view.GetVisualDescendants().OfType<ModuleTabs>().Single();
                 tabs.ItemContainerTheme.ShouldNotBeNull("页签容器主题必须落到本地值");
@@ -615,7 +647,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 输入开关_拨动提交一次()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -671,7 +703,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 只读显示面_文本可选中复制_但没有编辑器焦点()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -715,7 +747,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 显示面_真实换行有标记_自动折行没有()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -758,7 +790,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 显示面_追加只布局新增行()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -822,7 +854,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 增量显示面_文本和选择必须真的出像素()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -878,7 +910,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 增量显示面_鼠标拖选应命中文本()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -933,7 +965,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 显示面_滚动到末尾后文本仍可见()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -1045,7 +1077,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 显示面_拉宽后自动折行应跟随宽度()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -1096,7 +1128,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 显示面_超长单行折行应与一次完整布局一致()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -1191,7 +1223,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 只读配置文本框_文本可复制但没有编辑器焦点()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -1242,7 +1274,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 只读与可写_同一控件不同叶子()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -1343,7 +1375,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 换行标记_自动折行不出现_真实换行才出现()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -1395,7 +1427,7 @@ public class ModuleViewSmokeTests
     [Fact]
     public async Task 多行输入_显示换行标记()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(OverlaySnapshotTests.SkiaHeadlessEntryPoint));
+        var session = SnapshotSession.Shared;
 
         await session.Dispatch(
             () =>
@@ -1424,6 +1456,52 @@ public class ModuleViewSmokeTests
                 Pump();
                 marks.Marks.Count.ShouldBeGreaterThan(0, "输入面的 ↵ 与日志面同一套覆盖层");
                 window.Close(); Pump();
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>**失焦不提交，回车才提交**：填充内容不等于发送动作。</summary>
+    [Fact]
+    public async Task 文本面_失焦不提交_回车提交一次()
+    {
+        var session = SnapshotSession.Shared;
+
+        await session.Dispatch(
+            () =>
+            {
+                var context = new StubViewContext();
+                var box = new ModuleTextSurface { Source = "text1", Text = "abc" };
+                var host = new ModuleViewHost(context, box);
+                var other = new TextBox();
+                var window = new Window
+                {
+                    Width = 320,
+                    Height = 160,
+                    Content = new StackPanel { Children = { host, other } },
+                };
+
+                window.Show();
+                Pump();
+                host.Refresh();
+                Pump();
+
+                var input = box.GetVisualDescendants().OfType<TextBox>().Single();
+                input.Focus();
+                Pump();
+                other.Focus();
+                Pump();
+
+                context.Submitted.ShouldBeEmpty("失焦只是编辑结束，不是提交动作");
+
+                input.Focus();
+                Pump();
+                input.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+                Pump();
+
+                context.Submitted.ShouldHaveSingleItem("回车恰好提交一次");
+
+                window.Close();
+                Pump();
             },
             CancellationToken.None);
     }

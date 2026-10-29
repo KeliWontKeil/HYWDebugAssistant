@@ -32,4 +32,10 @@ public sealed class ConfigurationChoiceAttribute : Attribute
 
     /// <summary>显示名（空 ⇒ 由成员名回退）。</summary>
     public string? Title { get; }
+
+    /// <summary>
+    /// 显示名的**文本表键**（拥有者 = 枚举所在程序集；命中优先于 <see cref="Title"/>）。
+    /// </summary>
+    /// <remarks>空 = 不用表，回退到 <see cref="Title"/> / 成员名。</remarks>
+    public string? TitleKey { get; init; }
 }

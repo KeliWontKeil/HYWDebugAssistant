@@ -3,6 +3,7 @@ using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Modules.HexStringConverter;
@@ -28,8 +29,8 @@ namespace HYWDebugAssistant.Modules.HexStringConverter;
     "hyw",
     "hex-string-converter",
     "1.0.0",
-    DisplayName = "HEX ↔ 字符串转换器",
-    Description = "十六进制与字符串互转的离线小工具（无端口、不交换数据）",
+    DisplayNameKey = HexStringConverterText.Title,
+    DescriptionKey = HexStringConverterText.Description,
     Tags = ["hex", "tool"],
     ParticipatesInDataFlow = false,
     WindowWidth = 400,
@@ -145,11 +146,11 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
         {
             var charSource = CharSourceOf(i);
             context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(charSource, ViewDataSourceKind.Text));
-            context.Declaration.DeclareInput(charSource);
+            context.Declaration.DeclareInput(new InputDeclaration(charSource) { Persistence = InputPersistence.Persistent });
 
             var hexSource = HexSourceOf(i);
             context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(hexSource, ViewDataSourceKind.Text));
-            context.Declaration.DeclareInput(hexSource);
+            context.Declaration.DeclareInput(new InputDeclaration(hexSource) { Persistence = InputPersistence.Persistent });
         }
 
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(HexResultSource, ViewDataSourceKind.Text));
@@ -173,7 +174,7 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
         while (!context.StopSignal.IsStopRequested)
         {
             Poll(context);
-            _ = context.StopSignal.Wait(ActivityInterval);
+            _ = context.Timing.WaitFor(ActivityInterval);
         }
     }
 

@@ -6,7 +6,9 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Ui.Geometry;
+using HYWDebugAssistant.Ui.Images;
 using HYWDebugAssistant.Ui.ViewModels;
 
 namespace HYWDebugAssistant.Ui.Views;
@@ -85,6 +87,9 @@ public partial class ModuleWindow : Window
 
         // 显示之后再解析一次：那时窗口自己的 `RenderScaling` 才是事实（见 `PublishScaling`）。
         Opened += (_, _) => PublishScaling();
+
+        // 任何关闭路径都先摘掉缓存视图的父级（隐藏后再“显示全部”会创建新窗口）。
+        Closing += (_, _) => DetachModuleView();
     }
 
     /// <summary>
@@ -163,16 +168,42 @@ public partial class ModuleWindow : Window
 
     // ---------------------------------------------------------------- 交互入口
 
-    /// <summary>边框带按下：拖动（Ctrl = 独立拖动，不带动拼接组）。</summary>
+    /// <summary>
+    /// 边框带按下：拖动（Ctrl = 独立拖动，不带动拼接组）；**Shift+点击 = 加入/移出保存范围**。
+    /// 普通点击选中并置顶**整组**；Shift/Ctrl 语义不变。
+    /// </summary>
     private void OnBandPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (Module is not { IsLocked: false } module || Controller is not { } controller)
+        if (Module is not { } module || Controller is not { } controller)
         {
+            return;
+        }
+
+        // Shift+点击：多选切换，不启动拖动（Ctrl 已用于“独立拖动”，Shift 空闲且符合多选直觉）。
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+        {
+            controller.ToggleSelection(module.InstanceId);
+            e.Handled = true;
+            return;
+        }
+
+        // 锁定模块可选中（组合范围可包含它），但绝不进入拖动/缩放。
+        if (module.IsLocked)
+        {
+            controller.SelectGroup(module.InstanceId);
+            e.Handled = true;
             return;
         }
 
         var (x, y) = ScreenPoint(e);
         var independent = e.KeyModifiers.HasFlag(KeyModifiers.Control);
+
+        // 普通点击：先按整组选中并抬窗；随后 BeginDrag 只会把锚点移到被点者，不会打散已选中的组。
+        // Ctrl 独立拖动保持原语义（不动组）。
+        if (!independent)
+        {
+            controller.SelectGroup(module.InstanceId);
+        }
 
         if (controller.BeginDrag(module.InstanceId, x, y, independent))
         {
@@ -298,10 +329,11 @@ public partial class ModuleWindow : Window
         }
 
         // 端口标记占满了边框的很大一段：单击标记也应把模块选中（否则用户点在“边框上”却不出手柄）。
+        // 已在多选集合中 ⇒ 只移动主选中，不清空其余选择。
         // 不 Handled、不 Capture ⇒ 双击改网络名与锚点拖动的既有手势不受影响。
-        if (Module is { IsLocked: false } && Controller is { } selection)
+        if (Module is { } && Controller is { } selection)
         {
-            selection.Select(marker.InstanceId);
+            selection.SelectGroup(marker.InstanceId);
         }
 
         _anchorCandidate = marker;
@@ -345,7 +377,7 @@ public partial class ModuleWindow : Window
                 // 固定锚点：拖不动，但**必须给反馈**，否则用户以为程序卡了（一次手势提示一次）
                 _anchorCandidate = null;
                 Controller?.RaiseNotice(
-                    $"{marker.PortName}：锚点已固定，不可拖动（用「固定 / 解锁端口锚点」快捷键解锁）",
+                    TextCatalog.Get(typeof(ModuleWindow).Assembly, "moduleWindow.anchor.dragBlocked", marker.PortName),
                     isError: false);
                 return true;
             }
@@ -602,7 +634,7 @@ public partial class ModuleWindow : Window
         if (Module is not { } module || Controller is not { } controller)
         {
             // **不许静默**：控制器缺失是内部接线错误，必须就地报出来（静默取消会表现为「改标签没反应」）
-            marker.EditError = "内部错误：未连接到运行时，标签未提交";
+            marker.EditError = TextCatalog.Get(typeof(ModuleWindow).Assembly, "moduleWindow.portLabel.internalError");
             marker.IsEditing = true;
             return;
         }
@@ -674,6 +706,31 @@ public partial class ModuleWindow : Window
         }
     }
 
+    /// <summary>选择模块壁纸：全局图片裁切器（目标比例 = 当前模块窗口比例）。</summary>
+    private async void OnChooseWallpaper(object? sender, RoutedEventArgs e)
+    {
+        if (Module is not { } module || Controller is not { } controller)
+        {
+            return;
+        }
+
+        var aspect = module.Width / Math.Max(1, module.Height);
+        var png = await ImagePicker.PickAsync(this, aspect, TextCatalog.Get(typeof(ModuleWindow).Assembly, "moduleWindow.wallpaper.pickTitle"));
+        if (png is not null)
+        {
+            controller.SetWallpaper(module, png);
+        }
+    }
+
+    /// <summary>清除模块壁纸。</summary>
+    private void OnClearWallpaper(object? sender, RoutedEventArgs e)
+    {
+        if (Module is { } module && Controller is { } controller)
+        {
+            controller.SetWallpaper(module, null);
+        }
+    }
+
     private void OnHide(object? sender, RoutedEventArgs e)
     {
         if (Module is { } module && Controller is { } controller)
@@ -681,6 +738,9 @@ public partial class ModuleWindow : Window
             controller.HideWindow(module.InstanceId);
         }
     }
+
+    /// <summary>窗口关闭前把模块视图从本窗口内容区摘下来（见 <see cref="ModuleSurfaceView.Detach"/>）。</summary>
+    public void DetachModuleView() => ModuleArea.Detach();
 
     private void OnClose(object? sender, RoutedEventArgs e)
     {
@@ -726,10 +786,12 @@ public partial class ModuleWindow : Window
         switch (e.PropertyName)
         {
             case nameof(ModuleViewViewModel.IsSelected):
+            case nameof(ModuleViewViewModel.IsPrimary):
                 ApplySelection(module);
                 break;
 
             case nameof(ModuleViewViewModel.IsLocked):
+                ApplySelection(module);
                 ApplyLock(module);
                 break;
 
@@ -741,18 +803,18 @@ public partial class ModuleWindow : Window
     private void ApplySelection(ModuleViewViewModel module)
     {
         SetClass(Frame, "selected", module.IsSelected);
-        SetClass(Cluster, "selected", module.IsSelected);
+        SetClass(Cluster, "selected", module.IsPrimary);
 
         foreach (var handle in Handles())
         {
-            SetClass(handle, "visible", module.IsSelected);
+            // 手柄只属于锚点；多选时仍然保留，只调整锚点模块。
+            SetClass(handle, "visible", module.IsPrimary && !module.IsLocked);
         }
     }
 
     /// <summary>锁定图标 = **动作**（未锁 → 显示"上锁"；已锁 → 显示"解锁"）。</summary>
     private void ApplyLock(ModuleViewViewModel module) =>
         SetGlyph(LockIcon, module.IsLocked ? "GlyphUnlock" : "GlyphLock");
-
     /// <summary>从主题 token 取**图标字形**（系统图标字体；改图标只改 Tokens）。</summary>
     private void SetGlyph(TextBlock icon, string resourceKey)
     {

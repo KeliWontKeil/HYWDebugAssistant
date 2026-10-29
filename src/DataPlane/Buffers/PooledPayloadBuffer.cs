@@ -40,7 +40,7 @@ internal sealed class PooledPayloadBuffer : PayloadBuffer
             var array = _array;
             if (array is null)
             {
-                throw new ObjectDisposedException(nameof(PayloadBuffer), "该数据单元缓冲已归还，不能再访问其内容");
+                throw new ObjectDisposedException(nameof(PayloadBuffer), DataPlaneText.Get("dataplane.buffer.disposed"));
             }
 
             return array.AsSpan(0, Length);

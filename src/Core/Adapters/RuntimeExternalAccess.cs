@@ -104,18 +104,21 @@ public sealed class RuntimeExternalAccess : IExternalAccess
     public ExternalAccessSnapshot GetSnapshot(string accessName) =>
         _host.GetSnapshot(_instanceId, accessName);
 
+    /// <inheritdoc />
+    public Type? GetParametersType(string accessName) =>
+        _host.GetParametersType(_instanceId, accessName);
+
     private void Report(IReadOnlyList<AccessFailure> failures)
     {
         foreach (var failure in failures)
         {
-            var category = failure.Kind == AccessFailureKind.Queue
-                ? IssueCategory.RuntimeError
-                : IssueCategory.CommunicationError;
-
             _issues.Report(_objectPath, new IssueReport(
-                category,
-                IssueSeverity.Error,
-                $"外部接入「{failure.AccessName}」：{failure.Message}"));
+                ExternalAccessIssue.CategoryOf(failure),
+                ExternalAccessIssue.Severity,
+                CoreText.Get(
+                    "core.runtime.externalAccessFailure",
+                    failure.AccessName,
+                    failure.Message)));
         }
     }
 }

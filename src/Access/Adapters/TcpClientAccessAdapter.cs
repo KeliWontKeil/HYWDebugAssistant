@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Sockets;
 using HYWDebugAssistant.Access.Parameters;
 using HYWDebugAssistant.Sdk.Access;
@@ -37,19 +38,27 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
 
         if (parameters is not TcpClientConfig config)
         {
-            ready.SetFaulted($"参数类型不是 {nameof(TcpClientConfig)}");
+            ready.SetFaulted(AccessText.Get("access.tcpClient.parametersTypeInvalid", nameof(TcpClientConfig)));
             return;
         }
 
         if (string.IsNullOrWhiteSpace(config.RemoteHost))
         {
-            ready.SetFaulted("目标地址为空");
+            ready.SetFaulted(AccessText.Get("access.tcpClient.addressEmpty"));
+            return;
+        }
+
+        if (IPAddress.TryParse(config.RemoteHost, out var parsedTarget)
+            && (parsedTarget.Equals(IPAddress.Any) || parsedTarget.Equals(IPAddress.IPv6Any)))
+        {
+            ready.SetFaulted(
+                AccessText.Get("access.common.wildcardAddressNotAllowed"));
             return;
         }
 
         if (config.RemotePort is < 1 or > 65535)
         {
-            ready.SetFaulted($"目标端口超出范围：{config.RemotePort}");
+            ready.SetFaulted(AccessText.Get("access.common.remotePortOutOfRange", config.RemotePort));
             return;
         }
 
@@ -100,7 +109,7 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
         }
         catch (Exception ex)
         {
-            ready?.SetFaulted($"发送失败：{ex.GetType().Name} — {ex.Message}");
+            ready?.SetFaulted(AccessText.Get("access.tcpClient.sendFailed", ex.GetType().Name, ex.Message));
             return false;
         }
     }
@@ -185,9 +194,15 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
             {
                 if (!token.IsCancellationRequested)
                 {
-                    ready.SetFaulted($"连接超时（{config.ConnectTimeout} 秒）：{config.RemoteHost}:{config.RemotePort}");
+                    ready.SetFaulted(AccessText.Get("access.tcpClient.connectTimeout", config.ConnectTimeout, config.RemoteHost, config.RemotePort));
                 }
 
+                return;
+            }
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionRefused)
+            {
+                ready.SetFaulted(
+                    AccessText.Get("access.tcpClient.connectionRefused", config.RemoteHost, config.RemotePort));
                 return;
             }
 
@@ -205,7 +220,7 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
 
             ready.SetOpen($"{config.RemoteHost}:{config.RemotePort}");
 
-            var buffer = new byte[RawBytesFraming.Capacity];
+            var buffer = new byte[ExternalAccessDeclaration.DefaultUnitBytes];
 
             while (!token.IsCancellationRequested)
             {
@@ -223,7 +238,7 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
                 {
                     if (!token.IsCancellationRequested)
                     {
-                        ready.SetFaulted($"接收失败：{ex.GetType().Name} — {ex.Message}");
+                        ready.SetFaulted(AccessText.Get("access.tcpClient.receiveFailed", ex.GetType().Name, ex.Message));
                     }
 
                     return;
@@ -233,7 +248,7 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
                 {
                     if (!token.IsCancellationRequested)
                     {
-                        ready.SetFaulted($"对端已关闭连接：{config.RemoteHost}:{config.RemotePort}");
+                        ready.SetFaulted(AccessText.Get("access.tcpClient.peerClosed", config.RemoteHost, config.RemotePort));
                     }
 
                     return;
@@ -255,7 +270,7 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
         {
             if (!token.IsCancellationRequested)
             {
-                ready.SetFaulted($"连接失败：{ex.GetType().Name} — {ex.Message}");
+                ready.SetFaulted(AccessText.Get("access.tcpClient.connectFailed", ex.GetType().Name, ex.Message));
             }
         }
         finally

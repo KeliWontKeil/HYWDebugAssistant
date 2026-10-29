@@ -43,19 +43,19 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter
 
         if (parameters is not UdpConfig config)
         {
-            ready.SetFaulted($"参数类型不是 {nameof(UdpConfig)}");
+            ready.SetFaulted(AccessText.Get("access.udp.parametersTypeInvalid", nameof(UdpConfig)));
             return;
         }
 
         if (config.LocalPort is < 0 or > 65535)
         {
-            ready.SetFaulted($"本地端口超出范围：{config.LocalPort}");
+            ready.SetFaulted(AccessText.Get("access.common.localPortOutOfRange", config.LocalPort));
             return;
         }
 
         if (!TryResolveAddress(config.LocalAddress, out var local))
         {
-            ready.SetFaulted($"本地地址不合法：{config.LocalAddress}");
+            ready.SetFaulted(AccessText.Get("access.common.localAddressInvalid", config.LocalAddress));
             return;
         }
 
@@ -64,7 +64,14 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter
         {
             if (!TryResolveAddress(config.RemoteAddress, out var remote))
             {
-                ready.SetFaulted($"目标地址不合法：{config.RemoteAddress}");
+                ready.SetFaulted(AccessText.Get("access.common.remoteAddressInvalid", config.RemoteAddress));
+                return;
+            }
+
+            if (remote.Equals(IPAddress.Any) || remote.Equals(IPAddress.IPv6Any))
+            {
+                ready.SetFaulted(
+                    AccessText.Get("access.common.wildcardAddressNotAllowed"));
                 return;
             }
 
@@ -83,10 +90,16 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter
         {
             socket.Bind(new IPEndPoint(local, config.LocalPort));
         }
+        catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
+        {
+            socket.Dispose();
+            ready.SetFaulted(AccessText.Get("access.common.portInUse", config.LocalPort));
+            return;
+        }
         catch (Exception ex)
         {
             socket.Dispose();
-            ready.SetFaulted($"绑定失败：{ex.GetType().Name} — {ex.Message}");
+            ready.SetFaulted(AccessText.Get("access.udp.bindFailed", ex.GetType().Name, ex.Message));
             return;
         }
 
@@ -142,7 +155,7 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter
         }
         catch (Exception ex)
         {
-            ready?.SetFaulted($"发送失败：{ex.GetType().Name} — {ex.Message}");
+            ready?.SetFaulted(AccessText.Get("access.udp.sendFailed", ex.GetType().Name, ex.Message));
             return false;
         }
     }
@@ -224,7 +237,7 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter
             {
                 if (!token.IsCancellationRequested)
                 {
-                    ready.SetFaulted($"接收失败：{ex.GetType().Name} — {ex.Message}");
+                    ready.SetFaulted(AccessText.Get("access.udp.receiveFailed", ex.GetType().Name, ex.Message));
                 }
 
                 return;
@@ -235,7 +248,7 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter
                 continue;
             }
 
-            var length = Math.Min(result.ReceivedBytes, RawBytesFraming.Capacity);
+            var length = Math.Min(result.ReceivedBytes, ExternalAccessDeclaration.DefaultUnitBytes);
 
             if (!_buffer.TryEnqueue(buffer.AsSpan(0, length), out var droppedBytes))
             {
@@ -246,10 +259,10 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter
                 ready.ReportDropped(1, droppedBytes);
             }
 
-            if (result.ReceivedBytes > RawBytesFraming.Capacity)
+            if (result.ReceivedBytes > ExternalAccessDeclaration.DefaultUnitBytes)
             {
                 // 数据报超过单元容量：交付截断后的内容，超出部分按 1 个单元记账。
-                ready.ReportDropped(1, result.ReceivedBytes - RawBytesFraming.Capacity);
+                ready.ReportDropped(1, result.ReceivedBytes - ExternalAccessDeclaration.DefaultUnitBytes);
             }
 
             ready.NotifyReady();

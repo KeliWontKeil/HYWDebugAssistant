@@ -1,0 +1,29 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+        x:Class="HYWDebugAssistant.FrameworkUi.Views.RenameDialog"
+        Title="{loc:Tr rename.title}"
+        SizeToContent="WidthAndHeight"
+        MinWidth="320"
+        MaxWidth="520"
+        MinHeight="120"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgModule}"
+        FontSize="12"
+        KeyDown="OnKeyDown">
+    <Grid RowDefinitions="Auto,Auto" Margin="14" RowSpacing="10">
+        <StackPanel Grid.Row="0" Spacing="4">
+            <TextBlock Text="{loc:Tr rename.label}" Foreground="{DynamicResource TextSecondary}" />
+            <TextBox Name="NameBox" MinWidth="280" MaxWidth="460" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="1"
+                    Orientation="Horizontal"
+                    Spacing="6"
+                    HorizontalAlignment="Right">
+            <Button Name="CancelButton" Content="{loc:Tr dialog.cancel}" MinWidth="76" />
+            <Button Name="RenameButton" Content="{loc:Tr rename.confirm}" MinWidth="76" />
+        </StackPanel>
+    </Grid>
+</Window>

@@ -21,6 +21,34 @@ namespace HYWDebugAssistant.Tests;
 /// </summary>
 public class NetworkAndResourceRulesTests
 {
+    // ------------------------------------------------------------ 网络名校验
+
+    /// <summary>网络名校验：**按枚举判原因**（文案不进协议/控制流）。</summary>
+    [Theory]
+    [InlineData(null, NetworkNameError.Empty)]
+    [InlineData("", NetworkNameError.Empty)]
+    [InlineData("   ", NetworkNameError.Empty)]
+    [InlineData("bad name", NetworkNameError.ContainsWhitespace)]
+    [InlineData("ok", NetworkNameError.None)]
+    public void 网络名_应按枚举判原因(string? name, NetworkNameError expected)
+    {
+        NetworkNaming.TryValidateName(name, out var error)
+            .ShouldBe(expected == NetworkNameError.None);
+        error.ShouldBe(expected);
+    }
+
+    /// <summary>长度边界：上限内接受，越界拒绝（原因 = <see cref="NetworkNameError.TooLong"/>）。</summary>
+    [Theory]
+    [InlineData(NetworkNaming.MaxNameLength, true)]
+    [InlineData(NetworkNaming.MaxNameLength + 1, false)]
+    public void 网络名_长度边界应被拒或接受(int length, bool expected)
+    {
+        var name = new string('a', length);
+
+        NetworkNaming.TryValidateName(name, out var error).ShouldBe(expected);
+        error.ShouldBe(expected ? NetworkNameError.None : NetworkNameError.TooLong);
+    }
+
     // ------------------------------------------------------------ T2 · 契约兼容矩阵
 
     /// <summary>契约兼容判定：**形状完全一致**（不得用「接收 ⊇ 发送」的子集判定）。</summary>

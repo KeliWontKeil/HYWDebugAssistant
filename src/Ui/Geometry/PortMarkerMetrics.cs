@@ -10,7 +10,7 @@ namespace HYWDebugAssistant.Ui.Geometry;
 ///     <c>PortMarkerWidth</c>/<c>PortMarkerLength</c>；而**真正生效的只有前者**（模板的宽高绑定的就是视图模型，
 ///     面板排布也读它，两个 token 全仓库无人引用 = 死资源）⇒ 改了一处、另一处没改，"尺寸对不上"只会在
 ///     真机上以"标记压住内容 / 被裁"的形式出现。现在收敛到这里一处，token 侧只留注释指回来。</item>
-///   <item><b>长度 114 → 150</b>：长度 114 时槽位缺口约 63px，而速率文本（<c>0.00 KB/s</c>）
+///   <item><b>长度 114 → 150</b>：长度 114 时槽位缺口约 63px，而速率文本（<c>1.0 KB/s</c>）
 ///     就要 ≈54px ⇒ 网络名只剩约 10px，「（直连）」必然被截掉一半文字 ⇒ 加长到 **150**。
 ///     代价：窗口 <c>MinHeight</c> 必须 ≥ 标记长度 + 余量
 ///     （见 <see cref="MinWindowExtent"/>）。</item>

@@ -1,6 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
-using HYWDebugAssistant.Access.Parameters;
+using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
 
@@ -11,8 +11,9 @@ namespace HYWDebugAssistant.Modules.Serial.Views;
 /// </summary>
 /// <remarks>
 /// 这里的代码只有一件事：把 Avalonia 的 XAML 载入（控件与几何全在 XAML 里，不在这里 new）。
+/// 设计时配置类型由标准标识给出（参数类型在框架侧）；映射注册由宿主预览接线提供。
 /// </remarks>
-[ModuleViewDesignData(typeof(SerialConfig))]
+[ModuleViewDesignData(ExternalAccessStandardIds.Serial)]
 public sealed partial class SerialView : ModuleView
 {
     /// <summary>构造视图。</summary>

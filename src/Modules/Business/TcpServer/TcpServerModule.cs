@@ -1,7 +1,7 @@
-using HYWDebugAssistant.Access;
-using HYWDebugAssistant.Access.Adapters;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Access;
+using HYWDebugAssistant.Sdk.AccessKit;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Modules.TcpServer;
 
@@ -20,8 +20,8 @@ namespace HYWDebugAssistant.Modules.TcpServer;
     "hyw",
     "tcp-server",
     "1.0.0",
-    DisplayName = "TCP 服务端",
-    Description = "监听本地端口：各连接来的字节从 rx 出，发往各连接的字节从 tx 进",
+    DisplayNameKey = TcpServerText.Title,
+    DescriptionKey = TcpServerText.Description,
     Tags = ["tcp", "server", "io"],
     Capabilities = ModuleCapability.Network,
     ParticipatesInDataFlow = true,
@@ -68,40 +68,45 @@ public sealed class TcpServerModule : ExternalAccessModule
     /// <summary>命令：停止监听。</summary>
     public const string CloseCommand = "close";
 
+    /// <summary>取一条本模块文本表里的文案（拥有者 = 本模块程序集）。</summary>
+    private static string Tr(string key) => TextCatalog.Get(typeof(TcpServerModule).Assembly, key);
+
+    /// <summary>取一条带占位符的本模块文案。</summary>
+    private static string Tr(string key, params object?[] args) =>
+        TextCatalog.Get(typeof(TcpServerModule).Assembly, key, args);
+
     /// <inheritdoc />
     protected override AccessModuleSpec Spec { get; } = new(
         AccessName,
+        ExternalAccessStandardIds.TcpServer,
         RxPort,
         TxPort,
         RoleId,
-        "监听",
+        Tr(TcpServerText.RoleListen),
         LinkSource,
         StateSource,
         RxCountSource,
         TxCountSource,
         DropCountSource,
         OpenCommand,
-        "启动",
+        Tr(TcpServerText.Open),
         CloseCommand,
-        "停止",
+        Tr(TcpServerText.Close),
         ConnCountSource);
-
-    /// <inheritdoc />
-    protected override IExternalAccessAdapter CreateAdapter() => new TcpServerAccessAdapter();
 
     /// <inheritdoc />
     protected override string Describe(ExternalAccessSnapshot snapshot) => snapshot.State switch
     {
         ExternalAccessState.Open => string.IsNullOrWhiteSpace(snapshot.Detail)
-            ? $"已监听 · {snapshot.ActiveConnections} 路"
-            : $"已监听 {snapshot.Detail} · {snapshot.ActiveConnections} 路",
+            ? Tr(TcpServerText.StatusListening, snapshot.ActiveConnections)
+            : Tr(TcpServerText.StatusListeningDetail, snapshot.Detail, snapshot.ActiveConnections),
         ExternalAccessState.Opening => string.IsNullOrWhiteSpace(snapshot.Detail)
-            ? "正在启动…"
-            : $"正在启动 {snapshot.Detail}",
-        ExternalAccessState.Closing => "正在停止…",
+            ? Tr(TcpServerText.StatusStarting)
+            : Tr(TcpServerText.StatusStartingDetail, snapshot.Detail),
+        ExternalAccessState.Closing => Tr(TcpServerText.StatusStopping),
         ExternalAccessState.Faulted => string.IsNullOrWhiteSpace(snapshot.LastError)
-            ? "监听失败"
+            ? Tr(TcpServerText.StatusFailed)
             : snapshot.LastError,
-        _ => snapshot.Suspended ? "实例已停用" : "未监听",
+        _ => snapshot.Suspended ? Tr(TcpServerText.StatusSuspended) : Tr(TcpServerText.StatusIdle),
     };
 }

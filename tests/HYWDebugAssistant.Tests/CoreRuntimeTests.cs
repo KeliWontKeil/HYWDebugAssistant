@@ -388,6 +388,19 @@ public class CoreRuntimeTests
     }
 
     [Fact]
+    public void 同一实例的发送口与接收口不得自连()
+    {
+        using var runtime = new ModuleRuntime();
+        AddModule(runtime, "self", "self-loop", typeof(SelfLoopModule));
+
+        SetLabel(runtime, "self", SelfLoopModule.OutPort, "loop");
+        SetLabel(runtime, "self", SelfLoopModule.InPort, "loop");
+
+        runtime.Content.Networks.ShouldBeEmpty("同一实例的源/宿不能形成自环");
+        runtime.Bindings.Bindings.ShouldBeEmpty("更不得建立自绑定");
+    }
+
+    [Fact]
     public void 对齐建网_打了标签的口不参与()
     {
         using var runtime = new ModuleRuntime();
@@ -1115,6 +1128,22 @@ public class CoreRuntimeTests
         }
 
         return condition();
+    }
+
+    /// <summary>测试模块：同一实例同时有一进一出（f32），用于验证自连接被拒绝。</summary>
+    [ModuleDefinition("test", "self-loop", "1.0.0")]
+    public sealed class SelfLoopModule : IModule
+    {
+        public const string OutPort = "out";
+        public const string InPort = "in";
+
+        public static readonly ContractShape Shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
+
+        public void OnRegistered(IModuleContext context)
+        {
+            context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape));
+            context.Declaration.DeclarePort(new PortDeclaration(InPort, PortDirection.Receive, Shape));
+        }
     }
 
     /// <summary>测试模块：发送口（f32）。</summary>

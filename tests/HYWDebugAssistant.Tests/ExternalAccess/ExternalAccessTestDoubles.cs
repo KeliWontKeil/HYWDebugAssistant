@@ -124,16 +124,64 @@ public sealed class FakeExternalAccessAdapter : IExternalAccessAdapter
     public void Fault(string message) => _ready?.SetFaulted(message);
 }
 
+/// <summary>
+/// 脚本化外部标准目录：标准标识 → <see cref="FakeExternalAccessAdapter"/>（适配器由 catalog 提供）。
+/// </summary>
+/// <remarks>
+/// 测试直接持有 <see cref="Adapter"/> 做断言；工厂每次返回同一个实例，正好对应"一个接入一个会话"。
+/// </remarks>
+public sealed class FakeExternalAccessCatalog : IExternalAccessCatalog
+{
+    private readonly ExternalAccessDescriptor[] _standards;
+
+    /// <summary>创建假目录（只含一个标准）。</summary>
+    public FakeExternalAccessCatalog()
+    {
+        Adapter = new FakeExternalAccessAdapter();
+        _standards =
+        [
+            new ExternalAccessDescriptor(
+                FakeAccessModule.StandardId,
+                "假外部接入",
+                typeof(FakeAccessParameters),
+                () => Adapter),
+        ];
+    }
+
+    /// <summary>该标准创建出的适配件（测试断言用）。</summary>
+    public FakeExternalAccessAdapter Adapter { get; }
+
+    /// <inheritdoc />
+    public IReadOnlyList<ExternalAccessDescriptor> Standards => _standards;
+
+    /// <inheritdoc />
+    public bool TryResolve(string standardId, out ExternalAccessDescriptor descriptor)
+    {
+        descriptor = null!;
+
+        foreach (var candidate in _standards)
+        {
+            if (string.Equals(candidate.StandardId, standardId, StringComparison.Ordinal))
+            {
+                descriptor = candidate;
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
 /// <summary>无活动体的测试模块：声明一条接入，经交互回调接收命令/输入/工作提示。</summary>
 public sealed class FakeAccessModule : IModule, IModuleInteractionSink
 {
     /// <summary>接入名。</summary>
     public const string AccessName = "fake";
 
-    private readonly Lock _gate = new();
+    /// <summary>外部标准标识（由假 catalog 提供）。</summary>
+    public const string StandardId = "fake";
 
-    /// <summary>适配件（测试断言用）。</summary>
-    public FakeExternalAccessAdapter Adapter { get; } = new();
+    private readonly Lock _gate = new();
 
     /// <summary>收到的命令。</summary>
     public List<string> Commands { get; } = [];
@@ -156,7 +204,7 @@ public sealed class FakeAccessModule : IModule, IModuleInteractionSink
         Context = context;
         context.Declaration.DeclareCommand("open", "打开");
         context.Declaration.DeclareCommand("close", "关闭");
-        context.Declaration.DeclareExternalAccess(new ExternalAccessDeclaration(AccessName, Adapter));
+        context.Declaration.DeclareExternalAccess(new ExternalAccessDeclaration(AccessName, StandardId));
     }
 
     /// <inheritdoc />

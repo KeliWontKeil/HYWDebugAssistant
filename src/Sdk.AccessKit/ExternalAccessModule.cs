@@ -1,12 +1,14 @@
 using System.Buffers.Binary;
+using System.Reflection;
 using HYWDebugAssistant.Sdk.Access;
+using HYWDebugAssistant.Sdk.Configuration;
 using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Views;
 
-namespace HYWDebugAssistant.Access;
+namespace HYWDebugAssistant.Sdk.AccessKit;
 
 /// <summary>
 /// **外部接入模块的共用骨架**：声明标准 <c>RawBytes</c> 契约、两个口、角色、显示源、命令、接入；
@@ -15,7 +17,7 @@ namespace HYWDebugAssistant.Access;
 /// <remarks>
 /// <para>
 /// 它是**模块侧帮助类，不是框架件**：只使用 <see cref="IModuleContext"/> 的公开面；
-/// 四个模块继承它，只提供 <see cref="Spec"/>、<see cref="CreateAdapter"/> 与 <see cref="Describe"/>。
+/// 四个模块继承它，只提供 <see cref="Spec"/> 与 <see cref="Describe"/>。
 /// </para>
 /// <para>
 /// <b>驱动方式</b>：模块不实现 <see cref="IActivitySource"/>，由实例循环把命令 / 数据 / 状态推给
@@ -33,12 +35,14 @@ public abstract class ExternalAccessModule : IModule, IModuleInteractionSink
     private string? _lastStateText;
     private string? _lastLinkRole;
     private long _portDroppedBytes;
+    private string[] _configurationFields = [];
+    private bool _configurationFieldsResolved;
+    private bool? _lastCanOpen;
+    private bool? _lastCanClose;
+    private bool? _lastCanEdit;
 
-    /// <summary>本模块的共用骨架参数（接入名 / 口 / 显示源 / 命令 / 容量）。</summary>
+    /// <summary>本模块的共用骨架参数（接入名 / 标准标识 / 口 / 显示源 / 命令 / 容量）。</summary>
     protected abstract AccessModuleSpec Spec { get; }
-
-    /// <summary>创建适配件实例（声明期交给框架，之后框架独占驱动）。</summary>
-    protected abstract IExternalAccessAdapter CreateAdapter();
 
     /// <summary>把会话快照翻译成一句人类可读的状态（模块自己的文案）。</summary>
     /// <param name="snapshot">该接入的当前快照。</param>
@@ -135,10 +139,10 @@ public abstract class ExternalAccessModule : IModule, IModuleInteractionSink
         context.Declaration.DeclareCommand(spec.OpenCommand, spec.OpenTitle);
         context.Declaration.DeclareCommand(spec.CloseCommand, spec.CloseTitle);
 
-        // 适配件实例在声明期交出；之后框架独占驱动。
+        // 模块只声明"接入名 + 标准标识"；适配器与参数类型都由框架按标准创建/登记。
         context.Declaration.DeclareExternalAccess(new ExternalAccessDeclaration(
             spec.AccessName,
-            CreateAdapter())
+            spec.StandardId)
         {
             MaxUnitBytes = spec.Capacity,
         });
@@ -169,16 +173,27 @@ public abstract class ExternalAccessModule : IModule, IModuleInteractionSink
         }
 
         var spec = Spec;
+        var snapshot = _context.Access.GetSnapshot(spec.AccessName);
 
         if (string.Equals(commandName, spec.OpenCommand, StringComparison.Ordinal))
         {
-            _context.Access.RequestOpen(spec.AccessName);
+            if (!snapshot.Suspended
+                && snapshot.State is ExternalAccessState.Closed or ExternalAccessState.Faulted)
+            {
+                _context.Access.RequestOpen(spec.AccessName);
+            }
+
             return;
         }
 
         if (string.Equals(commandName, spec.CloseCommand, StringComparison.Ordinal))
         {
-            _context.Access.RequestClose(spec.AccessName);
+            if (!snapshot.Suspended
+                && snapshot.State is ExternalAccessState.Open or ExternalAccessState.Opening)
+            {
+                _context.Access.RequestClose(spec.AccessName);
+            }
+
             return;
         }
 
@@ -259,6 +274,25 @@ public abstract class ExternalAccessModule : IModule, IModuleInteractionSink
         var spec = Spec;
         var snapshot = _context.Access.GetSnapshot(spec.AccessName);
 
+        var canOpen = !snapshot.Suspended
+            && snapshot.State is ExternalAccessState.Closed or ExternalAccessState.Faulted;
+        var canClose = !snapshot.Suspended
+            && snapshot.State is ExternalAccessState.Open or ExternalAccessState.Opening;
+        var canEdit = !snapshot.Suspended
+            && snapshot.State is ExternalAccessState.Closed or ExternalAccessState.Faulted;
+
+        PublishEnabled(spec.OpenCommand, canOpen, ref _lastCanOpen);
+        PublishEnabled(spec.CloseCommand, canClose, ref _lastCanClose);
+
+        if (_lastCanEdit != canEdit)
+        {
+            _lastCanEdit = canEdit;
+            foreach (var field in ResolveConfigurationFields())
+            {
+                _context.Appearance.SetEnabled(field, canEdit);
+            }
+        }
+
         var text = Describe(snapshot);
         if (!string.Equals(text, _lastStateText, StringComparison.Ordinal))
         {
@@ -283,6 +317,46 @@ public abstract class ExternalAccessModule : IModule, IModuleInteractionSink
         {
             PublishU32(_context, conn, (uint)Math.Max(0, snapshot.ActiveConnections));
         }
+    }
+
+    /// <summary>
+    /// 从框架登记的**参数类型**反射配置字段名（用于会话打开/故障时禁用编辑）。
+    /// </summary>
+    /// <remarks>
+    /// 参数类型在模块注册时可能还没挂上（外部接入面尚未接线）⇒ 返回空并保持未解析，
+    /// 下一次状态发布继续尝试；这不是错误。
+    /// </remarks>
+    private string[] ResolveConfigurationFields()
+    {
+        if (_configurationFieldsResolved || _context is null)
+        {
+            return _configurationFields;
+        }
+
+        if (_context.Access.GetParametersType(Spec.AccessName) is not { } parametersType)
+        {
+            return _configurationFields;
+        }
+
+        _configurationFieldsResolved = true;
+        _configurationFields = parametersType
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(property => property.GetCustomAttribute<ConfigurationFieldAttribute>() is not null)
+            .Select(property => property.Name)
+            .ToArray();
+
+        return _configurationFields;
+    }
+
+    private void PublishEnabled(string source, bool enabled, ref bool? previous)
+    {
+        if (previous == enabled)
+        {
+            return;
+        }
+
+        previous = enabled;
+        _context?.Appearance.SetEnabled(source, enabled);
     }
 
     private static void PublishU64(IModuleContext context, string source, ulong value)

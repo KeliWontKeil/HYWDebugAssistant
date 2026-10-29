@@ -98,13 +98,13 @@ public sealed class SubscriptionSet
 
         if (string.IsNullOrWhiteSpace(dataSourceName))
         {
-            failure = "数据源名为空（已丢弃）";
+            failure = CoreText.Get("core.views.sourceNameEmpty");
             return SubscriptionWriteOutcome.UnknownDataSource;
         }
 
         if (!_buffers.TryGetValue(dataSourceName, out var buffer))
         {
-            failure = $"显示源未在模块声明中登记：'{dataSourceName}'（已丢弃）";
+            failure = CoreText.Get("core.views.sourceNotDeclared", dataSourceName);
 
             // **只提示一次**：未声明的名字反复出现不刷屏
             return _unknownNames.Add(dataSourceName)

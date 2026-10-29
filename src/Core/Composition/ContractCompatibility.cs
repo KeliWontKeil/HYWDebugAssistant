@@ -81,9 +81,10 @@ public static class ContractCompatibility
 
         if (senderSemantics != receiverSemantics)
         {
-            return CompatibilityResult.Incompatible(
-                $"传递语义不一致（{Describe(senderSemantics)} → {Describe(receiverSemantics)}）；" +
-                "跨语义不判兼容，需要时由模块内部组帧或插入转换模块");
+            return CompatibilityResult.Incompatible(CoreText.Get(
+                "core.compat.semanticsMismatch",
+                Describe(senderSemantics),
+                Describe(receiverSemantics)));
         }
 
         // **形状必须完全一致**——直连的唯一结构条件（尺寸一致是它的推论）
@@ -91,9 +92,12 @@ public static class ContractCompatibility
 
         if (!sameShape)
         {
-            return CompatibilityResult.Incompatible(
-                $"形状不一致（发送方 {Describe(sender)} = {sender.SizeInBytes}B → 接收方 {Describe(receiver)} = {receiver.SizeInBytes}B）："
-                + "**直连要求形状完全一致**（字段名 / 类型 / 顺序 / 数量全同）——需要不同形状时请插入转换模块");
+            return CompatibilityResult.Incompatible(CoreText.Get(
+                "core.compat.shapeMismatch",
+                Describe(sender),
+                sender.SizeInBytes,
+                Describe(receiver),
+                receiver.SizeInBytes));
         }
 
         // 任一方没声明类型 ⇒ 旧模块形态：形状已一致，直接兼容
@@ -105,19 +109,17 @@ public static class ContractCompatibility
         if (!string.Equals(from.TypeId, to.TypeId, StringComparison.Ordinal))
         {
             return allowUnverified
-                ? CompatibilityResult.CompatibleWithNote(
-                    $"**用户已显式确认强连**：数据类型标识不同（{from} → {to}），框架不保证二者是同一种量")
-                : CompatibilityResult.Incompatible(
-                    $"数据类型标识不同（{from} → {to}）：**框架无资格判定二者是否同一种量**（形状相同也不自动认定）" +
-                    "——默认不兼容；确需连接请**显式确认强连**");
+                ? CompatibilityResult.CompatibleWithNote(CoreText.Get(
+                    "core.compat.verifiedTypeMismatch", from, to))
+                : CompatibilityResult.Incompatible(CoreText.Get(
+                    "core.compat.typeIdMismatch", from, to));
         }
 
         if (from.Version != to.Version)
         {
             // 版本升级属**破坏性**变更：不再有"尾部追加 = 兼容"
-            return CompatibilityResult.Incompatible(
-                $"数据类型版本不同（{from} → {to}）：**不同版本不视为同一种数据报**（版本升级按破坏性变更处理）" +
-                "——请把两侧升到同一版本，或插入转换模块");
+            return CompatibilityResult.Incompatible(CoreText.Get(
+                "core.compat.versionMismatch", from, to));
         }
 
         return CompatibilityResult.Compatible();
@@ -134,9 +136,9 @@ public static class ContractCompatibility
 
     private static string Describe(TransferSemantics semantics) => semantics switch
     {
-        TransferSemantics.Stream => "流",
-        TransferSemantics.Message => "消息",
-        TransferSemantics.Event => "事件",
+        TransferSemantics.Stream => CoreText.Get("core.compat.semantics.stream"),
+        TransferSemantics.Message => CoreText.Get("core.compat.semantics.message"),
+        TransferSemantics.Event => CoreText.Get("core.compat.semantics.event"),
         _ => semantics.ToString(),
     };
 }

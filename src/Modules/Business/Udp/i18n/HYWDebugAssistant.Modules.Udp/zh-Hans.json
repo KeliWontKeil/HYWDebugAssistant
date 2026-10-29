@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "language": "zh-Hans",
+  "entries": {
+    "module.description": "将一个UDP端口接入上位机，以与其他UDP端口进行数据交换",
+    "module.title": "UDP",
+    "status.binding": "正在绑定…",
+    "status.bindingDetail": "正在绑定 {0}",
+    "status.bound": "已绑定",
+    "status.boundDetail": "已绑定 {0}",
+    "status.failed": "绑定失败",
+    "status.idle": "未绑定",
+    "status.suspended": "实例已停用",
+    "status.unbinding": "正在解绑…",
+    "view.close": "解绑",
+    "view.drop": "丢弃",
+    "view.open": "绑定",
+    "view.roleDatagram": "数据报",
+    "view.rx": "收",
+    "view.tx": "发"
+  }
+}

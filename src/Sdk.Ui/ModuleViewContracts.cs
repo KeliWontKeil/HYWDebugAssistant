@@ -70,6 +70,7 @@ public sealed record ConfigChoice(string Value, string Title);
 /// <param name="Choices">可选项（仅 <see cref="ConfigFieldKind.Enum"/>）。</param>
 /// <param name="Unit">单位文本（空 = 无）。</param>
 /// <param name="Description">说明文本（空 = 无；作悬停提示）。</param>
+/// <param name="Group">分组标题（空 = 不分组；仅设计时预览使用）。</param>
 public sealed record ConfigFieldView(
     string Name,
     string Title,
@@ -77,7 +78,8 @@ public sealed record ConfigFieldView(
     string Value,
     IReadOnlyList<ConfigChoice>? Choices = null,
     string? Unit = null,
-    string? Description = null);
+    string? Description = null,
+    string? Group = null);
 
 /// <summary>一块显示缓冲的快照（文本日志）。</summary>
 /// <param name="Lines">当前保留的全部行（只读快照，可安全跨帧持有）。</param>
@@ -119,6 +121,9 @@ public sealed record ViewAppearance
 
     /// <summary>运行期只读开关。</summary>
     public bool? ReadOnly { get; init; }
+
+    /// <summary>运行期启用开关；<see langword="null"/> = 没有设置（按默认可用）。</summary>
+    public bool? Enabled { get; init; }
 
     /// <summary>一个什么都没设的外观。</summary>
     public static readonly ViewAppearance None = new();

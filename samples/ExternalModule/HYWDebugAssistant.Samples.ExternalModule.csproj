@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    独立编译示例：**只通过 PackageReference** 引用三个 SDK 包（版本 = 契约 2.3.0），
+    不引用仓库内任何工程。构建前先运行 `tools/pack-sdk.ps1` 生成本地源。
+    本工程**不加入主解决方案**，由 `tools/verify-standalone-module.ps1` 按需构建。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <!-- 示例独立于仓库的中央包管理（SDK 包版本由 PackageReference 显式给出）。 -->
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <AssemblyName>HYWDebugAssistant.Samples.ExternalModule</AssemblyName>
+    <RootNamespace>HYWDebugAssistant.Samples.ExternalModule</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="HYWDebugAssistant.Sdk" Version="2.3.0" />
+    <PackageReference Include="HYWDebugAssistant.Sdk.Ui" Version="2.3.0" />
+    <PackageReference Include="HYWDebugAssistant.Sdk.AccessKit" Version="2.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

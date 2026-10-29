@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Ui.Geometry;
 
 namespace HYWDebugAssistant.Ui.ViewModels;
@@ -124,7 +125,7 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     /// <summary>
     /// **通路速率**（**通路维度**）：文本**常驻**显示在标记上
     /// （速率**常驻**于网络标签上，**不属于叠加层**）。
-    /// **未入网 = `---`**；已连接但上一秒无数据 = `0.00 B/s`（零速率与“没连接”可区分）。
+    /// **未入网 = `---`**；已连接但上一秒无数据 = `0 B/s`（零速率与“没连接”可区分）。
     /// </summary>
     /// <remarks>
     /// 与角色方块上的"角色自身速率"是**两个维度**（读同一份框架诊断，表达对象不同）——
@@ -185,8 +186,11 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     /// <summary>标记主行显示文本（口名 + 网络名）。</summary>
     public string Display => string.IsNullOrWhiteSpace(Label) ? PortName : $"{PortName}·{Label}";
 
+    /// <summary>网络名编辑弹窗的标题（`设置网络名：{端口名}`；XAML 直接绑定，避免 StringFormat 拼文案）。</summary>
+    public string EditTitle => TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "moduleWindow.portLabel.editorTitle", PortName);
+
     /// <summary>方向文本（发送 / 接收）。</summary>
-    public string DirectionText => IsSend ? "发送" : "接收";
+    public string DirectionText => TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, IsSend ? "portMarker.direction.send" : "portMarker.direction.receive");
 
     /// <summary>
     /// **方向箭头字形**（箭头方向**不写死**，由**所在边**与**输入输出关系**推出）。
@@ -215,8 +219,8 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
 
     /// <summary>连接状态文本（**只用于工具提示**；标记本身不显示连接状态 —— 指示灯已经表达）。</summary>
     public string StateText => IsStalled
-        ? "停流"
-        : IsConnected ? "已连接" : "未连接";
+        ? TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.state.stalled")
+        : IsConnected ? TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.state.connected") : TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.state.disconnected");
 
     /// <summary>
     /// 标记上显示的网络名（**标签优先**）。
@@ -228,7 +232,7 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     /// </remarks>
     public string NetworkText => Label is { Length: > 0 } label
         ? label
-        : IsConnected ? "（直连）" : "无网络";
+        : IsConnected ? TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.network.direct") : TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.network.none");
 
     /// <summary>状态语义（连接状态点用；颜色 + 形状双重编码）。</summary>
     public StateVisual State => IsStalled ? StateVisual.Dangling : IsConnected ? StateVisual.Active : StateVisual.Idle;
@@ -286,8 +290,8 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     /// **固定 / 解锁**按钮的悬停提示——按钮本身就是该口的开关，提示必须说清"按下去会怎样"。
     /// </summary>
     public string AnchorToggleTip => IsAnchorFixed
-        ? "锚点已固定：点击解锁，之后可沿边缘拖动或拖到别的边"
-        : "锚点可拖动：点击固定，之后不可拖动（模块拉伸时按比例重排）";
+        ? TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.anchor.tip.fixed")
+        : TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.anchor.tip.draggable");
 
     /// <summary>
     /// **正在被拖动**——拖动期间本地 <see cref="Edge"/>/<see cref="Offset"/> 是"待提交的意图"，
@@ -319,8 +323,8 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
 
     /// <summary>编辑框的帮助文本（**收进问号按钮的弹窗**，不占标记宽度）。</summary>
     public string Hint => IsSend
-        ? "发送口：填网络名后，同名接收口自动连上；同名发送口可以有多个（多源网络）"
-        : "接收口：填网络名后，同名发送口自动连上；没有同名发送端时只保留标签并提示";
+        ? TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.hint.send")
+        : TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.hint.receive");
 
     /// <summary>
     /// 完整信息（**工具提示**）。
@@ -333,27 +337,31 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     {
         get
         {
-            var text = $"{PortName}（{DirectionText}）\n{StateText}\n类型：{TypeText}";
+            var text = TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.tooltip.header", PortName, DirectionText, StateText, TypeText);
             if (Label is { Length: > 0 } name)
             {
-                text += $"\n网络名：{name}" + (IsConnected ? string.Empty : "（暂无同名对端口）");
+                text += TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, 
+                    IsConnected ? "portMarker.tooltip.networkName" : "portMarker.tooltip.networkNameNoPeer",
+                    name);
             }
 
             if (IsConnected)
             {
-                text += $"\n网络：{(NetworkName is { Length: > 0 } n ? n : "（直连）")}";
+                text += TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, 
+                    "portMarker.tooltip.network",
+                    NetworkName is { Length: > 0 } n ? n : TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.network.direct"));
                 if (PeerText is { Length: > 0 } peer)
                 {
-                    text += $"\n对端：{peer}";
+                    text += TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.tooltip.peer", peer);
                 }
 
-                text += $"\n投递 {Delivered} 单元 · 丢弃 {Dropped} 单元（该口参与的流）"
-                    + (BytesText is { Length: > 0 } bytes ? $"\n流量约 {bytes}（该口参与的通路）" : string.Empty);
+                text += TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.tooltip.metrics", Delivered, Dropped)
+                    + (BytesText is { Length: > 0 } bytes ? TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.tooltip.bytes", bytes) : string.Empty);
             }
 
-            return text + (IsAnchorFixed
-                ? "\n锚点已固定（不可拖动）—— 双击填写/清除网络名"
-                : "\n拖动可改锚点所在边缘与位置 · 双击填写/清除网络名");
+            return text + TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, IsAnchorFixed
+                ? "portMarker.tooltip.anchorFixed"
+                : "portMarker.tooltip.hint");
         }
     }
 

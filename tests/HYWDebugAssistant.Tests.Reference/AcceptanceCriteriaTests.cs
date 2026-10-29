@@ -357,7 +357,8 @@ public class AcceptanceCriteriaTests
         // 既有模块：实例未被触碰，数据流持续
         composition.Runtime.Content.Instances.Single(i => i.InstanceId == "src").ShouldBeSameAs(existingSource);
         composition.Runtime.Content.Instances.Single(i => i.InstanceId == "mon").ShouldBeSameAs(existingMonitor);
-        composition.DisplayLines("mon", DataMonitorModule.LogSource).Count.ShouldBeGreaterThan(linesBefore);
+        composition.WaitForDisplayCount("mon", DataMonitorModule.LogSource, atLeast: linesBefore + 1)
+            .ShouldBeTrue(IssueSummary(composition, "既有模块的数据流应持续"));
     }
 
     // ------------------------------------------------------------ AC-6

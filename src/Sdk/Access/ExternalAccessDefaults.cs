@@ -54,4 +54,11 @@ public sealed class ExternalAccessDefaults : IExternalAccess
         _ = accessName;
         return ExternalAccessSnapshot.None;
     }
+
+    /// <inheritdoc />
+    public Type? GetParametersType(string accessName)
+    {
+        _ = accessName;
+        return null;
+    }
 }

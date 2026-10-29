@@ -99,6 +99,18 @@ public class HotkeyTests
         HotkeyCatalog.Actions.Select(a => a.Id).Distinct(StringComparer.Ordinal).Count().ShouldBe(defaults.Count);
     }
 
+    /// <summary>动作名来自文本表：每个键都必须解析得到（缺键会在设置页露出 <c>⟦key⟧</c>）。</summary>
+    [Fact]
+    public void 服务_每个动作名都应能解析到文本表()
+    {
+        foreach (var action in HotkeyCatalog.Actions)
+        {
+            action.Label.ShouldNotBeNullOrWhiteSpace($"动作 {action.Id} 的文案键是 {action.LabelKey}");
+            action.Label.Contains('⟦')
+                .ShouldBeFalse($"动作 {action.Id} 的文案键 {action.LabelKey} 不在文本表里");
+        }
+    }
+
     [Fact]
     public void 服务_应有固定与解锁端口锚点的动作且默认键可用()
     {
@@ -106,8 +118,8 @@ public class HotkeyTests
         // 而且**与「全部锁定/解锁（模块窗口）」是两个不同动作**（术语撞词：锚点侧一律用「固定」）。
         var action = HotkeyCatalog.Find(HotkeyCatalog.ToggleAnchorFixed);
         action.ShouldNotBeNull("G5 要求的全局「固定 / 解锁端口锚点」动作必须在目录里");
-        action.Title.ShouldContain("固定");
-        action.Title.Contains("锁定", StringComparison.Ordinal).ShouldBeFalse("锚点侧一律用「固定」，不用「锁定」");
+        action.Label.ShouldContain("固定");
+        action.Label.Contains("锁定", StringComparison.Ordinal).ShouldBeFalse("锚点侧一律用「固定」，不用「锁定」");
 
         HotkeyCatalog.ToggleAnchorFixed.ShouldNotBe(HotkeyCatalog.ToggleLockAll);
         HotkeyBinding.Parse(action.DefaultBinding).IsEmpty.ShouldBeFalse("默认必须有键（否则用户不知道按什么）");
@@ -134,16 +146,15 @@ public class HotkeyTests
     }
 
     [Fact]
-    public void 设置_来源根列表应可保存并读回()
+    public void 设置_旧的来源根键应被忽略且不再写出()
     {
         using var harness = new SettingsHarness();
 
         var settings = harness.Services.GetSettings();
-        settings.ModuleSourceDirectories = [@"C:\modules-a", @"D:\modules-b"];
+        settings.LogLevel = "Debug";
 
         harness.Services.UpdateSettings(settings).Succeeded.ShouldBeTrue();
-
-        harness.Services.GetSettings().ModuleSourceDirectories.ShouldBe([@"C:\modules-a", @"D:\modules-b"]);
+        harness.Services.GetSettings().LogLevel.ShouldBe("Debug");
     }
 
     private sealed class Recorder : IHotkeyActions

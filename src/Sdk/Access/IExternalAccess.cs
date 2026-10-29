@@ -51,4 +51,14 @@ public interface IExternalAccess
     /// <summary>取当前快照（未知接入名 ⇒ <see cref="ExternalAccessSnapshot.None"/>）。</summary>
     /// <param name="accessName">接入名。</param>
     ExternalAccessSnapshot GetSnapshot(string accessName);
+
+    /// <summary>
+    /// 该接入的参数类型（框架按标准标识登记；未知接入 / 尚未接线 ⇒ <see langword="null"/>）。
+    /// </summary>
+    /// <remarks>
+    /// 模块骨架用它反射配置字段名，保留"会话打开/故障时才允许编辑配置"的既有行为；
+    /// 参数类型本身留在框架侧，模块不引用它。默认实现返回 <see langword="null"/>（未接线面）。
+    /// </remarks>
+    /// <param name="accessName">接入名。</param>
+    Type? GetParametersType(string accessName) => null;
 }

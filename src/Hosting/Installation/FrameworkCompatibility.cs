@@ -1,18 +1,24 @@
+using HYWDebugAssistant.Sdk.Access;
+
 namespace HYWDebugAssistant.Hosting.Installation;
 
 /// <summary>
 /// 框架兼容范围校验：模块声明其兼容的框架版本区间，加载时判定是否满足。
 /// </summary>
 /// <remarks>
-/// <para><b>当前框架版本</b>：<see cref="CurrentFrameworkVersion"/>（对应顶层基线 v1.0 的能力面）。</para>
-/// <para>支持的区间语法（M1 最小集，AND 语义，空格分隔）：<c>&gt;=1.0.0 &lt;2.0.0</c>；
+/// <para><b>当前框架版本</b>：<see cref="CurrentFrameworkVersion"/>——从 <c>Sdk</c> 程序集版本派生
+/// （取 Major.Minor.Build），与 SDK 契约版本（2.0.0）同源。</para>
+/// <para>支持的区间语法（M1 最小集，AND 语义，空格分隔）：<c>&gt;=2.0.0 &lt;3.0.0</c>；
 /// 运算符：<c>&gt;=</c> <c>&gt;</c> <c>&lt;=</c> <c>&lt;</c> <c>=</c>；空范围 = 不限制。</para>
 /// <para>不满足 → **拒绝注册**并给出理由（**不静默降级**）。</para>
 /// </remarks>
 public static class FrameworkCompatibility
 {
     /// <summary>当前框架版本（模块据此声明兼容范围）。</summary>
-    public const string CurrentFrameworkVersion = "1.0.0";
+    public static readonly string CurrentFrameworkVersion =
+        typeof(ExternalAccessDeclaration).Assembly.GetName().Version is { } version
+            ? $"{version.Major}.{version.Minor}.{version.Build}"
+            : "0.0.0";
 
     /// <summary>判定版本是否落在区间内。</summary>
     /// <param name="range">区间表达式（空 = 不限制）。</param>
@@ -24,7 +30,7 @@ public static class FrameworkCompatibility
 
         if (!TryParseVersion(version, out var candidate))
         {
-            error = $"框架版本号非法：'{version}'";
+            error = HostingText.Get("hosting.compat.versionInvalid", version);
             return false;
         }
 
@@ -37,7 +43,7 @@ public static class FrameworkCompatibility
         {
             if (!TryParseClause(clause, out var op, out var bound))
             {
-                error = $"兼容范围语法非法：'{clause}'（支持 >=、>、<=、<、=，如 >=1.0.0 <2.0.0）";
+                error = HostingText.Get("hosting.compat.rangeSyntax", clause);
                 return false;
             }
 
@@ -54,7 +60,7 @@ public static class FrameworkCompatibility
 
             if (!satisfied)
             {
-                error = $"框架版本 {version} 不满足兼容范围 '{range}'";
+                error = HostingText.Get("hosting.compat.notSatisfied", version, range);
                 return false;
             }
         }

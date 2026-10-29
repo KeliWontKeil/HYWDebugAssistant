@@ -1,13 +1,14 @@
 <ui:ModuleView xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+             xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
              xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:views="using:HYWDebugAssistant.Modules.Udp.Views"
              x:Class="HYWDebugAssistant.Modules.Udp.Views.UdpView"
              x:CompileBindings="True"
              x:DataType="contracts:IModuleViewContext"
-             d:DesignWidth="358" d:DesignHeight="142">
+             d:DesignWidth="358" d:DesignHeight="120">
 
   <!--
     UDP（内容区 358×142）：本地/目标参数、读数、广播开关、按钮全部绝对定位。
@@ -27,21 +28,21 @@
     <ui:ModuleStatusLight Canvas.Left="158" Canvas.Top="10" Width="10" Height="10"
                           Source="{x:Static views:UdpViewKeys.Link}" />
     <ui:ModuleNumeric Canvas.Left="184" Canvas.Top="0" Width="60" Height="30"
-                      Source="{x:Static views:UdpViewKeys.RxCount}" Unit="B" Title="收" />
+                      Source="{x:Static views:UdpViewKeys.RxCount}" Quantity="Bytes" Title="{loc:Tr view.rx}" />
     <ui:ModuleNumeric Canvas.Left="246" Canvas.Top="0" Width="60" Height="30"
-                      Source="{x:Static views:UdpViewKeys.TxCount}" Unit="B" Title="发" />
+                      Source="{x:Static views:UdpViewKeys.TxCount}" Quantity="Bytes" Title="{loc:Tr view.tx}" />
     <ui:ModuleNumeric Canvas.Left="308" Canvas.Top="0" Width="50" Height="30"
-                      Source="{x:Static views:UdpViewKeys.DropCount}" Unit="B" Title="丢弃" />
+                      Source="{x:Static views:UdpViewKeys.DropCount}" Quantity="Bytes" Title="{loc:Tr view.drop}" />
 
-    <ui:ModuleLabel Canvas.Left="168" Canvas.Top="30" Width="190" Height="16"
+    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="128" Width="358" Height="14"
                     Source="{x:Static views:UdpViewKeys.State}" />
 
     <ui:ModuleConfigField Canvas.Left="168" Canvas.Top="40" Width="180" Height="24"
                           Field="{x:Static views:UdpViewKeys.Broadcast}" />
 
     <ui:ModuleButton Canvas.Left="168" Canvas.Top="70" Width="88" Height="27"
-                     CommandName="{x:Static views:UdpViewKeys.Open}" Content="绑定" />
+                     CommandName="{x:Static views:UdpViewKeys.Open}" Content="{loc:Tr view.open}" />
     <ui:ModuleButton Canvas.Left="264" Canvas.Top="70" Width="88" Height="27"
-                     CommandName="{x:Static views:UdpViewKeys.Close}" Content="解绑" />
+                     CommandName="{x:Static views:UdpViewKeys.Close}" Content="{loc:Tr view.close}" />
   </Canvas>
 </ui:ModuleView>
