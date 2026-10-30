@@ -1,4 +1,5 @@
 using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Ui.Design;
@@ -106,6 +107,9 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     [
         new("monitor-1", "in", Depth: 0, Capacity: 1024, Enqueued: 1234, Dropped: 2),
     ];
+
+    /// <inheritdoc />
+    public PortFlowState GetPortFlowState(string instanceId, string portName) => PortFlowState.None;
 
     /// <inheritdoc />
     public IReadOnlyList<AppearanceView> GetAppearance(string instanceId) =>

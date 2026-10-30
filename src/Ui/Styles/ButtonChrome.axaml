@@ -27,8 +27,8 @@
     <!--
       按钮的控制主题：x:Key="{x:Type Button}"（对所有 Button），由下面的 Theme setter 指过来。
       只负责壳（模板、圆角、对齐、焦点环）；颜色与五态在本文件下面的样式里。
-      基础 setter 刻意最小，以免把"自带背景"的按钮类（.icon 透明无边框、.helpIcon 圆形、.tab、.rail）
-      平时就改掉。
+      基础 setter 刻意最小，以免把"自带背景"的按钮类（`.helpIcon` 圆形、`.tab`、`.rail`）
+      平时就改掉；`.icon` 与普通按钮同面（见文件下半部分的说明）。
     -->
     <ControlTheme x:Key="{x:Type Button}" TargetType="Button">
       <Setter Property="CornerRadius" Value="4" />
@@ -82,29 +82,34 @@
   </Style>
 
   <!--
-    **"按钮面"只给普通按钮**：`.tab`（分类标签）、`.rail`（活动栏）、`.icon`（图标按钮）、
-    `.helpIcon`（问号）都**自带底色与边框**（透明 / 半透明主色 / 圆形），它们的外观归各自的类样式。
+    **"按钮面"给除 `.tab` / `.rail` / `.helpIcon` 之外的所有按钮**（含 `.icon`）：
+    `.tab`（分类标签）、`.rail`（活动栏）、`.helpIcon`（问号）自带底色与边框（透明 / 半透明主色 / 圆形），
+    它们的外观归各自的类样式。
 
-    为什么必须排除：这几条声明在 `Controls.axaml` 与 `ButtonChrome.axaml` **之前**，
+    为什么这三类必须排除：这几条声明在 `Controls.axaml` 与 `ButtonChrome.axaml` **之前**，
     后声明的会赢 —— 不排除的话，标签自己的"选中蓝底"会被替换成中性的按钮面，
     于是中央出现一块**与它底色对不上的方块**（实测：页签里一块浅蓝）。
+
+    为什么 `.icon` **不再**排除：图标按钮是**按钮**，不是"漂浮的符号"——它有面、有边、有指针态，
+    与普通按钮同一套色；不给面会被读成"点了没反应"的纯图标（本轮的整改目标）。
+    图标按钮只额外收窄了尺寸（20×20）与内边距（0）。
 
     部件（`ContentPresenter`）不必在这里写：它跟随控件的 `Background`（模板里是 `TemplateBinding`），
     所以"面"会自动跟着走；`TemplateBinding` 是绑定、优先级高于按部件名的样式，
     这也正好把它从 Fluent 的半透明黑里摘出来。
   -->
-  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.icon):not(.helpIcon)">
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.helpIcon)">
     <Setter Property="Background" Value="{DynamicResource SurfaceButtonFaceBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource SurfaceButtonEdgeBrush}" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>
 
-  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.icon):not(.helpIcon):pointerover">
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.helpIcon):pointerover">
     <Setter Property="Background" Value="{DynamicResource SurfaceButtonFaceHoverBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
   </Style>
 
-  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.icon):not(.helpIcon):pressed">
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.helpIcon):pressed">
     <Setter Property="Background" Value="{DynamicResource SurfaceButtonFacePressedBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
   </Style>

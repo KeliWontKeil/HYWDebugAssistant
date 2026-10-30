@@ -67,7 +67,8 @@ public class ModuleView : UserControl
         return false;
     }
 
-    private static bool IsDesignEnvironment => Design.IsDesignMode || IsPreviewHost;
+    /// <summary>当前进程是否处于**设计/预览环境**（控件的"预览占位框"据此显示）。</summary>
+    internal static bool IsDesignEnvironment => Design.IsDesignMode || IsPreviewHost;
 
     private static readonly Uri ControlsThemeUri =
         new("avares://HYWDebugAssistant.Sdk.Ui/Themes/Controls.axaml");
@@ -116,7 +117,7 @@ public class ModuleView : UserControl
 
                 if (configType is not null)
                 {
-                    DataContext = new DesignModuleViewContext(configType);
+                    DataContext = new DesignModuleViewContext(configType, GetType().Assembly);
                 }
             }
         }

@@ -21,7 +21,7 @@ public class IssuesPanelViewModelTests
         var first = issues.Issues[0];
         issues.SelectedIssue = first;
         issues.UnreadCount.ShouldBe(3, "选中一行应标记已读");
-        issues.SelectedDetailText.ShouldNotBeNull().ShouldContain("对象");
+        issues.SelectedDetailText.ShouldNotBeNullOrWhiteSpace("详情必须给出归属对象等事实");
 
         issues.OnlyUnread = true;
         issues.Issues.Count.ShouldBe(3, "只看未读时不应再显示刚读过的那行");

@@ -35,8 +35,8 @@ public class TrExtensionProbeTests : IDisposable
 
         var view = new TrExtensionProbeView();
 
-        view.ResolvedText.Text.ShouldBe("探针基础表");
-        view.MissingText.Text.ShouldBe("⟦probe.absent.message⟧", "缺键必须露出键名，不能空白");
+        view.ResolvedText.Text.ShouldBe(_tables.Entries["probe.base.label"]);
+        view.MissingText.Text.ShouldBe(TextCatalog.MissingValue("probe.absent.message"), "缺键必须露出键名，不能空白");
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public class TrExtensionProbeTests : IDisposable
             RootObject = new TextBlock(),      // 根对象没有表：命中只可能来自 TargetObject
         };
 
-        new TrExtension("probe.base.label").ProvideValue(services).ShouldBe("探针基础表");
+        new TrExtension("probe.base.label").ProvideValue(services).ShouldBe(_tables.Entries["probe.base.label"]);
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public class TrExtensionProbeTests : IDisposable
             RootObject = new ProbeOwner(),     // 真正的属主程序集（这份 XAML 的根）
         };
 
-        new TrExtension("probe.base.label").ProvideValue(services).ShouldBe("探针基础表");
+        new TrExtension("probe.base.label").ProvideValue(services).ShouldBe(_tables.Entries["probe.base.label"]);
     }
 
     [Fact]
@@ -74,7 +74,7 @@ public class TrExtensionProbeTests : IDisposable
 
         new TrExtension("probe.base.label")
             .ProvideValue(services)
-            .ShouldBe("⟦probe.base.label⟧");
+            .ShouldBe(TextCatalog.MissingValue("probe.base.label"));
     }
 
     /// <summary>探针用的"本程序集对象"（它的程序集就是探针表的属主）。</summary>

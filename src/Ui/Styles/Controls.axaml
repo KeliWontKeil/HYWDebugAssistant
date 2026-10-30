@@ -1,6 +1,7 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:ui="using:HYWDebugAssistant.Ui.Controls">
+        xmlns:ui="using:HYWDebugAssistant.Ui.Controls"
+        xmlns:sdkui="using:HYWDebugAssistant.Sdk.Ui.Controls">
 
     <!--
       统一控件尺寸与字号【M1-16 / ADR-0040 D4】：
@@ -98,18 +99,9 @@
     </Style>
 
     <!--
-      【2026-09 用户反馈】"不允许编辑的文本框"（只读路径框、只读结果框）**背景也用白色** ——
-      Fluent 主题默认给只读 `TextBox` 一层灰底，用户口径："灰色不好看"。
+      输入框的**绘制**（常态框 / 焦点圈 / 错误圈 / 只读与禁用态）统一在 `Styles/InputChrome.axaml`；
+      本文件只保留尺寸与字号，不再写颜色覆盖。
     -->
-    <Style Selector="TextBox:disabled">
-        <Setter Property="Background" Value="{DynamicResource BgModule}" />
-        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-    </Style>
-
-    <Style Selector="TextBox[IsReadOnly=True]">
-        <Setter Property="Background" Value="{DynamicResource BgModule}" />
-        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-    </Style>
 
     <Style Selector="ComboBox">
         <Setter Property="Height" Value="{DynamicResource ControlHeight}" />
@@ -135,7 +127,8 @@
       **这里刻意不再写 `Button:pointerover` / `Button:pressed`**：那两条会**对所有按钮**生效，
       优先级又高于"按类名收窄"的规则，于是普通按钮在指向/按下时会被**先刷一层浅主色**、
       再叠 ButtonChrome 的面色 —— 屏幕上就是"多叠了一层"（实测）。自带底色的按钮类
-      （`.tab` / `.rail` / `.icon` / `.helpIcon`）各自有指针态，也不需要这两条。
+      （`.tab` / `.rail` / `.helpIcon`）各自有指针态；`.icon` 的面与指针态由 `ButtonChrome.axaml`
+      统一给（图标按钮与普通按钮同面），这里也不需要这两条。
     -->
 
     <Style Selector="ToggleButton">
@@ -236,9 +229,10 @@
         <Setter Property="ClipToBounds" Value="True" />
     </Style>
 
-    <!-- 预览图占位字形：无图时居中显示，不再是一块全空。 -->
-    <Style Selector="TextBlock.previewGlyph">
-        <Setter Property="FontSize" Value="18" />
+    <!-- 预览图占位图标：无图时居中显示（18×18），不再是一块全空。 -->
+    <Style Selector="ui|Glyph.previewGlyph">
+        <Setter Property="Width" Value="18" />
+        <Setter Property="Height" Value="18" />
         <Setter Property="Opacity" Value="0.55" />
         <Setter Property="HorizontalAlignment" Value="Center" />
         <Setter Property="VerticalAlignment" Value="Center" />
@@ -277,35 +271,69 @@
     </Style>
 
     <!--
-      图标按钮（模块窗口按钮簇）：纯图标、无文字、正方形热区。
-      【ADR-0039 D1】按钮簇在**右上角**，悬停或选中时淡入（透明度策略在 ModuleWindow 内定义）。
+      图标按钮（模块窗口按钮簇 / 弹窗删除按钮）：纯图标、正方形热区。
+      **面/边/指针态与普通按钮同一套**（`ButtonChrome.axaml` 的 `:is(Button)` 规则不再排除 `.icon`）：
+      这里只收窄尺寸、内边距与图标颜色 —— 不再写 `Background=Transparent` / `BorderThickness=0`，
+      否则屏幕上就是"一个漂浮的符号"，点它之前看不出它是按钮。
+      选择器按**精确类型**写：Avalonia 的类型选择器不匹配派生类型，`Button.icon` 不会作用到 `IconButton`。
     -->
-    <Style Selector="Button.icon">
+    <Style Selector="ui|IconButton.icon">
         <Setter Property="Width" Value="20" />
         <Setter Property="Height" Value="20" />
         <Setter Property="MinHeight" Value="20" />
         <Setter Property="Padding" Value="0" />
-        <Setter Property="Background" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="0" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
     </Style>
 
-    <!-- 图标字形（**系统图标字体**，见 Tokens 的 FontIcons；字号 13 与 20×20 按钮相称） -->
-    <Style Selector="TextBlock.icon">
-        <Setter Property="FontFamily" Value="{DynamicResource FontIcons}" />
-        <Setter Property="FontSize" Value="13" />
+    <!-- 按钮里那枚图标：20×20 的按钮留 1px 边后内容区 18×18，图标用 14 更透气 -->
+    <Style Selector="ui|IconButton.icon sdkui|Icon">
+        <Setter Property="Width" Value="14" />
+        <Setter Property="Height" Value="14" />
+    </Style>
+
+    <!-- 图标颜色随指针态走：面上是次要色，指向/按下时提到正文色（与文本按钮的字色同一档） -->
+    <Style Selector="ui|IconButton.icon:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+    </Style>
+
+    <Style Selector="ui|IconButton.icon:pressed">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+    </Style>
+
+    <!--
+      `Glyph` 是 `Sdk.Ui.Icon` 的子类：Avalonia 的隐式主题按**精确类型**查，
+      所以显式把它指到 `Icon` 的 ControlTheme（同一手法见 ButtonChrome 给 Button 指主题那条）。
+    -->
+    <Style Selector="ui|Glyph">
+        <Setter Property="Theme" Value="{DynamicResource {x:Type sdkui:Icon}}" />
+    </Style>
+
+    <!-- 图标（显式 SVG）的默认尺寸与颜色；rail / 预览占位另有尺寸样式。 -->
+    <Style Selector="ui|Glyph.icon">
+        <Setter Property="Width" Value="13" />
+        <Setter Property="Height" Value="13" />
         <Setter Property="HorizontalAlignment" Value="Center" />
         <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
     </Style>
 
     <!-- 活动栏按钮里的图标：大一号，颜色随选中态 -->
-    <Style Selector="Button.rail TextBlock.icon">
-        <Setter Property="FontSize" Value="16" />
+    <Style Selector="Button.rail ui|Glyph.icon">
+        <Setter Property="Width" Value="16" />
+        <Setter Property="Height" Value="16" />
     </Style>
 
-    <Style Selector="Button.rail.active TextBlock.icon">
+    <Style Selector="Button.rail.active ui|Glyph.icon">
+        <Setter Property="Foreground" Value="{DynamicResource AccentPrimary}" />
+    </Style>
+
+    <!--
+      标签里的图标与文字同一档：选中时一起转主色。
+      必须排在 `ui|Glyph.icon` 之后 —— Avalonia 的样式是按声明顺序覆盖，不是 CSS 优先级。
+    -->
+    <Style Selector="Button.tab.active ui|Glyph.icon">
         <Setter Property="Foreground" Value="{DynamicResource AccentPrimary}" />
     </Style>
 

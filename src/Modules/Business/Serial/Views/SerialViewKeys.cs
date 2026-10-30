@@ -18,6 +18,8 @@ public static class SerialViewKeys
     public const string DropCount = SerialModule.DropCountSource;
     public const string Open = SerialModule.OpenCommand;
     public const string Close = SerialModule.CloseCommand;
+    public const string ClearCounters = SerialModule.ClearCountersCommand;
+    public const string ClearCountersIcon = "icon.refresh";
 
     public const string PortName = ExternalAccessFieldNames.PortName;
     public const string BaudRate = ExternalAccessFieldNames.BaudRate;

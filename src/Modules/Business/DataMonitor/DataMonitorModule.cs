@@ -111,8 +111,8 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     /// </remarks>
     public const string SaveCommand = "save";
 
-    /// <summary>活动周期（20 ms）。</summary>
-    public static readonly TimeSpan ActivityInterval = TimeSpan.FromMilliseconds(1);
+    /// <summary>活动周期（5 ms；数据由口信号送达，活动只负责取数/刷新）。</summary>
+    public static readonly TimeSpan ActivityInterval = TimeSpan.FromMilliseconds(5);
 
     /// <summary>数据类型标识（**与两个发送器逐字相同** ⇒ 开箱即连）。</summary>
     public const string RawBytesTypeId = "RawBytes";

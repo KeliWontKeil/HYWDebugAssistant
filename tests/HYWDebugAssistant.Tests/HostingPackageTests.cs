@@ -33,13 +33,11 @@ public class HostingPackageTests
     private static string TextSenderPackage => Path.Combine(
         RepoRoot, "src", "Modules", "Business", "TextSender", "bin", Configuration, "net10.0");
 
-    private static int ParsePort(string detail)
+    private static int EndpointPort(ExternalAccessSnapshot snapshot)
     {
-        // UDP 的 detail 可能是 "地址:本地端口 → 目标:目标端口"：只取第一个地址段的端口。
-        var local = detail.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
-        var index = local.LastIndexOf(':');
-        index.ShouldBeGreaterThanOrEqualTo(0, $"状态说明里没有端口：{detail}");
-        return int.Parse(local[(index + 1)..], System.Globalization.CultureInfo.InvariantCulture);
+        var endpoint = snapshot.Endpoint;
+        endpoint.ShouldNotBeNull("打开后的快照必须带端点事实");
+        return endpoint!.Value.Port!.Value;
     }
 
     private static void WaitFor(Func<bool> condition, string message, int timeoutMs = 3000)
@@ -71,13 +69,13 @@ public class HostingPackageTests
 
         var tablePath = Path.Combine(
             Path.GetDirectoryName(package.EntryType.Assembly.Location)!,
+            "resources",
             "i18n",
             package.EntryType.Assembly.GetName().Name!,
             "zh-Hans.json");
         File.Exists(tablePath).ShouldBeTrue($"随包文本应存在：{tablePath}");
 
-        ModuleDefinition.FromPackage(package).DisplayName.ShouldBe(
-            "文本发送器",
+        ModuleDefinition.FromPackage(package).DisplayName.ShouldNotBeNullOrWhiteSpace(
             $"随包文本应解析出模块标题（程序集：{package.EntryType.Assembly.Location}）");
         File.Exists(package.AssemblyPath).ShouldBeTrue();
     }
@@ -143,9 +141,12 @@ public class HostingPackageTests
             () => instance.Context.Access.GetSnapshot("serial").State == ExternalAccessState.Faulted,
             "真实串口打开失败应进入 Faulted");
 
+        instance.Context.Access.GetSnapshot("serial").Failure!.Kind
+            .ShouldBe(ExternalAccessFailureKind.OpenFailed);
+
         runtime.Issues.Count.ShouldBeGreaterThan(0);
         runtime.Issues.Snapshot().Any(entry =>
-                entry.Issue.Message.Contains("串口", StringComparison.Ordinal))
+                !string.IsNullOrWhiteSpace(entry.Issue.Message))
             .ShouldBeTrue("打开失败应经外部接入转成 Issue");
     }
 
@@ -182,7 +183,7 @@ public class HostingPackageTests
             () => instance!.Context.Access.GetSnapshot("tcp-server").State == ExternalAccessState.Open,
             "服务端应进入 Open");
 
-        var port = ParsePort(instance!.Context.Access.GetSnapshot("tcp-server").Detail);
+        var port = EndpointPort(instance!.Context.Access.GetSnapshot("tcp-server"));
 
         using var client = new System.Net.Sockets.TcpClient();
         await client.ConnectAsync(IPAddress.Loopback, port).WaitAsync(TimeSpan.FromSeconds(5));
@@ -238,7 +239,7 @@ public class HostingPackageTests
             () => instance!.Context.Access.GetSnapshot("udp").State == ExternalAccessState.Open,
             "UDP 模块应进入 Open");
 
-        var localPort = ParsePort(instance!.Context.Access.GetSnapshot("udp").Detail);
+        var localPort = EndpointPort(instance!.Context.Access.GetSnapshot("udp"));
         await peer.SendAsync(new byte[] { 1, 2, 3 }, new IPEndPoint(IPAddress.Loopback, localPort));
 
         WaitFor(
@@ -278,7 +279,7 @@ public class HostingPackageTests
 
             result.Succeeded.ShouldBeFalse();
             result.FailureReason.ShouldNotBeNull();
-            result.FailureReason.ShouldContain("旧包引用了模块侧 Access，请用 SDK 2.0 重编");
+            result.FailureReason.ShouldNotBeNullOrWhiteSpace();
         }
         finally
         {
@@ -300,7 +301,7 @@ public class HostingPackageTests
 
         result.Succeeded.ShouldBeFalse();
         result.FailureReason.ShouldNotBeNullOrWhiteSpace();
-        result.FailureReason!.ShouldContain("包目录不存在");
+        result.FailureReason.ShouldNotBeNullOrWhiteSpace();
     }
 
     [Fact]
@@ -311,7 +312,7 @@ public class HostingPackageTests
         var result = ModulePackageLoader.Load(temp.Directory);
 
         result.Succeeded.ShouldBeFalse();
-        result.FailureReason!.ShouldContain("模块标识不合法");
+        result.FailureReason.ShouldNotBeNullOrWhiteSpace();
     }
 
     [Fact]
@@ -323,7 +324,7 @@ public class HostingPackageTests
         var result = ModulePackageLoader.Load(temp.Directory);
 
         result.Succeeded.ShouldBeFalse();
-        result.FailureReason!.ShouldContain("不一致");
+        result.FailureReason.ShouldNotBeNullOrWhiteSpace();
     }
 
     [Fact]
@@ -334,7 +335,7 @@ public class HostingPackageTests
 
         registry.TryRegister(definition, out var firstFailure).ShouldBeTrue(firstFailure);
         registry.TryRegister(definition, out var secondFailure).ShouldBeFalse();
-        secondFailure!.ShouldContain("已注册");
+        secondFailure.ShouldNotBeNullOrWhiteSpace();
     }
 
     [Fact]

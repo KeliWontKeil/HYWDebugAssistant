@@ -133,22 +133,6 @@
                                       SelectedItem="{Binding SelectedLanguageChoice, Mode=TwoWay}" />
                         </Grid>
                         <TextBlock Classes="note" Text="{loc:Tr settings.general.language.note}" />
-                        <Grid ColumnDefinitions="170,190,*">
-                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                       ToolTip.Tip="{loc:Tr settings.general.stopTimeout.tip}"
-                                       Foreground="{DynamicResource TextSecondary}"
-                                       Text="{loc:Tr settings.general.stopTimeout.label}" />
-                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
-                                     Text="{Binding StopTimeoutSeconds, Mode=TwoWay}" />
-                        </Grid>
-                        <Grid ColumnDefinitions="170,190,*">
-                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                       ToolTip.Tip="{loc:Tr settings.general.inputQueue.tip}"
-                                       Foreground="{DynamicResource TextSecondary}"
-                                       Text="{loc:Tr settings.general.inputQueue.label}" />
-                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
-                                     Text="{Binding InputQueueCapacity, Mode=TwoWay}" />
-                        </Grid>
                         <ui:UiToggle Content="{loc:Tr settings.general.alignAutoNetwork.label}"
                                   IsChecked="{Binding AlignAutoNetworkEnabled, Mode=TwoWay}"
                                   ToolTip.Tip="{loc:Tr settings.general.alignAutoNetwork.tip}" />
@@ -173,20 +157,115 @@
                             <ComboBox Grid.Column="1" ItemsSource="{Binding LogLevels}"
                                       SelectedItem="{Binding LogLevel, Mode=TwoWay}" />
                         </Grid>
-                        <Grid ColumnDefinitions="170,190,*">
-                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                       ToolTip.Tip="{loc:Tr settings.general.diagnosticThreshold.tip}"
-                                       Foreground="{DynamicResource TextSecondary}"
-                                       Text="{loc:Tr settings.general.diagnosticThreshold.label}" />
-                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
-                                     Text="{Binding DiagnosticHintThreshold, Mode=TwoWay}" />
-                        </Grid>
-                        <TextBlock Classes="note" Text="{loc:Tr settings.general.hint.note}" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
 
             <!-- ============================ 外观 ============================ -->
+            <!-- ============================ 通信 ============================ -->
+            <TabItem Header="{loc:Tr settings.comm.tab.title}">
+                <ScrollViewer>
+                    <StackPanel Margin="10" Spacing="6">
+                        <TextBlock Classes="sec" Text="{loc:Tr settings.flow.title}" />
+
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.queueCapacity.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.queueCapacity.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding QueueCapacity, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.dropPolicy.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.dropPolicy.label}" />
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding DropPolicyChoices}"
+                                      SelectedItem="{Binding SelectedDropPolicy, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.stopTimeout.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.stopTimeout.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding StopTimeoutSeconds, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.hintDepth.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.hintDepth.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding HintDepth, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.hintHold.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.hintHold.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding HintHoldMs, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.maxAge.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.maxAge.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding MaxBacklogAgeMs, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.writeTimeout.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.writeTimeout.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding ExternalWriteTimeoutMs, Mode=TwoWay}" />
+                        </Grid>
+                                                <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.liveness.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.liveness.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding LivenessIntervalMs, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.sendBacklog.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.sendBacklog.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding SendBacklogBytes, Mode=TwoWay}" />
+                        </Grid>                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.adapterBuffer.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.adapterBuffer.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding AdapterBufferBytes, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.closeTimeout.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.closeTimeout.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding AccessCloseTimeoutMs, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.deviceLost.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.deviceLost.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding DeviceLostMisses, Mode=TwoWay}" />
+                        </Grid>                        <TextBlock Classes="note" Text="{loc:Tr settings.flow.note}" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
             <TabItem Header="{loc:Tr settings.appearance.tab.title}">
                 <ScrollViewer>
                     <StackPanel Margin="10" Spacing="6">
@@ -194,20 +273,38 @@
                         <Grid ColumnDefinitions="170,*">
                             <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                        ToolTip.Tip="{loc:Tr appearance.font.ui.tip}"
-                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.font.ui.label}" />
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.font.uiLatin.label}" />
                             <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="300"
                                       IsEditable="True"
                                       ItemsSource="{Binding FontFamilyOptions}"
-                                      Text="{Binding UiFontFamily, Mode=TwoWay}" />
+                                      Text="{Binding UiFontLatin, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr appearance.font.ui.tip}"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.font.uiCjk.label}" />
+                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="300"
+                                      IsEditable="True"
+                                      ItemsSource="{Binding FontFamilyOptions}"
+                                      Text="{Binding UiFontCjk, Mode=TwoWay}" />
                         </Grid>
                         <Grid ColumnDefinitions="170,*">
                             <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                        ToolTip.Tip="{loc:Tr appearance.font.data.tip}"
-                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.font.data.label}" />
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.font.dataLatin.label}" />
                             <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="300"
                                       IsEditable="True"
                                       ItemsSource="{Binding FontFamilyOptions}"
-                                      Text="{Binding DataFontFamily, Mode=TwoWay}" />
+                                      Text="{Binding DataFontLatin, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr appearance.font.data.tip}"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.font.dataCjk.label}" />
+                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="300"
+                                      IsEditable="True"
+                                      ItemsSource="{Binding FontFamilyOptions}"
+                                      Text="{Binding DataFontCjk, Mode=TwoWay}" />
                         </Grid>
                         <TextBlock Classes="note" Text="{loc:Tr appearance.font.note}" />
 

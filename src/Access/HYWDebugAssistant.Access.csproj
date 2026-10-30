@@ -17,8 +17,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- 适配件的逻辑用例（假串口传输）需要看到内部测试缝。 -->
+    <!-- 适配件的逻辑用例（假串口传输、真实适配件 + 假传输的端到端用例）需要看到内部测试缝。 -->
     <InternalsVisibleTo Include="HYWDebugAssistant.Modules.Tests" />
+    <InternalsVisibleTo Include="HYWDebugAssistant.Tests" />
   </ItemGroup>
 
 </Project>

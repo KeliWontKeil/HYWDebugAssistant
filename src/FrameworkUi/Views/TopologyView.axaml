@@ -300,6 +300,9 @@
                                                                 <TextBlock Text="{Binding StateText}"
                                                                            Classes="errorText"
                                                                            IsVisible="{Binding IsUnresolved}" />
+                                                                <TextBlock Text="{Binding QueueText}"
+                                                                           FontSize="10"
+                                                                           Foreground="{DynamicResource TextSecondary}" />
                                                             </StackPanel>
                                                         </Border>
                                                     </DataTemplate>

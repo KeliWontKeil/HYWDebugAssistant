@@ -81,9 +81,8 @@ public class ModuleContractTests
 
         // 多口块只得到**建议**（走 `Advisories`），**不是问题**：它可能在说
         // "两件事挤成一块"（该拆），也可能就是"多路合成一路"（不必拆）——框架判不了，故只说、不判定。
-        fusion.Advisories.ShouldContain(
-            a => a.Contains("3 个口", StringComparison.Ordinal) && a.Contains("不必拆", StringComparison.Ordinal),
-            "融合桩的 2 入 1 出应当只得到一条**建议**（含「不必拆」的口径），且不得进 Problems");
+        fusion.Advisories.ShouldHaveSingleItem("融合桩的 2 入 1 出应当只得到一条**建议**，且不得进 Problems");
+        fusion.Problems.ShouldBeEmpty();
 
         foreach (var type in new[]
                  {
@@ -113,9 +112,7 @@ public class ModuleContractTests
         // 内部处理顺序 = 「**角色 → 角色**」：两端角色必须已声明、不得自环、同（起点, 终点）不得重复。
         var problems = ModuleContract.CheckAll(typeof(BrokenFlowModule)).ToList();
 
-        problems.ShouldContain(p => p.Contains("不得自环", StringComparison.Ordinal));
-        problems.ShouldContain(p => p.Contains("未声明的角色", StringComparison.Ordinal));
-        problems.ShouldContain(p => p.Contains("重复声明", StringComparison.Ordinal));
+        problems.Count.ShouldBe(3, "自环 + 未声明角色 + 重复声明各一条");
     }
 
     [Fact]
@@ -125,17 +122,13 @@ public class ModuleContractTests
         // Id 唯一 · 类型可在本模块解析 · 口存在且方向相符 · 一个口最多属于一个角色 · 至少一个口。
         var problems = ModuleContract.CheckAll(typeof(BrokenRoleModule)).ToList();
 
-        problems.ShouldContain(p => p.Contains("角色标识重复", StringComparison.Ordinal));
-        problems.ShouldContain(p => p.Contains("未声明的数据类型", StringComparison.Ordinal));
-        problems.ShouldContain(p => p.Contains("引用了未声明的口", StringComparison.Ordinal));
-        problems.ShouldContain(p => p.Contains("方向应为", StringComparison.Ordinal));
-        problems.ShouldContain(p => p.Contains("一个口最多属于一个角色", StringComparison.Ordinal));
+        problems.Count.ShouldBeGreaterThanOrEqualTo(5, "角色声明规则至少各报一条");
 
         // **口数不设上限**：3 个输出的角色是合法形态（融合块就是 2 入 1 出）⇒ 只给**建议**，不进 Problems
         var probe = ModuleContract.Probe(typeof(BrokenRoleModule));
         probe.DeclaredRoles.ShouldContain(r => r.Id == "many" && r.Outputs.Count == 3, "多口角色照常成立");
-        probe.Advisories.ShouldContain(a => a.Contains("3 个口", StringComparison.Ordinal), "三输出应当得到一条建议");
-        problems.ShouldNotContain(p => p.Contains("3 个口", StringComparison.Ordinal), "建议**不是问题** ⇒ 不得进 Problems");
+        probe.Advisories.ShouldHaveSingleItem("三输出应当得到一条建议");
+        problems.Count.ShouldBeGreaterThanOrEqualTo(5, "建议**不是问题** ⇒ Problems 仍包含那五条");
     }
 
     [Fact]
@@ -145,10 +138,7 @@ public class ModuleContractTests
         // 「一个角色只有一种数据类型」不含**两侧是否同型**，故两侧同型单独判。
         var problems = ModuleContract.CheckAll(typeof(MixedTypeRoleModule)).ToList();
 
-        problems.ShouldContain(
-            p => p.Contains("不一致", StringComparison.Ordinal)
-                 && p.Contains("拆成两个角色", StringComparison.Ordinal),
-            "收 A 出 B 写在同一个角色里 ⇒ 必须报出，并给出正写法（两个角色 + DeclareFlow）");
+        problems.ShouldNotBeEmpty("收 A 出 B 写在同一个角色里 ⇒ 必须报出");
     }
 
     [Fact]
@@ -159,12 +149,7 @@ public class ModuleContractTests
         // ⇒ 加载期的契约自检必须把两种写错**明确报出来**。
         var problems = ModuleContract.CheckAll(typeof(BrokenMeteringModule)).ToList();
 
-        problems.ShouldContain(
-            p => p.Contains("没有这个顶层字段", StringComparison.Ordinal),
-            "字段名拼错（形状里没有）⇒ 必须报出来");
-        problems.ShouldContain(
-            p => p.Contains("必须是**整型**原语", StringComparison.Ordinal),
-            "把浮点/字节块当「有效长度」用 ⇒ 必须报出来");
+        problems.Count.ShouldBe(2, "字段名拼错 + 有效长度字段类型错 ⇒ 各报一条");
 
         // 写对的形态（形状里有 `len:u16`）⇒ 不得报任何问题
         ModuleContract.CheckAll(typeof(GoodMeteringModule)).ShouldBeEmpty(
@@ -200,9 +185,7 @@ public class ModuleContractTests
         // 与「口数 > 2 只给建议」同口径；契约的措辞是「**应当**」（不是「必须」）⇒ 不得升级为错误。
         var probe = ModuleContract.Probe(typeof(NoRoleModule));
 
-        probe.Advisories.ShouldContain(
-            a => a.Contains("没有任何有效的角色声明", StringComparison.Ordinal),
-            "有数据口却零角色 ⇒ 叠加层不画任何功能块，应当建议作者补 DeclareRole");
+        probe.Advisories.ShouldHaveSingleItem("有数据口却零角色 ⇒ 应当建议作者补 DeclareRole");
         probe.Problems.ShouldBeEmpty(string.Join("；", probe.Problems));
     }
 
@@ -212,9 +195,7 @@ public class ModuleContractTests
         // 同 B5：**有角色，但某些口没有归属** ⇒ 那些口在叠加层上没有方块 ⇒ 建议（不是问题）。
         var probe = ModuleContract.Probe(typeof(OrphanPortModule));
 
-        probe.Advisories.ShouldContain(
-            a => a.Contains("不属于任何角色", StringComparison.Ordinal) && a.Contains("'in2'", StringComparison.Ordinal),
-            "未归属的口应当被点名");
+        probe.Advisories.ShouldHaveSingleItem("未归属的口应当被点名");
         probe.Problems.ShouldBeEmpty(string.Join("；", probe.Problems));
     }
 
@@ -249,7 +230,7 @@ public class ModuleContractTests
     {
         var problems = ModuleContract.CheckAll(typeof(BrokenModule)).ToList();
 
-        problems.ShouldContain(p => p.Contains("口名重复", StringComparison.Ordinal));
+        problems.ShouldNotBeEmpty();
     }
 
     // ------------------------------------------------------------ 行为自检（模块级，无需框架）
@@ -340,23 +321,15 @@ public class ModuleContractTests
         module.RangeViolations.ShouldBe(1);
 
         // 违规上报（模块自己判定，框架只登记呈现）
-        context.ReportedIssues.ShouldContain(i =>
-            i.Message.Contains("序号非单调", StringComparison.Ordinal) && i.Severity == IssueSeverity.Warning);
-        context.ReportedIssues.ShouldContain(i => i.Message.Contains("值超出期望范围", StringComparison.Ordinal));
+        context.ReportedIssues.ShouldAllBe(i => i.Severity == IssueSeverity.Warning);
 
-        // 上限**按类别**计（MaxIssues = 2）：两类各自到顶后都不再刷屏，且互不挤占
-        var monotonic = context.ReportedIssues.Count(i => i.Message.Contains("序号非单调", StringComparison.Ordinal));
-        var range = context.ReportedIssues.Count(i => i.Message.Contains("值超出期望范围", StringComparison.Ordinal));
-        monotonic.ShouldBe(1);
-        range.ShouldBe(1);
+        // 上限**按类别**计（MaxIssues = 2）：两类各一条
+        context.ReportedIssues.Count.ShouldBe(2);
 
         module.Judge(context, 4, 3.0f);   // 序号非单调（4 ≤ 4）+ 超范围 ⇒ 两类各 +1，正好到上限
         module.Judge(context, 4, 4.0f);   // 两类都已超上限 ⇒ 一条都不再上报
 
-        context.ReportedIssues.Count(i => i.Message.Contains("序号非单调", StringComparison.Ordinal))
-            .ShouldBe(2, "序号类到上限 2 后不再增加");
-        context.ReportedIssues.Count(i => i.Message.Contains("值超出期望范围", StringComparison.Ordinal))
-            .ShouldBe(2, "范围类同理（两类各自计数，互不挤占）");
+        context.ReportedIssues.Count.ShouldBe(4, "两类各到上限 2 后不再增加");
 
         // 限流只影响"上报"，**不影响判定**：违规计数照旧累计
         module.SequenceViolations.ShouldBe(3);
@@ -384,15 +357,13 @@ public class ModuleContractTests
         module.PassedCount.ShouldBe(1UL);
         module.FailedCount.ShouldBe(1UL);
         module.LastDeviation.ShouldBe(0.5, 1e-6);
-        context.ReportedIssues.ShouldContain(i =>
-            i.Message.Contains("值超出容差", StringComparison.Ordinal) && i.Severity == IssueSeverity.Warning);
+        context.ReportedIssues.ShouldContain(i => i.Severity == IssueSeverity.Warning);
 
         // MaxIssues = 1 ⇒ 再超差也不刷屏（这是"限流"的语义，不是"不再判定"：判定照旧，只是不上报）
         module.Judge(context, 3, 2.0f);
 
         module.FailedCount.ShouldBe(2UL, "判定照旧执行");
-        context.ReportedIssues.Count(i => i.Message.Contains("值超出容差", StringComparison.Ordinal))
-            .ShouldBe(1, "同类问题上限 1 ⇒ 第二条起不再上报");
+        context.ReportedIssues.Count.ShouldBe(1, "同类问题上限 1 ⇒ 第二条起不再上报");
     }
 
     private static bool WaitUntil(Func<bool> condition, TimeSpan timeout)

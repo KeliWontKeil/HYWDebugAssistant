@@ -425,7 +425,8 @@ public class BusinessModulesIntegrationTests
         services.AddModule("m1", MonitorId).Succeeded.ShouldBeTrue();
 
         // 先往显示区写点东西（保存读的是显示缓冲 ⇒ 落盘内容应当与屏幕一致）
-        viewState.Display("m1", "log").AppendText("第一行");
+        var firstLine = "第一行";
+        viewState.Display("m1", "log").AppendText(firstLine);
         runtime.FileAccessFor!("m1").ShouldBeSameAs(recorder, "同一个实例问两次必须拿到同一个请求面");
 
         // 点「保存」：模块必须请求一次保存对话框，并说明它要哪条输出源、预填什么文件名
@@ -451,7 +452,7 @@ public class BusinessModulesIntegrationTests
             }
 
             File.Exists(path).ShouldBeTrue("选完位置就该当场写盘 —— 屏幕上看到的与落盘的必须是同一份");
-            File.ReadAllText(path).ShouldContain("第一行");
+            File.ReadAllText(path).ShouldContain(firstLine);
         }
         finally
         {

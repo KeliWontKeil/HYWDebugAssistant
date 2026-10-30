@@ -29,10 +29,18 @@ internal static class ConfigurationSchemaBuilder
     /// <summary>按实例的配置快照生成 Schema。</summary>
     /// <param name="instanceId">实例 ID。</param>
     /// <param name="snapshot">配置快照（键 = 配置类型完整名）。</param>
-    public static ConfigurationSchemaView Build(string instanceId, IReadOnlyDictionary<string, object> snapshot)
+    /// <param name="textOwner">
+    /// 配置文本的属主程序集（声明该接入的模块）：标题 / 说明 / 分组 / 枚举选项都从它解析，
+    /// **不回退到配置类型所在程序集**。
+    /// </param>
+    public static ConfigurationSchemaView Build(
+        string instanceId,
+        IReadOnlyDictionary<string, object> snapshot,
+        Assembly textOwner)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
         ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(textOwner);
 
         if (snapshot.Count == 0)
         {
@@ -51,7 +59,7 @@ internal static class ConfigurationSchemaBuilder
                     continue;
                 }
 
-                if (TryDescribe(property, configuration, out var field))
+                if (TryDescribe(property, configuration, textOwner, out var field))
                 {
                     fields.Add(field);
                 }
@@ -147,25 +155,28 @@ internal static class ConfigurationSchemaBuilder
 
     // ---------------------------------------------------------------- 字段描述
 
-    private static bool TryDescribe(PropertyInfo property, object configuration, out ConfigurationFieldView field)
+    private static bool TryDescribe(
+        PropertyInfo property,
+        object configuration,
+        Assembly textOwner,
+        out ConfigurationFieldView field)
     {
         field = null!;
 
         var type = property.PropertyType;
         var metadata = property.GetCustomAttribute<ConfigurationFieldAttribute>();
-        var owner = property.DeclaringType?.Assembly;
-        var title = ResolveText(owner, metadata?.TitleKey)
+        var title = ResolveText(textOwner, metadata?.TitleKey)
             ?? (string.IsNullOrWhiteSpace(metadata?.Title) ? DisplayName(property) : metadata!.Title!);
 
-        var (kind, choices) = Classify(type);
+        var (kind, choices) = Classify(type, textOwner);
         if (kind is null)
         {
             return false;   // 非可编辑类型（复杂对象等）：不生成字段
         }
 
-        var description = ResolveText(owner, metadata?.DescriptionKey)
+        var description = ResolveText(textOwner, metadata?.DescriptionKey)
             ?? (string.IsNullOrWhiteSpace(metadata?.Description) ? null : metadata!.Description);
-        var group = ResolveText(owner, metadata?.GroupKey)
+        var group = ResolveText(textOwner, metadata?.GroupKey)
             ?? (string.IsNullOrWhiteSpace(metadata?.Group) ? null : metadata!.Group);
 
         var current = Format(property.GetValue(configuration), type);
@@ -207,13 +218,12 @@ internal static class ConfigurationSchemaBuilder
         return true;
     }
 
-    /// <summary>按声明里的文本键取值（拥有者 = 特性所在类型/枚举的程序集）；未声明或表里没有 ⇒ null。</summary>
-    /// <param name="assembly">特性所在类型（配置类型 / 枚举）的程序集。</param>
+    /// <summary>按声明里的文本键取值（拥有者 = 配置文本属主）；未声明或表里没有 ⇒ null。</summary>
+    /// <param name="textOwner">配置文本的属主程序集。</param>
     /// <param name="key">文本表键（可空）。</param>
-    private static string? ResolveText(Assembly? assembly, string? key) =>
-        assembly is not null
-        && !string.IsNullOrWhiteSpace(key)
-        && TextCatalog.TryGet(assembly, key, out var text)
+    private static string? ResolveText(Assembly textOwner, string? key) =>
+        !string.IsNullOrWhiteSpace(key)
+        && TextCatalog.TryGet(textOwner, key, out var text)
             ? text
             : null;
 
@@ -221,7 +231,9 @@ internal static class ConfigurationSchemaBuilder
     private static double? OrNull(double? value) =>
         value is { } number && !double.IsNaN(number) ? number : null;
 
-    private static (ConfigurationFieldKind? Kind, IReadOnlyList<ConfigurationFieldChoice>? Choices) Classify(Type type)
+    private static (ConfigurationFieldKind? Kind, IReadOnlyList<ConfigurationFieldChoice>? Choices) Classify(
+        Type type,
+        Assembly textOwner)
     {
         var underlying = Nullable.GetUnderlyingType(type) ?? type;
 
@@ -238,7 +250,7 @@ internal static class ConfigurationSchemaBuilder
                 // **写回用成员名，显示可用标注**（`[ConfigurationChoice]`）：两者合一会让界面里
                 // 只能看到标识符（"Baud115200"），而人该看到的是"115200"。
                 var choiceMetadata = underlying.GetField(name)?.GetCustomAttribute<ConfigurationChoiceAttribute>();
-                var title = ResolveText(underlying.Assembly, choiceMetadata?.TitleKey)
+                var title = ResolveText(textOwner, choiceMetadata?.TitleKey)
                     ?? (string.IsNullOrWhiteSpace(choiceMetadata?.Title) ? null : choiceMetadata!.Title);
 
                 choices.Add(new ConfigurationFieldChoice(

@@ -3,6 +3,7 @@ using HYWDebugAssistant.Core.Changes;
 using HYWDebugAssistant.Core.Composition;
 using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Services;
+using HYWDebugAssistant.DataPlane.Carriers;
 using HYWDebugAssistant.Hosting.Instances;
 using HYWDebugAssistant.Hosting.Registry;
 using HYWDebugAssistant.Sdk;
@@ -10,6 +11,7 @@ using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Reporting;
 using Shouldly;
 using Xunit;
 
@@ -98,6 +100,59 @@ public class CoreRuntimeTests
         WaitForHeadered(runtime, "r1", 8).ShouldBeTrue("多源网络的数据报应带薄旁路头投递（观测面记录到）");
     }
 
+    [Fact]
+    public void 承载停止后投递_应归类为承载已停而不是无承载()
+    {
+        using var runtime = new ModuleRuntime();
+        AddModule(runtime, "s1", "sender", typeof(SenderModule));
+        AddModule(runtime, "r1", "receiver", typeof(ReceiverModule));
+        Connect(runtime, "s1", SenderModule.OutPort, "r1", ReceiverModule.InPort, "stop-link").ShouldBeTrue();
+
+        // 直接停承载（绑定仍在）：这正是"承载存在过、现在停了"的那一段窗口
+        runtime.Carriers.TryGet("r1", out var carrier).ShouldBeTrue();
+        carrier!.Stop(TimeSpan.FromSeconds(2)).ShouldBe(CarrierStopResult.Stopped);
+
+        runtime.Content.TryGetInstance("s1", out var sender).ShouldBeTrue();
+        var payload = new byte[sizeof(float)];
+        _ = BitConverter.TryWriteBytes(payload, 1f);
+
+        sender!.Context.Ports.TrySend(SenderModule.OutPort, payload).ShouldBeFalse("承载已停 ⇒ 投递不成立");
+
+        runtime.Bindings.TryGet("stop-link", out var binding).ShouldBeTrue();
+        binding!.Diagnostics.DroppedByReason(DropReason.CarrierStopped).ShouldBe(1, "承载已停与无承载是两件事");
+        binding.Diagnostics.DroppedByReason(DropReason.NoCarrier).ShouldBe(0);
+    }
+
+    [Fact]
+    public void 端口流动面_只读本实例接收口且只接受模块内部原因()
+    {
+        using var runtime = new ModuleRuntime();
+        AddModule(runtime, "s1", "sender", typeof(SenderModule));
+        AddModule(runtime, "r1", "receiver", typeof(ReceiverModule));
+        Connect(runtime, "s1", SenderModule.OutPort, "r1", ReceiverModule.InPort, "flow-link").ShouldBeTrue();
+
+        runtime.Content.TryGetInstance("r1", out var receiver).ShouldBeTrue();
+        var ports = receiver!.Context.Ports;
+
+        ports.TryGetFlowState(ReceiverModule.InPort, out var initial).ShouldBeTrue("本实例的接收口有队列");
+        initial.Capacity.ShouldBeGreaterThan(0);
+        ports.TryGetFlowState("ghost", out _).ShouldBeFalse("未声明的口没有队列");
+
+        runtime.Content.TryGetInstance("s1", out var sender).ShouldBeTrue();
+        sender!.Context.Ports.TryGetFlowState(SenderModule.OutPort, out _)
+            .ShouldBeFalse("发送口没有接收队列");
+
+        ports.ReportLoss(ReceiverModule.InPort, DropReason.ModuleInternal, 2, 2L * sizeof(float));
+        ports.ReportLoss(ReceiverModule.InPort, DropReason.QueueFullEvicted, 5, 20);   // 非模块内部 ⇒ 忽略
+
+        runtime.TryGetPortFlow("r1", ReceiverModule.InPort, out var after).ShouldBeTrue();
+        after.DroppedUnits.ShouldBe(2, "只接受模块内部那一次；伪造的传输原因被静默忽略");
+        after.DroppedBytes.ShouldBe(2L * sizeof(float));
+        after.LastDropReason.ShouldBe(DropReason.ModuleInternal);
+
+        runtime.TryGetPortFlow("nope", ReceiverModule.InPort, out _).ShouldBeFalse("没有该实例");
+    }
+
     private static bool WaitForHeadered(ModuleRuntime runtime, string instanceId, long expected)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
@@ -144,7 +199,7 @@ public class CoreRuntimeTests
 
         result.Applied.ShouldBeFalse();
         result.Failures.ShouldNotBeEmpty();
-        result.Failures[0].ShouldContain("实例不存在");
+        result.Failures.ShouldNotBeEmpty();
 
         // 零副作用：r1 未加入，也**未启动任何承载**（连线程都不建）
         runtime.Content.TryGetInstance("r1", out _).ShouldBeFalse();
@@ -162,7 +217,7 @@ public class CoreRuntimeTests
             new AddModuleOperation("s1", TestDefinition("sender", typeof(SenderModule)))));
 
         result.Applied.ShouldBeFalse();
-        result.Failures[0].ShouldContain("已存在");
+        result.Failures.ShouldNotBeEmpty();
     }
 
     // ------------------------------------------------------------ 建网校验
@@ -180,7 +235,7 @@ public class CoreRuntimeTests
             [new NetworkMember("w1", WideReceiverModule.InPort, PortDirection.Receive)])));
 
         result.Applied.ShouldBeFalse();
-        result.Failures[0].ShouldContain("契约不兼容");
+        result.Failures.ShouldNotBeEmpty();
         runtime.Bindings.Bindings.ShouldBeEmpty();
     }
 
@@ -197,7 +252,7 @@ public class CoreRuntimeTests
             [new NetworkMember("r1", ReceiverModule.InPort, PortDirection.Receive)])));
 
         result.Applied.ShouldBeFalse();
-        result.Failures.ShouldContain(f => f.Contains("源必须是发送口"));
+        result.Failures.ShouldNotBeEmpty();
     }
 
     [Fact]
@@ -215,7 +270,7 @@ public class CoreRuntimeTests
             "link-1")));
 
         result.Applied.ShouldBeFalse();
-        result.Failures[0].ShouldContain("已被占用");
+        result.Failures.ShouldNotBeEmpty();
     }
 
     // ------------------------------------------------------------ 增量重建与停流

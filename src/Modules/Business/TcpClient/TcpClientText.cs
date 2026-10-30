@@ -8,6 +8,7 @@ public static class TcpClientText
     public const string RoleConnect = "view.roleConnect";
     public const string Open = "view.open";
     public const string Close = "view.close";
+    public const string ViewClearCounters = "view.clearCounters";
     public const string Rx = "view.rx";
     public const string Tx = "view.tx";
     public const string Drop = "view.drop";
@@ -16,7 +17,24 @@ public static class TcpClientText
     public const string StatusConnecting = "status.connecting";
     public const string StatusConnectingDetail = "status.connectingDetail";
     public const string StatusDisconnecting = "status.disconnecting";
-    public const string StatusFailed = "status.failed";
+    public const string StatusFailedFrameworkInternal = "status.failed.frameworkInternal";
+    public const string StatusFailedParametersNotRegistered = "status.failed.parametersNotRegistered";
+    public const string StatusFailedAddressEmpty = "status.failed.addressEmpty";
+    public const string StatusFailedWildcardAddress = "status.failed.wildcardAddressNotAllowed";
+    public const string StatusFailedPortOutOfRange = "status.failed.portOutOfRange";
+    public const string StatusFailedConnectTimeout = "status.failed.connectTimeout";
+    public const string StatusFailedConnectionRefused = "status.failed.connectionRefused";
+    public const string StatusFailedPeerClosed = "status.failed.peerClosed";
+    public const string StatusFailedOpenFailed = "status.failed.openFailed";
+    public const string StatusFailedReadFailed = "status.failed.readFailed";
+    public const string StatusFailedWriteFailed = "status.failed.writeFailed";
+    public const string StatusFailedUnknown = "status.failed.unknown";
+    public const string StatusRejectedSuffix = "status.rejectedSuffix";
+    public const string StatusRxSaturated = "status.rxSaturated";
+    public const string StatusTxSaturated = "status.txSaturated";
+    public const string StatusReceiveLost = "status.receiveLost";
+    public const string StatusSendLost = "status.sendLost";
+    public const string StatusTxBacklog = "status.txBacklog";
     public const string StatusSuspended = "status.suspended";
     public const string StatusIdle = "status.idle";
 }

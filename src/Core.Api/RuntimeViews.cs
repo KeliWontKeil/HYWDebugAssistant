@@ -1,3 +1,5 @@
+using HYWDebugAssistant.Sdk.Reporting;
+
 namespace HYWDebugAssistant.Core.Api;
 
 /// <summary>
@@ -449,8 +451,17 @@ public sealed record BindingDiagnosticView(
     /// </summary>
     public long DropStalled { get; init; }
 
-    /// <summary>**队列满**导致未被投递的次数（best-effort 丢弃）。</summary>
+    /// <summary>**队列满**导致未被投递的次数（best-effort 丢弃；= 挤旧 + 拒新）。</summary>
     public long DropQueueFull { get; init; }
+
+    /// <summary>队列满时**挤掉最旧**的次数（丢旧策略：本次投递成立，被挤的那个没送到）。</summary>
+    public long DropQueueFullEvicted { get; init; }
+
+    /// <summary>队列满时**拒绝新到**的次数（丢新策略：本次被拒）。</summary>
+    public long DropQueueFullRejected { get; init; }
+
+    /// <summary>**承载已停止**（实例正在拆除）导致未被投递的次数（传输丢弃之一）。</summary>
+    public long DropCarrierStopped { get; init; }
 
     /// <summary>**无承载**（目标线程/队列不存在）导致未被投递的次数。</summary>
     public long DropNoCarrier { get; init; }
@@ -511,7 +522,7 @@ public sealed record BindingDiagnosticView(
 /// <param name="Depth">当前队列深度（单元数）。</param>
 /// <param name="Capacity">容量（单元数；**按口计**）。</param>
 /// <param name="Enqueued">该口累计入队数（= **按宿计的投递次数**）。</param>
-/// <param name="Dropped">该口累计丢弃数（队满）。</param>
+/// <param name="Dropped">该口累计满队丢弃数（= 挤旧 + 拒新；见 <see cref="DroppedEvictedUnits"/> / <see cref="DroppedRejectedUnits"/>）。</param>
 public sealed record PortQueueDepthView(
     string InstanceId,
     string PortName,
@@ -527,6 +538,48 @@ public sealed record PortQueueDepthView(
 
     /// <summary>该口的**入队速率**（单元 / 秒；按此宿计）。</summary>
     public double UnitRateHz { get; init; }
+
+    /// <summary>观察到的最大深度（单元数；不随饱和段重置）。</summary>
+    public int PeakDepth { get; init; }
+
+    /// <summary>满队**挤掉最旧**的累计单元数（`Dropped` 的一部分）。</summary>
+    public long DroppedEvictedUnits { get; init; }
+
+    /// <summary>满队**拒绝新到**的累计单元数（`Dropped` 的另一部分）。</summary>
+    public long DroppedRejectedUnits { get; init; }
+
+    /// <summary>
+    /// 满队丢弃的**契约尺寸字节数**（= 契约尺寸 × 被挤/被拒单元数）。
+    /// </summary>
+    /// <remarks>
+    /// 它是**承载口径**，**不得**与会话轴的有效字节相加：两者量的不是同一种东西
+    /// （那边是业务数据字节，这边是队列里定长一份的尺寸）。
+    /// </remarks>
+    public long DroppedBytes { get; init; }
+
+    /// <summary>**停止清尾**的累计单元数（拆除时队列里剩下的，不属于运行期丢包）。</summary>
+    public long DiscardedOnStopUnits { get; init; }
+
+    /// <summary>**模块上报的内部丢弃**累计单元数（模块自己的口径，框架只登记）。</summary>
+    public long ModuleInternalDroppedUnits { get; init; }
+
+    /// <summary>**过期**（在队列里停留超过最大积压年龄）的累计单元数。</summary>
+    public long ExpiredUnits { get; init; }
+
+    /// <summary>**本次饱和段内**的丢弃单元数（离开饱和段即归零）。</summary>
+    public long DroppedWhileSaturatedUnits { get; init; }
+
+    /// <summary>当前是否处于饱和（深度到达阈值并持续超过保持时长）。</summary>
+    public bool Saturated { get; init; }
+
+    /// <summary>已持续饱和的时长（未饱和为 <see cref="TimeSpan.Zero"/>）。</summary>
+    public TimeSpan SaturatedFor { get; init; }
+
+    /// <summary>最近一次丢弃的原因（从未丢弃为 <see langword="null"/>）。</summary>
+    public DropReason? LastDropReason { get; init; }
+
+    /// <summary>距最近一次丢弃的时长（从未丢弃为 <see langword="null"/>）。</summary>
+    public TimeSpan? SinceLastDrop { get; init; }
 
     /// <summary>队列水位占比（0–1；容量为 0 时为 0）。</summary>
     public double Fill => Capacity > 0 ? Math.Clamp((double)Depth / Capacity, 0, 1) : 0;
@@ -611,8 +664,17 @@ public sealed record PortMetricsView(long Delivered, long Dropped, double BytesP
     /// </summary>
     public long DropStalled { get; init; }
 
-    /// <summary>**队列满**导致未被投递的次数（传输丢弃之一）。</summary>
+    /// <summary>**队列满**导致未被投递的次数（传输丢弃之一；= 挤旧 + 拒新）。</summary>
     public long DropQueueFull { get; init; }
+
+    /// <summary>队列满时**挤掉最旧**的次数（丢旧策略：本次投递成立，被挤的那个没送到）。</summary>
+    public long DropQueueFullEvicted { get; init; }
+
+    /// <summary>队列满时**拒绝新到**的次数（丢新策略：本次被拒）。</summary>
+    public long DropQueueFullRejected { get; init; }
+
+    /// <summary>**承载已停止**（实例正在拆除）导致未被投递的次数（传输丢弃之一）。</summary>
+    public long DropCarrierStopped { get; init; }
 
     /// <summary>**无承载**（目标线程 / 队列不存在）导致未被投递的次数（传输丢弃之一）。</summary>
     public long DropNoCarrier { get; init; }

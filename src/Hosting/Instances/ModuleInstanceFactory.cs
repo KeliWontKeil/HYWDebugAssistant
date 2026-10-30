@@ -51,6 +51,9 @@ public static class ModuleInstanceFactory
         var context = new Context.ModuleContext(instanceId, definition.Id, issues, timing);
         var objectPath = $"module:{instanceId}";
 
+        // 模块自有资源包：只读、只读自己的 `resources/`（模块目录 = 入口程序集所在目录）。
+        context.AttachResources(Context.ModuleResourceAccess.ForModule(definition.EntryType.Assembly));
+
         if (viewState is not null)
         {
             context.AttachViewState(viewState);

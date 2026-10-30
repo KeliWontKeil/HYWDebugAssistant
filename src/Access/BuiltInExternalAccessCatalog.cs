@@ -27,22 +27,18 @@ public sealed class BuiltInExternalAccessCatalog : IExternalAccessCatalog
         [
             new ExternalAccessDescriptor(
                 ExternalAccessStandardIds.Serial,
-                AccessText.Get("access.standard.serial"),
                 typeof(SerialConfig),
                 static () => new SerialAccessAdapter()),
             new ExternalAccessDescriptor(
                 ExternalAccessStandardIds.TcpClient,
-                AccessText.Get("access.standard.tcpClient"),
                 typeof(TcpClientConfig),
                 static () => new TcpClientAccessAdapter()),
             new ExternalAccessDescriptor(
                 ExternalAccessStandardIds.TcpServer,
-                AccessText.Get("access.standard.tcpServer"),
                 typeof(TcpServerConfig),
                 static () => new TcpServerAccessAdapter()),
             new ExternalAccessDescriptor(
                 ExternalAccessStandardIds.Udp,
-                "UDP",
                 typeof(UdpConfig),
                 static () => new UdpAccessAdapter()),
         ];

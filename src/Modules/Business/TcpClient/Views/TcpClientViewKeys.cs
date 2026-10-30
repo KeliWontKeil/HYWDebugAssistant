@@ -12,6 +12,8 @@ public static class TcpClientViewKeys
     public const string DropCount = TcpClientModule.DropCountSource;
     public const string Open = TcpClientModule.OpenCommand;
     public const string Close = TcpClientModule.CloseCommand;
+    public const string ClearCounters = TcpClientModule.ClearCountersCommand;
+    public const string ClearCountersIcon = "icon.refresh";
 
     public const string RemoteHost = ExternalAccessFieldNames.RemoteHost;
     public const string RemotePort = ExternalAccessFieldNames.RemotePort;

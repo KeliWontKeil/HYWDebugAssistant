@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "entries": {
+    "icon.shell.modules": "shell/modules.svg",
+    "icon.shell.composite": "shell/composite.svg",
+    "icon.shell.interaction": "shell/interaction.svg",
+    "icon.shell.topology": "shell/topology.svg",
+    "icon.shell.issue": "shell/issue.svg",
+    "icon.shell.settings": "shell/settings.svg",
+    "icon.shell.help": "shell/help.svg",
+    "icon.shell.run": "shell/run.svg",
+    "icon.shell.stop": "shell/stop.svg",
+    "icon.shell.lock": "shell/lock.svg",
+    "icon.shell.unlock": "shell/unlock.svg",
+    "icon.shell.hide": "shell/hide.svg",
+    "icon.shell.close": "shell/close.svg",
+    "icon.shell.reset": "shell/reset.svg",
+    "icon.shell.image": "shell/image.svg",
+    "icon.catalog.verify": "catalog/verify.svg",
+    "icon.catalog.other": "catalog/other.svg"
+  }
+}

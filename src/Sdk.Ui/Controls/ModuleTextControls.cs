@@ -1,39 +1,77 @@
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Shapes;
 using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using HYWDebugAssistant.Sdk.Ui.Formatting;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
-/// <summary>数值控件的**数量种类**（Bytes = 自动 B/KB/MB/GB，忽略固定 <c>Unit</c>）。</summary>
+/// <summary>数值控件的**数量种类**（Bytes = 自动 B/KB/MB/GB，单元已含在值文本里）。</summary>
 public enum ModuleQuantity
 {
-    /// <summary>原样显示 + 固定单位。</summary>
+    /// <summary>原样显示（可选小数）。</summary>
     None,
 
-    /// <summary>字节数量：按数量级自动选 B/KB/MB/GB。</summary>
+    /// <summary>字节数量：按数量级自动选 B/KB/MB/GB，单位并进同一段值文本。</summary>
     Bytes,
 }
 
 /// <summary>
-/// **一块会变的文字**：绑一条显示源，显示它当前的内容。
+/// **一块会变的文字**：绑一条显示源，或者一句静态文字。
 /// </summary>
 /// <remarks>
-/// <b>读法与只读文本面同一条显示缓冲</b>：一个源在"一行字"与"一块日志"上表现一致，
-/// 免得模块作者为同一份数据准备两种写法。
 /// <para>
-/// 视觉结构在 `Sdk.Ui/Themes/Controls.axaml` 的 `ControlTheme` 里（`PART_Text`）；
-/// 这里只负责"把哪段字放进去"与运行期外观。
+/// 标签是**独立元素**，不寄生在别的控件里：它有自己的矩形、自己的对齐、自己的省略号。
+/// 视图要在哪儿显示标签，就在哪儿摆一个本控件 —— 字段标题、读数标题、区标题、状态、单位都是它。
+/// </para>
+/// <para>
+/// **文案来源优先级：<see cref="Field"/> &gt; <see cref="Source"/> &gt; <see cref="Text"/>**，视图只用其中一条：
+/// 配置字段的标题不复制到视图里（<see cref="Field"/> 读配置元数据）；动态一句话走 <see cref="Source"/>；
+/// 固定一句话走 <see cref="Text"/>。
+/// </para>
+/// <para>
+/// <b>单位不是特殊概念</b>：`ms` / `条` / `个` 就是一个标签，摆在该摆的地方。
+/// </para>
+/// <para>
+/// 视觉结构在 `Sdk.Ui/Themes/Controls.axaml`；排印档位由视图给的类决定（`caption` / `hint` / 默认）。
 /// </para>
 /// </remarks>
 public sealed class ModuleLabel : ModuleElement
 {
     private TextBlock? _text;
+    private Rectangle? _placeholder;
+    private IModuleViewContext? _context;
     private string _textValue = string.Empty;
-    private bool _muted;
+    private string _field = string.Empty;
+    private string? _tip;
 
-    /// <summary>不绑源时的静态文字（绑了源就以源为准）。</summary>
+    /// <summary>造一块标签。</summary>
+    public ModuleLabel()
+    {
+        // 预览器没有宿主：配置字段的标题从视图 DataContext（设计时上下文）取，
+        // 与运行时走同一个 <see cref="IModuleViewContext.ReadField"/>，文案仍只有一份。
+        DataContextChanged += (_, _) =>
+        {
+            if (_field.Length > 0)
+            {
+                ResolveContext();
+                ApplyFieldText();
+            }
+        };
+
+        AttachedToVisualTree += (_, _) =>
+        {
+            if (_field.Length > 0)
+            {
+                ResolveContext();
+                ApplyFieldText();
+            }
+        };
+    }
+
+    /// <summary>不绑源时的静态文字（与 <see cref="Source"/> / <see cref="Field"/> 互斥）。</summary>
     public string Text
     {
         get => _textValue;
@@ -45,27 +83,30 @@ public sealed class ModuleLabel : ModuleElement
             }
 
             _textValue = value;
-
-            if (_text is not null)
-            {
-                _text.Text = value;
-            }
+            Apply(value);
         }
     }
 
-    /// <summary>弱化显示（次要说明）。</summary>
-    public bool Muted
+    /// <summary>
+    /// 标签文案取自**配置字段的标题**（`[ConfigurationField]` 的标题 / 表里的键）。
+    /// </summary>
+    /// <remarks>
+    /// 它是"视图不抄文案"的唯一通路：同一个标题既不会被视图再写一遍，也不会因为语言切换而漏改。
+    /// 悬停提示取字段的说明（没有说明时取标题本身）。
+    /// </remarks>
+    public string Field
     {
-        get => _muted;
+        get => _field;
         set
         {
-            if (_muted == value)
+            if (string.Equals(_field, value, StringComparison.Ordinal))
             {
                 return;
             }
 
-            _muted = value;
-            UpdateMuted();
+            _field = value;
+            ResolveContext();
+            ApplyFieldText();
         }
     }
 
@@ -75,11 +116,15 @@ public sealed class ModuleLabel : ModuleElement
         base.OnApplyTemplate(e);
 
         _text = e.NameScope.Find<TextBlock>("PART_Text");
+        _placeholder = e.NameScope.Find<Rectangle>("PART_Placeholder");
 
-        if (_text is not null)
+        if (_field.Length > 0)
         {
-            _text.Text = _textValue;
-            UpdateMuted();
+            ApplyFieldText();
+        }
+        else
+        {
+            Apply(_textValue);
         }
     }
 
@@ -87,6 +132,14 @@ public sealed class ModuleLabel : ModuleElement
     public override void Refresh(IModuleViewContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+
+        _context = context;
+
+        if (_field.Length > 0)
+        {
+            ApplyFieldText();
+            return;
+        }
 
         if (Source.Length == 0 || _text is null)
         {
@@ -99,8 +152,8 @@ public sealed class ModuleLabel : ModuleElement
         // **内容没变就一个字都不动**：赋 Text 会让布局失效，静止的文字每帧白排一次。
         if (!string.Equals(_text.Text, text, StringComparison.Ordinal))
         {
-            _text.Text = text;
             _textValue = text;
+            Apply(text);
         }
     }
 
@@ -134,77 +187,93 @@ public sealed class ModuleLabel : ModuleElement
         }
     }
 
-    private void UpdateMuted()
+    /// <summary>字段标题（来自配置元数据）落到标签上。</summary>
+    private void ApplyFieldText()
     {
-        if (_text is null)
+        if (_field.Length == 0)
         {
             return;
         }
 
-        if (_muted)
+        var field = _context?.ReadField(_field);
+        var title = field?.Title ?? string.Empty;
+        var tip = string.IsNullOrWhiteSpace(field?.Description) ? NullIfEmpty(title) : field!.Description;
+
+        Apply(title, tip);
+    }
+
+    /// <summary>把一段文字与提示落到视觉上（空文案 ⇒ 预览里给一个占位框）。</summary>
+    /// <param name="shown">要显示的文字。</param>
+    /// <param name="tip">悬停提示（空 = 不挂）。</param>
+    private void Apply(string shown, string? tip = null)
+    {
+        tip ??= NullIfEmpty(shown);
+
+        if (_text is not null && !string.Equals(_text.Text, shown, StringComparison.Ordinal))
         {
-            _text.Classes.Add("muted");
+            _text.Text = shown;
         }
-        else
+
+        if (_text is not null)
         {
-            _text.Classes.Remove("muted");
+            // 提示只在真的变了才写：字段标签每帧都会重新读一次元数据。
+            if (!string.Equals(_tip, tip, StringComparison.Ordinal))
+            {
+                _tip = tip;
+                ToolTip.SetTip(this, tip);
+            }
+        }
+
+        // 预览里"完全透明/没有东西"的标签也要有个框，否则没法排版。
+        if (_placeholder is not null)
+        {
+            _placeholder.IsVisible = ModuleView.IsDesignEnvironment && shown.Length == 0;
         }
     }
+
+    /// <summary>找上下文：运行时的宿主祖先优先；预览器/测试由 DataContext 直接提供。</summary>
+    private void ResolveContext()
+    {
+        if (_context is not null)
+        {
+            return;
+        }
+
+        if (this.FindAncestorOfType<ModuleViewHost>() is { } host)
+        {
+            _context = host.Context;
+            return;
+        }
+
+        if (DataContext is IModuleViewContext context)
+        {
+            _context = context;
+        }
+    }
+
+    private static string? NullIfEmpty(string text) => text.Length == 0 ? null : text;
 }
 
 /// <summary>
-/// **数值读数**：一行"标题 + 值 + 单位"，标题可选。
+/// **数值读数**：只显示值本身（字节数量时，单位已含在值文本里）。
 /// </summary>
 /// <remarks>
-/// 单位是**独立的一块小字**（与读数分开）：两者字号不同、墨色不同、对齐方式不同 ——
-/// 拼进同一个 <see cref="TextBlock"/> 时单位只能跟着读数一起放大。
-/// 视觉结构在 `ControlTheme` 的 `PART_Title` / `PART_Value` / `PART_Unit` 里。
+/// <para>
+/// 读数**不自带标题**：标题是一个独立的 <see cref="ModuleLabel"/>，摆在哪由视图决定 ——
+/// 这样标题和值才能各自对齐，而不是被控件的内部 `*` 列挤出一个空洞。
+/// </para>
+/// <para>
+/// **单位不是控件的属性**：静态单位（`条` / `个`）就是视图里的另一个标签；
+/// 字节计数的 B/KB/MB 是"值文本"的一部分（<see cref="ByteQuantity"/> 唯一实现），不单独成块、不单独设色。
+/// </para>
 /// </remarks>
 public sealed class ModuleNumeric : ModuleElement
 {
     private TextBlock? _value;
-    private TextBlock? _unit;
-    private TextBlock? _title;
-    private string _unitText = string.Empty;
-    private string _titleText = string.Empty;
+    private Rectangle? _placeholder;
 
-    /// <summary>单位文本（空 = 不显示）。<see cref="Quantity"/> 为 <see cref="ModuleQuantity.Bytes"/> 时忽略。</summary>
-    public string Unit
-    {
-        get => _unitText;
-        set
-        {
-            if (string.Equals(_unitText, value, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            _unitText = value;
-            ApplyUnit();
-        }
-    }
-
-    /// <summary>数量种类（默认 <see cref="ModuleQuantity.None"/> = 原样显示 + 固定 <see cref="Unit"/>）。</summary>
+    /// <summary>数量种类（默认 <see cref="ModuleQuantity.None"/> = 原样显示）。</summary>
     public ModuleQuantity Quantity { get; set; }
-
-    /// <summary>放在读数**之前**的一行说明（空 = 不显示）。</summary>
-    /// <remarks>
-    /// 用简单的"标题在左"排法：模块需要更复杂的排布时，自己在视图里摆一块 <see cref="ModuleLabel"/>。
-    /// </remarks>
-    public string Title
-    {
-        get => _titleText;
-        set
-        {
-            if (string.Equals(_titleText, value, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            _titleText = value;
-            ApplyTitle();
-        }
-    }
 
     /// <inheritdoc />
     protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
@@ -212,11 +281,8 @@ public sealed class ModuleNumeric : ModuleElement
         base.OnApplyTemplate(e);
 
         _value = e.NameScope.Find<TextBlock>("PART_Value");
-        _unit = e.NameScope.Find<TextBlock>("PART_Unit");
-        _title = e.NameScope.Find<TextBlock>("PART_Title");
-
-        ApplyTitle();
-        ApplyUnit();
+        _placeholder = e.NameScope.Find<Rectangle>("PART_Placeholder");
+        UpdatePlaceholder();
     }
 
     /// <inheritdoc />
@@ -231,36 +297,19 @@ public sealed class ModuleNumeric : ModuleElement
 
         var latest = context.ReadLatest(Source);
 
-        if (Quantity == ModuleQuantity.Bytes && latest is { } bytes)
-        {
-            var parts = ByteQuantity.Split(bytes);
-            _unitText = parts.Unit;
-
-            if (_unit is not null)
-            {
-                _unit.Text = parts.Unit;
-                _unit.IsVisible = true;
-            }
-
-            if (!string.Equals(_value.Text, parts.Value, StringComparison.Ordinal))
-            {
-                _value.Text = parts.Value;
-            }
-
-            return;
-        }
-
         var text = latest is { } number
-            ? number.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture)
+            ? Format(number)
             : "-";
 
         if (!string.Equals(_value.Text, text, StringComparison.Ordinal))
         {
             _value.Text = text;
         }
+
+        UpdatePlaceholder();
     }
 
-    /// <summary>运行期文字外观落到**读数那一块**（标题/单位是说明，不跟着变号）。</summary>
+    /// <summary>运行期文字外观落到**值那一块**（读数是数据，跟着外观通道走）。</summary>
     /// <param name="appearance">外观。</param>
     protected internal override void ApplyAppearance(ViewAppearance appearance)
     {
@@ -290,33 +339,19 @@ public sealed class ModuleNumeric : ModuleElement
         }
     }
 
-    private void ApplyTitle()
+    /// <summary>值的显示文本（字节数量含单位；其余按当前文化显示小数）。</summary>
+    /// <param name="number">值。</param>
+    private string Format(double number) => Quantity == ModuleQuantity.Bytes
+        ? ByteQuantity.Format(number)
+        : number.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture);
+
+    /// <summary>预览里没有值时给一个占位框（产品运行不显示）。</summary>
+    private void UpdatePlaceholder()
     {
-        if (_title is null)
+        if (_placeholder is not null)
         {
-            return;
+            _placeholder.IsVisible = ModuleView.IsDesignEnvironment && string.IsNullOrEmpty(_value?.Text);
         }
-
-        _title.Text = _titleText;
-        _title.IsVisible = _titleText.Length > 0;
-    }
-
-    private void ApplyUnit()
-    {
-        if (_unit is null)
-        {
-            return;
-        }
-
-        // Bytes：单位由 Refresh 按数量级写入（B/KB/MB/GB），这里只保证可见，不覆盖动态值。
-        if (Quantity == ModuleQuantity.Bytes)
-        {
-            _unit.IsVisible = true;
-            return;
-        }
-
-        _unit.Text = _unitText;
-        _unit.IsVisible = _unitText.Length > 0;
     }
 }
 

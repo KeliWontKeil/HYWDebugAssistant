@@ -1019,7 +1019,7 @@ public class ArchitectureRulesTests
     ///   <item><b>用户数据文件名</b>：设置 / 工作区 / 重启快照三个文件名只允许出现在路径解析器
     ///     （与 AR-17 同一扫描，文件名清单已扩到三个）；</item>
     ///   <item><b>资源路径段</b>：`resources` / `seeds` 作为路径段只允许出现在路径解析器、
-    ///     投放器、设置服务的种子装配处与文本包根解析器（`TextCatalog`）；设计时桩 `EmptyRuntime` 是例外——
+    ///     投放器、设置服务的种子装配处与资源布局（`ResourceLayout`）；设计时桩 `EmptyRuntime` 是例外——
     ///     它刻意不引 Infrastructure，只用字面量给设计预览一份路径。</item>
     /// </list>
     /// </remarks>
@@ -1067,8 +1067,8 @@ public class ArchitectureRulesTests
             Path.Combine("Infrastructure", "Storage", "StoragePaths.cs"),
             Path.Combine("Core", "Seeding", "SeedService.cs"),
             Path.Combine("Core", "Settings", "SettingsService.cs"),
-            // 文本包根解析器：`resources/i18n` 是它的唯一关注点（文本资源化 §2.3 根解析）
-            Path.Combine("Sdk", "Text", "TextCatalog.cs"),
+            // 资源布局：`resources/<kind>` 是它的唯一关注点（文本与图标共用的根解析）
+            Path.Combine("Sdk", "Resources", "ResourceLayout.cs"),
             // 设计时桩：Ui 不得引 Infrastructure，故只用字面量拼给设计预览的路径
             Path.Combine("Ui", "Design", "EmptyRuntime.cs"),
         ];
@@ -1124,7 +1124,7 @@ public class ArchitectureRulesTests
 
         segmentOffenders.ShouldBeEmpty(
             "`resources` / `seeds` 作为路径段只允许在 `StoragePaths`、`SeedService`、`SettingsService`、"
-            + "`TextCatalog` 与设计时桩 `EmptyRuntime`（AR-25）：" + Environment.NewLine + string.Join(Environment.NewLine, segmentOffenders));
+            + "`ResourceLayout` 与设计时桩 `EmptyRuntime`（AR-25）：" + Environment.NewLine + string.Join(Environment.NewLine, segmentOffenders));
     }
 
     /// <summary>AR-17 / AR-25 ②：扫描"自己拼了用户数据文件名"的位置。</summary>

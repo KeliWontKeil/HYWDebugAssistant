@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
              xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+             xmlns:uc="using:HYWDebugAssistant.Ui.Controls"
              x:Class="HYWDebugAssistant.FrameworkUi.Views.CompositePageView"
              x:DataType="vm:CompositePageViewModel"
              xmlns:design="using:HYWDebugAssistant.FrameworkUi.Design"
@@ -61,10 +62,10 @@
                                     <Border Grid.Column="0" Classes="previewTile">
                                         <Grid>
                                             <Border Background="{Binding PreviewBrush}" />
-                                            <TextBlock Classes="icon previewGlyph"
-                                                       FontSize="18"
-                                                       IsVisible="{Binding !HasPreview}"
-                                                       Text="{DynamicResource GlyphComposite}" />
+                                            <uc:Glyph Classes="icon previewGlyph"
+                                                      FontSize="18"
+                                                      IsVisible="{Binding !HasPreview}"
+                                                      Icon="{x:Static uc:ShellIcons.Composite}" />
                                         </Grid>
                                     </Border>
                                     <StackPanel Grid.Column="1" Margin="8,0,0,0" Spacing="1" VerticalAlignment="Center">
@@ -150,15 +151,15 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="vm:CompositeModuleRowViewModel">
                                     <Grid ColumnDefinitions="Auto,*" Margin="0,1">
-                                        <Button Grid.Column="0"
-                                                Classes="icon"
-                                                Width="20" Height="20" MinHeight="20"
-                                                Margin="0,0,4,0"
-                                                ToolTip.Tip="{loc:Tr composite.remove.tip}"
-                                                Command="{Binding $parent[ItemsControl].((vm:CompositePageViewModel)DataContext).RemoveModuleCommand}"
-                                                CommandParameter="{Binding InstanceId}">
-                                            <TextBlock Classes="icon" FontSize="10" Text="{DynamicResource GlyphClose}" />
-                                        </Button>
+                                        <uc:IconButton Grid.Column="0"
+                                                       Classes="icon"
+                                                       Width="20" Height="20" MinHeight="20"
+                                                       FontSize="10"
+                                                       Margin="0,0,4,0"
+                                                       Icon="{x:Static uc:ShellIcons.Close}"
+                                                       ToolTip.Tip="{loc:Tr composite.remove.tip}"
+                                                       Command="{Binding $parent[ItemsControl].((vm:CompositePageViewModel)DataContext).RemoveModuleCommand}"
+                                                       CommandParameter="{Binding InstanceId}" />
                                         <TextBlock Grid.Column="1"
                                                    VerticalAlignment="Center"
                                                    TextTrimming="CharacterEllipsis"

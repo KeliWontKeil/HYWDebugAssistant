@@ -69,6 +69,13 @@ public sealed record WorkspaceExitChoice(string Value, string Title)
     public override string ToString() => Title;
 }
 
+/// <summary>缓冲满时的取舍选项（值 = 持久化字符串，标题 = 界面文案）。</summary>
+public sealed record DropPolicyChoice(string Value, string Title)
+{
+    /// <inheritdoc />
+    public override string ToString() => Title;
+}
+
 /// <summary>界面语言选项（值 = 持久化的语言标识，标题 = 显示名）。</summary>
 /// <param name="Id">语言标识（`system` 或文化名）。</param>
 /// <param name="Title">显示名。</param>
@@ -196,21 +203,66 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
 
     // ---- 框架行为 ----
 
+    /// <summary>是否启用对齐自动建网。</summary>
+    [ObservableProperty]
+    public partial bool AlignAutoNetworkEnabled { get; set; } = true;
+
+    // ---- 数据面（缓冲与流控） ----
+
+    /// <summary>每个接收口一条队列的容量上限（单元数；对**新建**队列生效）。</summary>
+    [ObservableProperty]
+    public partial int QueueCapacity { get; set; } = 1024;
+
+    /// <summary>缓冲满时的取舍（下拉用；持久化值取自 <see cref="DropPolicyChoice.Value"/>）。</summary>
+    public IReadOnlyList<DropPolicyChoice> DropPolicyChoices { get; } =
+    [
+        new("DropOldest", Loc("settings.flow.dropPolicy.oldest")),
+        new("DropNewest", Loc("settings.flow.dropPolicy.newest")),
+    ];
+
+    /// <summary>选中的满时策略（草稿）。</summary>
+    [ObservableProperty]
+    public partial DropPolicyChoice? SelectedDropPolicy { get; set; }
+
     /// <summary>停止协议的有界等待时限（秒）。</summary>
     [ObservableProperty]
     public partial double StopTimeoutSeconds { get; set; } = 5;
 
-    /// <summary>输入队列容量（单元数；对**新建**队列生效）。</summary>
+    /// <summary>饱和判定深度（单元数；立即生效；大于队列容量时按容量算）。</summary>
     [ObservableProperty]
-    public partial int InputQueueCapacity { get; set; } = 1024;
+    public partial int HintDepth { get; set; } = 8;
 
-    /// <summary>是否启用快速建网（R0）。</summary>
+    /// <summary>饱和判定持续时长（毫秒；立即生效）。</summary>
     [ObservableProperty]
-    public partial bool AlignAutoNetworkEnabled { get; set; } = true;
+    public partial int HintHoldMs { get; set; } = 500;
 
-    /// <summary>诊断提示阈值（队列深度持续达到该值即提示）。</summary>
+    /// <summary>最大滞留时间（毫秒；0 = 不限，立即生效）。</summary>
     [ObservableProperty]
-    public partial int DiagnosticHintThreshold { get; set; } = 8;
+    public partial int MaxBacklogAgeMs { get; set; }
+
+    /// <summary>外部写超时（毫秒；对新建 / 重新打开的会话生效）。</summary>
+    [ObservableProperty]
+    public partial int ExternalWriteTimeoutMs { get; set; } = 1000;
+
+    /// <summary>探活节拍（毫秒；立即生效）。</summary>
+    [ObservableProperty]
+    public partial int LivenessIntervalMs { get; set; } = 250;
+
+    /// <summary>会话发送积压容量（字节；对新建 / 重新打开的会话生效）。</summary>
+    [ObservableProperty]
+    public partial int SendBacklogBytes { get; set; } = 256 * 1024;
+
+    /// <summary>适配件暂存容量（字节；对新建 / 重新打开的会话生效）。</summary>
+    [ObservableProperty]
+    public partial int AdapterBufferBytes { get; set; } = 65536;
+
+    /// <summary>适配件关闭等待（毫秒；立即生效 / 下次关闭时使用）。</summary>
+    [ObservableProperty]
+    public partial int AccessCloseTimeoutMs { get; set; } = 1000;
+
+    /// <summary>设备丢失判定次数（立即生效）。</summary>
+    [ObservableProperty]
+    public partial int DeviceLostMisses { get; set; } = 2;
 
     // ---- UI 偏好 ----
 
@@ -404,43 +456,49 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
 
     // ---- 字体 ----
 
-    /// <summary>
-    /// **界面字体**：框架自身界面文字用的字体族（资源键 `FontUi`）。
-    /// </summary>
-    /// <remarks>可写**回退列表**（逗号分隔，如 <c>Times New Roman, 宋体</c>）；改动随「应用 / 确认」生效。</remarks>
+    /// <summary>**界面字体 · 西文**（一条字体轴的一半；资源键 `FontUi`）。</summary>
     [ObservableProperty]
-    public partial string UiFontFamily { get; set; } = DefaultUiFontFamily;
+    public partial string UiFontLatin { get; set; } = DefaultUiFontLatin;
 
-    /// <summary>
-    /// **数据字体**：**所有输入框与显示框**用的字体族（资源键 `FontData`）。
-    /// </summary>
+    /// <summary>**界面字体 · 中文**（一条字体轴的另一半；资源键 `FontUi`）。</summary>
     [ObservableProperty]
-    public partial string DataFontFamily { get; set; } = DefaultDataFontFamily;
+    public partial string UiFontCjk { get; set; } = DefaultUiFontCjk;
+
+    /// <summary>**数据字体 · 西文**（**所有输入框与显示框**；资源键 `FontData`）。</summary>
+    [ObservableProperty]
+    public partial string DataFontLatin { get; set; } = DefaultDataFontLatin;
+
+    /// <summary>**数据字体 · 中文**（**所有输入框与显示框**；资源键 `FontData`）。</summary>
+    [ObservableProperty]
+    public partial string DataFontCjk { get; set; } = DefaultDataFontCjk;
 
     /// <summary>
     /// **系统已有字体**（下拉候选项）——直接读系统已有字体即可。
     /// </summary>
     /// <remarks>
-    /// <para>取 Avalonia 的 <c>FontManager.Current.SystemFonts</c>；无字体服务时（无头环境）回落到默认两项。</para>
-    /// <para>
-    /// 候选表若**只有系统字体名（单个名字）**，而设置值是**回退列表**
-    /// （`Segoe UI, Microsoft YaHei UI` / `Times New Roman, 宋体`）⇒ 非编辑下拉框的
-    /// `SelectedItem` 匹配不到任何一项 ⇒ **显示为空**。
-    /// ⇒ ① 两条**默认回退列表**排在最前面（写回默认值时也选得中）；② 下拉框改为**可编辑**（`IsEditable`）并绑
-    /// `Text` ⇒ 任何值都显示得出来、也能手输回退列表。
-    /// </para>
+    /// 取 Avalonia 的 <c>FontManager.Current.SystemFonts</c>；无字体服务时（无头环境）回落到四个默认字体名。
+    /// 每个下拉只筛选一个字段（一个字体名），不再把"回退列表"当成一个选项。
     /// </remarks>
     public IReadOnlyList<string> FontFamilyOptions { get; } =
-        [DefaultUiFontFamily, DefaultDataFontFamily, .. LoadSystemFonts()];
+        new[] { DefaultUiFontLatin, DefaultUiFontCjk, DefaultDataFontLatin, DefaultDataFontCjk }
+            .Concat(LoadSystemFonts())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     /// <summary>框架默认外观（唯一来源 `ApplicationSettings`；静态缓存，避免每次访问都分配）。</summary>
     private static readonly AppearanceSettings DefaultAppearance = new();
 
-    /// <summary>界面字体的**框架默认值**（回退列表；与 `ApplicationSettings` 的缺省同源）。</summary>
-    public static string DefaultUiFontFamily => DefaultAppearance.UiFontFamily;
+    /// <summary>界面字体 · 西文的框架默认值（与 `ApplicationSettings` 的缺省同源）。</summary>
+    public static string DefaultUiFontLatin => DefaultAppearance.UiFonts.Latin;
 
-    /// <summary>数据字体的**框架默认值**（回退列表；与 `ApplicationSettings` 的缺省同源）。</summary>
-    public static string DefaultDataFontFamily => DefaultAppearance.DataFontFamily;
+    /// <summary>界面字体 · 中文的框架默认值。</summary>
+    public static string DefaultUiFontCjk => DefaultAppearance.UiFonts.Cjk;
+
+    /// <summary>数据字体 · 西文的框架默认值。</summary>
+    public static string DefaultDataFontLatin => DefaultAppearance.DataFonts.Latin;
+
+    /// <summary>数据字体 · 中文的框架默认值。</summary>
+    public static string DefaultDataFontCjk => DefaultAppearance.DataFonts.Cjk;
 
     private static List<string> LoadSystemFonts()
     {
@@ -463,27 +521,27 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
             // 无头/无字体服务：回落默认（**不阻断设置界面**）
         }
 
-        return
-        [
-            .. DefaultUiFontFamily.Split(',', StringSplitOptions.TrimEntries),
-            .. DefaultDataFontFamily.Split(',', StringSplitOptions.TrimEntries),
-        ];
+        return [DefaultUiFontLatin, DefaultUiFontCjk, DefaultDataFontLatin, DefaultDataFontCjk];
     }
 
-    partial void OnUiFontFamilyChanged(string value)
+    partial void OnUiFontLatinChanged(string value)
     {
-        if (!_loading)
-        {
-            _appearanceDraft.UiFontFamily = value;
-        }
+        if (!_loading) { _appearanceDraft.UiFonts.Latin = value; }
     }
 
-    partial void OnDataFontFamilyChanged(string value)
+    partial void OnUiFontCjkChanged(string value)
     {
-        if (!_loading)
-        {
-            _appearanceDraft.DataFontFamily = value;
-        }
+        if (!_loading) { _appearanceDraft.UiFonts.Cjk = value; }
+    }
+
+    partial void OnDataFontLatinChanged(string value)
+    {
+        if (!_loading) { _appearanceDraft.DataFonts.Latin = value; }
+    }
+
+    partial void OnDataFontCjkChanged(string value)
+    {
+        if (!_loading) { _appearanceDraft.DataFonts.Cjk = value; }
     }
 
     // ---- 壁纸 / 主题材质 ----
@@ -1318,10 +1376,21 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         _loading = true;
         _lastLoaded = settings;
 
-        StopTimeoutSeconds = settings.StopTimeoutSeconds;
-        InputQueueCapacity = settings.InputQueueCapacity;
+        QueueCapacity = settings.Flow.QueueCapacity;
+        SelectedDropPolicy = DropPolicyChoices.FirstOrDefault(choice =>
+            string.Equals(choice.Value, settings.Flow.DropPolicy, StringComparison.Ordinal))
+            ?? DropPolicyChoices[0];
+        StopTimeoutSeconds = settings.Flow.StopTimeoutSeconds;
+        HintDepth = settings.Flow.HintDepth;
+        HintHoldMs = settings.Flow.HintHoldMs;
+        MaxBacklogAgeMs = settings.Flow.MaxBacklogAgeMs;
+        ExternalWriteTimeoutMs = settings.Flow.ExternalWriteTimeoutMs;
+        LivenessIntervalMs = settings.Flow.LivenessIntervalMs;
+        SendBacklogBytes = settings.Flow.SendBacklogBytes;
+        AdapterBufferBytes = settings.Flow.AdapterBufferBytes;
+        AccessCloseTimeoutMs = settings.Flow.AccessCloseTimeoutMs;
+        DeviceLostMisses = settings.Flow.DeviceLostMisses;
         AlignAutoNetworkEnabled = settings.AlignAutoNetworkEnabled;
-        DiagnosticHintThreshold = settings.DiagnosticHintThreshold;
         UiRefreshRateHz = settings.UiRefreshRateHz;
         SnapDistance = settings.SnapDistance;
         MultilineSubmitKey = settings.MultilineSubmitKey;
@@ -1335,8 +1404,10 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         LogLevel = settings.LogLevel;
         SelectedLanguageChoice = Languages.FirstOrDefault(choice =>
             string.Equals(choice.Id, settings.UiLanguage, StringComparison.OrdinalIgnoreCase)) ?? Languages[0];
-        UiFontFamily = settings.Appearance.UiFontFamily;
-        DataFontFamily = settings.Appearance.DataFontFamily;
+        UiFontLatin = settings.Appearance.UiFonts.Latin;
+        UiFontCjk = settings.Appearance.UiFonts.Cjk;
+        DataFontLatin = settings.Appearance.DataFonts.Latin;
+        DataFontCjk = settings.Appearance.DataFonts.Cjk;
 
         _appearanceDraft = settings.Appearance.Clone();
         LoadThemeDrafts();
@@ -1488,10 +1559,19 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
 
         _loading = true;
 
-        StopTimeoutSeconds = defaults.StopTimeoutSeconds;
-        InputQueueCapacity = defaults.InputQueueCapacity;
+        QueueCapacity = defaults.Flow.QueueCapacity;
+        SelectedDropPolicy = DropPolicyChoices[0];
+        StopTimeoutSeconds = defaults.Flow.StopTimeoutSeconds;
+        HintDepth = defaults.Flow.HintDepth;
+        HintHoldMs = defaults.Flow.HintHoldMs;
+        MaxBacklogAgeMs = defaults.Flow.MaxBacklogAgeMs;
+        ExternalWriteTimeoutMs = defaults.Flow.ExternalWriteTimeoutMs;
+        LivenessIntervalMs = defaults.Flow.LivenessIntervalMs;
+        SendBacklogBytes = defaults.Flow.SendBacklogBytes;
+        AdapterBufferBytes = defaults.Flow.AdapterBufferBytes;
+        AccessCloseTimeoutMs = defaults.Flow.AccessCloseTimeoutMs;
+        DeviceLostMisses = defaults.Flow.DeviceLostMisses;
         AlignAutoNetworkEnabled = defaults.AlignAutoNetworkEnabled;
-        DiagnosticHintThreshold = defaults.DiagnosticHintThreshold;
         UiRefreshRateHz = defaults.UiRefreshRateHz;
         SnapDistance = defaults.SnapDistance;
         MultilineSubmitKey = NormalizeSubmitKey(defaults.MultilineSubmitKey);
@@ -1502,8 +1582,10 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         SelectedWorkspaceExitChoice = WorkspaceExitChoices[0];
         LogLevel = defaults.LogLevel;
         SelectedLanguageChoice = Languages[0];
-        UiFontFamily = defaults.Appearance.UiFontFamily;
-        DataFontFamily = defaults.Appearance.DataFontFamily;
+        UiFontLatin = defaults.Appearance.UiFonts.Latin;
+        UiFontCjk = defaults.Appearance.UiFonts.Cjk;
+        DataFontLatin = defaults.Appearance.DataFonts.Latin;
+        DataFontCjk = defaults.Appearance.DataFonts.Cjk;
 
         _appearanceDraft = defaults.Appearance.Clone();
         LoadThemeDrafts();
@@ -1575,10 +1657,23 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
 
         var settings = _query.GetSettings();
 
-        settings.StopTimeoutSeconds = StopTimeoutSeconds;
-        settings.InputQueueCapacity = InputQueueCapacity;
+        settings.Flow = settings.Flow with
+        {
+            QueueCapacity = QueueCapacity,
+            DropPolicy = SelectedDropPolicy?.Value ?? "DropOldest",
+            StopTimeoutSeconds = StopTimeoutSeconds,
+            HintDepth = HintDepth,
+            HintHoldMs = HintHoldMs,
+            MaxBacklogAgeMs = MaxBacklogAgeMs,
+            ExternalWriteTimeoutMs = ExternalWriteTimeoutMs,
+            LivenessIntervalMs = LivenessIntervalMs,
+            SendBacklogBytes = SendBacklogBytes,
+            AdapterBufferBytes = AdapterBufferBytes,
+            AccessCloseTimeoutMs = AccessCloseTimeoutMs,
+            DeviceLostMisses = DeviceLostMisses,
+        };
+
         settings.AlignAutoNetworkEnabled = AlignAutoNetworkEnabled;
-        settings.DiagnosticHintThreshold = DiagnosticHintThreshold;
         settings.UiRefreshRateHz = UiRefreshRateHz;
         settings.SnapDistance = Math.Clamp(SnapDistance, 2, 8);
         settings.MultilineSubmitKey = NormalizeSubmitKey(MultilineSubmitKey);
@@ -1592,8 +1687,8 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         settings.Hotkeys = new Dictionary<string, string>(HotkeyBindings(), StringComparer.Ordinal);
 
         // 外观：主题选择 + 跟随系统两套 + 已投放 + 字体（主题内容已在上面写进各自文件夹）
-        _appearanceDraft.UiFontFamily = UiFontFamily;
-        _appearanceDraft.DataFontFamily = DataFontFamily;
+        _appearanceDraft.UiFonts = new FontFamilySetting { Latin = UiFontLatin, Cjk = UiFontCjk };
+        _appearanceDraft.DataFonts = new FontFamilySetting { Latin = DataFontLatin, Cjk = DataFontCjk };
         settings.Appearance = _appearanceDraft.Clone();
 
         var result = _command.UpdateSettings(settings);

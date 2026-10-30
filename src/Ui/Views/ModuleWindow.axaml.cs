@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Ui.Controls;
 using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.Images;
 using HYWDebugAssistant.Ui.ViewModels;
@@ -89,7 +90,9 @@ public partial class ModuleWindow : Window
         Opened += (_, _) => PublishScaling();
 
         // 任何关闭路径都先摘掉缓存视图的父级（隐藏后再“显示全部”会创建新窗口）。
-        Closing += (_, _) => DetachModuleView();
+        // 用 `Closed` 而不是 `Closing`：外壳取消关闭时子窗的 `Closing` 不会触发 ——
+        // 视图必须留到"窗口真的关掉"之后再摘，取消后窗口仍可见时内容不能空。
+        Closed += (_, _) => DetachModuleView();
     }
 
     /// <summary>
@@ -814,15 +817,7 @@ public partial class ModuleWindow : Window
 
     /// <summary>锁定图标 = **动作**（未锁 → 显示"上锁"；已锁 → 显示"解锁"）。</summary>
     private void ApplyLock(ModuleViewViewModel module) =>
-        SetGlyph(LockIcon, module.IsLocked ? "GlyphUnlock" : "GlyphLock");
-    /// <summary>从主题 token 取**图标字形**（系统图标字体；改图标只改 Tokens）。</summary>
-    private void SetGlyph(TextBlock icon, string resourceKey)
-    {
-        if (this.TryFindResource(resourceKey, out var value) && value is string glyph)
-        {
-            icon.Text = glyph;
-        }
-    }
+        LockButton.Icon = module.IsLocked ? ShellIcons.Unlock : ShellIcons.Lock;
 
     private static void SetClass(Control control, string name, bool on)
     {

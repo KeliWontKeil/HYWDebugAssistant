@@ -1410,13 +1410,24 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
             // 丢弃按原因分类（停流未投递 ≠ 传输丢弃）
             DropStalled = b.Diagnostics.DroppedByReason(DropReason.Stalled),
-            DropQueueFull = b.Diagnostics.DroppedByReason(DropReason.QueueFull),
+
+            // "队列满"是**两种事实的合计**：挤旧（本次投递成立、旧单元没送到）与拒新（本次被拒）。
+            // 视图里它们是同一个格子的数，链路上仍分开记账——合并只发生在这里
+            DropQueueFull = b.Diagnostics.DroppedByReason(DropReason.QueueFullEvicted)
+                + b.Diagnostics.DroppedByReason(DropReason.QueueFullRejected),
+
+            // 两个分项各自给：界面要区分"挤掉的旧数据"与"被拒的新数据"时不必再猜
+            DropQueueFullEvicted = b.Diagnostics.DroppedByReason(DropReason.QueueFullEvicted),
+            DropQueueFullRejected = b.Diagnostics.DroppedByReason(DropReason.QueueFullRejected),
+            DropCarrierStopped = b.Diagnostics.DroppedByReason(DropReason.CarrierStopped),
             DropNoCarrier = b.Diagnostics.DroppedByReason(DropReason.NoCarrier),
             DropInvalidPayload = b.Diagnostics.DroppedByReason(DropReason.InvalidPayload),
 
-            // **三类之一：传输丢弃**（队列满 + 无承载 + 载荷非法；不含"停流未投递"）
-            DropTransport = b.Diagnostics.DroppedByReason(DropReason.QueueFull)
+            // **三类之一：传输丢弃**（队列满 + 无承载 + 承载已停 + 载荷非法；不含"停流未投递"）
+            DropTransport = b.Diagnostics.DroppedByReason(DropReason.QueueFullEvicted)
+                + b.Diagnostics.DroppedByReason(DropReason.QueueFullRejected)
                 + b.Diagnostics.DroppedByReason(DropReason.NoCarrier)
+                + b.Diagnostics.DroppedByReason(DropReason.CarrierStopped)
                 + b.Diagnostics.DroppedByReason(DropReason.InvalidPayload),
 
             // **四档速率由框架给出**（UI 不得自行差分估算）
@@ -1449,6 +1460,9 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         long dropped = 0;
         long stalled = 0;
         long queueFull = 0;
+        long queueFullEvicted = 0;
+        long queueFullRejected = 0;
+        long carrierStopped = 0;
         long noCarrier = 0;
         long invalidPayload = 0;
         long bytes = 0;
@@ -1482,6 +1496,9 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             dropped += view.DropTransport;
             stalled += view.DropStalled;
             queueFull += view.DropQueueFull;
+            queueFullEvicted += view.DropQueueFullEvicted;
+            queueFullRejected += view.DropQueueFullRejected;
+            carrierStopped += view.DropCarrierStopped;
             noCarrier += view.DropNoCarrier;
             invalidPayload += view.DropInvalidPayload;
 
@@ -1515,6 +1532,9 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         {
             DropStalled = stalled,
             DropQueueFull = queueFull,
+            DropQueueFullEvicted = queueFullEvicted,
+            DropQueueFullRejected = queueFullRejected,
+            DropCarrierStopped = carrierStopped,
             DropNoCarrier = noCarrier,
             DropInvalidPayload = invalidPayload,
             BytesDelivered = bytes,
@@ -1545,9 +1565,12 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         && string.Equals(member.PortName, portName, StringComparison.Ordinal);
 
     /// <summary>
-    /// **每 (实例, 口) 队列**的深度与吞吐（框架速率计的「水位」）。
+    /// **每 (实例, 口) 队列**的深度、吞吐与**原因账本**（框架速率计的「水位」）。
     /// </summary>
-    /// <remarks>搬运字节速率**按宿计**（第 2 档）：只有每口一条队列才能给出这个口径。</remarks>
+    /// <remarks>
+    /// 搬运字节速率**按宿计**（第 2 档）：只有每口一条队列才能给出这个口径。
+    /// 原因账本与队列自己读的是**同一次快照**（<c>TryGetFlowState</c>），不另算一套。
+    /// </remarks>
     public IReadOnlyList<PortQueueDepthView> GetQueueDepths()
     {
         var now = Stopwatch.GetTimestamp();
@@ -1564,6 +1587,8 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 // 契约尺寸：按该口所属网络的绑定反查（未建网 ⇒ 0 ⇒ 只给单元速率）
                 var size = ResolveBusByteSize(carrier.InstanceId, port);
 
+                _ = queue.TryGetFlowState(out var flow);
+
                 views.Add(new PortQueueDepthView(
                     carrier.InstanceId,
                     port,
@@ -1574,12 +1599,28 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 {
                     UnitRateHz = meters.Unit.Observe(queue.Enqueued, now),
                     BusByteRate = meters.Bus.Observe(queue.Enqueued * size, now),
+                    PeakDepth = flow.PeakDepth,
+                    DroppedEvictedUnits = queue.DroppedByReason(DropReason.QueueFullEvicted),
+                    DroppedRejectedUnits = queue.DroppedByReason(DropReason.QueueFullRejected),
+                    DroppedBytes = queue.DroppedBytes,
+                    DiscardedOnStopUnits = queue.DroppedByReason(DropReason.DiscardedOnStop),
+                    ModuleInternalDroppedUnits = queue.DroppedByReason(DropReason.ModuleInternal),
+                    ExpiredUnits = queue.DroppedByReason(DropReason.Expired),
+                    DroppedWhileSaturatedUnits = flow.DroppedWhileSaturatedUnits,
+                    Saturated = flow.Saturated,
+                    SaturatedFor = flow.SaturatedFor,
+                    LastDropReason = flow.LastDropReason,
+                    SinceLastDrop = flow.SinceLastDrop,
                 });
             }
         }
 
         return views;
     }
+
+    /// <inheritdoc />
+    public PortFlowState GetPortFlowState(string instanceId, string portName) =>
+        _runtime.TryGetPortFlow(instanceId, portName, out var state) ? state : PortFlowState.None;
 
     /// <summary>按接收口反查其所在绑定的契约尺寸（用于"按宿计"的搬运字节速率）。</summary>
     private int ResolveBusByteSize(string instanceId, string portName)
@@ -1935,7 +1976,10 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             return false;
         }
 
-        schema = ConfigurationSchemaBuilder.Build(instanceId, instance.Context.ConfigurationSnapshot);
+        schema = ConfigurationSchemaBuilder.Build(
+            instanceId,
+            instance.Context.ConfigurationSnapshot,
+            instance.Module.GetType().Assembly);
         return true;
     }
 

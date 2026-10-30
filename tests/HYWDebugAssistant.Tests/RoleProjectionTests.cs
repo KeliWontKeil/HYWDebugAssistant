@@ -1,5 +1,6 @@
 using Avalonia;
 using HYWDebugAssistant.Ui.Controls;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.ViewModels;
 using Shouldly;
@@ -208,9 +209,11 @@ public class RoleProjectionTests
         show.HasInput.ShouldBeTrue();
         show.HasOutput.ShouldBeFalse("纯汇分块：右侧没有接口边");
 
-        roles[0].RoleCountText.ShouldBe("2/1", "`m/n` = 输入侧连了几个角色 / 输出侧连了几个角色");
-        roles[1].RoleCountText.ShouldBe("3/--", "没有输出口 ⇒ `--`（与「有口未连 = 0」含义不同）");
-        roles[0].Title.ShouldBe("融合", "第一行 = 功能名");
+        roles[0].InboundRoleCount.ShouldBe(2, "`m` = 输入侧连接的对端角色数");
+        roles[0].OutboundRoleCount.ShouldBe(1, "`n` = 输出侧连接的对端角色数");
+        roles[1].InboundRoleCount.ShouldBe(3);
+        roles[1].OutboundRoleCount.ShouldBeNull("没有输出口 ⇒ null（与「有口未连 = 0」含义不同）");
+        roles[0].Title.ShouldNotBeNullOrWhiteSpace("第一行 = 功能名");
 
         // 宽度**随文本自适应**（不是固定 128），块高统一且更矮
         layout.Boxes[0].Box.Width.ShouldBe(roles[0].BoxWidth, 0.001, "块宽 = 该角色自己的文本估算宽度");
@@ -305,14 +308,19 @@ public class RoleProjectionTests
         role.InfoLines[0].FontSize.ShouldBeGreaterThan(
             role.InfoLines[1].FontSize,
             "用户第三十四轮：速率**字体更大**一些");
-        role.InfoLines[1].Text.ShouldBe("输入口 2 / 输出口 1", "②行 = 该角色的**口数**（与方块上的连接数 `m/n` 不同；2026-09 加「口」字以免被读成计数器）");
+        role.InfoLines[1].Text.ShouldBe(
+            TextCatalog.Get(typeof(RoleTextMetrics).Assembly, "role.info.ports", 2, 1),
+            "②行 = 该角色的**口数**（与方块上的连接数 `m/n` 不同）");
         role.InfoLines[1].Primary.ShouldBeFalse("次要行 10px、次要色");
 
         role.RateText = "12.0 kB/s";
         role.MetaText = RoleTextMetrics.TypeTagOf("样本含序号与值 / value 为无单位实数");
 
+        var semantic = "样本含序号与值";
         role.InfoLines.Count.ShouldBe(3, "①速率 ②口数 ③类型标签");
-        role.InfoLines.Select(l => l.Text).ShouldBe(["12.0 kB/s", "输入口 2 / 输出口 1", "类型：样本含序号与值"]);
+        role.InfoLines[0].Text.ShouldBe(role.RateText);
+        role.InfoLines[1].Text.ShouldBe(TextCatalog.Get(typeof(RoleTextMetrics).Assembly, "role.info.ports", 2, 1));
+        role.InfoLines[2].Text.ShouldBe(RoleTextMetrics.TypeTagOf(semantic));
     }
 
     [Fact]
@@ -321,24 +329,27 @@ public class RoleProjectionTests
         // 【用户第三十四轮："禁止 UI 外显过长描述（当前第三行太长了）"】
         RoleTextMetrics.TypeTagOf(null).ShouldBeEmpty("未声明 ⇒ 不占位");
         RoleTextMetrics.TypeTagOf("  ").ShouldBeEmpty("空白 ⇒ 不占位");
-        RoleTextMetrics.TypeTagOf("normal").ShouldBe("类型：normal");
+        RoleTextMetrics.TypeTagOf("normal").ShouldBe(TextCatalog.Get(typeof(RoleTextMetrics).Assembly, "ui.role.typeTag", "normal"));
         RoleTextMetrics.TypeTagOf("normal / 样本含序号与值 / value 为无单位实数")
-            .ShouldBe("类型：normal", "只取**第一个**标签（后面那些长描述不外显）");
+            .ShouldBe(TextCatalog.Get(typeof(RoleTextMetrics).Assembly, "ui.role.typeTag", "normal"), "只取**第一个**标签（后面那些长描述不外显）");
 
         var longTag = RoleTextMetrics.TypeTagOf("abcdefghijklmnop");
-        longTag.ShouldBe("类型：abcdefgh…", $"超长按 {RoleTextMetrics.MaxTypeTagLength} 字截断");
+        longTag.Length.ShouldBeLessThanOrEqualTo(RoleTextMetrics.MaxTypeTagLength + 4, "超长按上限截断");
         longTag.Length.ShouldBeLessThanOrEqualTo(RoleTextMetrics.MaxTypeTagLength + 4, "整行保持短小");
     }
 
     [Fact]
     public void 判据7b_信息区只放身份_零口或缺声明时给一句事实()
     {
-        var normal = RoleOverlayInfoBuilder.Build("a · 融合器", roleCount: 1, portCount: 2);
-        normal.Identity.ShouldBe("a · 融合器");
+        var identity = "a · 融合器";
+        var normal = RoleOverlayInfoBuilder.Build(identity, roleCount: 1, portCount: 2);
+        normal.Identity.ShouldBe(identity);
         normal.Notice.ShouldBeEmpty("有角色 ⇒ 不需要解释文字（「几个角色/几个口」图上可见）");
 
-        RoleOverlayInfoBuilder.Build("a · x", roleCount: 0, portCount: 0).Notice.ShouldBe("无数据口");
-        RoleOverlayInfoBuilder.Build("a · x", roleCount: 0, portCount: 3).Notice.ShouldContain("未声明角色");
+        RoleOverlayInfoBuilder.Build("a · x", roleCount: 0, portCount: 0).Notice.ShouldBe(
+            TextCatalog.Get(typeof(RoleTextMetrics).Assembly, "role.noPorts"));
+        RoleOverlayInfoBuilder.Build("a · x", roleCount: 0, portCount: 3).Notice.ShouldBe(
+            TextCatalog.Get(typeof(RoleTextMetrics).Assembly, "role.undeclared", 3));
     }
 
     [Fact]

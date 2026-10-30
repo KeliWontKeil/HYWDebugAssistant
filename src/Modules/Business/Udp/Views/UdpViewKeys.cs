@@ -12,6 +12,8 @@ public static class UdpViewKeys
     public const string DropCount = UdpModule.DropCountSource;
     public const string Open = UdpModule.OpenCommand;
     public const string Close = UdpModule.CloseCommand;
+    public const string ClearCounters = UdpModule.ClearCountersCommand;
+    public const string ClearCountersIcon = "icon.refresh";
 
     public const string LocalAddress = ExternalAccessFieldNames.LocalAddress;
     public const string LocalPort = ExternalAccessFieldNames.LocalPort;

@@ -1,6 +1,6 @@
 namespace HYWDebugAssistant.Access.Parameters;
 
-/// <summary>**串口参数文本键**（表属 Access；键集中在配置类型旁，标注只写键）。</summary>
+/// <summary>**串口参数文本键**（文本住在声明该接入的模块表里；键常量留在配置类型旁，标注只写键）。</summary>
 public static class SerialConfigText
 {
     public const string PortName = "config.serial.portName";

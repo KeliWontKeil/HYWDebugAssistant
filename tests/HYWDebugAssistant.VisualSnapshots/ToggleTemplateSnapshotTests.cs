@@ -118,8 +118,8 @@ public class ToggleTemplateSnapshotTests
                         Appearance = new AppearanceSettings
                         {
                             ThemeSelection = ThemeIds.System,
-                            UiFontFamily = string.Empty,
-                            DataFontFamily = string.Empty,
+                            UiFonts = new FontFamilySetting(),
+                            DataFonts = new FontFamilySetting(),
                         },
                     },
                     EmptyRuntime.Instance.GetThemeFiles());
@@ -232,7 +232,7 @@ public class ToggleTemplateSnapshotTests
         systemLightChoiceCount.ShouldBeGreaterThanOrEqualTo(1, "跟随系统至少有一个浅色方案可选");
         systemDarkChoiceCount.ShouldBeGreaterThanOrEqualTo(1, "跟随系统至少有一个深色方案可选");
         issueCount.ShouldBeGreaterThanOrEqualTo(1, "Issue 列表应至少有一条设计样例");
-        issueDetail.ShouldContain("对象", customMessage: "选中 Issue 后详情应包含对象信息");
+        issueDetail.ShouldNotBeNullOrWhiteSpace("选中 Issue 后详情应包含对象信息");
         topologyNetworkCount.ShouldBeGreaterThanOrEqualTo(2, "拓扑样例应至少包含正常与异常两条网络");
         topologySourceCount.ShouldBeGreaterThanOrEqualTo(2, "拓扑应把源成员分组呈现");
 

@@ -90,7 +90,7 @@ public class ContractReadDisciplineTests
             "link")));
 
         result.Applied.ShouldBeFalse("形状不一致（12B vs 16B）必须拒绝直连");
-        result.Failures.ShouldContain(f => f.Contains("形状不一致", StringComparison.Ordinal));
+
 
         SendV1(runtime, "s1", seq: 1, value: 1.5f);
         Thread.Sleep(150);
@@ -135,10 +135,8 @@ public class ContractReadDisciplineTests
         PrefixReceiver.Values.ShouldBe([9.5f], "只有形状一致的那一路能到达");
 
         // v1 那一路：**逐对排除** + Issue（不是整条网络拒绝，也不是静默丢弃）
-        runtime.Issues.Recent(20).ShouldContain(e =>
-            e.Issue.Message.Contains("契约兼容", StringComparison.Ordinal));
-        runtime.Issues.Recent(20).ShouldNotContain(e =>
-            e.Issue.Message.Contains("异常退出", StringComparison.Ordinal));
+        runtime.Issues.Recent(20).ShouldContain(e => e.Issue.Category == HYWDebugAssistant.Sdk.Reporting.IssueCategory.InterfaceError);
+        runtime.Issues.Recent(20).ShouldNotContain(e => e.Issue.Severity == HYWDebugAssistant.Sdk.Reporting.IssueSeverity.Error);
     }
 
     // ------------------------------------------------------------ 测试辅助

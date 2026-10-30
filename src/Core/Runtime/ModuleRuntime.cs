@@ -1021,6 +1021,12 @@ public sealed partial class ModuleRuntime : IDisposable
         // Disabled = 保留实例/拓扑/配置、**暂停数据流**（绑定保留，只停流；会话关闭但保留意图）
         SetSuspended(instanceId, suspended: !enabled);
 
+        if (!enabled && Carriers.TryGet(instanceId, out var suspendedCarrier) && suspendedCarrier is not null)
+        {
+            // 暂停也清尾：停流之后队列里剩下的单元没有消费方，留着只会让"已入队"变成假账
+            suspendedCarrier.PurgeQueues();
+        }
+
         if (_accesses.TryGetValue(instanceId, out var access))
         {
             access.SetSuspended(!enabled);
@@ -1245,20 +1251,26 @@ public sealed partial class ModuleRuntime : IDisposable
                         accepted = true;
                         break;
 
-                    // 已入队但**挤掉了一个旧单元**（丢旧策略）：本次投递成立，同时如实记一次"队列满丢弃"
+                    // 已入队但**挤掉了一个旧单元**（丢旧策略）：本次投递成立，同时如实记一次"队列满挤旧"
                     case CarrierEnqueueResult.QueueFullEvicted:
                         binding.Diagnostics.RecordDelivered();
-                        binding.Diagnostics.RecordDropped(DropReason.QueueFull);
+                        binding.Diagnostics.RecordDropped(DropReason.QueueFullEvicted);
                         accepted = true;
                         break;
 
                     // 目标队列满（**丢新**策略：本次被拒，best-effort 丢弃）
                     case CarrierEnqueueResult.QueueFull:
-                        binding.Diagnostics.RecordDropped(DropReason.QueueFull);
+                        binding.Diagnostics.RecordDropped(DropReason.QueueFullRejected);
                         break;
 
-                    // 口不存在 / 承载已停止 ⇒ **无承载**（与"满队"分开计数：原因不同，处置也不同）
-                    default:
+                    // 承载**存在过、现在已经停了**（实例正在拆除）⇒ 与"从来没有承载"分开：
+                    // 两者的处置方向与排障对象都不相同，混成一个数就查不出是哪一种
+                    case CarrierEnqueueResult.Stopped:
+                        binding.Diagnostics.RecordDropped(DropReason.CarrierStopped);
+                        break;
+
+                    // 口不存在 ⇒ **无承载**（与"满队"、"承载已停"都分开计数）
+                    case CarrierEnqueueResult.NoCarrier:
                         binding.Diagnostics.RecordDropped(DropReason.NoCarrier);
                         break;
                 }
@@ -1288,6 +1300,48 @@ public sealed partial class ModuleRuntime : IDisposable
 
     /// <summary>归还主动接收取得的缓冲。</summary>
     public void ReleaseBuffer(PayloadBuffer buffer) => Carriers.Buffers.Return(buffer);
+
+    /// <summary>
+    /// 读某实例某个接收口的队列流动状态（深度 / 峰值 / 丢弃账本 / 饱和）。
+    /// </summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="portName">接收口名。</param>
+    /// <param name="state">流动状态（无承载 / 无该口时为 <see cref="PortFlowState.None"/>）。</param>
+    /// <returns>该实例的该口有队列时为 <see langword="true"/>。</returns>
+    public bool TryGetPortFlow(string instanceId, string portName, out PortFlowState state)
+    {
+        state = PortFlowState.None;
+
+        return !string.IsNullOrWhiteSpace(instanceId)
+            && !string.IsNullOrWhiteSpace(portName)
+            && Carriers.TryGet(instanceId, out var carrier)
+            && carrier is not null
+            && carrier.TryGetFlowState(portName, out state);
+    }
+
+    /// <summary>
+    /// 记一次**模块内部**丢弃到某实例某个口的原因账本。
+    /// </summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="portName">接收口名。</param>
+    /// <param name="units">单元数。</param>
+    /// <param name="bytes">字节数（= 契约尺寸 × 单元数）。</param>
+    /// <returns>该实例的该口存在并已记账时为 <see langword="true"/>；否则丢弃这次上报（**不抛**）。</returns>
+    public bool ReportModuleLoss(string instanceId, string portName, long units, long bytes)
+    {
+        if (string.IsNullOrWhiteSpace(instanceId)
+            || string.IsNullOrWhiteSpace(portName)
+            || !Carriers.TryGet(instanceId, out var carrier)
+            || carrier is null
+            || !carrier.TryGetQueue(portName, out var queue)
+            || queue is null)
+        {
+            return false;
+        }
+
+        carrier.ReportModuleLoss(portName, units, bytes);
+        return true;
+    }
 
     // ---------------------------------------------------------------- 订阅（UI 交接，Q4-4）
 

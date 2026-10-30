@@ -67,6 +67,12 @@ public sealed class SnapshotApp : Application
         {
             Source = new Uri("avares://HYWDebugAssistant.Sdk.Ui/Themes/Controls.axaml"),
         });
+
+        // **输入控件的共享绘制**（与 App.axaml 同一行、排在最末）：框 / 焦点圈 / 错误圈 / 候选项。
+        Styles.Add(new StyleInclude(new Uri("avares://HYWDebugAssistant.Ui/"))
+        {
+            Source = new Uri("avares://HYWDebugAssistant.Ui/Styles/InputChrome.axaml"),
+        });
     }
 
     /// <inheritdoc />

@@ -22,5 +22,7 @@
     <StyleInclude Source="avares://HYWDebugAssistant.Ui/Styles/ButtonChrome.axaml" />
     <StyleInclude Source="avares://HYWDebugAssistant.Ui/Styles/FluentBridge.axaml" />
     <StyleInclude Source="avares://HYWDebugAssistant.Sdk.Ui/Themes/Controls.axaml" />
+    <!-- 输入控件的绘制：与产品 App 同一份、同样排在最后。 -->
+    <StyleInclude Source="avares://HYWDebugAssistant.Ui/Styles/InputChrome.axaml" />
   </Application.Styles>
 </Application>

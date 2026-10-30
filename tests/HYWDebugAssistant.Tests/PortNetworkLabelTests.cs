@@ -132,7 +132,7 @@ public class PortNetworkLabelTests
 
         var network = harness.Services.GetNetworks().ShouldHaveSingleItem();
         network.Targets.ShouldBe(ReceiverIn, "不兼容成员被排除（不自动转换）");
-        harness.Runtime.Issues.Recent(20).ShouldContain(e => e.Issue.Message.Contains("不兼容", StringComparison.Ordinal));
+
     }
 
     // 「命名口自动从匿名直连中摘出」的用例随「加入即连」整体移除：

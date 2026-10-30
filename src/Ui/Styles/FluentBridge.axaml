@@ -35,28 +35,10 @@
   </Style>
 
   <!--
-    ② **文本输入区：常态 / 指向 / 聚焦三态的底与边同值**（聚焦只由那一圈表达）。
-    指向态**属于"可点的动作"**（按钮 / 页签 / 活动栏 / 开关 / 滑块 / 下拉）；
-    输入框是"可以打字的区域"，鼠标划过不该有任何变化 —— 那会让人以为它是个按钮。
-    钉 `Background` / `BorderBrush`（控件属性）而不是去猜 Fluent 的资源键名，理由同上。
+    ② **输入控件（TextBox / ComboBox / ComboBoxItem）的绘制在 `InputChrome.axaml`**：
+    常态框、焦点圈、错误圈、候选项选中态都由那一份统一给；本文件不再写它们的绘制 setter。
+    `ListBoxItem` 等非输入类控件仍在这里桥接。
   -->
-  <Style Selector="TextBox">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
-    <Setter Property="SelectionBrush" Value="{DynamicResource OverlaySelection}" />
-    <Setter Property="SelectionForegroundBrush" Value="{DynamicResource TextPrimary}" />
-    <Setter Property="CaretBrush" Value="{DynamicResource TextPrimary}" />
-  </Style>
-
-  <Style Selector="TextBox:pointerover">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
-  </Style>
-
-  <Style Selector="TextBox:focus">
-    <!-- 聚焦只改**底**（保持常态底）；那一圈聚焦色由 Fluent 的聚焦规则给，不在这里压掉 -->
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
-  </Style>
 
   <!--
     ③ **滚动条**：钉 `Foreground` —— Fluent 的滚动条模板把拇指画在它上面。
@@ -69,34 +51,6 @@
 
   <Style Selector="TextBox /template/ ScrollBar">
     <Setter Property="AllowAutoHide" Value="False" />
-  </Style>
-
-  <!--
-    ④ **下拉框**：面 / 边 / 字都归 token；展开后的候选项另算（下一组）。
-    `Popup` 自己的底色由 `FlyoutPresenter` 那一组管（下拉的内容宿主就是它）。
-  -->
-  <Style Selector="ComboBox">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
-    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-  </Style>
-
-  <Style Selector="ComboBox:pointerover">
-    <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
-  </Style>
-
-  <Style Selector="ComboBox:disabled">
-    <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-  </Style>
-
-  <!-- ⑤ **候选项与列表项**：常态墨 + 选中底（选中底引叠加色 ⇒ 改主题色时跟着变） -->
-  <Style Selector="ComboBoxItem">
-    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-  </Style>
-
-  <Style Selector="ComboBoxItem:selected">
-    <Setter Property="Background" Value="{DynamicResource OverlaySelection}" />
-    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
   </Style>
 
   <Style Selector="ListBoxItem">

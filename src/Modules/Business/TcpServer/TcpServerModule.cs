@@ -1,6 +1,7 @@
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.AccessKit;
+using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Modules.TcpServer;
@@ -68,6 +69,9 @@ public sealed class TcpServerModule : ExternalAccessModule
     /// <summary>命令：停止监听。</summary>
     public const string CloseCommand = "close";
 
+    /// <summary>命令：清空本接入的计数（队列数据、连接数与故障态都不动）。</summary>
+    public const string ClearCountersCommand = "clearCounters";
+
     /// <summary>取一条本模块文本表里的文案（拥有者 = 本模块程序集）。</summary>
     private static string Tr(string key) => TextCatalog.Get(typeof(TcpServerModule).Assembly, key);
 
@@ -92,21 +96,70 @@ public sealed class TcpServerModule : ExternalAccessModule
         Tr(TcpServerText.Open),
         CloseCommand,
         Tr(TcpServerText.Close),
+        ClearCountersCommand,
+        Tr(TcpServerText.ViewClearCounters),
         ConnCountSource);
 
     /// <inheritdoc />
-    protected override string Describe(ExternalAccessSnapshot snapshot) => snapshot.State switch
+    protected override string Describe(ExternalAccessSnapshot snapshot)
     {
-        ExternalAccessState.Open => string.IsNullOrWhiteSpace(snapshot.Detail)
-            ? Tr(TcpServerText.StatusListening, snapshot.ActiveConnections)
-            : Tr(TcpServerText.StatusListeningDetail, snapshot.Detail, snapshot.ActiveConnections),
-        ExternalAccessState.Opening => string.IsNullOrWhiteSpace(snapshot.Detail)
-            ? Tr(TcpServerText.StatusStarting)
-            : Tr(TcpServerText.StatusStartingDetail, snapshot.Detail),
-        ExternalAccessState.Closing => Tr(TcpServerText.StatusStopping),
-        ExternalAccessState.Faulted => string.IsNullOrWhiteSpace(snapshot.LastError)
-            ? Tr(TcpServerText.StatusFailed)
-            : snapshot.LastError,
-        _ => snapshot.Suspended ? Tr(TcpServerText.StatusSuspended) : Tr(TcpServerText.StatusIdle),
-    };
+        var endpoint = EndpointText(snapshot.Endpoint);
+
+        var text = snapshot.State switch
+        {
+            ExternalAccessState.Open => endpoint.Length == 0
+                ? Tr(TcpServerText.StatusListening, snapshot.ActiveConnections)
+                : Tr(TcpServerText.StatusListeningDetail, endpoint, snapshot.ActiveConnections),
+            ExternalAccessState.Opening => endpoint.Length == 0
+                ? Tr(TcpServerText.StatusStarting)
+                : Tr(TcpServerText.StatusStartingDetail, endpoint),
+            ExternalAccessState.Closing => Tr(TcpServerText.StatusStopping),
+            ExternalAccessState.Faulted => FailureText(snapshot),
+            _ => snapshot.Suspended ? Tr(TcpServerText.StatusSuspended) : Tr(TcpServerText.StatusIdle),
+        };
+
+        return snapshot.RejectedUnits > 0 && snapshot.State != ExternalAccessState.Open
+            ? text + Tr(TcpServerText.StatusRejectedSuffix, snapshot.RejectedUnits)
+            : text;
+    }
+
+    /// <summary>按失败种类从本模块表取句子（未覆盖的种类走未知回退）。</summary>
+    private static string FailureText(ExternalAccessSnapshot snapshot)
+    {
+        var failure = snapshot.Failure;
+        var endpoint = EndpointText(snapshot.Endpoint);
+        var value = failure?.Value ?? string.Empty;
+
+        return failure?.Kind switch
+        {
+            ExternalAccessFailureKind.FrameworkInternal => Tr(TcpServerText.StatusFailedFrameworkInternal),
+            ExternalAccessFailureKind.ParametersNotRegistered => Tr(TcpServerText.StatusFailedParametersNotRegistered),
+            ExternalAccessFailureKind.AddressInvalid => Tr(TcpServerText.StatusFailedAddressInvalid, value),
+            ExternalAccessFailureKind.PortOutOfRange => Tr(TcpServerText.StatusFailedPortOutOfRange, value),
+            ExternalAccessFailureKind.PortInUse => Tr(TcpServerText.StatusFailedPortInUse, endpoint),
+            ExternalAccessFailureKind.ListenFailed => Tr(TcpServerText.StatusFailedListenFailed),
+            ExternalAccessFailureKind.AcceptFailed => Tr(TcpServerText.StatusFailedAcceptFailed),
+            ExternalAccessFailureKind.OpenFailed => Tr(TcpServerText.StatusFailedOpenFailed),
+            ExternalAccessFailureKind.ReadFailed => Tr(TcpServerText.StatusFailedReadFailed),
+            ExternalAccessFailureKind.WriteFailed => Tr(TcpServerText.StatusFailedWriteFailed),
+            _ => Tr(TcpServerText.StatusFailedUnknown),
+        };
+    }
+
+    /// <inheritdoc />
+    protected override string? DescribePressure(
+        PressureKind kind,
+        in PortFlowState sendFlow,
+        ExternalAccessSnapshot snapshot) => kind switch
+        {
+            PressureKind.ReceiveLost => Tr(TcpServerText.StatusReceiveLost),
+            PressureKind.SendLost => Tr(TcpServerText.StatusSendLost),
+            PressureKind.SendBacklogged => Tr(TcpServerText.StatusTxBacklog, snapshot.SendBacklogDepth),
+            PressureKind.ReceiveSaturated => Tr(TcpServerText.StatusRxSaturated, snapshot.ReceiveQueueDepth),
+            PressureKind.SendSaturated => Tr(
+                TcpServerText.StatusTxSaturated,
+                sendFlow.Depth,
+                sendFlow.DroppedWhileSaturatedUnits),
+            _ => null,
+        };
 }

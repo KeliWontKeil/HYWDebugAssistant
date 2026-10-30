@@ -73,6 +73,22 @@ public static class HotkeyCatalog
     /// <summary>默认绑定表（动作 → 绑定）。</summary>
     public static IReadOnlyDictionary<string, string> Defaults { get; } =
         Actions.ToDictionary(a => a.Id, a => a.DefaultBinding, StringComparer.Ordinal);
+
+    /// <summary>
+    /// 取一个动作**当前生效**的绑定文本（设置里有且非空 ⇒ 用它，否则用默认值）。
+    /// </summary>
+    /// <param name="action">动作定义。</param>
+    /// <param name="configured">设置里的绑定表（null = 全是默认值）。</param>
+    /// <returns>绑定文本；空串 = 该动作不绑定。</returns>
+    public static string ResolveBinding(HotkeyAction action, IReadOnlyDictionary<string, string>? configured)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+
+        // **空串 = 显式不绑定**：键在表里就用它的值（哪怕是空串）；只有"没配置过"才回落到默认。
+        return configured is not null && configured.TryGetValue(action.Id, out var text)
+            ? text
+            : action.DefaultBinding;
+    }
 }
 
 /// <summary>快捷键动作定义。</summary>

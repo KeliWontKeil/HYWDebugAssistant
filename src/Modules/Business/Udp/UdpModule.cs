@@ -1,6 +1,7 @@
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.AccessKit;
+using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Modules.Udp;
@@ -65,6 +66,9 @@ public sealed class UdpModule : ExternalAccessModule
     /// <summary>命令：解绑。</summary>
     public const string CloseCommand = "close";
 
+    /// <summary>命令：清空本接入的计数（队列数据、连接数与故障态都不动）。</summary>
+    public const string ClearCountersCommand = "clearCounters";
+
     /// <summary>取一条本模块文本表里的文案（拥有者 = 本模块程序集）。</summary>
     private static string Tr(string key) => TextCatalog.Get(typeof(UdpModule).Assembly, key);
 
@@ -88,21 +92,70 @@ public sealed class UdpModule : ExternalAccessModule
         OpenCommand,
         Tr(UdpText.Open),
         CloseCommand,
-        Tr(UdpText.Close));
+        Tr(UdpText.Close),
+        ClearCountersCommand,
+        Tr(UdpText.ViewClearCounters));
 
     /// <inheritdoc />
-    protected override string Describe(ExternalAccessSnapshot snapshot) => snapshot.State switch
+    protected override string Describe(ExternalAccessSnapshot snapshot)
     {
-        ExternalAccessState.Open => string.IsNullOrWhiteSpace(snapshot.Detail)
-            ? Tr(UdpText.StatusBound)
-            : Tr(UdpText.StatusBoundDetail, snapshot.Detail),
-        ExternalAccessState.Opening => string.IsNullOrWhiteSpace(snapshot.Detail)
-            ? Tr(UdpText.StatusBinding)
-            : Tr(UdpText.StatusBindingDetail, snapshot.Detail),
-        ExternalAccessState.Closing => Tr(UdpText.StatusUnbinding),
-        ExternalAccessState.Faulted => string.IsNullOrWhiteSpace(snapshot.LastError)
-            ? Tr(UdpText.StatusFailed)
-            : snapshot.LastError,
-        _ => snapshot.Suspended ? Tr(UdpText.StatusSuspended) : Tr(UdpText.StatusIdle),
-    };
+        var endpoint = EndpointText(snapshot.Endpoint);
+
+        var text = snapshot.State switch
+        {
+            ExternalAccessState.Open => endpoint.Length == 0
+                ? Tr(UdpText.StatusBound)
+                : Tr(UdpText.StatusBoundDetail, endpoint),
+            ExternalAccessState.Opening => endpoint.Length == 0
+                ? Tr(UdpText.StatusBinding)
+                : Tr(UdpText.StatusBindingDetail, endpoint),
+            ExternalAccessState.Closing => Tr(UdpText.StatusUnbinding),
+            ExternalAccessState.Faulted => FailureText(snapshot),
+            _ => snapshot.Suspended ? Tr(UdpText.StatusSuspended) : Tr(UdpText.StatusIdle),
+        };
+
+        return snapshot.RejectedUnits > 0 && snapshot.State != ExternalAccessState.Open
+            ? text + Tr(UdpText.StatusRejectedSuffix, snapshot.RejectedUnits)
+            : text;
+    }
+
+    /// <summary>按失败种类从本模块表取句子（未覆盖的种类走未知回退）。</summary>
+    private static string FailureText(ExternalAccessSnapshot snapshot)
+    {
+        var failure = snapshot.Failure;
+        var endpoint = EndpointText(snapshot.Endpoint);
+        var value = failure?.Value ?? string.Empty;
+
+        return failure?.Kind switch
+        {
+            ExternalAccessFailureKind.FrameworkInternal => Tr(UdpText.StatusFailedFrameworkInternal),
+            ExternalAccessFailureKind.ParametersNotRegistered => Tr(UdpText.StatusFailedParametersNotRegistered),
+            ExternalAccessFailureKind.AddressInvalid => Tr(UdpText.StatusFailedAddressInvalid, value),
+            ExternalAccessFailureKind.WildcardAddressNotAllowed => Tr(UdpText.StatusFailedWildcardAddress, value),
+            ExternalAccessFailureKind.PortOutOfRange => Tr(UdpText.StatusFailedPortOutOfRange, value),
+            ExternalAccessFailureKind.PortInUse => Tr(UdpText.StatusFailedPortInUse, endpoint),
+            ExternalAccessFailureKind.BindFailed => Tr(UdpText.StatusFailedBindFailed),
+            ExternalAccessFailureKind.OpenFailed => Tr(UdpText.StatusFailedOpenFailed),
+            ExternalAccessFailureKind.ReadFailed => Tr(UdpText.StatusFailedReadFailed),
+            ExternalAccessFailureKind.WriteFailed => Tr(UdpText.StatusFailedWriteFailed),
+            _ => Tr(UdpText.StatusFailedUnknown),
+        };
+    }
+
+    /// <inheritdoc />
+    protected override string? DescribePressure(
+        PressureKind kind,
+        in PortFlowState sendFlow,
+        ExternalAccessSnapshot snapshot) => kind switch
+        {
+            PressureKind.ReceiveLost => Tr(UdpText.StatusReceiveLost),
+            PressureKind.SendLost => Tr(UdpText.StatusSendLost),
+            PressureKind.SendBacklogged => Tr(UdpText.StatusTxBacklog, snapshot.SendBacklogDepth),
+            PressureKind.ReceiveSaturated => Tr(UdpText.StatusRxSaturated, snapshot.ReceiveQueueDepth),
+            PressureKind.SendSaturated => Tr(
+                UdpText.StatusTxSaturated,
+                sendFlow.Depth,
+                sendFlow.DroppedWhileSaturatedUnits),
+            _ => null,
+        };
 }

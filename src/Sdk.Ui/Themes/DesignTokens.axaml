@@ -37,6 +37,7 @@
   <SolidColorBrush x:Key="SurfaceToggleKnobBrush" Color="#FFFFFF" />
   <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
   <SolidColorBrush x:Key="SurfaceToggleKnobEdgeBrush" Color="#D4D4D8" />
-  <FontFamily x:Key="FontData">Consolas, Cascadia Mono</FontFamily>
+  <!-- // i18n-exempt: 字体族名（宋体是字体标识，不是界面文案） -->
+  <FontFamily x:Key="FontData">Cascadia Mono, 宋体</FontFamily>
 </ResourceDictionary>
 

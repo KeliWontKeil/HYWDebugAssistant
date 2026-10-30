@@ -9,6 +9,7 @@ using HYWDebugAssistant.FrameworkUi.ViewModels;
 using HYWDebugAssistant.Infrastructure.Storage;
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Resources;
 using HYWDebugAssistant.Sdk.Text;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -93,6 +94,23 @@ internal static class CompositionRoot
                 IssueSeverity.Warning,
                 // i18n-exempt: 文本表自身诊断前缀——表不可用时不能再读表，否则递归
                 "文本表加载问题：" + message));
+        };
+
+        // **图标表诊断走同一条通道**：`ResourceLayout.Diagnostics` 是资源层的共享告警
+        // （`IconCatalog.Diagnostics` 只是它的别名）。同样按消息去重：一次坏表只报一次。
+        var reportedIconTableIssues = new ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
+        ResourceLayout.Diagnostics = message =>
+        {
+            if (!reportedIconTableIssues.TryAdd(message, true))
+            {
+                return;
+            }
+
+            runtime.Runtime.Issues.Report("resources:icons", new IssueReport(
+                IssueCategory.PresentationError,
+                IssueSeverity.Warning,
+                // i18n-exempt: 图标表自身诊断前缀——表不可用时不能再读表，否则递归
+                "图标表加载问题：" + message));
         };
 
         var settings = provider.GetRequiredService<SettingsService>();

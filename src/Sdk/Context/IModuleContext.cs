@@ -4,6 +4,7 @@ using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Resources;
 using HYWDebugAssistant.Sdk.Timing;
 using HYWDebugAssistant.Sdk.Views;
 
@@ -175,6 +176,46 @@ public interface IPortAccess
     /// <param name="dataSourceName">在视图声明中登记的数据源名。</param>
     /// <param name="value">数据（单值 = 最新值槽；序列 = 环形缓冲，满则丢旧）。</param>
     void Publish(string dataSourceName, ReadOnlySpan<byte> value);
+
+    /// <summary>
+    /// 读本实例某个**接收口**的队列流动状态（深度 / 峰值 / 丢弃账本 / 饱和）。
+    /// </summary>
+    /// <param name="portName">接收口名。</param>
+    /// <param name="state">流动状态（无队列时为 <see cref="PortFlowState.None"/>）。</param>
+    /// <returns>该口有队列时为 <see langword="true"/>；**没有队列**时为 <see langword="false"/>。</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>只对本实例的接收口有效</b>：别的实例、发送口、未声明的名字一律返回 <see langword="false"/>
+    /// ——流量事实不能跨实例借用（P12）。
+    /// </para>
+    /// <para>
+    /// 它给的是**当前事实**（不是事件）：模块在自己的循环里读，问的是"我这个口现在堵不堵、丢了多少"。
+    /// </para>
+    /// </remarks>
+    bool TryGetFlowState(string portName, out PortFlowState state)
+    {
+        state = PortFlowState.None;
+        return false;
+    }
+
+    /// <summary>
+    /// 上报一次**模块自己造成的**丢弃（业务上不适用、内部缓冲已满、解析失败等）。
+    /// </summary>
+    /// <param name="portName">接收口名。</param>
+    /// <param name="reason">丢弃原因；**只接受 <see cref="DropReason.ModuleInternal"/>**。</param>
+    /// <param name="units">丢弃的单元数。</param>
+    /// <param name="bytes">丢弃的字节数（= 契约尺寸 × 单元数）。</param>
+    /// <remarks>
+    /// <para>
+    /// <b>只接受 <see cref="DropReason.ModuleInternal"/>，其它原因由框架静默忽略</b>：
+    /// 传输与会话的事实归框架（队列满、无承载、承载已停、写失败这些它自己看得见），
+    /// 模块不得伪造——否则诊断上会出现一件框架从未观察到的事。
+    /// </para>
+    /// <para>默认空实现：既有模块与测试替身不会因为新增成员而编译失败。</para>
+    /// </remarks>
+    void ReportLoss(string portName, DropReason reason, long units, long bytes)
+    {
+    }
 }
 
 /// <summary>配置读写（读写的是该实例的 Configuration，随组合件保存）。</summary>
@@ -447,4 +488,19 @@ public interface IModuleContext
     /// 而那不是界面事实；那个控件还会把路径写进它自己的输入源，造成同一个值有两个存放处。
     /// </remarks>
     IFileAccess Files { get; }
+
+    /// <summary>
+    /// **模块自有资源包的只读访问面**：按 kind + 相对路径读**本模块目录下** `resources/` 的文件。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 与标准文本 / 图标的分工：`i18n` / `icons` 是**框架认识的两种 kind**，由 `TextCatalog` / `IconCatalog`
+    /// 按拥有者读；本接口是给模块**自定义 kind**（模板、字典、脚本片段……）用的，
+    /// 模块不需要改框架的 <see cref="ResourceKinds"/>，框架也不解释这些文件的内容。
+    /// </para>
+    /// <para>
+    /// 未接线时回落到 <see cref="ResourceAccess.Empty"/>：读不到东西、但**不抛异常**。
+    /// </para>
+    /// </remarks>
+    IResourceAccess Resources => ResourceAccess.Empty;
 }

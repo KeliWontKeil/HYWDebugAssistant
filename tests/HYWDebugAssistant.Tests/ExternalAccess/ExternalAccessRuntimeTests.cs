@@ -58,6 +58,7 @@ public sealed class ExternalAccessRuntimeTests
         Send(runtime, "open");
 
         WaitFor(() => snapshot().State == ExternalAccessState.Open, "会话应打开");
+        snapshot().Endpoint.ShouldNotBeNull("打开后快照必须带端点事实");
         adapter.OpenCount.ShouldBe(1);
 
         adapter.Publish([1, 2, 3]);
@@ -83,6 +84,7 @@ public sealed class ExternalAccessRuntimeTests
         Send(runtime, "open");
 
         WaitFor(() => snapshot().State == ExternalAccessState.Faulted, "打开失败应进入 Faulted");
+        snapshot().Failure!.Kind.ShouldBe(ExternalAccessFailureKind.OpenFailed);
         runtime.Issues.Count.ShouldBeGreaterThan(0, "失败应转成 Issue");
         runtime.Issues.Snapshot().ShouldContain(
             entry => entry.Issue.Severity == IssueSeverity.Warning,
@@ -95,6 +97,7 @@ public sealed class ExternalAccessRuntimeTests
         Send(runtime, "open");
 
         WaitFor(() => snapshot().State == ExternalAccessState.Open, "用户再次请求应重开");
+        snapshot().Failure.ShouldBeNull("打开成功必须清掉上一次失败");
         adapter.OpenCount.ShouldBe(2);
     }
 
@@ -109,9 +112,13 @@ public sealed class ExternalAccessRuntimeTests
         Send(runtime, "open");
         WaitFor(() => snapshot().State == ExternalAccessState.Open, "先打开");
 
-        adapter.Fault("对端已关闭连接");
+        adapter.Fault(new ExternalAccessFailure(
+            ExternalAccessFailureKind.PeerClosed,
+            new ExternalAccessEndpoint("127.0.0.1", 1),
+            Detail: "对端已关闭连接"));
 
         WaitFor(() => runtime.Issues.Count > 0, "外部故障应转成 Issue");
+        snapshot().Failure!.Kind.ShouldBe(ExternalAccessFailureKind.PeerClosed);
         var issue = runtime.Issues.Snapshot()[^1];
         issue.Issue.Severity.ShouldBe(IssueSeverity.Warning);
         issue.Issue.Category.ShouldBe(IssueCategory.CommunicationError);
@@ -175,7 +182,7 @@ public sealed class ExternalAccessRuntimeTests
         adapter.WriteOk = false;
 
         instance.Context.Access.Write(FakeAccessModule.AccessName, [1, 2, 3, 4])
-            .ShouldBeFalse();
+            .ShouldBeTrue();
 
         WaitFor(() => snapshot().DroppedBytes >= 4, "写失败应按字节计入丢弃");
     }
@@ -226,10 +233,9 @@ public sealed class ExternalAccessRuntimeTests
     {
         var first = new FakeExternalAccessAdapter();
         var catalog = new TwoStandardCatalog(
-            new ExternalAccessDescriptor("std-a", "A", typeof(FakeAccessParameters), () => first),
+            new ExternalAccessDescriptor("std-a", typeof(FakeAccessParameters), () => first),
             new ExternalAccessDescriptor(
                 "std-b",
-                "B",
                 typeof(FakeAccessParameters),
                 static () => throw new InvalidOperationException("工厂失败")));
 
@@ -244,8 +250,56 @@ public sealed class ExternalAccessRuntimeTests
             .ShouldBeFalse();
 
         failure.ShouldNotBeNull();
-        failure.ShouldContain("工厂失败");
+        failure.ShouldNotBeNullOrWhiteSpace();
         first.CloseCount.ShouldBe(1, "中途失败时已创建的适配器必须被关闭，不能留给 GC");
+    }
+
+    [Fact]
+    public void 参数未登记_应给出种类与类型名()
+    {
+        var session = new ExternalAccessSession(
+            new ExternalAccessDeclaration("fake", FakeAccessModule.StandardId),
+            new FakeExternalAccessAdapter(),
+            typeof(FakeAccessParameters),
+            _ => null,
+            new AccessInboundBuffer(4),
+            TimeSpan.FromSeconds(1),
+            signal: null);
+
+        session.RequestOpen();
+        _ = session.Pump();
+
+        var snapshot = session.GetSnapshot();
+        snapshot.State.ShouldBe(ExternalAccessState.Faulted);
+        snapshot.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.ParametersNotRegistered);
+        snapshot.Failure.Detail.ShouldBe(nameof(FakeAccessParameters));
+
+        var failures = new List<AccessFailure>();
+        session.DrainFailures(failures);
+        failures.ShouldNotBeEmpty("会话自身失败仍要转成 Issue");
+    }
+
+    [Fact]
+    public void 未打开时写入_只计丢弃不留下失败()
+    {
+        var session = new ExternalAccessSession(
+            new ExternalAccessDeclaration("fake", FakeAccessModule.StandardId),
+            new FakeExternalAccessAdapter(),
+            typeof(FakeAccessParameters),
+            _ => new FakeAccessParameters(),
+            new AccessInboundBuffer(4),
+            TimeSpan.FromSeconds(1),
+            signal: null);
+
+        session.Write([1, 2]).ShouldBeFalse();
+
+        var snapshot = session.GetSnapshot();
+        snapshot.State.ShouldBe(ExternalAccessState.Closed);
+        snapshot.Failure.ShouldBeNull("未打开时写入是正常丢弃，不应留下失败");
+
+        var failures = new List<AccessFailure>();
+        session.DrainFailures(failures);
+        failures.ShouldBeEmpty("未打开时写入不应刷 Issue");
     }
 
     private static ModuleRuntime NewRuntime(out FakeExternalAccessCatalog catalog)

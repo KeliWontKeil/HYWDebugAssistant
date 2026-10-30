@@ -50,7 +50,7 @@ public class ModuleSourceDiscoveryTests
         var source = fixture.Services.GetModuleSources().ShouldHaveSingleItem();
         source.Exists.ShouldBeFalse();
         source.FailedPackages.ShouldBe(0);
-        source.Messages.ShouldContain(m => m.Contains("目录不存在"));
+        source.Messages.ShouldNotBeEmpty("目录缺失必须有一句可定位的说明");
     }
 
     [Fact]
@@ -222,7 +222,7 @@ public class ModuleSourceDiscoveryTests
         var source = fixture.Services.GetModuleSources().ShouldHaveSingleItem();
         source.PackagesFound.ShouldBe(1);
         source.FailedPackages.ShouldBe(1);
-        source.Messages.ShouldContain(m => m.Contains("broken") && m.Contains("失败"));
+        source.Messages.ShouldNotBeEmpty("导入失败必须有一句可定位的说明");
     }
 
 

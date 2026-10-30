@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using HYWDebugAssistant.Sdk.Ui.Controls;
+using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.ViewModels;
 
 namespace HYWDebugAssistant.Ui.Views;
@@ -39,6 +40,24 @@ public sealed class ModuleSurfaceView : UserControl
         HorizontalAlignment = HorizontalAlignment.Stretch;
         VerticalAlignment = VerticalAlignment.Stretch;
         DataContextChanged += (_, _) => Attach(DataContext as ModuleViewViewModel);
+
+        // 挂回可视树时自愈：内容区可能在窗口仍然存活时被摘空（见 `EnsureContent`）。
+        AttachedToVisualTree += (_, _) => EnsureContent();
+    }
+
+    /// <summary>
+    /// **内容缺失时补挂当前模块视图**（可视树挂载时调用，幂等）。
+    /// </summary>
+    /// <remarks>
+    /// 判据只认"有模块、但内容或框架子级为空"：<see cref="Apply"/> 复用宿主与框架 Border，
+    /// 不会重建控件树，因此重复调用没有副作用；真正的换视图仍只由属性通知触发。
+    /// </remarks>
+    public void EnsureContent()
+    {
+        if (_module is not null && (Content is null || _frame?.Child is null))
+        {
+            Apply();
+        }
     }
 
     /// <summary>当前渲染的模块视图（没有自带视图 ⇒ <see langword="null"/>）。</summary>
@@ -108,7 +127,7 @@ public sealed class ModuleSurfaceView : UserControl
             _host.Child = _frame;
         }
 
-        _frame.Margin = ContentInset();
+        _frame.Margin = ModuleSurfaceMetrics.Inset;
 
         if (!ReferenceEquals(_frame.Child, view))
         {
@@ -147,15 +166,4 @@ public sealed class ModuleSurfaceView : UserControl
 
         _module = null;
     }
-
-    /// <summary>模块内容区四周的预留带（来自 `Ui/Styles/ModuleMetrics.axaml`）。</summary>
-    private Thickness ContentInset() => new(
-        Dip("SurfaceContentInsetLeft", 20),
-        Dip("SurfaceContentInsetTop", 22),
-        Dip("SurfaceContentInsetRight", 20),
-        Dip("SurfaceContentInsetBottom", 24));
-
-    /// <summary>取一个尺寸资源；缺失时用安全兜底值（不会把内容区缩成 0）。</summary>
-    private double Dip(string key, double fallback) =>
-        this.TryFindResource(key, out var value) && value is double dip ? dip : fallback;
 }

@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Tests;
@@ -27,6 +28,9 @@ internal sealed class TextCatalogTestRoot : IDisposable
 
     /// <summary>本程序集的表目录（`<根>/<程序集简名>/`）。</summary>
     public string OwnerDirectory { get; }
+
+    /// <summary>本夹具写过的表项（键 → 值；同一键先者胜，与运行期"先者胜"一致）。</summary>
+    public Dictionary<string, string> Entries { get; } = new(StringComparer.Ordinal);
 
     /// <summary>
     /// 造一份**探针表**根：基础表 + 一份分片 + 语言中立表（分片与基表**没有**重复键，
@@ -85,6 +89,33 @@ internal sealed class TextCatalogTestRoot : IDisposable
             Path.Combine(OwnerDirectory, fileName),
             content,
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        MergeEntries(content);
+    }
+
+    /// <summary>把一份表里的 entries 收进 <see cref="Entries"/>（坏文件 / 坏 JSON 直接跳过）。</summary>
+    /// <param name="content">表内容。</param>
+    private void MergeEntries(string content)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(content);
+
+            if (!document.RootElement.TryGetProperty("entries", out var entries)
+                || entries.ValueKind != JsonValueKind.Object)
+            {
+                return;
+            }
+
+            foreach (var property in entries.EnumerateObject())
+            {
+                _ = Entries.TryAdd(property.Name, property.Value.GetString() ?? string.Empty);
+            }
+        }
+        catch (JsonException)
+        {
+            // 坏表由用例自己造出来（专门验证跳过坏文件），不是本夹具的错误。
+        }
     }
 
     /// <summary>把文本表根切到本临时根（并清空表缓存 / 语言扫描缓存）。</summary>

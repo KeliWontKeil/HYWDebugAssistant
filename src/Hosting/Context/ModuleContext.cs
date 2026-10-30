@@ -7,6 +7,7 @@ using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Resources;
 using HYWDebugAssistant.Sdk.Timing;
 using HYWDebugAssistant.Sdk.Views;
 
@@ -162,6 +163,20 @@ public sealed class ModuleContext : IModuleContext
     {
         ArgumentNullException.ThrowIfNull(files);
         Files = files;
+    }
+
+    /// <summary>
+    /// **模块自有资源访问面**（模块 → 框架的「只读」方向）：只读本模块目录下的 `resources/`。
+    /// 未挂时回落到"读不到任何东西"（**不抛异常**）。
+    /// </summary>
+    public IResourceAccess Resources { get; private set; } = ResourceAccess.Empty;
+
+    /// <summary>挂上模块自有资源访问面（**由 L4 在创建实例时调用**；模块作者不使用本方法）。</summary>
+    /// <param name="resources">按模块包绑定的只读访问面。</param>
+    public void AttachResources(IResourceAccess resources)
+    {
+        ArgumentNullException.ThrowIfNull(resources);
+        Resources = resources;
     }
 
     /// <summary>已声明的口（按声明顺序）。</summary>

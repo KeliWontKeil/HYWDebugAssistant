@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using HYWDebugAssistant.Access.Parameters;
@@ -16,9 +17,15 @@ namespace HYWDebugAssistant.Access.Adapters;
 ///   <item>不自动重试：绑定失败后用户再次〔绑定〕。</item>
 /// </list>
 /// </remarks>
-public sealed class UdpAccessAdapter : IExternalAccessAdapter
+public sealed class UdpAccessAdapter : IExternalAccessAdapter, IExternalAccessWriteTimeout, IExternalAccessTuning
 {
-    private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan DefaultCloseTimeout = TimeSpan.FromSeconds(1);
+
+    /// <summary>关闭旧传输的等待上限（可运行期改写）。</summary>
+    private TimeSpan _closeTimeout = DefaultCloseTimeout;
+
+    /// <summary>写（发送）超时的缺省值（毫秒）。</summary>
+    private const int DefaultWriteTimeoutMs = 1000;
 
     /// <summary>UDP 报文的理论上限（接收缓冲必须能容纳整个报文，否则平台会抛异常而不是截断）。</summary>
     private const int UdpMaxDatagram = 65507;
@@ -31,10 +38,53 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter
     private Task? _pump;
     private IExternalAccessReady? _ready;
     private IPEndPoint? _target;
+    private ExternalAccessEndpoint? _endpoint;
+    private int _writeTimeoutMs = DefaultWriteTimeoutMs;
     private volatile bool _open;
 
     /// <inheritdoc />
     public Type ParametersType => typeof(UdpConfig);
+
+    /// <inheritdoc />
+    /// <remarks>记住值并对**当前套接字**立即生效；重新绑定后的新套接字用当前值。</remarks>
+    /// <inheritdoc />
+    public void ApplyTuning(ExternalAccessTuning tuning)
+    {
+        ArgumentNullException.ThrowIfNull(tuning);
+
+        _closeTimeout = tuning.CloseTimeout > TimeSpan.Zero ? tuning.CloseTimeout : DefaultCloseTimeout;
+    }
+
+    public void SetWriteTimeout(TimeSpan timeout)
+    {
+        var value = NormalizeWriteTimeoutMs(timeout);
+        Interlocked.Exchange(ref _writeTimeoutMs, value);
+
+        Socket? socket;
+        lock (_gate)
+        {
+            socket = _socket;
+        }
+
+        if (socket is null)
+        {
+            return;
+        }
+
+        try
+        {
+            socket.SendTimeout = value;
+        }
+        catch (Exception)
+        {
+            // 套接字刚被关闭 / 平台不支持：保持原值
+        }
+    }
+
+    /// <summary>写超时毫秒数的收敛（非正值 ⇒ 缺省 1 秒；0 在套接字上等于无限等待）。</summary>
+    /// <param name="timeout">设置里的值。</param>
+    private static int NormalizeWriteTimeoutMs(TimeSpan timeout) =>
+        timeout > TimeSpan.Zero ? (int)Math.Clamp(timeout.TotalMilliseconds, 1, int.MaxValue) : DefaultWriteTimeoutMs;
 
     /// <inheritdoc />
     public void Open(object parameters, IExternalAccessReady ready)
@@ -43,66 +93,92 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter
 
         if (parameters is not UdpConfig config)
         {
-            ready.SetFaulted(AccessText.Get("access.udp.parametersTypeInvalid", nameof(UdpConfig)));
+            ready.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.FrameworkInternal,
+                Detail: nameof(UdpConfig)));
             return;
         }
 
         if (config.LocalPort is < 0 or > 65535)
         {
-            ready.SetFaulted(AccessText.Get("access.common.localPortOutOfRange", config.LocalPort));
+            ready.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.PortOutOfRange,
+                Value: config.LocalPort.ToString(CultureInfo.InvariantCulture)));
             return;
         }
 
-        if (!TryResolveAddress(config.LocalAddress, out var local))
+        var local = new ExternalAccessEndpoint(config.LocalAddress, config.LocalPort);
+
+        if (!TryResolveAddress(config.LocalAddress, out var localAddress))
         {
-            ready.SetFaulted(AccessText.Get("access.common.localAddressInvalid", config.LocalAddress));
+            ready.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.AddressInvalid,
+                local,
+                Value: config.LocalAddress));
             return;
         }
 
         IPEndPoint? target = null;
         if (!string.IsNullOrWhiteSpace(config.RemoteAddress) && config.RemotePort > 0)
         {
+            var remoteEndpoint = new ExternalAccessEndpoint(config.RemoteAddress, config.RemotePort);
+
             if (!TryResolveAddress(config.RemoteAddress, out var remote))
             {
-                ready.SetFaulted(AccessText.Get("access.common.remoteAddressInvalid", config.RemoteAddress));
+                ready.SetFaulted(new ExternalAccessFailure(
+                    ExternalAccessFailureKind.AddressInvalid,
+                    remoteEndpoint,
+                    Value: config.RemoteAddress));
                 return;
             }
 
             if (remote.Equals(IPAddress.Any) || remote.Equals(IPAddress.IPv6Any))
             {
-                ready.SetFaulted(
-                    AccessText.Get("access.common.wildcardAddressNotAllowed"));
+                ready.SetFaulted(new ExternalAccessFailure(
+                    ExternalAccessFailureKind.WildcardAddressNotAllowed,
+                    remoteEndpoint,
+                    Value: config.RemoteAddress));
                 return;
             }
 
             target = new IPEndPoint(remote, config.RemotePort);
         }
 
-        Close(CloseTimeout);
+        Close(_closeTimeout);
         _buffer.Clear();
 
-        var socket = new Socket(local.AddressFamily, SocketType.Dgram, ProtocolType.Udp)
+        ready.SetConnecting(local);
+
+        var socket = new Socket(localAddress.AddressFamily, SocketType.Dgram, ProtocolType.Udp)
         {
             EnableBroadcast = config.Broadcast,
+            SendTimeout = Volatile.Read(ref _writeTimeoutMs),
         };
 
         try
         {
-            socket.Bind(new IPEndPoint(local, config.LocalPort));
+            socket.Bind(new IPEndPoint(localAddress, config.LocalPort));
         }
         catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
         {
             socket.Dispose();
-            ready.SetFaulted(AccessText.Get("access.common.portInUse", config.LocalPort));
+            ready.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.PortInUse,
+                local,
+                Value: config.LocalPort.ToString(CultureInfo.InvariantCulture)));
             return;
         }
         catch (Exception ex)
         {
             socket.Dispose();
-            ready.SetFaulted(AccessText.Get("access.udp.bindFailed", ex.GetType().Name, ex.Message));
+            ready.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.BindFailed,
+                local,
+                Detail: DetailOf(ex)));
             return;
         }
 
+        var actual = EndpointOf(socket);
         var cts = new CancellationTokenSource();
 
         lock (_gate)
@@ -110,14 +186,12 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter
             _socket = socket;
             _target = target;
             _ready = ready;
+            _endpoint = actual;
             _cts = cts;
             _open = true;
         }
 
-        var actual = (IPEndPoint)socket.LocalEndPoint!;
-        ready.SetOpen(target is null
-            ? $"{actual.Address}:{actual.Port}"
-            : $"{actual.Address}:{actual.Port} → {target}");
+        ready.SetOpen(actual);
 
         _pump = Task.Run(() => ReceiveAsync(socket, ready, cts.Token));
     }
@@ -155,7 +229,10 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter
         }
         catch (Exception ex)
         {
-            ready?.SetFaulted(AccessText.Get("access.udp.sendFailed", ex.GetType().Name, ex.Message));
+            ready?.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.WriteFailed,
+                new ExternalAccessEndpoint(target.Address.ToString(), target.Port),
+                Detail: DetailOf(ex)));
             return false;
         }
     }
@@ -178,6 +255,7 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter
             _socket = null;
             _ready = null;
             _target = null;
+            _endpoint = null;
         }
 
         cts?.Cancel();
@@ -213,6 +291,7 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter
         // Windows 在"接收缓冲小于数据报"时会抛 SocketException 而不是截断 ⇒ 先按 UDP 最大报文收，
         // 再在应用层按单元容量截断并计数。
         var buffer = new byte[UdpMaxDatagram];
+        var local = EndpointOf(socket);
 
         while (!token.IsCancellationRequested)
         {
@@ -237,7 +316,10 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter
             {
                 if (!token.IsCancellationRequested)
                 {
-                    ready.SetFaulted(AccessText.Get("access.udp.receiveFailed", ex.GetType().Name, ex.Message));
+                    ready.SetFaulted(new ExternalAccessFailure(
+                        ExternalAccessFailureKind.ReadFailed,
+                        local,
+                        Detail: DetailOf(ex)));
                 }
 
                 return;
@@ -268,6 +350,14 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter
             ready.NotifyReady();
         }
     }
+
+    private static ExternalAccessEndpoint? EndpointOf(Socket socket) =>
+        socket.LocalEndPoint is IPEndPoint endpoint
+            ? new ExternalAccessEndpoint(endpoint.Address.ToString(), endpoint.Port)
+            : null;
+
+    private static string DetailOf(Exception exception) =>
+        exception.GetType().Name + ": " + exception.Message;
 
     private static bool TryResolveAddress(string text, out IPAddress address)
     {

@@ -161,7 +161,7 @@ public static class ThemeApplier
     /// **字体覆盖**（外观的第二个轴）：<c>FontUi</c>（界面文字）/ <c>FontData</c>（所有输入框与显示框）。
     /// </summary>
     /// <remarks>
-    /// 值可以是**回退列表**（逗号分隔，拉丁在前 / 中文在后）—— 直接交给 <see cref="FontFamily"/> 解析；
+    /// 每条轴由"西文 + 中文"两个字段组合成一个 FontFamily 串（拉丁在前 / 中文在后）；
     /// 空串 ⇒ 不覆盖（回落色板文件里的内置值）。
     /// </remarks>
     private static Dictionary<string, object> BuildFontOverrides(ApplicationSettings settings)
@@ -169,12 +169,12 @@ public static class ThemeApplier
         var appearance = settings.Appearance;
         var overrides = new Dictionary<string, object>(StringComparer.Ordinal);
 
-        if (appearance.UiFontFamily is { Length: > 0 } ui)
+        if (appearance.UiFonts.Compose() is { Length: > 0 } ui)
         {
             overrides["FontUi"] = new FontFamily(ui);
         }
 
-        if (appearance.DataFontFamily is { Length: > 0 } data)
+        if (appearance.DataFonts.Compose() is { Length: > 0 } data)
         {
             overrides["FontData"] = new FontFamily(data);
         }

@@ -14,8 +14,8 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 /// 运行时的 <see cref="IModuleViewContext"/> 由宿主提供，字段来自组合件里的配置 Schema；
 /// 预览器不启动运行时，拿不到这个上下文。于是 <see cref="ModuleView"/> 在设计环境
 /// （<see cref="Design.IsDesignMode"/> 或 <see cref="ModuleView.IsPreviewHost"/>）挂一个本类实例：
-/// 字段标题、编辑器种类、枚举选项都从配置类型自己的标注读，和运行时是同一份元数据，
-/// 只是值用默认实例。
+/// 字段类型与可选项从配置类型自己的标注读；标题 / 说明 / 分组 / 枚举选项的文本从
+/// **声明该接入的模块**的表读——和运行时是同一份元数据与同一张表，只是值用默认实例。
 /// </para>
 /// <para>
 /// 它**不是运行时数据源**，也不参与写回：提交/命令全部返回成功但什么也不做。
@@ -23,15 +23,23 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 /// </remarks>
 public sealed class DesignModuleViewContext : IModuleViewContext
 {
+    /// <summary>设计时的样例数字（让读数/占位在预览里有墨；不参与任何业务）。</summary>
+    private const double SampleNumber = 1234;
+
     private readonly Type _configType;
+    private readonly Assembly _textOwner;
     private readonly object? _config;
 
     /// <summary>用配置类型构造设计时上下文。</summary>
     /// <param name="configType">带 <see cref="ConfigurationFieldAttribute"/> 的配置类型。</param>
-    public DesignModuleViewContext(Type configType)
+    /// <param name="textOwner">配置文本的属主程序集（声明该接入的模块）。</param>
+    public DesignModuleViewContext(Type configType, Assembly textOwner)
     {
         ArgumentNullException.ThrowIfNull(configType);
+        ArgumentNullException.ThrowIfNull(textOwner);
+
         _configType = configType;
+        _textOwner = textOwner;
 
         try
         {
@@ -51,13 +59,13 @@ public sealed class DesignModuleViewContext : IModuleViewContext
     public string MultilineSubmitKey => "CtrlEnter";
 
     /// <inheritdoc />
-    public double? ReadLatest(string source) => null;
+    public double? ReadLatest(string source) => SampleNumber;
 
     /// <inheritdoc />
-    public IReadOnlyList<double> ReadSeries(string source) => [];
+    public IReadOnlyList<double> ReadSeries(string source) => [SampleNumber];
 
     /// <inheritdoc />
-    public TextBufferSnapshot ReadText(string source) => TextBufferSnapshot.Empty;
+    public TextBufferSnapshot ReadText(string source) => new([SampleText], 0, 20000, 0);
 
     /// <inheritdoc />
     public bool SubmitInput(string source, string text) => true;
@@ -110,9 +118,8 @@ public sealed class DesignModuleViewContext : IModuleViewContext
         }
 
         var metadata = property.GetCustomAttribute<ConfigurationFieldAttribute>();
-        var owner = property.DeclaringType?.Assembly;
         var value = ReadValue(property);
-        var (kind, choices) = Classify(property.PropertyType);
+        var (kind, choices) = Classify(property.PropertyType, _textOwner);
 
         if (kind is null)
         {
@@ -148,11 +155,11 @@ public sealed class DesignModuleViewContext : IModuleViewContext
             }
         }
 
-        var title = ResolveText(owner, metadata?.TitleKey)
+        var title = ResolveText(_textOwner, metadata?.TitleKey)
             ?? (string.IsNullOrWhiteSpace(metadata?.Title) ? property.Name : metadata!.Title!);
-        var description = ResolveText(owner, metadata?.DescriptionKey)
+        var description = ResolveText(_textOwner, metadata?.DescriptionKey)
             ?? (string.IsNullOrWhiteSpace(metadata?.Description) ? null : metadata!.Description);
-        var group = ResolveText(owner, metadata?.GroupKey)
+        var group = ResolveText(_textOwner, metadata?.GroupKey)
             ?? (string.IsNullOrWhiteSpace(metadata?.Group) ? null : metadata!.Group);
 
         return new ConfigFieldView(
@@ -165,6 +172,12 @@ public sealed class DesignModuleViewContext : IModuleViewContext
             description,
             group);
     }
+
+    /// <summary>设计时的样例文本（预览里让标签有墨；表不在设计环境可用时为空，由占位框兜住）。</summary>
+    private static string SampleText =>
+        TextCatalog.TryGet(typeof(DesignModuleViewContext).Assembly, "design.sampleText", out var text)
+            ? text
+            : string.Empty;
 
     /// <summary>读属性当前值的文本形态（配置实例构造失败 ⇒ 空串）。</summary>
     private string ReadValue(PropertyInfo property)
@@ -189,18 +202,19 @@ public sealed class DesignModuleViewContext : IModuleViewContext
         }
     }
 
-    /// <summary>按声明里的文本键取值（拥有者 = 特性所在类型/枚举的程序集）；未声明或表里没有 ⇒ null。</summary>
-    /// <param name="assembly">特性所在类型（配置类型 / 枚举）的程序集。</param>
+    /// <summary>按声明里的文本键取值（拥有者 = 配置文本属主）；未声明或表里没有 ⇒ null。</summary>
+    /// <param name="textOwner">配置文本的属主程序集。</param>
     /// <param name="key">文本表键（可空）。</param>
-    private static string? ResolveText(Assembly? assembly, string? key) =>
-        assembly is not null
-        && !string.IsNullOrWhiteSpace(key)
-        && TextCatalog.TryGet(assembly, key, out var text)
+    private static string? ResolveText(Assembly textOwner, string? key) =>
+        !string.IsNullOrWhiteSpace(key)
+        && TextCatalog.TryGet(textOwner, key, out var text)
             ? text
             : null;
 
     /// <summary>属性类型 → 编辑器种类 + 枚举选项（与运行时 Schema 的规则同构）。</summary>
-    private static (ConfigFieldKind? Kind, IReadOnlyList<ConfigChoice>? Choices) Classify(Type type)
+    private static (ConfigFieldKind? Kind, IReadOnlyList<ConfigChoice>? Choices) Classify(
+        Type type,
+        Assembly textOwner)
     {
         var underlying = Nullable.GetUnderlyingType(type) ?? type;
 
@@ -217,7 +231,7 @@ public sealed class DesignModuleViewContext : IModuleViewContext
             {
                 var metadata = underlying.GetField(name)
                     ?.GetCustomAttribute<ConfigurationChoiceAttribute>();
-                var title = ResolveText(underlying.Assembly, metadata?.TitleKey)
+                var title = ResolveText(textOwner, metadata?.TitleKey)
                     ?? (string.IsNullOrWhiteSpace(metadata?.Title) ? null : metadata!.Title);
 
                 choices.Add(new ConfigChoice(

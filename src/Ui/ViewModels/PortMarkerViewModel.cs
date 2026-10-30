@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Ui.Controls;
 using HYWDebugAssistant.Ui.Geometry;
 
 namespace HYWDebugAssistant.Ui.ViewModels;
@@ -109,6 +110,16 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     /// <summary>累计有效载荷字节文本（按源计；空 = 未知）。</summary>
     [ObservableProperty]
     public partial string? BytesText { get; set; }
+
+    /// <summary>
+    /// **队列压力**一行（接收口：队列深度 / 已丢 / 饱和）；空 ⇒ 悬停里不显示这一行。
+    /// </summary>
+    /// <remarks>
+    /// 只格式化框架给的事实（`GetQueueDepths` 的 <c>PortQueueDepthView</c>）；发送口没有队列 ⇒ 恒为空。
+    /// 它**不进标记本体**：标记的视觉不变，压力只在悬停里多一行。
+    /// </remarks>
+    [ObservableProperty]
+    public partial string? QueueText { get; set; }
 
     /// <summary>是否处于编辑状态（双击进入；编辑用**弹出输入框**，不嵌在标记里）。</summary>
     [ObservableProperty]
@@ -294,6 +305,16 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
         : TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.anchor.tip.draggable");
 
     /// <summary>
+    /// **固定 / 解锁**按钮的字形键：未固定 = 开锁，已固定 = 锁（码位在 Ui 的图标表里）。
+    /// </summary>
+    /// <remarks>
+    /// 这里表达的是**状态**（现在处于哪种固定状态），不是"按下去会怎样"——
+    /// 与模块窗口右上角的锁定按钮相反，那边的图标表达**动作**（未锁时显示上锁）。
+    /// 锚点的动作写在悬停提示里（见 <see cref="AnchorToggleTip"/>）。
+    /// </remarks>
+    public string AnchorIconKey => IsAnchorFixed ? ShellIcons.Lock : ShellIcons.Unlock;
+
+    /// <summary>
     /// **正在被拖动**——拖动期间本地 <see cref="Edge"/>/<see cref="Offset"/> 是"待提交的意图"，
     /// 刷新节拍的 <c>SyncPorts</c> **不得**用框架权威值覆盖它（否则拖到一半会被拽回原位）。
     /// </summary>
@@ -357,6 +378,12 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
 
                 text += TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.tooltip.metrics", Delivered, Dropped)
                     + (BytesText is { Length: > 0 } bytes ? TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.tooltip.bytes", bytes) : string.Empty);
+
+                if (QueueText is { Length: > 0 } queue)
+                {
+                    // 队列压力：只在有队列且确实有压力时出现（悬停多一行，标记本身不变）
+                    text += Environment.NewLine + queue;
+                }
             }
 
             return text + TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, IsAnchorFixed
@@ -374,6 +401,8 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     }
 
     partial void OnEditErrorChanged(string? value) => OnPropertyChanged(nameof(HasEditError));
+
+    partial void OnQueueTextChanged(string? value) => OnPropertyChanged(nameof(Tooltip));
 
     /// <summary>
     /// **换了边 ⇒ 形态全套跟着变**：竖排/横排、标记宽高、箭头字形、悬停提示。
@@ -396,6 +425,7 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(IsDraggable));
         OnPropertyChanged(nameof(AnchorToggleTip));
+        OnPropertyChanged(nameof(AnchorIconKey));
         OnPropertyChanged(nameof(Tooltip));
     }
 

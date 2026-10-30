@@ -572,7 +572,20 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     public IReadOnlyDictionary<string, string> GetHotkeyBindings() => Settings.HotkeyBindings();
 
     /// <summary>快捷键/设置变更后重建绑定（由外壳窗口在设置应用后调用）。</summary>
-    public void ReloadHotkeys() => _ = Hotkeys.Rebuild(GetHotkeyBindings());
+    public void ReloadHotkeys()
+    {
+        _ = Hotkeys.Rebuild(GetHotkeyBindings());
+        OnPropertyChanged(nameof(HotkeyHelpText));
+    }
+
+    /// <summary>
+    /// **快捷键帮助正文**：逐条 `<当前绑定>  <动作名>`，未绑定的动作不列。
+    /// </summary>
+    /// <remarks>
+    /// 由 <see cref="HotkeyService.HelpText"/> 按**当前生效的绑定**生成，随 <see cref="ReloadHotkeys"/> 刷新 ——
+    /// 用户改过绑定后帮助跟着变；不写死在文本表里（那会变成死文本）。
+    /// </remarks>
+    public string HotkeyHelpText => Hotkeys.HelpText;
 
     /// <summary>切换口标记显示。</summary>
     [RelayCommand]

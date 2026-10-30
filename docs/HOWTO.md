@@ -72,6 +72,7 @@
 2. 模块：在该模块的包内 `i18n/<程序集简名>/` 下加同名文件（源码里放 `src/Modules/.../i18n/<程序集简名>/`，构建会随包带走）。
 3. 表格式与键集合必须与中文表**逐键一致**（占位符也要一致），否则审计判红；改完重编，或发布后直接替换发布目录里的表文件（文本是数据，不在 DLL 里）。
 4. 语言下拉会自动出现新语言（`TextCatalog.SupportedLanguages` 扫表目录得出）；缺某语言的模块按回退链显示中文。
+5. **加完语言跑一次视图契约用例**（`ModuleViewContractTests`）：静态标签装不下自己的矩形会红；按红的地方在那个视图的 `.axaml` 里加宽那条矩形或缩短标题 —— **不动坐标体系**，也不许把标签改成自动换行/缩字号来"塞进去"。
 
 ---
 
@@ -86,6 +87,7 @@
 | 架构规则 | `tests/HYWDebugAssistant.ArchitectureTests`，**自研**（程序集元数据 + 源码扫描），**不引第三方架构测试框架**；**目标程序集缺失即失败**（禁止「无对象则跳过」） |
 | 模块包边界 | `tools/verify-module-packages.ps1` + AR-24：8 个模块包只含模块自有文件；不得含 `Sdk*` / `Sdk.Ui*` / `Sdk.AccessKit*` / `Access*` / Avalonia / 外部接入第三方依赖；宿主输出必须提供这些程序集 |
 | 数值 | **测试不重复声明面的数值**：断言的对象是「**声明被框架正确应用**」（声明 → 模型 / 渲染），不是「数值等于某个常量」。写法 = 读同一份声明的**原始字节**（包内 `.json` / schema）与框架产出的模型逐项比对；观感类数值（尺寸 / 颜色 / 字号 / 间距）不得成为测试的判据，改声明就该继续绿 |
+| 文案 | **测试不得以文案为判据**：断言键 / 结构（类别、对象路径、计数、顺序、编码往返），不写死界面文案或诊断措辞；测试里出现文案字面量会被 `tools/audit-resources.ps1` 第⑦段拦下 |
 | UI | 自动化只有两处：`tests/HYWDebugAssistant.VisualSnapshots`（真实渲染出 PNG，**必须独立进程**）与无头 UI 用例；其余由用户手工验证 |
 | 基准 | `HYWDebugAssistant.Benchmarks` **不进常规门禁**（`build.ps1 -RunBenchmarks` 按需）；热路径改动要给出分配数据 |
 
@@ -137,3 +139,14 @@
 | 测试全绿但其实没跑 | `-Filter` 自带 `FullyQualifiedName~` 前缀被拼了两层 | 只写片段（脚本已就地剥离前缀） |
 
 其它依赖 Avalonia 12 / 本项目历史的坑：见 [`STYLE.md`](STYLE.md) §4。
+
+---
+
+## 7. 改图标 / 加图标
+
+- 框架图标：`resources/icons/<owner>/icons.json`（键 → 相对 `.svg`；**Fluent UI MDL2**，`viewBox 2048`，MIT）；模块图标：模块包内 `resources/icons/<owner>/`（`module.json` 的 `resources` 声明；`refresh.svg` 是 **Fluent UI System Icons** 20px，MIT）。
+- 加/换一个图标：改/加 `icons.json` 的键 → 相对 `.svg`；框架侧在 `Ui/Controls/ShellIcons.cs` 加常量、界面用 `IconButton` / `Glyph` 的 `Icon="{x:Static ...}"`；模块侧在 `ViewKeys` 加常量、`ModuleButton` 的 `Icon`。重启应用/模块生效，不重编。
+- 模块自定义资源（图片/字体/…）：放模块 `resources/<kind>/`，`module.json` 的 `resources` 声明；模块用 `IModuleContext.Resources`（`IResourceAccess`）读；不改框架 `ResourceKinds`/审计。
+- 不要画 `<Path>` / `<PathIcon>`、不要写 `&#xE…;` / `\uE…` / `Glyph*` token；SVG 只支持 `viewBox` + `<path d>` + `fill-rule`（`transform` / `<use>` 不支持）。
+- 缺键/缺表：键名 + 诊断；框架表构建期审计，模块表运行时诊断；模块包由 `verify-module-packages` 校验。
+- 许可：`resources/icons/LICENSE` + 仓库根 `THIRD_PARTY_NOTICES.md`。

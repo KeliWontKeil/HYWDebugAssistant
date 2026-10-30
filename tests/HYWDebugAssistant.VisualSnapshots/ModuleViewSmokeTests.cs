@@ -8,8 +8,10 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media;
+using ShapeRectangle = Avalonia.Controls.Shapes.Rectangle;
 using Avalonia.Media.Imaging;
 using Avalonia.Media.TextFormatting;
+using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -19,14 +21,20 @@ using HYWDebugAssistant.Modules.HexStringConverter.Views;
 using HYWDebugAssistant.Modules.Serial.Views;
 using HYWDebugAssistant.Modules.TcpClient.Views;
 using HYWDebugAssistant.Modules.TcpServer.Views;
+using HYWDebugAssistant.Modules.TextSender;
 using HYWDebugAssistant.Modules.TextSender.Views;
 using HYWDebugAssistant.Modules.Udp.Views;
 using HYWDebugAssistant.Sdk.Access;
+using HYWDebugAssistant.Sdk.Resources;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
+using HYWDebugAssistant.Sdk.Ui.Formatting;
+using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.Views;
 using Shouldly;
 using Xunit;
+using SdkIcon = HYWDebugAssistant.Sdk.Ui.Controls.Icon;
 
 namespace HYWDebugAssistant.VisualSnapshots;
 
@@ -47,7 +55,7 @@ namespace HYWDebugAssistant.VisualSnapshots;
 [Collection("visual-snapshots")]
 public class ModuleViewSmokeTests
 {
-    /// <summary>串口的自带视图应当画出 5 个参数格（带标题）+ 3 格读数 + 状态灯 + 2 个按钮。</summary>
+    /// <summary>串口的自带视图应当画出 5 个参数格（带标题）+ 3 格读数 + 状态灯 + 3 个按钮。</summary>
     [Fact]
     public async Task 串口的自带视图_应画出参数格与读数()
     {
@@ -79,20 +87,36 @@ public class ModuleViewSmokeTests
                     ["PortName", "BaudRate", "DataBits", "StopBits", "Parity"],
                     ignoreOrder: true);
 
-                // **标题回来了**：标题来自配置类型，不在视图里重复写。
-                fields.ShouldAllBe(field => field.FieldTitle.Length > 0, "每个参数格都要显示出字段标题");
+                // **标题是独立控件**：每个参数都有自己的标签，标题来自配置类型，不在视图里重复写。
+                var labels = window.GetVisualDescendants()
+                    .OfType<ModuleLabel>()
+                    .Where(label => label.Field.Length > 0)
+                    .ToList();
+                labels.Count.ShouldBe(5, "每个参数格都要有自己的标题标签");
+                labels.ShouldAllBe(label => LabelText(label).Length > 0, "每个参数格都要显示出字段标题");
                 fields.ShouldAllBe(field => field.Notice.Length == 0, "字段名对得上时不该有提示");
 
                 window.GetVisualDescendants().OfType<ModuleNumeric>().Count().ShouldBe(3, "收 / 发 / 丢弃");
                 window.GetVisualDescendants().OfType<ModuleStatusLight>().Count().ShouldBe(1);
-                window.GetVisualDescendants().OfType<ModuleButton>().Count().ShouldBe(2, "打开 / 关闭");
+                window.GetVisualDescendants().OfType<ModuleButton>().Count().ShouldBe(3, "打开 / 关闭 / 清空计数");
 
-                // 读数真的显示了值（桩上下文给 42）——"建了控件但从来不画数"是另一类失败，
-                // 而"数在、标题不在"同样是一类（标题块造了却没进可视树）。
+                // 清空计数按钮：内容来自模块自己的图标清单（一个图标控件），视图里没有自绘路径几何。
+                var clearButton = window.GetVisualDescendants()
+                    .OfType<ModuleButton>()
+                    .Single(button => string.Equals(button.Icon, SerialViewKeys.ClearCountersIcon, StringComparison.Ordinal));
+
+                var clearIcon = clearButton.Content.ShouldBeOfType<SdkIcon>(
+                    "清空按钮的内容必须是图标控件（键 → SVG，不是字形）");
+                clearIcon.IconKey.ShouldBe(SerialViewKeys.ClearCountersIcon);
+                clearIcon.Owner.ShouldBe(typeof(SerialViewFactory).Assembly, "图标来自模块自己的清单");
+                clearIcon.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>()
+                    .Single().Data.ShouldNotBeNull("图标必须真的画出几何");
+
+                // 读数真的显示了值（桩上下文给 42；字节数量的显示文本由同一格式化实现给出）。
+                var expected = ByteQuantity.Format(42);
                 var numerics = window.GetVisualDescendants().OfType<ModuleNumeric>().ToList();
                 numerics.ShouldAllBe(numeric => numeric.GetVisualDescendants().OfType<TextBlock>()
-                    .Any(text => text.Text == "42"));
-                numerics.ShouldAllBe(numeric => numeric.Title.Length > 0, "读数要有标题（收 / 发 / 丢弃）");
+                    .Any(text => text.Text == expected));
 
                 window.Close(); Pump();
             },
@@ -128,7 +152,6 @@ public class ModuleViewSmokeTests
                 host.Refresh();
                 Pump();
 
-                field.FieldTitle.ShouldBe("禁用 Nagle", "标题来自配置类型");
                 field.Notice.ShouldBeEmpty("字段存在时不该有提示");
                 var toggle = field.GetVisualDescendants().OfType<ModuleToggle>().ShouldHaveSingleItem();
                 toggle.IsChecked.ShouldBeTrue("初值来自配置（true），且布尔一律用统一开关");
@@ -320,9 +343,7 @@ public class ModuleViewSmokeTests
                 var editor = box.GetVisualDescendants().OfType<TextBox>().ShouldHaveSingleItem();
                 editor.BorderThickness.ShouldBe(default, "内层编辑器的边框固定为 0，普通边框由 PART_Frame 画");
 
-                var ring = box.GetVisualDescendants()
-                    .OfType<Border>()
-                    .Single(border => border.Name == "PART_ErrorRing");
+                var ring = SurfacePart<Border>(box, "PART_ErrorRing");
                 ring.IsVisible.ShouldBeTrue("错误圈必须在焦点/选择边框之上");
                 ring.BorderBrush.ShouldBeOfType<SolidColorBrush>().Color
                     .ShouldBe(Color.Parse("#DC2626"));
@@ -404,9 +425,15 @@ public class ModuleViewSmokeTests
                     var fields = view.GetVisualDescendants().OfType<ModuleConfigField>().ToList();
                     fields.ShouldNotBeEmpty();
 
+                    var labels = view.GetVisualDescendants()
+                        .OfType<ModuleLabel>()
+                        .Where(label => label.Field.Length > 0)
+                        .ToList();
+                    labels.Count.ShouldBe(fields.Count, "每个配置字段都要有一个独立的标题标签");
+                    labels.ShouldAllBe(label => LabelText(label).Length > 0, "字段标题来自配置标注");
+
                     foreach (var field in fields)
                     {
-                        field.FieldTitle.ShouldNotBeNullOrWhiteSpace("字段标题来自配置标注");
                         field.GetVisualDescendants().Any(control => control is TextBox or ComboBox or ModuleToggle)
                             .ShouldBeTrue("每个配置字段都要有可见编辑器");
                     }
@@ -418,6 +445,91 @@ public class ModuleViewSmokeTests
                 {
                     ModuleView.IsPreviewHost = false;
                 }
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>
+    /// **预览里空/透明的标签必须有占位框**（否则什么都看不见，没法排版）；产品运行不显示。
+    /// </summary>
+    [Fact]
+    public async Task 预览模式_空标签有占位框_产品运行没有()
+    {
+        var session = SnapshotSession.Shared;
+
+        await session.Dispatch(
+            () =>
+            {
+                ModuleView.IsPreviewHost = true;
+                RegisterPreviewStandardConfigs();
+
+                try
+                {
+                    var view = new SerialView();
+                    var window = new Window
+                    {
+                        Width = 400,
+                        Height = 190,
+                        Content = new Border { Margin = ModuleSurfaceMetrics.ContentMargin, Child = view },
+                    };
+
+                    window.Show();
+                    Pump();
+
+                    // 动态文本（状态）：预览里没有宿主上下文 ⇒ 没有墨，必须有占位框。
+                    var status = view.GetVisualDescendants()
+                        .OfType<ModuleLabel>()
+                        .First(label => label.Source.Length > 0);
+                    status.GetVisualDescendants().OfType<TextBlock>()
+                        .Single(block => block.Name == "PART_Text")
+                        .Text.ShouldBeNullOrEmpty("预览里没有运行时数据，动态文本为空");
+                    status.GetVisualDescendants().OfType<ShapeRectangle>()
+                        .Single(shape => shape.Name == "PART_Placeholder")
+                        .IsVisible.ShouldBeTrue("预览里空标签必须有一个可见的占位框");
+
+                    // 字段标题：预览里有设计时上下文 ⇒ 有墨（墨来自配置元数据，与运行时同一份）。
+                    var fieldLabel = view.GetVisualDescendants()
+                        .OfType<ModuleLabel>()
+                        .First(label => label.Field.Length > 0);
+                    fieldLabel.GetVisualDescendants().OfType<TextBlock>()
+                        .Single(block => block.Name == "PART_Text")
+                        .Text.ShouldNotBeNullOrWhiteSpace("预览里有设计时上下文，字段标题要有墨");
+                    fieldLabel.GetVisualDescendants().OfType<ShapeRectangle>()
+                        .Single(shape => shape.Name == "PART_Placeholder")
+                        .IsVisible.ShouldBeFalse("有墨的标签不显示占位框");
+
+                    // 留一张图给眼睛看（预览排版框的样子）。
+                    using var bitmap = new RenderTargetBitmap(new PixelSize(400, 190));
+                    bitmap.Render(window);
+                    bitmap.Save(
+                        Path.Combine(Path.GetTempPath(), "hyw-module-preview-probe.png"),
+                        PngBitmapEncoderOptions.Default);
+
+                    window.Close();
+                    Pump();
+                }
+                finally
+                {
+                    ModuleView.IsPreviewHost = false;
+                }
+
+                // **产品运行**：同样为空的标签不显示预览占位框。
+                var label = new ModuleLabel { Text = string.Empty };
+                var host = new ModuleViewHost(new StubViewContext(), label);
+                var productWindow = new Window
+                {
+                    Width = 120,
+                    Height = 40,
+                    Content = new Border { Child = host },
+                };
+
+                productWindow.Show();
+                Pump();
+                label.GetVisualDescendants().OfType<ShapeRectangle>()
+                    .Single(shape => shape.Name == "PART_Placeholder")
+                    .IsVisible.ShouldBeFalse("产品运行不许出现预览占位框");
+                productWindow.Close();
+                Pump();
             },
             CancellationToken.None);
     }
@@ -460,7 +572,7 @@ public class ModuleViewSmokeTests
                     Height = 300,
                     Content = new Border
                     {
-                        Margin = new Thickness(20, 22, 20, 24),
+                        Margin = ModuleSurfaceMetrics.ContentMargin,
                         Child = view,
                     },
                 };
@@ -541,15 +653,22 @@ public class ModuleViewSmokeTests
                 window.Show();
                 Pump();
 
-                string.Join("|", FieldLabels(text)).ShouldBe("文本输入");
-                string.Join("|", FieldLabels(hex)).ShouldBe("HEX 输入");
-                string.Join("|", FieldLabels(converter)).ShouldBe("文本 → HEX|HEX → 文本");
+                var textInputLabel = TextCatalog.Get(typeof(TextSenderView).Assembly, "view.inputLabel");
+                var hexInputLabel = TextCatalog.Get(typeof(HexSenderView).Assembly, "view.inputLabel");
+
+                // 输入区标题是**独立标签控件**：视图里能读到它，而不是靠控件内部的标题。
+                LabelTexts(text).ShouldContain(textInputLabel);
+                LabelTexts(hex).ShouldContain(hexInputLabel);
+
+                var converterTexts = LabelTexts(converter);
+                converterTexts.ShouldContain(TextCatalog.Get(typeof(HexStringConverterView).Assembly, "view.textToHex"));
+                converterTexts.ShouldContain(TextCatalog.Get(typeof(HexStringConverterView).Assembly, "view.hexToText"));
 
                 var size = new PixelSize(420, 700);
                 using var bitmap = new RenderTargetBitmap(size, new Vector(96, 96));
                 bitmap.Render(window);
                 bitmap.Save(
-                    Path.Combine(Path.GetTempPath(), "hyw-module-field-labels.png"),
+                    Path.Combine(Path.GetTempPath(), "hyw-module-labels.png"),
                     PngBitmapEncoderOptions.Default);
 
                 window.Close();
@@ -558,12 +677,19 @@ public class ModuleViewSmokeTests
             CancellationToken.None);
     }
 
-    /// <summary>取模块里带 `module-field-label` 类的文字（按视觉树顺序）。</summary>
-    private static List<string> FieldLabels(Control view) =>
-        view.GetVisualDescendants()
+    /// <summary>取一个标签控件当前显示的文字（标签是独立控件，文字在它的模板里）。</summary>
+    private static string LabelText(ModuleLabel label) =>
+        label.GetVisualDescendants()
             .OfType<TextBlock>()
-            .Where(block => block.Classes.Contains("module-field-label"))
-            .Select(block => block.Text ?? string.Empty)
+            .FirstOrDefault(block => block.Name == "PART_Text")
+            ?.Text ?? string.Empty;
+
+    /// <summary>取视图里全部标签控件当前显示的文字（按视觉树顺序）。</summary>
+    private static List<string> LabelTexts(Control view) =>
+        view.GetVisualDescendants()
+            .OfType<ModuleLabel>()
+            .Select(LabelText)
+            .Where(text => text.Length > 0)
             .ToList();
 
     /// <summary>
@@ -588,7 +714,7 @@ public class ModuleViewSmokeTests
                     Height = 240,
                     Content = new Border
                     {
-                        Margin = new Thickness(20, 22, 20, 24),
+                        Margin = ModuleSurfaceMetrics.ContentMargin,
                         Child = view,
                     },
                 };
@@ -601,10 +727,10 @@ public class ModuleViewSmokeTests
                     .OfType<TextBlock>()
                     .Select(text => text.Text ?? string.Empty)
                     .ToList();
-                viewTexts.ShouldContain("文本输入", "模块视图文案应命中随包文本表");
-                viewTexts.ShouldContain("连续发送", "开关文案应命中随包文本表");
+                viewTexts.ShouldContain(TextCatalog.Get(typeof(TextSenderView).Assembly, "view.inputLabel"), "模块视图文案应命中随包文本表");
+                viewTexts.ShouldContain(TextCatalog.Get(typeof(TextSenderView).Assembly, "view.continuous"), "开关文案应命中随包文本表");
                 viewTexts.ShouldNotContain(
-                    text => text.Contains('\u27E6'),
+                    text => TextCatalog.IsMissing(text),
                     "随包文本表命中时不得出现可见缺失标记");
 
                 var tabs = view.GetVisualDescendants().OfType<ModuleTabs>().Single();
@@ -708,7 +834,10 @@ public class ModuleViewSmokeTests
         await session.Dispatch(
             () =>
             {
-                var context = new StubViewContext { TextLines = ["甲", "乙"] };
+                var firstLine = "甲";
+                var secondLine = "乙";
+                var logLines = new[] { firstLine, secondLine };
+                var context = new StubViewContext { TextLines = logLines };
                 var log = new ModuleTextSurface { Source = "log", Mode = TextSurfaceMode.Display };
                 var host = new ModuleViewHost(context, log);
                 var window = new Window
@@ -728,12 +857,12 @@ public class ModuleViewSmokeTests
 
                 var text = log.GetVisualDescendants().OfType<IncrementalTextView>().ShouldHaveSingleItem();
                 text.IsVisible.ShouldBeTrue("显示面由只读文本叶子呈现");
-                text.Text.ShouldBe($"甲{Environment.NewLine}乙");
+                text.Text.ShouldBe(string.Join(Environment.NewLine, logLines));
                 text.SelectionBrush.ShouldNotBe(Brushes.Transparent, "只读文本仍用普通淡蓝选择");
 
                 text.SelectionStart = 0;
                 text.SelectionEnd = 1;
-                text.SelectedText.ShouldBe("甲", "只读文本仍可选中/复制");
+                text.SelectedText.ShouldBe(firstLine, "只读文本仍可选中/复制");
                 text.CanCopy.ShouldBeTrue("只读文本可复制");
 
                 text.MarkCount.ShouldBe(0, "日志行间分隔不是数据里的换行字符，不能画 ↵");
@@ -1219,9 +1348,9 @@ public class ModuleViewSmokeTests
             "超长单行的折行必须与一次完整布局一致，不能在 512 字符块边界硬断");
     }
 
-    /// <summary>配置文本框只读时也换成文本叶子：可选中/复制，但不是可编辑 TextBox。</summary>
+    /// <summary>配置文本框运行期只读：仍是同一个输入框，可选中复制，但不进 Tab 序。</summary>
     [Fact]
-    public async Task 只读配置文本框_文本可复制但没有编辑器焦点()
+    public async Task 只读配置文本框_仍是输入框_可复制但不进Tab序()
     {
         var session = SnapshotSession.Shared;
 
@@ -1244,23 +1373,22 @@ public class ModuleViewSmokeTests
                 Pump();
 
                 var input = field.GetVisualDescendants().OfType<TextBox>().ShouldHaveSingleItem();
-                input.IsEffectivelyVisible.ShouldBeFalse("只读配置字段不显示可编辑 TextBox");
-                input.Focusable.ShouldBeFalse();
+                input.IsEffectivelyVisible.ShouldBeTrue("运行期只读不换叶子");
+                input.IsReadOnly.ShouldBeTrue();
+                input.IsTabStop.ShouldBeFalse("只读不进 Tab 序");
+                input.Focusable.ShouldBeTrue("只读仍可聚焦选中复制");
 
-                var readText = field.GetVisualDescendants().OfType<SelectableTextBlock>().ShouldHaveSingleItem();
-                readText.IsVisible.ShouldBeTrue();
-                readText.Text.ShouldBe("COM3");
-                readText.SelectionBrush.ShouldNotBe(Brushes.Transparent);
-                readText.SelectionStart = 0;
-                readText.SelectionEnd = 1;
-                readText.SelectedText.ShouldBe("C", "只读配置文本仍可选中/复制");
-                readText.CanCopy.ShouldBeTrue();
+                field.GetVisualDescendants().OfType<SelectableTextBlock>().ShouldBeEmpty("不再有只读叶子");
+                field.GetVisualDescendants().OfType<Border>().ShouldNotContain(border => border.Name == "PART_ReadFrame");
 
-                var frame = field.GetVisualDescendants()
-                    .OfType<Border>()
-                    .Single(border => border.Name == "PART_ReadFrame");
-                frame.BorderBrush.ShouldBeOfType<SolidColorBrush>().Color
-                    .ShouldBe(Color.Parse("#D4D4D8"));
+                input.SelectionStart = 0;
+                input.SelectionEnd = 1;
+                input.SelectedText.ShouldBe("C", "只读配置文本仍可选中/复制");
+                input.CanCopy.ShouldBeTrue();
+
+                var frame = input.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "PART_BorderElement");
+                ColorOf(frame.BorderBrush).ShouldBe(ColorOf(Resource("BorderDefault")));
+                frame.BorderThickness.ShouldBe(new Thickness(1));
 
                 window.Close(); Pump();
             },
@@ -1268,8 +1396,8 @@ public class ModuleViewSmokeTests
     }
 
     /// <summary>
-    /// **同一个 ModuleTextSurface 的两种叶子**：只读可选中/复制但没有编辑器焦点；
-    /// 可写用 TextBox 且可聚焦；两者共用同一模板与边框/错误层。
+    /// **同一个 ModuleTextSurface 的两种叶子**：声明只读走文本叶子；可写走 TextBox。
+    /// 两种 frame 用同一条边框（不再区分"可写/只读两种边框"）。
     /// </summary>
     [Fact]
     public async Task 只读与可写_同一控件不同叶子()
@@ -1280,18 +1408,20 @@ public class ModuleViewSmokeTests
             () =>
             {
                 var context = new StubViewContext();
+                var readOnlyValue = "甲\n乙";
+                var editableValue = "丙\n丁";
                 var readOnly = new ModuleTextSurface
                 {
                     Source = "text1",
                     Multiline = true,
                     IsReadOnly = true,
-                    Text = "甲\n乙",
+                    Text = readOnlyValue,
                 };
                 var editable = new ModuleTextSurface
                 {
                     Source = "text2",
                     Multiline = true,
-                    Text = "丙\n丁",
+                    Text = editableValue,
                 };
                 var host = new ModuleViewHost(
                     context,
@@ -1312,50 +1442,38 @@ public class ModuleViewSmokeTests
                 var readOnlyText = readOnly.GetVisualDescendants().OfType<IncrementalTextView>().ShouldHaveSingleItem();
                 var editableInput = editable.GetVisualDescendants().OfType<TextBox>().ShouldHaveSingleItem();
 
-                readOnlyInput.IsVisible.ShouldBeFalse("只读不显示可编辑 TextBox");
-                readOnlyInput.Focusable.ShouldBeFalse("只读不进编辑器焦点");
-                readOnlyText.IsVisible.ShouldBeTrue("只读由文本叶子呈现");
+                readOnlyInput.IsVisible.ShouldBeFalse("声明只读不显示可编辑 TextBox");
+                readOnlyInput.Focusable.ShouldBeFalse("声明只读不进编辑器焦点");
+                readOnlyText.IsVisible.ShouldBeTrue("声明只读由文本叶子呈现");
                 editableInput.IsVisible.ShouldBeTrue("可写由 TextBox 呈现");
                 editableInput.Focusable.ShouldBeTrue("可写可聚焦");
 
-                var readOnlyFrame = readOnly.GetVisualDescendants()
-                    .OfType<Border>()
-                    .Single(border => border.Name == "PART_Frame");
-                var editableFrame = editable.GetVisualDescendants()
-                    .OfType<Border>()
-                    .Single(border => border.Name == "PART_Frame");
+                var readOnlyFrame = SurfacePart<Border>(readOnly, "PART_Frame");
+                var editableFrame = SurfacePart<Border>(editable, "PART_Frame");
+                var borderDefault = Resource("BorderDefault");
 
-                readOnlyFrame.BorderBrush.ShouldBeOfType<SolidColorBrush>().Color
-                    .ShouldBe(Color.Parse("#D4D4D8"), "只读边框走 BorderDefault");
-                editableFrame.BorderBrush.ShouldBeOfType<SolidColorBrush>().Color
-                    .ShouldBe(Color.Parse("#3F3F46"), "可编辑边框走 SurfaceTextFrameEditableBrush");
-                readOnlyFrame.Classes.Contains("readonly").ShouldBeTrue();
-                editableFrame.Classes.Contains("readonly").ShouldBeFalse();
+                ColorOf(readOnlyFrame.BorderBrush).ShouldBe(ColorOf(borderDefault), "只读叶子走 BorderDefault");
+                ColorOf(editableFrame.BorderBrush).ShouldBe(ColorOf(borderDefault), "可写帧与只读帧同一条边框");
 
-                readOnlyText.SelectionBrush.ShouldBeOfType<SolidColorBrush>().Color
-                    .ShouldBe(Color.Parse("#2563EB"), "只读文本选择是淡蓝，不是黑色");
-                editableInput.SelectionBrush.ShouldBeOfType<SolidColorBrush>().Color
-                    .ShouldBe(Color.Parse("#2563EB"), "可写选择也是淡蓝");
+                var selection = Resource("OverlaySelection");
+                ColorOf(readOnlyText.SelectionBrush).ShouldBe(ColorOf(selection), "只读文本选择走叠加色");
+                ColorOf(editableInput.SelectionBrush).ShouldBe(ColorOf(selection), "可写选择走叠加色");
 
                 readOnlyText.SelectionStart = 0;
                 readOnlyText.SelectionEnd = 1;
                 editableInput.SelectionStart = 0;
                 editableInput.SelectionEnd = 1;
 
-                readOnlyText.SelectedText.ShouldBe("甲", "只读仍可选中/复制");
+                readOnlyText.SelectedText.ShouldBe(readOnlyValue[..1], "只读仍可选中/复制");
                 readOnlyText.CanCopy.ShouldBeTrue();
-                editableInput.SelectedText.ShouldBe("丙", "可写选择行为不变");
+                editableInput.SelectedText.ShouldBe(editableValue[..1], "可写选择行为不变");
 
                 readOnlyFrame.BorderThickness.ShouldBe(new Thickness(1), "只读 frame 固定 1px");
                 editableFrame.BorderThickness.ShouldBe(new Thickness(1), "可编辑 frame 固定 1px");
                 editableInput.BorderThickness.ShouldBe(default, "内层 TextBox 不画边框");
 
-                var readOnlyFocus = readOnly.GetVisualDescendants()
-                    .OfType<Border>()
-                    .Single(border => border.Name == "PART_FocusRing");
-                var editableFocus = editable.GetVisualDescendants()
-                    .OfType<Border>()
-                    .Single(border => border.Name == "PART_FocusRing");
+                var readOnlyFocus = SurfacePart<Border>(readOnly, "PART_FocusRing");
+                var editableFocus = SurfacePart<Border>(editable, "PART_FocusRing");
 
                 readOnlyFocus.IsVisible.ShouldBeFalse("只读没有编辑焦点圈");
 
@@ -1363,6 +1481,64 @@ public class ModuleViewSmokeTests
                 Pump();
                 editableFocus.IsVisible.ShouldBeTrue("可编辑聚焦显示 2px 焦点圈");
                 editableFocus.BorderThickness.ShouldBe(new Thickness(2));
+
+                window.Close(); Pump();
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>
+    /// **运行期只读不换叶子**：外观通道的 `ReadOnly` 只停止编辑 —— 输入框仍可见、
+    /// 边框与厚度不变、仍可选中复制；清除后恢复可编辑。
+    /// </summary>
+    [Fact]
+    public async Task 运行期只读_保持输入叶子且外观不变()
+    {
+        var session = SnapshotSession.Shared;
+
+        await session.Dispatch(
+            () =>
+            {
+                var context = new StubViewContext { SurfaceReadOnly = true };
+                var surface = new ModuleTextSurface { Source = "runtime" };
+                surface.Text = "abc";
+
+                var host = new ModuleViewHost(context, surface);
+                var window = new Window
+                {
+                    Width = 260,
+                    Height = 80,
+                    Content = new Border { Child = host },
+                };
+
+                window.Show();
+                Pump();
+                host.Refresh();
+                Pump();
+
+                var input = surface.GetVisualDescendants().OfType<TextBox>().ShouldHaveSingleItem();
+                input.IsVisible.ShouldBeTrue("运行期只读保持输入叶子");
+                input.IsReadOnly.ShouldBeTrue();
+                input.Focusable.ShouldBeTrue("运行期只读仍可聚焦");
+                input.IsTabStop.ShouldBeTrue("运行期只读不改变 Tab 序");
+                input.Classes.Contains("readonly").ShouldBeFalse("不再有 readonly 类");
+
+                var frame = SurfacePart<Border>(surface, "PART_Frame");
+                ColorOf(frame.BorderBrush).ShouldBe(ColorOf(Resource("BorderDefault")));
+                frame.BorderThickness.ShouldBe(new Thickness(1));
+
+                input.SelectionStart = 0;
+                input.SelectionEnd = 1;
+                input.SelectedText.ShouldBe("a", "运行期只读仍可选中/复制");
+                input.CanCopy.ShouldBeTrue();
+
+                context.SurfaceReadOnly = false;
+                host.Refresh();
+                Pump();
+
+                input.IsReadOnly.ShouldBeFalse();
+                input.IsTabStop.ShouldBeTrue();
+                frame.BorderThickness.ShouldBe(new Thickness(1), "恢复可编辑后边框不变");
 
                 window.Close(); Pump();
             },
@@ -1541,6 +1717,60 @@ public class ModuleViewSmokeTests
         return seen.Count;
     }
 
+    /// <summary>
+    /// **真实视图里的窄输入框**：TextSender 的「间隔」是 48×24 的文本面；内层编辑器必须落在
+    /// frame 内（48−2 宽、24−2 高），不能被 Fluent 的外来最小宽/高顶出矩形。
+    /// </summary>
+    [Fact]
+    public async Task 文本发送器_间隔输入框_不被外来尺寸下限顶出矩形()
+    {
+        var session = SnapshotSession.Shared;
+
+        await session.Dispatch(
+            () =>
+            {
+                var context = new StubViewContext();
+                context.WriteInputText(TextSenderModule.IntervalSource, "1234");
+
+                var view = new TextSenderView { DataContext = context };
+                var host = new ModuleViewHost(context, view);
+                var window = new Window
+                {
+                    Width = 400,
+                    Height = 240,
+                    Content = new Border { Child = host },
+                };
+
+                window.Show();
+                Pump();
+                host.Refresh();
+                Pump();
+
+                var surface = view.GetVisualDescendants()
+                    .OfType<ModuleTextSurface>()
+                    .Single(item => string.Equals(item.Source, TextSenderModule.IntervalSource, StringComparison.Ordinal));
+                var frame = SurfacePart<Border>(surface, "PART_Frame");
+                var input = surface.GetVisualDescendants().OfType<TextBox>().ShouldHaveSingleItem();
+
+                frame.Bounds.Width.ShouldBe(48);
+                frame.Bounds.Height.ShouldBe(24);
+
+                input.MinWidth.ShouldBe(0, "输入框不得保留主题最小宽度");
+                input.MinHeight.ShouldBe(0, "输入框不得保留外来最小高度");
+                input.Bounds.Width.ShouldBeLessThanOrEqualTo(frame.Bounds.Width - 2, "48 宽的框内容只有 46");
+                input.Bounds.Height.ShouldBeLessThanOrEqualTo(frame.Bounds.Height - 2, "24 高的框内容只有 22");
+
+                var origin = input.TranslatePoint(new Point(0, 0), frame)!.Value;
+                origin.X.ShouldBeGreaterThanOrEqualTo(0);
+                origin.Y.ShouldBeGreaterThanOrEqualTo(0);
+                (origin.X + input.Bounds.Width).ShouldBeLessThanOrEqualTo(frame.Bounds.Width);
+                (origin.Y + input.Bounds.Height).ShouldBeLessThanOrEqualTo(frame.Bounds.Height);
+
+                window.Close(); Pump();
+            },
+            CancellationToken.None);
+    }
+
     /// <summary>跑一遍 UI 队列与渲染节拍（无头环境要手动推）。</summary>
     private static void Pump()
     {
@@ -1548,6 +1778,23 @@ public class ModuleViewSmokeTests
         AvaloniaHeadlessPlatform.ForceRenderTimerTick();
         Dispatcher.UIThread.RunJobs();
     }
+
+    /// <summary>从应用资源取一支画刷（不把色值写进断言）。</summary>
+    private static SolidColorBrush Resource(string key)
+    {
+        Application.Current!.Resources.TryGetResource(key, ThemeVariant.Light, out var value);
+        value.ShouldNotBeNull($"缺少资源：{key}");
+        return value.ShouldBeOfType<SolidColorBrush>();
+    }
+
+    private static Color ColorOf(IBrush? brush) => brush.ShouldBeOfType<SolidColorBrush>().Color;
+
+    /// <summary>取容器自己的部件（排除内层编辑器模板里的同名部件）。</summary>
+    private static T SurfacePart<T>(Control root, string name)
+        where T : Control =>
+        root.GetVisualDescendants().OfType<T>()
+            .Single(control => control.Name == name
+                && !control.GetVisualAncestors().OfType<TextBox>().Any());
 
     /// <summary>桩上下文：字段与读数都是固定值（只验接线，不验数据来源）。</summary>
     private sealed class StubViewContext : IModuleViewContext
@@ -1577,6 +1824,9 @@ public class ModuleViewSmokeTests
 
         /// <summary>让 PortName 字段走只读外观（测试用）。</summary>
         public bool FieldReadOnly { get; set; }
+
+        /// <summary>让 Source="runtime" 的文本面走运行期只读（测试用）。</summary>
+        public bool SurfaceReadOnly { get; set; }
 
         private static readonly ConfigFieldView[] Fields =
         [
@@ -1632,9 +1882,11 @@ public class ModuleViewSmokeTests
         public ViewAppearance Appearance(string source) =>
             string.Equals(source, "text1", StringComparison.Ordinal)
                 ? new ViewAppearance { Outline = 0xFFDC2626 }
-                : FieldReadOnly && string.Equals(source, "PortName", StringComparison.Ordinal)
+                : SurfaceReadOnly && string.Equals(source, "runtime", StringComparison.Ordinal)
                     ? new ViewAppearance { ReadOnly = true }
-                    : ViewAppearance.None;
+                    : FieldReadOnly && string.Equals(source, "PortName", StringComparison.Ordinal)
+                        ? new ViewAppearance { ReadOnly = true }
+                        : ViewAppearance.None;
 
         /// <inheritdoc />
         public string? ReadInputText(string source) =>

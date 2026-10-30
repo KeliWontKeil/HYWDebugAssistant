@@ -109,6 +109,9 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// <summary>活动节拍（1 ms；等待由全局计时面统一提供）。</summary>
     public static readonly TimeSpan ActivityInterval = TimeSpan.FromMilliseconds(1);
 
+    /// <summary>连续发送时最长空转间隔：到期前不再每毫秒醒一次（输入/命令最多延迟这么久）。</summary>
+    private static readonly TimeSpan MaxIdleWake = TimeSpan.FromMilliseconds(20);
+
     /// <summary>数据类型标识（**与两个兄弟模块逐字相同**）。</summary>
     public const string RawBytesTypeId = "RawBytes";
 
@@ -225,7 +228,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
                 continue;
             }
 
-            var wakeAt = nextDue < now + ActivityInterval ? nextDue : now + ActivityInterval;
+            var wakeAt = nextDue < now + MaxIdleWake ? nextDue : now + MaxIdleWake;
             if (context.Timing.WaitUntil(wakeAt))
             {
                 break;

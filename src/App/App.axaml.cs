@@ -63,10 +63,39 @@ public partial class App : Application
 
             desktop.MainWindow = window;
 
-            desktop.ShutdownRequested += (_, _) =>
+            // **收尾只在真正退出时执行**：`ShutdownRequested` 是可取消的请求，不是终局；
+            // 在那里拆窗口会让"取消关闭"之后留下半拆状态。`Exit` 是收尾决定之后的终局事件。
+            var shutdown = new AppShutdown(() =>
             {
-                windowManager.Dispose();
+                windowManager.Dispose();   // 合并整体平移的落盘必须先于服务容器释放
                 _provider?.Dispose();
+            });
+
+            // **退出唯一出口**：询问 → 保存 → 关模块窗 → 放行外壳；平台各条关闭路径都汇到这里。
+            var exit = new ShellExitCoordinator(
+                window,
+                window,
+                window,
+                windowManager.CloseAll,
+                () => window.Close(),
+                shutdown.Run,
+                () => shell.Windows.ModuleCount);
+
+            window.ExitCoordinator = exit;
+
+            desktop.Exit += (_, _) => exit.OnAppExit();
+
+            desktop.ShutdownRequested += (_, e) =>
+            {
+                if (exit.CanClose)
+                {
+                    return;   // 已经走过退出流程：不再取消，避免与平台互相拉扯
+                }
+
+                // 走到这里只可能是系统关机或程序化 Shutdown（用户的关窗请求先经过 `MainWindow.Closing`）：
+                // 不弹窗，静默保存后放行。`IsOSShutdown` 在 Avalonia 12.1.2 是 internal，无法据此分支。
+                e.Cancel = true;
+                _ = exit.RequestAsync(isOsShutdown: true);
             };
         }
 

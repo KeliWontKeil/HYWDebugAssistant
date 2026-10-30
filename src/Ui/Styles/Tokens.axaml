@@ -90,7 +90,6 @@
             <SolidColorBrush x:Key="SurfaceToggleTrackOffHoverBrush" Color="#D4D4D8" />
             <SolidColorBrush x:Key="SurfaceToggleKnobBrush" Color="#FFFFFF" />
             <SolidColorBrush x:Key="SurfaceToggleKnobEdgeBrush" Color="#D4D4D8" />
-            <SolidColorBrush x:Key="SurfaceTextFrameEditableBrush" Color="#3F3F46" />
             <!--
               **主题色淡底那三支**（页签悬停 / 选中）：**色**由主题色派生（改主题色即跟随），
               **浓度**就是这里的 `Opacity`（由应用器按套读走，代码里不抄第二份）。
@@ -146,7 +145,6 @@
             <SolidColorBrush x:Key="SurfaceToggleTrackOffHoverBrush" Color="#52525B" />
             <SolidColorBrush x:Key="SurfaceToggleKnobBrush" Color="#F4F4F5" />
             <SolidColorBrush x:Key="SurfaceToggleKnobEdgeBrush" Color="#27272A" />
-            <SolidColorBrush x:Key="SurfaceTextFrameEditableBrush" Color="#D4D4D8" />
             <!-- 主题色淡底那三支：色由主题色派生，浓度 = 这里的 Opacity（说明见浅色分支） -->
             <SolidColorBrush x:Key="SurfaceTabHoverBrush" Color="#3B82F6" Opacity="0.10" />
             <SolidColorBrush x:Key="SurfaceTabSelectedBackgroundBrush" Color="#3B82F6" Opacity="0.18" />
@@ -165,8 +163,9 @@
 
 
     <!-- 字体（V4：系统字体 + 数据区等宽；09 §3） -->
-    <FontFamily x:Key="FontUi">Segoe UI, Microsoft YaHei UI, sans-serif</FontFamily>
-    <FontFamily x:Key="FontData">Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
+    <FontFamily x:Key="FontUi">Segoe UI, Microsoft YaHei UI</FontFamily>
+    <!-- // i18n-exempt: 字体族名（宋体是字体标识，不是界面文案） -->
+  <FontFamily x:Key="FontData">Cascadia Mono, 宋体</FontFamily>
 
     <!--
       尺寸（09 §5：8 px 模数、圆角 2、边框 1）
@@ -210,32 +209,12 @@
     <x:Double x:Key="PortMarkerRateFontSize">10</x:Double>
 
     <!--
-      图标【M1-16 / ADR-0039 D7 · 用户第六轮反馈后改用系统图标字体】
-      · **不再手绘几何**：改用 **Segoe Fluent Icons / Segoe MDL2 Assets**（Windows 原生图标字体，随系统提供，零依赖）；
-      · 选型经过评估：`Projektanker.Icons.Avalonia`（MIT）最新 9.6.2 仍依赖 **Avalonia 11.2.8**，
-        本工程用 **Avalonia 12.1.2**（该版本还移除了 `SymbolIcon`）→ 引入有运行时风险，故不采用；
-      · 用法：`<TextBlock Classes="icon" Text="&#xE8FD;"/>`；字号/对齐由 `Controls.axaml` 的 `TextBlock.icon` 统一。
-      · 字形表（MDL2/Fluent 同码位）：
-        模块清单 E8FD · 组合 E8A5 · 交互 E90F · 拓扑 E774 · Issue E7BA · 设置 E713 · 帮助 E897
-        运行 E768 · 停用 E71A · 锁定 E72E · 解锁 E785 · 隐藏 E890 · 关闭 E8BB · 发送 E724 · 重扫 E72C
+      图标（**显式 SVG**，不是图标字体）
+      · 图形文件在 `resources/icons/<拥有者>/`：`icons.json` 是键 → 相对路径的清单，
+        `.svg` 是 Fluent UI System Icons（MIT，见同目录 LICENSE）；外部可改，零 NuGet；
+      · 界面经 `Icon` / `IconButton` / `Glyph` 按键取图（`ShellIcons` 是键名清单）；
+      · 尺寸 / 颜色由 `Controls.axaml` 的 `ui|Glyph.icon`、`ui|IconButton.icon` 等样式统一，
+        这里**不再有图标字体族**（`FontIcons` 已随字形字体方案一起删除）。
     -->
-    <FontFamily x:Key="FontIcons">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
-
-    <!-- 图标码位（供 XAML 与代码后置共用；改图标只改这里） -->
-    <x:String x:Key="GlyphModules">&#xE8FD;</x:String>
-    <x:String x:Key="GlyphComposite">&#xE8A5;</x:String>
-    <x:String x:Key="GlyphInteraction">&#xE90F;</x:String>
-    <x:String x:Key="GlyphTopology">&#xE774;</x:String>
-    <x:String x:Key="GlyphIssue">&#xE7BA;</x:String>
-    <x:String x:Key="GlyphSettings">&#xE713;</x:String>
-    <x:String x:Key="GlyphHelp">&#xE897;</x:String>
-    <x:String x:Key="GlyphRun">&#xE768;</x:String>
-    <x:String x:Key="GlyphStop">&#xE71A;</x:String>
-    <x:String x:Key="GlyphLock">&#xE72E;</x:String>
-    <x:String x:Key="GlyphUnlock">&#xE785;</x:String>
-    <x:String x:Key="GlyphHide">&#xE890;</x:String>
-    <x:String x:Key="GlyphClose">&#xE8BB;</x:String>
-    <x:String x:Key="GlyphReset">&#xE72C;</x:String>
-    <x:String x:Key="GlyphImage">&#xE8B9;</x:String>
 </ResourceDictionary>
 

@@ -21,12 +21,14 @@ public class ModuleViewStateTests
         IModuleContext moduleView = context;
 
         context.ViewState.SetSelectedPage("pages", 2);
-        context.ViewState.SetInputText("text1", "用户此刻看到的内容");
-        context.ViewState.SetDisplayLines("log", "第一行", "第二行");
+        var typed = "用户此刻看到的内容";
+        var logLines = new[] { "第一行", "第二行" };
+        context.ViewState.SetInputText("text1", typed);
+        context.ViewState.SetDisplayLines("log", logLines);
 
         moduleView.ViewState.GetSelectedPage("pages").ShouldBe(2);
-        moduleView.ViewState.GetInputText("text1").ShouldBe("用户此刻看到的内容");
-        moduleView.ViewState.GetDisplayLines("log").ShouldBe(["第一行", "第二行"]);
+        moduleView.ViewState.GetInputText("text1").ShouldBe(typed);
+        moduleView.ViewState.GetDisplayLines("log").ShouldBe(logLines);
 
         // **未知一律 null / 空**（不抛异常、不猜 —— 与框架侧同一纪律）
         moduleView.ViewState.GetSelectedPage("nope").ShouldBeNull();

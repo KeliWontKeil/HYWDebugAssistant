@@ -144,7 +144,18 @@ public sealed class TestModuleContext : IModuleContext, IDisposable
         _receiveHandlers,
         _inbound,
         _published,
-        Sent);
+        Sent,
+        PortFlowStates,
+        ReportedLosses);
+
+    /// <summary>
+    /// **预置的每口流动状态**：模块调 <c>TryGetFlowState</c> 时读这里；未预置 ⇒ 返回 <see langword="false"/>。
+    /// </summary>
+    /// <remarks>框架里这些值来自真实队列；测试里由用例直接写，语义同一份（"这个口现在堵不堵"）。</remarks>
+    public Dictionary<string, PortFlowState> PortFlowStates { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>模块经 <c>IPortAccess.ReportLoss</c> 上报的丢失（测试断言用）。</summary>
+    public List<(string Port, DropReason Reason, long Units, long Bytes)> ReportedLosses { get; } = [];
 
     /// <summary>
     /// **测试里的外部接入面**（可脚本化数据、记录打开/关闭请求与写入）。
@@ -475,12 +486,26 @@ public sealed class TestModuleContext : IModuleContext, IDisposable
         Dictionary<string, ReceiveHandler> handlers,
         Queue<(byte[] Payload, string PortName, Contracts.ContractLayout Layout)> inbound,
         Dictionary<string, List<byte[]>> published,
-        List<(string PortName, byte[] Payload)> sent) : IPortAccess
+        List<(string PortName, byte[] Payload)> sent,
+        Dictionary<string, PortFlowState> flows,
+        List<(string Port, DropReason Reason, long Units, long Bytes)> losses) : IPortAccess
     {
         public bool TrySend(string portName, ReadOnlySpan<byte> payload)
         {
             sent.Add((portName, payload.ToArray()));
             return true;
+        }
+
+        public bool TryGetFlowState(string portName, out PortFlowState state) =>
+            flows.TryGetValue(portName, out state);
+
+        /// <summary>镜像框架门禁：只接受 <see cref="DropReason.ModuleInternal"/>，其余原因静默忽略。</summary>
+        public void ReportLoss(string portName, DropReason reason, long units, long bytes)
+        {
+            if (reason == DropReason.ModuleInternal)
+            {
+                losses.Add((portName, reason, units, bytes));
+            }
         }
 
         public void SetReceiveHandler(string portName, ReceiveHandler handler) => handlers[portName] = handler;

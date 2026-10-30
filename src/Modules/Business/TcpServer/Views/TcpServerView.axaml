@@ -8,41 +8,75 @@
              x:Class="HYWDebugAssistant.Modules.TcpServer.Views.TcpServerView"
              x:CompileBindings="True"
              x:DataType="contracts:IModuleViewContext"
-             d:DesignWidth="358" d:DesignHeight="142">
+             d:DesignWidth="360" d:DesignHeight="142">
 
   <!--
-    TCP 服务端（内容区 358×142）：监听参数、读数、开关、按钮全部绝对定位。
-    已连接数与状态同一行；固定控件不再参与流式排布。
+    TCP 服务端：参数、读数、开关、按钮全部绝对定位。
+    **坐标只写在这一个文件里**：参数标签 0..56（右对齐贴住编辑器）、编辑器 60..160，行距 26、行高 24。
+    「已连接 N 路」是三个普通文本元素，在一个声明矩形里靠右紧排（右缘不随数字宽度漂）。
+    动作行 = 打开 168..240、关闭 248..320（72×27）+ 清空 328..352（24×24 图标）。
   -->
   <Canvas ClipToBounds="True">
 
-    <ui:ModuleConfigField Canvas.Left="0" Canvas.Top="0" Width="160" Height="24"
+    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="56" Height="24"
+                    Classes="caption right" Field="{x:Static views:TcpServerViewKeys.LocalAddress}" />
+    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="0" Width="100" Height="24"
                           Field="{x:Static views:TcpServerViewKeys.LocalAddress}" />
-    <ui:ModuleConfigField Canvas.Left="0" Canvas.Top="26" Width="160" Height="24"
+
+    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="26" Width="56" Height="24"
+                    Classes="caption right" Field="{x:Static views:TcpServerViewKeys.LocalPort}" />
+    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="26" Width="100" Height="24"
                           Field="{x:Static views:TcpServerViewKeys.LocalPort}" />
-    <ui:ModuleConfigField Canvas.Left="0" Canvas.Top="52" Width="160" Height="24"
+
+    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="52" Width="56" Height="24"
+                    Classes="caption right" Field="{x:Static views:TcpServerViewKeys.MaxConnections}" />
+    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="52" Width="100" Height="24"
                           Field="{x:Static views:TcpServerViewKeys.MaxConnections}" />
 
-    <ui:ModuleStatusLight Canvas.Left="168" Canvas.Top="2" Width="10" Height="10"
+    <!-- 右栏：状态灯 + 三格读数。 -->
+    <ui:ModuleStatusLight Canvas.Left="162" Canvas.Top="10"
                           Source="{x:Static views:TcpServerViewKeys.Link}" />
-    <ui:ModuleNumeric Canvas.Left="184" Canvas.Top="0" Width="60" Height="30"
-                      Source="{x:Static views:TcpServerViewKeys.RxCount}" Quantity="Bytes" Title="{loc:Tr view.rx}" />
-    <ui:ModuleNumeric Canvas.Left="246" Canvas.Top="0" Width="60" Height="30"
-                      Source="{x:Static views:TcpServerViewKeys.TxCount}" Quantity="Bytes" Title="{loc:Tr view.tx}" />
-    <ui:ModuleNumeric Canvas.Left="308" Canvas.Top="0" Width="50" Height="30"
-                      Source="{x:Static views:TcpServerViewKeys.DropCount}" Quantity="Bytes" Title="{loc:Tr view.drop}" />
+
+    <ui:ModuleLabel Canvas.Left="174" Canvas.Top="3" Width="12" Height="24"
+                    Classes="caption right" Text="{loc:Tr view.rx}" />
+    <ui:ModuleNumeric Canvas.Left="188" Canvas.Top="3" Width="40" Height="24"
+                      Source="{x:Static views:TcpServerViewKeys.RxCount}" Quantity="Bytes" />
+
+    <ui:ModuleLabel Canvas.Left="230" Canvas.Top="3" Width="12" Height="24"
+                    Classes="caption right" Text="{loc:Tr view.tx}" />
+    <ui:ModuleNumeric Canvas.Left="244" Canvas.Top="3" Width="40" Height="24"
+                      Source="{x:Static views:TcpServerViewKeys.TxCount}" Quantity="Bytes" />
+
+    <ui:ModuleLabel Canvas.Left="286" Canvas.Top="3" Width="24" Height="24"
+                    Classes="caption right" Text="{loc:Tr view.drop}" />
+    <ui:ModuleNumeric Canvas.Left="312" Canvas.Top="3" Width="40" Height="24"
+                      Source="{x:Static views:TcpServerViewKeys.DropCount}" Quantity="Bytes" />
+
+    <!-- 已连接数：标题 / 值 / 单位靠右紧排在一个声明矩形里。 -->
+    <Grid Canvas.Left="280" Canvas.Top="28" Width="74" Height="24">
+      <StackPanel Orientation="Horizontal" Spacing="2"
+                  HorizontalAlignment="Right" VerticalAlignment="Center">
+        <ui:ModuleLabel Classes="caption" Text="{loc:Tr view.connections}" />
+        <ui:ModuleNumeric Source="{x:Static views:TcpServerViewKeys.ConnCount}" />
+        <ui:ModuleLabel Classes="caption" Text="{loc:Tr view.unitConnections}" />
+      </StackPanel>
+    </Grid>
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="128" Width="358" Height="14"
                     Source="{x:Static views:TcpServerViewKeys.State}" />
-    <ui:ModuleNumeric Canvas.Left="280" Canvas.Top="26" Width="78" Height="30"
-                      Source="{x:Static views:TcpServerViewKeys.ConnCount}" Unit="{loc:Tr view.unitConnections}" Title="{loc:Tr view.connections}" />
 
-    <ui:ModuleConfigField Canvas.Left="168" Canvas.Top="58" Width="180" Height="24"
+    <ui:ModuleLabel Canvas.Left="168" Canvas.Top="58" Width="56" Height="24"
+                    Classes="caption right" Field="{x:Static views:TcpServerViewKeys.NoDelay}" />
+    <ui:ModuleConfigField Canvas.Left="228" Canvas.Top="58" Width="120" Height="24"
                           Field="{x:Static views:TcpServerViewKeys.NoDelay}" />
 
-    <ui:ModuleButton Canvas.Left="168" Canvas.Top="100" Width="88" Height="27"
+    <ui:ModuleButton Canvas.Left="168" Canvas.Top="100" Width="72" Height="27"
                      CommandName="{x:Static views:TcpServerViewKeys.Open}" Content="{loc:Tr view.open}" />
-    <ui:ModuleButton Canvas.Left="264" Canvas.Top="100" Width="88" Height="27"
+    <ui:ModuleButton Canvas.Left="248" Canvas.Top="100" Width="72" Height="27"
                      CommandName="{x:Static views:TcpServerViewKeys.Close}" Content="{loc:Tr view.close}" />
+    <ui:ModuleButton Classes="icon" Canvas.Left="328" Canvas.Top="101" Width="24" Height="24"
+                     Icon="{x:Static views:TcpServerViewKeys.ClearCountersIcon}"
+                     CommandName="{x:Static views:TcpServerViewKeys.ClearCounters}"
+                     ToolTip.Tip="{loc:Tr view.clearCounters}" />
   </Canvas>
 </ui:ModuleView>

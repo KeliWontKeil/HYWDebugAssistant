@@ -1,3 +1,5 @@
+using HYWDebugAssistant.Sdk.Ports;
+
 namespace HYWDebugAssistant.Core.Api;
 
 /// <summary>口引用（命令参数用）。</summary>
@@ -63,6 +65,16 @@ public interface IRuntimeQuery
     /// <param name="portName">口名。</param>
     /// <returns>该端口的指标（**永不返回 null**；未入网 / 实例或口不存在 ⇒ 全 0）。</returns>
     PortMetricsView GetPortMetrics(string instanceId, string portName);
+
+    /// <summary>
+    /// **一个接收口的队列流动状态**（深度 / 峰值 / 丢弃账本 / 饱和）——诊断与模块状态行读它。
+    /// </summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="portName">接收口名。</param>
+    /// <returns>
+    /// 该实例的该口有队列时给出真实状态；未知实例 / 未知口 / 发送口 ⇒ <see cref="PortFlowState.None"/>（**不抛**）。
+    /// </returns>
+    PortFlowState GetPortFlowState(string instanceId, string portName);
 
     /// <summary>
     /// **全部磁盘主题**（`settings\appearance\themes\&lt;id&gt;\theme.json`；内置 `light` / `dark` 不在这里）。

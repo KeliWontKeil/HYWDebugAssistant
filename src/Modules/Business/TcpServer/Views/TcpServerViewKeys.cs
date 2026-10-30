@@ -13,6 +13,8 @@ public static class TcpServerViewKeys
     public const string ConnCount = TcpServerModule.ConnCountSource;
     public const string Open = TcpServerModule.OpenCommand;
     public const string Close = TcpServerModule.CloseCommand;
+    public const string ClearCounters = TcpServerModule.ClearCountersCommand;
+    public const string ClearCountersIcon = "icon.refresh";
 
     public const string LocalAddress = ExternalAccessFieldNames.LocalAddress;
     public const string LocalPort = ExternalAccessFieldNames.LocalPort;

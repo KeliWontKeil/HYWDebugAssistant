@@ -56,6 +56,13 @@ public sealed class ExternalAccessDefaults : IExternalAccess
     }
 
     /// <inheritdoc />
+    public bool ClearCounters(string accessName)
+    {
+        _ = accessName;
+        return false;
+    }
+
+    /// <inheritdoc />
     public Type? GetParametersType(string accessName)
     {
         _ = accessName;

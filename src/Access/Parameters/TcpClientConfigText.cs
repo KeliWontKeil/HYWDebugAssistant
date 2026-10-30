@@ -1,6 +1,6 @@
 namespace HYWDebugAssistant.Access.Parameters;
 
-/// <summary>**TCP 客户端参数文本键**（表属 Access）。</summary>
+/// <summary>**TCP 客户端参数文本键**（文本住在声明该接入的模块表里；键常量留在配置类型旁）。</summary>
 public static class TcpClientConfigText
 {
     public const string Address = "config.tcpClient.address";

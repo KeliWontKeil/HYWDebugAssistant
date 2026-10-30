@@ -48,5 +48,11 @@
           颜色仍走上面的 token（`DynamicResource`），换主题时这里一个字都不用改。
         -->
         <StyleInclude Source="avares://HYWDebugAssistant.Sdk.Ui/Themes/Controls.axaml" />
+        <!--
+          **输入控件的绘制**（`TextBox` / `ComboBox` / `ComboBoxItem` 的框、焦点圈、错误圈、候选项）：
+          必须排在**最后**（在 `Sdk.Ui/Controls.axaml` 之后），用它覆盖 Fluent 的绘制；
+          尺寸/字号仍由前面的 `Controls.axaml` 与 `Sdk.Ui` 给。
+        -->
+        <StyleInclude Source="avares://HYWDebugAssistant.Ui/Styles/InputChrome.axaml" />
     </Application.Styles>
 </Application>

@@ -142,10 +142,16 @@
         <Style Selector="Button.anchorToggle.shown">
             <Setter Property="Opacity" Value="0.95" />
         </Style>
-        <!-- 悬停在按钮自己身上时**必须保持可见**（鼠标离开标记滑向按钮的那一刻 `IsMarkerHovered` 已变 false） -->
+        <!-- 悬停在按钮自己身上时**必须保持可见**（鼠标离开标记滑向按钮的那一刻 `IsMarkerHovered` 已变 false）；
+             面与字形颜色跟普通图标按钮一致（面上悬停提亮、字形提到正文色） -->
         <Style Selector="Button.anchorToggle:pointerover">
             <Setter Property="Opacity" Value="0.95" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceButtonFaceHoverBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+        </Style>
+
+        <Style Selector="Button.anchorToggle:pointerover ctrl|Glyph.icon">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
         </Style>
 
         <!--
@@ -578,15 +584,8 @@
                                 Classes.shown="{Binding IsMarkerHovered}"
                                 ToolTip.Tip="{Binding AnchorToggleTip}"
                                 Click="OnToggleAnchorFixed">
-                            <!-- 两态用两块字形（`Button` 是内容控件、只能有一个子元素 ⇒ 用 `Panel` 叠放） -->
-                            <Panel>
-                                <TextBlock Classes="icon"
-                                           Text="{DynamicResource GlyphUnlock}"
-                                           IsVisible="{Binding !IsAnchorFixed}" />
-                                <TextBlock Classes="icon"
-                                           Text="{DynamicResource GlyphLock}"
-                                           IsVisible="{Binding IsAnchorFixed}" />
-                            </Panel>
+                            <!-- 字形键由 `AnchorIconKey` 给（未固定 = 开锁 / 已固定 = 锁） -->
+                            <ctrl:Glyph Classes="icon" Icon="{Binding AnchorIconKey}" />
                         </Button>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
@@ -673,43 +672,40 @@
                            Text="{Binding StateText}" />
             </StackPanel>
 
-            <!-- 按钮簇：**右上角 · 纯图标**（锁定/解锁 · 隐藏 · 运行/停用 · 关闭） -->
+            <!--
+              按钮簇：**右上角 · 纯图标**（锁定/解锁 · 隐藏 · 运行/停用 · 关闭）。
+              **簇本身不再画底/边**：5 个按钮各自有面（ButtonChrome 统一给），
+              再套一层外框就成了"外框 + 内框"的双重边框，看起来比内容还重。
+            -->
             <Border Name="Cluster"
                     HorizontalAlignment="Right"
                     VerticalAlignment="Top"
                     Margin="0,5,5,0"
                     Padding="2"
-                    CornerRadius="3"
-                    Background="{DynamicResource BgChrome}"
-                    BorderBrush="{DynamicResource BorderDefault}"
-                    BorderThickness="1">
+                    CornerRadius="3">
                 <StackPanel Orientation="Horizontal" Spacing="1">
-                    <Button Name="WallpaperButton" Classes="icon"
-                            ToolTip.Tip="{loc:Tr moduleWindow.wallpaper.tip}">
-                        <Button.Flyout>
+                    <ctrl:IconButton Name="WallpaperButton" Classes="icon"
+                                     Icon="{x:Static ctrl:ShellIcons.Image}"
+                                     ToolTip.Tip="{loc:Tr moduleWindow.wallpaper.tip}">
+                        <ctrl:IconButton.Flyout>
                             <MenuFlyout Placement="BottomEdgeAlignedRight">
                                 <MenuItem Header="{loc:Tr moduleWindow.wallpaper.pick}" Click="OnChooseWallpaper" />
                                 <MenuItem Header="{loc:Tr moduleWindow.wallpaper.clear}" Click="OnClearWallpaper" />
                             </MenuFlyout>
-                        </Button.Flyout>
-                        <TextBlock Classes="icon" Text="{DynamicResource GlyphImage}" />
-                    </Button>
-                    <Button Name="ResetButton" Classes="icon" Click="OnReset"
-                            ToolTip.Tip="{loc:Tr moduleWindow.reset.tip}">
-                        <TextBlock Classes="icon" Text="{DynamicResource GlyphReset}" />
-                    </Button>
-                    <Button Name="LockButton" Classes="icon" Click="OnToggleLock"
-                            ToolTip.Tip="{loc:Tr moduleWindow.lock.tip}">
-                        <TextBlock Name="LockIcon" Classes="icon" Text="{DynamicResource GlyphLock}" />
-                    </Button>
-                    <Button Name="HideButton" Classes="icon" Click="OnHide"
-                            ToolTip.Tip="{loc:Tr moduleWindow.hide.tip}">
-                        <TextBlock Classes="icon" Text="{DynamicResource GlyphHide}" />
-                    </Button>
-                    <Button Name="CloseButton" Classes="icon" Click="OnClose"
-                            ToolTip.Tip="{loc:Tr moduleWindow.close.tip}">
-                        <TextBlock Classes="icon" Text="{DynamicResource GlyphClose}" />
-                    </Button>
+                        </ctrl:IconButton.Flyout>
+                    </ctrl:IconButton>
+                    <ctrl:IconButton Name="ResetButton" Classes="icon" Click="OnReset"
+                                     Icon="{x:Static ctrl:ShellIcons.Reset}"
+                                     ToolTip.Tip="{loc:Tr moduleWindow.reset.tip}" />
+                    <ctrl:IconButton Name="LockButton" Classes="icon" Click="OnToggleLock"
+                                     Icon="{x:Static ctrl:ShellIcons.Lock}"
+                                     ToolTip.Tip="{loc:Tr moduleWindow.lock.tip}" />
+                    <ctrl:IconButton Name="HideButton" Classes="icon" Click="OnHide"
+                                     Icon="{x:Static ctrl:ShellIcons.Hide}"
+                                     ToolTip.Tip="{loc:Tr moduleWindow.hide.tip}" />
+                    <ctrl:IconButton Name="CloseButton" Classes="icon" Click="OnClose"
+                                     Icon="{x:Static ctrl:ShellIcons.Close}"
+                                     ToolTip.Tip="{loc:Tr moduleWindow.close.tip}" />
                 </StackPanel>
             </Border>
         </Grid>

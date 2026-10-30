@@ -31,6 +31,7 @@ public sealed class ExternalAccessAdapterTests
         adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
 
         ready.State.ShouldBe(ExternalAccessState.Open);
+        ready.Endpoint!.Value.Address.ShouldBe("COM_TEST");
         transport.OpenCalled.ShouldBeTrue();
 
         transport.Feed([1, 2, 3]);
@@ -56,7 +57,9 @@ public sealed class ExternalAccessAdapterTests
         adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
 
         ready.State.ShouldBe(ExternalAccessState.Faulted);
-        ready.LastError.ShouldNotBeNullOrWhiteSpace();
+        ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.OpenFailed);
+        ready.Endpoint!.Value.Address.ShouldBe("COM_TEST");
+        ready.Failure.Detail.ShouldNotBeNullOrWhiteSpace();
     }
 
     [Fact]
@@ -70,7 +73,125 @@ public sealed class ExternalAccessAdapterTests
         transport.Fail(new IOException("假串口：读取失败"));
 
         ready.State.ShouldBe(ExternalAccessState.Faulted);
-        ready.LastError.ShouldNotBeNull().ShouldContain("串口读取失败");
+        ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.ReadFailed);
+        ready.Failure.Detail.ShouldNotBeNullOrWhiteSpace();
+    }
+
+    [Theory]
+    [InlineData(true, ExternalAccessFailureKind.ReadFailed)]
+    [InlineData(false, ExternalAccessFailureKind.DeviceLost)]
+    public void 串口读取故障_设备在位报读取失败_设备缺失报设备断开(
+        bool present,
+        ExternalAccessFailureKind expected)
+    {
+        var transport = new FakeSerialTransport { Present = present };
+        var ready = new ReadySink();
+        var adapter = new SerialAccessAdapter(() => transport);
+
+        adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
+        transport.Fail(new IOException("假串口：读取失败"));
+
+        ready.State.ShouldBe(ExternalAccessState.Faulted);
+        ready.Failure!.Kind.ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData(true, ExternalAccessFailureKind.WriteFailed)]
+    [InlineData(false, ExternalAccessFailureKind.DeviceLost)]
+    public void 串口写失败_设备在位报写失败_设备缺失报设备断开(
+        bool present,
+        ExternalAccessFailureKind expected)
+    {
+        var transport = new FakeSerialTransport { Present = present, ThrowOnWrite = true };
+        var ready = new ReadySink();
+        var adapter = new SerialAccessAdapter(() => transport);
+
+        adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
+
+        adapter.Write([1, 2]).ShouldBeFalse();
+
+        ready.State.ShouldBe(ExternalAccessState.Faulted);
+        ready.Failure!.Kind.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void 串口探活_连续两次缺失才报设备断开()
+    {
+        var transport = new FakeSerialTransport();
+        var ready = new ReadySink();
+        var adapter = new SerialAccessAdapter(() => transport);
+
+        adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
+        transport.Present = false;
+
+        adapter.CheckLiveness();
+        ready.State.ShouldBe(ExternalAccessState.Open, "单次缺失可能只是端口枚举的瞬时抖动，不判失联");
+
+        adapter.CheckLiveness();
+        ready.State.ShouldBe(ExternalAccessState.Faulted);
+        ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.DeviceLost);
+    }
+
+    [Fact]
+    public void 串口探活_缺失一次后恢复不报()
+    {
+        var transport = new FakeSerialTransport();
+        var ready = new ReadySink();
+        var adapter = new SerialAccessAdapter(() => transport);
+
+        adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
+
+        transport.Present = false;
+        adapter.CheckLiveness();
+        transport.Present = true;
+
+        adapter.CheckLiveness();
+        adapter.CheckLiveness();
+
+        ready.State.ShouldBe(ExternalAccessState.Open);
+        ready.Failure.ShouldBeNull();
+    }
+
+    [Fact]
+    public void 串口故障后写入返回false且不重复上报()
+    {
+        var transport = new FakeSerialTransport();
+        var ready = new ReadySink();
+        var adapter = new SerialAccessAdapter(() => transport);
+
+        adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
+        transport.Fail(new IOException("假串口：读取失败"));
+
+        ready.FaultCount.ShouldBe(1);
+
+        adapter.Write([1, 2]).ShouldBeFalse();
+        ready.FaultCount.ShouldBe(1, "已进入故障态的写失败不得重复上报");
+        ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.ReadFailed);
+    }
+
+    [Fact]
+    public void 串口适配件_参数类型不符应报告框架内部()
+    {
+        var ready = new ReadySink();
+        var adapter = new SerialAccessAdapter(() => new FakeSerialTransport());
+
+        adapter.Open(new object(), ready);
+
+        ready.State.ShouldBe(ExternalAccessState.Faulted);
+        ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.FrameworkInternal);
+        ready.Failure.Detail.ShouldBe(nameof(SerialConfig));
+    }
+
+    [Fact]
+    public void 串口适配件_未选择端口应报告种类()
+    {
+        var ready = new ReadySink();
+        var adapter = new SerialAccessAdapter(() => new FakeSerialTransport());
+
+        adapter.Open(new SerialConfig { PortName = string.Empty }, ready);
+
+        ready.State.ShouldBe(ExternalAccessState.Faulted);
+        ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.PortNotSelected);
     }
 
     [Fact]
@@ -110,7 +231,7 @@ public sealed class ExternalAccessAdapterTests
     }
 
     [Fact]
-    public void TCP服务端端口占用应给出明确原因()
+    public void TCP服务端端口占用应给出结构化原因()
     {
         var occupied = new TcpListener(IPAddress.Loopback, 0);
         occupied.Start();
@@ -126,7 +247,8 @@ public sealed class ExternalAccessAdapterTests
                 ready);
 
             ready.State.ShouldBe(ExternalAccessState.Faulted);
-            ready.LastError.ShouldNotBeNull().ShouldContain("已被占用");
+            ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.PortInUse);
+            ready.Endpoint!.Value.Port.ShouldBe(port);
         }
         finally
         {
@@ -135,7 +257,7 @@ public sealed class ExternalAccessAdapterTests
     }
 
     [Fact]
-    public void UDP端口占用应给出明确原因()
+    public void UDP端口占用应给出结构化原因()
     {
         using var occupied = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         occupied.Bind(new IPEndPoint(IPAddress.Loopback, 0));
@@ -149,7 +271,8 @@ public sealed class ExternalAccessAdapterTests
             ready);
 
         ready.State.ShouldBe(ExternalAccessState.Faulted);
-        ready.LastError.ShouldNotBeNull().ShouldContain("已被占用");
+        ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.PortInUse);
+        ready.Endpoint!.Value.Port.ShouldBe(port);
     }
 
     [Fact]
@@ -191,7 +314,8 @@ public sealed class ExternalAccessAdapterTests
             ready);
 
         ready.State.ShouldBe(ExternalAccessState.Faulted);
-        ready.LastError.ShouldNotBeNull().ShouldContain("目标地址不能是 0.0.0.0");
+        ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.WildcardAddressNotAllowed);
+        ready.Failure.Value.ShouldBe("0.0.0.0");
     }
 
     [Fact]
@@ -205,7 +329,8 @@ public sealed class ExternalAccessAdapterTests
             ready);
 
         ready.State.ShouldBe(ExternalAccessState.Faulted);
-        ready.LastError.ShouldNotBeNull().ShouldContain("目标地址不能是 0.0.0.0");
+        ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.WildcardAddressNotAllowed);
+        ready.Failure.Value.ShouldBe("0.0.0.0");
     }
 
     [Fact]
@@ -234,6 +359,8 @@ public sealed class ExternalAccessAdapterTests
             using var server = await accept.WaitAsync(TimeSpan.FromSeconds(5));
             WaitFor(() => ready.State == ExternalAccessState.Open, "客户端应连上");
 
+            ready.Endpoint!.Value.Port.ShouldBe(port);
+
             await server.GetStream().WriteAsync(new byte[] { 1, 2, 3 });
             var buffer = new byte[RawBytesFraming.Capacity];
             WaitFor(() => adapter.TryRead(buffer, out _), "客户端应收到数据");
@@ -246,7 +373,8 @@ public sealed class ExternalAccessAdapterTests
 
             server.Close();
             WaitFor(() => ready.State == ExternalAccessState.Faulted, "对端关闭应报告 Faulted");
-            ready.LastError.ShouldNotBeNullOrWhiteSpace();
+            ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.PeerClosed);
+            ready.Endpoint!.Value.Port.ShouldBe(port);
 
             adapter.Close(TimeSpan.FromSeconds(1));
         }
@@ -274,7 +402,7 @@ public sealed class ExternalAccessAdapterTests
         try
         {
             WaitFor(() => ready.State == ExternalAccessState.Open, "服务端应开始监听");
-            var port = ParsePort(ready.Detail);
+            var port = PortOf(ready);
 
             using var first = new System.Net.Sockets.TcpClient();
             using var second = new System.Net.Sockets.TcpClient();
@@ -327,7 +455,7 @@ public sealed class ExternalAccessAdapterTests
         try
         {
             WaitFor(() => ready.State == ExternalAccessState.Open, "UDP 应绑定");
-            var localPort = ParsePort(ready.Detail);
+            var localPort = PortOf(ready);
 
             await peer.SendAsync(new byte[] { 1, 2, 3 }, new IPEndPoint(IPAddress.Loopback, localPort));
 
@@ -346,7 +474,7 @@ public sealed class ExternalAccessAdapterTests
 
             WaitFor(
                 () => ready.DroppedUnits >= 1,
-                $"超长数据报应被检测到（state={ready.State}, error={ready.LastError}）");
+                $"超长数据报应被检测到（state={ready.State}, kind={ready.Failure?.Kind}）");
 
             WaitFor(() => adapter.TryRead(buffer, out var length) && length == RawBytesFraming.Capacity, "超长数据报应被截断");
         }
@@ -370,6 +498,9 @@ public sealed class ExternalAccessAdapterTests
         module.OnCommand(SerialModule.OpenCommand);
         context.Access.OpenRequests.ShouldContain(SerialModule.AccessName);
 
+        module.OnCommand(SerialModule.ClearCountersCommand);
+        context.Access.ClearCounterRequests.ShouldContain(SerialModule.AccessName);
+
         // 外部 → rx：组 {len,data} 并发出定长载荷。
         context.Access.Deliver(SerialModule.AccessName, [1, 2, 3]);
         var sent = context.Sent.ShouldHaveSingleItem();
@@ -391,14 +522,15 @@ public sealed class ExternalAccessAdapterTests
         context.Access.SetSnapshot(SerialModule.AccessName, new ExternalAccessSnapshot(
             ExternalAccessState.Open,
             Suspended: false,
-            Detail: "COM_TEST",
-            LastError: string.Empty,
+            Endpoint: new ExternalAccessEndpoint("COM_TEST"),
+            Failure: null,
             ReceivedUnits: 1,
             ReceivedBytes: 3,
             SentUnits: 1,
             SentBytes: 2,
             DroppedUnits: 0,
             DroppedBytes: 0,
+            RejectedUnits: 0,
             ActiveConnections: 0,
             LastReceivedAt: DateTimeOffset.Now));
 
@@ -413,14 +545,9 @@ public sealed class ExternalAccessAdapterTests
         BinaryPrimitives.ReadUInt64LittleEndian(context.Published[SerialModule.RxCountSource][^1]).ShouldBe(3UL);
     }
 
-    private static int ParsePort(string detail)
-    {
-        // UDP 的 detail 可能是 "地址:本地端口 → 目标:目标端口"：只取第一个地址段的端口。
-        var local = detail.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
-        var index = local.LastIndexOf(':');
-        index.ShouldBeGreaterThanOrEqualTo(0, $"状态说明里没有端口：{detail}");
-        return int.Parse(local[(index + 1)..], System.Globalization.CultureInfo.InvariantCulture);
-    }
+    /// <summary>打开成功后快照里的本地端口（TCP 服务端 / UDP 用）。</summary>
+    private static int PortOf(ReadySink ready) =>
+        ready.Endpoint!.Value.Port!.Value;
 
     private static void WaitFor(Func<bool> condition, string message, int timeoutMs = 3000)
     {
@@ -437,13 +564,66 @@ public sealed class ExternalAccessAdapterTests
         }
     }
 
+    [Fact]
+    public void 串口单次大块_按会话读缓冲切片且不丢弃()
+    {
+        var transport = new FakeSerialTransport();
+        var ready = new ReadySink();
+        var adapter = new SerialAccessAdapter(() => transport);
+
+        adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
+
+        var payload = Enumerable.Range(0, 4096).Select(index => (byte)(index & 0xFF)).ToArray();
+        transport.Feed(payload);
+
+        var destination = new byte[1472];
+        var lengths = new List<int>();
+
+        while (adapter.TryRead(destination, out var length))
+        {
+            lengths.Add(length);
+        }
+
+        lengths.Count.ShouldBe(3, "会话读缓冲 1472 B：一次 4096 B 事件必须分 3 次交付");
+        lengths[0].ShouldBe(1472);
+        lengths[1].ShouldBe(1472);
+        lengths[2].ShouldBe(1152);
+        ready.DroppedUnits.ShouldBe(0);
+        ready.DroppedBytes.ShouldBe(0);
+    }
+
+    [Fact]
+    public void 串口目标小于单元_应分片交付且字节不丢()
+    {
+        var transport = new FakeSerialTransport();
+        var ready = new ReadySink();
+        var adapter = new SerialAccessAdapter(() => transport);
+
+        adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
+
+        transport.Feed(Enumerable.Range(0, 2000).Select(index => (byte)(index & 0xFF)).ToArray());
+
+        var destination = new byte[1000];
+        var lengths = new List<int>();
+
+        while (adapter.TryRead(destination, out var length))
+        {
+            lengths.Add(length);
+        }
+
+        lengths.Sum().ShouldBe(2000, "目标比单元小只能分片交付，不能丢");
+        ready.DroppedUnits.ShouldBe(0);
+        ready.DroppedBytes.ShouldBe(0);
+    }
+
     private sealed class ReadySink : IExternalAccessReady
     {
         private readonly Lock _gate = new();
         private ExternalAccessState _state = ExternalAccessState.Closed;
-        private string _detail = string.Empty;
-        private string _lastError = string.Empty;
+        private ExternalAccessEndpoint? _endpoint;
+        private ExternalAccessFailure? _failure;
         private int _connections;
+        private int _faultCount;
         private long _droppedUnits;
         private long _droppedBytes;
 
@@ -458,24 +638,24 @@ public sealed class ExternalAccessAdapterTests
             }
         }
 
-        public string Detail
+        public ExternalAccessEndpoint? Endpoint
         {
             get
             {
                 lock (_gate)
                 {
-                    return _detail;
+                    return _endpoint;
                 }
             }
         }
 
-        public string LastError
+        public ExternalAccessFailure? Failure
         {
             get
             {
                 lock (_gate)
                 {
-                    return _lastError;
+                    return _failure;
                 }
             }
         }
@@ -513,34 +693,48 @@ public sealed class ExternalAccessAdapterTests
             }
         }
 
+        public int FaultCount
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _faultCount;
+                }
+            }
+        }
+
         public void NotifyReady()
         {
         }
 
-        public void SetConnecting(string? detail = null)
+        public void SetConnecting(ExternalAccessEndpoint? endpoint = null)
         {
             lock (_gate)
             {
                 _state = ExternalAccessState.Opening;
-                _detail = detail ?? string.Empty;
+                _endpoint = endpoint;
             }
         }
 
-        public void SetOpen(string? detail = null)
+        public void SetOpen(ExternalAccessEndpoint? endpoint = null)
         {
             lock (_gate)
             {
                 _state = ExternalAccessState.Open;
-                _detail = detail ?? string.Empty;
+                _endpoint = endpoint;
+                _failure = null;
             }
         }
 
-        public void SetFaulted(string message)
+        public void SetFaulted(ExternalAccessFailure failure)
         {
             lock (_gate)
             {
+                _faultCount++;
                 _state = ExternalAccessState.Faulted;
-                _lastError = message;
+                _failure = failure;
+                _endpoint = failure.Endpoint ?? _endpoint;
             }
         }
 
@@ -577,6 +771,12 @@ public sealed class ExternalAccessAdapterTests
         /// <summary>模拟 RXD/TXD 短接：写入后把同一段字节回投到接收事件。</summary>
         public bool EchoWrites { get; init; }
 
+        /// <summary>端口是否仍在系统中（探活判据）；置假模拟设备拔出。</summary>
+        public bool Present { get; set; } = true;
+
+        /// <summary>写入是否抛异常（模拟设备拔出后写不出去）。</summary>
+        public bool ThrowOnWrite { get; set; }
+
         public List<byte[]> Written { get; } = [];
 
         public void Open(SerialConfig config)
@@ -590,8 +790,20 @@ public sealed class ExternalAccessAdapterTests
             OpenCalled = true;
         }
 
+        public bool IsPresent() => Present;
+
+        /// <summary>最近一次下发的写超时（本夹具只记录，不参与写入模拟）。</summary>
+        public TimeSpan WriteTimeout { get; private set; }
+
+        public void SetWriteTimeout(TimeSpan timeout) => WriteTimeout = timeout;
+
         public void Write(ReadOnlySpan<byte> payload)
         {
+            if (ThrowOnWrite)
+            {
+                throw new IOException("假串口：写入失败");
+            }
+
             var copy = payload.ToArray();
             Written.Add(copy);
 

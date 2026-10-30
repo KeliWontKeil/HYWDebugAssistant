@@ -16,9 +16,9 @@ public sealed class FakeAccessParameters
 }
 
 /// <summary>
-/// 脚本化适配件：立刻/延迟就绪、推数据、写失败、打开失败。
+/// 脚本化适配件：立刻/延迟就绪、推数据、写失败、打开失败、探活计数。
 /// </summary>
-public sealed class FakeExternalAccessAdapter : IExternalAccessAdapter
+public sealed class FakeExternalAccessAdapter : IExternalAccessAdapter, IExternalAccessLiveness, IExternalAccessWriteTimeout
 {
     private readonly Queue<byte[]> _pending = new();
     private readonly Lock _gate = new();
@@ -27,11 +27,20 @@ public sealed class FakeExternalAccessAdapter : IExternalAccessAdapter
     /// <inheritdoc />
     public Type ParametersType => typeof(FakeAccessParameters);
 
+    /// <summary>历次下发的写超时（打开前一次、运行期改设置各一次）。</summary>
+    public List<TimeSpan> WriteTimeouts { get; } = [];
+
+    /// <inheritdoc />
+    public void SetWriteTimeout(TimeSpan timeout) => WriteTimeouts.Add(timeout);
+
     /// <summary>打开次数。</summary>
     public int OpenCount { get; private set; }
 
     /// <summary>关闭次数。</summary>
     public int CloseCount { get; private set; }
+
+    /// <summary>探活调用次数。</summary>
+    public int LivenessCalls { get; private set; }
 
     /// <summary>最近一次打开拿到的参数对象。</summary>
     public FakeAccessParameters? OpenedWith { get; private set; }
@@ -48,6 +57,15 @@ public sealed class FakeExternalAccessAdapter : IExternalAccessAdapter
     /// <summary>写是否成功。</summary>
     public bool WriteOk { get; set; } = true;
 
+    /// <summary>
+    /// 声称交付的长度（<see langword="null"/> ⇒ 如实上报）。
+    /// </summary>
+    /// <remarks>
+    /// 用来复现"适配件声称的长度超过声明上限"：真实适配件不该这样，但框架必须防住它
+    /// （否则超长单元会带着假长度进入队列）。
+    /// </remarks>
+    public int? LengthOverride { get; set; }
+
     /// <inheritdoc />
     public void Open(object parameters, IExternalAccessReady ready)
     {
@@ -62,7 +80,7 @@ public sealed class FakeExternalAccessAdapter : IExternalAccessAdapter
 
         if (AutoOpen)
         {
-            ready.SetOpen("fake-ready");
+            ready.SetOpen(new ExternalAccessEndpoint("127.0.0.1", 1));
         }
     }
 
@@ -85,7 +103,7 @@ public sealed class FakeExternalAccessAdapter : IExternalAccessAdapter
             }
 
             payload.CopyTo(destination);
-            length = payload.Length;
+            length = LengthOverride ?? payload.Length;
             return true;
         }
     }
@@ -121,7 +139,10 @@ public sealed class FakeExternalAccessAdapter : IExternalAccessAdapter
     }
 
     /// <summary>模拟"连接断开 / 读取失败"。</summary>
-    public void Fault(string message) => _ready?.SetFaulted(message);
+    public void Fault(ExternalAccessFailure failure) => _ready?.SetFaulted(failure);
+
+    /// <inheritdoc />
+    public void CheckLiveness() => LivenessCalls++;
 }
 
 /// <summary>
@@ -142,7 +163,6 @@ public sealed class FakeExternalAccessCatalog : IExternalAccessCatalog
         [
             new ExternalAccessDescriptor(
                 FakeAccessModule.StandardId,
-                "假外部接入",
                 typeof(FakeAccessParameters),
                 () => Adapter),
         ];

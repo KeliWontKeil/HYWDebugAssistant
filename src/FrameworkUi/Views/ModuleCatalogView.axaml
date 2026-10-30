@@ -4,6 +4,7 @@
              xmlns:ui="using:HYWDebugAssistant.Ui.ViewModels"
              xmlns:views="using:HYWDebugAssistant.Ui.Views"
              xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+             xmlns:uc="using:HYWDebugAssistant.Ui.Controls"
              x:Class="HYWDebugAssistant.FrameworkUi.Views.ModuleCatalogView"
              x:DataType="vm:ModuleCatalogViewModel"
              xmlns:design="using:HYWDebugAssistant.FrameworkUi.Design"
@@ -52,7 +53,7 @@
                             Classes.active="{Binding IsSelected}"
                             ToolTip.Tip="{Binding Title}">
                         <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
-                            <TextBlock Classes="icon" FontSize="13" Text="{Binding Glyph}" />
+                            <uc:Glyph Classes="icon" FontSize="13" Icon="{Binding IconKey}" />
                             <TextBlock FontSize="10" VerticalAlignment="Center" Text="{Binding Count}" />
                         </StackPanel>
                     </Button>
@@ -78,10 +79,10 @@
                                 <Border Grid.Column="0" Classes="previewTile">
                                     <Grid>
                                         <Border Background="{Binding PreviewBrush}" />
-                                        <TextBlock Classes="icon previewGlyph"
-                                                   FontSize="18"
-                                                   IsVisible="{Binding !HasPreview}"
-                                                   Text="{DynamicResource GlyphModules}" />
+                                        <uc:Glyph Classes="icon previewGlyph"
+                                                  FontSize="18"
+                                                  IsVisible="{Binding !HasPreview}"
+                                                  Icon="{x:Static uc:ShellIcons.Modules}" />
                                     </Grid>
                                 </Border>
 

@@ -34,6 +34,9 @@ public sealed class HotkeyService
     private readonly Dictionary<HotkeyBinding, string> _bindings = [];
     private readonly List<Window> _attached = [];
 
+    /// <summary>最近一次生效的配置（`null` = 全部用默认值）；帮助文本按它生成。</summary>
+    private IReadOnlyDictionary<string, string>? _configured;
+
     /// <summary>创建快捷键服务。</summary>
     /// <param name="actions">动作面。</param>
     public HotkeyService(IHotkeyActions actions)
@@ -42,19 +45,44 @@ public sealed class HotkeyService
         _actions = actions;
     }
 
+    /// <summary>
+    /// **当前生效的快捷键帮助文本**：逐条 `<绑定>  <动作名>`，未绑定的动作不列。
+    /// </summary>
+    /// <remarks>
+    /// 生成的而不是写死在文本表里 —— 用户改过绑定后，帮助必须跟着变（否则就是死文本）。
+    /// 作用域/去设置页修改之类的固定说明仍走文本表，由调用方拼在前后。
+    /// </remarks>
+    public string HelpText
+    {
+        get
+        {
+            var lines = new List<string>(HotkeyCatalog.Actions.Count);
+
+            foreach (var action in HotkeyCatalog.Actions)
+            {
+                var text = HotkeyCatalog.ResolveBinding(action, _configured);
+                if (text.Length > 0)
+                {
+                    lines.Add(text + "  " + action.Label);
+                }
+            }
+
+            return string.Join(Environment.NewLine, lines);
+        }
+    }
+
     /// <summary>按绑定表重建（设置变更后调用；同键重复时**先到者胜**）。</summary>
     /// <param name="hotkeys">动作 → 绑定文本。</param>
     /// <returns>被忽略的重复绑定（动作标题列表）。</returns>
     public IReadOnlyList<string> Rebuild(IReadOnlyDictionary<string, string>? hotkeys)
     {
         _bindings.Clear();
+        _configured = hotkeys;
         var conflicts = new List<string>();
 
         foreach (var action in HotkeyCatalog.Actions)
         {
-            var text = hotkeys is not null && hotkeys.TryGetValue(action.Id, out var configured)
-                ? configured
-                : action.DefaultBinding;
+            var text = HotkeyCatalog.ResolveBinding(action, hotkeys);
 
             var binding = HotkeyBinding.Parse(text);
             if (binding.IsEmpty)

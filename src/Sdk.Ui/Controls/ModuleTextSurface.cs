@@ -30,8 +30,9 @@ public enum TextSurfaceMode
 /// 边框、错误圈与刷新路径。
 /// </para>
 /// <para>
-/// **只读不是另一个控件**：`Mode=Display` 或 `IsReadOnly=true` 只切换呈现叶子；
-/// 数据、外观、错误、换行、尾部跟随都在本类一处。
+/// **声明只读才换叶子**：`Mode=Display` 或 `IsReadOnly=true` 用只读叶子显示；
+/// **运行期只读**（外观通道的 `ReadOnly`）只停止编辑 —— 输入叶子保持可见、边框不变、
+/// 仍可用鼠标选中复制（只是没有光标与提交）。
 /// </para>
 /// <para>
 /// **失焦不提交**：编辑内容逐键写进视图状态，失焦只是"编辑结束"；提交只由 Enter（单行）/
@@ -109,10 +110,10 @@ public sealed class ModuleTextSurface : ModuleElement
         }
     }
 
-    /// <summary>当前文本（只读面返回文本层的内容，编辑面返回编辑器内容）。</summary>
+    /// <summary>当前文本（只读叶子返回文本层的内容，编辑叶子返回编辑器内容）。</summary>
     public string Text
     {
-        get => IsReadOnlyEffective
+        get => DeclaredReadOnly
             ? _readText?.Text ?? _textValue
             : _input?.Text ?? _textValue;
         set
@@ -173,6 +174,9 @@ public sealed class ModuleTextSurface : ModuleElement
 
     private bool IsReadOnlyEffective =>
         _mode == TextSurfaceMode.Display || _isReadOnly || _appearanceReadOnly;
+
+    /// <summary>声明期只读（`Display` 或 `IsReadOnly`）：决定用哪个叶子；运行期只读不换叶子。</summary>
+    private bool DeclaredReadOnly => _mode == TextSurfaceMode.Display || _isReadOnly;
 
     /// <inheritdoc />
     protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
@@ -306,23 +310,24 @@ public sealed class ModuleTextSurface : ModuleElement
             return;
         }
 
-        var readOnly = IsReadOnlyEffective;
+        var declaredReadOnly = DeclaredReadOnly;
+        var effectiveReadOnly = declaredReadOnly || _appearanceReadOnly;
 
-        _input.IsVisible = !readOnly;
+        _input.IsVisible = !declaredReadOnly;
 
         if (_readScroll is not null)
         {
-            _readScroll.IsVisible = readOnly;
+            _readScroll.IsVisible = declaredReadOnly;
             _readScroll.Focusable = false;
         }
 
-        _readText.IsVisible = readOnly;
+        _readText.IsVisible = declaredReadOnly;
 
-        _input.IsReadOnly = readOnly;
-        _input.Focusable = !readOnly;
-        _input.IsTabStop = !readOnly;
+        _input.IsReadOnly = effectiveReadOnly;
+        _input.Focusable = !declaredReadOnly;
+        _input.IsTabStop = !declaredReadOnly;
 
-        if (readOnly)
+        if (declaredReadOnly)
         {
             _input.CaretBrush = Brushes.Transparent;
             _input.SelectionBrush = Brushes.Transparent;
@@ -337,18 +342,24 @@ public sealed class ModuleTextSurface : ModuleElement
         }
         else
         {
-            _input.ClearValue(TextBox.CaretBrushProperty);
+            // 输入叶子可见：运行期只读只藏光标，选择色保留（用户仍要选中复制）。
             _input.ClearValue(TextBox.SelectionBrushProperty);
             _input.ClearValue(TextBox.SelectionForegroundBrushProperty);
 
+            if (effectiveReadOnly)
+            {
+                _input.CaretBrush = Brushes.Transparent;
+            }
+            else
+            {
+                _input.ClearValue(TextBox.CaretBrushProperty);
+            }
+
             if (_focusRing is not null)
             {
-                _focusRing.IsVisible = _input.IsFocused;
+                _focusRing.IsVisible = _input.IsFocused && !effectiveReadOnly;
             }
         }
-
-        SetClass(_frame, "readonly", readOnly);
-        SetClass(_input, "readonly", readOnly);
 
         ApplyMarks();
         SyncActiveText();
@@ -356,7 +367,7 @@ public sealed class ModuleTextSurface : ModuleElement
 
     private void SyncActiveText()
     {
-        if (IsReadOnlyEffective)
+        if (DeclaredReadOnly)
         {
             // 显示面由 `RefreshDisplay` 从显示缓冲增量喂入；这里**不能**用 `_textValue` 回写，
             // 否则会在每次模板/外观变化时把日志清空。
@@ -385,7 +396,7 @@ public sealed class ModuleTextSurface : ModuleElement
     {
         _textValue = text;
 
-        if (IsReadOnlyEffective)
+        if (DeclaredReadOnly)
         {
             if (_readText is not null && !string.Equals(_readText.Text, text, StringComparison.Ordinal))
             {
@@ -506,7 +517,7 @@ public sealed class ModuleTextSurface : ModuleElement
 
         _restored = true;
 
-        if (!IsReadOnlyEffective && _input?.Text is { Length: > 0 })
+        if (!DeclaredReadOnly && _input?.Text is { Length: > 0 })
         {
             return;
         }
@@ -587,7 +598,7 @@ public sealed class ModuleTextSurface : ModuleElement
         }
 
         _input.Height = double.NaN;
-        _input.MinHeight = _minEditorHeight > 0 ? _minEditorHeight : 24;
+        _input.MinHeight = _minEditorHeight > 0 ? _minEditorHeight : 0;
     }
 
     private void ApplyMarks()
@@ -672,26 +683,6 @@ public sealed class ModuleTextSurface : ModuleElement
         if (_context is null && this.FindAncestorOfType<ModuleViewHost>() is { } host)
         {
             _context = host.Context;
-        }
-    }
-
-    private static void SetClass(Control? control, string name, bool present)
-    {
-        if (control is null)
-        {
-            return;
-        }
-
-        if (present)
-        {
-            if (!control.Classes.Contains(name))
-            {
-                control.Classes.Add(name);
-            }
-        }
-        else
-        {
-            control.Classes.Remove(name);
         }
     }
 }

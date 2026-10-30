@@ -10,7 +10,8 @@ namespace HYWDebugAssistant.Sdk.Testing;
 /// <remarks>
 /// <list type="bullet">
 ///   <item><see cref="QueueReceived"/> 把数据留给读取面；<see cref="Deliver"/> 直接交给已设的接收回调；</item>
-///   <item><see cref="OpenRequests"/> / <see cref="CloseRequests"/> 记录模块发出的请求；</item>
+///   <item><see cref="OpenRequests"/> / <see cref="CloseRequests"/> / <see cref="ClearCounterRequests"/>
+///     记录模块发出的请求与清空计数调用；</item>
 ///   <item><see cref="Written"/> 记录模块写出的字节；<see cref="WriteSucceeds"/> 可模拟写失败；</item>
 ///   <item><see cref="SetSnapshot"/> 预置状态/计量；<c>GetSnapshot</c> 原样返回。</item>
 /// </list>
@@ -27,6 +28,9 @@ public sealed class TestExternalAccess : IExternalAccess
 
     /// <summary>模块发出的关闭请求（按顺序）。</summary>
     public List<string> CloseRequests { get; } = [];
+
+    /// <summary>模块发出的清空计数请求（按顺序）。</summary>
+    public List<string> ClearCounterRequests { get; } = [];
 
     /// <summary>模块写出的数据单元（接入名 → 字节）。</summary>
     public List<(string AccessName, byte[] Payload)> Written { get; } = [];
@@ -88,6 +92,13 @@ public sealed class TestExternalAccess : IExternalAccess
     public bool RequestClose(string accessName)
     {
         CloseRequests.Add(accessName);
+        return true;
+    }
+
+    /// <inheritdoc />
+    public bool ClearCounters(string accessName)
+    {
+        ClearCounterRequests.Add(accessName);
         return true;
     }
 

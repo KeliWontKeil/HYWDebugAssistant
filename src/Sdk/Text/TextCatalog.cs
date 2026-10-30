@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
+using HYWDebugAssistant.Sdk.Resources;
 
 namespace HYWDebugAssistant.Sdk.Text;
 
@@ -11,16 +12,14 @@ namespace HYWDebugAssistant.Sdk.Text;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>表住哪里</b>：拥有者 = 程序集简名，目录按**两级**解析：
-///     ① 框架资源根 `resources/i18n/<程序集简名>/`（框架拥有者）；
-///     ② 实现程序集所在目录旁的 `i18n/<程序集简名>/`（**模块包**；开发/测试输出同样适用）。
-///     基础表 <c>&lt;culture&gt;.json</c>，可选分片 <c>&lt;culture&gt;.&lt;area&gt;.json</c>；
-///     同一目录里**基础表排在最前**，其余按文件名序合并，**先者胜**（分片出现重复键 ⇒ 该分片整份跳过并报诊断）；</item>
-///   <item><b>根解析（惰性一次）</b>：<see cref="UseRoot"/> →
-///     <c>&lt;AppContext.BaseDirectory&gt;/resources/i18n</c> → 从 BaseDirectory 向上找到含
-///     <c>HYWDebugAssistant.slnx</c> 的仓库根 + <c>resources/i18n</c> → 找不到任何表；</item>
-///   <item><b>模块无需注册目录</b>：包内文本就在实现程序集旁的 `i18n/<程序集简名>/`，
-///     加载后自动命中第 ② 级；框架拥有者命中第 ① 级；</item>
+///   <item><b>表住哪里</b>：拥有者 = 程序集简名；根与拥有者目录由 <see cref="ResourceLayout"/>
+///     统一解析（与图标表同构的两级投递：框架资源根、程序集旁）。基础表 <c>&lt;culture&gt;.json</c>，
+///     可选分片 <c>&lt;culture&gt;.&lt;area&gt;.json</c>；同一目录里**基础表排在最前**，其余按文件名序合并，
+///     **先者胜**（分片出现重复键 ⇒ 该分片整份跳过并报诊断）；</item>
+///   <item><b>根解析（惰性一次）</b>：<see cref="UseRoot"/> → <c>&lt;AppContext.BaseDirectory&gt;/resources/i18n</c> →
+///     从 BaseDirectory 向上找到含 <c>HYWDebugAssistant.slnx</c> 的仓库根 + <c>resources/i18n</c> → 找不到任何表；</item>
+///   <item><b>模块无需注册目录</b>：包内文本就在实现程序集旁的 `i18n/&lt;程序集简名&gt;/`，
+///     加载后自动命中第二级；框架拥有者住在 `resources/i18n/`，命中第一级；</item>
 ///   <item><b>坏表降级</b>：读取失败 / JSON 坏 / 版本不认识 / 分片键重复 ⇒ **跳过该文件**并经
 ///     <see cref="Diagnostics"/> 报一条，界面不崩；**整张表目录缺失**（登记目录或 `<根>/<拥有者>` 不存在，
 ///     且确实发生了查表）⇒ **每个拥有者报一次**；缺键不报（界面的标记已经可见，缺失由审计在构建期拦）；</item>
@@ -41,42 +40,22 @@ public static class TextCatalog
     /// <summary>表结构版本（不认识的版本当作没有这张表）。</summary>
     private const int SchemaVersion = 1;
 
-    /// <summary>文本包目录在资源根里的名字（与 `resources/` 下的子树同名）。</summary>
-    private const string PackDirectoryName = "i18n";
-
-    /// <summary>出厂资源目录名（与 `StoragePaths.ResourcesDirectoryName` 同值；两层零依赖，靠审计钉住）。</summary>
-    private const string ResourcesDirectoryName = "resources";
-
-    /// <summary>仓库根的标志文件（用于从输出目录向上找开发期的资源根）。</summary>
-    private const string RepositoryMarkerFile = "HYWDebugAssistant.slnx";
-
-    /// <summary>单份表文件的体积上限（病态输入防护；正常表是几 KB）。</summary>
-    private const long MaxTableFileBytes = 4L * 1024 * 1024;
-
     /// <summary>已解析的表缓存；键里的代号随根变更递增（旧根下迟到的加载不会污染新根）。</summary>
     private static readonly ConcurrentDictionary<(string Owner, string Language, int Generation), IReadOnlyDictionary<string, string>> _tables = new();
 
-    /// <summary>已经报过"整张表目录缺失"的拥有者（每个拥有者只报一次；根变更时清空）。</summary>
-    private static readonly ConcurrentDictionary<string, bool> _missingDirectories = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>已经报过"整张表目录缺失"的拥有者（每个拥有者每个代号一次；根变更后代号变了自然再报）。</summary>
+    private static readonly ConcurrentDictionary<(string Owner, int Generation), bool> _missingDirectories = new();
 
     private static readonly object _gate = new();
 
     /// <summary>当前语言；初值 = 进程启动时的 UI 文化。</summary>
     private static CultureInfo _uiCulture = CultureInfo.CurrentUICulture;
 
-    /// <summary>显式根（<see cref="UseRoot"/>）；<c>null</c> = 走默认解析。</summary>
-    private static string? _explicitRoot;
-
-    /// <summary>解析后的根；<c>null</c> = 找不到任何表。</summary>
-    private static string? _root;
-
-    private static bool _rootResolved;
-
-    /// <summary>根/目录变更代号（缓存失效用）。</summary>
-    private static int _generation;
-
     /// <summary>已发现的受支持语言（缓存；根或目录变更后重扫）。</summary>
     private static string[]? _supportedLanguages;
+
+    /// <summary>上面那份语言清单对应的资源代号（代号变了就要重扫）。</summary>
+    private static int _supportedLanguagesGeneration = -1;
 
     /// <summary>**当前语言**发生变化后触发（同一语言重复 <see cref="Apply"/> 不触发）。</summary>
     public static event EventHandler? LanguageChanged;
@@ -103,7 +82,14 @@ public static class TextCatalog
         {
             lock (_gate)
             {
-                _supportedLanguages ??= ScanLanguages();
+                var generation = ResourceLayout.Generation(ResourceKinds.Text);
+
+                if (_supportedLanguages is null || _supportedLanguagesGeneration != generation)
+                {
+                    _supportedLanguages = ScanLanguages();
+                    _supportedLanguagesGeneration = generation;
+                }
+
                 return _supportedLanguages;
             }
         }
@@ -118,10 +104,14 @@ public static class TextCatalog
     /// <remarks>设定后清空表缓存与语言扫描结果（下一次取值按新根重读）。</remarks>
     public static void UseRoot(string? path)
     {
+        ResourceLayout.UseRoot(ResourceKinds.Text, path);
+
         lock (_gate)
         {
-            _explicitRoot = string.IsNullOrWhiteSpace(path) ? null : Path.GetFullPath(path);
-            InvalidateCaches();
+            _tables.Clear();
+            _missingDirectories.Clear();
+            _supportedLanguages = null;
+            _supportedLanguagesGeneration = -1;
         }
     }
 
@@ -208,129 +198,20 @@ public static class TextCatalog
         return false;
     }
 
-    /// <summary>可见缺失标记（宁可在界面上露出键名，也不要一片空白）。</summary>
+    /// <summary>缺键时的可见标记（<c>⟦key⟧</c>；宁可在界面上露出键名，也不要一片空白）。</summary>
     /// <param name="key">未命中的键。</param>
+    /// <remarks>测试与界面判断"文本是否解析到"时用它，不要在别处再抄一份标记格式。</remarks>
+    public static string MissingValue(string key) => Missing(key);
+
+    /// <summary>一段文本是否是缺键标记。</summary>
+    /// <param name="text">要判断的文本（<see langword="null"/> ⇒ <see langword="false"/>）。</param>
+    /// <returns>形如 <c>⟦key⟧</c> 时为 <see langword="true"/>。</returns>
+    public static bool IsMissing(string? text) =>
+        text is not null
+        && text.StartsWith(MissingLeft, StringComparison.Ordinal)
+        && text.EndsWith(MissingRight, StringComparison.Ordinal);
+
     private static string Missing(string key) => string.Concat(MissingLeft, key, MissingRight);
-
-    // ---------------------------------------------------------------- 根与目录
-
-    /// <summary>表缓存失效（根或目录变更后调用；调用方持有 <see cref="_gate"/>）。</summary>
-    private static void InvalidateCaches()
-    {
-        _root = null;
-        _rootResolved = false;
-        _supportedLanguages = null;
-        _generation++;
-        _missingDirectories.Clear();
-        _tables.Clear();
-    }
-
-    /// <summary>解析后的文本包根（惰性一次；<c>null</c> = 找不到任何表）。</summary>
-    private static string? Root
-    {
-        get
-        {
-            lock (_gate)
-            {
-                if (!_rootResolved)
-                {
-                    _root = ResolveRoot();
-                    _rootResolved = true;
-                }
-
-                return _root;
-            }
-        }
-    }
-
-    /// <summary>根解析：显式根 → 默认根（输出目录 / 仓库根的 `resources/i18n`）→ 无。</summary>
-    private static string? ResolveRoot() => _explicitRoot ?? ResolveDefaultRoot();
-
-    /// <summary>默认根：输出目录的 `resources/i18n` → 仓库根的 `resources/i18n` → 无。</summary>
-    private static string? ResolveDefaultRoot()
-    {
-        var baseDirectory = AppContext.BaseDirectory;
-        if (string.IsNullOrWhiteSpace(baseDirectory))
-        {
-            return null;
-        }
-
-        var produced = Path.Combine(baseDirectory, ResourcesDirectoryName, PackDirectoryName);
-        if (Directory.Exists(produced))
-        {
-            return produced;
-        }
-
-        for (var current = new DirectoryInfo(baseDirectory); current is not null; current = current.Parent)
-        {
-            if (File.Exists(Path.Combine(current.FullName, RepositoryMarkerFile)))
-            {
-                return Path.Combine(current.FullName, ResourcesDirectoryName, PackDirectoryName);
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// 某个拥有者的表目录（**两级**，按序）：
-    /// ① 框架资源根 `<根>/<程序集简名>/`；
-    /// ② 程序集所在目录 `<程序集目录>/i18n/<程序集简名>/`（模块包 / 开发与测试输出）。
-    /// </summary>
-    /// <param name="owner">拥有者程序集（简名即目录名）。</param>
-    /// <remarks>
-    /// 模块**无需注册目录**：包内文本就放在实现程序集旁的 `i18n/<程序集简名>/`，加载后自然命中第 ② 级；
-    /// 框架拥有者住在 `resources/i18n/`，命中第 ① 级。
-    /// </remarks>
-    private static string? ResolveDirectory(Assembly owner)
-    {
-        var ownerName = owner.GetName().Name;
-        if (string.IsNullOrEmpty(ownerName))
-        {
-            return null;
-        }
-
-        if (Root is { } root)
-        {
-            var frameworkDirectory = Path.Combine(root, ownerName);
-            if (Directory.Exists(frameworkDirectory))
-            {
-                return frameworkDirectory;
-            }
-        }
-
-        // 显式根是**测试/预览的偏好**，不是排他隔离：并行用例临时改根时，框架自己的表仍应从默认根命中。
-        if (_explicitRoot is not null && ResolveDefaultRoot() is { } defaultRoot)
-        {
-            var fallback = Path.Combine(defaultRoot, ownerName);
-            if (Directory.Exists(fallback))
-            {
-                return fallback;
-            }
-        }
-
-        if (PackageDirectory(owner, ownerName) is { } packaged)
-        {
-            return packaged;
-        }
-
-        return null;
-    }
-
-    /// <summary>模块包 / 开发与测试输出侧的候选目录（程序集不在磁盘上 ⇒ null）。</summary>
-    /// <param name="owner">拥有者程序集。</param>
-    /// <param name="ownerName">拥有者简名。</param>
-    private static string? PackageDirectory(Assembly owner, string ownerName)
-    {
-        var location = owner.Location;
-        if (string.IsNullOrWhiteSpace(location) || Path.GetDirectoryName(location) is not { Length: > 0 } assemblyDirectory)
-        {
-            return null;
-        }
-
-        var candidate = Path.Combine(assemblyDirectory, PackDirectoryName, ownerName);
-        return Directory.Exists(candidate) ? candidate : null;
-    }
 
     // ---------------------------------------------------------------- 语言与文化
 
@@ -415,8 +296,7 @@ public static class TextCatalog
     {
         var languages = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { TextLanguages.ZhHans };
 
-        var root = Root;
-        if (root is not null)
+        if (ResourceLayout.Root(ResourceKinds.Text) is { } root)
         {
             foreach (var ownerDirectory in SafeDirectories(root))
             {
@@ -490,15 +370,8 @@ public static class TextCatalog
             return EmptyTable;
         }
 
-        int generation;
-        lock (_gate)
-        {
-            generation = _generation;
-        }
-
-        return _tables.GetOrAdd(
-            (ownerName, language, generation),
-            key => LoadTable(owner, key.Language));
+        var generation = ResourceLayout.Generation(ResourceKinds.Text);
+        return _tables.GetOrAdd((ownerName, language, generation), key => LoadTable(owner, key.Language));
     }
 
     private static readonly IReadOnlyDictionary<string, string> EmptyTable =
@@ -512,7 +385,7 @@ public static class TextCatalog
         var table = new Dictionary<string, string>(StringComparer.Ordinal);
         var ownerName = owner.GetName().Name ?? string.Empty;
 
-        var directory = ResolveDirectory(owner);
+        var directory = ResourceLayout.Directory(ResourceKinds.Text, owner);
         if (directory is null)
         {
             // 整张表缺失：**每个拥有者报一次**（否则界面满屏 ⟦key⟧ 却没有原因）。
@@ -564,7 +437,7 @@ public static class TextCatalog
     /// <param name="ownerName">拥有者简名。</param>
     private static string ExpectedDirectory(Assembly owner, string ownerName)
     {
-        if (Root is { } root)
+        if (ResourceLayout.Root(ResourceKinds.Text) is { } root)
         {
             return Path.Combine(root, ownerName);
         }
@@ -572,18 +445,19 @@ public static class TextCatalog
         if (owner.Location is { Length: > 0 } location
             && Path.GetDirectoryName(location) is { Length: > 0 } assemblyDirectory)
         {
-            return Path.Combine(assemblyDirectory, PackDirectoryName, ownerName);
+            return Path.Combine(assemblyDirectory, ResourceKinds.Text, ownerName);
         }
 
         return Path.Combine("<resources-root unresolved>", ownerName);
     }
 
-    /// <summary>报告"拥有者的整张表目录不存在"（每个拥有者一次）。</summary>
+    /// <summary>报告"拥有者的整张表目录不存在"（每个拥有者每个代号一次）。</summary>
     /// <param name="owner">拥有者（程序集简名）。</param>
     /// <param name="expected">期望目录（两级候选里优先展示的那个）。</param>
     private static void ReportMissingDirectory(string owner, string expected)
     {
-        if (!_missingDirectories.TryAdd(owner, true))
+        var key = (owner, ResourceLayout.Generation(ResourceKinds.Text));
+        if (!_missingDirectories.TryAdd(key, true))
         {
             return;
         }
@@ -611,9 +485,9 @@ public static class TextCatalog
         try
         {
             var length = new FileInfo(path).Length;
-            if (length > MaxTableFileBytes)
+            if (length > ResourceLayout.MaxTableFileBytes)
             {
-                failure = $"超过单文件体积上限（{length} 字节 > {MaxTableFileBytes} 字节）";
+                failure = $"超过单文件体积上限（{length} 字节 > {ResourceLayout.MaxTableFileBytes} 字节）";
                 return false;
             }
 

@@ -79,12 +79,14 @@
                     <Button.Flyout>
                         <Flyout Placement="TopEdgeAlignedRight">
                             <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
-                                       Text="{loc:Tr interaction.help.hotkeys.body}" />
+                                       Text="{loc:Tr hotkey.help.scope}" />
                         </Flyout>
                     </Button.Flyout>
                 </Button>
             </Grid>
-            <TextBlock FontSize="10" Foreground="{DynamicResource TextMuted}" Text="M / I / S / T / L / G / Ctrl+L" />
+            <!-- **当前生效的绑定**（含用户改过的）；不写死，随设置刷新 -->
+            <TextBlock FontSize="10" Foreground="{DynamicResource TextMuted}" TextWrapping="Wrap"
+                       Text="{Binding HotkeyHelpText}" />
 
             <Rectangle Height="1" Margin="0,2" Fill="{DynamicResource BorderDefault}" />
 

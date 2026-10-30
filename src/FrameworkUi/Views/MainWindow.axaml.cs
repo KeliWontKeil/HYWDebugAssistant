@@ -24,11 +24,9 @@ namespace HYWDebugAssistant.FrameworkUi.Views;
 ///   <item>Esc 在拖动中取消由模块窗口自行处理（各窗口独立）。</item>
 /// </list>
 /// </remarks>
-public partial class MainWindow : Window
+public partial class MainWindow : Window, IExitPrompt, IExitSaver, IExitPolicy
 {
     private readonly Dictionary<DialogKind, DialogWindow> _dialogs = [];
-    private bool _allowClose;
-    private bool _closePrompting;
     private string? _lastGeometryAspect;
     private bool _lastGeometryFixed;
     private bool _preparedForShow;
@@ -75,76 +73,51 @@ public partial class MainWindow : Window
     private void OnRefreshTick() => Shell?.Refresh();
 
     /// <summary>
-    /// 关闭前询问是否保存工作区：保存失败或取消 ⇒ 留在应用；不保存只丢弃本次未保存修改。
+    /// 关闭外壳：交给 <see cref="ExitCoordinator"/> 的单一出口（先决定、再关模块窗、最后放行本窗）。
     /// </summary>
-    private async void OnClosing(object? sender, WindowClosingEventArgs e)
+    private void OnClosing(object? sender, WindowClosingEventArgs e)
     {
-        if (_allowClose)
+        if (ExitCoordinator is null || ExitCoordinator.CanClose || Shell is null)
         {
             return;
         }
 
         e.Cancel = true;
+        _ = ExitCoordinator.RequestAsync();
+    }
 
-        if (_closePrompting || Shell is not { } shell)
+    /// <summary>退出协调器（由组合根注入；为空 = 宿主未接线，按普通窗口关闭）。</summary>
+    public ShellExitCoordinator? ExitCoordinator { get; set; }
+
+    /// <inheritdoc />
+    Task<WorkspaceCloseResult> IExitPrompt.AskAsync(int moduleCount) =>
+        WorkspaceCloseDialog.ShowAsync(this, moduleCount);
+
+    /// <inheritdoc />
+    async Task<bool> IExitSaver.SaveAsync() =>
+        Shell is { } shell && await SaveWorkspaceAndReportAsync(shell);
+
+    /// <inheritdoc />
+    string IExitPolicy.Current => Shell?.WorkspaceExitBehavior ?? string.Empty;
+
+    /// <inheritdoc />
+    async Task<bool> IExitPolicy.RememberAsync(string policy)
+    {
+        if (Shell is not { } shell)
         {
-            return;
+            return false;
         }
 
-        _closePrompting = true;
-        try
+        var persisted = shell.SetWorkspaceExitBehavior(policy);
+        if (persisted.Succeeded)
         {
-            var behavior = shell.WorkspaceExitBehavior;
-            if (behavior == "Save")
-            {
-                if (!await SaveWorkspaceAndReportAsync(shell))
-                {
-                    return;
-                }
-
-                _allowClose = true;
-                Close();
-                return;
-            }
-
-            if (behavior == "Discard")
-            {
-                _allowClose = true;
-                Close();
-                return;
-            }
-
-            var result = await WorkspaceCloseDialog.ShowAsync(this, shell.Windows.ModuleCount);
-            if (result.Choice == WorkspaceCloseChoice.Cancel)
-            {
-                return;
-            }
-
-            if (result.Choice == WorkspaceCloseChoice.Save
-                && !await SaveWorkspaceAndReportAsync(shell))
-            {
-                return;
-            }
-
-            if (result.Remember)
-            {
-                var policy = result.Choice == WorkspaceCloseChoice.Save ? "Save" : "Discard";
-                var persisted = shell.SetWorkspaceExitBehavior(policy);
-                if (!persisted.Succeeded)
-                {
-                    await ShowMessageAsync(
-                        Loc("shell.message.exitPolicySaveFailed.title"),
-                        Loc("shell.message.exitPolicySaveFailed.message", string.Join("；", persisted.Failures)));
-                }
-            }
-
-            _allowClose = true;
-            Close();
+            return true;
         }
-        finally
-        {
-            _closePrompting = false;
-        }
+
+        await ShowMessageAsync(
+            Loc("shell.message.exitPolicySaveFailed.title"),
+            Loc("shell.message.exitPolicySaveFailed.message", string.Join("；", persisted.Failures)));
+        return false;
     }
 
     /// <summary>保存工作区；失败时显示原因并返回 false（调用方不得关闭）。</summary>
@@ -341,7 +314,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        _allowClose = true;
+        if (ExitCoordinator is { } coordinator)
+        {
+            // 重启已自行确认并保存过一次：直接关闭，不再询问、不再写第二遍快照。
+            await coordinator.CloseWithoutSavingAsync();
+            return;
+        }
+
         Close();
     }
 
@@ -452,11 +431,19 @@ public partial class MainWindow : Window
     }
 
     // ---------------------------------------------------------------- 文件
-    private void OnExit(object? sender, RoutedEventArgs e) => Close();
+    private void OnExit(object? sender, RoutedEventArgs e) => _ = ExitCoordinator?.RequestAsync();
 
-    private void OnShowHotkeys(object? sender, RoutedEventArgs e) => _ = ShowMessageAsync(
-        Loc("shell.help.hotkeys.title"),
-        Loc("shell.help.hotkeys.body"));
+    private void OnShowHotkeys(object? sender, RoutedEventArgs e)
+    {
+        // **快捷键清单不写死**：按当前生效的绑定生成（改过设置后这里跟着变）。
+        var list = Shell?.Hotkeys.HelpText ?? string.Empty;
+
+        _ = ShowMessageAsync(
+            Loc("shell.help.hotkeys.title"),
+            Loc("hotkey.help.scope") + Environment.NewLine + Environment.NewLine
+                + list + Environment.NewLine + Environment.NewLine
+                + Loc("shell.help.hotkeys.tips"));
+    }
 
     private void OnShowAbout(object? sender, RoutedEventArgs e) => _ = ShowMessageAsync(
         Loc("shell.help.about.title"),

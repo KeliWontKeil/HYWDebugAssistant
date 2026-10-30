@@ -9,9 +9,10 @@
       · App 项目构建  → <应用输出>\modules\<包名>\（**内置包目录**，启动默认扫描）
     本脚本只做几件事：
       ① 校验两处包目录：manifest 必填项、实现程序集、**不得含宿主提供程序集**；
-      ② 校验两处的模块 ID 集合与 src/Modules 下的源码清单一致（按构建配置）；
-      ③ 校验宿主输出含 Sdk / Sdk.Ui / Sdk.AccessKit / Access / System.IO.Ports；
-      ④ -ExportDirectory <目录>：把包复制出去，用于发布打包。
+      ② 校验模块**自有资源包**：清单声明的 `resources/` 目录随包、逐字对账、不越界、不带未声明的资源；
+      ③ 校验两处的模块 ID 集合与 src/Modules 下的源码清单一致（按构建配置）；
+      ④ 校验宿主输出含 Sdk / Sdk.Ui / Sdk.AccessKit / Access / System.IO.Ports；
+      ⑤ -ExportDirectory <目录>：把包复制出去，用于发布打包。
     注：包来源零改动（仍由构建自动归拢），本脚本只校验/导出。
 
 .EXAMPLE
@@ -92,6 +93,20 @@ function Get-ExpectedModuleIds {
     return [string[]]$ids
 }
 
+function Test-DeclaredResourcePath {
+    param([object[]]$Declared, [string]$RelativePath)
+
+    $normalized = $RelativePath -replace '\\', '/'
+    foreach ($entry in $Declared) {
+        $prefix = ([string]$entry) -replace '\\', '/'
+        if ($normalized -eq $prefix -or $normalized.StartsWith($prefix + '/', [StringComparison]::Ordinal)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Test-ModulePackages {
     param([string]$Directory)
 
@@ -141,23 +156,54 @@ function Test-ModulePackages {
             throw "模块 ID 重复：$($manifest.id)（$($package.FullName)）"
         }
 
-        # **随包文本**：源码侧有 `i18n/` 时，包里必须有同路径、同内容的文件
-        # （没有表的模块跳过这条；新增表不需要改本脚本）。
+        # **模块自有资源包**：源码侧 `resources/` 全量随包、与清单声明的目录一致、内容逐字对账；
+        # 包里也不得出现"没声明的资源"（每个模块只带自己的包）。
         if ($sourceModuleDirectories.ContainsKey($manifest.id)) {
-            $sourceI18n = Join-Path $sourceModuleDirectories[$manifest.id] 'i18n'
-            if (Test-Path -LiteralPath $sourceI18n -PathType Container) {
-                foreach ($sourceFile in (Get-ChildItem -LiteralPath $sourceI18n -Recurse -File | Sort-Object FullName)) {
-                    $relativeText = [System.IO.Path]::GetRelativePath($sourceModuleDirectories[$manifest.id], $sourceFile.FullName).Replace('\', '/')
-                    $packagedFile = Join-Path $package.FullName $relativeText.Replace('/', '\')
+            $sourceModule = $sourceModuleDirectories[$manifest.id]
+            $declared = @($manifest.resources | Where-Object { $null -ne $_ })
 
+            foreach ($declaredPath in $declared) {
+                $value = [string]$declaredPath
+                if ([string]::IsNullOrWhiteSpace($value) -or
+                    [System.IO.Path]::IsPathRooted($value) -or
+                    $value -match '(^|[\\/])\.\.([\\/]|$)') {
+                    throw "模块清单的 resources 必须是相对路径：'$value'（$manifestPath）"
+                }
+
+                $packagedDirectory = Join-Path $package.FullName ($value -replace '[\\/]', '\')
+                if (-not (Test-Path -LiteralPath $packagedDirectory -PathType Container)) {
+                    throw "模块包缺少清单声明的资源目录：$value（包 $($package.FullName)）"
+                }
+            }
+
+            $sourceResources = Join-Path $sourceModule 'resources'
+            if (Test-Path -LiteralPath $sourceResources -PathType Container) {
+                foreach ($sourceFile in (Get-ChildItem -LiteralPath $sourceResources -Recurse -File | Sort-Object FullName)) {
+                    $relativeText = [System.IO.Path]::GetRelativePath($sourceModule, $sourceFile.FullName).Replace('\', '/')
+
+                    if (-not (Test-DeclaredResourcePath -Declared $declared -RelativePath $relativeText)) {
+                        throw "模块资源没有在清单里声明：$relativeText（$manifestPath）"
+                    }
+
+                    $packagedFile = Join-Path $package.FullName $relativeText.Replace('/', '\')
                     if (-not (Test-Path -LiteralPath $packagedFile -PathType Leaf)) {
-                        throw "模块包缺少随包文本：$relativeText（包 $($package.FullName)）"
+                        throw "模块包缺少资源文件：$relativeText（包 $($package.FullName)）"
                     }
 
                     $sourceHash = (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash
                     $packagedHash = (Get-FileHash -LiteralPath $packagedFile -Algorithm SHA256).Hash
                     if ($sourceHash -ne $packagedHash) {
-                        throw "模块包文本与源码不一致：$relativeText（包 $($package.FullName)）"
+                        throw "模块资源与源码不一致：$relativeText（包 $($package.FullName)）"
+                    }
+                }
+            }
+
+            $packagedResources = Join-Path $package.FullName 'resources'
+            if (Test-Path -LiteralPath $packagedResources -PathType Container) {
+                foreach ($packagedFile in (Get-ChildItem -LiteralPath $packagedResources -Recurse -File)) {
+                    $relativeText = [System.IO.Path]::GetRelativePath($package.FullName, $packagedFile.FullName).Replace('\', '/')
+                    if (-not (Test-DeclaredResourcePath -Declared $declared -RelativePath $relativeText)) {
+                        throw "模块包含有未声明的资源：$relativeText（包 $($package.FullName)）"
                     }
                 }
             }

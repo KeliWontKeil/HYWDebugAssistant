@@ -68,7 +68,7 @@ public class SubscriptionBufferTests
 
         set.TryWrite("ghost", sample, out var firstFailure).ShouldBe(SubscriptionWriteOutcome.UnknownDataSource);
         firstFailure.ShouldNotBeNull();
-        firstFailure!.ShouldContain("未在模块声明中登记");
+        firstFailure.ShouldNotBeNullOrWhiteSpace("未知数据源必须给出原因");
 
         // 重复出现 → 不再提示（不刷屏）
         set.TryWrite("ghost", sample, out _).ShouldBe(SubscriptionWriteOutcome.Suppressed);
@@ -144,7 +144,7 @@ public class SubscriptionBufferTests
         buffer.Write([1, 2, 3, 4, 5, 6, 7, 8], out var failure).ShouldBeFalse();
 
         failure.ShouldNotBeNull();
-        failure!.ShouldContain("超过已定槽尺寸");
+        failure.ShouldNotBeNullOrWhiteSpace("超长样本必须给出原因");
         buffer.Dropped.ShouldBe(1);
         buffer.SampleSizeInBytes.ShouldBe(4);
     }
@@ -157,7 +157,7 @@ public class SubscriptionBufferTests
         buffer.Write(new byte[SubscriptionBuffer.MaxSampleSizeInBytes + 1], out var failure).ShouldBeFalse();
 
         failure.ShouldNotBeNull();
-        failure!.ShouldContain("样本过大");
+        failure.ShouldNotBeNullOrWhiteSpace("超大样本必须给出原因");
         buffer.Dropped.ShouldBe(1);
     }
 

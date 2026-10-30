@@ -110,20 +110,22 @@ public class ModuleSurfaceWindowTests
                 var window = harness.OpenWindow(module);
                 Pump();
 
-                harness.AppendDisplayLine("dm", DataMonitorModule.LogSource, "第一条");
+                var firstLine = "第一条";
+                var secondLine = "第二条";
+                harness.AppendDisplayLine("dm", DataMonitorModule.LogSource, firstLine);
                 harness.Windows.Refresh();
                 Pump();
 
                 var view = window.GetVisualDescendants().OfType<IncrementalTextView>().ShouldHaveSingleItem();
-                view.Text.ShouldContain("第一条");
+                view.Text.ShouldContain(firstLine);
                 view.VisualLineCount.ShouldBeGreaterThan(0);
 
-                harness.AppendDisplayLine("dm", DataMonitorModule.LogSource, "第二条");
+                harness.AppendDisplayLine("dm", DataMonitorModule.LogSource, secondLine);
                 harness.Windows.Refresh();
                 Pump();
 
-                view.Text.ShouldContain("第一条");
-                view.Text.ShouldContain("第二条");
+                view.Text.ShouldContain(firstLine);
+                view.Text.ShouldContain(secondLine);
 
                 var path = Path.Combine(Path.GetTempPath(), "hyw-data-monitor-incremental.png");
                 using var bitmap = new RenderTargetBitmap(new PixelSize(400, 352), new Vector(96, 96));
@@ -163,7 +165,7 @@ public class ModuleSurfaceWindowTests
                 Pump();
                 first.GetVisualDescendants().OfType<ModuleViewHost>().ShouldHaveSingleItem();
 
-                // 关闭路径由窗口自身的 Closing 事件摘掉缓存视图；管理器也会显式调用同一入口。
+                // 关闭路径由窗口自身的 Closed 事件摘掉缓存视图（管理器只负责关窗）。
                 first.Close();
                 Pump();
 

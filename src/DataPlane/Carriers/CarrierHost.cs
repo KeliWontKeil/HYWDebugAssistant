@@ -28,14 +28,31 @@ public sealed class CarrierHost : IDisposable
     /// <summary>数据单元缓冲池（投递方借缓冲用）。</summary>
     public PooledPayloadBufferPool Buffers { get; }
 
-    /// <summary>承载参数（修改**只影响新建承载者**：既有队列保持创建时容量——`04b` §6）。</summary>
+    /// <summary>
+    /// 承载参数（容量与满时策略**只影响新建承载者**：既有队列保持创建时容量；饱和判据不受此限，见
+    /// <see cref="UpdateOptions"/>）。
+    /// </summary>
     public CarrierOptions Options { get; private set; }
 
-    /// <summary>更新承载参数（由应用级设置驱动；即时对后续操作生效）。</summary>
+    /// <summary>
+    /// 更新承载参数（由应用级设置驱动）：保存参数，并把**可即时改变**的部分下发给既有承载。
+    /// </summary>
+    /// <remarks>
+    /// <b>容量与满时策略不在这里传播</b>：队列在创建时就把它们取走，改设置只影响**新建**队列
+    /// （运行中给一条正在用的队列换底，会让"已经积压多少"这件事失去意义）。
+    /// 能即时改的是饱和判据（深度阈值 + 保持时长）与积压上限。
+    /// </remarks>
+    /// <param name="options">新参数（同时保存下来供此后新建的承载使用）。</param>
     public void UpdateOptions(CarrierOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         Options = options;
+
+        foreach (var carrier in _carriers.Values)
+        {
+            // 激活过程中会短暂占位（见 TryActivate），占位项没有队列可下发
+            carrier?.UpdateFlowPolicy(options.HintDepth, options.HintHold, options.MaxBacklogAge);
+        }
     }
 
     /// <summary>当前全部承载者（快照）。</summary>

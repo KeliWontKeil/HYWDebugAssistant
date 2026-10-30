@@ -16,7 +16,13 @@
     <ControlTheme x:Key="{x:Type ui:ModuleLabel}" TargetType="ui:ModuleLabel">
       <Setter Property="Template">
         <ControlTemplate>
-          <TextBlock Name="PART_Text" Classes="module-label" VerticalAlignment="Center" />
+          <!-- 透明底：整个矩形都能命中，悬停提示才不用"指到字上"才出来。 -->
+          <Panel Background="Transparent">
+            <!-- 预览专用：空/透明的标签也要有个框，否则没法在预览器里排版（产品运行不显示）。 -->
+            <Rectangle Name="PART_Placeholder" Margin="0.5" StrokeDashArray="2,2"
+                       StrokeThickness="1" Stroke="{DynamicResource TextMuted}" IsVisible="False" />
+            <TextBlock Name="PART_Text" VerticalAlignment="Center" />
+          </Panel>
         </ControlTemplate>
       </Setter>
     </ControlTheme>
@@ -24,13 +30,12 @@
     <ControlTheme x:Key="{x:Type ui:ModuleNumeric}" TargetType="ui:ModuleNumeric">
       <Setter Property="Template">
         <ControlTemplate>
-          <Grid ColumnDefinitions="Auto,*,Auto">
-            <TextBlock Name="PART_Title" Classes="module-title" VerticalAlignment="Center" />
-            <TextBlock Name="PART_Value" Grid.Column="1" Classes="module-numeric"
-                       VerticalAlignment="Center" HorizontalAlignment="Right" />
-            <TextBlock Name="PART_Unit" Grid.Column="2" Classes="module-unit"
-                       Margin="4,0,4,0" VerticalAlignment="Center" IsVisible="False" />
-          </Grid>
+          <Panel>
+            <!-- 预览专用：没有值的读数也要有个框（产品运行不显示）。 -->
+            <Rectangle Name="PART_Placeholder" Margin="0.5" StrokeDashArray="2,2"
+                       StrokeThickness="1" Stroke="{DynamicResource TextMuted}" IsVisible="False" />
+            <TextBlock Name="PART_Value" Classes="module-value" VerticalAlignment="Center" />
+          </Panel>
         </ControlTemplate>
       </Setter>
     </ControlTheme>
@@ -43,6 +48,33 @@
       </Setter>
     </ControlTheme>
 
+    <!--
+      图标：默认 16×16；画面由 `Viewbox` 按 SVG 的 `viewBox` 等比缩放（留白一起保留），
+      填充色跟随控件前景 ⇒ 按钮的 `:pointerover` / `:pressed` 换前景时图标自动跟着走。
+      缺键/缺表时显示**键名**（界面字体）——宁可露出缺的是哪个键，也不要一块看不见的空白。
+    -->
+    <ControlTheme x:Key="{x:Type ui:Icon}" TargetType="ui:Icon">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Panel>
+            <Viewbox Name="PART_Svg" Stretch="Uniform" IsVisible="False">
+              <Canvas Name="PART_Canvas" Width="20" Height="20">
+                <Path Name="PART_Path" Fill="{TemplateBinding Foreground}" IsHitTestVisible="False" />
+              </Canvas>
+            </Viewbox>
+            <TextBlock Name="PART_Fallback"
+                       IsVisible="False"
+                       FontSize="10"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Foreground="{TemplateBinding Foreground}" />
+          </Panel>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+
     <ControlTheme x:Key="{x:Type ui:ModuleTextSurface}" TargetType="ui:ModuleTextSurface">
       <Setter Property="Template">
         <ControlTemplate>
@@ -51,7 +83,7 @@
                     BorderThickness="1" CornerRadius="2"
                     Background="{DynamicResource BgModule}">
               <Grid>
-                <TextBox Name="PART_Input" Classes="module-text-editor"
+                <TextBox Name="PART_Input" Classes="module-text-editor chrome-bare"
                          BorderThickness="0" Background="Transparent"
                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                          IsVisible="False" />
@@ -107,17 +139,9 @@
       <Setter Property="Template">
         <ControlTemplate>
           <Grid RowDefinitions="*,Auto">
-            <Grid Grid.Row="0" ColumnDefinitions="Auto,*">
-              <TextBlock Name="PART_Title" Classes="module-title" VerticalAlignment="Center" />
-              <ContentControl Name="PART_EditorHost" Grid.Column="1" />
-              <Border Name="PART_ReadFrame" Grid.Column="1" Classes="module-text-frame readonly"
-                      BorderThickness="1" CornerRadius="2" MinHeight="22"
-                      VerticalAlignment="Center" IsVisible="False">
-                <SelectableTextBlock Name="PART_ReadText" Classes="module-text-read"
-                                     Padding="4,0" VerticalAlignment="Center"
-                                     TextWrapping="NoWrap" />
-              </Border>
-              <Border Name="PART_ErrorRing" Grid.Column="1" BorderThickness="2" CornerRadius="2"
+            <Grid Grid.Row="0">
+              <ContentControl Name="PART_EditorHost" />
+              <Border Name="PART_ErrorRing" BorderThickness="2" CornerRadius="2"
                       IsVisible="False" IsHitTestVisible="False" />
             </Grid>
             <TextBlock Name="PART_Notice" Grid.Row="1" Classes="module-notice"
@@ -217,40 +241,38 @@
     <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleConfigField}}" />
   </Style>
 
-  <Style Selector="TextBlock.module-label">
+  <!--
+    **标签只有一套排印**：字号/墨色/省略号都在这里；视图用类选档位，不自己写字号。
+    默认档 = 事实/状态（正文墨）；`caption` = 标题类（次级墨）；`hint` = 说明（更小、更弱）。
+    文本一律单行、超宽省略号（装不下要让眼睛看得见，而不是被硬切一半）。
+  -->
+  <Style Selector="ui|ModuleLabel /template/ TextBlock">
     <Setter Property="FontSize" Value="11" />
     <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+    <Setter Property="TextWrapping" Value="NoWrap" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
   </Style>
 
-  <Style Selector="TextBlock.module-label.muted">
-    <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+  <Style Selector="ui|ModuleLabel.caption /template/ TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
   </Style>
 
-  <Style Selector="TextBlock.module-field-label">
+  <Style Selector="ui|ModuleLabel.hint /template/ TextBlock">
     <Setter Property="FontSize" Value="10" />
     <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-    <Setter Property="Margin" Value="4,2,0,2" />
-    <Setter Property="TextWrapping" Value="NoWrap" />
   </Style>
 
-  <Style Selector="TextBlock.module-title">
-    <Setter Property="FontSize" Value="11" />
-    <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
-    <Setter Property="Margin" Value="0,0,4,0" />
+  <!-- 读数标签在组内贴住值：右对齐，右缘就是它自己的矩形右缘（值紧接着开始）。 -->
+  <Style Selector="ui|ModuleLabel.right /template/ TextBlock">
+    <Setter Property="HorizontalAlignment" Value="Right" />
   </Style>
 
-  <Style Selector="TextBlock.module-numeric">
+  <Style Selector="TextBlock.module-value">
     <Setter Property="FontSize" Value="11" />
     <Setter Property="FontFamily" Value="{DynamicResource FontData}" />
     <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-    <Setter Property="HorizontalAlignment" Value="Right" />
     <Setter Property="TextWrapping" Value="NoWrap" />
-  </Style>
-
-  <Style Selector="TextBlock.module-unit">
-    <Setter Property="FontSize" Value="10" />
-    <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-    <Setter Property="Margin" Value="3,0,0,1" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
   </Style>
 
   <Style Selector="TextBlock.module-notice">
@@ -275,13 +297,35 @@
     <Setter Property="FontSize" Value="11" />
   </Style>
 
-  <Style Selector="ui|ModuleConfigField">
-    <Setter Property="MinHeight" Value="24" />
+  <!--
+    图标按钮：一格小方框里放**一个图标**（显式 SVG，见 `IconCatalog`）。
+    必须把上面那条的最小尺寸与内边距放开，否则尺寸下限会把方框撑大、内边距会把图标挤偏；
+    图标在框里居中，不参与文本基线对齐。
+    **面 / 边 / 指针态不在这里**：宿主 App 的 `ButtonChrome.axaml` 对 `:is(Button)` 统一给
+    （图标按钮不再排除），这里只收窄尺寸与图标颜色——否则模块视图里的清空按钮会"没有面"。
+  -->
+  <Style Selector="ui|ModuleButton.icon">
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
   </Style>
 
-  <Style Selector="ui|ModuleNumeric">
-    <Setter Property="MinHeight" Value="30" />
-    <Setter Property="Margin" Value="0,0,4,0" />
+  <!-- 按钮里那枚图标的尺寸（图标默认 16；24×20 的清空按钮用 14 更透气） -->
+  <Style Selector="ui|ModuleButton.icon ui|Icon">
+    <Setter Property="Width" Value="14" />
+    <Setter Property="Height" Value="14" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.icon:pointerover">
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.icon:pressed">
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
   </Style>
 
   <Style Selector="ui|ModuleToggle">
@@ -353,27 +397,20 @@
   -->
   <Style Selector="Border.module-text-frame">
     <Setter Property="Background" Value="{DynamicResource BgModule}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource SurfaceTextFrameEditableBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="2" />
   </Style>
 
-  <Style Selector="Border.module-text-frame.readonly">
-    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
-  </Style>
-
   <Style Selector="TextBox.module-text-editor">
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Height" Value="NaN" />
     <Setter Property="FontSize" Value="11" />
     <Setter Property="Padding" Value="4,0" />
-    <Setter Property="MinHeight" Value="24" />
     <Setter Property="Background" Value="Transparent" />
-    <Setter Property="BorderBrush" Value="{DynamicResource SurfaceTextFrameEditableBrush}" />
     <Setter Property="SelectionBrush" Value="{DynamicResource OverlaySelection}" />
     <Setter Property="SelectionForegroundBrush" Value="{DynamicResource TextPrimary}" />
-  </Style>
-
-  <Style Selector="TextBox.module-text-editor.readonly">
-    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
   </Style>
 
   <Style Selector="SelectableTextBlock.module-text-read">

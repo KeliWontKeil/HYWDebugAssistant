@@ -176,13 +176,14 @@ public class OverlaySnapshotTests
             () =>
             {
                 using var harness = new SnapshotHarness();
+                const string displayName = "文本发送器";
                 harness.Register(
                     "text-sender",
                     typeof(TextSenderModule),
                     typeof(TextSenderViewFactory),
                     windowWidth: 358,
                     windowHeight: 192,
-                    displayName: "文本发送器");
+                    displayName: displayName);
 
                 var ids = new List<string> { "text-sender-1", "text-sender-2", "text-sender-3" };
                 foreach (var id in ids)
@@ -196,7 +197,7 @@ public class OverlaySnapshotTests
                     .ToList();
 
                 modules.Select(module => module.OverlayInfo.Identity).ToList().ShouldBe(
-                    new List<string> { "文本发送器 1", "文本发送器 2", "文本发送器 3" });
+                    new List<string> { $"{displayName} 1", $"{displayName} 2", $"{displayName} 3" });
                 modules.ShouldAllBe(module => !module.OverlayInfo.Identity.Contains("text-sender", StringComparison.Ordinal));
 
                 // 关闭 #1：剩余实例不能保留 2/3 的旧号，必须重排成 1/2。
@@ -207,7 +208,7 @@ public class OverlaySnapshotTests
                     .Where(module => string.Equals(module.ModuleId, "test/text-sender/1.0.0", StringComparison.Ordinal))
                     .ToList();
                 modules.Select(module => module.OverlayInfo.Identity).ToList().ShouldBe(
-                    new List<string> { "文本发送器 1", "文本发送器 2" });
+                    new List<string> { $"{displayName} 1", $"{displayName} 2" });
 
                 // 新实例补到当前数量之后，不跳到全局计数器的 4/9。
                 harness.AddModule("text-sender-9", "test/text-sender/1.0.0", 358, 192);
@@ -215,7 +216,7 @@ public class OverlaySnapshotTests
 
                 harness.Windows.Modules
                     .Single(module => string.Equals(module.InstanceId, "text-sender-9", StringComparison.Ordinal))
-                    .OverlayInfo.Identity.ShouldBe("文本发送器 3");
+                    .OverlayInfo.Identity.ShouldBe($"{displayName} 3");
             },
             CancellationToken.None);
     }

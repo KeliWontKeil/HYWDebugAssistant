@@ -1,25 +1,8 @@
 using HYWDebugAssistant.Core.Composition;
 using HYWDebugAssistant.Sdk.Contracts;
+using HYWDebugAssistant.Sdk.Reporting;
 
 namespace HYWDebugAssistant.Core.Binding;
-
-/// <summary>
-/// **未投递原因**（丢弃必须分类，不得混算）。
-/// </summary>
-public enum DropReason
-{
-    /// <summary>**停流未投递**：上游挂起（`Disabled`）或网络停流 —— **合法状态，不是故障**。</summary>
-    Stalled = 0,
-
-    /// <summary>**队列满**：目标实例输入队列已满（best-effort 丢弃）。</summary>
-    QueueFull = 1,
-
-    /// <summary>**无承载**：目标的承载（线程/队列）不存在或未就绪。</summary>
-    NoCarrier = 2,
-
-    /// <summary>**载荷非法**：载荷长度小于契约尺寸（长度校验失败）。</summary>
-    InvalidPayload = 3,
-}
 
 /// <summary>
 /// 绑定的诊断计数（可观测性 L4）：投递数 / 丢弃数 / 最后数据时间。
@@ -28,6 +11,10 @@ public enum DropReason
 /// 这些数据只在框架侧用于诊断呈现，**不进数据面**（主文档 §5.4.2）。
 /// 丢弃**按原因分类**（`DroppedByReason`）：`停流未投递` 与 `传输丢弃` 不得混算；
 /// `Dropped` 保留为**总数**（向后兼容，等于各原因之和）。
+/// <para>
+/// 原因词表是契约层的 <see cref="DropReason"/>（与队列轴、会话轴共用一套），
+/// 本类型不再自带一份枚举——两条轴各写一套词表，读出来的数就再也对不上账。
+/// </para>
 /// </remarks>
 public sealed class BindingDiagnostics
 {

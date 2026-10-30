@@ -7,11 +7,11 @@ using Xunit;
 
 namespace HYWDebugAssistant.Tests;
 
-/// <summary>设置页的字体字段必须写进外观草稿并随「应用」落盘，不能回退。</summary>
+/// <summary>设置页的四个字体字段必须写进外观草稿并随「应用」落盘，不能回退。</summary>
 public class SettingsPanelFontTests
 {
     [Fact]
-    public void 修改字体后应用_应保存新字体而不是回退默认()
+    public void 修改中西文字体后应用_应保存新字体而不是回退默认()
     {
         var directory = Path.Combine(Path.GetTempPath(), "hyw-settings-font-" + Guid.NewGuid().ToString("N"));
         _ = Directory.CreateDirectory(directory);
@@ -26,18 +26,24 @@ public class SettingsPanelFontTests
             var panel = new SettingsPanelViewModel(services, services);
             panel.Load();
 
-            panel.UiFontFamily = "Georgia";
-            panel.DataFontFamily = "Cascadia Code";
+            panel.UiFontLatin = "Georgia";
+            panel.UiFontCjk = "SimSun";
+            panel.DataFontLatin = "Cascadia Code";
+            panel.DataFontCjk = "SimSun";
             panel.ApplyCommand.Execute(null);
 
             panel.StatusIsOk.ShouldBeTrue(panel.StatusMessage);
-            services.GetSettings().Appearance.UiFontFamily.ShouldBe("Georgia");
-            services.GetSettings().Appearance.DataFontFamily.ShouldBe("Cascadia Code");
+            services.GetSettings().Appearance.UiFonts.Latin.ShouldBe("Georgia");
+            services.GetSettings().Appearance.UiFonts.Cjk.ShouldBe("SimSun");
+            services.GetSettings().Appearance.DataFonts.Latin.ShouldBe("Cascadia Code");
+            services.GetSettings().Appearance.DataFonts.Cjk.ShouldBe("SimSun");
 
             // 重新打开设置页时必须仍显示刚应用的值
             panel.Load();
-            panel.UiFontFamily.ShouldBe("Georgia");
-            panel.DataFontFamily.ShouldBe("Cascadia Code");
+            panel.UiFontLatin.ShouldBe("Georgia");
+            panel.UiFontCjk.ShouldBe("SimSun");
+            panel.DataFontLatin.ShouldBe("Cascadia Code");
+            panel.DataFontCjk.ShouldBe("SimSun");
         }
         finally
         {

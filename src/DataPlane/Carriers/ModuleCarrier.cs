@@ -1,6 +1,9 @@
+using System.Diagnostics;
 using HYWDebugAssistant.DataPlane.Buffers;
 using HYWDebugAssistant.DataPlane.Queues;
 using HYWDebugAssistant.Sdk.Data;
+using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Reporting;
 
 namespace HYWDebugAssistant.DataPlane.Carriers;
 
@@ -58,8 +61,8 @@ public enum CarrierEnqueueResult
 ///   <item><b>公平调度</b>：投递循环按**轮转**在非空口之间取单元（每轮每口至多一个），保证任一口都不会被饿死。</item>
 ///   <item><b>不阻塞发送方</b>：队列满即丢弃（丢旧/丢新）并计数。</item>
 ///   <item><b>异常边界</b>：活动体异常经 <see cref="ICarrierTarget.ReportActivityFailure"/> 上报，不逸出。</item>
-///   <item><b>停止协议</b>：置停止信号 → 有界等待 → 超时则标记孤儿并**放弃队列缓冲（不归还池）**。
-///         框架**不假装能强杀线程**（.NET 无安全中止）。</item>
+///   <item><b>停止协议</b>：置停止信号 → **先清尾**（计 <c>DiscardedOnStop</c> 并归还池）→ 有界等待 →
+///         超时则标记孤儿并**放弃队列缓冲（不归还池）**。框架**不假装能强杀线程**（.NET 无安全中止）。</item>
 /// </list>
 /// </remarks>
 public sealed class ModuleCarrier : IDisposable
@@ -74,7 +77,7 @@ public sealed class ModuleCarrier : IDisposable
     /// 二值“有活干”信号：仅**无活动体**的实例使用（口入队 / 会话就绪 / 命令输入）。
     /// 有活动体的实例自己轮询读取面，不等待这个信号。
     /// </summary>
-    private readonly SemaphoreSlim _dataAvailable = new(0, 1);
+    private readonly SemaphoreSlim _dataAvailable = new(0);
     private readonly Thread _thread;
 
     /// <summary>接收口名 → 队列下标（构造后**不变**：口集合在实例激活时已定）。</summary>
@@ -89,6 +92,12 @@ public sealed class ModuleCarrier : IDisposable
 
     /// <summary>轮转游标（公平调度的起点）。</summary>
     private int _cursor;
+
+    /// <summary>投递时间片：一次唤醒内层最多连续投递多久（构造时把非正值夹到 1 ms）。</summary>
+    private readonly TimeSpan _deliverySlice;
+
+    /// <summary>最大积压年龄（<see cref="Stopwatch"/> 计时刻度；0 = 不限）。</summary>
+    private long _maxBacklogAgeTicks;
 
     private volatile bool _stopRequested;
     private volatile bool _stopped;
@@ -112,11 +121,21 @@ public sealed class ModuleCarrier : IDisposable
         for (var index = 0; index < PortNames.Count; index++)
         {
             _portIndex[PortNames[index]] = index;
-            _queues[index] = new InboundBuffer(_options.QueueCapacity, _options.DropPolicy);
+            _queues[index] = new InboundBuffer(
+                _options.QueueCapacity,
+                _options.DropPolicy,
+                _options.HintDepth,
+                _options.HintHold);
         }
 
         // 口数 ≤ 64 才用位图提示；更多口退化为逐口探测（正确性不变，只是多几次空探测）
         _useReadyMask = PortNames.Count <= MaxMaskedPorts;
+
+        // 时间片必须为正：0 会让内层每个单元都回外层（多一次循环开销），负值无意义
+        _deliverySlice = _options.DeliverySlice > TimeSpan.Zero
+            ? _options.DeliverySlice
+            : TimeSpan.FromMilliseconds(1);
+        _maxBacklogAgeTicks = InboundBuffer.ToTicks(_options.MaxBacklogAge);
 
         Diagnostics = new CarrierDiagnostics();
         _thread = new Thread(Run)
@@ -184,6 +203,67 @@ public sealed class ModuleCarrier : IDisposable
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// 读某个接收口的队列流动状态（深度 / 峰值 / 丢弃账本 / 饱和）。
+    /// </summary>
+    /// <param name="targetPort">接收口名。</param>
+    /// <param name="state">流动状态（口不存在时为 <see cref="PortFlowState.None"/>）。</param>
+    /// <returns>该口有队列时为 <see langword="true"/>。</returns>
+    public bool TryGetFlowState(string targetPort, out PortFlowState state)
+    {
+        if (targetPort is not null && _portIndex.TryGetValue(targetPort, out var index))
+        {
+            return _queues[index].TryGetFlowState(out state);
+        }
+
+        state = PortFlowState.None;
+        return false;
+    }
+
+    /// <summary>
+    /// 记一次**模块内部**丢弃到某个口的原因账本（口不存在时忽略）。
+    /// </summary>
+    /// <param name="targetPort">接收口名。</param>
+    /// <param name="units">单元数。</param>
+    /// <param name="bytes">字节数（= 契约尺寸 × 单元数）。</param>
+    public void ReportModuleLoss(string targetPort, long units, long bytes)
+    {
+        if (targetPort is not null && _portIndex.TryGetValue(targetPort, out var index))
+        {
+            _queues[index].RecordModuleLoss(units, bytes);
+        }
+    }
+
+    /// <summary>把饱和判据与积压上限下发到本实例（改阈值即重开压力段）。</summary>
+    /// <param name="hintDepth">深度提示阈值（单元数）。</param>
+    /// <param name="hintHold">持续多久算饱和。</param>
+    /// <param name="maxBacklogAge">最大积压年龄（0 ⇒ 不限）。</param>
+    public void UpdateFlowPolicy(int hintDepth, TimeSpan hintHold, TimeSpan maxBacklogAge)
+    {
+        Interlocked.Exchange(ref _maxBacklogAgeTicks, InboundBuffer.ToTicks(maxBacklogAge));
+
+        foreach (var queue in _queues)
+        {
+            queue.UpdateFlowPolicy(hintDepth, hintHold);
+        }
+    }
+
+    /// <summary>
+    /// 清空本实例全部口队列，把缓冲**归还池**，并把每个被清出的单元记一笔
+    /// <see cref="DropReason.DiscardedOnStop"/>（停止清尾）。
+    /// </summary>
+    /// <remarks>
+    /// 与停止协议里的普通清空不同：这里要记账。不记账就会出现"发出去的多于收到的"，
+    /// 而那差额恰恰是最需要说清的一部分（它们不是丢包，是没有消费方的残留）。
+    /// </remarks>
+    public void PurgeQueues()
+    {
+        foreach (var queue in _queues)
+        {
+            queue.Purge(buffer => _pool.Return(buffer));
+        }
     }
 
     /// <summary>投递一个数据单元到目标口（生产者线程调用；**不阻塞**）。</summary>
@@ -285,11 +365,18 @@ public sealed class ModuleCarrier : IDisposable
     }
 
     /// <summary>
-    /// 停止协议：置停止信号 → 有界等待 → 超时则标记孤儿并放弃队列缓冲。
+    /// 停止协议：置停止信号 → **先清尾** → 有界等待 → 超时则标记孤儿并放弃队列缓冲。
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// **先清尾**：停止后队列里的单元已经没有消费方，留着只会让"已入队"变成假账；清出时逐笔记
+    /// <see cref="DropReason.DiscardedOnStop"/> 并把缓冲归还池。Join 之后还要再清一次——
+    /// 与生产者赛跑的那一小段仍可能挤进单元。
+    /// </para>
+    /// <para>
     /// 超时路径的资源处置：队列/缓冲**标记弃用且不归还池**（孤儿线程可能仍会写它们），
     /// 仅由 GC 回收——保证"孤儿线程的后续写不会破坏框架或其他模块"。
+    /// </para>
     /// </remarks>
     public CarrierStopResult Stop(TimeSpan timeout)
     {
@@ -302,10 +389,13 @@ public sealed class ModuleCarrier : IDisposable
         _target.RequestStop();          // 通知模块活动体（否则其可能永远无法感知停止）
         SignalDataAvailable();
 
+        // 先清尾：这一步同时把"停止要等多久"从"排空整条积压"降成"等当前这一个单元处理完"
+        PurgeQueues();
+
         if (_thread.Join(timeout))
         {
             _stopped = true;
-            DrainQueues(returnToPool: true);
+            PurgeQueues();              // 兜住 Join 前后挤进来的单元
             return CarrierStopResult.Stopped;
         }
 
@@ -369,11 +459,26 @@ public sealed class ModuleCarrier : IDisposable
                 didWork |= _target.PumpAuxiliary();
             }
 
-            // 工作源 ①：口队列（现有逻辑；一次醒来尽量排空，避免每个单元都回等待）
-            while (TryDequeueAny(out var unit))
+            // 工作源 ①：口队列。**一次最多占一个时间片**——某个口长期有货时也必须回外层，
+            // 否则辅助工作源（命令 / 输入 / 会话泵 / 状态发布）会被无限期排在后面。
+            var sliceStarted = Stopwatch.GetTimestamp();
+
+            while (!_stopRequested && TryDequeueAny(out var unit))
             {
+                if (IsExpired(unit))
+                {
+                    DropExpired(unit);
+                    didWork = true;
+                    continue;
+                }
+
                 Deliver(unit);
                 didWork = true;
+
+                if (Stopwatch.GetElapsedTime(sliceStarted) >= _deliverySlice)
+                {
+                    break;
+                }
             }
 
             if (didWork)
@@ -385,6 +490,30 @@ public sealed class ModuleCarrier : IDisposable
 
             // 混合等待：短等待（稳态下近乎立即返回）+ 信号唤醒，兼顾延迟与 CPU
             _dataAvailable.Wait(_options.IdleWait);
+        }
+    }
+
+    /// <summary>该单元在队列里待的时间是否已超过允许的积压上限（0 = 不限 ⇒ 恒为 false）。</summary>
+    /// <param name="unit">数据单元。</param>
+    private bool IsExpired(InboundUnit unit)
+    {
+        var maxAge = Volatile.Read(ref _maxBacklogAgeTicks);
+
+        return maxAge > 0
+            && unit.EnqueuedTicks > 0
+            && Stopwatch.GetTimestamp() - unit.EnqueuedTicks > maxAge;
+    }
+
+    /// <summary>丢掉一个过期单元：缓冲归还池，并在该口的原因账本上记一笔"过期"。</summary>
+    /// <param name="unit">数据单元（所有权在本方法）。</param>
+    private void DropExpired(InboundUnit unit)
+    {
+        var bytes = unit.Buffer.Length;
+        _pool.Return(unit.Buffer);
+
+        if (_portIndex.TryGetValue(unit.TargetPort, out var index))
+        {
+            _queues[index].RecordExpired(1, bytes);
         }
     }
 
@@ -451,21 +580,25 @@ public sealed class ModuleCarrier : IDisposable
     private void SignalDataAvailable()
     {
         // 活动体实例的专属线程在 runActivity 里，**从不 Wait 这个信号**。
-        // 若仍投递，二值信号在第一次入队后永远为满：此后每个数据单元都会走一次
-        // SemaphoreFullException 的抛出/捕获路径（文本每次投递都卡顿的根因）。
         if (_target.HasActivity)
         {
             return;
         }
 
+        // **计数信号**：每个入队/会话信号各对应一次唤醒，计数由载体逐次消费；
+        // 不再用二值信号 + SemaphoreFullException 的抛出/捕获来"合并"——高频小数据下
+        // 那条路径每个单元抛一次异常，是应用卡顿的一个根因。
         try
         {
             _dataAvailable.Release();
         }
         catch (SemaphoreFullException)
         {
-            // 已有未消费的信号：无需重复唤醒。合并是正常的；计入诊断以便发现“本不该投”的活动体路径。
             Diagnostics.RecordSignalOverflow();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 关闭竞态：载体已释放；晚到的唤醒丢弃即可。
         }
     }
 }

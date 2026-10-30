@@ -53,6 +53,16 @@ public interface IExternalAccess
     ExternalAccessSnapshot GetSnapshot(string accessName);
 
     /// <summary>
+    /// 清空该接入的计数（收 / 发 / 丢弃 / 被拒）。
+    /// </summary>
+    /// <remarks>
+    /// 只清计数：**不清队列数据、不清活动连接数、不清故障态**——清计数是排障动作，不是复位会话。
+    /// </remarks>
+    /// <param name="accessName">接入名。</param>
+    /// <returns>接入名是否已声明（未知接入 ⇒ <see langword="false"/>，什么也不做）。</returns>
+    bool ClearCounters(string accessName);
+
+    /// <summary>
     /// 该接入的参数类型（框架按标准标识登记；未知接入 / 尚未接线 ⇒ <see langword="null"/>）。
     /// </summary>
     /// <remarks>

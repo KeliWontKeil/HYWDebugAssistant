@@ -89,6 +89,16 @@ public sealed class ModuleWindowManager : IDisposable
         }
     }
 
+    /// <summary>关闭当前全部模块窗口；不释放管理器（之后仍可继续同步/复用）。</summary>
+    public void CloseAll()
+    {
+        // 快照遍历：`Close` 会同步触发窗口的 `Closed`，处理器会从 `_windows` 里移除自己。
+        foreach (var window in _windows.Values.ToList())
+        {
+            CloseWindow(window);
+        }
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {
@@ -110,10 +120,7 @@ public sealed class ModuleWindowManager : IDisposable
         _followCommitSubscription = null;
         _ = _controller.CommitSceneTranslation();
 
-        foreach (var window in _windows.Values)
-        {
-            CloseWindow(window);
-        }
+        CloseAll();
 
         _windows.Clear();
         WindowGroup.Dispose();
@@ -182,12 +189,12 @@ public sealed class ModuleWindowManager : IDisposable
         }
     }
 
-    /// <summary>关闭窗口前先摘掉缓存视图的父级；否则“隐藏后再显示全部”会把同一控件挂到新父级。</summary>
-    private static void CloseWindow(ModuleWindow window)
-    {
-        window.DetachModuleView();
-        window.Close();
-    }
+    /// <summary>关闭窗口（视图摘除由窗口自己的 <c>Closed</c> 统一完成）。</summary>
+    /// <remarks>
+    /// 摘视图只留一个入口：在关闭**之前**再摘一次，会让"关闭未真正发生"的路径（例如上层取消）
+    /// 在窗口仍然可见时丢掉内容；把摘除绑定在 <c>Closed</c> 上则与"是否真的关"一致。
+    /// </remarks>
+    private static void CloseWindow(ModuleWindow window) => window.Close();
 
     private void EnsureWindow(ModuleViewViewModel module)
     {
@@ -209,6 +216,16 @@ public sealed class ModuleWindowManager : IDisposable
         };
 
         _windows[module.InstanceId] = window;
+
+        // **记住关闭**：表里留着已关闭的窗口，下一次同步就会对它 `Show`（已关闭的窗口不能重新显示），
+        // 而模块仍然可见 ⇒ 必须由新窗口接管。移除前比对引用，避免误删同 id 的新窗口。
+        window.Closed += (_, _) =>
+        {
+            if (_windows.TryGetValue(module.InstanceId, out var current) && ReferenceEquals(current, window))
+            {
+                _ = _windows.Remove(module.InstanceId);
+            }
+        };
 
         // **开窗前先定缩放**：`Show` 之前 `RenderScaling` 还不可信，而窗口落位与自绘几何
         // （滑块圆钮按设备像素取整）都要用它 ⇒ 按"将要落在的那块屏"解析并发布一次。

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "language": "zh-Hans",
+  "entries": {
+    "module.description": "以文本形式发送十六进制字符串",
+    "module.title": "HEX 发送器",
+    "status.convertError": "HEX 转换错误：{0}",
+    "status.hex.nonHex": "「{0}」不是合法的十六进制字符 '{1}'（只接受 0-9 / A-F / a-f）",
+    "status.hex.segmentLength": "「{0}」是 {1} 位；每段必须为两位（如 `0D 0A`）",
+    "status.intervalEmptyContinuous": "未设置发送间隔，连续发送启动失败",
+    "status.intervalInvalid": "间隔必须是 0 – {0} 的整数（毫秒）",
+    "status.intervalInvalidContinuous": "间隔必须是 0 – {0} 的整数（毫秒）",
+    "status.pageEmpty": "输入文本为空，发送失败",
+    "status.pageEmptyContinuous": "输入文本为空，发送失败，请填写内容",
+    "view.continuous": "连续发送",
+    "view.inputLabel": "HEX 输入",
+    "view.intervalUnit": "ms",
+    "status.intervalTooSmall": "间隔小于 {0} ms：实际发送频率受线程调度影响，可能不准确",
+    "status.splitPackets": "字节数超过单包上限，已拆成 {0} 个数据包发送（接收侧会表现为 {0} 条）",
+    "status.unknownCommand": "未知命令：{0}（模块未实现）",
+    "view.roleSend": "发送",
+    "view.send": "发送",
+    "view.sentTitle": "已发送",
+    "view.sentUnit": "条"
+  }
+}

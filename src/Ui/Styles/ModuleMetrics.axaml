@@ -4,15 +4,10 @@
   <!--
     模块内容区的**共用几何**（只放尺寸，不放颜色）。
 
-    `SurfaceContentInset*` 是模块视口四周的预留带：端口标记沿边向内占约 20，
-    左下角还有运行指示，所以上/下比左右厚。**内容视图挂在预留带以内**，
-    这样端口标记不会压住模块自己的控件。数值与旧版 `ModuleSurfaceMetrics` 相同，
-    不是随便取的：改这里要同时看端口标记带厚度与运行指示行高。
+    预留带（描边 + 四周厚度）与"窗口 → 内容区"的换算只在一处：
+    `Ui/Geometry/ModuleSurfaceMetrics`。这里不再有第二份数值 ——
+    以前 token 与 C# 兜底各一份，快照还按第三份手写，于是真机与快照差 1～2px。
   -->
-  <x:Double x:Key="SurfaceContentInsetLeft">20</x:Double>
-  <x:Double x:Key="SurfaceContentInsetTop">22</x:Double>
-  <x:Double x:Key="SurfaceContentInsetRight">20</x:Double>
-  <x:Double x:Key="SurfaceContentInsetBottom">24</x:Double>
 
   <!-- 文本面的行高（行数/分页与编辑器共用同一个来源）。 -->
   <x:Double x:Key="SurfaceTextLineHeight">14</x:Double>

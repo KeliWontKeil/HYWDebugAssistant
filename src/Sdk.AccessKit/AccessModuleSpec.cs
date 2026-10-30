@@ -22,6 +22,8 @@ namespace HYWDebugAssistant.Sdk.AccessKit;
 /// <param name="OpenTitle">命令按钮文案（给人看的）。</param>
 /// <param name="CloseCommand">命令：关闭 / 断开 / 停止 / 解绑。</param>
 /// <param name="CloseTitle">命令按钮文案。</param>
+/// <param name="ClearCountersCommand">命令：清空本接入的计数（队列数据、连接数与故障态都不动）。</param>
+/// <param name="ClearCountersTitle">清空计数按钮的文案。</param>
 /// <param name="ConnCountSource">显示源：当前连接数（TCP 服务端用；其余为 <see langword="null"/>）。</param>
 /// <param name="Capacity">单单元字节区容量（默认与 RawBytes 一致）。</param>
 public sealed record AccessModuleSpec(
@@ -40,5 +42,7 @@ public sealed record AccessModuleSpec(
     string OpenTitle,
     string CloseCommand,
     string CloseTitle,
+    string ClearCountersCommand,
+    string ClearCountersTitle,
     string? ConnCountSource = null,
     int Capacity = RawBytesFraming.Capacity);

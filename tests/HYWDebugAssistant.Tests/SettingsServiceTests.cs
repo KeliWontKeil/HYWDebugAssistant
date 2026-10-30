@@ -3,6 +3,8 @@ using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Services;
 using HYWDebugAssistant.Core.Settings;
+using HYWDebugAssistant.DataPlane.Carriers;
+using HYWDebugAssistant.DataPlane.Queues;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Text;
 using Shouldly;
@@ -23,8 +25,10 @@ public class SettingsServiceTests
         var service = new SettingsService(runtime, scope.SettingsPath);
 
         service.Load().ShouldBe(SettingsLoadOutcome.DefaultsCreated);
-        service.Current.InputQueueCapacity.ShouldBe(1024);
-        service.Current.StopTimeoutSeconds.ShouldBe(new ApplicationSettings().StopTimeoutSeconds, "缺省只在设置模型里给一次");
+        service.Current.Flow.QueueCapacity.ShouldBe(new ApplicationSettings().Flow.QueueCapacity);
+        service.Current.Flow.StopTimeoutSeconds.ShouldBe(
+            new ApplicationSettings().Flow.StopTimeoutSeconds,
+            "缺省只在设置模型里给一次");
         runtime.Issues.Count.ShouldBe(0, "首次运行不是异常");
     }
 
@@ -38,7 +42,7 @@ public class SettingsServiceTests
         var service = new SettingsService(runtime, scope.SettingsPath);
 
         service.Load().ShouldBe(SettingsLoadOutcome.DefaultsAfterFailure);
-        service.Current.InputQueueCapacity.ShouldBe(1024);
+        service.Current.Flow.QueueCapacity.ShouldBe(new ApplicationSettings().Flow.QueueCapacity);
         runtime.Issues.Count.ShouldBe(1);
         runtime.Issues.Recent(1)[0].Issue.Category.ShouldBe(Sdk.Reporting.IssueCategory.ConfigurationError);
     }
@@ -52,8 +56,7 @@ public class SettingsServiceTests
         service.Load();
 
         var updated = service.Current.Clone();
-        updated.InputQueueCapacity = 256;
-        updated.StopTimeoutSeconds = 2.5;
+        updated.Flow = updated.Flow with { QueueCapacity = 256, StopTimeoutSeconds = 2.5 };
         updated.AlignAutoNetworkEnabled = false;
 
         var result = service.Update(updated);
@@ -68,8 +71,10 @@ public class SettingsServiceTests
         // 已落盘
         File.Exists(scope.SettingsPath).ShouldBeTrue();
         var text = File.ReadAllText(scope.SettingsPath);
-        text.ShouldContain("\"inputQueueCapacity\": 256");
+        text.ShouldContain("\"queueCapacity\": 256");
         text.ShouldContain("\"stopTimeoutSeconds\": 2.5");
+        text.Contains("inputQueueCapacity", StringComparison.Ordinal)
+            .ShouldBeFalse("旧根键必须删掉（一份事实只有一个来源）");
     }
 
     [Fact]
@@ -127,10 +132,12 @@ public class SettingsServiceTests
         var service = new SettingsService(runtime, scope.SettingsPath);
         service.Load().ShouldBe(SettingsLoadOutcome.Loaded);
 
-        // ① 已知标量键照读
-        service.Current.InputQueueCapacity.ShouldBe(512);
-        service.Current.Appearance.UiFontFamily.ShouldBe("Georgia");
-        service.Current.Appearance.DataFontFamily.ShouldBe("Cascadia Code");
+        // ① 已知标量键照读（v3 文件里队列容量住在根键上，折叠进 flow）
+        service.Current.Flow.QueueCapacity.ShouldBe(512);
+        service.Current.Appearance.UiFonts.Latin.ShouldBe("Georgia");
+        service.Current.Appearance.UiFonts.Cjk.ShouldBe("Georgia");
+        service.Current.Appearance.DataFonts.Latin.ShouldBe("Cascadia Code");
+        service.Current.Appearance.DataFonts.Cjk.ShouldBe("Cascadia Code");
 
         // 外观主题回落内置：旧自定义主题没有文件夹 ⇒ 选择回落"跟随系统"，两种模式回到内置浅深
         service.Current.Appearance.ThemeSelection.ShouldBe(ThemeIds.System);
@@ -139,16 +146,212 @@ public class SettingsServiceTests
 
         // ② 一条 Warning
         runtime.Issues.Recent(10).ShouldContain(
-            entry => entry.Issue.Severity == IssueSeverity.Warning
-                && entry.Issue.Message.Contains("旧版本", StringComparison.Ordinal));
+            entry => entry.Issue.Severity == IssueSeverity.Warning);
 
         // ③ 原文件保持不变（没有把内联主题"迁移"并写回）
         File.ReadAllText(scope.SettingsPath).ShouldBe(original);
     }
 
-    /// <summary>外观块 v4 的形状：`theme / systemLightScheme / systemDarkScheme / seeded[] / fonts`，不再有内联主题。</summary>
+    /// <summary>
+    /// **v4 → 当前版本**：旧的"西文, 中文"回退列表折叠成两个字段；旧内置数据默认升级为新的等宽默认。
+    /// </summary>
     [Fact]
-    public void 往返_外观块应写成v4形状()
+    public void 加载_v4设置应折叠字体轴并写回当前版本()
+    {
+        using var scope = new SettingsScope();
+        const string uiLatin = "Georgia";
+        const string uiCjk = "SimSun";
+        const string oldDataLatin = "Times New Roman";
+        // i18n-test-data: 字体族名（测试数据，不是界面文案）
+        const string dataCjk = "宋体";
+
+        File.WriteAllText(scope.SettingsPath, $$"""
+        {
+          "schemaVersion": 4,
+          "appearance": {
+            "theme": "system",
+            "fonts": { "ui": "{{uiLatin}}, {{uiCjk}}", "data": "{{oldDataLatin}}, {{dataCjk}}" }
+          }
+        }
+        """);
+
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load().ShouldBe(SettingsLoadOutcome.Loaded);
+
+        service.Current.Appearance.UiFonts.Latin.ShouldBe(uiLatin);
+        service.Current.Appearance.UiFonts.Cjk.ShouldBe(uiCjk);
+        service.Current.Appearance.DataFonts.Latin.ShouldBe(
+            "Cascadia Mono",
+            "旧内置数据字体默认升级为新的等宽默认");
+        service.Current.Appearance.DataFonts.Cjk.ShouldBe(dataCjk);
+
+        var root = JsonNode.Parse(File.ReadAllText(scope.SettingsPath))!.AsObject();
+        root["schemaVersion"]!.GetValue<int>().ShouldBe(ApplicationSettings.CurrentSchemaVersion, "v4 文件读入后写回当前版本");
+        root["appearance"]!["fonts"]!["ui"]!["latin"]!.GetValue<string>().ShouldBe(uiLatin);
+        root["appearance"]!["fonts"]!["data"]!["latin"]!.GetValue<string>().ShouldBe("Cascadia Mono");
+    }
+    /// <summary>
+    /// **v5 → v6 迁移**：三个旧根键折叠进 `flow` 块，写回时旧根键消失（一份事实只能有一个来源）。
+    /// </summary>
+    [Fact]
+    public void 加载_v5设置应把旧根键折叠进flow块并写回()
+    {
+        using var scope = new SettingsScope();
+        File.WriteAllText(scope.SettingsPath, """
+        {
+          "schemaVersion": 5,
+          "inputQueueCapacity": 512,
+          "stopTimeoutSeconds": 2.5,
+          "diagnosticHintThreshold": 12,
+          "uiRefreshRateHz": 30
+        }
+        """);
+
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load().ShouldBe(SettingsLoadOutcome.Loaded);
+
+        service.Current.Flow.QueueCapacity.ShouldBe(512);
+        service.Current.Flow.StopTimeoutSeconds.ShouldBe(2.5);
+        service.Current.Flow.HintDepth.ShouldBe(12);
+        service.Current.Flow.DropPolicy.ShouldBe("DropOldest", "旧文件里没有这项事实 ⇒ 用默认值，不猜测");
+
+        var root = JsonNode.Parse(File.ReadAllText(scope.SettingsPath))!.AsObject();
+        root["schemaVersion"]!.GetValue<int>().ShouldBe(
+            ApplicationSettings.CurrentSchemaVersion,
+            "v5 文件读入后写回当前版本");
+
+        var flow = root["flow"]!.AsObject();
+        flow["queueCapacity"]!.GetValue<int>().ShouldBe(512);
+        flow["stopTimeoutSeconds"]!.GetValue<double>().ShouldBe(2.5);
+        flow["hintDepth"]!.GetValue<int>().ShouldBe(12);
+
+        root.ContainsKey("inputQueueCapacity").ShouldBeFalse("旧根键必须删掉（两份事实迟早打架）");
+        root.ContainsKey("stopTimeoutSeconds").ShouldBeFalse();
+        root.ContainsKey("diagnosticHintThreshold").ShouldBeFalse();
+    }
+
+    /// <summary>**`flow` 块七项往返**：落盘后重新载入，七项逐项一致。</summary>
+    [Fact]
+    public void 往返_数据面七项应逐项一致()
+    {
+        using var scope = new SettingsScope();
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load();
+
+        service.Current.Flow.ShouldBe(new FlowSettings(), "缺省只在设置模型里给一次");
+
+        var updated = service.Current.Clone();
+        updated.Flow = new FlowSettings
+        {
+            QueueCapacity = 64,
+            DropPolicy = "DropNewest",
+            StopTimeoutSeconds = 1.5,
+            HintDepth = 4,
+            HintHoldMs = 250,
+            MaxBacklogAgeMs = 1200,
+            ExternalWriteTimeoutMs = 800,
+        };
+
+        service.Update(updated).Succeeded.ShouldBeTrue();
+
+        var reloaded = new SettingsService(runtime, scope.SettingsPath);
+        reloaded.Load();
+        reloaded.Current.Flow.ShouldBe(updated.Flow, "七项都要落盘并读得回来");
+    }
+
+    /// <summary>**六个值域各自的边界**：每项越界都被拒，且拒绝时当前值不变。</summary>
+    [Fact]
+    public void 更新_数据面六项越界应各自被拒且不改变当前设置()
+    {
+        using var scope = new SettingsScope();
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load();
+
+        var baseline = service.Current.Flow;
+        var defaults = new FlowSettings();
+
+        (string Name, FlowSettings Flow)[] cases =
+        [
+            ("队列容量", defaults with { QueueCapacity = 0 }),
+            ("满时策略", defaults with { DropPolicy = "DropRandom" }),
+            ("饱和判定深度", defaults with { HintDepth = 0 }),
+            ("饱和判定持续", defaults with { HintHoldMs = 10 }),
+            ("最大滞留时间", defaults with { MaxBacklogAgeMs = -1 }),
+            ("外部写超时", defaults with { ExternalWriteTimeoutMs = 10 }),
+            ("发送积压", defaults with { SendBacklogBytes = 1024 }),
+            ("探活节拍", defaults with { LivenessIntervalMs = 10 }),
+            ("适配件暂存", defaults with { AdapterBufferBytes = 1024 }),
+            ("关闭等待", defaults with { AccessCloseTimeoutMs = 10 }),
+            ("丢失判定", defaults with { DeviceLostMisses = 0 }),
+        ];
+
+        foreach (var (name, flow) in cases)
+        {
+            var invalid = service.Current.Clone();
+            invalid.Flow = flow;
+
+            var result = service.Update(invalid);
+
+            result.Succeeded.ShouldBeFalse($"{name} 越界必须被拒");
+            result.Failures.ShouldHaveSingleItem();
+            service.Current.Flow.ShouldBe(baseline, $"{name} 被拒绝后当前值不得变化");
+        }
+    }
+
+    /// <summary>**即时生效映射**：`flow` 十二项各落到承载参数的正确位置，单位换算也要对。</summary>
+    [Fact]
+    public void 更新_数据面十二项应即时映射到承载参数()
+    {
+        using var scope = new SettingsScope();
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load();
+
+        var updated = service.Current.Clone();
+        updated.Flow = new FlowSettings
+        {
+            QueueCapacity = 128,
+            DropPolicy = "DropNewest",
+            StopTimeoutSeconds = 2,
+            HintDepth = 6,
+            HintHoldMs = 750,
+            MaxBacklogAgeMs = 3000,
+            ExternalWriteTimeoutMs = 1500,
+            SendBacklogBytes = 393216,
+            LivenessIntervalMs = 300,
+            AdapterBufferBytes = 131072,
+            AccessCloseTimeoutMs = 800,
+            DeviceLostMisses = 3,
+        };
+
+        service.Update(updated).Succeeded.ShouldBeTrue();
+
+        var options = runtime.Carriers.Options;
+        options.QueueCapacity.ShouldBe(128);
+        options.DropPolicy.ShouldBe(DropPolicy.DropNewest);
+        options.StopTimeout.ShouldBe(TimeSpan.FromSeconds(2));
+        options.HintDepth.ShouldBe(6);
+        options.HintHold.ShouldBe(TimeSpan.FromMilliseconds(750));
+        options.MaxBacklogAge.ShouldBe(TimeSpan.FromMilliseconds(3000));
+        options.ExternalWriteTimeout.ShouldBe(TimeSpan.FromMilliseconds(1500));
+        options.SendBacklogBytes.ShouldBe(393216);
+        options.LivenessInterval.ShouldBe(TimeSpan.FromMilliseconds(300));
+        options.AdapterBufferBytes.ShouldBe(131072);
+        options.AccessCloseTimeout.ShouldBe(TimeSpan.FromMilliseconds(800));
+        options.DeviceLostMisses.ShouldBe(3);
+        options.IdleWait.ShouldBe(new CarrierOptions().IdleWait, "设置里没暴露的项仍用默认值");
+
+        // 外部接入宿主拿到同一份参数（它只用容量 / 策略 / 停止超时 / 饱和判据）
+        runtime.ExternalAccessHost.Options.ShouldBe(options);
+    }
+
+    /// <summary>外观块 v5 的形状：`theme / systemLightScheme / systemDarkScheme / seeded[] / fonts{latin,cjk}`，不再有内联主题。</summary>
+    [Fact]
+    public void 往返_外观块应写成v5形状()
     {
         using var scope = new SettingsScope();
         using var runtime = new ModuleRuntime();
@@ -159,8 +362,8 @@ public class SettingsServiceTests
         updated.Appearance.ThemeSelection = "custom-abc";
         updated.Appearance.SystemLightScheme = ThemeIds.Light;
         updated.Appearance.SystemDarkScheme = ThemeIds.Dark;
-        updated.Appearance.UiFontFamily = "Georgia";
-        updated.Appearance.DataFontFamily = "Cascadia Code";
+        updated.Appearance.UiFonts.Latin = "Georgia";
+        updated.Appearance.DataFonts.Latin = "Cascadia Code";
         updated.Appearance.Seeded = ["appearance/themes/sakura"];
 
         // 选择必须指向真实存在的主题（否则载入时会回落内置）
@@ -177,14 +380,16 @@ public class SettingsServiceTests
         service.Update(updated).Succeeded.ShouldBeTrue();
 
         var root = JsonNode.Parse(File.ReadAllText(scope.SettingsPath))!.AsObject();
-        root["schemaVersion"]!.GetValue<int>().ShouldBe(4);
+        root["schemaVersion"]!.GetValue<int>().ShouldBe(ApplicationSettings.CurrentSchemaVersion);
 
         var block = root["appearance"]!.AsObject();
         block["theme"]!.GetValue<string>().ShouldBe("custom-abc");
         block["systemLightScheme"]!.GetValue<string>().ShouldBe(ThemeIds.Light);
         block["systemDarkScheme"]!.GetValue<string>().ShouldBe(ThemeIds.Dark);
-        block["fonts"]!["ui"]!.GetValue<string>().ShouldBe("Georgia");
-        block["fonts"]!["data"]!.GetValue<string>().ShouldBe("Cascadia Code");
+        block["fonts"]!["ui"]!["latin"]!.GetValue<string>().ShouldBe("Georgia");
+        block["fonts"]!["ui"]!["cjk"]!.GetValue<string>().ShouldBe(service.Current.Appearance.UiFonts.Cjk);
+        block["fonts"]!["data"]!["latin"]!.GetValue<string>().ShouldBe("Cascadia Code");
+        block["fonts"]!["data"]!["cjk"]!.GetValue<string>().ShouldBe(service.Current.Appearance.DataFonts.Cjk);
         block["seeded"]!.AsArray().Select(item => item!.GetValue<string>()).ShouldBe(["appearance/themes/sakura"]);
 
         block.ContainsKey("schemes").ShouldBeFalse("外观块不再内联主题方案");
@@ -196,7 +401,7 @@ public class SettingsServiceTests
         reloaded.Load();
         reloaded.Current.Appearance.ThemeSelection.ShouldBe("custom-abc", "主题选择是标量，原样保留");
         reloaded.Current.Appearance.Seeded.ShouldContain("appearance/themes/sakura");
-        reloaded.Current.Appearance.UiFontFamily.ShouldBe("Georgia");
+        reloaded.Current.Appearance.UiFonts.Latin.ShouldBe("Georgia");
     }
 
     [Fact]
@@ -205,7 +410,7 @@ public class SettingsServiceTests
         using var scope = new SettingsScope();
         File.WriteAllText(scope.SettingsPath, """
         {
-          "schemaVersion": 4,
+          "schemaVersion": 6,
           "appearance": {
             "theme": "gone-theme",
             "systemLightScheme": "gone-theme",
@@ -238,7 +443,7 @@ public class SettingsServiceTests
         var result = service.Update(invalid);
 
         result.Succeeded.ShouldBeFalse();
-        result.Failures[0].ShouldContain("吸附距离");
+        result.Failures.ShouldHaveSingleItem();
         service.Current.SnapDistance.ShouldBe(baseline, "被拒绝的更新不得改变当前值");
     }
 
@@ -250,15 +455,15 @@ public class SettingsServiceTests
         var service = new SettingsService(runtime, scope.SettingsPath);
         service.Load();
 
-        var baseline = service.Current.InputQueueCapacity;
+        var baseline = service.Current.Flow.QueueCapacity;
         var invalid = service.Current.Clone();
-        invalid.InputQueueCapacity = 0;
+        invalid.Flow = invalid.Flow with { QueueCapacity = 0 };
 
         var result = service.Update(invalid);
 
         result.Succeeded.ShouldBeFalse();
-        result.Failures[0].ShouldContain("输入队列容量");
-        service.Current.InputQueueCapacity.ShouldBe(baseline, "被拒绝的更新不得改变当前值");
+        result.Failures.ShouldHaveSingleItem();
+        service.Current.Flow.QueueCapacity.ShouldBe(baseline, "被拒绝的更新不得改变当前值");
     }
 
     /// <summary>
@@ -288,32 +493,32 @@ public class SettingsServiceTests
 
         // 用户改完点「应用」：界面 → 设置对象（`GetSettings` 给的是副本 ⇒ 这里同时验证了读出口带字体）
         var view = services.GetSettings();
-        view.Appearance.UiFontFamily = "Georgia";
-        view.Appearance.DataFontFamily = "Cascadia Code";
+        view.Appearance.UiFonts.Latin = "Georgia";
+        view.Appearance.DataFonts.Latin = "Cascadia Code";
 
         services.UpdateSettings(view).Succeeded.ShouldBeTrue();
 
         // ① 写出口（生效值）
-        services.GetSettings().Appearance.UiFontFamily.ShouldBe("Georgia", "写完再读必须还是用户选的那个");
-        services.GetSettings().Appearance.DataFontFamily.ShouldBe("Cascadia Code");
+        services.GetSettings().Appearance.UiFonts.Latin.ShouldBe("Georgia", "写完再读必须还是用户选的那个");
+        services.GetSettings().Appearance.DataFonts.Latin.ShouldBe("Cascadia Code");
 
         // ② 文件出口（外观块里的字体轴：`appearance.fonts.{ui,data}`）
         var text = File.ReadAllText(scope.SettingsPath);
-        text.ShouldContain("\"ui\": \"Georgia\"");
-        text.ShouldContain("\"data\": \"Cascadia Code\"");
+        text.ShouldContain("\"latin\": \"Georgia\"");
+        text.ShouldContain("\"latin\": \"Cascadia Code\"");
 
         // ③ 重启读回出口
         var reloaded = new SettingsService(runtime, scope.SettingsPath);
         reloaded.Load();
-        reloaded.Current.Appearance.UiFontFamily.ShouldBe("Georgia", "重新加载应保留用户设置");
-        reloaded.Current.Appearance.DataFontFamily.ShouldBe("Cascadia Code");
+        reloaded.Current.Appearance.UiFonts.Latin.ShouldBe("Georgia", "重新加载应保留用户设置");
+        reloaded.Current.Appearance.DataFonts.Latin.ShouldBe("Cascadia Code");
 
         // ④ 反向断言：改一个**别的**设置（界面上最常见的动作）不得把字体冲回默认值
         var again = services.GetSettings();
         again.SnapDistance = 6;
         services.UpdateSettings(again).Succeeded.ShouldBeTrue();
-        services.GetSettings().Appearance.UiFontFamily.ShouldBe("Georgia", "别的设置落盘时，字体不得被自己的副本冲回默认");
-        services.GetSettings().Appearance.DataFontFamily.ShouldBe("Cascadia Code");
+        services.GetSettings().Appearance.UiFonts.Latin.ShouldBe("Georgia", "别的设置落盘时，字体不得被自己的副本冲回默认");
+        services.GetSettings().Appearance.DataFonts.Latin.ShouldBe("Cascadia Code");
     }
 
     /// <summary>
@@ -356,14 +561,33 @@ public class SettingsServiceTests
         {
             [$"key-{name}"] = "value",
         },
+        // **数据面块**（容量 / 策略 / 停止等待 / 饱和判据 / 积压上限 / 写超时）：逐项给一个哨兵值
+        _ when type == typeof(HYWDebugAssistant.Core.Api.FlowSettings) => new HYWDebugAssistant.Core.Api.FlowSettings
+        {
+            QueueCapacity = 987_654,
+            DropPolicy = $"sentinel-{name}",
+            StopTimeoutSeconds = 12.5,
+            HintDepth = 987_654,
+            HintHoldMs = 987_654,
+            MaxBacklogAgeMs = 987_654,
+            ExternalWriteTimeoutMs = 987_654,
+        },
         // **外观块**（选择 / 跟随系统两套 / 已投放 / 字体）：逐项给一个哨兵值
         _ when type == typeof(HYWDebugAssistant.Core.Api.AppearanceSettings) => new HYWDebugAssistant.Core.Api.AppearanceSettings
         {
             ThemeSelection = $"sentinel-{name}",
             SystemLightScheme = $"sentinel-light-{name}",
             SystemDarkScheme = $"sentinel-dark-{name}",
-            UiFontFamily = $"sentinel-ui-{name}",
-            DataFontFamily = $"sentinel-data-{name}",
+            UiFonts = new HYWDebugAssistant.Core.Api.FontFamilySetting
+            {
+                Latin = $"sentinel-ui-latin-{name}",
+                Cjk = $"sentinel-ui-cjk-{name}",
+            },
+            DataFonts = new HYWDebugAssistant.Core.Api.FontFamilySetting
+            {
+                Latin = $"sentinel-data-latin-{name}",
+                Cjk = $"sentinel-data-cjk-{name}",
+            },
             Seeded = { $"appearance/themes/sentinel-{name}" },
         },
         _ => throw new NotSupportedException(
@@ -375,13 +599,27 @@ public class SettingsServiceTests
     {
         switch (expected)
         {
+            case HYWDebugAssistant.Core.Api.FlowSettings flow:
+                var copiedFlow = actual.ShouldBeAssignableTo<HYWDebugAssistant.Core.Api.FlowSettings>()!;
+                copiedFlow.QueueCapacity.ShouldBe(flow.QueueCapacity, $"{name}：Clone 漏了数据面块（队列容量）");
+                copiedFlow.DropPolicy.ShouldBe(flow.DropPolicy, $"{name}：Clone 漏了数据面块（满时策略）");
+                copiedFlow.StopTimeoutSeconds.ShouldBe(flow.StopTimeoutSeconds, $"{name}：Clone 漏了数据面块（停止等待）");
+                copiedFlow.HintDepth.ShouldBe(flow.HintDepth, $"{name}：Clone 漏了数据面块（饱和判定深度）");
+                copiedFlow.HintHoldMs.ShouldBe(flow.HintHoldMs, $"{name}：Clone 漏了数据面块（饱和判定持续）");
+                copiedFlow.MaxBacklogAgeMs.ShouldBe(flow.MaxBacklogAgeMs, $"{name}：Clone 漏了数据面块（最大滞留时间）");
+                copiedFlow.ExternalWriteTimeoutMs.ShouldBe(flow.ExternalWriteTimeoutMs, $"{name}：Clone 漏了数据面块（外部写超时）");
+                ReferenceEquals(actual, expected).ShouldBeFalse($"{name}：数据面块必须复制（否则改一份会影响另一份）");
+                break;
+
             case HYWDebugAssistant.Core.Api.AppearanceSettings appearance:
                 var copiedAppearance = actual.ShouldBeAssignableTo<HYWDebugAssistant.Core.Api.AppearanceSettings>()!;
                 copiedAppearance.ThemeSelection.ShouldBe(appearance.ThemeSelection, $"{name}：Clone 漏了外观块（主题选择）");
                 copiedAppearance.SystemLightScheme.ShouldBe(appearance.SystemLightScheme, $"{name}：Clone 漏了跟随系统浅色主题");
                 copiedAppearance.SystemDarkScheme.ShouldBe(appearance.SystemDarkScheme, $"{name}：Clone 漏了跟随系统深色主题");
-                copiedAppearance.UiFontFamily.ShouldBe(appearance.UiFontFamily, $"{name}：Clone 漏了外观块（界面字体）");
-                copiedAppearance.DataFontFamily.ShouldBe(appearance.DataFontFamily, $"{name}：Clone 漏了外观块（数据字体）");
+                copiedAppearance.UiFonts.Latin.ShouldBe(appearance.UiFonts.Latin, $"{name}：Clone 漏了外观块（界面西文）");
+                copiedAppearance.UiFonts.Cjk.ShouldBe(appearance.UiFonts.Cjk, $"{name}：Clone 漏了外观块（界面中文）");
+                copiedAppearance.DataFonts.Latin.ShouldBe(appearance.DataFonts.Latin, $"{name}：Clone 漏了外观块（数据西文）");
+                copiedAppearance.DataFonts.Cjk.ShouldBe(appearance.DataFonts.Cjk, $"{name}：Clone 漏了外观块（数据中文）");
 
                 copiedAppearance.Seeded.Count.ShouldBe(appearance.Seeded.Count, $"{name}：Clone 漏了外观块的已投放列表");
                 for (var index = 0; index < appearance.Seeded.Count; index++)
@@ -429,7 +667,7 @@ public class SettingsServiceTests
         using var runtime = new ModuleRuntime();
         var service = new SettingsService(runtime, scope.SettingsPath);
         service.Load().ShouldBe(SettingsLoadOutcome.Loaded);
-        service.Current.InputQueueCapacity.ShouldBe(512);
+        service.Current.Flow.QueueCapacity.ShouldBe(512);
 
         // 更新一个已知字段
         var updated = service.Current.Clone();
@@ -438,10 +676,12 @@ public class SettingsServiceTests
 
         // 未知字段原样保留（AC-4 同策略）
         var root = JsonNode.Parse(File.ReadAllText(scope.SettingsPath))!.AsObject();
-        root["futureOption"]!.GetValue<string>().ShouldBe("由更高版本写入");
+        const string futureOption = "由更高版本写入";
+        root["futureOption"]!.GetValue<string>().ShouldBe(futureOption);
         root["nested"]!["b"]!.AsArray().Count.ShouldBe(3);
         root["uiRefreshRateHz"]!.GetValue<int>().ShouldBe(30);
-        root["inputQueueCapacity"]!.GetValue<int>().ShouldBe(512, "未修改的已知字段保持原值");
+        root["flow"]!["queueCapacity"]!.GetValue<int>().ShouldBe(512, "旧根键折叠进 flow，原值保留");
+        root.ContainsKey("inputQueueCapacity").ShouldBeFalse("写侧删掉旧根键（一份事实只有一个来源）");
     }
 
     [Fact]
@@ -495,11 +735,13 @@ public class SettingsServiceTests
         var service = new SettingsService(runtime, scope.SettingsPath);
 
         service.Load().ShouldBe(SettingsLoadOutcome.FutureVersion);
-        service.Current.InputQueueCapacity.ShouldBe(1024, "未来版本不猜测语义 ⇒ 使用本版本默认值");
+        service.Current.Flow.QueueCapacity.ShouldBe(
+            new ApplicationSettings().Flow.QueueCapacity,
+            "未来版本不猜测语义 ⇒ 使用本版本默认值");
         service.Current.AppTopmost.ShouldBeFalse();
 
         var updated = service.Current.Clone();
-        updated.InputQueueCapacity = 128;
+        updated.Flow = updated.Flow with { QueueCapacity = 128 };
         service.Update(updated).Succeeded.ShouldBeFalse("未来版本必须禁止写回，保护原文件");
         service.Save(out var error).ShouldBeFalse();
         error.ShouldNotBeNullOrWhiteSpace();
@@ -556,7 +798,7 @@ public class SettingsServiceTests
         reloaded.Load();
         reloaded.Current.UiLanguage.ShouldBe(TextLanguages.ZhHans, "重新加载应保留语言");
 
-        File.WriteAllText(scope.SettingsPath, """{ "schemaVersion": 4, "uiLanguage": "klingon" }""");
+        File.WriteAllText(scope.SettingsPath, """{ "schemaVersion": 6, "uiLanguage": "klingon" }""");
 
         var invalid = new SettingsService(runtime, scope.SettingsPath);
         invalid.Load().ShouldBe(SettingsLoadOutcome.Loaded);
@@ -588,11 +830,11 @@ public class SettingsServiceTests
 
             using var runtime = new ModuleRuntime();
             var service = new SettingsService(runtime, path);
-            service.Load().ShouldBe(SettingsLoadOutcome.Loaded, "发射出来的必须是本版本可读的 v4 设置文件");
+            service.Load().ShouldBe(SettingsLoadOutcome.Loaded, "发射出来的必须是本版本可读的设置文件");
 
             var defaults = new ApplicationSettings();
             service.Current.SchemaVersion.ShouldBe(ApplicationSettings.CurrentSchemaVersion);
-            service.Current.InputQueueCapacity.ShouldBe(defaults.InputQueueCapacity);
+            service.Current.Flow.QueueCapacity.ShouldBe(defaults.Flow.QueueCapacity);
             service.Current.Appearance.ThemeSelection.ShouldBe(ThemeIds.System);
             runtime.Issues.Count.ShouldBe(0, "发射默认设置不是异常");
         }

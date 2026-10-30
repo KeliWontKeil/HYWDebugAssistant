@@ -43,12 +43,35 @@ public sealed class ExternalAccessHost : IDisposable
     /// </summary>
     public Func<string, Action?>? SignalResolver { get; set; }
 
-    /// <summary>更新承载参数（只影响新建会话；既有会话保持创建时容量）。</summary>
+    /// <summary>
+    /// 更新承载参数（由应用级设置驱动）：保存参数，并把可即时改变的部分下发给既有会话。
+    /// </summary>
+    /// <remarks>
+    /// 队列容量与满时策略只影响**新建**会话（既有会话保持创建时的容量）；
+    /// 饱和判据、积压上限与写超时对既有会话即时生效。
+    /// </remarks>
     /// <param name="options">新参数。</param>
+    /// <summary>把承载参数里的通信项转成适配件可消费的参数。</summary>
+    private static ExternalAccessTuning TuningOf(CarrierOptions options) => new(
+        options.AdapterBufferBytes,
+        options.AccessCloseTimeout,
+        options.DeviceLostMisses,
+        options.LivenessInterval);
+
     public void UpdateOptions(CarrierOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _options = options;
+
+        foreach (var instance in _instances.Values)
+        {
+            foreach (var session in instance.Sessions.Values)
+            {
+                session.UpdateFlowPolicy(options.HintDepth, options.HintHold, options.MaxBacklogAge);
+                session.UpdateWriteTimeout(options.ExternalWriteTimeout);
+                session.UpdateTuning(TuningOf(options));
+            }
+        }
     }
 
     /// <summary>
@@ -145,9 +168,21 @@ public sealed class ExternalAccessHost : IDisposable
                     adapter,
                     descriptor.ParametersType,
                     parametersProvider,
-                    new AccessInboundBuffer(_options.QueueCapacity, _options.DropPolicy),
+                    new AccessInboundBuffer(
+                        _options.QueueCapacity,
+                        _options.DropPolicy,
+                        _options.HintDepth,
+                        _options.HintHold,
+                        _options.MaxBacklogAge),
                     closeTimeout,
-                    () => SignalResolver?.Invoke(instanceId)?.Invoke());
+                    () => SignalResolver?.Invoke(instanceId)?.Invoke(),
+                    _options.ExternalWriteTimeout,
+                    tuning: TuningOf(_options),
+                    backlog: new SendBacklog(
+                        _options.SendBacklogBytes,
+                        _options.MaxBacklogAge,
+                        _options.HintDepth,
+                        _options.HintHold));
 
                 created.Add(session);
 
@@ -186,6 +221,20 @@ public sealed class ExternalAccessHost : IDisposable
     /// <summary>请求关闭一条接入。</summary>
     public bool RequestClose(string instanceId, string accessName) =>
         TryGetSession(instanceId, accessName, out var session) && Run(session, static s => s.RequestClose());
+
+    /// <summary>清空一条接入的计数（未知实例/接入 ⇒ <see langword="false"/>）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="accessName">接入名。</param>
+    public bool ClearCounters(string instanceId, string accessName)
+    {
+        if (!TryGetSession(instanceId, accessName, out var session))
+        {
+            return false;
+        }
+
+        session.ClearCounters();
+        return true;
+    }
 
     /// <summary>设接收回调（无活动体模块的回调投递）。</summary>
     /// <param name="instanceId">实例 ID。</param>

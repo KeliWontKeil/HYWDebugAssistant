@@ -206,7 +206,7 @@ public class CompositePageViewModelTests
             page.CompositeFiles.ShouldNotBeEmpty();
             page.CompositeSearchText = "no-such-composite";
             page.CompositeFiles.ShouldBeEmpty();
-            page.CompositeFilesEmptyText.ShouldBe("没有匹配的组合");
+            page.CompositeFilesEmptyText.ShouldNotBeNullOrWhiteSpace("空态必须有一句事实");
         }
         finally
         {
@@ -240,7 +240,7 @@ public class CompositePageViewModelTests
         Path.GetFileName(path).ShouldBe("a_b_c");
 
         page.CompositeName = "  ";
-        Path.GetFileName(page.BuildDefaultSavePath()).ShouldStartWith("组合-");
+        Path.GetFileName(page.BuildDefaultSavePath()).ShouldNotBeNullOrWhiteSpace();
         Path.GetExtension(page.BuildDefaultSavePath()).ShouldBeEmpty();
     }
 

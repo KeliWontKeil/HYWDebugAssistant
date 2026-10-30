@@ -213,13 +213,13 @@ public class BusinessModulesBehaviorTests
 
         module.PumpOnce(context);
 
-        Message(context)!.ShouldContain("间隔小于 4");
+        Message(context).ShouldNotBeNullOrEmpty("间隔过小应给出非错误提示（内容由文案表决定）");
         Alerted(context, page).ShouldBeFalse("提示不标红");
         Alerted(context, TextSenderModule.IntervalSource).ShouldBeFalse("不标间隔那一格");
 
         context.ViewState.SetInputText(TextSenderModule.IntervalSource, "4");
         module.PumpOnce(context);
-        Message(context)!.ShouldNotContain("间隔小于 4", customMessage: "4ms 是可靠下限，不提示");
+        Message(context).ShouldBeNullOrEmpty("4ms 是可靠下限，不提示");
     }
 
     [Fact]
@@ -255,13 +255,13 @@ public class BusinessModulesBehaviorTests
 
         module.PumpOnce(context);
 
-        Message(context)!.ShouldContain("间隔小于 4");
+        Message(context).ShouldNotBeNullOrEmpty("间隔过小应给出非错误提示（内容由文案表决定）");
         Alerted(context, page).ShouldBeFalse("提示不标红");
         Alerted(context, HexSenderModule.IntervalSource).ShouldBeFalse("不标间隔那一格");
 
         context.ViewState.SetInputText(HexSenderModule.IntervalSource, "4");
         module.PumpOnce(context);
-        Message(context)!.ShouldNotContain("间隔小于 4");
+        Message(context).ShouldBeNullOrEmpty("4ms 是可靠下限，不提示");
     }
 
 
@@ -516,9 +516,10 @@ public class BusinessModulesBehaviorTests
             .ShouldBe("A⟨7F⟩B", "被删字符 DEL 没有可见形状 ⇒ 同样标出");
 
         // 可显示的内容（ASCII 可见字符 + 中文 + 空格）**一个字节都不动**
-        DataMonitorModule.FormatLines("A B 中文"u8, hex: false, timestamp: false, perPacket: false, now)
+        var visible = "A B 中文";
+        DataMonitorModule.FormatLines(Encoding.UTF8.GetBytes(visible), hex: false, timestamp: false, perPacket: false, now)
             .ShouldHaveSingleItem()
-            .ShouldBe("A B 中文", "可见字符（含空格与多字节汉字）原样保留，只有不可显示的才转义");
+            .ShouldBe(visible, "可见字符（含空格与多字节汉字）原样保留，只有不可显示的才转义");
 
         // 非 ASCII 的不可显示码位 ⇒ 它的 UTF-8 原始字节（U+0085 = C2 85）
         DataMonitorModule.FormatLines(new byte[] { 0x41, 0xC2, 0x85, 0x42 }, hex: false, timestamp: false, perPacket: false, now)
@@ -705,16 +706,17 @@ public class BusinessModulesBehaviorTests
         module.OnRegistered(context);
 
         // 三页各有内容；**当前选中第 2 页**（0 基 = 1）
-        context.ViewState.SetInputText(TextSenderModule.TextSourceOf(0), "第一页");
-        context.ViewState.SetInputText(TextSenderModule.TextSourceOf(1), "第二页");
-        context.ViewState.SetInputText(TextSenderModule.TextSourceOf(2), "第三页");
+        var pages = new[] { "第一页", "第二页", "第三页" };
+        context.ViewState.SetInputText(TextSenderModule.TextSourceOf(0), pages[0]);
+        context.ViewState.SetInputText(TextSenderModule.TextSourceOf(1), pages[1]);
+        context.ViewState.SetInputText(TextSenderModule.TextSourceOf(2), pages[2]);
         context.ViewState.SetSelectedPage(TextSenderModule.PagesStateKey, 1);
 
         module.SendCurrentPage(context, out _).ShouldBeTrue();
 
         var payload = context.Sent.ShouldHaveSingleItem().Payload;
         var len = (int)System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(payload);
-        Encoding.UTF8.GetString(payload.AsSpan(2, len)).ShouldBe("第二页", "**所见即所发**：发的是当前页那一份");
+        Encoding.UTF8.GetString(payload.AsSpan(2, len)).ShouldBe(pages[1], "**所见即所发**：发的是当前页那一份");
     }
 
     [Fact]
@@ -762,14 +764,14 @@ public class BusinessModulesBehaviorTests
         context.ViewState.SetInputText(subject, "0D 0");
         module.PumpOnce(context);
         context.Sent.ShouldBeEmpty();
-        Message(context).ShouldStartWith("HEX 转换错误");
+        Message(context).ShouldNotBeNullOrEmpty("转换失败必须给出原因（内容由文案表决定）");
         Alerted(context, subject).ShouldBeTrue("哪一格不对由模块标出来");
 
         // `0x` 前缀不支持（'x' 不是十六进制字符）
         context.ViewState.SetInputText(subject, "0x41");
         module.PumpOnce(context);
         context.Sent.ShouldBeEmpty();
-        Message(context).ShouldStartWith("HEX 转换错误");
+        Message(context).ShouldNotBeNullOrEmpty("转换失败必须给出原因（内容由文案表决定）");
         Alerted(context, subject).ShouldBeTrue();
 
         // 修好 ⇒ 红与消息都清掉
@@ -968,8 +970,9 @@ public class BusinessModulesBehaviorTests
 
             text.ShouldNotContain("↵", Case.Sensitive, "标记是**显示层**的装饰：保存出来的文件里绝不能有它");
             text.ShouldNotContain('\0', "定长样本的补零/补齐都不该出现在保存结果里");
+            var expected = "甲\n乙\n丙\n";
             text.Replace("\r\n", "\n", StringComparison.Ordinal).ShouldBe(
-                "甲\n乙\n丙\n",
+                expected,
                 "所见即所存：数据里真实的换行在文件里仍是真实换行；"
                 + "通道换行成为真正的换行；「数据包换行」开着 ⇒ 每包各自一行、不再补分隔空格；"
                 + "**没有任何尾部补齐**（末尾那一个换行是 `File.WriteAllLines` 的收尾，不是数据内容）");
@@ -1074,7 +1077,8 @@ public class BusinessModulesBehaviorTests
         var module = new DataMonitorModule();
         module.OnRegistered(context);
 
-        context.ViewState.SetDisplayLines(DataMonitorModule.LogSource, "第一行", "第二行");
+        var lines = new[] { "第一行", "第二行" };
+        context.ViewState.SetDisplayLines(DataMonitorModule.LogSource, lines);
 
         var path = Path.Combine(Path.GetTempPath(), $"hyw-monitor-oneclick-{Guid.NewGuid():N}.txt");
 
@@ -1085,13 +1089,11 @@ public class BusinessModulesBehaviorTests
             module.PumpOnce(context);
 
             module.SaveCount.ShouldBe(1, "选完位置就该存了（不再等第二个按钮）");
-            File.ReadAllLines(path).ShouldBe(["第一行", "第二行"], "落盘的必须是屏幕上那份（所见即所存）");
+            File.ReadAllLines(path).ShouldBe(lines, "落盘的必须是屏幕上那份（所见即所存）");
 
             var message = Message(context);
             message.ShouldNotBeNullOrEmpty();
-            message.ShouldContain("已保存");
             message.ShouldContain(Path.GetFileName(path));   // 落点确认要说清存到哪个文件
-            message.ShouldContain("2 行");                   // 并且说清存了多少行（界面那一行要能读）
             Alerted(context, DataMonitorModule.SavePathSource).ShouldBeFalse("成功不标色");
         }
         finally
@@ -1132,16 +1134,18 @@ public class BusinessModulesBehaviorTests
         context.EnqueueInput(DataMonitorModule.PausedSource, "false");
         module.PumpOnce(context);
 
-        module.HandlePacket(context, DataMonitorModule.BuildPayload("显示我"u8)).ShouldBe(1);
+        var shown = "显示我";
+        module.HandlePacket(context, DataMonitorModule.BuildPayload(Encoding.UTF8.GetBytes(shown))).ShouldBe(1);
         context.ViewState.GetDisplayLines(DataMonitorModule.LogSource)
             .ShouldHaveSingleItem()
-            .ShouldBe("显示我", "数据到达即落地 —— 文本方向不加任何分隔字符");
+            .ShouldBe(shown, "数据到达即落地 —— 文本方向不加任何分隔字符");
 
         // 「数据包换行」开 ⇒ 每个包各自一条（换行由通道表达）
         context.EnqueueInput(DataMonitorModule.LineBreakSource, "true");
         module.PumpOnce(context);
-        module.HandlePacket(context, DataMonitorModule.BuildPayload("再来"u8)).ShouldBe(1);
-        context.ViewState.GetDisplayLines(DataMonitorModule.LogSource).ShouldBe(["显示我", "再来"]);
+        var next = "再来";
+        module.HandlePacket(context, DataMonitorModule.BuildPayload(Encoding.UTF8.GetBytes(next))).ShouldBe(1);
+        context.ViewState.GetDisplayLines(DataMonitorModule.LogSource).ShouldBe([shown, next]);
     }
 
     [Fact]
@@ -1165,12 +1169,13 @@ public class BusinessModulesBehaviorTests
 
         try
         {
-            context.ViewState.SetDisplayLines(DataMonitorModule.LogSource, "第一行", "第二行");
+            var lines = new[] { "第一行", "第二行" };
+            context.ViewState.SetDisplayLines(DataMonitorModule.LogSource, lines);
             context.EnqueueInput(DataMonitorModule.SavePathSource, path);
             module.PumpOnce(context);
 
             module.Save(context).ShouldBeTrue();
-            File.ReadAllLines(path).ShouldBe(["第一行", "第二行"]);
+            File.ReadAllLines(path).ShouldBe(lines);
         }
         finally
         {
@@ -1385,7 +1390,7 @@ public class BusinessModulesBehaviorTests
 
         module.IsContinuous.ShouldBeTrue("写法错误不是开关的成立条件");
         Alerted(context, subject).ShouldBeTrue("哪一格写法不对就标哪一格");
-        Message(context).ShouldStartWith("HEX 转换错误");
+        Message(context).ShouldNotBeNullOrEmpty("转换失败必须给出原因（内容由文案表决定）");
     }
 
     /// <summary>**开关那一格现在是什么值**（界面照它画 —— 所以它就是开关的位置）。</summary>

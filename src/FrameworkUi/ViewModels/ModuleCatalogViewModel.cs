@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Ui.Controls;
 using HYWDebugAssistant.Ui.Images;
 using HYWDebugAssistant.Ui.ViewModels;
 
@@ -82,14 +83,15 @@ public static class ModuleCategories
     /// <summary>其他（未声明可识别标签）。</summary>
     public const string Other = "other";
 
-    /// <summary>分类目录（键 · 图标字形 · 悬停说明）。</summary>
-    public static readonly IReadOnlyList<(string Key, string Glyph, string Title)> Definitions =
+    /// <summary>分类目录（键 · 图标键 · 悬停说明）。</summary>
+    /// <remarks>图标键指向 Ui 的图标表；分类之间同码位的与外壳复用同一键（不新造重复条目）。</remarks>
+    public static readonly IReadOnlyList<(string Key, string IconKey, string Title)> Definitions =
     [
-        (All, "\uE8FD", CatalogText.Get("catalog.category.all")),
-        (Source, "\uE768", CatalogText.Get("catalog.category.source")),
-        (Sink, "\uE890", CatalogText.Get("catalog.category.sink")),
-        (Verify, "\uE73E", CatalogText.Get("catalog.category.verify")),
-        (Other, "\uE712", CatalogText.Get("catalog.category.other")),
+        (All, ShellIcons.CatalogAll, CatalogText.Get("catalog.category.all")),
+        (Source, ShellIcons.CatalogSource, CatalogText.Get("catalog.category.source")),
+        (Sink, ShellIcons.CatalogSink, CatalogText.Get("catalog.category.sink")),
+        (Verify, ShellIcons.CatalogVerify, CatalogText.Get("catalog.category.verify")),
+        (Other, ShellIcons.CatalogOther, CatalogText.Get("catalog.category.other")),
     ];
 
     /// <summary>按标签推导分类键（不识别 → <see cref="Other"/>）。</summary>
@@ -126,17 +128,17 @@ public static class ModuleCategories
 
 /// <summary>分类按钮（界面：横向图标按钮 + 悬停说明）。</summary>
 /// <param name="Key">分类键。</param>
-/// <param name="Glyph">图标字形。</param>
+/// <param name="IconKey">图标键（指向 Ui 的图标表）。</param>
 /// <param name="Title">悬停说明。</param>
 /// <param name="Count">该分类下的模块数。</param>
-public sealed partial class ModuleCategoryViewModel(string key, string glyph, string title, int count)
+public sealed partial class ModuleCategoryViewModel(string key, string iconKey, string title, int count)
     : ViewModelBase
 {
     /// <summary>分类键。</summary>
     public string Key { get; } = key;
 
-    /// <summary>图标字形。</summary>
-    public string Glyph { get; } = glyph;
+    /// <summary>图标键（`Glyph` 按键取字形）。</summary>
+    public string IconKey { get; } = iconKey;
 
     /// <summary>悬停说明。</summary>
     public string Title { get; } = title;
@@ -247,7 +249,7 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
     /// <summary>重建分类按钮与其计数。</summary>
     private void RebuildCategories()
     {
-        foreach (var (key, glyph, title) in ModuleCategories.Definitions)
+        foreach (var (key, iconKey, title) in ModuleCategories.Definitions)
         {
             var count = string.Equals(key, ModuleCategories.All, StringComparison.Ordinal)
                 ? _allModules.Count
@@ -259,7 +261,7 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
                 continue;
             }
 
-            Categories.Add(new ModuleCategoryViewModel(key, glyph, title, count));
+            Categories.Add(new ModuleCategoryViewModel(key, iconKey, title, count));
         }
     }
 

@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -14,8 +15,12 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>字段标题与可选项来自配置类型</b>（<c>[ConfigurationField]</c> / <c>IConfigurationChoices</c>），
-/// 视图只说"编哪一个字段" —— 于是同一个标题不会在视图里再写一遍。
+/// <b>只做编辑器，不带标题</b>：标题是视图里一个独立的 <see cref="ModuleLabel"/>（`Field` 取同一份配置元数据），
+/// 摆在编辑器旁边。标题若长在控件里，它的文本宽度就会替视图决定编辑器还能剩多宽 ——
+/// 那正是"窄字段的输入框被标题挤没"的来历。
+/// </para>
+/// <para>
+/// <b>可选项来自配置类型</b>（<c>[ConfigurationField]</c> / <c>IConfigurationChoices</c>），视图只说"编哪一个字段"。
 /// </para>
 /// <para>
 /// <b>改一项写一项</b>：没有"保存"按钮。文本 / 数字在**失焦或回车**时写回
@@ -31,17 +36,14 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 /// 悄悄改回去会让人以为"自己没打进去"。
 /// </para>
 /// <para>
-/// 视觉结构在 `ControlTheme` 的 `PART_Title` / `PART_EditorHost` / `PART_Notice` 里；
+/// 视觉结构在 `ControlTheme` 的 `PART_EditorHost` / `PART_Notice` 里；
 /// 这里只选编辑器种类、管写回时机与运行期外观。
 /// </para>
 /// </remarks>
 public sealed class ModuleConfigField : ModuleElement
 {
-    private TextBlock? _title;
     private TextBlock? _notice;
     private ContentControl? _editorHost;
-    private Border? _readFrame;
-    private SelectableTextBlock? _readText;
     private Border? _errorRing;
 
     private TemplatedControl? _editor;
@@ -92,25 +94,16 @@ public sealed class ModuleConfigField : ModuleElement
         }
     }
 
-    /// <summary>是否在编辑器左边画字段标题（默认画：标题来自配置类型，不该由视图再抄一遍）。</summary>
-    public bool ShowTitle { get; set; } = true;
-
     /// <summary>就地那一句事实（失败原因 / "没有这个字段"；空 = 没有话说）。</summary>
     public string Notice => _notice?.Text ?? string.Empty;
-
-    /// <summary>当前显示的字段标题（来自配置类型；<see cref="ShowTitle"/> 关闭时为空）。</summary>
-    public string FieldTitle => _title?.Text ?? string.Empty;
 
     /// <inheritdoc />
     protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
     {
         base.OnApplyTemplate(e);
 
-        _title = e.NameScope.Find<TextBlock>("PART_Title");
         _notice = e.NameScope.Find<TextBlock>("PART_Notice");
         _editorHost = e.NameScope.Find<ContentControl>("PART_EditorHost");
-        _readFrame = e.NameScope.Find<Border>("PART_ReadFrame");
-        _readText = e.NameScope.Find<SelectableTextBlock>("PART_ReadText");
         _errorRing = e.NameScope.Find<Border>("PART_ErrorRing");
 
         if (_editorHost is not null)
@@ -173,12 +166,8 @@ public sealed class ModuleConfigField : ModuleElement
 
         _field = field;
 
-        if (_title is not null)
-        {
-            _title.Text = ShowTitle ? field.Title : string.Empty;
-            _title.IsVisible = ShowTitle && field.Title.Length > 0;
-            ToolTip.SetTip(_title, string.IsNullOrWhiteSpace(field.Description) ? null : field.Description);
-        }
+        // 标题是另一个控件；编辑器自己仍要对屏读器说得出"这是哪一项"。
+        AutomationProperties.SetName(this, field.Title);
 
         if (_editor is null || _kind != field.Kind)
         {
@@ -217,12 +206,6 @@ public sealed class ModuleConfigField : ModuleElement
         _dirty = false;
         _editorValue = null;
 
-        if (_title is not null)
-        {
-            _title.Text = string.Empty;
-            _title.IsVisible = false;
-        }
-
         SetNotice(reason);
     }
 
@@ -243,6 +226,7 @@ public sealed class ModuleConfigField : ModuleElement
         _editor.HorizontalAlignment = field.Kind == ConfigFieldKind.Boolean
             ? HorizontalAlignment.Left
             : HorizontalAlignment.Stretch;
+        _editor.VerticalAlignment = VerticalAlignment.Center;
 
         if (_editorHost is not null)
         {
@@ -294,7 +278,6 @@ public sealed class ModuleConfigField : ModuleElement
                 break;
 
             case TextBox text:
-                text.Classes.Add("module-text-editor");
                 text.TextChanged += (_, _) =>
                 {
                     if (!_syncing)
@@ -384,29 +367,6 @@ public sealed class ModuleConfigField : ModuleElement
 
         _editorValue = value;
         _dirty = false;
-        SetReadOnlyText(_readFrame?.IsVisible == true, value);
-    }
-
-    /// <summary>只读文本叶子（SelectableTextBlock）与编辑器二选一。</summary>
-    private void SetReadOnlyText(bool readOnly, string text)
-    {
-        if (_readFrame is null || _readText is null)
-        {
-            return;
-        }
-
-        _readFrame.IsVisible = readOnly;
-        _readText.IsVisible = readOnly;
-
-        if (_editorHost is not null)
-        {
-            _editorHost.IsVisible = !readOnly;
-        }
-
-        if (readOnly && !string.Equals(_readText.Text, text, StringComparison.Ordinal))
-        {
-            _readText.Text = text;
-        }
     }
 
     /// <summary>文本框里改了字就交出去（失焦 / 回车）。</summary>
@@ -476,16 +436,6 @@ public sealed class ModuleConfigField : ModuleElement
             return;
         }
 
-        if (appearance.Outline is { } outline)
-        {
-            _editor.BorderBrush = new SolidColorBrush(Color.FromUInt32(outline));
-            _editor.BorderThickness = new Thickness(1);
-        }
-        else
-        {
-            SetTokenBrush(_editor, TemplatedControl.BorderBrushProperty, appearance.OutlineToken);
-        }
-
         if (appearance.Text is { } text)
         {
             _editor.Foreground = new SolidColorBrush(Color.FromUInt32(text));
@@ -498,28 +448,10 @@ public sealed class ModuleConfigField : ModuleElement
         if (appearance.TextSize is { } size)
         {
             _editor.FontSize = size;
-
-            if (_readText is not null)
-            {
-                _readText.FontSize = size;
-            }
         }
         else
         {
             _editor.ClearValue(TemplatedControl.FontSizeProperty);
-            _readText?.ClearValue(TextBlock.FontSizeProperty);
-        }
-
-        if (_readText is not null)
-        {
-            if (appearance.Text is { } readText)
-            {
-                _readText.Foreground = new SolidColorBrush(Color.FromUInt32(readText));
-            }
-            else
-            {
-                SetTokenBrush(_readText, TextBlock.ForegroundProperty, appearance.TextToken);
-            }
         }
 
         ApplyErrorRing(appearance);
@@ -552,54 +484,38 @@ public sealed class ModuleConfigField : ModuleElement
         }
     }
 
-    /// <summary>运行期只读：文本框只改 IsReadOnly，其余编辑器禁用。</summary>
+    /// <summary>运行期只读：文本框只改编辑状态（仍可聚焦选中复制），其余编辑器禁用。</summary>
     /// <param name="isReadOnly">是否只读。</param>
     protected override void ApplyReadOnly(bool isReadOnly)
     {
         switch (_editor)
         {
             case TextBox text:
-                ApplyTextBoxReadOnly(text, isReadOnly);
-                SetReadOnlyText(isReadOnly, text.Text ?? string.Empty);
+                text.IsReadOnly = isReadOnly;
+                text.IsTabStop = !isReadOnly;
+                text.Focusable = true;
+
+                if (isReadOnly)
+                {
+                    text.CaretBrush = Brushes.Transparent;
+                }
+                else
+                {
+                    text.ClearValue(TextBox.CaretBrushProperty);
+                }
+
                 break;
 
             case ModuleToggle toggle:
                 toggle.IsEnabled = !isReadOnly;
-                SetReadOnlyText(false, string.Empty);
                 break;
 
             case Control control:
                 control.IsEnabled = !isReadOnly;
-                SetReadOnlyText(false, string.Empty);
                 break;
 
             default:
                 break;
-        }
-    }
-
-    /// <summary>文本框只读只改 IsReadOnly；选择/复制与普通文本框一致，`readonly` 类只切边框档。</summary>
-    private static void ApplyTextBoxReadOnly(TextBox text, bool isReadOnly)
-    {
-        text.IsReadOnly = isReadOnly;
-        text.Focusable = !isReadOnly;
-        text.IsTabStop = !isReadOnly;
-        SetReadOnlyClass(text, isReadOnly);
-    }
-
-    /// <summary>给配置编辑器加/去只读类（用于主题切换边框档）。</summary>
-    private static void SetReadOnlyClass(Control control, bool readOnly)
-    {
-        if (readOnly)
-        {
-            if (!control.Classes.Contains("readonly"))
-            {
-                control.Classes.Add("readonly");
-            }
-        }
-        else
-        {
-            control.Classes.Remove("readonly");
         }
     }
     /// <summary>两份选项表是否逐项相同（避免每帧清空重建下拉项）。</summary>

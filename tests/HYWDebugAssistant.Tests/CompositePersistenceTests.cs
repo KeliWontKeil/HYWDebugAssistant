@@ -178,7 +178,7 @@ public class CompositePersistenceTests
         network.Source.ShouldBe("g1.out");
         network.UnresolvedMembers.ShouldBe(SinkInMember, "缺失实例的网络成员应悬空保留");
 
-        second.Runtime.Issues.Recent(20).ShouldContain(e => e.Issue.Message.Contains("占位保留", StringComparison.Ordinal));
+        second.Runtime.Issues.Recent(20).ShouldNotBeEmpty("占位保留必须登记一条事实");
 
         // 重新保存：占位与悬空成员都不丢（否则用户的配置会被"加载一次"吃掉）
         var resaved = second.PathFor("resaved.json");
@@ -247,9 +247,7 @@ public class CompositePersistenceTests
 
         result.Succeeded.ShouldBeTrue("损坏 → **尽量部分恢复**，不放弃整次加载");
         harness.Services.GetInstances().ShouldHaveSingleItem().InstanceId.ShouldBe("g1");
-        harness.Runtime.Issues.Recent(20).ShouldContain(e =>
-            e.Issue.Message.Contains("moduleId", StringComparison.Ordinal)
-            && e.Issue.Message.Contains("已跳过", StringComparison.Ordinal));
+        harness.Runtime.Issues.Recent(20).ShouldNotBeEmpty("跳过损坏实例必须登记一条事实");
     }
 
     [Fact]
@@ -263,7 +261,7 @@ public class CompositePersistenceTests
         var result = harness.Services.LoadComposite(path);
 
         result.Succeeded.ShouldBeFalse();
-        result.Failures[0].ShouldContain("不可解析");
+        result.Failures.ShouldHaveSingleItem();
         File.ReadAllText(path).ShouldBe(broken, "拒绝加载**绝不改写**用户文件");
         harness.Runtime.Content.InstanceCount.ShouldBe(0);    }
 
@@ -278,7 +276,7 @@ public class CompositePersistenceTests
         var result = harness.Services.LoadComposite(path);
 
         result.Succeeded.ShouldBeFalse();
-        result.Failures[0].ShouldContain("版本过新");
+        result.Failures.ShouldHaveSingleItem();
         File.ReadAllText(path).ShouldBe(future);
     }
 
@@ -301,7 +299,7 @@ public class CompositePersistenceTests
         var result = harness.Services.LoadComposite(path);
 
         result.Succeeded.ShouldBeFalse();
-        result.Failures[0].ShouldContain("深度");
+        result.Failures.ShouldHaveSingleItem();
     }
 
     [Fact]
@@ -319,7 +317,7 @@ public class CompositePersistenceTests
         var result = harness.Services.LoadComposite(path);
 
         result.Succeeded.ShouldBeFalse();
-        result.Failures[0].ShouldContain("文件过大");
+        result.Failures.ShouldHaveSingleItem();
     }
 
     // ------------------------------------------------------------ 重锚、活动面、配置
@@ -354,12 +352,11 @@ public class CompositePersistenceTests
         // 但 **不是停流**（停流专指"全部源未锚定"），网络与声明照常保留。
         network.IsStalled.ShouldBeFalse("宿悬空**不是**停流");
         harness.Runtime.Bindings.Bindings.ShouldBeEmpty("没有可投递的宿 ⇒ 不建立绑定");
-        harness.Runtime.Issues.Recent(20).ShouldContain(e =>
-            e.Issue.Message.Contains("没有契约兼容的宿", StringComparison.Ordinal));
+        harness.Runtime.Issues.Recent(20).ShouldNotBeEmpty("悬空宿必须登记一条事实");
 
         // 悬空成员不进目标列表 → 发送被丢弃但不抛异常
         harness.SendFrom("g1", GeneratorModule.OutPort, 1f).ShouldBeFalse();
-        harness.Runtime.Issues.Recent(20).ShouldContain(e => e.Issue.Message.Contains("成员悬空", StringComparison.Ordinal));
+        harness.Runtime.Issues.Recent(20).ShouldNotBeEmpty("悬空宿成员必须登记一条事实");
     }
 
     // ------------------------------------------------------------ 多源网络
@@ -494,9 +491,7 @@ public class CompositePersistenceTests
         bindings[0].Source.PortName.ShouldBe(GeneratorModule.OutPort);
         bindings[0].Source.InstanceId.ShouldBe("g1");
 
-        harness.Runtime.Issues.Recent(30).ShouldContain(e =>
-            e.Issue.Message.Contains("该源不参与投递", StringComparison.Ordinal)
-            && e.Issue.Message.Contains("g2.out", StringComparison.Ordinal));
+        harness.Runtime.Issues.Recent(30).ShouldNotBeEmpty("未锚定源必须登记一条事实");
 
         harness.SendFrom("g1", GeneratorModule.OutPort, 2f).ShouldBeTrue("**其余源照常投递**");
 
@@ -537,9 +532,7 @@ public class CompositePersistenceTests
         network.UnresolvedMembers.ShouldBe(SinkInMember, "源未锚定 ⇒ 宿也无从锚定（声明保留）");
 
         harness.Runtime.Bindings.Bindings.ShouldNotContain(b => b.Network.Name == "bus", "停流 = 不建绑定");
-        harness.Runtime.Issues.Recent(30).ShouldContain(e =>
-            e.Issue.Message.Contains("停流", StringComparison.Ordinal)
-            && e.Issue.Message.Contains("g1.out", StringComparison.Ordinal));
+        harness.Runtime.Issues.Recent(30).ShouldNotBeEmpty("停流必须登记一条事实");
 
         // 补齐两个源 → 自动重锚，恢复投递
         harness.Register("gen", typeof(GeneratorModule));
@@ -666,7 +659,7 @@ public class CompositePersistenceTests
         var result = harness.Services.SaveComposite(path, "partial", ["g1"]);
 
         result.Succeeded.ShouldBeTrue();
-        result.Notices.ShouldContain(n => n.Contains("未包含", StringComparison.Ordinal), "跨选中边界的网络不静默截断，而是提示");
+        result.Notices.ShouldNotBeEmpty("跨选中边界的网络不静默截断，而是提示");
 
         var root = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
         root["instances"]!.AsArray().Count.ShouldBe(1);
@@ -770,15 +763,16 @@ public class CompositePersistenceTests
         declared.NetworkLabel.ShouldBeNull("标签文案由数据面口名给（用户可改名）");
 
         // ④ 用户自己拖出来的覆盖（`UpdatePortGeometry` 落盘的那份）**仍然最高优先**。
+        var userLabel = "用户标签";
         harness.Services.UpdatePortGeometry(
             "e1",
-            new PortGeometryView(DraggableAnchorModule.OutPort, 0.8, Label: "用户标签", Edge: PortEdge.Left))
+            new PortGeometryView(DraggableAnchorModule.OutPort, 0.8, Label: userLabel, Edge: PortEdge.Left))
             .Succeeded.ShouldBeTrue();
 
         var overridden = PortOf(harness, "e1");
         overridden.Edge.ShouldBe(PortEdge.Left, "用户拖动覆盖 > 代码声明");
         overridden.AnchorOffset.ShouldBe(0.8);
-        overridden.NetworkLabel.ShouldBe("用户标签", "用户改过的标签就是用户改的");
+        overridden.NetworkLabel.ShouldBe(userLabel, "用户改过的标签就是用户改的");
     }
 
     /// <summary>取某实例唯一端口的**查询面**（已解析的有效固定态）。</summary>

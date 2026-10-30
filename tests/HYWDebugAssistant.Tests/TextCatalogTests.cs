@@ -35,16 +35,16 @@ public class TextCatalogTests : IDisposable
     {
         // ① 精确：本语言的表
         TextCatalog.Apply(TextLanguages.ZhHans);
-        TextCatalog.Get(Owner, "probe.base.label").ShouldBe("探针基础表");
+        TextCatalog.Get(Owner, "probe.base.label").ShouldBe(_tables.Entries["probe.base.label"]);
 
         // ② 语言中立：`zh-Hans` 里没有、`zh` 表里有
         TextCatalog.Apply("zh");
-        TextCatalog.Get(Owner, "probe.neutral.label").ShouldBe("语言中立表");
+        TextCatalog.Get(Owner, "probe.neutral.label").ShouldBe(_tables.Entries["probe.neutral.label"]);
 
         // ③ 缺表：没有这门语言的表 ⇒ 回落中文简体（不是空白，也不是英文）
         TextCatalog.Apply("fr-FR");
         CultureInfo.CurrentUICulture.Name.ShouldBe(TextLanguages.ZhHans);
-        TextCatalog.Get(Owner, "probe.base.label").ShouldBe("探针基础表");
+        TextCatalog.Get(Owner, "probe.base.label").ShouldBe(_tables.Entries["probe.base.label"]);
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public class TextCatalogTests : IDisposable
     {
         TextCatalog.Apply(TextLanguages.ZhHans);
 
-        TextCatalog.Get(Owner, "probe.absent.message").ShouldBe("⟦probe.absent.message⟧");
+        TextCatalog.Get(Owner, "probe.absent.message").ShouldBe(TextCatalog.MissingValue("probe.absent.message"));
         TextCatalog.TryGet(Owner, "probe.absent.message", out _).ShouldBeFalse();
     }
 
@@ -61,8 +61,8 @@ public class TextCatalogTests : IDisposable
     {
         TextCatalog.Apply(TextLanguages.ZhHans);
 
-        TextCatalog.Get(Owner, "probe.base.label").ShouldBe("探针基础表");
-        TextCatalog.Get(Owner, "probe.shard.label").ShouldBe("分片表", "分片表里的键要合并进来");
+        TextCatalog.Get(Owner, "probe.base.label").ShouldBe(_tables.Entries["probe.base.label"]);
+        TextCatalog.Get(Owner, "probe.shard.label").ShouldBe(_tables.Entries["probe.shard.label"], "分片表里的键要合并进来");
     }
 
     [Fact]
@@ -81,11 +81,11 @@ public class TextCatalogTests : IDisposable
         alternate.Use();
 
         TextCatalog.Apply(TextLanguages.ZhHans);
-        TextCatalog.Get(Owner, "probe.root.label").ShouldBe("临时根", "显式根优先于默认解析");
+        TextCatalog.Get(Owner, "probe.root.label").ShouldBe(alternate.Entries["probe.root.label"], "显式根优先于默认解析");
 
         TextCatalog.UseRoot(null);
         TextCatalog.Get(Owner, "probe.root.label")
-            .ShouldBe("⟦probe.root.label⟧", "解除显式根后回到默认根（仓库 resources/i18n），临时根里的键不再存在");
+            .ShouldBe(TextCatalog.MissingValue("probe.root.label"), "解除显式根后回到默认根（仓库 resources/i18n），临时根里的键不再存在");
     }
 
     /// <summary>
@@ -124,8 +124,9 @@ public class TextCatalogTests : IDisposable
             TextCatalog.UseRoot(null);   // 清掉显式根，让默认解析（BaseDirectory/resources/i18n）生效
             TextCatalog.Apply(TextLanguages.ZhHans);
 
+            var defaultRootText = "默认根表";
             TextCatalog.Get(Owner, "probe.defaultRoot.label")
-                .ShouldBe("默认根表", "输出目录下的 resources/i18n 必须被默认解析命中（与 StoragePaths 同值）");
+                .ShouldBe(defaultRootText, "输出目录下的 resources/i18n 必须被默认解析命中（与 StoragePaths 同值）");
         }
         finally
         {
@@ -164,20 +165,23 @@ public class TextCatalogTests : IDisposable
     }
 
     /// <summary>
-    /// **第二级目录**：`<程序集所在目录>/i18n/<程序集简名>/` 必须命中（模块包与开发/测试输出）。
+    /// **两套根不串**：框架拥有者只查框架根（`<BaseDirectory>/resources/i18n` / 显式根 / 仓库根），
+    /// 程序集旁那份 `<程序集目录>/i18n/<拥有者>/` 不再算数（那是模块的落点，且必须住在 `resources/` 下）。
     /// </summary>
     /// <remarks>
-    /// 用测试自身的程序集（<c>Location</c> = 测试输出目录），在它旁边造一份 `i18n/<程序集简名>/`；
-    /// 显式根指向一个**没有该拥有者目录**的临时根，确保只能由第二级命中。用完即删。
+    /// 用测试自身的程序集（框架拥有者：旁边没有 `module.json`），在它旁边造一份旧式 `i18n/<程序集简名>/`；
+    /// 显式根指向一个**没有该拥有者目录**的临时根 ⇒ 唯一的候选就是程序集旁那份，它**不该**被命 中。
+    /// 用完即删。
     /// </remarks>
     [Fact]
-    public void 第二级目录_程序集旁的i18n应命中()
+    public void 程序集旁的i18n_框架拥有者不得命中()
     {
         var ownerName = TextCatalogTestRoot.OwnerName;
         var assemblyDirectory = Path.GetDirectoryName(typeof(TextCatalogTests).Assembly.Location);
-        assemblyDirectory.ShouldNotBeNullOrWhiteSpace("测试程序集应有磁盘位置（否则第二级规则不可测）");
+        assemblyDirectory.ShouldNotBeNullOrWhiteSpace("测试程序集应有磁盘位置（否则这条边界不可测）");
 
-        var packageRoot = Path.Combine(assemblyDirectory!, "i18n", ownerName);
+        var legacyRoot = Path.Combine(assemblyDirectory!, "i18n");
+        var packageRoot = Path.Combine(legacyRoot, ownerName);
         var tablePath = Path.Combine(packageRoot, "zh-Hans.json");
 
         try
@@ -198,7 +202,9 @@ public class TextCatalogTests : IDisposable
             TextCatalog.Apply(TextLanguages.ZhHans);
 
             TextCatalog.Get(Owner, "probe.package.label")
-                .ShouldBe("程序集旁的表", "第二级 <程序集目录>/i18n/<拥有者>/ 必须命中（模块包不需要注册）");
+                .ShouldBe(
+                    TextCatalog.MissingValue("probe.package.label"),
+                    "框架拥有者只查框架根：旧式 `<程序集目录>/i18n/<拥有者>/` 不再命中");
         }
         finally
         {
@@ -213,11 +219,10 @@ public class TextCatalogTests : IDisposable
                     Directory.Delete(packageRoot);
                 }
 
-                var i18nRoot = Path.Combine(assemblyDirectory!, "i18n");
-                if (Directory.Exists(i18nRoot)
-                    && !Directory.EnumerateFileSystemEntries(i18nRoot).Any())
+                if (Directory.Exists(legacyRoot)
+                    && !Directory.EnumerateFileSystemEntries(legacyRoot).Any())
                 {
-                    Directory.Delete(i18nRoot);
+                    Directory.Delete(legacyRoot);
                 }
             }
             catch (IOException)
@@ -245,9 +250,9 @@ public class TextCatalogTests : IDisposable
             TextCatalog.UseRoot(empty.Root);
             TextCatalog.Apply(TextLanguages.ZhHans);
 
-            TextCatalog.Get(Owner, "probe.absent.first").ShouldBe("⟦probe.absent.first⟧");
-            TextCatalog.Get(Owner, "probe.absent.second").ShouldBe("⟦probe.absent.second⟧");
-            TextCatalog.Get(Owner, "probe.absent.third").ShouldBe("⟦probe.absent.third⟧");
+            TextCatalog.Get(Owner, "probe.absent.first").ShouldBe(TextCatalog.MissingValue("probe.absent.first"));
+            TextCatalog.Get(Owner, "probe.absent.second").ShouldBe(TextCatalog.MissingValue("probe.absent.second"));
+            TextCatalog.Get(Owner, "probe.absent.third").ShouldBe(TextCatalog.MissingValue("probe.absent.third"));
         }
         finally
         {
@@ -272,7 +277,7 @@ public class TextCatalogTests : IDisposable
         {
             TextCatalog.Apply(TextLanguages.ZhHans);
 
-            TextCatalog.Get(Owner, "probe.base.label").ShouldBe("探针基础表", "坏分片不能拖垮同目录的基表");
+            TextCatalog.Get(Owner, "probe.base.label").ShouldBe(_tables.Entries["probe.base.label"], "坏分片不能拖垮同目录的基表");
         }
         finally
         {
@@ -306,7 +311,7 @@ public class TextCatalogTests : IDisposable
         {
             TextCatalog.Apply(TextLanguages.ZhHans);
 
-            TextCatalog.Get(Owner, "probe.duplicate.label").ShouldBe("基础表优先", "重复键取先者：基础表排在最前");
+            TextCatalog.Get(Owner, "probe.duplicate.label").ShouldBe(_tables.Entries["probe.duplicate.label"], "重复键取先者：基础表排在最前");
             TextCatalog.TryGet(Owner, "probe.shardExtra.label", out _)
                 .ShouldBeFalse("分片出现重复键 ⇒ 整份跳过（契约 §2.4：跳过该文件），不只丢那一个键");
         }
@@ -349,7 +354,7 @@ public class TextCatalogTests : IDisposable
 
         TextCatalog.SupportedLanguages
             .ShouldContain(CultureInfo.CurrentUICulture.Name, "跟随系统必须落到一个有表的语言（或兜底的中文简体）");
-        TextCatalog.Get(Owner, "probe.base.label").ShouldBe("探针基础表");
+        TextCatalog.Get(Owner, "probe.base.label").ShouldBe(_tables.Entries["probe.base.label"]);
     }
 
     [Fact]
@@ -357,8 +362,9 @@ public class TextCatalogTests : IDisposable
     {
         TextCatalog.Apply(TextLanguages.ZhHans);
 
-        TextCatalog.Get(Owner, "probe.format.message", 42).ShouldBe("值 42 无效");
-        TextCatalog.Get(Owner, "probe.base.label", 42).ShouldBe("探针基础表", "模板没有占位符时原样返回");
+        TextCatalog.Get(Owner, "probe.format.message", 42).ShouldBe(
+            string.Format(CultureInfo.CurrentCulture, _tables.Entries["probe.format.message"], 42));
+        TextCatalog.Get(Owner, "probe.base.label", 42).ShouldBe(_tables.Entries["probe.base.label"], "模板没有占位符时原样返回");
     }
 
     [Fact]
@@ -399,11 +405,11 @@ public class TextCatalogTests : IDisposable
 
         TextCatalog.TryGet(frameworkUi, "settings.general.language.label", out var settingsLabel).ShouldBeTrue();
         settingsLabel.ShouldNotBeNullOrWhiteSpace();
-        settingsLabel.ShouldNotContain("⟦");
+        TextCatalog.IsMissing(settingsLabel).ShouldBeFalse();
 
         TextCatalog.TryGet(ui, "hotkey.action.openCatalog.label", out var hotkeyLabel).ShouldBeTrue();
         hotkeyLabel.ShouldNotBeNullOrWhiteSpace();
-        hotkeyLabel.ShouldNotContain("⟦");
+        TextCatalog.IsMissing(hotkeyLabel).ShouldBeFalse();
     }
     /// <summary>
     /// **显式根命中优先于默认根**：同一个拥有者在两边各有一份表时，取显式根的那份。
@@ -450,8 +456,9 @@ public class TextCatalogTests : IDisposable
             TextCatalog.UseRoot(explicitRoot);
             TextCatalog.Apply(TextLanguages.ZhHans);
 
+            var explicitRootText = "显式根";
             TextCatalog.Get(Owner, "probe.priority.label")
-                .ShouldBe("显式根", "显式根命中时不得回落到默认根（优先级不能反过来）");
+                .ShouldBe(explicitRootText, "显式根命中时不得回落到默认根（优先级不能反过来）");
         }
         finally
         {

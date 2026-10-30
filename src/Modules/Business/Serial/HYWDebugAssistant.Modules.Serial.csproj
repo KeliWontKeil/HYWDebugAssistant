@@ -20,8 +20,10 @@
   <ItemGroup>
     <!-- 模块清单随构建输出（M1 物理形式：目录 + module.json + 实现程序集） -->
     <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
-    <!-- 模块文本表：随输出并被 StageModulePackage 收进包；包内 `i18n/<程序集简名>/`。 -->
-    <Content Include="i18n\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 模块自有资源包：随输出并被 StageModulePackage 收进包；包内 `resources/i18n/<程序集简名>/`、`resources/icons/<程序集简名>/`。 -->
+    <Content Include="resources\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
+
+

@@ -71,7 +71,6 @@
     { "key": "SurfaceToggleTrackOffHoverBrush", "title": "开关 OFF 指向轨道", "group": "surface", "purpose": "开关 OFF 轨道（指向）", "surface": true },
     { "key": "SurfaceToggleKnobBrush", "title": "开关圆钮", "group": "surface", "purpose": "开关圆钮（浅色下与模块底同色，故必须单独一支）" },
     { "key": "SurfaceToggleKnobEdgeBrush", "title": "开关圆钮外沿", "group": "surface", "purpose": "开关圆钮外沿（浅深两套不同，不许合并）" },
-    { "key": "SurfaceTextFrameEditableBrush", "title": "可写文本外框", "group": "surface", "purpose": "可写文本面的外框（比只读那一圈深一档，两者要一眼分得开）" },
     { "key": "SurfaceTabHoverBrush", "title": "页签悬停底", "group": "surface", "purpose": "页签悬停底 —— 主题色的淡底", "derive": { "from": "AccentPrimary", "mode": "tint" } },
     { "key": "SurfaceTabSelectedBackgroundBrush", "title": "页签选中底", "group": "surface", "purpose": "页签选中底 —— 主题色的淡底，比悬停更实", "derive": { "from": "AccentPrimary", "mode": "tint" } },
     { "key": "SurfaceTabSelectedHoverBrush", "title": "页签选中悬停底", "group": "surface", "purpose": "页签选中且悬停 —— 主题色的淡底，最实的一档", "derive": { "from": "AccentPrimary", "mode": "tint" } }

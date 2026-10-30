@@ -1,6 +1,7 @@
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.AccessKit;
+using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Modules.Serial;
@@ -66,6 +67,9 @@ public sealed class SerialModule : ExternalAccessModule
     /// <summary>命令：关闭串口。</summary>
     public const string CloseCommand = "close";
 
+    /// <summary>命令：清空本接入的计数（队列数据、连接数与故障态都不动）。</summary>
+    public const string ClearCountersCommand = "clearCounters";
+
     /// <summary>取一条本模块文本表里的文案（拥有者 = 本模块程序集）。</summary>
     private static string Tr(string key) => TextCatalog.Get(typeof(SerialModule).Assembly, key);
 
@@ -89,21 +93,63 @@ public sealed class SerialModule : ExternalAccessModule
         OpenCommand,
         Tr(SerialText.Open),
         CloseCommand,
-        Tr(SerialText.Close));
+        Tr(SerialText.Close),
+        ClearCountersCommand,
+        Tr(SerialText.ViewClearCounters));
 
     /// <inheritdoc />
-    protected override string Describe(ExternalAccessSnapshot snapshot) => snapshot.State switch
+    protected override string Describe(ExternalAccessSnapshot snapshot)
     {
-        ExternalAccessState.Open => string.IsNullOrWhiteSpace(snapshot.Detail)
-            ? Tr(SerialText.StatusOpened)
-            : Tr(SerialText.StatusOpenedDetail, snapshot.Detail),
-        ExternalAccessState.Opening => string.IsNullOrWhiteSpace(snapshot.Detail)
-            ? Tr(SerialText.StatusOpening)
-            : Tr(SerialText.StatusOpeningDetail, snapshot.Detail),
-        ExternalAccessState.Closing => Tr(SerialText.StatusClosing),
-        ExternalAccessState.Faulted => string.IsNullOrWhiteSpace(snapshot.LastError)
-            ? Tr(SerialText.StatusFailed)
-            : snapshot.LastError,
-        _ => snapshot.Suspended ? Tr(SerialText.StatusSuspended) : Tr(SerialText.StatusIdle),
-    };
+        var endpoint = EndpointText(snapshot.Endpoint);
+
+        var text = snapshot.State switch
+        {
+            ExternalAccessState.Open => endpoint.Length == 0
+                ? Tr(SerialText.StatusOpened)
+                : Tr(SerialText.StatusOpenedDetail, endpoint),
+            ExternalAccessState.Opening => endpoint.Length == 0
+                ? Tr(SerialText.StatusOpening)
+                : Tr(SerialText.StatusOpeningDetail, endpoint),
+            ExternalAccessState.Closing => Tr(SerialText.StatusClosing),
+            ExternalAccessState.Faulted => FailureText(snapshot),
+            _ => snapshot.Suspended ? Tr(SerialText.StatusSuspended) : Tr(SerialText.StatusIdle),
+        };
+
+        return snapshot.RejectedUnits > 0 && snapshot.State != ExternalAccessState.Open
+            ? text + Tr(SerialText.StatusRejectedSuffix, snapshot.RejectedUnits)
+            : text;
+    }
+
+    /// <summary>按失败种类从本模块表取句子（未覆盖的种类走未知回退）。</summary>
+    private static string FailureText(ExternalAccessSnapshot snapshot)
+    {
+        return snapshot.Failure?.Kind switch
+        {
+            ExternalAccessFailureKind.FrameworkInternal => Tr(SerialText.StatusFailedFrameworkInternal),
+            ExternalAccessFailureKind.ParametersNotRegistered => Tr(SerialText.StatusFailedParametersNotRegistered),
+            ExternalAccessFailureKind.PortNotSelected => Tr(SerialText.StatusFailedPortNotSelected),
+            ExternalAccessFailureKind.DeviceLost => Tr(SerialText.StatusFailedDeviceLost),
+            ExternalAccessFailureKind.OpenFailed => Tr(SerialText.StatusFailedOpenFailed),
+            ExternalAccessFailureKind.ReadFailed => Tr(SerialText.StatusFailedReadFailed),
+            ExternalAccessFailureKind.WriteFailed => Tr(SerialText.StatusFailedWriteFailed),
+            _ => Tr(SerialText.StatusFailedUnknown),
+        };
+    }
+
+    /// <inheritdoc />
+    protected override string? DescribePressure(
+        PressureKind kind,
+        in PortFlowState sendFlow,
+        ExternalAccessSnapshot snapshot) => kind switch
+        {
+            PressureKind.ReceiveLost => Tr(SerialText.StatusReceiveLost),
+            PressureKind.SendLost => Tr(SerialText.StatusSendLost),
+            PressureKind.SendBacklogged => Tr(SerialText.StatusTxBacklog, snapshot.SendBacklogDepth),
+            PressureKind.ReceiveSaturated => Tr(SerialText.StatusRxSaturated, snapshot.ReceiveQueueDepth),
+            PressureKind.SendSaturated => Tr(
+                SerialText.StatusTxSaturated,
+                sendFlow.Depth,
+                sendFlow.DroppedWhileSaturatedUnits),
+            _ => null,
+        };
 }

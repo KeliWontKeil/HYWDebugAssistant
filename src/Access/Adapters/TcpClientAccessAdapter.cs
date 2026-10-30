@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using HYWDebugAssistant.Access.Parameters;
@@ -15,21 +16,78 @@ namespace HYWDebugAssistant.Access.Adapters;
 ///   <item>写同步、有发送超时；关闭先取消、再关套接字、再有界等待泵退出。</item>
 /// </list>
 /// </remarks>
-public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
+public sealed class TcpClientAccessAdapter : IExternalAccessAdapter, IExternalAccessWriteTimeout, IExternalAccessTuning
 {
-    private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan DefaultCloseTimeout = TimeSpan.FromSeconds(1);
 
-    private readonly AdapterBuffer _buffer = new();
+    /// <summary>写（发送）超时的缺省值（毫秒）。</summary>
+    private const int DefaultWriteTimeoutMs = 1000;
+
+    private StreamAdapterBuffer _buffer = new();
+
+    /// <summary>暂存容量（字节；下一次 Open 生效）。</summary>
+    private int _bufferBytes = 64 * 1024;
+
+    /// <summary>关闭旧传输的等待上限（可运行期改写）。</summary>
+    private TimeSpan _closeTimeout = DefaultCloseTimeout;
     private readonly Lock _gate = new();
 
     private Socket? _socket;
     private CancellationTokenSource? _cts;
     private Task? _pump;
     private IExternalAccessReady? _ready;
+    private ExternalAccessEndpoint? _endpoint;
+    private int _writeTimeoutMs = DefaultWriteTimeoutMs;
     private volatile bool _open;
 
     /// <inheritdoc />
     public Type ParametersType => typeof(TcpClientConfig);
+
+    /// <inheritdoc />
+    /// <remarks>记住值并对**当前套接字**立即生效；之后新建的套接字在连接时用当前值。</remarks>
+    /// <inheritdoc />
+    public void ApplyTuning(ExternalAccessTuning tuning)
+    {
+        ArgumentNullException.ThrowIfNull(tuning);
+
+        _closeTimeout = tuning.CloseTimeout > TimeSpan.Zero ? tuning.CloseTimeout : DefaultCloseTimeout;
+
+        if (tuning.BufferBytes >= 4096)
+        {
+            _bufferBytes = tuning.BufferBytes;
+        }
+    }
+
+    public void SetWriteTimeout(TimeSpan timeout)
+    {
+        var value = NormalizeWriteTimeoutMs(timeout);
+        Interlocked.Exchange(ref _writeTimeoutMs, value);
+
+        Socket? socket;
+        lock (_gate)
+        {
+            socket = _socket;
+        }
+
+        if (socket is null)
+        {
+            return;
+        }
+
+        try
+        {
+            socket.SendTimeout = value;
+        }
+        catch (Exception)
+        {
+            // 套接字刚被关闭 / 平台不支持：保持原值
+        }
+    }
+
+    /// <summary>写超时毫秒数的收敛（非正值 ⇒ 缺省 1 秒；0 在套接字上等于无限等待）。</summary>
+    /// <param name="timeout">设置里的值。</param>
+    private static int NormalizeWriteTimeoutMs(TimeSpan timeout) =>
+        timeout > TimeSpan.Zero ? (int)Math.Clamp(timeout.TotalMilliseconds, 1, int.MaxValue) : DefaultWriteTimeoutMs;
 
     /// <inheritdoc />
     public void Open(object parameters, IExternalAccessReady ready)
@@ -38,32 +96,42 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
 
         if (parameters is not TcpClientConfig config)
         {
-            ready.SetFaulted(AccessText.Get("access.tcpClient.parametersTypeInvalid", nameof(TcpClientConfig)));
+            ready.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.FrameworkInternal,
+                Detail: nameof(TcpClientConfig)));
             return;
         }
 
+        var target = new ExternalAccessEndpoint(config.RemoteHost, config.RemotePort);
+
         if (string.IsNullOrWhiteSpace(config.RemoteHost))
         {
-            ready.SetFaulted(AccessText.Get("access.tcpClient.addressEmpty"));
+            ready.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.AddressEmpty,
+                Value: config.RemoteHost));
             return;
         }
 
         if (IPAddress.TryParse(config.RemoteHost, out var parsedTarget)
             && (parsedTarget.Equals(IPAddress.Any) || parsedTarget.Equals(IPAddress.IPv6Any)))
         {
-            ready.SetFaulted(
-                AccessText.Get("access.common.wildcardAddressNotAllowed"));
+            ready.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.WildcardAddressNotAllowed,
+                target,
+                Value: config.RemoteHost));
             return;
         }
 
         if (config.RemotePort is < 1 or > 65535)
         {
-            ready.SetFaulted(AccessText.Get("access.common.remotePortOutOfRange", config.RemotePort));
+            ready.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.PortOutOfRange,
+                Value: config.RemotePort.ToString(CultureInfo.InvariantCulture)));
             return;
         }
 
-        Close(CloseTimeout);
-        _buffer.Clear();
+        Close(_closeTimeout);
+        _buffer = new StreamAdapterBuffer(_bufferBytes);
 
         var cts = new CancellationTokenSource();
 
@@ -71,10 +139,11 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
         {
             _cts = cts;
             _ready = ready;
+            _endpoint = target;
             _open = true;
         }
 
-        ready.SetConnecting($"{config.RemoteHost}:{config.RemotePort}");
+        ready.SetConnecting(target);
         _pump = Task.Run(() => RunAsync(config, ready, cts.Token));
     }
 
@@ -90,6 +159,7 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
     {
         Socket? socket;
         IExternalAccessReady? ready;
+        ExternalAccessEndpoint? endpoint;
 
         lock (_gate)
         {
@@ -100,6 +170,7 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
 
             socket = _socket;
             ready = _ready;
+            endpoint = _endpoint;
         }
 
         try
@@ -109,7 +180,10 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
         }
         catch (Exception ex)
         {
-            ready?.SetFaulted(AccessText.Get("access.tcpClient.sendFailed", ex.GetType().Name, ex.Message));
+            ready?.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.WriteFailed,
+                endpoint,
+                Detail: DetailOf(ex)));
             return false;
         }
     }
@@ -131,6 +205,7 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
             socket = _socket;
             _socket = null;
             _ready = null;
+            _endpoint = null;
         }
 
         cts?.Cancel();
@@ -175,9 +250,10 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
         IExternalAccessReady ready,
         CancellationToken token)
     {
+        var target = new ExternalAccessEndpoint(config.RemoteHost, config.RemotePort);
         var socket = new Socket(SocketType.Stream, ProtocolType.Tcp)
         {
-            SendTimeout = 1000,
+            SendTimeout = Volatile.Read(ref _writeTimeoutMs),
         };
 
         try
@@ -194,15 +270,18 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
             {
                 if (!token.IsCancellationRequested)
                 {
-                    ready.SetFaulted(AccessText.Get("access.tcpClient.connectTimeout", config.ConnectTimeout, config.RemoteHost, config.RemotePort));
+                    ready.SetFaulted(new ExternalAccessFailure(
+                        ExternalAccessFailureKind.ConnectTimeout,
+                        target));
                 }
 
                 return;
             }
             catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionRefused)
             {
-                ready.SetFaulted(
-                    AccessText.Get("access.tcpClient.connectionRefused", config.RemoteHost, config.RemotePort));
+                ready.SetFaulted(new ExternalAccessFailure(
+                    ExternalAccessFailureKind.ConnectionRefused,
+                    target));
                 return;
             }
 
@@ -218,7 +297,7 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
                 _socket = socket;
             }
 
-            ready.SetOpen($"{config.RemoteHost}:{config.RemotePort}");
+            ready.SetOpen(target);
 
             var buffer = new byte[ExternalAccessDeclaration.DefaultUnitBytes];
 
@@ -238,7 +317,10 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
                 {
                     if (!token.IsCancellationRequested)
                     {
-                        ready.SetFaulted(AccessText.Get("access.tcpClient.receiveFailed", ex.GetType().Name, ex.Message));
+                        ready.SetFaulted(new ExternalAccessFailure(
+                            ExternalAccessFailureKind.ReadFailed,
+                            target,
+                            Detail: DetailOf(ex)));
                     }
 
                     return;
@@ -248,7 +330,9 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
                 {
                     if (!token.IsCancellationRequested)
                     {
-                        ready.SetFaulted(AccessText.Get("access.tcpClient.peerClosed", config.RemoteHost, config.RemotePort));
+                        ready.SetFaulted(new ExternalAccessFailure(
+                            ExternalAccessFailureKind.PeerClosed,
+                            target));
                     }
 
                     return;
@@ -270,7 +354,10 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
         {
             if (!token.IsCancellationRequested)
             {
-                ready.SetFaulted(AccessText.Get("access.tcpClient.connectFailed", ex.GetType().Name, ex.Message));
+                ready.SetFaulted(new ExternalAccessFailure(
+                    ExternalAccessFailureKind.OpenFailed,
+                    target,
+                    Detail: DetailOf(ex)));
             }
         }
         finally
@@ -293,4 +380,7 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter
             }
         }
     }
+
+    private static string DetailOf(Exception exception) =>
+        exception.GetType().Name + ": " + exception.Message;
 }

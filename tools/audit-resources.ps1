@@ -1,13 +1,14 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  资源与文本审计（源侧）：出厂种子的形状、主题包、文本表、迁移锁死、`{loc:Tr}` 键与死键。
+  资源与文本审计（源侧）：出厂种子的形状、主题包、文本表、图标表、迁移锁死、`{loc:Tr}` 键与死键。
 
 .DESCRIPTION
   判据（与 docs/design/resource-architecture.md 阶段 E 对齐；**违规一律打印 `文件:行号` 并 exit 1**）：
 
     ① **出厂资源的目录形状**
-       · `resources/` 下的每个子树都必须在脚本里**登记访问模式**（当前：`seeds` = 投放、`i18n` = 就地读）；
+       · `resources/` 下的每个子树都必须在脚本里**登记访问模式**（当前：`seeds` = 投放、
+         `i18n` = 文本表、`icons` = 图标表，后两者都就地读）；
          出现未登记的子树即判红（新增资源类别必须登记）；
        · `seeds/` 下只允许**已登记的目标子树**（当前仅 `settings/`）；
        · 每个**叶子目录单元**都必须有清单：主题包 = `theme.json`；
@@ -30,6 +31,22 @@
        · 同一拥有者同一语言的**跨分片键不重复**（运行期是"先者胜"，重复即是第二份事实）；
        · 同一拥有者各语言的**键集合**与每个键的**占位符集合**（`{0}` / `{1}`…）一致。
 
+    ③b **框架图标清单**（`resources/icons/<程序集简名>/icons.json`）
+       · 可解析、`schemaVersion` 认知、文件名固定 `icons.json`（一个拥有者一张清单）；
+       · 键必须是 `icon.xxx` 形式，值是**相对路径的 `.svg`**（相对、不得跳出拥有者目录、必须存在）；
+       · 每个 SVG 只认子集：根 `<svg>` + `viewBox`（或 width/height）+ 至少一个 `<path d>`；
+         不许 `use` / `script` / `image` / `foreignObject` / 外部 `href` / `<path transform>`；
+       · 同一张清单内键不重复；拥有者目录必须能找到同名项目。
+
+    ③c **框架文本表**（`resources/i18n/<程序集简名>/*.json`）——③ 只审框架根，模块的文本在模块包里（见 ③d）。
+
+    ③d **模块自有资源包**（`src/Modules/**/module.json` 的 `resources`）
+       · 声明的每个路径必须是**模块目录下的相对路径**、不得越界、目录必须存在；
+       · `resources/` 下的目录必须在清单里声明（不留"没人知道"的数据）；
+       · 资源目录里的 `icons.json` 指向的文件必须存在、路径不得越界；
+       · 框架 `resources/{i18n,icons}` 里**不得出现模块拥有者**（两套根不串）；
+       · **不套**框架的文本 / 图标表规则：模块可以用任意 kind，内容由模块自己负责。
+
     ④ **可本地化层零中文**（终态）
        · `src/Core` `src/Hosting` `src/DataPlane` `src/Access` `src/Core.Api` `src/Ui` `src/FrameworkUi`
          `src/Sdk.Ui` `src/App` `src/Modules` 下的 `.cs` 字符串字面量与 `.axaml` 属性值/文本不得含中文；
@@ -42,8 +59,30 @@
     ⑤ **XAML 的 `{loc:Tr X}` 键存在**：`X` 必须在该 XAML **所属程序集**（最近一层 csproj）的任一份表里。
        XAML 缺表 / 键拼错 ⇒ 运行期只会显示 `⟦key⟧`，编译期完全合法，因此必须在这里拦。
 
+    ⑤b **模块视图不得自带路径图标**（`src/Modules/**/*.axaml`）
+       · 不得出现 `<Path …>` / `PathIcon`：图标必须走 `ModuleButton.Icon` + 图标表（图标是数据，不是几何）；
+       · `Icon="…"` 的值必须是 `{x:Static …}` 常量：键来自代码常量，拼错是编译错误；不许写字面量或绑定表达式。
+
+    ⑤c **源码不得硬编码字形**（`src/` 下的 `.axaml` / `.cs`）
+       · 不得出现 `&#xE…;`（XML 字符引用）、`\uE…`（转义码位）、`Glyph[A-Z]…` 旧 token、`SetGlyph` 旧接口；
+       · 图标清单在 `resources/icons/<owner>/icons.json`、图形在 `.svg`，界面只写键（`ShellIcons` / 模块 `ViewKeys`）；
+       · 豁免：`ShellIcons` 与图标清单 key（是键不是图形）、`InputChrome.axaml` 的 `PathIcon`（控件装饰）、
+         `tests/`（测试自己的探针数据）。
+
     ⑥ **死键**：表里的每个键都必须在 `src/` 里被引用（XAML 的 `{loc:Tr X}` 或 C# 字符串字面量 `"X"`）。
-       允许 C# 通道（例如动态拼选项文案的键）；只存在表里、没人取用的键是过期数据。
+       允许 C# 通道（例如动态拼选项文案的键）；图标表没有 XAML 通道，只认 C# 字符串字面量。
+       只存在表里、没人取用的键是过期数据。
+
+    ⑦ **测试不得以文案为判据**（`tests/**/*.cs`）
+       · 断言（`ShouldBe` / `ShouldContain` / `ShouldStartWith` / `ShouldEndWith` / `ShouldNotBe` /
+         `ShouldNotContain` / `ShouldMatch`）的**第 0 个参数**里，字符串字面量含中文 ⇒ 判红；
+       · 该字面量与任一产品文本表的值**整值相等** ⇒ 判红（覆盖未来的英文文案）；
+       · 断言说明文字（第 1 个参数起）不算；原始字符串 / 逐字字符串 / 注释先被遮掉再抽参数；
+       · 行级豁免：断言行或上一行写 `// i18n-test-data: <理由>`，脚本结束打印命中数供复核。
+
+    ⑧ **字体默认值单源**：`AppearanceSettings` 的 `UiFonts` / `DataFonts` 组合值必须与
+       `Ui/Styles/Tokens.axaml` 的 `FontUi` / `FontData`、`Sdk.Ui/Themes/DesignTokens.axaml` 的 `FontData` 逐字一致
+       （默认值只在设置定义里；token 是首帧/预览兜底，不允许各说各话）。
 
 .PARAMETER Root
   被审计的根目录（默认 = 脚本所在目录的上一级，即仓库根）。
@@ -66,9 +105,10 @@ if (-not (Test-Path -LiteralPath $root -PathType Container)) {
     exit 1
 }
 
-# 主题清单 / 文本表认识的结构版本（与 ThemeStore.CurrentSchemaVersion、TextCatalog.SchemaVersion 同步）
+# 主题清单 / 文本表 / 图标表认识的结构版本（与 ThemeStore.CurrentSchemaVersion、TextCatalog / IconCatalog 同步）
 $themeSchemaVersion = 1
 $textSchemaVersion = 1
+$iconSchemaVersion = 1
 
 # 壁纸体积上限的**来源**是 ThemeStore.MaxWallpaperBytes；下面只是缺省值，
 # 读到源码定义后会覆盖它，并核对两者一致（不接受"脚本比运行期松"）。
@@ -77,11 +117,13 @@ $maxWallpaperBytes = 32L * 1024 * 1024
 $themeStoreRel = 'src/Core/Themes/ThemeStore.cs'
 $paletteRel = 'src/Ui/Styles/palette.json'
 $storagePathsRel = 'src/Infrastructure/Storage/StoragePaths.cs'
-$textCatalogRel = 'src/Sdk/Text/TextCatalog.cs'
+$resourceLayoutRel = 'src/Sdk/Resources/ResourceLayout.cs'
+$resourceKindsRel = 'src/Sdk/Resources/ResourceKinds.cs'
 
-# 审计自己的口径：resources/ 子树名与文本包名（访问模式登记见下方 $resourceSubtrees）。
+# 审计自己的口径：resources/ 子树名与两个资源类别名（访问模式登记见下方 $resourceSubtrees）。
 $resourcesDirectoryName = 'resources'
 $textPacksDirectoryName = 'i18n'
+$iconsPacksDirectoryName = 'icons'
 
 # 可本地化层零中文：文本已全部外置；新增中文必须进 i18n 表（或显式行级豁免）。
 
@@ -376,22 +418,25 @@ $i18nRoot = Join-Path $resourcesRoot $textPacksDirectoryName
 $resourceSubtrees = [ordered]@{
     'seeds' = '投放（复制进用户目录，可编辑）'
     'i18n'  = '就地读（只读；运行时按 <拥有者>/<culture>.json 加载）'
+    'icons' = '就地读（只读；运行时按 <拥有者>/glyphs.json 加载）'
 }
 
 $registeredSubtrees = [ordered]@{
     'settings' = '设置（单文件 settings.json + 外观主题包）'
 }
 
-# ---- 跨层一致性：`resources` / `i18n` 两个目录名在三处出现，必须同值 ----
-# Infrastructure 与 Sdk 零依赖、不能共享常量；这里用正则从两份源码里读常量值，
+# ---- 跨层一致性：`resources` 目录名与两个类别名（i18n / icons）在三处出现，必须同值 ----
+# Infrastructure 与 Sdk 零依赖、不能共享常量；这里用正则从源码里读常量值，
 # 任何一处漂移都判红（否则"发布布局"与"开发布局"会各读各的目录）。
 $storagePathsPath = Join-Path $root $storagePathsRel
-$textCatalogPath = Join-Path $root $textCatalogRel
+$resourceLayoutPath = Join-Path $root $resourceLayoutRel
+$resourceKindsPath = Join-Path $root $resourceKindsRel
 
 $storageResources = Get-StringConstant -Path $storagePathsPath -Name 'ResourcesDirectoryName'
 $storageTextPacks = Get-StringConstant -Path $storagePathsPath -Name 'TextPacksDirectoryName'
-$catalogResources = Get-StringConstant -Path $textCatalogPath -Name 'ResourcesDirectoryName'
-$catalogTextPacks = Get-StringConstant -Path $textCatalogPath -Name 'PackDirectoryName'
+$layoutResources = Get-StringConstant -Path $resourceLayoutPath -Name 'ResourcesDirectoryName'
+$kindsText = Get-StringConstant -Path $resourceKindsPath -Name 'Text'
+$kindsIcons = Get-StringConstant -Path $resourceKindsPath -Name 'Icons'
 
 if ($null -eq $storageResources) {
     Add-Problem $storagePathsRel '读不到 ResourcesDirectoryName（资源根名必须是常量，审计要核对它）'
@@ -409,35 +454,46 @@ elseif ($storageTextPacks.Value -ne $textPacksDirectoryName) {
         ("TextPacksDirectoryName = '{0}'，审计口径是 '{1}'" -f $storageTextPacks.Value, $textPacksDirectoryName)
 }
 
-if ($null -eq $catalogResources) {
-    Add-Problem $textCatalogRel '读不到 ResourcesDirectoryName（默认根解析的资源根名）'
+if ($null -eq $layoutResources) {
+    Add-Problem $resourceLayoutRel '读不到 ResourcesDirectoryName（默认根解析的资源根名）'
 }
-elseif ($catalogResources.Value -ne $resourcesDirectoryName) {
-    Add-Problem "${textCatalogRel}:$($catalogResources.Line)" `
+elseif ($layoutResources.Value -ne $resourcesDirectoryName) {
+    Add-Problem "${resourceLayoutRel}:$($layoutResources.Line)" `
         ("ResourcesDirectoryName = '{0}' 与审计口径 '{1}' 不一致（默认根会指向别的目录）" -f `
-            $catalogResources.Value, $resourcesDirectoryName)
+            $layoutResources.Value, $resourcesDirectoryName)
 }
 
-if ($null -eq $catalogTextPacks) {
-    Add-Problem $textCatalogRel '读不到 PackDirectoryName（默认根解析的文本包名）'
+if ($null -eq $kindsText) {
+    Add-Problem $resourceKindsRel '读不到文本类别的常量 Text（默认根解析的文本包名）'
 }
-elseif ($catalogTextPacks.Value -ne $textPacksDirectoryName) {
-    Add-Problem "${textCatalogRel}:$($catalogTextPacks.Line)" `
-        ("PackDirectoryName = '{0}' 与审计口径 '{1}' 不一致（默认根会指向别的目录）" -f `
-            $catalogTextPacks.Value, $textPacksDirectoryName)
-}
-
-if ($null -ne $storageTextPacks -and $null -ne $catalogTextPacks `
-    -and $storageTextPacks.Value -ne $catalogTextPacks.Value) {
-    Add-Problem "${textCatalogRel}:$($catalogTextPacks.Line)" `
-        ("PackDirectoryName = '{0}' 与 StoragePaths.TextPacksDirectoryName = '{1}' 不一致（显式根与默认根会分叉）" -f `
-            $catalogTextPacks.Value, $storageTextPacks.Value)
+elseif ($kindsText.Value -ne $textPacksDirectoryName) {
+    Add-Problem "${resourceKindsRel}:$($kindsText.Line)" `
+        ("Text = '{0}' 与审计口径 '{1}' 不一致（默认根会指向别的目录）" -f `
+            $kindsText.Value, $textPacksDirectoryName)
 }
 
-if (-not $resourceSubtrees.Contains($textPacksDirectoryName)) {
-    Add-Problem 'tools/audit-resources.ps1' `
-        ("文本包子树 '{0}' 没有登记访问模式（resources/ 子树登记表：{1}）" -f `
-            $textPacksDirectoryName, ($resourceSubtrees.Keys -join ', '))
+if ($null -eq $kindsIcons) {
+    Add-Problem $resourceKindsRel '读不到图标类别的常量 Icons（默认根解析的图标包名）'
+}
+elseif ($kindsIcons.Value -ne $iconsPacksDirectoryName) {
+    Add-Problem "${resourceKindsRel}:$($kindsIcons.Line)" `
+        ("Icons = '{0}' 与审计口径 '{1}' 不一致（默认根会指向别的目录）" -f `
+            $kindsIcons.Value, $iconsPacksDirectoryName)
+}
+
+if ($null -ne $storageTextPacks -and $null -ne $kindsText `
+    -and $storageTextPacks.Value -ne $kindsText.Value) {
+    Add-Problem "${resourceKindsRel}:$($kindsText.Line)" `
+        ("Text = '{0}' 与 StoragePaths.TextPacksDirectoryName = '{1}' 不一致（显式根与默认根会分叉）" -f `
+            $kindsText.Value, $storageTextPacks.Value)
+}
+
+foreach ($kind in @($textPacksDirectoryName, $iconsPacksDirectoryName)) {
+    if (-not $resourceSubtrees.Contains($kind)) {
+        Add-Problem 'tools/audit-resources.ps1' `
+            ("资源类别子树 '{0}' 没有登记访问模式（resources/ 子树登记表：{1}）" -f `
+                $kind, ($resourceSubtrees.Keys -join ', '))
+    }
 }
 
 $themePackageCount = 0
@@ -451,7 +507,7 @@ elseif (-not (Test-Path -LiteralPath $resourcesRoot -PathType Container)) {
 else {
     foreach ($entry in (Get-ChildItem -LiteralPath $resourcesRoot -Force | Sort-Object Name)) {
         if (-not $entry.PSIsContainer) {
-            Add-Problem (Get-RelPath $entry.FullName) 'resources/ 下只允许已登记的子树目录（seeds / i18n）'
+            Add-Problem (Get-RelPath $entry.FullName) 'resources/ 下只允许已登记的子树目录（seeds / i18n / icons）'
         }
         elseif (-not $resourceSubtrees.Contains($entry.Name)) {
             Add-Problem (Get-RelPath $entry.FullName) `
@@ -596,32 +652,11 @@ if (Test-Path -LiteralPath $i18nRoot -PathType Container) {
     }
 }
 
-# 两处表根，判据一致：
-#   ① 框架：`resources/i18n/<拥有者>/`；
-#   ② 模块：`src/Modules/<…>/i18n/<拥有者>/` —— **拥有者目录名必须等于模块项目名**（表随包走）。
+# 框架的文本表只有一处表根：`resources/i18n/<拥有者>/`（模块的文本在模块包里，见 ③d）。
 $tableFiles = [System.Collections.Generic.List[object]]::new()
 
 foreach ($file in (Get-ChildItem -LiteralPath $i18nRoot -Recurse -File -Filter *.json -ErrorAction SilentlyContinue)) {
-    $tableFiles.Add([pscustomobject]@{ File = $file; Root = $i18nRoot; ExpectedOwner = $null })
-}
-
-foreach ($moduleI18nRoot in (Get-ChildItem -LiteralPath (Join-Path $root 'src\Modules') -Recurse -Directory -Filter 'i18n' -ErrorAction SilentlyContinue |
-        Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' })) {
-    $projectDirectory = Split-Path -Parent $moduleI18nRoot.FullName
-    $projectFile = Get-ChildItem -LiteralPath $projectDirectory -File -Filter *.csproj -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-
-    if ($null -eq $projectFile) {
-        Add-Problem (Get-RelPath $moduleI18nRoot.FullName) '模块 i18n 目录的上级目录里没有 csproj（无法确定拥有者项目名）'
-        $expectedOwner = $null
-    }
-    else {
-        $expectedOwner = [System.IO.Path]::GetFileNameWithoutExtension($projectFile.Name)
-    }
-
-    foreach ($file in (Get-ChildItem -LiteralPath $moduleI18nRoot.FullName -Recurse -File -Filter *.json -ErrorAction SilentlyContinue)) {
-        $tableFiles.Add([pscustomobject]@{ File = $file; Root = $moduleI18nRoot.FullName; ExpectedOwner = $expectedOwner })
-    }
+    $tableFiles.Add([pscustomobject]@{ File = $file; Root = $i18nRoot })
 }
 
 $tables = [System.Collections.Generic.List[object]]::new()   # Owner / Language / File / Entries
@@ -636,12 +671,6 @@ foreach ($table in ($tableFiles | Sort-Object { $_.File.FullName })) {
     if ($owner -eq '.' -or $owner.Contains('/')) {
         Add-Problem $relative '文本表必须直接住在 <表根>/<程序集简名>/ 下'
         continue
-    }
-
-    if ($null -ne $table.ExpectedOwner -and
-        -not [string]::Equals($owner, $table.ExpectedOwner, [StringComparison]::Ordinal)) {
-        Add-Problem $relative `
-            ("模块文本表的拥有者目录必须等于模块项目名 '{0}'（当前 '{1}'）" -f $table.ExpectedOwner, $owner)
     }
 
     $firstSegment = $file.Name.Split('.')[0]
@@ -759,6 +788,335 @@ foreach ($ownerGroup in $byOwner) {
     }
 }
 
+# ---------------------------------------------------------------- ③b 配置文本的属主
+
+# 外部接入的 `config.*` 文本由**声明该接入的模块**拥有：参数类型住在框架侧，文本不跟着类型走。
+# 因此框架 Access 表只剩底层诊断（`access.diag.*`），其余任何拥有者的表里都不许出现 `config.*`。
+$accessTextOwner = 'HYWDebugAssistant.Access'
+$configTextOwners = @(
+    'HYWDebugAssistant.Modules.Serial',
+    'HYWDebugAssistant.Modules.TcpClient',
+    'HYWDebugAssistant.Modules.TcpServer',
+    'HYWDebugAssistant.Modules.Udp'
+)
+
+foreach ($table in $tables) {
+    $tablePath = Join-Path $root $table.File
+
+    if ([string]::Equals($table.Owner, $accessTextOwner, [StringComparison]::Ordinal)) {
+        foreach ($key in $table.Entries.Keys) {
+            if ($key -match '^access\.diag\.') { continue }
+
+            $line = Get-FirstLineNumber -Path $tablePath -Pattern ([regex]::Escape('"' + $key + '"'))
+            Add-Problem ("{0}:{1}" -f $table.File, $line) `
+                ("Access 表只允许 access.diag.*（当前键 '{0}'）" -f $key)
+        }
+
+        continue
+    }
+
+    if ($configTextOwners -contains $table.Owner) { continue }
+
+    foreach ($key in $table.Entries.Keys) {
+        if ($key -notlike 'config.*') { continue }
+
+        $line = Get-FirstLineNumber -Path $tablePath -Pattern ([regex]::Escape('"' + $key + '"'))
+        Add-Problem ("{0}:{1}" -f $table.File, $line) `
+            ("config.* 键 '{0}' 只允许出现在四个外部接入模块表（当前拥有者 '{1}'）" -f $key, $table.Owner)
+    }
+}
+
+# ---------------------------------------------------------------- ③c 图标表
+
+# 框架的图标清单只有一处表根：`resources/icons/<拥有者>/icons.json`（模块的在模块包里，见 ③d）。
+$iconsRoot = Join-Path $resourcesRoot $iconsPacksDirectoryName
+$iconOwnerDirectories = [System.Collections.Generic.List[object]]::new()
+
+if (Test-Path -LiteralPath $iconsRoot -PathType Container) {
+    foreach ($ownerDirectory in (Get-ChildItem -LiteralPath $iconsRoot -Directory -Force | Sort-Object Name)) {
+        if (-not $projectNames.Contains($ownerDirectory.Name)) {
+            Add-Problem (Get-RelPath $ownerDirectory.FullName) `
+                ("icons 拥有者目录 '{0}' 找不到同名项目（src/ 下必须存在 {0}.csproj）" -f $ownerDirectory.Name)
+        }
+
+        $iconOwnerDirectories.Add([pscustomobject]@{ Directory = $ownerDirectory })
+    }
+}
+
+$iconTables = [System.Collections.Generic.List[object]]::new()   # Owner / File / Entries
+$iconKeyLocations = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
+
+# SVG 只认一个子集（`viewBox` + `<path d>`）：不引第三方 SVG 引擎，也不执行文件里的任何东西。
+# 返回问题描述（没问题返回 $null）。
+function Test-IconSvg([string]$path) {
+    try {
+        $raw = Get-Content -LiteralPath $path -Raw -Encoding utf8
+    }
+    catch {
+        return "SVG 无法读取：$($_.Exception.Message)"
+    }
+
+    if ([string]::IsNullOrWhiteSpace($raw)) { return 'SVG 是空文件' }
+    if ($raw -notmatch '<svg[\s>]') { return 'SVG 根元素不是 <svg>' }
+    if ($raw -match '<(use|script|image|foreignObject)[\s/>]') {
+        return 'SVG 含不支持的构造（use / script / image / foreignObject）'
+    }
+
+    if ($raw -match '(?i)(xlink:)?href\s*=\s*"[^"]*://') { return 'SVG 含外部引用（href 指向网络）' }
+
+    try {
+        $document = [xml]$raw
+    }
+    catch {
+        return "SVG 无法解析：$($_.Exception.Message)"
+    }
+
+    $root = $document.DocumentElement
+    if ($null -eq $root -or $root.LocalName -ne 'svg') { return 'SVG 根元素不是 <svg>' }
+
+    if ([string]::IsNullOrWhiteSpace($root.GetAttribute('viewBox'))) {
+        $width = $root.GetAttribute('width')
+        $height = $root.GetAttribute('height')
+        if ([string]::IsNullOrWhiteSpace($width) -or [string]::IsNullOrWhiteSpace($height)) {
+            return 'SVG 缺少 viewBox（也没有 width/height）'
+        }
+    }
+
+    $paths = @($document.SelectNodes("//*[local-name()='path']"))
+    if ($paths.Count -eq 0) { return 'SVG 里没有 <path>（图标必须由路径画出来）' }
+
+    foreach ($node in $paths) {
+        if ([string]::IsNullOrWhiteSpace($node.GetAttribute('d'))) { return 'SVG 里有 <path> 缺 d' }
+        if ($null -ne $node.Attributes['transform']) { return 'SVG 里有 <path transform>（不支持）' }
+    }
+
+    return $null
+}
+
+foreach ($iconOwner in $iconOwnerDirectories) {
+    $ownerDirectory = $iconOwner.Directory
+    $owner = $ownerDirectory.Name
+    $relativeDirectory = Get-RelPath $ownerDirectory.FullName
+
+    if ($null -ne $iconOwner.ExpectedOwner `
+        -and -not [string]::Equals($owner, $iconOwner.ExpectedOwner, [StringComparison]::Ordinal)) {
+        Add-Problem $relativeDirectory `
+            ("模块图标表的拥有者目录必须等于模块项目名 '{0}'（当前 '{1}'）" -f $iconOwner.ExpectedOwner, $owner)
+    }
+
+    $files = @(Get-ChildItem -LiteralPath $ownerDirectory.FullName -File -Filter *.json -ErrorAction SilentlyContinue)
+
+    if ($files.Count -eq 0) {
+        $script:notes.Add("图标表目录为空：$relativeDirectory（该拥有者的图标键显示键名）")
+        continue
+    }
+
+    foreach ($file in $files) {
+        $relative = Get-RelPath $file.FullName
+
+        if (-not [string]::Equals($file.Name, 'icons.json', [StringComparison]::Ordinal)) {
+            Add-Problem $relative '图标清单文件名必须是 icons.json（一个拥有者一张清单）'
+            continue
+        }
+
+        try {
+            $raw = Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8
+            $document = $raw | ConvertFrom-Json
+        }
+        catch {
+            Add-Problem $relative "图标表无法解析：$($_.Exception.Message)"
+            continue
+        }
+
+        $version = 0
+        if (-not [int]::TryParse([string]$document.schemaVersion, [ref]$version) -or $version -ne $iconSchemaVersion) {
+            $line = Get-FirstLineNumber -Path $file.FullName -Pattern '"schemaVersion"'
+            Add-Problem "${relative}:${line}" `
+                ("schemaVersion 不认识（'{0}'；本应用支持 {1}）" -f $document.schemaVersion, $iconSchemaVersion)
+        }
+
+        if ($null -eq $document.entries) {
+            Add-Problem $relative '图标表缺少 entries'
+            continue
+        }
+
+        $entries = [ordered]@{}
+        foreach ($property in $document.entries.PSObject.Properties) {
+            $key = $property.Name
+            $value = [string]$property.Value
+            $line = Get-FirstLineNumber -Path $file.FullName -Pattern ([regex]::Escape('"' + $key + '"'))
+
+            if ($key -notmatch '^icon\.[a-z0-9]+(\.[a-zA-Z0-9]+)*$') {
+                Add-Problem "${relative}:${line}" ("图标键格式非法：'{0}'（必须是 icon.xxx 形式）" -f $key)
+            }
+
+            # ConvertFrom-Json 遇到重复键会静默"后者覆盖前者"，所以用原文计数补一刀。
+            if (([regex]::Matches($raw, '"' + [regex]::Escape($key) + '"\s*:')).Count -gt 1) {
+                Add-Problem "${relative}:${line}" ("图标表里键重复：'{0}'（同一张表只能出现一次）" -f $key)
+                continue
+            }
+
+            if ([string]::IsNullOrWhiteSpace($value)) {
+                Add-Problem "${relative}:${line}" ("图标键 '{0}' 的路径为空" -f $key)
+                continue
+            }
+
+            if ([System.IO.Path]::IsPathRooted($value) -or $value -match '^[\\/]' -or $value.Contains(':')) {
+                Add-Problem "${relative}:${line}" `
+                    ("图标键 '{0}' 的路径必须是相对路径（当前 '{1}'）" -f $key, $value)
+                continue
+            }
+
+            if ($value -match '(^|[\\/])\.\.([\\/]|$)') {
+                Add-Problem "${relative}:${line}" `
+                    ("图标键 '{0}' 的路径不得跳出拥有者目录（当前 '{1}'）" -f $key, $value)
+                continue
+            }
+
+            if (-not $value.EndsWith('.svg', [StringComparison]::OrdinalIgnoreCase)) {
+                Add-Problem "${relative}:${line}" `
+                    ("图标键 '{0}' 必须指向 .svg 文件（当前 '{1}'）" -f $key, $value)
+                continue
+            }
+
+            $svgPath = Join-Path $ownerDirectory.FullName ($value -replace '[\\/]', '\')
+            if (-not (Test-Path -LiteralPath $svgPath -PathType Leaf)) {
+                Add-Problem "${relative}:${line}" ("图标键 '{0}' 指向的 SVG 不存在：{1}" -f $key, $value)
+                continue
+            }
+
+            $svgProblem = Test-IconSvg $svgPath
+            if ($null -ne $svgProblem) {
+                Add-Problem (Get-RelPath $svgPath) $svgProblem
+            }
+
+            if ($entries.Contains($key)) {
+                Add-Problem "${relative}:${line}" ("图标清单里键重复：'{0}'" -f $key)
+                continue
+            }
+
+            $entries[$key] = $value
+            if (-not $iconKeyLocations.ContainsKey($key)) {
+                $iconKeyLocations[$key] = "${relative}:${line}"
+            }
+        }
+
+        $iconTables.Add([pscustomobject]@{
+            Owner   = $owner
+            File    = $relative
+            Entries = $entries
+        })
+    }
+}
+
+# ---------------------------------------------------------------- ③d 模块自有资源包
+
+# 模块的 `resources/` 是**模块自己的资源包**（声明在 `module.json` 的 `resources` 里）：
+# 这里只校验"声明的目录在不在、清单指向的文件在不在、路径相对且不越界"，
+# **不套框架的文本 / 图标表规则**（模块可以用任意 kind，框架不解释它的内容）。
+$moduleOwners = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+
+foreach ($moduleManifest in (Get-ChildItem -LiteralPath (Join-Path $root 'src\Modules') -Recurse -Filter module.json -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' })) {
+    $moduleDirectory = $moduleManifest.Directory.FullName
+    $relativeManifest = Get-RelPath $moduleManifest.FullName
+
+    $projectFile = Get-ChildItem -LiteralPath $moduleDirectory -File -Filter *.csproj -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+
+    if ($null -eq $projectFile) {
+        Add-Problem $relativeManifest '模块清单的上级目录里没有 csproj（无法确定拥有者项目名）'
+        continue
+    }
+
+    $null = $moduleOwners.Add([System.IO.Path]::GetFileNameWithoutExtension($projectFile.Name))
+
+    try {
+        $manifest = Get-Content -LiteralPath $moduleManifest.FullName -Raw -Encoding utf8 | ConvertFrom-Json
+    }
+    catch {
+        Add-Problem $relativeManifest "模块清单无法解析：$($_.Exception.Message)"
+        continue
+    }
+
+    $declaredDirectories = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+
+    foreach ($resourcePath in @($manifest.resources | Where-Object { $null -ne $_ })) {
+        $value = [string]$resourcePath
+        $line = Get-FirstLineNumber -Path $moduleManifest.FullName -Pattern ([regex]::Escape('"' + $value + '"'))
+
+        $invalidPath = [string]::IsNullOrWhiteSpace($value) -or
+            [System.IO.Path]::IsPathRooted($value) -or
+            $value -match '^[\\/]' -or
+            $value.Contains(':') -or
+            $value -match '(^|[\\/])\.\.([\\/]|$)'
+
+        if ($invalidPath) {
+            Add-Problem "${relativeManifest}:${line}" ("模块资源路径必须是模块目录下的相对路径（当前 '{0}'）" -f $value)
+            continue
+        }
+
+        $directory = Join-Path $moduleDirectory ($value -replace '[\\/]', '\')
+        if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
+            Add-Problem "${relativeManifest}:${line}" ("模块资源目录不存在：{0}" -f $value)
+            continue
+        }
+
+        $null = $declaredDirectories.Add([System.IO.Path]::GetFullPath($directory))
+
+        # 资源目录里的清单（如 icons.json）指向的文件必须存在、路径必须不越界——存在性是模块资源的硬伤。
+        foreach ($innerManifest in (Get-ChildItem -LiteralPath $directory -Recurse -File -Filter icons.json -ErrorAction SilentlyContinue)) {
+            try {
+                $iconDocument = Get-Content -LiteralPath $innerManifest.FullName -Raw -Encoding utf8 | ConvertFrom-Json
+            }
+            catch {
+                Add-Problem (Get-RelPath $innerManifest.FullName) "图标清单无法解析：$($_.Exception.Message)"
+                continue
+            }
+
+            foreach ($property in $iconDocument.entries.PSObject.Properties) {
+                $iconPath = [string]$property.Value
+                $invalidIconPath = [string]::IsNullOrWhiteSpace($iconPath) -or
+                    [System.IO.Path]::IsPathRooted($iconPath) -or
+                    $iconPath -match '(^|[\\/])\.\.([\\/]|$)'
+
+                if ($invalidIconPath) {
+                    Add-Problem (Get-RelPath $innerManifest.FullName) ("图标清单路径不得越界：'{0}'" -f $iconPath)
+                    continue
+                }
+
+                $resolved = Join-Path $innerManifest.Directory.FullName ($iconPath -replace '/', '\')
+                if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+                    Add-Problem (Get-RelPath $innerManifest.FullName) ("图标清单指向的文件不存在：'{0}'" -f $iconPath)
+                }
+            }
+        }
+    }
+
+    # 磁盘上有 `resources/` 却没在清单里声明 ⇒ 包里带了一份"没人知道"的数据。
+    $resourcesDirectory = Join-Path $moduleDirectory 'resources'
+    if (Test-Path -LiteralPath $resourcesDirectory -PathType Container) {
+        foreach ($kindDirectory in (Get-ChildItem -LiteralPath $resourcesDirectory -Directory -ErrorAction SilentlyContinue)) {
+            if (-not $declaredDirectories.Contains([System.IO.Path]::GetFullPath($kindDirectory.FullName))) {
+                Add-Problem (Get-RelPath $kindDirectory.FullName) '模块 resources/ 下的这个目录没有在 module.json 的 resources 里声明'
+            }
+        }
+    }
+}
+
+# 框架的 `resources/` 不得出现模块拥有者（两套根不串）。
+foreach ($kindName in @('i18n', 'icons')) {
+    $frameworkKindRoot = Join-Path $resourcesRoot $kindName
+    if (-not (Test-Path -LiteralPath $frameworkKindRoot -PathType Container)) { continue }
+
+    foreach ($ownerDirectory in (Get-ChildItem -LiteralPath $frameworkKindRoot -Directory -ErrorAction SilentlyContinue)) {
+        if ($moduleOwners.Contains($ownerDirectory.Name)) {
+            Add-Problem (Get-RelPath $ownerDirectory.FullName) `
+                ("框架 resources/{0} 里出现了模块拥有者 '{1}'（模块资源必须住在模块包里）" -f $kindName, $ownerDirectory.Name)
+        }
+    }
+}
+
 # ---------------------------------------------------------------- ④ 可本地化层零中文
 
 $localizableRoots = @('Core', 'Hosting', 'DataPlane', 'Access', 'Core.Api', 'Ui', 'FrameworkUi', 'Sdk.Ui', 'App', 'Modules')
@@ -862,6 +1220,51 @@ foreach ($table in $tables) {
     foreach ($key in $table.Entries.Keys) { $null = $tablesByOwner[$table.Owner].Add($key) }
 }
 
+# 模块的文本键：从模块清单声明的 `resources/i18n` 目录读**键名**——只服务于 ⑤ 的"键是否存在"，
+# 不套框架表结构规则（模块资源包的别的校验归 ③d 与模块包校验）。
+foreach ($moduleManifest in (Get-ChildItem -LiteralPath (Join-Path $root 'src\Modules') -Recurse -Filter module.json -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' })) {
+    $moduleDirectory = $moduleManifest.Directory.FullName
+    $projectFile = Get-ChildItem -LiteralPath $moduleDirectory -File -Filter *.csproj -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+
+    if ($null -eq $projectFile) { continue }
+
+    $moduleOwner = [System.IO.Path]::GetFileNameWithoutExtension($projectFile.Name)
+
+    try {
+        $moduleDocument = Get-Content -LiteralPath $moduleManifest.FullName -Raw -Encoding utf8 | ConvertFrom-Json
+    }
+    catch {
+        continue
+    }
+
+    foreach ($resourcePath in @($moduleDocument.resources | Where-Object { $null -ne $_ })) {
+        $kindDirectory = Join-Path $moduleDirectory ([string]$resourcePath -replace '[\\/]', '\')
+        if (-not (Test-Path -LiteralPath $kindDirectory -PathType Container)) { continue }
+        if ((Split-Path -Leaf $kindDirectory) -ne 'i18n') { continue }
+
+        foreach ($tableFile in (Get-ChildItem -LiteralPath $kindDirectory -Recurse -File -Filter *.json -ErrorAction SilentlyContinue)) {
+            try {
+                $document = Get-Content -LiteralPath $tableFile.FullName -Raw -Encoding utf8 | ConvertFrom-Json
+            }
+            catch {
+                continue
+            }
+
+            if ($null -eq $document.entries) { continue }
+
+            if (-not $tablesByOwner.ContainsKey($moduleOwner)) {
+                $tablesByOwner[$moduleOwner] = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            }
+
+            foreach ($property in $document.entries.PSObject.Properties) {
+                $null = $tablesByOwner[$moduleOwner].Add($property.Name)
+            }
+        }
+    }
+}
+
 $referencedKeys = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
 $allTableKeys = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
 foreach ($table in $tables) {
@@ -899,10 +1302,105 @@ foreach ($file in ($sourceFiles | Where-Object { $_.Extension -eq '.axaml' })) {
     }
 }
 
-foreach ($file in ($sourceFiles | Where-Object { $_.Extension -eq '.cs' })) {
-    foreach ($literal in (Measure-CSharpLiterals -Path $file.FullName)) {
-        if ($allTableKeys.Contains($literal)) { $null = $referencedKeys.Add($literal) }
+# ---------------------------------------------------------------- ⑤b 模块视图不得自带路径图标
+
+# 两条禁令：图标是**数据**（`ModuleButton.Icon` + 图标表），不是视图里的路径几何。
+foreach ($file in ($sourceFiles | Where-Object { $_.Extension -eq '.axaml' -and $_.FullName -match '\\src\\Modules\\' })) {
+    $relative = Get-RelPath $file.FullName
+    $lineNumber = 0
+    $inComment = $false
+
+    foreach ($line in [System.IO.File]::ReadAllLines($file.FullName)) {
+        $lineNumber++
+
+        if ($line.Contains('<!--')) { $inComment = $true }
+        if ($inComment) {
+            if ($line.Contains('-->')) { $inComment = $false }
+            continue
+        }
+
+        if ($line -match '<\s*Path[\s/>]') {
+            Add-Problem "${relative}:${lineNumber}" `
+                '模块视图不得画路径几何（`<Path`）——图标必须走 `ModuleButton.Icon` + 图标表'
+        }
+
+        if ($line -match 'PathIcon') {
+            Add-Problem "${relative}:${lineNumber}" `
+                '模块视图不得用 `PathIcon`——图标必须走 `ModuleButton.Icon` + 图标表'
+        }
+
+        foreach ($match in [regex]::Matches($line, '(?<![\w.])Icon\s*=\s*"(?<value>[^"]*)"')) {
+            $value = $match.Groups['value'].Value
+            if ($value -notmatch '^\{x:Static\s[^}]+\}$') {
+                Add-Problem "${relative}:${lineNumber}" `
+                    ("`Icon` 的值必须是 `{{x:Static …}}` 常量（当前 '{0}'）" -f $value)
+            }
+        }
     }
+}
+
+# ---------------------------------------------------------------- ⑤c 不得硬编码字形
+
+# 图标是**数据**（`resources/icons/<owner>/icons.json` → `.svg`）：源码里写码位 / 旧 `Glyph*` token /
+# 旧 `SetGlyph` 接口，就是把同一份事实写成两处（换图标时必然漂移）。
+# 豁免：`ShellIcons` 与图标清单 key 是**键**不是图形；
+# `InputChrome.axaml` 的 `PathIcon` 是下拉箭头这类**控件装饰**，不属于内容图标。
+$glyphRuleExemptFiles = @('src\Ui\Styles\InputChrome.axaml')
+$glyphRulePatterns = @(
+    '&#xE[0-9A-Fa-f]{3,5};',
+    '\\u[Ee][0-9A-Fa-f]{3}',
+    '\bGlyph[A-Z][A-Za-z0-9]*',
+    '\bSetGlyph\b'
+)
+
+foreach ($file in ($sourceFiles | Where-Object { $_.Extension -eq '.axaml' -or $_.Extension -eq '.cs' })) {
+    $relative = Get-RelPath $file.FullName
+    if ($glyphRuleExemptFiles -contains ($relative -replace '/', '\')) { continue }
+
+    $lineNumber = 0
+    $inBlockComment = $false
+
+    foreach ($line in [System.IO.File]::ReadAllLines($file.FullName)) {
+        $lineNumber++
+        $trimmed = $line.TrimStart()
+
+        if ($file.Extension -eq '.axaml') {
+            if ($trimmed.StartsWith('<!--')) { $inBlockComment = $true }
+            if ($inBlockComment) {
+                if ($trimmed.Contains('-->')) { $inBlockComment = $false }
+                continue
+            }
+        }
+        else {
+            if ($inBlockComment) {
+                if ($trimmed.Contains('*/')) { $inBlockComment = $false }
+                continue
+            }
+
+            if ($trimmed.StartsWith('//') -or $trimmed.StartsWith('*') -or $trimmed.StartsWith('///')) { continue }
+            if ($trimmed.StartsWith('/*')) {
+                if (-not $trimmed.Contains('*/')) { $inBlockComment = $true }
+                continue
+            }
+        }
+
+        foreach ($pattern in $glyphRulePatterns) {
+            # `-cmatch`：码位与旧 token 都是大小写敏感的（`icons.json` 不是 `Glyph*` token）。
+            if ($line -cmatch $pattern) {
+                Add-Problem "${relative}:${lineNumber}" `
+                    ("源码里出现硬编码字形（{0}）——字形必须进图标表，界面只写键" -f $pattern)
+            }
+        }
+    }
+}
+
+$sourceLiterals = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($file in ($sourceFiles | Where-Object { $_.Extension -eq '.cs' })) {
+    foreach ($literal in (Measure-CSharpLiterals -Path $file.FullName)) { $null = $sourceLiterals.Add($literal) }
+}
+
+foreach ($key in $allTableKeys) {
+    if ($sourceLiterals.Contains($key)) { $null = $referencedKeys.Add($key) }
 }
 
 foreach ($key in ($allTableKeys | Sort-Object)) {
@@ -912,11 +1410,262 @@ foreach ($key in ($allTableKeys | Sort-Object)) {
     }
 }
 
+# 图标表没有 XAML 通道：图标键只认 C# 字符串字面量引用（常量定义即引用点）。
+$allIconKeys = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($table in $iconTables) {
+    foreach ($key in $table.Entries.Keys) { $null = $allIconKeys.Add($key) }
+}
+
+foreach ($key in ($allIconKeys | Sort-Object)) {
+    if (-not $sourceLiterals.Contains($key)) {
+        $location = if ($iconKeyLocations.ContainsKey($key)) { $iconKeyLocations[$key] } else { 'resources/icons' }
+        Add-Problem $location ("死键：图标表里的 '{0}' 在 src/ 里没有任何字符串字面量引用" -f $key)
+    }
+}
+
+# ---------------------------------------------------------------- ⑦ 测试不得以文案为判据
+
+# 规则：测试断言（Should*）的**期望值**不得是用户可见文案。
+#   · 期望值里的字符串字面量含中文 ⇒ 违规；
+#   · 期望值与任一产品文本表的值**整值相等** ⇒ 违规（覆盖未来英文文案）；
+#   · 只扫描第 0 个参数；断言说明文字（第 1 个参数起）不受影响；
+#   · 行级豁免：断言行或上一行写 `// i18n-test-data: <理由>`（目标 0 处）。
+# 说明：C# 的原始字符串（"""…"""）、逐字字符串（@"…"）、普通字符串与字符字面量都先被遮成空格，
+# 再在"只剩代码"的文本上抽取断言参数 —— 因此 JSON 夹具里的括号/逗号不会把参数切错。
+
+$tableValues = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($table in $tables) {
+    foreach ($value in $table.Entries.Values) {
+        $text = [string]$value
+        if ($text.Length -ge 2) { $null = $tableValues.Add($text) }
+    }
+}
+
+$testLiteralPattern = [regex]::new(
+    '(?<raw>\$@?"""[\s\S]*?"""|\$?"""[\s\S]*?""")' +
+    '|(?<verbatim>@\$?"(?:[^"]|"")*"|\$@?"(?:[^"]|"")*")' +
+    '|(?<regular>\$?"(?:[^"\\\n]|\\.)*")' +
+    '|(?<char>''(?:[^''\\\n]|\\.)'')' +
+    '|(?<line>//[^\n]*)' +
+    '|(?<block>/\*[\s\S]*?\*/)',
+    [System.Text.RegularExpressions.RegexOptions]::Singleline)
+
+$assertionPattern = [regex]'\b(?:ShouldBe|ShouldContain|ShouldStartWith|ShouldEndWith|ShouldNotBe|ShouldNotContain|ShouldMatch)\s*\('
+
+function Get-LineIndexAt([System.Collections.Generic.List[int]]$LineStarts, [int]$Offset) {
+    $low = 0
+    $high = $LineStarts.Count - 1
+    while ($low -lt $high) {
+        $mid = [int](($low + $high + 1) / 2)
+        if ($LineStarts[$mid] -le $Offset) { $low = $mid } else { $high = $mid - 1 }
+    }
+
+    return $low
+}
+
+function Get-TestCopyFindings([string]$Text) {
+    $findings = [System.Collections.Generic.List[object]]::new()
+    $literals = [System.Collections.Generic.List[object]]::new()
+    $masked = [System.Text.StringBuilder]::new($Text.Length)
+    $last = 0
+
+    foreach ($match in $testLiteralPattern.Matches($Text)) {
+        if ($match.Index -gt $last) {
+            $null = $masked.Append($Text.Substring($last, $match.Index - $last))
+        }
+
+        # 保留换行、其余字符遮成空格 —— 偏移与行号都和原文一致。
+        $segment = $Text.Substring($match.Index, $match.Length)
+        $chars = $segment.ToCharArray()
+        for ($index = 0; $index -lt $chars.Length; $index++) {
+            if ($chars[$index] -ne "`n") { $chars[$index] = ' ' }
+        }
+        $null = $masked.Append([string]::new($chars))
+
+        $kind = if ($match.Groups['raw'].Success) { 'raw' }
+                elseif ($match.Groups['verbatim'].Success) { 'verbatim' }
+                elseif ($match.Groups['regular'].Success) { 'regular' }
+                else { $null }
+
+        if ($null -ne $kind) {
+            $value = $match.Value
+            switch ($kind) {
+                'raw' {
+                    $value = $value -replace '^[\$@]+', ''
+                    $value = $value -replace '^"+', ''
+                    $value = $value -replace '"+$', ''
+                }
+                'verbatim' {
+                    $value = $value -replace '^[\$@]+', ''
+                    $value = $value.Substring(1, $value.Length - 2)
+                    $value = $value.Replace('""', '"')
+                }
+                'regular' {
+                    $value = $value -replace '^\$', ''
+                    $value = $value.Substring(1, $value.Length - 2)
+                }
+            }
+
+            $literals.Add([pscustomobject]@{
+                    Start = $match.Index
+                    End   = $match.Index + $match.Length
+                    Value = $value
+                })
+        }
+
+        $last = $match.Index + $match.Length
+    }
+
+    if ($last -lt $Text.Length) {
+        $null = $masked.Append($Text.Substring($last))
+    }
+
+    $code = $masked.ToString()
+    $lineStarts = [System.Collections.Generic.List[int]]::new()
+    $lineStarts.Add(0)
+    for ($index = 0; $index -lt $Text.Length; $index++) {
+        if ($Text[$index] -eq "`n") { $lineStarts.Add($index + 1) }
+    }
+
+    foreach ($assertion in $assertionPattern.Matches($code)) {
+        $open = $code.IndexOf('(', $assertion.Index)
+        if ($open -lt 0) { continue }
+
+        $depth = 0
+        $close = -1
+        for ($index = $open; $index -lt $code.Length; $index++) {
+            $ch = $code[$index]
+            if ($ch -eq '(') { $depth++ }
+            elseif ($ch -eq ')') {
+                $depth--
+                if ($depth -eq 0) { $close = $index; break }
+            }
+        }
+
+        if ($close -lt 0) { continue }
+
+        # 第 0 个参数 = 从开括号到第一个顶层逗号（字符串已被遮掉，逗号不会来自字符串）。
+        $argEnd = $close
+        $depth = 0
+        for ($index = $open + 1; $index -lt $close; $index++) {
+            $ch = $code[$index]
+            if ($ch -eq '(' -or $ch -eq '[' -or $ch -eq '{') { $depth++ }
+            elseif ($ch -eq ')' -or $ch -eq ']' -or $ch -eq '}') { $depth-- }
+            elseif ($ch -eq ',' -and $depth -eq 0) { $argEnd = $index; break }
+        }
+
+        foreach ($literal in $literals) {
+            if ($literal.Start -lt $open + 1 -or $literal.End -gt $argEnd) { continue }
+
+            $isCopy = (Test-ChineseText $literal.Value) -or $tableValues.Contains($literal.Value)
+            if (-not $isCopy) { continue }
+
+            $findings.Add([pscustomobject]@{
+                    Offset = $literal.Start
+                    Line   = (Get-LineIndexAt $lineStarts $literal.Start) + 1
+                    Value  = $literal.Value
+                })
+        }
+    }
+
+    return $findings
+}
+
+$testCopyCount = 0
+
+foreach ($file in (Get-ChildItem -LiteralPath (Join-Path $root 'tests') -Recurse -File -Filter *.cs -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' } | Sort-Object FullName)) {
+    $relative = Get-RelPath $file.FullName
+    $text = [System.IO.File]::ReadAllText($file.FullName)
+    $lines = $text -split "`n"
+    $seen = [System.Collections.Generic.HashSet[int]]::new()
+
+    foreach ($finding in (Get-TestCopyFindings -Text $text)) {
+        if (-not $seen.Add($finding.Offset)) { continue }
+
+        $lineText = if ($finding.Line - 1 -lt $lines.Length) { $lines[$finding.Line - 1] } else { '' }
+        $previousText = if ($finding.Line - 2 -ge 0) { $lines[$finding.Line - 2] } else { '' }
+
+        if ($lineText -match '//\s*i18n-test-data:\s*\S' -or $previousText -match '//\s*i18n-test-data:\s*\S') {
+            continue
+        }
+
+        $testCopyCount++
+        $display = if ($finding.Value.Length -gt 40) { $finding.Value.Substring(0, 40) + '…' } else { $finding.Value }
+        Add-Problem "${relative}:$($finding.Line)" `
+            ("测试断言的期望值是用户可见文案：「{0}」——改断言键/结构，或把断言删掉（行级豁免：// i18n-test-data: 理由）" -f $display)
+    }
+}
+
+# ---------------------------------------------------------------- ⑧ 字体默认值单源
+
+# 默认字体只在 `AppearanceSettings` 定义；`Tokens.axaml` 是首帧/预览兜底，`DesignTokens.axaml` 是设计时兜底。
+# 三处的值必须逐字一致 —— 否则"设置里写的是等宽、实际看的是另一套"会各说各话。
+
+function Get-FontAxisDefault([string]$path, [string]$property) {
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+
+    $text = [System.IO.File]::ReadAllText($path)
+    $axis = [regex]::Match(
+        $text,
+        '(?s)' + [regex]::Escape($property) + '\s*\{[^}]*\}\s*=\s*new\(\)\s*\{(?<body>.*?)\};')
+
+    if (-not $axis.Success) { return $null }
+
+    $body = $axis.Groups['body'].Value
+    $latin = [regex]::Match($body, 'Latin\s*=\s*"(?<value>[^"]+)"').Groups['value'].Value
+    $cjk = [regex]::Match($body, 'Cjk\s*=\s*"(?<value>[^"]+)"').Groups['value'].Value
+
+    if ($latin.Length -eq 0 -or $cjk.Length -eq 0) { return $null }
+    if ([string]::Equals($latin, $cjk, [StringComparison]::OrdinalIgnoreCase)) { return $latin }
+
+    return "$latin, $cjk"
+}
+
+function Get-FontToken([string]$path, [string]$key) {
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+    $text = [System.IO.File]::ReadAllText($path)
+    $match = [regex]::Match($text, '<FontFamily x:Key="' + [regex]::Escape($key) + '">(?<value>[^<]+)</FontFamily>')
+
+    if ($match.Success) {
+        return $match.Groups['value'].Value.Trim()
+    }
+
+    return $null
+}
+
+$fontAxisRel = 'src/Core.Api/AppearanceSettings.cs'
+$tokensRel = 'src/Ui/Styles/Tokens.axaml'
+$designTokensRel = 'src/Sdk.Ui/Themes/DesignTokens.axaml'
+
+$expectedUi = Get-FontAxisDefault (Join-Path $root $fontAxisRel) 'UiFonts'
+$expectedData = Get-FontAxisDefault (Join-Path $root $fontAxisRel) 'DataFonts'
+$tokenUi = Get-FontToken (Join-Path $root $tokensRel) 'FontUi'
+$tokenData = Get-FontToken (Join-Path $root $tokensRel) 'FontData'
+$designData = Get-FontToken (Join-Path $root $designTokensRel) 'FontData'
+
+if ($null -eq $expectedUi -or $null -eq $expectedData) {
+    Add-Problem $fontAxisRel '读不到 UiFonts / DataFonts 的默认值（字体默认值的唯一来源）'
+}
+else {
+    if ($tokenUi -ne $expectedUi) {
+        Add-Problem $tokensRel ("FontUi 默认值 '{0}' 与 AppearanceSettings 的 '{1}' 不一致" -f $tokenUi, $expectedUi)
+    }
+
+    if ($tokenData -ne $expectedData) {
+        Add-Problem $tokensRel ("FontData 默认值 '{0}' 与 AppearanceSettings 的 '{1}' 不一致" -f $tokenData, $expectedData)
+    }
+
+    if ($designData -ne $expectedData) {
+        Add-Problem $designTokensRel ("设计时 FontData '{0}' 与运行时默认 '{1}' 不一致" -f $designData, $expectedData)
+    }
+}
 # ---------------------------------------------------------------- 汇总
 
 $tableCount = @($tables).Count
-Write-Host ("资源：种子主题包 {0} 个 · 文本表 {1} 份（{2} 个拥有者）· 可本地化层扫描文件 {3} 个" -f `
-    $themePackageCount, $tableCount, @($byOwner).Count, $localizableScanned) -ForegroundColor DarkCyan
+$iconTableCount = @($iconTables).Count
+Write-Host ("资源：种子主题包 {0} 个 · 文本表 {1} 份（{2} 个拥有者）· 图标表 {3} 份 · 可本地化层扫描文件 {4} 个 · 测试文案断言 {5} 处" -f `
+    $themePackageCount, $tableCount, @($byOwner).Count, $iconTableCount, $localizableScanned, $testCopyCount) -ForegroundColor DarkCyan
 
 foreach ($note in $script:notes) { Write-Host ("[note] " + $note) -ForegroundColor DarkGray }
 
@@ -925,7 +1674,7 @@ foreach ($problem in $script:problems) {
 }
 
 if ($script:problems.Count -eq 0) {
-    Write-Host '[OK] 资源与文本审计通过：种子形状 / 主题包 / 文本表 / 零中文 / {loc:Tr} 键 / 死键全部通过。' -ForegroundColor Green
+    Write-Host '[OK] 资源与文本审计通过：种子形状 / 主题包 / 文本表 / 图标表 / 零中文 / {loc:Tr} 键 / 死键全部通过。' -ForegroundColor Green
     exit 0
 }
 

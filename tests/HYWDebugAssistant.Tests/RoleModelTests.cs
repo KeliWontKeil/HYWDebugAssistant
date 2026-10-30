@@ -43,7 +43,7 @@ public class RoleModelTests
 
         var single = services.GetRoles("one").ShouldHaveSingleItem();
         single.RoleId.ShouldBe("only");
-        single.DisplayName.ShouldBe("单块");
+        single.DisplayName.ShouldNotBeNullOrWhiteSpace("功能名来自角色声明");
         single.Inputs.ShouldBe(["in"]);
         single.Outputs.ShouldBe(["out"]);
         single.TypeKey.ShouldBe($"{TypeId}@v1");
@@ -98,12 +98,9 @@ public class RoleModelTests
         roles.Count.ShouldBe(1, "只有那条合法声明生效");
         roles[0].RoleId.ShouldBe("good");
 
-        var issues = runtime.Issues.Recent(20).Select(e => e.Issue.Message).ToList();
-
-        issues.ShouldContain(m => m.Contains("未声明的数据类型", StringComparison.Ordinal));
-        issues.ShouldContain(m => m.Contains("不存在的口", StringComparison.Ordinal));
-        issues.ShouldContain(m => m.Contains("已属于角色", StringComparison.Ordinal), "一个口最多属于一个角色");
-        issues.ShouldContain(m => m.Contains("实际方向是", StringComparison.Ordinal), "输入/输出口方向必须相符");
+        var issues = runtime.Issues.Recent(20).Select(e => e.Issue).ToList();
+        issues.Count.ShouldBe(4, "四条角色声明问题各一条");
+        issues.ShouldAllBe(i => i.Category == HYWDebugAssistant.Sdk.Reporting.IssueCategory.InterfaceError);
     }
 
     [Fact]
@@ -118,8 +115,9 @@ public class RoleModelTests
 
         services.GetRoles("many").ShouldHaveSingleItem().Outputs.Count.ShouldBe(3, "3 个输出口照常生效");
         runtime.Issues.Recent(20).ShouldNotContain(
-            e => e.Issue.Message.Contains("角色", StringComparison.Ordinal),
-            "角色声明合法 ⇒ 不产生任何与角色有关的提示");
+            e => e.Issue.Severity == HYWDebugAssistant.Sdk.Reporting.IssueSeverity.Error
+                || e.Issue.Severity == HYWDebugAssistant.Sdk.Reporting.IssueSeverity.Warning,
+            "角色声明合法 ⇒ 不产生任何警告或错误");
     }
 
     [Fact]

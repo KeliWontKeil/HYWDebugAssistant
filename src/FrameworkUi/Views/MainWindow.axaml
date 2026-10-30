@@ -3,6 +3,7 @@
         xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
         xmlns:views="using:HYWDebugAssistant.FrameworkUi.Views"
         xmlns:ui="using:HYWDebugAssistant.Ui.ViewModels"
+        xmlns:uc="using:HYWDebugAssistant.Ui.Controls"
         xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
         x:Class="HYWDebugAssistant.FrameworkUi.Views.MainWindow"
         x:DataType="vm:ShellViewModel"
@@ -14,6 +15,7 @@
         FontSize="12"
         Width="396" Height="858"
         MinWidth="360" MinHeight="360"
+        ClosingBehavior="OwnerWindowOnly"
         WindowStartupLocation="Manual">
 
     <!--
@@ -30,7 +32,8 @@
       【修正 · 用户第六轮反馈】
         · 选中标记与图标**不再重合**：按钮内容改为 `Grid ColumnDefinitions="3,*"` —— 3 px 滑块独占**最左列**，
           图标在剩余区域**居中**（此前滑块与图标叠在同一个 Panel 里）；
-        · 图标改用**系统图标字体**（`TextBlock Classes="icon"`，见 Tokens 的 `FontIcons`），不再手绘几何。
+        · 图标改用**显式 SVG**（`uc:Glyph`：键 → `resources/icons/HYWDebugAssistant.Ui/` 下的 `.svg`，
+          经 `Sdk.Ui.Controls.Icon` 画出来），不再手绘几何、也不依赖图标字体。
     -->
     <Window.Styles>
         <!-- 活动栏按钮：默认低调；选中（active）时浅底 + 主色图标 -->
@@ -47,6 +50,10 @@
         </Style>
         <Style Selector="Button.rail:pointerover">
             <Setter Property="Background" Value="{DynamicResource OverlayHighlight}" />
+        </Style>
+        <!-- 按下态与普通按钮同一档：活动栏是**导航**（不盒装），但按下要立刻有反馈 -->
+        <Style Selector="Button.rail:pressed">
+            <Setter Property="Background" Value="{DynamicResource SurfaceButtonFacePressedBrush}" />
         </Style>
         <Style Selector="Button.rail.active">
             <Setter Property="Background" Value="{DynamicResource OverlaySelection}" />
@@ -104,7 +111,7 @@
                         ToolTip.Tip="{loc:Tr shell.rail.catalog.tip}">
                     <Grid ColumnDefinitions="3,*">
                         <Rectangle Grid.Column="0" Classes="railMark" Classes.active="{Binding IsCatalogPage}" />
-                        <TextBlock Grid.Column="1" Classes="icon" Text="{DynamicResource GlyphModules}" />
+                        <uc:Glyph Grid.Column="1" Classes="icon" Icon="{x:Static uc:ShellIcons.Modules}" />
                     </Grid>
                 </Button>
 
@@ -113,7 +120,7 @@
                         ToolTip.Tip="{loc:Tr shell.rail.composite.tip}">
                     <Grid ColumnDefinitions="3,*">
                         <Rectangle Grid.Column="0" Classes="railMark" Classes.active="{Binding IsCompositePage}" />
-                        <TextBlock Grid.Column="1" Classes="icon" Text="{DynamicResource GlyphComposite}" />
+                        <uc:Glyph Grid.Column="1" Classes="icon" Icon="{x:Static uc:ShellIcons.Composite}" />
                     </Grid>
                 </Button>
 
@@ -122,19 +129,19 @@
                         ToolTip.Tip="{loc:Tr shell.rail.interaction.tip}">
                     <Grid ColumnDefinitions="3,*">
                         <Rectangle Grid.Column="0" Classes="railMark" Classes.active="{Binding IsInteractionPage}" />
-                        <TextBlock Grid.Column="1" Classes="icon" Text="{DynamicResource GlyphInteraction}" />
+                        <uc:Glyph Grid.Column="1" Classes="icon" Icon="{x:Static uc:ShellIcons.Interaction}" />
                     </Grid>
                 </Button>
 
                 <Rectangle Height="1" Margin="6,4" Fill="{DynamicResource BorderDefault}" />
 
                 <Button Classes="rail" Click="OnOpenTopology" ToolTip.Tip="{loc:Tr shell.rail.topology.tip}">
-                    <TextBlock Classes="icon" Text="{DynamicResource GlyphTopology}" />
+                    <uc:Glyph Classes="icon" Icon="{x:Static uc:ShellIcons.Topology}" />
                 </Button>
 
                 <Button Classes="rail" Click="OnOpenIssues" ToolTip.Tip="{Binding IssueBadgeToolTip}">
                     <Grid ColumnDefinitions="3,*">
-                        <TextBlock Grid.Column="1" Classes="icon" Text="{DynamicResource GlyphIssue}" />
+                        <uc:Glyph Grid.Column="1" Classes="icon" Icon="{x:Static uc:ShellIcons.Issue}" />
                         <Border Grid.Column="1"
                                 Classes="issueBadge"
                                 IsVisible="{Binding HasErrors}"
@@ -152,11 +159,11 @@
                 </Button>
 
                 <Button Classes="rail" Click="OnOpenSettings" ToolTip.Tip="{loc:Tr shell.rail.settings.tip}">
-                    <TextBlock Classes="icon" Text="{DynamicResource GlyphSettings}" />
+                    <uc:Glyph Classes="icon" Icon="{x:Static uc:ShellIcons.Settings}" />
                 </Button>
 
                 <Button Classes="rail" Click="OnShowAbout" ToolTip.Tip="{loc:Tr shell.rail.about.tip}">
-                    <TextBlock Classes="icon" Text="{DynamicResource GlyphHelp}" />
+                    <uc:Glyph Classes="icon" Icon="{x:Static uc:ShellIcons.Help}" />
                 </Button>
             </StackPanel>
         </Border>

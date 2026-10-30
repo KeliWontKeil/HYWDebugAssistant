@@ -189,7 +189,17 @@ public sealed class SettingsService
         _preserved = root!;
         Current = FromJson(root!);
 
-        if (version < ApplicationSettings.CurrentSchemaVersion)
+        if (version is 4 or 5)
+        {
+            // **v4 / v5 → v6**：字体轴折叠（v4 的回退列表）＋ 数据面参数收进 `flow` 块（v5 的三个根键）。
+            // 两者都是兼容扩展（读旧写新）：载入即写回新形状；v3 及更低版本仍走下面的"不迁移"分支。
+            _ = NormalizeAppearance(Current.Appearance);
+            ApplyToRuntime(Current);
+            PersistAfterSeed();
+            return SettingsLoadOutcome.Loaded;
+        }
+
+        if (version < 4)
         {
             // **v3 及更低版本**：旧文件把主题方案与色板覆盖内联在 `appearance` 里，
             // 而新形状把主题收回"一个主题一个文件夹"。**不做内联迁移**（那会把用户数据悄悄改写成另一种形状）：
@@ -455,12 +465,23 @@ public sealed class SettingsService
         // 界面语言：只切 UI 文化（CurrentCulture 不动）；界面文本在载入时解析一次 ⇒ 重启完全生效
         TextCatalog.Apply(settings.UiLanguage);
 
-        // 承载参数：对**新建**队列/后续停止操作生效；既有队列保持创建时容量
+        // 承载参数：容量 / 满时策略**对新建队列生效**（既有队列保持自己的容量）；
+        // 其余各项由两个宿主**逐承载 / 逐会话**即时下发（见各自的 UpdateOptions）。
+        var flow = settings.Flow;
         var carrierOptions = new CarrierOptions
         {
-            QueueCapacity = settings.InputQueueCapacity,
-            DropPolicy = DropPolicy.DropOldest,
-            StopTimeout = TimeSpan.FromSeconds(settings.StopTimeoutSeconds),
+            QueueCapacity = flow.QueueCapacity,
+            DropPolicy = ParseDropPolicy(flow.DropPolicy),
+            StopTimeout = TimeSpan.FromSeconds(flow.StopTimeoutSeconds),
+            HintDepth = flow.HintDepth,
+            HintHold = TimeSpan.FromMilliseconds(flow.HintHoldMs),
+            MaxBacklogAge = TimeSpan.FromMilliseconds(flow.MaxBacklogAgeMs),
+            ExternalWriteTimeout = TimeSpan.FromMilliseconds(flow.ExternalWriteTimeoutMs),
+            SendBacklogBytes = flow.SendBacklogBytes,
+            LivenessInterval = TimeSpan.FromMilliseconds(flow.LivenessIntervalMs),
+            AdapterBufferBytes = flow.AdapterBufferBytes,
+            AccessCloseTimeout = TimeSpan.FromMilliseconds(flow.AccessCloseTimeoutMs),
+            DeviceLostMisses = flow.DeviceLostMisses,
         };
 
         _runtime.Carriers.UpdateOptions(carrierOptions);
@@ -476,24 +497,71 @@ public sealed class SettingsService
     {
         var failures = new List<string>();
 
-        if (settings.InputQueueCapacity is < 1 or > 65536)
+        var flow = settings.Flow;
+
+        if (flow.QueueCapacity is < 1 or > 65536)
         {
-            failures.Add(CoreText.Get("core.settings.inputQueue", settings.InputQueueCapacity));
+            failures.Add(CoreText.Get("core.settings.flowQueueCapacity", flow.QueueCapacity));
         }
 
-        if (settings.StopTimeoutSeconds is < 0.1 or > 300)
+        if (!IsDropPolicy(flow.DropPolicy))
         {
-            failures.Add(CoreText.Get("core.settings.stopTimeout", settings.StopTimeoutSeconds));
+            failures.Add(CoreText.Get("core.settings.flowDropPolicy", flow.DropPolicy));
+        }
+
+        if (flow.StopTimeoutSeconds is < 0.1 or > 300)
+        {
+            failures.Add(CoreText.Get("core.settings.stopTimeout", flow.StopTimeoutSeconds));
+        }
+
+        if (flow.HintDepth is < 1 or > 65536)
+        {
+            failures.Add(CoreText.Get("core.settings.flowHintDepth", flow.HintDepth));
+        }
+
+        if (flow.HintHoldMs is < 50 or > 10000)
+        {
+            failures.Add(CoreText.Get("core.settings.flowHintHold", flow.HintHoldMs));
+        }
+
+        if (flow.MaxBacklogAgeMs is < 0 or > 60000)
+        {
+            failures.Add(CoreText.Get("core.settings.flowMaxAge", flow.MaxBacklogAgeMs));
+        }
+
+        if (flow.ExternalWriteTimeoutMs is < 50 or > 60000)
+        {
+            failures.Add(CoreText.Get("core.settings.flowWriteTimeout", flow.ExternalWriteTimeoutMs));
+        }
+
+        if (flow.SendBacklogBytes is < 8192 or > 4194304)
+        {
+            failures.Add(CoreText.Get("core.settings.flowSendBacklog", flow.SendBacklogBytes));
+        }
+
+        if (flow.LivenessIntervalMs is < 50 or > 5000)
+        {
+            failures.Add(CoreText.Get("core.settings.flowLiveness", flow.LivenessIntervalMs));
+        }
+
+        if (flow.AdapterBufferBytes is < 4096 or > 1048576)
+        {
+            failures.Add(CoreText.Get("core.settings.flowAdapterBuffer", flow.AdapterBufferBytes));
+        }
+
+        if (flow.AccessCloseTimeoutMs is < 100 or > 10000)
+        {
+            failures.Add(CoreText.Get("core.settings.flowAccessClose", flow.AccessCloseTimeoutMs));
+        }
+
+        if (flow.DeviceLostMisses is < 1 or > 10)
+        {
+            failures.Add(CoreText.Get("core.settings.flowDeviceLost", flow.DeviceLostMisses));
         }
 
         if (settings.UiRefreshRateHz is < 1 or > 240)
         {
             failures.Add(CoreText.Get("core.settings.uiRefresh", settings.UiRefreshRateHz));
-        }
-
-        if (settings.DiagnosticHintThreshold < 1)
-        {
-            failures.Add(CoreText.Get("core.settings.hintThreshold", settings.DiagnosticHintThreshold));
         }
 
         // 吸附距离：2–8 px（越小越跟手，越大越容易吸上）
@@ -519,10 +587,8 @@ public sealed class SettingsService
         var settings = new ApplicationSettings();
 
         settings.SchemaVersion = ReadInt(root, "schemaVersion", settings.SchemaVersion);
-        settings.StopTimeoutSeconds = ReadDouble(root, "stopTimeoutSeconds", settings.StopTimeoutSeconds);
-        settings.InputQueueCapacity = ReadInt(root, "inputQueueCapacity", settings.InputQueueCapacity);
+        settings.Flow = ReadFlow(root);
         settings.UiRefreshRateHz = ReadInt(root, "uiRefreshRateHz", settings.UiRefreshRateHz);
-        settings.DiagnosticHintThreshold = ReadInt(root, "diagnosticHintThreshold", settings.DiagnosticHintThreshold);
         // 对齐自动建网：新键优先、旧键（加入即连）兼容读取
         settings.AlignAutoNetworkEnabled = ReadBool(
             root,
@@ -563,14 +629,82 @@ public sealed class SettingsService
         return settings;
     }
 
+    /// <summary>
+    /// 读**数据面块**：`flow { queueCapacity, dropPolicy, stopTimeoutSeconds, hintDepth,
+    /// hintHoldMs, maxBacklogAgeMs, externalWriteTimeoutMs }`。
+    /// </summary>
+    /// <param name="root">设置文件根对象。</param>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>**没有 `flow` 块时读旧根键**（`inputQueueCapacity` / `stopTimeoutSeconds` /
+    ///     `diagnosticHintThreshold`）：v5 及以下文件里那三个值是唯一的一份事实，折叠进来即可；</item>
+    ///   <item>其余四项（`dropPolicy` / `hintHoldMs` / `maxBacklogAgeMs` / `externalWriteTimeoutMs`）
+    ///     缺失即用默认值 —— 旧文件里没有这些事实，**不猜测**；</item>
+    ///   <item>`dropPolicy` 过 <see cref="NormalizeDropPolicy"/>：未知值按默认丢旧。</item>
+    /// </list>
+    /// </remarks>
+    private static FlowSettings ReadFlow(JsonObject root)
+    {
+        var defaults = new FlowSettings();
+        var block = root.TryGetPropertyValue("flow", out var node) && node is JsonObject nested ? nested : null;
+
+        if (block is null)
+        {
+            return defaults with
+            {
+                QueueCapacity = ReadInt(root, "inputQueueCapacity", defaults.QueueCapacity),
+                StopTimeoutSeconds = ReadDouble(root, "stopTimeoutSeconds", defaults.StopTimeoutSeconds),
+                HintDepth = ReadInt(root, "diagnosticHintThreshold", defaults.HintDepth),
+            };
+        }
+
+        return defaults with
+        {
+            QueueCapacity = ReadInt(block, "queueCapacity", defaults.QueueCapacity),
+            DropPolicy = NormalizeDropPolicy(ReadString(block, "dropPolicy")),
+            StopTimeoutSeconds = ReadDouble(block, "stopTimeoutSeconds", defaults.StopTimeoutSeconds),
+            HintDepth = ReadInt(block, "hintDepth", defaults.HintDepth),
+            HintHoldMs = ReadInt(block, "hintHoldMs", defaults.HintHoldMs),
+            MaxBacklogAgeMs = ReadInt(block, "maxBacklogAgeMs", defaults.MaxBacklogAgeMs),
+            ExternalWriteTimeoutMs = ReadInt(block, "externalWriteTimeoutMs", defaults.ExternalWriteTimeoutMs),
+            SendBacklogBytes = ReadInt(block, "sendBacklogBytes", defaults.SendBacklogBytes),
+            LivenessIntervalMs = ReadInt(block, "livenessIntervalMs", defaults.LivenessIntervalMs),
+            AdapterBufferBytes = ReadInt(block, "adapterBufferBytes", defaults.AdapterBufferBytes),
+            AccessCloseTimeoutMs = ReadInt(block, "accessCloseTimeoutMs", defaults.AccessCloseTimeoutMs),
+            DeviceLostMisses = ReadInt(block, "deviceLostMisses", defaults.DeviceLostMisses),
+        };
+    }
+
+    /// <summary>写**数据面块**（`flow` 的十二个键；语义与值域见 <see cref="FlowSettings"/>）。</summary>
+    /// <param name="flow">数据面参数。</param>
+    private static JsonObject WriteFlow(FlowSettings flow) => new()
+    {
+        ["queueCapacity"] = flow.QueueCapacity,
+        ["dropPolicy"] = NormalizeDropPolicy(flow.DropPolicy),
+        ["stopTimeoutSeconds"] = flow.StopTimeoutSeconds,
+        ["hintDepth"] = flow.HintDepth,
+        ["hintHoldMs"] = flow.HintHoldMs,
+        ["maxBacklogAgeMs"] = flow.MaxBacklogAgeMs,
+        ["externalWriteTimeoutMs"] = flow.ExternalWriteTimeoutMs,
+        ["sendBacklogBytes"] = flow.SendBacklogBytes,
+        ["livenessIntervalMs"] = flow.LivenessIntervalMs,
+        ["adapterBufferBytes"] = flow.AdapterBufferBytes,
+        ["accessCloseTimeoutMs"] = flow.AccessCloseTimeoutMs,
+        ["deviceLostMisses"] = flow.DeviceLostMisses,
+    };
+
     private static void MergeInto(JsonObject root, ApplicationSettings settings)
     {
         // 只更新**已知字段**；未识别字段原样保留（文件的其余内容不动）
         root["schemaVersion"] = ApplicationSettings.CurrentSchemaVersion;
-        root["stopTimeoutSeconds"] = settings.StopTimeoutSeconds;
-        root["inputQueueCapacity"] = settings.InputQueueCapacity;
+
+        // **数据面块**：写新形状，再把三个旧根键删掉 —— 留着就会出现"两个来源"，下次读到时又得判谁优先
+        root["flow"] = WriteFlow(settings.Flow);
+        _ = root.Remove("inputQueueCapacity");
+        _ = root.Remove("stopTimeoutSeconds");
+        _ = root.Remove("diagnosticHintThreshold");
+
         root["uiRefreshRateHz"] = settings.UiRefreshRateHz;
-        root["diagnosticHintThreshold"] = settings.DiagnosticHintThreshold;
         root["alignAutoNetwork"] = settings.AlignAutoNetworkEnabled;
         _ = root.Remove("autoNetworkEnabled");   // 旧键已迁移（语义由"加入即连"改为"对齐建网"）
         root["showInfoOverlay"] = settings.ShowInfoOverlay;
@@ -661,19 +795,71 @@ public sealed class SettingsService
                 ? fontsObject
                 : null;
 
-        appearance.UiFontFamily = (fonts is not null ? ReadString(fonts, "ui") : null) is { Length: > 0 } ui
-            ? ui
-            : ReadString(root, "uiFontFamily") ?? appearance.UiFontFamily;
-
-        appearance.DataFontFamily = (fonts is not null ? ReadString(fonts, "data") : null) is { Length: > 0 } data
-            ? data
-            : ReadString(root, "dataFontFamily") ?? appearance.DataFontFamily;
+        var defaults = new AppearanceSettings();
+        appearance.UiFonts = ReadFontAxis(fonts, "ui", "uiFontFamily", root, defaults.UiFonts);
+        appearance.DataFonts = UpgradeLegacyDataDefault(
+            ReadFontAxis(fonts, "data", "dataFontFamily", root, defaults.DataFonts),
+            defaults.DataFonts);
 
         // 已投放的出厂主题（防复活）
         ReadSeeded(block, appearance);
 
         return appearance;
     }
+
+    /// <summary>读一条字体轴：新形状 `{ latin, cjk }` → 旧形状字符串 → v1 顶层键 → 默认值。</summary>
+    /// <param name="fonts">`appearance.fonts`（可为 null）。</param>
+    /// <param name="name">轴名（`ui` / `data`）。</param>
+    /// <param name="legacyTopLevelName">v1 的顶层键名。</param>
+    /// <param name="root">设置根对象（读 v1 顶层键用）。</param>
+    /// <param name="fallback">没有用户值时用的默认轴。</param>
+    private static FontFamilySetting ReadFontAxis(
+        JsonObject? fonts,
+        string name,
+        string legacyTopLevelName,
+        JsonObject root,
+        FontFamilySetting fallback)
+    {
+        if (fonts is not null && fonts.TryGetPropertyValue(name, out var node))
+        {
+            if (node is JsonObject axis)
+            {
+                return NormalizeFontAxis(
+                    new FontFamilySetting
+                    {
+                        Latin = ReadString(axis, "latin") ?? string.Empty,
+                        Cjk = ReadString(axis, "cjk") ?? string.Empty,
+                    },
+                    fallback);
+            }
+
+            if (node is JsonValue value && value.TryGetValue<string>(out var legacy) && !string.IsNullOrWhiteSpace(legacy))
+            {
+                return NormalizeFontAxis(FontFamilySetting.FromLegacy(legacy), fallback);
+            }
+        }
+
+        var topLevel = ReadString(root, legacyTopLevelName);
+        return string.IsNullOrWhiteSpace(topLevel)
+            ? fallback.Clone()
+            : NormalizeFontAxis(FontFamilySetting.FromLegacy(topLevel), fallback);
+    }
+
+    /// <summary>空的一侧回落到默认值（读旧文件时可能只写了一侧）。</summary>
+    private static FontFamilySetting NormalizeFontAxis(FontFamilySetting setting, FontFamilySetting defaults)
+    {
+        if (string.IsNullOrWhiteSpace(setting.Latin)) { setting.Latin = defaults.Latin; }
+        if (string.IsNullOrWhiteSpace(setting.Cjk)) { setting.Cjk = defaults.Cjk; }
+        return setting;
+    }
+
+    /// <summary>旧内置默认数据字体（Times New Roman / 宋体）升级为新的等宽默认；用户自定义值原样保留。</summary>
+    private static FontFamilySetting UpgradeLegacyDataDefault(FontFamilySetting setting, FontFamilySetting defaults) =>
+        string.Equals(setting.Latin, "Times New Roman", StringComparison.OrdinalIgnoreCase)
+        // i18n-exempt: 识别旧默认值（字体族名，不是界面文案）
+        && string.Equals(setting.Cjk, "宋体", StringComparison.Ordinal)
+            ? defaults.Clone()
+            : setting;
 
     /// <summary>读 `appearance.seeded`（并把 v3 的 `seededThemes` 值折成路径形式）。</summary>
     /// <param name="block">外观块（可为 null）。</param>
@@ -855,11 +1041,18 @@ public sealed class SettingsService
             ["seeded"] = seeded,
             ["fonts"] = new JsonObject
             {
-                ["ui"] = appearance.UiFontFamily,
-                ["data"] = appearance.DataFontFamily,
+                ["ui"] = WriteFontAxis(appearance.UiFonts),
+                ["data"] = WriteFontAxis(appearance.DataFonts),
             },
         };
     }
+
+    /// <summary>写一条字体轴（v5 形状：`{ latin, cjk }`）。</summary>
+    private static JsonObject WriteFontAxis(FontFamilySetting setting) => new()
+    {
+        ["latin"] = setting.Latin,
+        ["cjk"] = setting.Cjk,
+    };
 
     /// <summary>主题名规范化（空 ⇒ 回落到该模式的内置主题，避免写出 `System` 这种非法方案）。</summary>
     /// <param name="value">设置里的值。</param>
@@ -891,6 +1084,20 @@ public sealed class SettingsService
 
     private static string NormalizeExitBehavior(string? value) =>
         IsExitBehavior(value) ? value! : "Ask";
+
+    /// <summary>满时策略的合法值（`DropOldest` / `DropNewest`）。</summary>
+    /// <param name="value">设置里的值。</param>
+    private static bool IsDropPolicy(string? value) => value is "DropOldest" or "DropNewest";
+
+    /// <summary>满时策略的收敛：未知 / 空 ⇒ 丢最旧（与其它字符串设置同一容错口径：不提示）。</summary>
+    /// <param name="value">设置里的值。</param>
+    private static string NormalizeDropPolicy(string? value) =>
+        value is "DropNewest" ? "DropNewest" : "DropOldest";
+
+    /// <summary>满时策略 → 数据面的枚举（未知 ⇒ 丢最旧）。</summary>
+    /// <param name="value">设置里的值。</param>
+    private static DropPolicy ParseDropPolicy(string? value) =>
+        value is "DropNewest" ? DropPolicy.DropNewest : DropPolicy.DropOldest;
 
     /// <summary>界面语言收敛：`system`（大小写不敏感）或合法文化名之外，一律回落 `system`。</summary>
     /// <param name="value">文件里或界面给出的值。</param>

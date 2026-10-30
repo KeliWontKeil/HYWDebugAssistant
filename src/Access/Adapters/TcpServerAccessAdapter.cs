@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using HYWDebugAssistant.Access.Parameters;
@@ -16,11 +17,20 @@ namespace HYWDebugAssistant.Access.Adapters;
 ///   <item>不自动重试：监听失败后用户再次〔启动〕。</item>
 /// </list>
 /// </remarks>
-public sealed class TcpServerAccessAdapter : IExternalAccessAdapter
+public sealed class TcpServerAccessAdapter : IExternalAccessAdapter, IExternalAccessWriteTimeout, IExternalAccessTuning
 {
-    private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan DefaultCloseTimeout = TimeSpan.FromSeconds(1);
 
-    private readonly AdapterBuffer _buffer = new();
+    /// <summary>写（发送）超时的缺省值（毫秒）。</summary>
+    private const int DefaultWriteTimeoutMs = 1000;
+
+    private StreamAdapterBuffer _buffer = new();
+
+    /// <summary>暂存容量（字节；下一次 Open 生效）。</summary>
+    private int _bufferBytes = 64 * 1024;
+
+    /// <summary>关闭旧传输的等待上限（可运行期改写）。</summary>
+    private TimeSpan _closeTimeout = DefaultCloseTimeout;
     private readonly Lock _gate = new();
     private readonly ConcurrentDictionary<Socket, Task> _clients = new();
 
@@ -29,11 +39,50 @@ public sealed class TcpServerAccessAdapter : IExternalAccessAdapter
     private Task? _accept;
     private IExternalAccessReady? _ready;
     private TcpServerConfig? _config;
+    private int _writeTimeoutMs = DefaultWriteTimeoutMs;
     private volatile bool _open;
     private int _connectionCount;
 
     /// <inheritdoc />
     public Type ParametersType => typeof(TcpServerConfig);
+
+    /// <inheritdoc />
+    /// <remarks>记住值并立即作用于**当前全部客户端**；新接受的连接在接入时用当前值。</remarks>
+    /// <inheritdoc />
+    public void ApplyTuning(ExternalAccessTuning tuning)
+    {
+        ArgumentNullException.ThrowIfNull(tuning);
+
+        _closeTimeout = tuning.CloseTimeout > TimeSpan.Zero ? tuning.CloseTimeout : DefaultCloseTimeout;
+
+        if (tuning.BufferBytes >= 4096)
+        {
+            _bufferBytes = tuning.BufferBytes;
+        }
+    }
+
+    public void SetWriteTimeout(TimeSpan timeout)
+    {
+        var value = NormalizeWriteTimeoutMs(timeout);
+        Interlocked.Exchange(ref _writeTimeoutMs, value);
+
+        foreach (var client in _clients.Keys)
+        {
+            try
+            {
+                client.SendTimeout = value;
+            }
+            catch (Exception)
+            {
+                // 单条连接刚断开 / 平台不支持：跳过它，不影响其它连接
+            }
+        }
+    }
+
+    /// <summary>写超时毫秒数的收敛（非正值 ⇒ 缺省 1 秒；0 在套接字上等于无限等待）。</summary>
+    /// <param name="timeout">设置里的值。</param>
+    private static int NormalizeWriteTimeoutMs(TimeSpan timeout) =>
+        timeout > TimeSpan.Zero ? (int)Math.Clamp(timeout.TotalMilliseconds, 1, int.MaxValue) : DefaultWriteTimeoutMs;
 
     /// <inheritdoc />
     public void Open(object parameters, IExternalAccessReady ready)
@@ -42,26 +91,37 @@ public sealed class TcpServerAccessAdapter : IExternalAccessAdapter
 
         if (parameters is not TcpServerConfig config)
         {
-            ready.SetFaulted(AccessText.Get("access.tcpServer.parametersTypeInvalid", nameof(TcpServerConfig)));
+            ready.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.FrameworkInternal,
+                Detail: nameof(TcpServerConfig)));
             return;
         }
 
         if (config.LocalPort is < 0 or > 65535)
         {
-            ready.SetFaulted(AccessText.Get("access.common.localPortOutOfRange", config.LocalPort));
+            ready.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.PortOutOfRange,
+                Value: config.LocalPort.ToString(CultureInfo.InvariantCulture)));
             return;
         }
+
+        var local = new ExternalAccessEndpoint(config.LocalAddress, config.LocalPort);
 
         if (!TryResolveAddress(config.LocalAddress, out var address))
         {
-            ready.SetFaulted(AccessText.Get("access.common.localAddressInvalid", config.LocalAddress));
+            ready.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.AddressInvalid,
+                local,
+                Value: config.LocalAddress));
             return;
         }
 
-        Close(CloseTimeout);
-        _buffer.Clear();
+        Close(_closeTimeout);
+        _buffer = new StreamAdapterBuffer(_bufferBytes);
         _clients.Clear();
         Interlocked.Exchange(ref _connectionCount, 0);
+
+        ready.SetConnecting(local);
 
         var listener = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 
@@ -73,13 +133,19 @@ public sealed class TcpServerAccessAdapter : IExternalAccessAdapter
         catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
         {
             listener.Dispose();
-            ready.SetFaulted(AccessText.Get("access.common.portInUse", config.LocalPort));
+            ready.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.PortInUse,
+                local,
+                Value: config.LocalPort.ToString(CultureInfo.InvariantCulture)));
             return;
         }
         catch (Exception ex)
         {
             listener.Dispose();
-            ready.SetFaulted(AccessText.Get("access.tcpServer.listenFailed", ex.GetType().Name, ex.Message));
+            ready.SetFaulted(new ExternalAccessFailure(
+                ExternalAccessFailureKind.ListenFailed,
+                local,
+                Detail: DetailOf(ex)));
             return;
         }
 
@@ -94,8 +160,7 @@ public sealed class TcpServerAccessAdapter : IExternalAccessAdapter
             _open = true;
         }
 
-        var actual = (IPEndPoint)listener.LocalEndPoint!;
-        ready.SetOpen($"{actual.Address}:{actual.Port}");
+        ready.SetOpen(EndpointOf(listener));
 
         _accept = Task.Run(() => AcceptAsync(listener, config, ready, cts.Token));
     }
@@ -230,7 +295,10 @@ public sealed class TcpServerAccessAdapter : IExternalAccessAdapter
             {
                 if (!token.IsCancellationRequested)
                 {
-                    ready.SetFaulted(AccessText.Get("access.tcpServer.acceptFailed", ex.GetType().Name, ex.Message));
+                    ready.SetFaulted(new ExternalAccessFailure(
+                        ExternalAccessFailureKind.AcceptFailed,
+                        EndpointOf(listener),
+                        Detail: DetailOf(ex)));
                 }
 
                 return;
@@ -254,7 +322,7 @@ public sealed class TcpServerAccessAdapter : IExternalAccessAdapter
             try
             {
                 client.NoDelay = config.NoDelay;
-                client.SendTimeout = 1000;
+                client.SendTimeout = Volatile.Read(ref _writeTimeoutMs);
             }
             catch
             {
@@ -347,6 +415,14 @@ public sealed class TcpServerAccessAdapter : IExternalAccessAdapter
             // 关闭路径不向外抛。
         }
     }
+
+    private static ExternalAccessEndpoint? EndpointOf(Socket socket) =>
+        socket.LocalEndPoint is IPEndPoint endpoint
+            ? new ExternalAccessEndpoint(endpoint.Address.ToString(), endpoint.Port)
+            : null;
+
+    private static string DetailOf(Exception exception) =>
+        exception.GetType().Name + ": " + exception.Message;
 
     private static bool TryResolveAddress(string text, out IPAddress address)
     {

@@ -6,6 +6,8 @@ using HYWDebugAssistant.DataPlane.Queues;
 using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Data;
+using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Reporting;
 using Shouldly;
 using Xunit;
 
@@ -243,7 +245,7 @@ public class DataPlaneCarrierTests
     }
 
     [Fact]
-    public void 停止超时_应标记孤儿且放弃缓冲不归还池()
+    public void 停止超时_应先清尾再标记孤儿()
     {
         using var host = new CarrierHost(
             options: new CarrierOptions { QueueCapacity = 2, StopTimeout = TimeSpan.FromMilliseconds(200) });
@@ -261,7 +263,15 @@ public class DataPlaneCarrierTests
 
         result.ShouldBe(CarrierStopResult.TimedOut);
         carrier.IsOrphaned.ShouldBeTrue();
-        host.Buffers.Abandoned.ShouldBeGreaterThan(0, "超时路径的缓冲必须放弃归还（避免被复用后仍被写）");
+
+        // 清尾发生在等待之前：这 2 个单元在超时**之前**就已按"停止清尾"归还池。
+        // 它们不在孤儿线程手上（线程卡在活动体里），归还后不会被复用写坏；
+        // 走"放弃归还"的只剩下清尾之后才挤进队列的那一批（本场景为 0）。
+        carrier.TryGetQueue("in", out var queue).ShouldBeTrue();
+        queue!.DroppedByReason(DropReason.DiscardedOnStop).ShouldBe(2);
+        queue.Count.ShouldBe(0);
+        host.Buffers.Returned.ShouldBe(2);
+        host.Buffers.Abandoned.ShouldBe(0, "清尾已经把队列里的单元归还了；超时路径只放弃**之后**进来的");
     }
 
     [Fact]
@@ -406,6 +416,251 @@ public class DataPlaneCarrierTests
         host.Buffers.Rented.ShouldBe(host.Buffers.Returned, "全部缓冲应已归还池（无泄漏）");
     }
 
+    // ------------------------------------------------------------ 流动状态 / 原因账本
+
+    [Fact]
+    public void 流动状态_应反映该口的深度与丢弃且未声明的口为假()
+    {
+        using var host = new CarrierHost(options: new CarrierOptions { QueueCapacity = 2 });
+
+        // 活动体实例：框架不跑投递循环 ⇒ 队列不会自己变浅，深度可确定地断言
+        var target = new TestTarget("flow")
+        {
+            HasActivity = true,
+            ActivityBody = self => self.StopSignal.Wait(TimeSpan.FromSeconds(10)),
+        };
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+
+        try
+        {
+            for (var i = 0; i < 4; i++)
+            {
+                _ = carrier!.TryEnqueue("in", BuildUnit(host.Buffers, (ulong)i, i));
+            }
+
+            carrier!.TryGetFlowState("in", out var state).ShouldBeTrue();
+            state.Depth.ShouldBe(2, "容量 2 塞 4 个 ⇒ 丢旧后仍是最多 2 个");
+            state.Capacity.ShouldBe(2);
+            state.PeakDepth.ShouldBe(2);
+            state.DroppedUnits.ShouldBe(2, "两次满队挤旧");
+            state.DroppedBytes.ShouldBe(2L * Layout.SizeInBytes);
+            state.LastDropReason.ShouldBe(DropReason.QueueFullEvicted);
+
+            carrier.TryGetFlowState("ghost", out var missing).ShouldBeFalse("未声明的口没有队列");
+            missing.ShouldBe(PortFlowState.None);
+        }
+        finally
+        {
+            host.TryDeactivate("flow", out _);
+        }
+    }
+
+    [Fact]
+    public void 模块上报的丢弃_应只落在该口的模块内部原因上()
+    {
+        using var host = new CarrierHost();
+        var target = new TestTarget("loss")
+        {
+            HasActivity = true,
+            ActivityBody = self => self.StopSignal.Wait(TimeSpan.FromSeconds(10)),
+        };
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+
+        try
+        {
+            carrier!.TryGetQueue("in", out var queue).ShouldBeTrue();
+            queue!.Dropped.ShouldBe(0);
+
+            carrier.ReportModuleLoss("in", units: 2, bytes: 2L * Layout.SizeInBytes);
+            carrier.ReportModuleLoss("ghost", units: 5, bytes: 40);      // 口不存在 ⇒ 忽略，不抛
+
+            queue.DroppedByReason(DropReason.ModuleInternal).ShouldBe(2);
+            queue.DroppedByReason(DropReason.QueueFullEvicted).ShouldBe(0);
+            queue.Dropped.ShouldBe(0, "模块内部丢弃不是满队丢弃");
+
+            carrier.TryGetFlowState("in", out var state).ShouldBeTrue();
+            state.DroppedUnits.ShouldBe(2);
+        }
+        finally
+        {
+            host.TryDeactivate("loss", out _);
+        }
+    }
+
+    [Fact]
+    public void 清空口队列_应归还缓冲并计为停止清尾()
+    {
+        using var host = new CarrierHost(options: new CarrierOptions { QueueCapacity = 4 });
+        var target = new TestTarget("purge")
+        {
+            HasActivity = true,
+            ActivityBody = self => self.StopSignal.Wait(TimeSpan.FromSeconds(10)),
+        };
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+
+        try
+        {
+            for (var i = 0; i < 3; i++)
+            {
+                _ = carrier!.TryEnqueue("in", BuildUnit(host.Buffers, (ulong)i, i));
+            }
+
+            carrier!.PurgeQueues();
+
+            carrier.TryGetQueue("in", out var queue).ShouldBeTrue();
+            queue!.Count.ShouldBe(0);
+            queue.DroppedByReason(DropReason.DiscardedOnStop).ShouldBe(3);
+            queue.Dropped.ShouldBe(0, "停止清尾不是满队丢弃");
+            host.Buffers.Rented.ShouldBe(host.Buffers.Returned, "清出的缓冲必须归还池（无泄漏）");
+        }
+        finally
+        {
+            host.TryDeactivate("purge", out _);
+        }
+    }
+
+    // ------------------------------------------------------------ 时间片 / 停止清尾 / 积压过期
+
+    [Fact]
+    public void 时间片_慢处理器下也应回泵辅助工作源()
+    {
+        using var host = new CarrierHost(options: new CarrierOptions { QueueCapacity = 64 });
+        var target = new TestTarget("slice")
+        {
+            DeliveryDelay = TimeSpan.FromMilliseconds(20),
+            HasAuxiliaryWork = true,
+        };
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+
+        try
+        {
+            for (var i = 0; i < 30; i++)
+            {
+                _ = carrier!.TryEnqueue("in", BuildUnit(host.Buffers, (ulong)i, i));
+            }
+
+            // 每个单元 20 ms ≫ 默认时间片 4 ms ⇒ 至少每单元回一次外层（辅助工作源随之被推进）。
+            // 没有时间片时，这 30 个单元会被一口气排空（约 600 ms 内只回一次外层）。
+            WaitUntil(() => target.PumpCount >= 5, TimeSpan.FromSeconds(5)).ShouldBeTrue(
+                $"慢处理器下辅助工作源必须被回泵（实际 {target.PumpCount} 次）");
+            target.DeliveredCount.ShouldBeGreaterThan(0);
+        }
+        finally
+        {
+            host.TryDeactivate("slice", out _);
+        }
+    }
+
+    [Fact]
+    public void 停止_应先清尾再等待_而不是排空整条积压()
+    {
+        using var host = new CarrierHost(
+            options: new CarrierOptions { QueueCapacity = 64, StopTimeout = TimeSpan.FromSeconds(2) });
+        var target = new TestTarget("purge") { DeliveryDelay = TimeSpan.FromMilliseconds(50) };
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+
+        try
+        {
+            for (var i = 0; i < 50; i++)
+            {
+                _ = carrier!.TryEnqueue("in", BuildUnit(host.Buffers, (ulong)i, i));
+            }
+
+            var clock = Stopwatch.StartNew();
+            host.TryDeactivate("purge", out var result).ShouldBeTrue();
+            clock.Stop();
+
+            result.ShouldBe(CarrierStopResult.Stopped);
+
+            // 50 个单元逐个处理要 ~2.5 s；清尾之后只需等"当前这一个"处理完（一个单元 50 ms）
+            clock.Elapsed.ShouldBeLessThan(
+                TimeSpan.FromMilliseconds(700),
+                "停止必须清尾，而不是排空整条积压");
+
+            carrier!.TryGetQueue("in", out var queue).ShouldBeTrue();
+            queue!.DroppedByReason(DropReason.DiscardedOnStop).ShouldBeGreaterThan(0, "清出的单元要记账");
+            host.Buffers.Rented.ShouldBe(host.Buffers.Returned, "清尾与在途缓冲都要归还池");
+        }
+        finally
+        {
+            host.StopAll();
+        }
+    }
+
+    [Fact]
+    public void 积压过期_超过上限的单元应在出队时丢掉而不是投递()
+    {
+        using var host = new CarrierHost(options: new CarrierOptions
+        {
+            QueueCapacity = 16,
+            MaxBacklogAge = TimeSpan.FromMilliseconds(50),
+        });
+
+        // 辅助工作源先"闸住"：投递循环会卡在 PumpAuxiliary，队列在这段时间里不会被动过
+        var target = new TestTarget("expire") { HasAuxiliaryWork = true, PumpGateEnabled = true };
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+
+        try
+        {
+            for (var i = 0; i < 8; i++)
+            {
+                _ = carrier!.TryEnqueue("in", BuildUnit(host.Buffers, (ulong)i, i));
+            }
+
+            Thread.Sleep(TimeSpan.FromMilliseconds(120));
+            target.OpenPumpGate();
+
+            WaitUntil(() => target.PumpCount > 0 && QueueDepth(carrier!) == 0, TimeSpan.FromSeconds(3))
+                .ShouldBeTrue("闸门打开后队列应被清空（全部过期）");
+
+            target.Received.ShouldBeEmpty("过期单元一律不投递");
+            carrier!.TryGetQueue("in", out var queue).ShouldBeTrue();
+            queue!.DroppedByReason(DropReason.Expired).ShouldBe(8, "8 个全部过期");
+            host.Buffers.Rented.ShouldBe(host.Buffers.Returned, "过期单元的缓冲要归还池");
+        }
+        finally
+        {
+            host.TryDeactivate("expire", out _);
+        }
+    }
+
+    [Fact]
+    public void 积压过期_关闭时一个都不丢()
+    {
+        using var host = new CarrierHost(options: new CarrierOptions
+        {
+            QueueCapacity = 16,
+            MaxBacklogAge = TimeSpan.Zero,
+        });
+
+        var target = new TestTarget("no-expire") { HasAuxiliaryWork = true, PumpGateEnabled = true };
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+
+        try
+        {
+            for (var i = 0; i < 8; i++)
+            {
+                _ = carrier!.TryEnqueue("in", BuildUnit(host.Buffers, (ulong)i, i));
+            }
+
+            Thread.Sleep(TimeSpan.FromMilliseconds(120));
+            target.OpenPumpGate();
+
+            WaitUntil(() => target.DeliveredCount >= 8, TimeSpan.FromSeconds(3)).ShouldBeTrue("全部应送达");
+
+            carrier!.TryGetQueue("in", out var queue).ShouldBeTrue();
+            queue!.DroppedByReason(DropReason.Expired).ShouldBe(0, "0 = 不限 ⇒ 一个都不过期");
+        }
+        finally
+        {
+            host.TryDeactivate("no-expire", out _);
+        }
+    }
+
+    /// <summary>该承载者唯一那条口队列的当前深度。</summary>
+    private static int QueueDepth(ModuleCarrier carrier) =>
+        carrier.TryGetQueue("in", out var queue) && queue is not null ? queue.Count : 0;
+
     // ------------------------------------------------------------ 薄旁路头
 
     [Fact]
@@ -491,6 +746,37 @@ public class DataPlaneCarrierTests
         public IReadOnlyList<string> ReceivePortNames => ["in"];
 
         public bool HasActivity { get; set; }
+
+        /// <summary>是否有辅助工作源（口队列之外：会话 / 命令 / 状态发布）——回泵用例用它计数。</summary>
+        public bool HasAuxiliaryWork { get; set; }
+
+        /// <summary>辅助工作源被推进的次数（"时间片回泵"的可观测证据）。</summary>
+        public int PumpCount => Volatile.Read(ref _pumpCount);
+
+        /// <summary>为真时 <see cref="PumpAuxiliary"/> 先等到闸门打开（让"投递先别开始"可控）。</summary>
+        public bool PumpGateEnabled { get; set; }
+
+        private int _pumpCount;
+        private volatile bool _pumpGateOpen;
+
+        /// <summary>打开回泵闸门（配合 <see cref="PumpGateEnabled"/>）。</summary>
+        public void OpenPumpGate() => _pumpGateOpen = true;
+
+        /// <summary>推进辅助工作源（这里只计数；闸门关闭时阻塞）。</summary>
+        /// <returns>本拍是否做了工作（恒为 <see langword="false"/>：本夹具没有真实辅助工作）。</returns>
+        public bool PumpAuxiliary()
+        {
+            if (PumpGateEnabled)
+            {
+                while (!_pumpGateOpen)
+                {
+                    Thread.Sleep(2);
+                }
+            }
+
+            _ = Interlocked.Increment(ref _pumpCount);
+            return false;
+        }
 
         public Action<TestTarget>? ActivityBody { get; set; }
 

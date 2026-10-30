@@ -2282,6 +2282,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         var networks = _query.GetNetworks();
+        var queues = QueueDepthsByPort();
 
         foreach (var marker in module.Ports)
         {
@@ -2308,6 +2309,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 marker.Dropped = 0;
                 marker.BytesText = null;
                 marker.RateText = "---";   // 未入网 ⇒ 通路速率无值（不显示上一段的旧数字）
+                marker.QueueText = null;   // 未入网 ⇒ 队列压力也清掉（不留上一段的旧值）
                 continue;
             }
 
@@ -2335,7 +2337,49 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             // 有连接但这一秒没数据 ⇒ `0 B/s`（**不拿 `---` 冒充 0** —— 再低的速率也是有数据，
             // 如实显示，没有数据就写 0.00，--- 表示无连接）。
             marker.RateText = FormatRate(metrics.PayloadBytesPerSecond);
+
+            // 队列压力（接收口才有队列）：只格式化框架给的队列账本，不在界面上算
+            marker.QueueText = QueuePressureText(queues, literal);
         }
+    }
+
+    /// <summary>本拍各 (实例, 口) 的队列水位（键 = `实例.口名`；每轮只取一次）。</summary>
+    private Dictionary<string, PortQueueDepthView> QueueDepthsByPort()
+    {
+        var map = new Dictionary<string, PortQueueDepthView>(StringComparer.Ordinal);
+
+        foreach (var depth in _query.GetQueueDepths())
+        {
+            map[$"{depth.InstanceId}.{depth.PortName}"] = depth;
+        }
+
+        return map;
+    }
+
+    /// <summary>
+    /// 口标记的**队列压力一行**（无队列 / 无压力 ⇒ <see langword="null"/>，悬停里不加这一行）。
+    /// </summary>
+    /// <param name="queues">本拍的队列水位表。</param>
+    /// <param name="literal">`实例.口名`。</param>
+    private static string? QueuePressureText(Dictionary<string, PortQueueDepthView> queues, string literal)
+    {
+        if (!queues.TryGetValue(literal, out var queue))
+        {
+            return null;
+        }
+
+        // 有压力才显示：积压、饱和、或这一段里已经丢过
+        if (queue.Depth <= 0 && !queue.Saturated && queue.DroppedWhileSaturatedUnits <= 0)
+        {
+            return null;
+        }
+
+        var assembly = typeof(ModuleWindowsViewModel).Assembly;
+        var dropped = queue.DroppedEvictedUnits + queue.DroppedRejectedUnits;
+
+        return TextCatalog.Get(assembly, "portMarker.queue.state", queue.Depth, queue.Capacity)
+            + TextCatalog.Get(assembly, "portMarker.queue.dropped", dropped)
+            + (queue.Saturated ? TextCatalog.Get(assembly, "portMarker.queue.saturatedSuffix") : string.Empty);
     }
 
     /// <summary>

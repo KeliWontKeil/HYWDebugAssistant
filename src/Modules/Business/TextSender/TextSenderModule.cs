@@ -139,6 +139,9 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
     /// <summary>活动节拍（1 ms；只用于处理收件箱与调度判定，真正等待走全局计时面）。</summary>
     public static readonly TimeSpan ActivityInterval = TimeSpan.FromMilliseconds(1);
 
+    /// <summary>连续发送时最长空转间隔：到期前不再每毫秒醒一次（输入/命令最多延迟这么久）。</summary>
+    private static readonly TimeSpan MaxIdleWake = TimeSpan.FromMilliseconds(20);
+
     /// <summary>
     /// 数据类型标识 —— **PascalCase 短名**（新范式；`hyw/*` 形式的旧式标识已冻结）。
     /// </summary>
@@ -298,7 +301,7 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
             }
 
             // 低频间隔也要按活动节拍回来看收件箱，不能被 100 ms 间隔拖住界面输入。
-            var wakeAt = nextDue < now + ActivityInterval ? nextDue : now + ActivityInterval;
+            var wakeAt = nextDue < now + MaxIdleWake ? nextDue : now + MaxIdleWake;
             if (context.Timing.WaitUntil(wakeAt))
             {
                 break;

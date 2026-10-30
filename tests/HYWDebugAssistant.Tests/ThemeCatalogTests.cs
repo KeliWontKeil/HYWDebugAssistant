@@ -1,4 +1,5 @@
 using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Ui.Theming;
 using Shouldly;
 using Xunit;
@@ -11,12 +12,13 @@ public class ThemeCatalogTests
     [Fact]
     public void 磁盘主题_应出现在目录并按其基类型解析()
     {
-        var themes = ThemeCatalog.All([Theme("sakura", "樱色", ThemeBaseKind.Light)]);
+        var sakuraTitle = "樱色";
+        var themes = ThemeCatalog.All([Theme("sakura", sakuraTitle, ThemeBaseKind.Light)]);
 
         themes.Count.ShouldBe(3, "内置两套 + 一个磁盘主题");
 
         var descriptor = ThemeCatalog.Find(themes, "sakura").ShouldNotBeNull();
-        descriptor.Title.ShouldBe("樱色");
+        descriptor.Title.ShouldBe(sakuraTitle);
         descriptor.Kind.ShouldBe(ThemeKind.Light);
         descriptor.Source.ShouldBe(ThemeSource.File);
         descriptor.PaletteValue("AccentPrimary").ShouldBe("#FFC45C8A");
@@ -67,16 +69,17 @@ public class ThemeCatalogTests
     [Fact]
     public void 保留名与重复id_不应重复进目录()
     {
+        var firstSakuraTitle = "樱色";
         var themes = ThemeCatalog.All([
             Theme(ThemeIds.Light, "冒名的浅色", ThemeBaseKind.Dark),
-            Theme("sakura", "樱色", ThemeBaseKind.Light),
+            Theme("sakura", firstSakuraTitle, ThemeBaseKind.Light),
             Theme("sakura", "重复的樱色", ThemeBaseKind.Dark),
         ]);
 
         themes.Count.ShouldBe(3, "内置 light / dark + 一个 sakura");
         themes.Count(theme => string.Equals(theme.Id, ThemeIds.Light, StringComparison.Ordinal)).ShouldBe(1);
         themes.Count(theme => string.Equals(theme.Id, "sakura", StringComparison.Ordinal)).ShouldBe(1);
-        ThemeCatalog.Find(themes, "sakura")!.Title.ShouldBe("樱色", "先到的那个赢");
+        ThemeCatalog.Find(themes, "sakura")!.Title.ShouldBe(firstSakuraTitle, "先到的那个赢");
     }
 
     [Fact]
@@ -91,7 +94,7 @@ public class ThemeCatalogTests
             2.0,
             -1.0));
 
-        descriptor.Title.ShouldBe("自定义主题");
+        descriptor.Title.ShouldBe(TextCatalog.Get(typeof(HYWDebugAssistant.Core.Themes.ThemeStore).Assembly, "core.theme.defaultTitle"));
         descriptor.Kind.ShouldBe(ThemeKind.Dark);
         descriptor.PaletteValue("AccentPrimary").ShouldBeNull();
         descriptor.WallpaperVeilOpacity.ShouldBe(0.9, "读入时按范围收敛");

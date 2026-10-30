@@ -4,5 +4,6 @@
   "entryType": "HYWDebugAssistant.Modules.DataMonitor.DataMonitorModule",
   "frameworkCompatibility": ">=2.0.0 <3.0.0",
   "dependsOn": [],
-  "resources": []
+  "resources": ["resources/i18n"]
 }
+

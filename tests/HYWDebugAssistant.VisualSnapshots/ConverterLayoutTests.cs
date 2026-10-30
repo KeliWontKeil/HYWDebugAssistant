@@ -5,6 +5,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Modules.HexStringConverter.Views;
 using HYWDebugAssistant.Sdk.Ui.Controls;
+using HYWDebugAssistant.Ui.Geometry;
 using Shouldly;
 using Xunit;
 
@@ -33,7 +34,7 @@ public sealed class ConverterLayoutTests
                     {
                         Width = 400,
                         Height = height,
-                        Content = new Border { Margin = new Thickness(20, 22, 20, 24), Child = view },
+                        Content = new Border { Margin = ModuleSurfaceMetrics.ContentMargin, Child = view },
                     };
 
                     window.Show();

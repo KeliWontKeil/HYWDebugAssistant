@@ -105,6 +105,9 @@ public sealed class RuntimeExternalAccess : IExternalAccess
         _host.GetSnapshot(_instanceId, accessName);
 
     /// <inheritdoc />
+    public bool ClearCounters(string accessName) => _host.ClearCounters(_instanceId, accessName);
+
+    /// <inheritdoc />
     public Type? GetParametersType(string accessName) =>
         _host.GetParametersType(_instanceId, accessName);
 
