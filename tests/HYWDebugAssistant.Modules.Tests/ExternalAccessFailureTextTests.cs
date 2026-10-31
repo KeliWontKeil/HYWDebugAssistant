@@ -82,29 +82,55 @@ public sealed class ExternalAccessFailureTextTests
         TextCatalog.IsMissing(text).ShouldBeFalse($"失败种类 {kind} 的句子必须命中模块表（当前 {text}）");
     }
 
+    [Fact]
+    public void 四个外部接入模块的共享状态句应一致()
+    {
+        string[] keys =
+        [
+            "status.receiveLost",
+            "status.rejected",
+            "status.rxSaturated",
+            "status.sendLost",
+            "status.txBacklog",
+            "status.txSaturated",
+        ];
+
+        foreach (var key in keys)
+        {
+            var texts = ModuleTypes
+                .Select(moduleType => TextCatalog.Get(moduleType.Assembly, key))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            texts.ShouldHaveSingleItem($"{key} 在四个外部接入模块里必须是同一句话");
+        }
+    }
+
     [Theory]
     [MemberData(nameof(ModuleTypeCases))]
-    public void 有被拒发送且会话未打开时_状态句追加发送已丢弃后缀(Type moduleType)
+    public void 有被拒发送且会话未打开时_状态句整体换成被拒发送单句(Type moduleType)
     {
-        var suffix = string.Format(
+        var rejected = string.Format(
             CultureInfo.CurrentCulture,
-            TextCatalog.Get(moduleType.Assembly, RejectedSuffixKey(moduleType)),
+            TextCatalog.Get(moduleType.Assembly, RejectedKey(moduleType)),
             3);
 
         var closed = Describe(moduleType, Snapshot(ExternalAccessState.Closed, rejectedUnits: 3));
-        closed.ShouldContain(suffix);
+        closed.ShouldBe(rejected, "被拒信息必须是一条完整状态句，不能追加在基础状态句后");
 
         var open = Describe(moduleType, Snapshot(ExternalAccessState.Open, rejectedUnits: 3));
-        open.ShouldNotContain(suffix);
+        open.ShouldNotBe(rejected);
+
+        var faulted = Describe(moduleType, Snapshot(ExternalAccessState.Faulted, rejectedUnits: 3));
+        faulted.ShouldNotBe(rejected, "故障态保留故障原因，不把被拒计数拼进同一句");
     }
 
-    /// <summary>模块自己的"发送已丢弃"后缀键（文案只在模块表里，用例不抄句子）。</summary>
-    private static string RejectedSuffixKey(Type moduleType) => moduleType.Name switch
+    /// <summary>模块自己的“被拒发送”整句键（文案只在模块表里，用例不抄句子）。</summary>
+    private static string RejectedKey(Type moduleType) => moduleType.Name switch
     {
-        nameof(SerialModule) => SerialText.StatusRejectedSuffix,
-        nameof(TcpClientModule) => TcpClientText.StatusRejectedSuffix,
-        nameof(TcpServerModule) => TcpServerText.StatusRejectedSuffix,
-        nameof(UdpModule) => UdpText.StatusRejectedSuffix,
+        nameof(SerialModule) => SerialText.StatusRejected,
+        nameof(TcpClientModule) => TcpClientText.StatusRejected,
+        nameof(TcpServerModule) => TcpServerText.StatusRejected,
+        nameof(UdpModule) => UdpText.StatusRejected,
         _ => throw new ArgumentOutOfRangeException(nameof(moduleType)),
     };
 

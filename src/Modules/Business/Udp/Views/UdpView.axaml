@@ -59,9 +59,9 @@
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="108" Width="358" Height="14"
                     Source="{x:Static views:UdpViewKeys.State}" />
 
-    <ui:ModuleLabel Canvas.Left="162" Canvas.Top="34" Width="56" Height="24"
+    <ui:ModuleLabel Canvas.Left="172" Canvas.Top="34" Width="56" Height="24"
                     Classes="caption right" Field="{x:Static views:UdpViewKeys.Broadcast}" />
-    <ui:ModuleConfigField Canvas.Left="222" Canvas.Top="35" Width="120" Height="24"
+    <ui:ModuleConfigField Canvas.Left="232" Canvas.Top="35" Width="120" Height="24"
                           Field="{x:Static views:UdpViewKeys.Broadcast}" />
 
     <ui:ModuleButton Canvas.Left="206" Canvas.Top="8" Width="72" Height="25"

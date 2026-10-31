@@ -103,7 +103,7 @@ public sealed class TcpServerModule : ExternalAccessModule
     {
         var endpoint = EndpointText(snapshot.Endpoint);
 
-        var text = snapshot.State switch
+        return snapshot.State switch
         {
             ExternalAccessState.Open => endpoint.Length == 0
                 ? Tr(TcpServerText.StatusListening, snapshot.ActiveConnections)
@@ -113,12 +113,12 @@ public sealed class TcpServerModule : ExternalAccessModule
                 : Tr(TcpServerText.StatusStartingDetail, endpoint),
             ExternalAccessState.Closing => Tr(TcpServerText.StatusStopping),
             ExternalAccessState.Faulted => FailureText(snapshot),
-            _ => snapshot.Suspended ? Tr(TcpServerText.StatusSuspended) : Tr(TcpServerText.StatusIdle),
+            _ => snapshot.Suspended
+                ? Tr(TcpServerText.StatusSuspended)
+                : snapshot.RejectedSinceOpen > 0
+                    ? Tr(TcpServerText.StatusRejected, snapshot.RejectedSinceOpen)
+                    : Tr(TcpServerText.StatusIdle),
         };
-
-        return snapshot.RejectedSinceOpen > 0 && snapshot.State != ExternalAccessState.Open
-            ? text + Tr(TcpServerText.StatusRejectedSuffix, snapshot.RejectedSinceOpen)
-            : text;
     }
 
     /// <summary>按失败种类从本模块表取句子（未覆盖的种类走未知回退）。</summary>
@@ -150,7 +150,7 @@ public sealed class TcpServerModule : ExternalAccessModule
         in PortFlowState sendFlow,
         ExternalAccessSnapshot snapshot) => kind switch
         {
-            PressureKind.ReceiveLost => Tr(TcpServerText.StatusReceiveLost),
+            PressureKind.ReceiveLost => Tr(TcpServerText.StatusReceiveLost, snapshot.ReceiveDroppedSinceOpen),
             PressureKind.SendLost => Tr(TcpServerText.StatusSendLost),
             PressureKind.SendBacklogged => Tr(TcpServerText.StatusTxBacklog, snapshot.SendBacklogDepth),
             PressureKind.ReceiveSaturated => Tr(TcpServerText.StatusRxSaturated, snapshot.ReceiveQueueDepth),

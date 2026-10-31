@@ -202,7 +202,7 @@ public sealed partial class CompositePageViewModel : ViewModelBase
     /// <summary>组合页被激活：首次进入默认全选，刷新模块与组合列表。</summary>
     public void Activate()
     {
-        _windows.Refresh();
+        _windows.Refresh(includeOverview: false);
         _windows.EnsureSelectionInitialized();
         Refresh();
         RefreshCompositeFiles();
@@ -508,7 +508,7 @@ public sealed partial class CompositePageViewModel : ViewModelBase
         var displayName = DisplayNameOfPath(filePath);
         if (result.Succeeded)
         {
-            _windows.Refresh();
+            _windows.Refresh(includeOverview: false);
             _windows.EnsureSelectionInitialized();
             _windows.SelectAll();
             CompositeName = displayName;

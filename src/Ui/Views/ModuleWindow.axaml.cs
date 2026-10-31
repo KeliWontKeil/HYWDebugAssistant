@@ -99,7 +99,11 @@ public partial class ModuleWindow : Window
         // 任何关闭路径都先摘掉缓存视图的父级（隐藏后再“显示全部”会创建新窗口）。
         // 用 `Closed` 而不是 `Closing`：外壳取消关闭时子窗的 `Closing` 不会触发 ——
         // 视图必须留到"窗口真的关掉"之后再摘，取消后窗口仍可见时内容不能空。
-        Closed += (_, _) => DetachModuleView();
+        Closed += (_, _) =>
+        {
+            DetachModuleView();
+            Unhook();
+        };
     }
 
     /// <summary>
@@ -810,14 +814,20 @@ public partial class ModuleWindow : Window
 
     // ---------------------------------------------------------------- 数据绑定辅助
 
-    /// <summary>装载当前 DataContext（**可重复调用**：先退订上一次，避免重复订阅）。</summary>
-    private void Hook()
+    /// <summary>退订模块属性变化（窗口关闭后必须调用，否则模块会继续持有已关闭窗口）。</summary>
+    private void Unhook()
     {
-        if (!ReferenceEquals(_hooked, Module) && _hooked is not null)
+        if (_hooked is not null)
         {
             _hooked.PropertyChanged -= OnModulePropertyChanged;
             _hooked = null;
         }
+    }
+
+    /// <summary>装载当前 DataContext（**可重复调用**：先退订上一次，避免重复订阅）。</summary>
+    private void Hook()
+    {
+        Unhook();
 
         if (Module is not { } module)
         {

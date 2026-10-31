@@ -89,6 +89,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
         Hotkeys = new HotkeyService(this);
         Windows = new ModuleWindowsViewModel(query, command, viewState);
+        Performance = new PerformanceMonitorViewModel();
         Composites = new CompositePageViewModel(query, command, Windows);
 
         // 模块窗口发出的**面向用户提示**（建网/端口标签结果）→ 状态栏
@@ -108,9 +109,45 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         // 占位实例属**诊断** → 其列表与"指定替代"命令由模块清单视图模型提供，在拓扑诊断弹窗里呈现
         Topology.Catalog = Catalog;
 
-        // 开关类设置（叠加信息层 / 应用置顶）**以本视图模型为唯一事实源**，
-        // 设置页与交互页因此完全联动（各持一份副本会让两边不一致）。
-        Settings.Owner = this;
+        // 设置应用成功后才重读一次性快照；避免每帧深拷贝，同时保持"应用即生效"。
+        Settings.Applied += (_, _) => ApplySettings();
+    }
+
+    /// <summary>把刚应用成功的设置同步到运行时、窗口集与监视器。</summary>
+    private void ApplySettings()
+    {
+        // 设置页是草稿；这里才把叠加层/置顶落到实时属性。期间禁止即时开关再次写盘。
+        _syncingSettings = true;
+        try
+        {
+            ShowInfoOverlay = Settings.ShowInfoOverlay;
+            AppTopmost = Settings.AppTopmost;
+        }
+        finally
+        {
+            _syncingSettings = false;
+        }
+
+        Windows.RefreshSettings();
+        Performance.IsEnabled = Settings.ShowPerformanceMonitor;
+    }
+
+    /// <summary>设置应用/启动回读期间抑制即时开关的再次落盘。</summary>
+    private bool _syncingSettings;
+
+    /// <summary>把交互页/快捷键直接改动的实时开关写回设置文件。</summary>
+    private void PersistLiveSwitches()
+    {
+        var settings = _query.GetSettings();
+        if (settings.ShowInfoOverlay == Windows.ShowInfoOverlay
+            && settings.AppTopmost == AppTopmost)
+        {
+            return;
+        }
+
+        settings.ShowInfoOverlay = Windows.ShowInfoOverlay;
+        settings.AppTopmost = AppTopmost;
+        _ = _command.UpdateSettings(settings);
     }
 
     /// <summary>应用内快捷键服务（挂到本应用每一个窗口上）。</summary>
@@ -118,6 +155,9 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
     /// <summary>模块窗口集（模块区 = 一批独立窗口）。</summary>
     public ModuleWindowsViewModel Windows { get; }
+
+    /// <summary>侧栏底部的轻量性能监视器（1 Hz 采样，设置可关闭）。</summary>
+    public PerformanceMonitorViewModel Performance { get; }
 
     /// <summary>组合页：选择模块并保存/加载一次性的组合关系。</summary>
     public CompositePageViewModel Composites { get; }
@@ -288,6 +328,15 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     [ObservableProperty]
     public partial bool AppTopmost { get; set; }
 
+    /// <summary>交互页/快捷键直接切换整体置顶 ⇒ 立即写入设置文件（设置弹窗内仍是草稿）。</summary>
+    partial void OnAppTopmostChanged(bool value)
+    {
+        if (!_syncingSettings)
+        {
+            PersistLiveSwitches();
+        }
+    }
+
     /// <summary>最近一次面向用户的提示（建网结果、端口标签提交结果等；空 = 无）。</summary>
     /// <remarks>
     /// 这条提示若**没有任何过期机制**（只有下一条提示才会替换它）⇒
@@ -412,6 +461,11 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
             Windows.ShowInfoOverlay = value;
             OnPropertyChanged();
             UpdateStatus();
+
+            if (!_syncingSettings)
+            {
+                PersistLiveSwitches();
+            }
         }
     }
 
@@ -447,6 +501,60 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     /// <summary>是否显示**交互**页（B 区）。</summary>
     public bool IsInteractionPage => string.Equals(ActivePage, ShellPages.Interaction, StringComparison.Ordinal);
 
+    /// <summary>模块清单弹窗是否打开（与常驻清单页是两个可见面，同一视图模型）。</summary>
+    public bool IsCatalogDialogOpen { get; private set; }
+
+    /// <summary>Issue 弹窗是否打开。</summary>
+    public bool IsIssuesOpen { get; private set; }
+
+    /// <summary>拓扑诊断弹窗是否打开。</summary>
+    public bool IsTopologyOpen { get; private set; }
+
+    /// <summary>记录弹窗开关，并在打开时立即补齐该弹窗的数据。</summary>
+    /// <param name="kind">弹窗种类。</param>
+    /// <param name="isOpen">是否打开。</param>
+    /// <remarks>
+    /// 关闭期间对应弹窗不可观察，外壳不再每帧重建它的整表；重新打开时先立即刷新一次，
+    /// 因此用户看到的第一帧仍是当前数据，不改变可见行为。
+    /// </remarks>
+    public void SetDialogOpen(DialogKind kind, bool isOpen)
+    {
+        switch (kind)
+        {
+            case DialogKind.ModuleCatalog:
+                IsCatalogDialogOpen = isOpen;
+                if (isOpen)
+                {
+                    Catalog.Refresh();
+                }
+
+                break;
+
+            case DialogKind.Issues:
+                IsIssuesOpen = isOpen;
+                if (isOpen)
+                {
+                    Issues.Refresh();
+                }
+
+                break;
+
+            case DialogKind.Topology:
+                IsTopologyOpen = isOpen;
+                if (isOpen)
+                {
+                    // 拓扑诊断里的占位实例来自清单视图模型；两者同一拍补齐。
+                    Catalog.Refresh();
+                    Topology.Refresh();
+                }
+
+                break;
+
+            default:
+                break;
+        }
+    }
+
     /// <summary>当前**已生效**的应用设置（不是设置页草稿）。</summary>
     public ApplicationSettings GetCommittedSettings() => _query.GetSettings();
 
@@ -480,6 +588,15 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         if (string.Equals(value, ShellPages.Composite, StringComparison.Ordinal))
         {
             Composites.Activate();
+        }
+        else if (string.Equals(value, ShellPages.Catalog, StringComparison.Ordinal))
+        {
+            Catalog.Refresh();
+        }
+        else if (string.Equals(value, ShellPages.Interaction, StringComparison.Ordinal))
+        {
+            Windows.RefreshOverview();
+            RefreshDataTypeColors();
         }
     }
 
@@ -528,7 +645,11 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     /// <summary>按刷新节拍刷新（UI 线程；由外壳窗口的节拍器调用，测试可直接调用）。</summary>
     public void Refresh()
     {
-        Windows.Refresh();
+        // 监视器由同一个 60 Hz 节拍驱动，但内部限流到 1 Hz；不新增定时器，拖动早退时也能更新。
+        Performance.Tick();
+
+        // 模块数据/窗口/表面仍每拍刷新；窗口管理列表只在可见时重建。
+        Windows.Refresh(includeOverview: IsInteractionPage);
         RefreshAllLockedActionText();
 
         // 拖动/缩放期间只保留窗口自身状态：Catalog/Issue/拓扑/类型色与指针竞争同一帧，
@@ -545,14 +666,32 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
             Composites.Refresh();
         }
 
-        Catalog.Refresh();
-        Issues.Refresh();
+        // 只有当前可观察的列表/弹窗才重建整表；打开前由 SetDialogOpen 立即补一次。
+        if (IsCatalogPage || IsCatalogDialogOpen || IsTopologyOpen)
+        {
+            Catalog.Refresh();
+        }
 
-        // 拓扑**必须在这里一起刷新**：漏掉它时拓扑视图模型只被设计时样例与测试手工调用过
-        // ⇒ 弹窗打开后表格恒为空、摘要恒为「网络 0」（与是否建网无关）。
-        Topology.Refresh();
+        if (IsIssuesOpen)
+        {
+            Issues.Refresh();
+        }
+        else
+        {
+            // 状态栏计数仍每拍更新；完整 Issue 列表只在弹窗可见时拉取。
+            Issues.RefreshSummary();
+        }
 
-        RefreshDataTypeColors();
+        // 拓扑弹窗关闭时不可观察；打开时 SetDialogOpen 已立即刷新，之后仍每拍刷新。
+        if (IsTopologyOpen)
+        {
+            Topology.Refresh();
+        }
+
+        if (IsInteractionPage)
+        {
+            RefreshDataTypeColors();
+        }
 
         IssueCount = Issues.TotalCount;
         ErrorIssueCount = Issues.ErrorCount;
@@ -570,6 +709,19 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     public void LoadSettings()
     {
         Settings.Load();
+        Windows.RefreshSettings();
+        Performance.IsEnabled = Settings.ShowPerformanceMonitor;
+
+        _syncingSettings = true;
+        try
+        {
+            AppTopmost = Settings.AppTopmost;
+        }
+        finally
+        {
+            _syncingSettings = false;
+        }
+
         RefreshThemeWallpaper();
         Windows.ShowInfoOverlay = Settings.ShowInfoOverlay;
 

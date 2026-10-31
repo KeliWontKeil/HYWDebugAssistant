@@ -329,15 +329,34 @@ public sealed partial class IssuesPanelViewModel : ViewModelBase
     public string? SelectedDetailText => SelectedIssue?.ToDetailText();
 
     /// <summary>
-    /// 按刷新节拍拉取并更新（不重建行；不自动标已读）。
+    /// 只刷新全量计数（面板关闭时仍要维持状态栏计数，但不拉取/重建列表）。
     /// </summary>
-    public void Refresh()
+    public void RefreshSummary()
     {
         var summary = _query.GetIssueSummary();
+        var changed = TotalCount != summary.Total
+            || ErrorCount != summary.Error
+            || WarningCount != summary.Warning
+            || InfoCount != summary.Info;
+
         TotalCount = summary.Total;
         ErrorCount = summary.Error;
         WarningCount = summary.Warning;
         InfoCount = summary.Info;
+
+        if (changed)
+        {
+            OnPropertyChanged(nameof(Summary));
+            OnPropertyChanged(nameof(HasIssues));
+        }
+    }
+
+    /// <summary>
+    /// 按刷新节拍拉取并更新（不重建行；不自动标已读）。
+    /// </summary>
+    public void Refresh()
+    {
+        RefreshSummary();
 
         var instances = _query.GetInstances()
             .GroupBy(instance => instance.InstanceId, StringComparer.Ordinal)

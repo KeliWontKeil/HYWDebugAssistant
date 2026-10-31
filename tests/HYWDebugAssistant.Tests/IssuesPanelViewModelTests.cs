@@ -1,6 +1,8 @@
+using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.FrameworkUi.ViewModels;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Ui.Design;
+using NSubstitute;
 using Shouldly;
 using Xunit;
 
@@ -32,6 +34,22 @@ public class IssuesPanelViewModelTests
 
         issues.MarkAllReadCommand.Execute(null);
         issues.UnreadCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public void 只刷汇总时不应拉取完整Issue列表()
+    {
+        var query = Substitute.For<IRuntimeQuery>();
+        query.GetIssueSummary().Returns(new IssueSummaryView(Total: 7, Error: 3, Warning: 2, Info: 2));
+
+        var issues = new IssuesPanelViewModel(query, Substitute.For<IRuntimeCommand>());
+        issues.RefreshSummary();
+
+        issues.TotalCount.ShouldBe(7);
+        issues.ErrorCount.ShouldBe(3);
+        issues.WarningCount.ShouldBe(2);
+        issues.InfoCount.ShouldBe(2);
+        query.DidNotReceive().GetIssues(Arg.Any<int>());
     }
 
     [Fact]

@@ -258,12 +258,12 @@ public sealed class ExternalAccessPressureStatusTests
         module.OnWork();
 
         StateText(context).ShouldBe(
-            Text(SerialText.StatusReceiveLost),
+            Text(SerialText.StatusReceiveLost, 3),
             "接收侧丢过就要说一句，不能只把数字放进 drop 读数");
     }
 
     [Fact]
-    public void 状态行_发送失败带计数()
+    public void 状态行_发送失败给出提示()
     {
         var (context, module) = CreateSerial();
 
@@ -275,7 +275,7 @@ public sealed class ExternalAccessPressureStatusTests
     }
 
     [Fact]
-    public void 状态行_发送队列丢弃带计数()
+    public void 状态行_发送队列丢弃给出提示()
     {
         var (context, module) = CreateSerial();
 
@@ -319,7 +319,7 @@ public sealed class ExternalAccessPressureStatusTests
         module.OnWork();
 
         StateText(context).ShouldBe(
-            Text(SerialText.StatusReceiveLost),
+            Text(SerialText.StatusReceiveLost, 2),
             "接收侧先说话（与饱和的优先级一致）");
     }
 

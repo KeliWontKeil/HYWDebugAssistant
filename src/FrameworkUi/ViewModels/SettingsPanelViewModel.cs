@@ -108,9 +108,6 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     private readonly IRuntimeQuery _query;
     private readonly IRuntimeCommand _command;
 
-    /// <summary>最近一次载入/生效的设置快照（即时生效开关以此为基础，避免把未应用的编辑一起写盘）。</summary>
-    private ApplicationSettings? _lastLoaded;
-
     /// <summary>外观标量草稿：主题选择 + 跟随系统两套 + 已投放 + 字体；由「应用 / 确认」统一落盘。</summary>
     private AppearanceSettings _appearanceDraft = new();
 
@@ -270,6 +267,10 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     [ObservableProperty]
     public partial int UiRefreshRateHz { get; set; } = 60;
 
+    /// <summary>是否在侧栏底部显示轻量性能监视。</summary>
+    [ObservableProperty]
+    public partial bool ShowPerformanceMonitor { get; set; } = true;
+
     /// <summary>
     /// **吸附距离**（px，2–8，默认 4）——拖动时的「磁吸半径」：
     /// 越小越跟手（最多滞后一个容差就松手），越大越容易吸上；贴合（相邻边接触）用它的 2 倍。
@@ -278,95 +279,14 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     public partial double SnapDistance { get; set; } = 4;
 
     /// <summary>
-    /// **外壳视图模型**（这些「开关类」设置的**唯一事实源**）——
-    /// 交互页与设置页必须**完全联动**（各自持一份副本会让两边不一致 = 冲突）。
+    /// 设置页草稿：是否显示**叠加信息层**（应用/确认后落到运行时；交互页的直接开关是另一入口）。
     /// </summary>
-    public ShellViewModel? Owner { get; set; }
+    [ObservableProperty]
+    public partial bool ShowInfoOverlay { get; set; }
 
-    /// <summary>无 <see cref="Owner"/> 时的回退值（**默认关闭**）。</summary>
-    private bool _showInfoOverlayFallback;
-    private bool _appTopmostFallback;
-
-    /// <summary>
-    /// 是否显示**叠加信息层**——**与交互页同一个开关**：有 <see cref="Owner"/> 时以它为准。
-    /// </summary>
-    public bool ShowInfoOverlay
-    {
-        get => Owner?.ShowInfoOverlay ?? _showInfoOverlayFallback;
-        set
-        {
-            if (Owner is { } owner)
-            {
-                if (owner.ShowInfoOverlay == value)
-                {
-                    return;
-                }
-
-                owner.ShowInfoOverlay = value;
-            }
-            else
-            {
-                if (_showInfoOverlayFallback == value)
-                {
-                    return;
-                }
-
-                _showInfoOverlayFallback = value;
-            }
-
-            OnPropertyChanged();
-
-            if (!_loading)
-            {
-                PersistLiveSwitches();
-            }
-        }
-    }
-
-    /// <summary>应用整体置顶——**与交互页同一个开关**。</summary>
-    public bool AppTopmost
-    {
-        get => Owner?.AppTopmost ?? _appTopmostFallback;
-        set
-        {
-            if (Owner is { } owner)
-            {
-                if (owner.AppTopmost == value)
-                {
-                    return;
-                }
-
-                owner.AppTopmost = value;
-            }
-            else
-            {
-                if (_appTopmostFallback == value)
-                {
-                    return;
-                }
-
-                _appTopmostFallback = value;
-            }
-
-            OnPropertyChanged();
-
-            if (!_loading)
-            {
-                PersistLiveSwitches();
-            }
-        }
-    }
-
-    /// <summary>把"即时生效的开关"写回设置文件（点击即落盘，不需要按「应用」）。</summary>
-    private void PersistLiveSwitches()
-    {
-        var settings = _lastLoaded?.Clone() ?? _query.GetSettings();
-        settings.ShowInfoOverlay = ShowInfoOverlay;
-        settings.AppTopmost = AppTopmost;
-
-        _lastLoaded = settings;
-        _ = _command.UpdateSettings(settings);
-    }
+    /// <summary>设置页草稿：应用整体置顶（应用/确认后落到运行时）。</summary>
+    [ObservableProperty]
+    public partial bool AppTopmost { get; set; }
 
     // ---- 外壳尺寸 ----
 
@@ -1374,7 +1294,6 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         var settings = _query.GetSettings();
 
         _loading = true;
-        _lastLoaded = settings;
 
         QueueCapacity = settings.Flow.QueueCapacity;
         SelectedDropPolicy = DropPolicyChoices.FirstOrDefault(choice =>
@@ -1392,6 +1311,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         DeviceLostMisses = settings.Flow.DeviceLostMisses;
         AlignAutoNetworkEnabled = settings.AlignAutoNetworkEnabled;
         UiRefreshRateHz = settings.UiRefreshRateHz;
+        ShowPerformanceMonitor = settings.ShowPerformanceMonitor;
         SnapDistance = settings.SnapDistance;
         MultilineSubmitKey = settings.MultilineSubmitKey;
         ShowInfoOverlay = settings.ShowInfoOverlay;
@@ -1442,7 +1362,8 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         ThemeApplier.Apply(settings, _query.GetThemeFiles());
 
         _loading = false;
-        StatusMessage = null;
+        StatusIsOk = true;
+        StatusMessage = Loc("settings.footer.hint");
     }
 
     /// <summary>设置**应用成功**后触发（供外壳重建快捷键绑定、套用窗口层级等）。</summary>
@@ -1573,6 +1494,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         DeviceLostMisses = defaults.Flow.DeviceLostMisses;
         AlignAutoNetworkEnabled = defaults.AlignAutoNetworkEnabled;
         UiRefreshRateHz = defaults.UiRefreshRateHz;
+        ShowPerformanceMonitor = defaults.ShowPerformanceMonitor;
         SnapDistance = defaults.SnapDistance;
         MultilineSubmitKey = NormalizeSubmitKey(defaults.MultilineSubmitKey);
         ShowInfoOverlay = defaults.ShowInfoOverlay;
@@ -1675,6 +1597,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
 
         settings.AlignAutoNetworkEnabled = AlignAutoNetworkEnabled;
         settings.UiRefreshRateHz = UiRefreshRateHz;
+        settings.ShowPerformanceMonitor = ShowPerformanceMonitor;
         settings.SnapDistance = Math.Clamp(SnapDistance, 2, 8);
         settings.MultilineSubmitKey = NormalizeSubmitKey(MultilineSubmitKey);
         settings.ShowInfoOverlay = ShowInfoOverlay;

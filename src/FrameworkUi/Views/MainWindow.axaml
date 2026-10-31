@@ -104,67 +104,117 @@
                 Background="{DynamicResource BgChrome}"
                 BorderBrush="{DynamicResource BorderDefault}"
                 BorderThickness="0,0,1,0">
-            <StackPanel Name="RailButtons" Orientation="Vertical" Spacing="2" Margin="2,6">
-                <Button Classes="rail" Classes.active="{Binding IsCatalogPage}"
-                        Command="{Binding ShowPageCommand}" CommandParameter="catalog"
-                        ToolTip.Tip="{loc:Tr shell.rail.catalog.tip}">
-                    <Grid ColumnDefinitions="3,*">
-                        <Rectangle Grid.Column="0" Classes="railMark" Classes.active="{Binding IsCatalogPage}" />
-                        <uc:Glyph Grid.Column="1" Classes="icon" Icon="{x:Static uc:ShellIcons.Modules}" />
-                    </Grid>
-                </Button>
+            <Grid RowDefinitions="*,Auto">
+                <StackPanel Name="RailButtons" Grid.Row="0"
+                            Orientation="Vertical" Spacing="2" Margin="2,6"
+                            VerticalAlignment="Top">
+                    <Button Classes="rail" Classes.active="{Binding IsCatalogPage}"
+                            Command="{Binding ShowPageCommand}" CommandParameter="catalog"
+                            ToolTip.Tip="{loc:Tr shell.rail.catalog.tip}">
+                        <Grid ColumnDefinitions="3,*">
+                            <Rectangle Grid.Column="0" Classes="railMark" Classes.active="{Binding IsCatalogPage}" />
+                            <uc:Glyph Grid.Column="1" Classes="icon" Icon="{x:Static uc:ShellIcons.Modules}" />
+                        </Grid>
+                    </Button>
 
-                <Button Classes="rail" Classes.active="{Binding IsCompositePage}"
-                        Command="{Binding ShowPageCommand}" CommandParameter="composite"
-                        ToolTip.Tip="{loc:Tr shell.rail.composite.tip}">
-                    <Grid ColumnDefinitions="3,*">
-                        <Rectangle Grid.Column="0" Classes="railMark" Classes.active="{Binding IsCompositePage}" />
-                        <uc:Glyph Grid.Column="1" Classes="icon" Icon="{x:Static uc:ShellIcons.Composite}" />
-                    </Grid>
-                </Button>
+                    <Button Classes="rail" Classes.active="{Binding IsCompositePage}"
+                            Command="{Binding ShowPageCommand}" CommandParameter="composite"
+                            ToolTip.Tip="{loc:Tr shell.rail.composite.tip}">
+                        <Grid ColumnDefinitions="3,*">
+                            <Rectangle Grid.Column="0" Classes="railMark" Classes.active="{Binding IsCompositePage}" />
+                            <uc:Glyph Grid.Column="1" Classes="icon" Icon="{x:Static uc:ShellIcons.Composite}" />
+                        </Grid>
+                    </Button>
 
-                <Button Classes="rail" Classes.active="{Binding IsInteractionPage}"
-                        Command="{Binding ShowPageCommand}" CommandParameter="interaction"
-                        ToolTip.Tip="{loc:Tr shell.rail.interaction.tip}">
-                    <Grid ColumnDefinitions="3,*">
-                        <Rectangle Grid.Column="0" Classes="railMark" Classes.active="{Binding IsInteractionPage}" />
-                        <uc:Glyph Grid.Column="1" Classes="icon" Icon="{x:Static uc:ShellIcons.Interaction}" />
-                    </Grid>
-                </Button>
+                    <Button Classes="rail" Classes.active="{Binding IsInteractionPage}"
+                            Command="{Binding ShowPageCommand}" CommandParameter="interaction"
+                            ToolTip.Tip="{loc:Tr shell.rail.interaction.tip}">
+                        <Grid ColumnDefinitions="3,*">
+                            <Rectangle Grid.Column="0" Classes="railMark" Classes.active="{Binding IsInteractionPage}" />
+                            <uc:Glyph Grid.Column="1" Classes="icon" Icon="{x:Static uc:ShellIcons.Interaction}" />
+                        </Grid>
+                    </Button>
 
-                <Rectangle Height="1" Margin="6,4" Fill="{DynamicResource BorderDefault}" />
+                    <Rectangle Height="1" Margin="6,4" Fill="{DynamicResource BorderDefault}" />
 
-                <Button Classes="rail" Click="OnOpenTopology" ToolTip.Tip="{loc:Tr shell.rail.topology.tip}">
-                    <uc:Glyph Classes="icon" Icon="{x:Static uc:ShellIcons.Topology}" />
-                </Button>
+                    <Button Classes="rail" Click="OnOpenTopology" ToolTip.Tip="{loc:Tr shell.rail.topology.tip}">
+                        <uc:Glyph Classes="icon" Icon="{x:Static uc:ShellIcons.Topology}" />
+                    </Button>
 
-                <Button Classes="rail" Click="OnOpenIssues" ToolTip.Tip="{Binding IssueBadgeToolTip}">
-                    <Grid ColumnDefinitions="3,*">
-                        <uc:Glyph Grid.Column="1" Classes="icon" Icon="{x:Static uc:ShellIcons.Issue}" />
-                        <Border Grid.Column="1"
-                                Classes="issueBadge"
-                                IsVisible="{Binding HasErrors}"
-                                CornerRadius="7"
-                                MinWidth="14" Height="14"
-                                HorizontalAlignment="Right" VerticalAlignment="Top"
-                                Margin="0,3,3,0">
-                            <TextBlock FontSize="9"
-                                       Foreground="White"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       Text="{Binding ErrorIssueCount}" />
-                        </Border>
-                    </Grid>
-                </Button>
+                    <Button Classes="rail" Click="OnOpenIssues" ToolTip.Tip="{Binding IssueBadgeToolTip}">
+                        <Grid ColumnDefinitions="3,*">
+                            <uc:Glyph Grid.Column="1" Classes="icon" Icon="{x:Static uc:ShellIcons.Issue}" />
+                            <Border Grid.Column="1"
+                                    Classes="issueBadge"
+                                    IsVisible="{Binding HasErrors}"
+                                    CornerRadius="7"
+                                    MinWidth="14" Height="14"
+                                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                                    Margin="0,3,3,0">
+                                <TextBlock FontSize="9"
+                                           Foreground="White"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Text="{Binding ErrorIssueCount}" />
+                            </Border>
+                        </Grid>
+                    </Button>
 
-                <Button Classes="rail" Click="OnOpenSettings" ToolTip.Tip="{loc:Tr shell.rail.settings.tip}">
-                    <uc:Glyph Classes="icon" Icon="{x:Static uc:ShellIcons.Settings}" />
-                </Button>
+                    <Button Classes="rail" Click="OnOpenSettings" ToolTip.Tip="{loc:Tr shell.rail.settings.tip}">
+                        <uc:Glyph Classes="icon" Icon="{x:Static uc:ShellIcons.Settings}" />
+                    </Button>
 
-                <Button Classes="rail" Click="OnShowAbout" ToolTip.Tip="{loc:Tr shell.rail.about.tip}">
-                    <uc:Glyph Classes="icon" Icon="{x:Static uc:ShellIcons.Help}" />
-                </Button>
-            </StackPanel>
+                    <Button Classes="rail" Click="OnShowAbout" ToolTip.Tip="{loc:Tr shell.rail.about.tip}">
+                        <uc:Glyph Classes="icon" Icon="{x:Static uc:ShellIcons.Help}" />
+                    </Button>
+                </StackPanel>
+
+                <!--
+                  侧栏底部性能监视：1 Hz 文本，窄栏内只放四行；鼠标指向任一行时在右侧展开完整口径。
+                  ToolTip 逐行挂：Avalonia 的指针命中落在 TextBlock 上，不能只挂在父 StackPanel 上。
+                -->
+                <Border Grid.Row="1"
+                        Margin="1,0,1,6"
+                        Background="Transparent"
+                        IsVisible="{Binding Performance.IsEnabled}"
+                        ToolTip.Tip="{Binding Performance.Tooltip}"
+                        ToolTip.Placement="Right">
+                    <StackPanel Spacing="0">
+                        <TextBlock Name="PerformanceCpu"
+                                   FontSize="8"
+                                   HorizontalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource TextSecondary}"
+                                   Text="{Binding Performance.CpuText}"
+                                   ToolTip.Tip="{Binding Performance.Tooltip}"
+                                   ToolTip.Placement="Right" />
+                        <TextBlock Name="PerformanceMemory"
+                                   FontSize="8"
+                                   HorizontalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource TextSecondary}"
+                                   Text="{Binding Performance.MemoryText}"
+                                   ToolTip.Tip="{Binding Performance.Tooltip}"
+                                   ToolTip.Placement="Right" />
+                        <TextBlock Name="PerformanceThreads"
+                                   FontSize="8"
+                                   HorizontalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource TextSecondary}"
+                                   Text="{Binding Performance.ThreadText}"
+                                   ToolTip.Tip="{Binding Performance.Tooltip}"
+                                   ToolTip.Placement="Right" />
+                        <TextBlock Name="PerformanceGc"
+                                   FontSize="8"
+                                   HorizontalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource TextSecondary}"
+                                   Text="{Binding Performance.GcText}"
+                                   ToolTip.Tip="{Binding Performance.Tooltip}"
+                                   ToolTip.Placement="Right" />
+                    </StackPanel>
+                </Border>
+            </Grid>
         </Border>
 
         <!-- ==================== B 区：侧边界面 ==================== -->

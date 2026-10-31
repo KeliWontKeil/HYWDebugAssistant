@@ -791,7 +791,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
         {
             context.Log.Log(
                 ModuleLogLevel.Information,
-                Tr(HexSenderText.StatusSplitPackets, packets));
+                Tr(HexSenderText.StatusSplitPackets, packets, TextCapacity));
         }
 
         return packets > 0;

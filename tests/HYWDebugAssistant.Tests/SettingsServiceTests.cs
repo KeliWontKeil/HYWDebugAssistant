@@ -847,6 +847,28 @@ public class SettingsServiceTests
         }
     }
 
+    [Fact]
+    public void 性能监视开关_默认开启且可落盘往返()
+    {
+        using var scope = new SettingsScope();
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load();
+
+        service.Current.ShowPerformanceMonitor.ShouldBeTrue("新增设置项默认开启");
+
+        var updated = service.Current.Clone();
+        updated.ShowPerformanceMonitor = false;
+        service.Update(updated).Succeeded.ShouldBeTrue();
+
+        var root = JsonNode.Parse(File.ReadAllText(scope.SettingsPath))!.AsObject();
+        root["showPerformanceMonitor"]!.GetValue<bool>().ShouldBeFalse();
+
+        var reloaded = new SettingsService(runtime, scope.SettingsPath);
+        reloaded.Load();
+        reloaded.Current.ShowPerformanceMonitor.ShouldBeFalse();
+    }
+
     /// <summary>测试用临时目录（设置文件路径；主题根会落在同级的 `appearance\themes`）。</summary>
     private sealed class SettingsScope : IDisposable
     {

@@ -85,6 +85,28 @@ public static class WallpaperImageCache
         return Create(bitmap, key);
     }
 
+    /// <summary>
+    /// 移除某个模块实例的全部壁纸缓存（**只丢字典引用，不 Dispose 图片**）。
+    /// </summary>
+    /// <param name="instanceId">模块实例 ID。</param>
+    /// <remarks>
+    /// 关闭模块或换壁纸后，旧画刷可能仍被已绑定的视觉短暂持有；此时 Dispose 会让仍在绘制的一帧用坏图，
+    /// 因此这里只让缓存不再持有它，等界面释放后由 GC 回收。
+    /// </remarks>
+    public static void EvictModule(string instanceId)
+    {
+        if (string.IsNullOrWhiteSpace(instanceId))
+        {
+            return;
+        }
+
+        var prefix = "bytes:module:" + instanceId + ":";
+        foreach (var key in Cache.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+        {
+            _ = Cache.Remove(key);
+        }
+    }
+
     private static ImageBrush Create(Bitmap bitmap, string key)
     {
         var brush = new ImageBrush(bitmap)

@@ -100,7 +100,7 @@ public sealed class SerialModule : ExternalAccessModule
     {
         var endpoint = EndpointText(snapshot.Endpoint);
 
-        var text = snapshot.State switch
+        return snapshot.State switch
         {
             ExternalAccessState.Open => endpoint.Length == 0
                 ? Tr(SerialText.StatusOpened)
@@ -110,12 +110,12 @@ public sealed class SerialModule : ExternalAccessModule
                 : Tr(SerialText.StatusOpeningDetail, endpoint),
             ExternalAccessState.Closing => Tr(SerialText.StatusClosing),
             ExternalAccessState.Faulted => FailureText(snapshot),
-            _ => snapshot.Suspended ? Tr(SerialText.StatusSuspended) : Tr(SerialText.StatusIdle),
+            _ => snapshot.Suspended
+                ? Tr(SerialText.StatusSuspended)
+                : snapshot.RejectedSinceOpen > 0
+                    ? Tr(SerialText.StatusRejected, snapshot.RejectedSinceOpen)
+                    : Tr(SerialText.StatusIdle),
         };
-
-        return snapshot.RejectedSinceOpen > 0 && snapshot.State != ExternalAccessState.Open
-            ? text + Tr(SerialText.StatusRejectedSuffix, snapshot.RejectedSinceOpen)
-            : text;
     }
 
     /// <summary>按失败种类从本模块表取句子（未覆盖的种类走未知回退）。</summary>
@@ -140,7 +140,7 @@ public sealed class SerialModule : ExternalAccessModule
         in PortFlowState sendFlow,
         ExternalAccessSnapshot snapshot) => kind switch
         {
-            PressureKind.ReceiveLost => Tr(SerialText.StatusReceiveLost),
+            PressureKind.ReceiveLost => Tr(SerialText.StatusReceiveLost, snapshot.ReceiveDroppedSinceOpen),
             PressureKind.SendLost => Tr(SerialText.StatusSendLost),
             PressureKind.SendBacklogged => Tr(SerialText.StatusTxBacklog, snapshot.SendBacklogDepth),
             PressureKind.ReceiveSaturated => Tr(SerialText.StatusRxSaturated, snapshot.ReceiveQueueDepth),

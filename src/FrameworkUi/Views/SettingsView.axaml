@@ -44,6 +44,16 @@
             <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
         </Style>
 
+        <!--
+          设置页分栏规则：多段页面从第 2 段起、在段标题前画同一条细分隔线；
+          单段页面（通信 / 存储 / 快捷键 / 关于）不画顶部线。
+        -->
+        <Style Selector="Rectangle.settingsRule">
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Margin" Value="0,4" />
+            <Setter Property="Fill" Value="{DynamicResource BorderDefault}" />
+        </Style>
+
         <!-- 主题卡：固定尺寸；选中 = 主题色边框 + 淡主题色底 -->
         <Style Selector="Button.themeCard">
             <Setter Property="Width" Value="132" />
@@ -138,7 +148,8 @@
                                   IsChecked="{Binding AlignAutoNetworkEnabled, Mode=TwoWay}"
                                   ToolTip.Tip="{loc:Tr settings.general.alignAutoNetwork.tip}" />
 
-                        <TextBlock Classes="sec" Margin="0,8,0,0" Text="{loc:Tr settings.general.performance.title}" />
+                        <Rectangle Classes="settingsRule" />
+                        <TextBlock Classes="sec" Text="{loc:Tr settings.general.performance.title}" />
                         <Grid ColumnDefinitions="170,190,*">
                             <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                        ToolTip.Tip="{loc:Tr settings.general.refreshRate.tip}"
@@ -147,8 +158,11 @@
                             <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
                                      Text="{Binding UiRefreshRateHz, Mode=TwoWay}" />
                         </Grid>
+                        <ui:UiToggle Content="{loc:Tr settings.general.performanceMonitor.label}"
+                                     IsChecked="{Binding ShowPerformanceMonitor, Mode=TwoWay}"
+                                     ToolTip.Tip="{loc:Tr settings.general.performanceMonitor.tip}" />
 
-                        <Rectangle Height="1" Margin="0,4" Fill="{DynamicResource BorderDefault}" />
+                        <Rectangle Classes="settingsRule" />
 
                         <TextBlock Classes="sec" Text="{loc:Tr settings.general.logs.title}" />
                         <Grid ColumnDefinitions="170,190,*">
@@ -305,7 +319,7 @@
                         </Grid>
                         <TextBlock Classes="note" Text="{loc:Tr appearance.font.note}" />
 
-                        <Rectangle Height="1" Margin="0,4" Fill="{DynamicResource BorderDefault}" />
+                        <Rectangle Classes="settingsRule" />
 
                         <TextBlock Classes="sec" Text="{loc:Tr appearance.theme.section}" />
 
@@ -402,7 +416,7 @@
                         <TextBlock Classes="note"
                                    Text="{loc:Tr appearance.theme.note}" />
 
-                        <Rectangle Height="1" Margin="0,4" Fill="{DynamicResource BorderDefault}" />
+                        <Rectangle Classes="settingsRule" />
 
                         <TextBlock Classes="sec" Text="{loc:Tr appearance.wallpaper.section}" />
                         <Grid ColumnDefinitions="132,*" ColumnSpacing="10">
@@ -455,7 +469,7 @@
                         </Grid>
                         <TextBlock Classes="note" Text="{loc:Tr appearance.surface.note}" />
 
-                        <Rectangle Height="1" Margin="0,4" Fill="{DynamicResource BorderDefault}" />
+                        <Rectangle Classes="settingsRule" />
 
                         <StackPanel Spacing="2">
                             <TextBlock Classes="sec" Text="{loc:Tr appearance.palette.section}" />
@@ -524,7 +538,7 @@
                                   ToolTip.Tip="{loc:Tr settings.interaction.topmost.tip}" />
                         <TextBlock Classes="note" Text="{loc:Tr settings.interaction.window.note}" />
 
-                        <Rectangle Height="1" Margin="0,4" Fill="{DynamicResource BorderDefault}" />
+                        <Rectangle Classes="settingsRule" />
 
                         <TextBlock Classes="sec" Text="{loc:Tr settings.interaction.display.section}" />
                         <ui:UiToggle Content="{loc:Tr settings.interaction.overlay.label}"
@@ -546,7 +560,7 @@
                                       SelectedItem="{Binding MultilineSubmitKey, Mode=TwoWay}" />
                         </Grid>
 
-                        <Rectangle Height="1" Margin="0,4" Fill="{DynamicResource BorderDefault}" />
+                        <Rectangle Classes="settingsRule" />
 
                         <TextBlock Classes="sec" Text="{loc:Tr settings.interaction.shell.section}" />
                         <Grid ColumnDefinitions="170,190,Auto">

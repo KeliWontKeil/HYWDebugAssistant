@@ -576,7 +576,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
             // 外部 IO 的失败**就地反馈**（不逸出）：路径不可写 / 被占用 / 非法
-            LastSaveFailure = Tr(DataMonitorText.StatusSaveError, ex.GetType().Name, ex.Message);
+            LastSaveFailure = Tr(DataMonitorText.StatusSaveError, ex.Message);
             context.Issues.Report(new IssueReport(
                 IssueCategory.ModuleError,
                 IssueSeverity.Warning,

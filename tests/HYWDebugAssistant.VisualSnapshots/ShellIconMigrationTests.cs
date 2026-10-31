@@ -170,6 +170,12 @@ public sealed class ShellIconMigrationTests
                     "活动栏 7 个入口的图标键按声明顺序");
                 glyphs.ShouldAllBe(glyph => !string.IsNullOrEmpty(glyph.IconKey), "每个入口都必须真的把键交给图标控件");
 
+                // 侧栏底部的性能监视四行已接上数据源（不在这里断言具体 CPU/内存数值）。
+                AssertPerformanceLine(window, "PerformanceCpu");
+                AssertPerformanceLine(window, "PerformanceMemory");
+                AssertPerformanceLine(window, "PerformanceThreads");
+                AssertPerformanceLine(window, "PerformanceGc");
+
                 // 活动栏是**导航**：不盒装（静止透明、指向浅底、选中浅主色），但按下要有反馈。
                 // 取一个**未选中**的入口：选中的那一个自带 OverlaySelection 底（那不是"盒子"，是选中态）。
                 var railButton = rail.GetVisualDescendants()
@@ -400,6 +406,15 @@ public sealed class ShellIconMigrationTests
                 }
             },
             CancellationToken.None);
+    }
+
+    private static void AssertPerformanceLine(Window window, string name)
+    {
+        var line = window.GetVisualDescendants()
+            .OfType<TextBlock>()
+            .Single(text => text.Name == name);
+        line.Text.ShouldNotBeNullOrWhiteSpace();
+        (ToolTip.GetTip(line) as string).ShouldNotBeNullOrWhiteSpace("每行都必须挂完整口径，鼠标指向时才展开");
     }
 
     private static IconButton ButtonNamed(Window window, string name) =>

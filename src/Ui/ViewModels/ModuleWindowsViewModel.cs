@@ -92,6 +92,30 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <summary>上一次看到的**拓扑结构签名**（网络成员 + 口标签）——变了就立刻刷新连接状态与角色投影。</summary>
     private string _structureSignature = string.Empty;
 
+    /// <summary>当前生效设置的本地快照；只在启动/应用设置时重读，避免每帧深拷贝。</summary>
+    private ApplicationSettings? _settings;
+
+    /// <summary>本拍结构签名是否变化（决定对端文本与连接指标是否要重算）。</summary>
+    private bool _structureChanged;
+
+    /// <summary>对端文本是否尚未建立/已失效（首次与结构变化后为 true）。</summary>
+    private bool _peersDirty = true;
+
+    /// <summary>窗口管理行按实例索引（避免每帧线性查找与 O(n²) 清理）。</summary>
+    private readonly Dictionary<string, ModuleOverviewRowViewModel> _overviewById = new(StringComparer.Ordinal);
+
+    /// <summary>本拍已见实例（复用集合，避免每帧新建）。</summary>
+    private readonly HashSet<string> _seenInstances = new(StringComparer.Ordinal);
+
+    /// <summary>本拍布局快照（复用字典）。</summary>
+    private readonly Dictionary<string, ModuleLayoutView> _layoutById = new(StringComparer.Ordinal);
+
+    /// <summary>本拍新出现的实例（复用列表；只有增删时才需要组级落位判断）。</summary>
+    private readonly List<ModuleInstanceView> _incomingInstances = [];
+
+    /// <summary>上次已向界面通知的模块数（只在数量真变时发通知）。</summary>
+    private int _lastModuleCount = -1;
+
     /// <summary>本次拖动**起点**的各成员几何（拖动中按 Ctrl 拆分时用来"放回原位"）。</summary>
     private readonly Dictionary<string, CanvasRect> _dragStartRects = new(StringComparer.Ordinal);
 
@@ -566,12 +590,33 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     // ---------------------------------------------------------------- 刷新
 
     /// <summary>按刷新节拍拉取一次（**UI 线程**）：同步模块、刷新数据、更新叠加信息层。</summary>
-    public void Refresh()
+    /// <param name="includeOverview">
+    /// 是否同时刷新「窗口管理」行；默认 <see langword="true"/>。交互页不可见时外壳可传
+    /// <see langword="false"/>，页面重新激活时再调用 <see cref="RefreshOverview"/> ——
+    /// 模块数据与可视化本身仍每拍刷新，频率不变。
+    /// </param>
+    public void Refresh(bool includeOverview = true)
     {
+        // 网络快照每拍只取一次：结构签名、对端文本与指标共用同一批事实。
+        var networks = _query.GetNetworks();
+
         SyncModules();
-        RefreshSubscriptions();
-        RefreshOverlayPeers();
-        RefreshOverview();
+        RefreshSubscriptions(networks);
+        RefreshOverlayPeers(networks);
+
+        if (includeOverview)
+        {
+            RefreshOverview();
+        }
+    }
+
+    /// <summary>重新读取应用级设置快照（启动、设置应用后调用；不在每帧重复深拷贝）。</summary>
+    public void RefreshSettings()
+    {
+        _settings = _query.GetSettings();
+        RefreshRateHz = _settings.UiRefreshRateHz;
+        SnapDistance = Math.Clamp(_settings.SnapDistance, 2, 8);
+        MultilineSubmitKey = _settings.MultilineSubmitKey;
     }
 
     /// <summary>
@@ -582,11 +627,23 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// 不读标记上的"对端方位/是否贴合"（那是同一事实的第二个来源，故不留那三个字段）。
     /// 本方法现在只做两件事：① 把叠加层开关下发到每个模块；② 给悬停提示填一句"对端是谁"。
     /// </remarks>
-    private void RefreshOverlayPeers()
+    private void RefreshOverlayPeers(IReadOnlyList<NetworkView> networks)
     {
+        // 开关是标量，必须每拍下发（值相同时生成属性不会重复通知）；它不依赖拓扑结构。
+        foreach (var module in Modules)
+        {
+            module.ShowInfoOverlay = ShowInfoOverlay;
+            module.MultilineSubmitKey = MultilineSubmitKey;
+        }
+
+        if (!_structureChanged && !_peersDirty)
+        {
+            return;
+        }
+
         var peers = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        foreach (var network in _query.GetNetworks())
+        foreach (var network in networks)
         {
             if (network.IsStalled)
             {
@@ -620,15 +677,14 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         foreach (var module in Modules)
         {
-            module.ShowInfoOverlay = ShowInfoOverlay;
-            module.MultilineSubmitKey = MultilineSubmitKey;
-
             foreach (var marker in module.Ports)
             {
                 _ = peers.TryGetValue($"{marker.InstanceId}.{marker.PortName}", out var peer);
                 marker.PeerText = peer;
             }
         }
+
+        _peersDirty = false;
     }
 
     /// <summary>
@@ -837,14 +893,17 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>按当前事实增量刷新窗口管理列表（不重建行对象）。</summary>
-    private void RefreshOverview()
+    public void RefreshOverview()
     {
+        var changed = false;
+
         foreach (var module in Modules)
         {
+            var wasOffScreen = module.IsOffScreen;
             module.IsOffScreen = !IsModuleOnScreen(module.Rect);
+            changed |= wasOffScreen != module.IsOffScreen;
 
-            var row = Overview.FirstOrDefault(item => string.Equals(item.InstanceId, module.InstanceId, StringComparison.Ordinal));
-            if (row is null)
+            if (!_overviewById.TryGetValue(module.InstanceId, out var row))
             {
                 row = new ModuleOverviewRowViewModel(
                     module.InstanceId,
@@ -855,6 +914,21 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                     ToggleLock,
                     CloseModule);
                 Overview.Add(row);
+                _overviewById[module.InstanceId] = row;
+                changed = true;
+            }
+
+            var rowChanged = !string.Equals(row.Title, module.Title, StringComparison.Ordinal)
+                || row.State != module.State
+                || row.IsViewVisible != module.IsViewVisible
+                || row.IsLocked != module.IsLocked
+                || row.IsPlaceholder != module.IsPlaceholder
+                || row.IsOffScreen != module.IsOffScreen
+                || row.HasWindow != module.HasWindow;
+
+            if (!rowChanged)
+            {
+                continue;
             }
 
             row.Update(
@@ -866,14 +940,30 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 module.IsPlaceholder,
                 module.IsOffScreen,
                 module.HasWindow);
+            changed = true;
         }
 
-        for (var index = Overview.Count - 1; index >= 0; index--)
+        // 行数应当与模块数一致；只有不一致（直接调用本方法、尚未经过 SyncModules）才需要集合对账。
+        if (Overview.Count != Modules.Count)
         {
-            if (Modules.All(module => !string.Equals(module.InstanceId, Overview[index].InstanceId, StringComparison.Ordinal)))
+            var live = new HashSet<string>(Modules.Select(module => module.InstanceId), StringComparer.Ordinal);
+            for (var index = Overview.Count - 1; index >= 0; index--)
             {
+                var row = Overview[index];
+                if (live.Contains(row.InstanceId))
+                {
+                    continue;
+                }
+
+                _ = _overviewById.Remove(row.InstanceId);
                 Overview.RemoveAt(index);
+                changed = true;
             }
+        }
+
+        if (!changed)
+        {
+            return;
         }
 
         OnPropertyChanged(nameof(OverviewSummary));
@@ -2206,6 +2296,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         var baseY = shell is { } s2 ? s2.Y : PlaceOrigin;
         var work = WorkArea is { IsValid: true } area ? area : (CanvasRect?)null;
 
+        // 外壳靠近工作区下沿时，按外壳上沿起排会把模块放到屏幕外；先夹到还能容纳一行的高度。
+        if (work is { } workArea && baseY + height > workArea.Bottom)
+        {
+            baseY = Math.Max(workArea.Top, workArea.Bottom - height);
+        }
+
         var x = baseX;
         var y = baseY;
 
@@ -2213,8 +2309,15 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         {
             if (work is { } area2 && y + height > area2.Bottom)
             {
-                // 一列到底 → 换右边一列
-                x += width + PlaceGap;
+                // 起始行本身就放不下 ⇒ 换列也不会变好；继续加 X 只会在屏幕上横向跑出巨大间隔。
+                if (y <= baseY + 0.5)
+                {
+                    return (x, y);
+                }
+
+                // 本列已到底 → 换右边一列。列宽不能只按声明宽度算：实际窗口宽 = 内容最小宽 + chrome，
+                // 若按声明宽度步进，实际只剩不到 PlaceGap 的缝，会被碰撞判定当成仍重叠，进而多跳一列。
+                x = CurrentColumnRight(x, width) + PlaceGap;
                 y = baseY;
             }
 
@@ -2228,6 +2331,36 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         return (x, y);
+    }
+
+    /// <summary>
+    /// 当前列实际占用的右边界：取候选宽与**本列已有模块真实宽度**的较大者。
+    /// </summary>
+    /// <param name="columnLeft">列左边界（DIP）。</param>
+    /// <param name="nominalWidth">候选模块声明宽度（DIP）。</param>
+    /// <returns>本列右边界（DIP）。</returns>
+    private double CurrentColumnRight(double columnLeft, double nominalWidth)
+    {
+        var right = columnLeft + Math.Max(1, nominalWidth);
+
+        foreach (var module in Modules)
+        {
+            var moduleWidth = module.Width > 0 ? module.Width : module.PreferredWidth;
+            if (moduleWidth <= 0)
+            {
+                continue;
+            }
+
+            var moduleRight = module.X + moduleWidth;
+
+            // 只吸收与本列横向相交的模块；右侧后续列不参与本次列宽。
+            if (module.X < right + PlaceGap && moduleRight > right)
+            {
+                right = moduleRight;
+            }
+        }
+
+        return right;
     }
 
     /// <summary>候选矩形与现有模块相交时，返回最低的相交下沿；不相交 = null。</summary>
@@ -2293,59 +2426,23 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     private void SyncModules()
     {
         var instances = _query.GetInstances();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var index = 0;
+        var modulesChanged = false;
 
         // **加载组合时布局必须先于窗口创建**：新窗口若先按 NextPlacement 建、再应用布局，
         // ModuleWindowManager 会在 Opened 时用初摆位置写回布局，覆盖刚恢复的位置。
-        var layoutById = new Dictionary<string, ModuleLayoutView>(StringComparer.Ordinal);
+        _layoutById.Clear();
         foreach (var layout in _query.GetLayout())
         {
-            layoutById[layout.InstanceId] = layout;
+            _layoutById[layout.InstanceId] = layout;
         }
 
-        // **组合件整组落位**：文件里的位置是组内相对关系。现场非空时，若整组与现有模块相交，
-        // 就像单个新模块一样找一块空地，再整体平移；空现场则保留文件里的绝对位置。
-        // 平移量写回布局，避免下一次刷新又按文件原位置覆盖。
-        var incoming = instances.Where(instance => Find(instance.InstanceId) is null).ToList();
-        var incomingLayouts = incoming
-            .Select(instance => layoutById.TryGetValue(instance.InstanceId, out var layout) ? layout : null)
-            .ToList();
-
-        if (Modules.Count > 0
-            && incoming.Count > 0
-            && incomingLayouts.All(layout => layout is not null))
-        {
-            var minX = incomingLayouts.Min(layout => layout!.X);
-            var minY = incomingLayouts.Min(layout => layout!.Y);
-            var maxX = incomingLayouts.Max(layout => layout!.X + layout.Width);
-            var maxY = incomingLayouts.Max(layout => layout!.Y + layout.Height);
-            var width = Math.Max(1, maxX - minX);
-            var height = Math.Max(1, maxY - minY);
-
-            if (OverlapsAnyModule(minX, minY, width, height))
-            {
-                var placement = NextPlacementForSize(width, height);
-                var dx = placement.X - minX;
-                var dy = placement.Y - minY;
-                var shifted = incomingLayouts
-                    .Select(layout => layout! with { X = layout.X + dx, Y = layout.Y + dy })
-                    .ToList();
-
-                if (_command.UpdateModuleLayouts(shifted).Succeeded)
-                {
-                    foreach (var layout in shifted)
-                    {
-                        layoutById[layout.InstanceId] = layout;
-                    }
-                }
-            }
-        }
+        // 先把已存在的实例就地更新，并收集本拍新出现的实例；只有真正的新实例才做组级落位判断。
+        _seenInstances.Clear();
+        _incomingInstances.Clear();
 
         foreach (var instance in instances)
         {
-            _ = seen.Add(instance.InstanceId);
-            index++;
+            _ = _seenInstances.Add(instance.InstanceId);
 
             if (Find(instance.InstanceId) is { } existing)
             {
@@ -2353,8 +2450,51 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 continue;
             }
 
+            _incomingInstances.Add(instance);
+        }
+
+        // **组合件整组落位**：文件里的位置是组内相对关系。现场非空时，若整组与现有模块相交，
+        // 就像单个新模块一样找一块空地，再整体平移；空现场则保留文件里的绝对位置。
+        // 平移量写回布局，避免下一次刷新又按文件原位置覆盖。
+        if (Modules.Count > 0 && _incomingInstances.Count > 0)
+        {
+            var incomingLayouts = _incomingInstances
+                .Select(instance => _layoutById.TryGetValue(instance.InstanceId, out var layout) ? layout : null)
+                .ToList();
+
+            if (incomingLayouts.All(layout => layout is not null))
+            {
+                var minX = incomingLayouts.Min(layout => layout!.X);
+                var minY = incomingLayouts.Min(layout => layout!.Y);
+                var maxX = incomingLayouts.Max(layout => layout!.X + layout.Width);
+                var maxY = incomingLayouts.Max(layout => layout!.Y + layout.Height);
+                var width = Math.Max(1, maxX - minX);
+                var height = Math.Max(1, maxY - minY);
+
+                if (OverlapsAnyModule(minX, minY, width, height))
+                {
+                    var placement = NextPlacementForSize(width, height);
+                    var dx = placement.X - minX;
+                    var dy = placement.Y - minY;
+                    var shifted = incomingLayouts
+                        .Select(layout => layout! with { X = layout.X + dx, Y = layout.Y + dy })
+                        .ToList();
+
+                    if (_command.UpdateModuleLayouts(shifted).Succeeded)
+                    {
+                        foreach (var layout in shifted)
+                        {
+                            _layoutById[layout.InstanceId] = layout;
+                        }
+                    }
+                }
+            }
+        }
+
+        foreach (var instance in _incomingInstances)
+        {
             // 有已保存布局 ⇒ 直接消费；只有真正的新实例才使用错位摆放。
-            _ = layoutById.TryGetValue(instance.InstanceId, out var savedLayout);
+            _ = _layoutById.TryGetValue(instance.InstanceId, out var savedLayout);
             var placement = savedLayout is null ? NextPlacement(instance) : (X: 0.0, Y: 0.0);
 
             var created = new ModuleViewViewModel(
@@ -2370,6 +2510,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             };
 
             Modules.Add(created);
+            modulesChanged = true;
 
             // 组合页已经初始化过选择 ⇒ 新加入的模块默认进入选择集（刚加的通常就是要保存的）。
             if (_selectionInitialized && !_selectedInstanceIds.Contains(created.InstanceId, StringComparer.Ordinal))
@@ -2387,9 +2528,18 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             }
         }
 
-        foreach (var stale in Modules.Where(m => !seen.Contains(m.InstanceId)).ToList())
+        for (var index = Modules.Count - 1; index >= 0; index--)
         {
-            _ = Modules.Remove(stale);
+            var stale = Modules[index];
+            if (_seenInstances.Contains(stale.InstanceId))
+            {
+                continue;
+            }
+
+            Modules.RemoveAt(index);
+            stale.ReleaseCachedResources();
+            _ = _overviewById.Remove(stale.InstanceId);
+            modulesChanged = true;
             VisibilityChanged?.Invoke(this, new ModuleWindowVisibilityChange(stale.InstanceId, IsVisible: false));
         }
 
@@ -2422,7 +2572,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             // 新模块开窗的那 0.x 秒里，"窗口已按内存模型落位"与"刚写下去的布局回声"之间会带一点
             // 平台取整的小数差 —— 无条件重应用会让窗口尺寸被再写一次、内容跟着重排，
             // 而**由实得尺寸推出的自绘几何（滑块圆钮）就跳 1px**（用户症状："卡一下归位"）。
-            if (layoutById.TryGetValue(module.InstanceId, out var layout)
+            if (_layoutById.TryGetValue(module.InstanceId, out var layout)
                 && HasGeometryDifference(module, layout))
             {
                 module.ApplyLayout(layout);
@@ -2430,10 +2580,17 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             }
         }
 
-        // **选中态对账**：模块可能刚被移除/重建；每帧按选择集重算一次，无变化不触发通知。
-        ApplySelection();
+        // **选中态对账**：只在模块增删时重算；选择操作本身仍由各选择方法立即对账。
+        if (modulesChanged)
+        {
+            ApplySelection();
+        }
 
-        OnPropertyChanged(nameof(ModuleCount));
+        if (Modules.Count != _lastModuleCount)
+        {
+            _lastModuleCount = Modules.Count;
+            OnPropertyChanged(nameof(ModuleCount));
+        }
     }
 
     /// <summary>
@@ -2443,13 +2600,19 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// 用途：判断"结构是否变了"。计数（投递/丢弃/速率）会随数据流动一直变，**不能进签名**
     /// （否则每帧都会触发整套刷新）；它们仍走约 0.5 秒的节拍。
     /// </remarks>
-    private string BuildStructureSignature()
+    private string BuildStructureSignature(IReadOnlyList<NetworkView> networks)
     {
         var builder = new System.Text.StringBuilder(256);
 
-        foreach (var network in _query.GetNetworks())
+        foreach (var network in networks)
         {
             builder.Append(network.Key).Append(network.IsStalled ? '!' : '+');
+            foreach (var source in network.Sources)
+            {
+                builder.Append(source).Append(',');
+            }
+
+            builder.Append('>');
             foreach (var target in network.Targets)
             {
                 builder.Append(target).Append(',');
@@ -2554,17 +2717,15 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             }
         }
     }
-    private void RefreshSubscriptions()
+    private void RefreshSubscriptions(IReadOnlyList<NetworkView> networks)
     {
         _frameCounter++;
-        RefreshRateHz = _query.GetSettings().UiRefreshRateHz;
 
-        // 吸附距离（设置项，默认 4，2–8）：在线即时生效 —— 每次刷新同步一次，拖动时按它取容差
-        SnapDistance = Math.Clamp(_query.GetSettings().SnapDistance, 2, 8);
-
-        // 多行输入提交键（G2，设置项，默认 CtrlEnter）：**在线即时生效** —— 每次刷新同步一次，
-        // 再由 `RefreshOverlayPeers()` 下发到各模块窗口（与叠加层开关同一条路径）
-        MultilineSubmitKey = _query.GetSettings().MultilineSubmitKey;
+        // 设置只在启动/应用设置时读取；没有做过 Load 的调用点（测试/设计时）在此补一次。
+        if (_settings is null)
+        {
+            RefreshSettings();
+        }
 
         _sources.Clear();
         foreach (var source in _query.GetSubscriptionSources())
@@ -2575,9 +2736,18 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         // 【结构变了就立刻刷新】**连接状态/停流/角色投影**都以**网络成员关系**为唯一来源（"指标来源唯一"）：
         // 它们不是"每 0.5 秒才追上"的滞后态 —— 建网/断网/改标签/增删模块的**当帧**就刷新，
         // 否则用户刚连上却看不到连接灯与连线（"看得见"是功能的一部分）。
-        var structure = BuildStructureSignature();
-        var structureChanged = !string.Equals(structure, _structureSignature, StringComparison.Ordinal);
+        var structure = BuildStructureSignature(networks);
+        _structureChanged = !string.Equals(structure, _structureSignature, StringComparison.Ordinal);
+        if (_structureChanged)
+        {
+            _peersDirty = true;
+        }
+
         _structureSignature = structure;
+
+        // 队列水位与网络一样每拍只取一次；只有真正刷指标的那一拍才取。
+        Dictionary<string, PortQueueDepthView>? queues = null;
+        var refreshMetrics = _structureChanged || _frameCounter % 30 == 0;
 
         foreach (var module in Modules)
         {
@@ -2607,9 +2777,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
             // 口标记的网络信息（连接状态 + **投递量与估算字节**）与**角色方块**：
             // ① **结构变化时**立即刷一次；② 否则按约 0.5 秒的节拍刷（指标会随数据流动持续变化）
-            if (structureChanged || _frameCounter % 30 == 0)
+            if (refreshMetrics)
             {
-                RefreshMarkerStatus(module);
+                queues ??= QueueDepthsByPort();
+                RefreshMarkerStatus(module, networks, queues);
                 RefreshRoleBoxes(module);
             }
 
@@ -2618,7 +2789,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         // **角色投影第二遍**：连线的对端锚点要用**对端方块的位置** ⇒ 必须等所有模块的方块都摆好
-        if (structureChanged || _frameCounter % 30 == 0)
+        if (refreshMetrics)
         {
             foreach (var module in Modules)
             {
@@ -2643,15 +2814,15 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     ///     故同一根线两侧不会再显示不同的数（接收侧若走"每口队列"速率 ⇒ 与发送侧可能对不上）。</item>
     /// </list>
     /// </remarks>
-    private void RefreshMarkerStatus(ModuleViewViewModel module)
+    private void RefreshMarkerStatus(
+        ModuleViewViewModel module,
+        IReadOnlyList<NetworkView> networks,
+        Dictionary<string, PortQueueDepthView> queues)
     {
         if (module.Ports.Count == 0)
         {
             return;
         }
-
-        var networks = _query.GetNetworks();
-        var queues = QueueDepthsByPort();
 
         foreach (var marker in module.Ports)
         {

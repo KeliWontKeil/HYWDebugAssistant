@@ -332,6 +332,9 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
         _wallpaperRevision = revision;
 
+        // 同一实例的壁纸键随版本变化；这里只摘缓存引用，不 Dispose（可能还有一帧在使用）。
+        WallpaperImageCache.EvictModule(InstanceId);
+
         if (revision <= 0 || _query.GetModuleWallpaper(InstanceId) is not { } wallpaper)
         {
             WallpaperBrush = null;
@@ -342,6 +345,9 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
             $"module:{InstanceId}:{wallpaper.Revision}",
             wallpaper.Png);
     }
+
+    /// <summary>释放该实例独占的图片缓存（模块被移除时调用）。</summary>
+    public void ReleaseCachedResources() => WallpaperImageCache.EvictModule(InstanceId);
 
     /// <summary>命令设置壁纸后立即重读（版本变化时重建画刷）。</summary>
     public void ReloadWallpaper()

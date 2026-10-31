@@ -30,7 +30,7 @@ public static class TcpServerText
     public const string StatusFailedReadFailed = "status.failed.readFailed";
     public const string StatusFailedWriteFailed = "status.failed.writeFailed";
     public const string StatusFailedUnknown = "status.failed.unknown";
-    public const string StatusRejectedSuffix = "status.rejectedSuffix";
+    public const string StatusRejected = "status.rejected";
     public const string StatusRxSaturated = "status.rxSaturated";
     public const string StatusTxSaturated = "status.txSaturated";
     public const string StatusReceiveLost = "status.receiveLost";

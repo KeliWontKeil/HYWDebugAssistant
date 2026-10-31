@@ -589,6 +589,7 @@ public sealed class SettingsService
         settings.SchemaVersion = ReadInt(root, "schemaVersion", settings.SchemaVersion);
         settings.Flow = ReadFlow(root);
         settings.UiRefreshRateHz = ReadInt(root, "uiRefreshRateHz", settings.UiRefreshRateHz);
+        settings.ShowPerformanceMonitor = ReadBool(root, "showPerformanceMonitor", settings.ShowPerformanceMonitor);
         // 对齐自动建网：新键优先、旧键（加入即连）兼容读取
         settings.AlignAutoNetworkEnabled = ReadBool(
             root,
@@ -705,6 +706,7 @@ public sealed class SettingsService
         _ = root.Remove("diagnosticHintThreshold");
 
         root["uiRefreshRateHz"] = settings.UiRefreshRateHz;
+        root["showPerformanceMonitor"] = settings.ShowPerformanceMonitor;
         root["alignAutoNetwork"] = settings.AlignAutoNetworkEnabled;
         _ = root.Remove("autoNetworkEnabled");   // 旧键已迁移（语义由"加入即连"改为"对齐建网"）
         root["showInfoOverlay"] = settings.ShowInfoOverlay;

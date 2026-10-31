@@ -12,6 +12,7 @@ using HYWDebugAssistant.Modules.TextSender.Views;
 using HYWDebugAssistant.Modules.Udp;
 using HYWDebugAssistant.Modules.Udp.Views;
 using HYWDebugAssistant.Sdk.Ui.Controls;
+using HYWDebugAssistant.Ui.Controls;
 using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.Views;
 using Shouldly;
@@ -185,6 +186,59 @@ public class ModuleWindowManagerTests
                             0.1,
                             $"{module.InstanceId} 的初始高度必须来自自己的 .axaml 内容声明，不能取统一代码默认值");
                     }
+                }
+                finally
+                {
+                    manager.Dispose();
+                    shell.Close();
+                    Pump();
+                }
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task 关闭模块窗后_不再响应模块属性变化()
+    {
+        var session = SnapshotSession.Shared;
+
+        await session.Dispatch(
+            () =>
+            {
+                using var harness = new OverlaySnapshotTests.SnapshotHarness();
+                harness.Register(
+                    "closed-hook-text-sender",
+                    typeof(TextSenderModule),
+                    typeof(TextSenderViewFactory),
+                    windowWidth: 400,
+                    windowHeight: 240);
+                harness.AddModule("closed-hook-text-sender", "test/closed-hook-text-sender/1.0.0", 400, 240);
+
+                var shell = new Window { Width = 800, Height = 600 };
+                shell.Show();
+                var manager = new ModuleWindowManager(harness.Windows, shell);
+
+                try
+                {
+                    manager.SyncAll();
+                    Pump();
+
+                    var window = manager.WindowFor("closed-hook-text-sender");
+                    window.ShouldNotBeNull();
+                    var lockButton = window!.GetVisualDescendants()
+                        .OfType<IconButton>()
+                        .Single(button => button.Name == "LockButton");
+                    lockButton.Icon.ShouldBe(ShellIcons.Lock);
+
+                    var module = harness.Windows.Modules.Single(item => item.InstanceId == "closed-hook-text-sender");
+                    window.Close();
+                    Pump();
+
+                    // 关闭后若仍订阅 PropertyChanged，这一行会把图标改成 Unlock；
+                    // 正确的生命周期是窗口已退订，图标保持关闭前的 Lock。
+                    module.IsLocked = true;
+                    Pump();
+                    lockButton.Icon.ShouldBe(ShellIcons.Lock, "关闭的窗口不得继续持有模块事件");
                 }
                 finally
                 {

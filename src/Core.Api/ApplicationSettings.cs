@@ -47,6 +47,14 @@ public sealed class ApplicationSettings
     public int UiRefreshRateHz { get; set; } = 60;
 
     /// <summary>
+    /// **是否在侧栏底部显示轻量性能监视**（默认开）：CPU / 内存 / 线程 / GC 计数，约 1 Hz 只读采样。
+    /// </summary>
+    /// <remarks>
+    /// 只是观测，不参与任何机制判定；关闭后不采样、不占侧栏空间。JSON 键 <c>showPerformanceMonitor</c>。
+    /// </remarks>
+    public bool ShowPerformanceMonitor { get; set; } = true;
+
+    /// <summary>
     /// **对齐自动建网**（默认开）：**接触且对齐**的未打标签口自动连上。
     /// </summary>
     /// <remarks>
@@ -178,6 +186,7 @@ public sealed class ApplicationSettings
         // 不能直接赋引用，否则"读出来改一份"会改到生效值。
         Flow = Flow with { },
         UiRefreshRateHz = UiRefreshRateHz,
+        ShowPerformanceMonitor = ShowPerformanceMonitor,
         AlignAutoNetworkEnabled = AlignAutoNetworkEnabled,
         SnapDistance = SnapDistance,
         ShowInfoOverlay = ShowInfoOverlay,

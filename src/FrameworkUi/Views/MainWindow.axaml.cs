@@ -429,7 +429,11 @@ public partial class MainWindow : Window, IExitPrompt, IExitSaver, IExitPolicy
             },
         };
 
-        dialog.Closed += (_, _) => _ = _dialogs.Remove(kind);
+        dialog.Closed += (_, _) =>
+        {
+            _ = _dialogs.Remove(kind);
+            shell.SetDialogOpen(kind, isOpen: false);
+        };
 
         // 设置三键里的「确认 / 取消」由视图模型发起关闭请求 ⇒ 关掉这个弹窗
         //（订阅在弹窗关闭时摘掉：视图模型是**长生命周期**的，不摘会随每次打开累积）
@@ -440,6 +444,15 @@ public partial class MainWindow : Window, IExitPrompt, IExitSaver, IExitPolicy
             shell.Settings.CloseRequested += OnCloseRequested;
             dialog.Closed += (_, _) => shell.Settings.CloseRequested -= OnCloseRequested;
         }
+
+        // 设置页每次打开都从已落盘值重载：关闭（含 X）时未提交的草稿不跨打开保留。
+        if (kind == DialogKind.Settings)
+        {
+            shell.Settings.Load();
+        }
+
+        // 打开前先补齐数据：关闭期间外壳不再每帧重建不可见的整表。
+        shell.SetDialogOpen(kind, isOpen: true);
 
         _dialogs[kind] = dialog;
         dialog.Show(this);
