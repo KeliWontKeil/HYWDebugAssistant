@@ -218,7 +218,12 @@ public sealed class ModuleConfigField : ModuleElement
             // **布尔一律用模块自己的滑块开关**：同一个语义只能对应一套外观；
             // 配置表单与视图都走 `ModuleToggle`，视觉在 `ControlTheme` 里。
             ConfigFieldKind.Boolean => new ModuleToggle { Text = string.Empty, VerticalAlignment = VerticalAlignment.Center },
-            ConfigFieldKind.Enum => new ComboBox { VerticalAlignment = VerticalAlignment.Center },
+            ConfigFieldKind.Enum => new ComboBox
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                // 模块配置格很窄：箭头用紧凑变体，仍复用同一个 ComboBox 模板。
+                Classes = { "compact" },
+            },
             _ => new TextBox { VerticalContentAlignment = VerticalAlignment.Center },
         };
 

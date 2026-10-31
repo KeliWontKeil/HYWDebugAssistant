@@ -54,6 +54,7 @@
 | 加设置项 | `architecture/CODEX.md` §8 |
 | 修 bug | `TODO.md` → `STYLE.md` §4 的坑表 |
 | 不知道该怎么验证 | `HOWTO.md` §1 |
+| 门禁包含哪些审计（文档 / 颜色 / 资源 / 注释布局） | `HOWTO.md` §2 |
 | 想知道能不能这么写 | `STYLE.md` §2 |
 
 ---

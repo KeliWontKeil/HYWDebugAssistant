@@ -38,8 +38,8 @@ public sealed class ModuleIconTableTests
 
         asset.ShouldNotBeNull();
         asset!.PathData.ShouldNotBeEmpty($"{moduleType.Name} 的 icon.refresh 必须真的解析出路径");
-        asset.ViewBoxWidth.ShouldBe(20);
-        asset.ViewBoxHeight.ShouldBe(20);
+        asset.ViewBoxWidth.ShouldBeGreaterThan(0, $"{moduleType.Name} 的 icon.refresh 画布宽度必须是正的");
+        asset.ViewBoxHeight.ShouldBeGreaterThan(0, $"{moduleType.Name} 的 icon.refresh 画布高度必须是正的");
 
         // 图形文件必须和模块 DLL 一起躺在**模块自己的** resources/ 里（清单只是索引，缺文件同样会让图标消失）。
         var ownerDirectory = Path.Combine(
@@ -58,8 +58,8 @@ public sealed class ModuleIconTableTests
     /// **两套根不串**：把同名拥有者放到"框架根"（显式根）里，模块仍然只读自己包里的那份。
     /// </summary>
     /// <remarks>
-    /// 用"画布尺寸"区分来源：框架根里的探针 SVG 是 99×99，模块包里的是 20×20。
-    /// 若模块读到了框架根，这里会看到 99。
+    /// 用"画布尺寸"区分来源：框架根里的探针 SVG 自己声明一个尺寸，模块包里的是另一份。
+    /// 若模块读到了框架根，这里会看到那个不属于模块包的尺寸。
     /// </remarks>
     [Fact]
     public void 模块拥有者_不读框架根里的同名目录()
@@ -72,6 +72,8 @@ public sealed class ModuleIconTableTests
 
         try
         {
+            const double frameworkCanvas = 99;
+
             _ = Directory.CreateDirectory(fakeOwner);
             File.WriteAllText(Path.Combine(fakeOwner, "icons.json"), $$"""
                 {
@@ -81,14 +83,15 @@ public sealed class ModuleIconTableTests
                 """);
             File.WriteAllText(
                 Path.Combine(fakeOwner, "probe.svg"),
-                """<svg viewBox="0 0 99 99" xmlns="http://www.w3.org/2000/svg"><path d="M0 0H50V50H0Z" /></svg>""");
+                $"""<svg viewBox="0 0 {frameworkCanvas} {frameworkCanvas}" xmlns="http://www.w3.org/2000/svg"><path d="M0 0H50V50H0Z" /></svg>""");
 
             IconCatalog.UseRoot(fakeRoot);
 
             try
             {
                 IconCatalog.TryGet(assembly, "icon.refresh", out var asset).ShouldBeTrue();
-                asset!.ViewBoxWidth.ShouldBe(20, "模块拥有者只查模块包，框架根里的同名目录不算数");
+                asset!.ViewBoxWidth.ShouldBeGreaterThan(0);
+                asset.ViewBoxWidth.ShouldNotBe(frameworkCanvas, "模块拥有者只查模块包，框架根里的同名目录不算数");
             }
             finally
             {

@@ -8,13 +8,13 @@
              x:Class="HYWDebugAssistant.Modules.DataMonitor.Views.DataMonitorView"
              x:CompileBindings="True"
              x:DataType="contracts:IModuleViewContext"
-             d:DesignWidth="360" d:DesignHeight="352">
+             d:DesignWidth="360" d:DesignHeight="352" MinWidth="360" MinHeight="352">
 
   <!--
-    数据显示器（内容区 358×352）：日志区自适应；底部 106 高的动作/开关/状态条绝对定位。
+    数据显示器：日志区自适应；底部动作/开关/状态条的高度只由它自己的 Canvas 声明。
     开关按两行固定摆放，不随文字长度改变位置。
   -->
-  <Grid RowDefinitions="*,106">
+  <Grid RowDefinitions="*,Auto">
 
     <ui:ModuleTextSurface Mode="Display" Grid.Row="0" Source="{x:Static views:DataMonitorViewKeys.Log}" />
 
@@ -38,4 +38,6 @@
     </Canvas>
   </Grid>
 </ui:ModuleView>
+
+
 

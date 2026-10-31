@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Input;
+using HYWDebugAssistant.Ui.Views;
 
 namespace HYWDebugAssistant.FrameworkUi.Views;
 
@@ -24,6 +25,10 @@ public partial class RenameDialog : Window
 
         dialog.CancelButton.Click += (_, _) => dialog.Close(null);
         dialog.RenameButton.Click += (_, _) => dialog.Close(dialog.NameBox.Text);
+
+        var group = AppWindowGroup.Of(owner);
+        group?.Track(dialog, AppWindowLayer.Modal);
+        using var modal = group?.BeginModal(dialog);
 
         if (owner is null)
         {

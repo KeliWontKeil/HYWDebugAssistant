@@ -161,4 +161,25 @@ public sealed record ExternalAccessSnapshot(
 
     /// <summary>最近一次丢弃发生的时刻（从未丢弃 = <see langword="null"/>）。</summary>
     public DateTimeOffset? LastDropAt { get; init; }
+
+    /// <summary>本次（最近一次成功）打开的时刻；从未打开 = <see langword="null"/>。</summary>
+    public DateTimeOffset? OpenedAt { get; init; }
+
+    /// <summary>本次打开以来接收侧丢弃的单元数（提示用，累计值仍在各分项里）。</summary>
+    public long ReceiveDroppedSinceOpen { get; init; }
+
+    /// <summary>本次打开以来适配件写失败的单元数。</summary>
+    public long SendFailedSinceOpen { get; init; }
+
+    /// <summary>本次打开以来发送积压被挤旧的单元数。</summary>
+    public long SendBacklogEvictedSinceOpen { get; init; }
+
+    /// <summary>本次打开以来发送积压过期的单元数。</summary>
+    public long SendBacklogExpiredSinceOpen { get; init; }
+
+    /// <summary>本次打开以来未打开被拒的单元数。</summary>
+    public long RejectedSinceOpen { get; init; }
+
+    /// <summary>本次打开以来最近一次丢弃的时刻（本次打开没丢过 = <see langword="null"/>）。</summary>
+    public DateTimeOffset? LastDropAtSinceOpen { get; init; }
 }

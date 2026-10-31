@@ -1,9 +1,18 @@
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.VisualTree;
+using HYWDebugAssistant.Modules.Serial;
+using HYWDebugAssistant.Modules.Serial.Views;
+using HYWDebugAssistant.Modules.TcpClient;
+using HYWDebugAssistant.Modules.TcpClient.Views;
+using HYWDebugAssistant.Modules.TcpServer;
+using HYWDebugAssistant.Modules.TcpServer.Views;
 using HYWDebugAssistant.Modules.TextSender;
 using HYWDebugAssistant.Modules.TextSender.Views;
+using HYWDebugAssistant.Modules.Udp;
+using HYWDebugAssistant.Modules.Udp.Views;
 using HYWDebugAssistant.Sdk.Ui.Controls;
+using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.Views;
 using Shouldly;
 using Xunit;
@@ -50,6 +59,22 @@ public class ModuleWindowManagerTests
                     first.ShouldNotBeNull();
                     ViewHost(first!).Content.ShouldNotBeNull();
 
+                    var module = harness.Windows.Modules.Single(item => item.InstanceId == "manager-text-sender");
+                    var content = (Control)ViewHost(first!).Content!;
+                    module.ContentMinWidth.ShouldBe(content.MinWidth, 0.1, "内容最小宽必须来自模块视图根的 .axaml 声明");
+                    module.ContentMinHeight.ShouldBe(content.MinHeight, 0.1, "内容最小高必须来自模块视图根的 .axaml 声明");
+                    module.EffectiveMinHeight.ShouldBe(
+                        content.MinHeight + (2 * ModuleSurfaceMetrics.FrameBorder)
+                            + ModuleSurfaceMetrics.InsetTop + ModuleSurfaceMetrics.InsetBottom,
+                        0.1,
+                        "窗口最小高 = 内容声明 + 框架 chrome，不另抄一份字面值");
+
+                    // 启动前已存在的窗口必须能被"补挂"（快捷键等）枚举到。
+                    manager.AttachedWindows.ShouldContain(first!);
+                    var attached = new List<Window>();
+                    manager.AttachExistingWindows(attached.Add);
+                    attached.ShouldContain(first!);
+
                     first!.Close();
                     Pump();
 
@@ -61,6 +86,105 @@ public class ModuleWindowManagerTests
                     second!.ShouldNotBeSameAs(first);
                     second.IsVisible.ShouldBeTrue();
                     ViewHost(second).Content.ShouldNotBeNull();
+                }
+                finally
+                {
+                    manager.Dispose();
+                    shell.Close();
+                    Pump();
+                }
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task 外壳未显示时_SyncAll挂起_显示后就绪创建()
+    {
+        var session = SnapshotSession.Shared;
+
+        await session.Dispatch(
+            () =>
+            {
+                using var harness = new OverlaySnapshotTests.SnapshotHarness();
+                harness.Register(
+                    "startup-text-sender",
+                    typeof(TextSenderModule),
+                    typeof(TextSenderViewFactory),
+                    windowWidth: 400,
+                    windowHeight: 240);
+                harness.AddModule("startup-text-sender", "test/startup-text-sender/1.0.0", 400, 240);
+
+                var shell = new Window { Width = 800, Height = 600 };
+                var manager = new ModuleWindowManager(harness.Windows, shell);
+
+                try
+                {
+                    manager.IsShellFrameReady.ShouldBeFalse("外壳尚未显示");
+                    manager.SyncAll();
+                    Pump();
+                    manager.WindowFor("startup-text-sender").ShouldBeNull(
+                        "外框未就绪不得创建自动恢复模块的窗口");
+
+                    shell.Show();
+                    manager.RefreshShellFrame();
+                    manager.SyncAll();
+                    Pump();
+
+                    manager.IsShellFrameReady.ShouldBeTrue("显示后外框成为真值");
+                    manager.WindowFor("startup-text-sender").ShouldNotBeNull();
+                }
+                finally
+                {
+                    manager.Dispose();
+                    shell.Close();
+                    Pump();
+                }
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task 新模块的初始高度来自各自视图而不是统一代码默认值()
+    {
+        var session = SnapshotSession.Shared;
+
+        await session.Dispatch(
+            () =>
+            {
+                using var harness = new OverlaySnapshotTests.SnapshotHarness();
+                harness.Register("serial-a", typeof(SerialModule), typeof(SerialViewFactory), 400, 0);
+                harness.Register("tcp-client-a", typeof(TcpClientModule), typeof(TcpClientViewFactory), 400, 0);
+                harness.Register("tcp-server-a", typeof(TcpServerModule), typeof(TcpServerViewFactory), 400, 0);
+                harness.Register("udp-a", typeof(UdpModule), typeof(UdpViewFactory), 400, 0);
+
+                harness.Services.AddModule("serial-a", "test/serial-a/1.0.0").Succeeded.ShouldBeTrue();
+                harness.Services.AddModule("tcp-client-a", "test/tcp-client-a/1.0.0").Succeeded.ShouldBeTrue();
+                harness.Services.AddModule("tcp-server-a", "test/tcp-server-a/1.0.0").Succeeded.ShouldBeTrue();
+                harness.Services.AddModule("udp-a", "test/udp-a/1.0.0").Succeeded.ShouldBeTrue();
+                harness.Windows.Refresh();
+
+                var shell = new Window { Width = 900, Height = 700 };
+                shell.Show();
+                var manager = new ModuleWindowManager(harness.Windows, shell);
+
+                try
+                {
+                    manager.SyncAll();
+                    Pump();
+
+                    foreach (var module in harness.Windows.Modules)
+                    {
+                        var window = manager.WindowFor(module.InstanceId);
+                        window.ShouldNotBeNull();
+                        var content = (Control)ViewHost(window!).Content!;
+                        var expected = content.MinHeight + (2 * ModuleSurfaceMetrics.FrameBorder)
+                            + ModuleSurfaceMetrics.InsetTop + ModuleSurfaceMetrics.InsetBottom;
+
+                        module.Height.ShouldBe(
+                            expected,
+                            0.1,
+                            $"{module.InstanceId} 的初始高度必须来自自己的 .axaml 内容声明，不能取统一代码默认值");
+                    }
                 }
                 finally
                 {

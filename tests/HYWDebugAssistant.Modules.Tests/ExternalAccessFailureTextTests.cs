@@ -125,7 +125,10 @@ public sealed class ExternalAccessFailureTextTests
             DroppedBytes: 0,
             RejectedUnits: rejectedUnits,
             ActiveConnections: 0,
-            LastReceivedAt: null);
+            LastReceivedAt: null)
+        {
+            RejectedSinceOpen = rejectedUnits,
+        };
 
     private static string Describe(Type moduleType, ExternalAccessSnapshot snapshot)
     {

@@ -4,8 +4,8 @@
         xmlns:sdkui="using:HYWDebugAssistant.Sdk.Ui.Controls">
 
     <!--
-      统一控件尺寸与字号【M1-16 / ADR-0040 D4】：
-      · 输入类控件高度 = **ControlHeight（27）**，与 12 px 字号匹配（用户第六轮反馈"所有文本框都太高"）；
+      统一控件尺寸与字号：
+      · 输入类控件高度取 **ControlHeight**，与界面字号匹配（否则文本框比内容还高）；
       · 尺寸只从 token 取，**禁止逐处写死高度**；
       · 应用范围 = 全局（模块窗口内的配置表单、发送器视图、外壳与弹窗一致）。
     -->
@@ -140,8 +140,8 @@
     </Style>
 
     <!--
-      **帮助按钮**（用户第十轮反馈）：**弹窗式帮助**，不再在控件旁展开文本（展开会改变布局）。
-      · 16×16、**有边框**（此前是无边框的问号，几乎看不见）、靠右/右下摆放、各页面同一 X 对齐；
+      **帮助按钮**：**弹窗式帮助**，不在控件旁展开文本（展开会改变布局）。
+      · **有边框**（无边框的问号几乎看不见）、靠右/右下摆放、各页面同一 X 对齐；尺寸是一枚小方块；
       · 用法：`<Button Classes="helpIcon"><Button.Flyout><Flyout>…文本…</Flyout></Button.Flyout></Button>`
         —— 点击弹窗、点外部关闭，**不占用版面**。
     -->
@@ -168,8 +168,7 @@
     </Style>
 
     <!--
-      **区域边框**（用户第十轮反馈："各控件没有边框、区域边界不明显"）：
-      列表/输入等控件给 1 px 边框与统一圆角，页面的分区容器用 `Border.pane`。
+      **区域边框**：列表/输入等控件给细边框与统一圆角（边界要看得出来），页面的分区容器用 `Border.pane`。
     -->
     <Style Selector="ListBox">
         <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
@@ -229,7 +228,7 @@
         <Setter Property="ClipToBounds" Value="True" />
     </Style>
 
-    <!-- 预览图占位图标：无图时居中显示（18×18），不再是一块全空。 -->
+    <!-- 预览图占位图标：无图时居中显示（尺寸由声明给出），不再是一块全空。 -->
     <Style Selector="ui|Glyph.previewGlyph">
         <Setter Property="Width" Value="18" />
         <Setter Property="Height" Value="18" />
@@ -287,7 +286,7 @@
         <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
     </Style>
 
-    <!-- 按钮里那枚图标：20×20 的按钮留 1px 边后内容区 18×18，图标用 14 更透气 -->
+    <!-- 按钮里那枚图标：占按钮的内容区再小一档（内容区 = 按钮减去边框），比顶满更透气 -->
     <Style Selector="ui|IconButton.icon sdkui|Icon">
         <Setter Property="Width" Value="14" />
         <Setter Property="Height" Value="14" />

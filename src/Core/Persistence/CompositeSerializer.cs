@@ -64,6 +64,7 @@ public static class CompositeSerializer
     private const string WidthField = "width";
     private const string HeightField = "height";
     private const string ViewVisibleField = "viewVisible";
+    private const string ScaleField = "scale";
 
     /// <summary>
     /// 解析组合件（**容错**：记录级问题跳过 + 警告）。
@@ -267,7 +268,13 @@ public static class CompositeSerializer
                     y / layoutScale,
                     ReadDouble(item, WidthField, fallback: 0) / layoutScale,
                     ReadDouble(item, HeightField, fallback: 0) / layoutScale,
-                    ReadBool(item, ViewVisibleField, fallback: true)));
+                    ReadBool(item, ViewVisibleField, fallback: true))
+                {
+                    // 旧格式（v3 前）按读取时屏缩放归一；v3 起带自己的 scale。
+                    Scale = schemaVersion < 3
+                        ? (dipScale > 0 ? dipScale : 1)
+                        : Math.Max(0.01, ReadDouble(item, ScaleField, fallback: 1)),
+                });
             }
         }
 
@@ -499,6 +506,7 @@ public static class CompositeSerializer
             layoutNode[WidthField] = item.Width;
             layoutNode[HeightField] = item.Height;
             layoutNode[ViewVisibleField] = item.IsViewVisible;
+            layoutNode[ScaleField] = item.Scale > 0 ? item.Scale : 1;
             layoutRoot[item.InstanceId] = layoutNode;
         }
 

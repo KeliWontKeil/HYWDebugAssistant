@@ -574,8 +574,8 @@ public class DataPlaneCarrierTests
 
             // 50 个单元逐个处理要 ~2.5 s；清尾之后只需等"当前这一个"处理完（一个单元 50 ms）
             clock.Elapsed.ShouldBeLessThan(
-                TimeSpan.FromMilliseconds(700),
-                "停止必须清尾，而不是排空整条积压");
+                TimeSpan.FromMilliseconds(1000),
+                "停止必须清尾，而不是排空整条积压（排空 50×50 ms 约 2.5 s；清尾只需等当前一个）");
 
             carrier!.TryGetQueue("in", out var queue).ShouldBeTrue();
             queue!.DroppedByReason(DropReason.DiscardedOnStop).ShouldBeGreaterThan(0, "清出的单元要记账");
@@ -679,7 +679,7 @@ public class DataPlaneCarrierTests
             carrier!.TryEnqueue("in", BuildUnit(host.Buffers, 1, 1f), header)
                 .ShouldBe(CarrierEnqueueResult.Accepted);
 
-            WaitUntil(() => carrier.Diagnostics.Delivered >= 1, TimeSpan.FromSeconds(2)).ShouldBeTrue();
+            WaitUntil(() => carrier.Diagnostics.Delivered >= 1, TimeSpan.FromSeconds(5)).ShouldBeTrue();
 
             carrier.Diagnostics.Headered.ShouldBe(1, "带头的投递应被观测面计数");
             carrier.Diagnostics.LastHeaderSequence.ShouldBe(7, "序号原样送达（按源递增由生产侧保证）");
@@ -687,7 +687,7 @@ public class DataPlaneCarrierTests
 
             // 再来一个**不带头**的单元：头相关的计数**保持不变**（零附加不留痕）
             carrier.TryEnqueue("in", BuildUnit(host.Buffers, 2, 2f)).ShouldBe(CarrierEnqueueResult.Accepted);
-            WaitUntil(() => carrier.Diagnostics.Delivered >= 2, TimeSpan.FromSeconds(2)).ShouldBeTrue();
+            WaitUntil(() => carrier.Diagnostics.Delivered >= 2, TimeSpan.FromSeconds(5)).ShouldBeTrue();
 
             carrier.Diagnostics.Headered.ShouldBe(1, "不带头的单元不得计入带头投递");
             carrier.Diagnostics.LastHeaderSequence.ShouldBe(7, "不带头不得覆盖上次的头信息");

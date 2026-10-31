@@ -83,6 +83,18 @@ public sealed class ConnectionOverlay : Control
     /// <summary>未拼接时末端**断口竖杠**的高（DIP）。</summary>
     public const double BreakMarkLength = 9;
 
+    /// <summary>自回环横向外挑（DIP）——从输出边绕到输入边的弧线最远伸出方块多少。</summary>
+    public const double SelfLoopReach = 14;
+
+    /// <summary>自回环弧顶相对方块边缘的期望留白（DIP）；空间不足时按可用空间收窄（贴方块的半环）。</summary>
+    public const double SelfLoopApexGap = 11;
+
+    /// <summary>自回环与窗口边缘的最小安全距离（DIP）——保证环与标记不出窗。</summary>
+    public const double SelfLoopMargin = 6;
+
+    /// <summary>自回环标记半径（DIP）——只表达"数据回到自己"，不承载指标。</summary>
+    public const double SelfLoopMarkerRadius = 3.5;
+
     /// <summary>文字与窗口边缘的安全距离（DIP）——避开 20 px 的端口标记带。</summary>
     public const double Gutter = 24;
 
@@ -343,6 +355,102 @@ public sealed class ConnectionOverlay : Control
         int Hidden,
         double BoxHeight);
 
+    /// <summary>
+    /// **自回环几何**（DIP）：从方块**输出侧边缘**出发，绕到**输入侧边缘**。
+    /// </summary>
+    /// <remarks>
+    /// 用**折线 + 圆角**而不是单条三次贝塞尔：单条贝塞尔从边缘出发后会先"切进"方块（端点处切线方向
+    /// 朝内），方块角上会露出一小段压进方块的线；折线路径在右侧先外挑、再上行，整条曲线都在方块外。
+    /// </remarks>
+    /// <param name="Points">折线点（起点 = 输出侧边缘，终点 = 输入侧边缘；全部在方块外）。</param>
+    /// <param name="Apex">环顶（`↻` 标记画在这里）。</param>
+    /// <param name="Degraded">空间不足 ⇒ 退化为贴方块的半环。</param>
+    /// <param name="Below">环画在方块下方（上方没有可用空间时的回退）。</param>
+    public readonly record struct SelfLoopGeometry(
+        IReadOnlyList<Point> Points,
+        Point Apex,
+        bool Degraded,
+        bool Below)
+    {
+        /// <summary>输出侧边缘上的起点。</summary>
+        public Point Start => Points is { Count: > 0 } points ? points[0] : default;
+
+        /// <summary>输入侧边缘上的终点。</summary>
+        public Point End => Points is { Count: > 0 } points ? points[^1] : default;
+
+        /// <summary>是否可画（至少两点、端点有限且非零长度）。</summary>
+        public bool IsUsable =>
+            Points is { Count: > 1 }
+            && double.IsFinite(Start.X) && double.IsFinite(Start.Y)
+            && double.IsFinite(End.X) && double.IsFinite(End.Y)
+            && Math.Abs(Start.X - End.X) > 0.01;
+
+        /// <summary>折线总长（DIP；用于"非零长度"判据）。</summary>
+        public double Length()
+        {
+            var length = 0.0;
+
+            for (var i = 1; i < (Points?.Count ?? 0); i++)
+            {
+                var dx = Points![i].X - Points[i - 1].X;
+                var dy = Points[i].Y - Points[i - 1].Y;
+                length += Math.Sqrt((dx * dx) + (dy * dy));
+            }
+
+            return length;
+        }
+
+        /// <summary>沿折线按长度比例取点（0 ⇒ 起点，1 ⇒ 终点）。</summary>
+        /// <param name="t">参数（0–1）。</param>
+        public Point PointAt(double t)
+        {
+            if (Points is not { Count: > 0 } points)
+            {
+                return default;
+            }
+
+            if (points.Count == 1)
+            {
+                return points[0];
+            }
+
+            var total = Length();
+
+            if (total <= 0)
+            {
+                return points[0];
+            }
+
+            var target = Math.Clamp(t, 0, 1) * total;
+            var walked = 0.0;
+
+            for (var i = 1; i < points.Count; i++)
+            {
+                var dx = points[i].X - points[i - 1].X;
+                var dy = points[i].Y - points[i - 1].Y;
+                var segment = Math.Sqrt((dx * dx) + (dy * dy));
+
+                if (segment <= 0)
+                {
+                    continue;
+                }
+
+                if (walked + segment >= target)
+                {
+                    var k = (target - walked) / segment;
+
+                    return new Point(
+                        points[i - 1].X + (dx * k),
+                        points[i - 1].Y + (dy * k));
+                }
+
+                walked += segment;
+            }
+
+            return points[^1];
+        }
+    }
+
     // ------------------------------------------------------------------ 内部状态
 
     /// <summary>端口标记带厚度（与 <see cref="PortMarkerPanel.BandThickness"/> 一致）。</summary>
@@ -594,6 +702,99 @@ public sealed class ConnectionOverlay : Control
         return new Point(center.X + (dx * scale), center.Y + (dy * scale));
     }
 
+    /// <summary>
+    /// **自回环几何**（纯函数、DIP）：本端角色方块**输出侧边缘 → 输入侧边缘**，弧顶在方块上方
+    /// （上方不够时退化为贴方块的半环；仍不够则落到下方）。所有点都在**本窗内、方块外**。
+    /// </summary>
+    /// <remarks>
+    /// <b>单位纪律</b>：输入/输出全部是 **DIP**（与 <see cref="LayoutRoles"/> / <see cref="CanvasWidth"/> 同源）；
+    /// 本函数**不做任何物理像素换算**。
+    /// </remarks>
+    /// <param name="window">本窗矩形（局部坐标，DIP）。</param>
+    /// <param name="box">本端角色方块（局部坐标，DIP）。</param>
+    /// <param name="preferBelow">角色文本在上方时传 true，把环放到文字的另一侧。</param>
+    /// <returns>自回环几何；输入退化时 <see cref="SelfLoopGeometry.IsUsable"/> 为 false。</returns>
+    public static SelfLoopGeometry ComputeSelfLoop(Rect window, Rect box, bool preferBelow = false)
+    {
+        if (!(window.Width > 0) || !(window.Height > 0) || !(box.Width > 0) || !(box.Height > 0))
+        {
+            return default;
+        }
+
+        // 标记半径 + 安全距离：弧顶必须能在窗内画出 `↻`，不得贴边/出窗。
+        var clearance = SelfLoopMargin + SelfLoopMarkerRadius;
+        var above = box.Top - window.Top - clearance;
+        var below = window.Bottom - box.Bottom - clearance;
+
+        // **默认上方**（"从输出绕到输入"的常态）；角色文本在上方时优先下方，避开文字块。
+        const double minGap = 2;
+        var useAbove = preferBelow
+            ? below < minGap && above >= below
+            : above >= minGap || above >= below;
+        var available = useAbove ? above : below;
+        var gap = Math.Clamp(available, 0.5, SelfLoopApexGap);
+
+        // 横向外挑受窗内可用空间约束（贴边方块 ⇒ 外挑收窄；即使 0 也仍是贴边的半环）。
+        var horizontalRoom = Math.Min(box.Left - window.Left, window.Right - box.Right) - SelfLoopMargin;
+        var reach = Math.Clamp(horizontalRoom, 0.5, SelfLoopReach);
+        var corner = Math.Min(Math.Min(reach, gap), Math.Min(box.Height / 3, 8));
+        var centerY = box.Center.Y;
+        var edgeY = useAbove ? box.Top - gap : box.Bottom + gap;
+        var sign = useAbove ? -1.0 : 1.0;
+
+        var points = new List<Point>(32) { new(box.Right, centerY) };
+
+        void Line(Point point) => points.Add(point);
+
+        // 圆角：从 from 经 vertex 弯到 to（二次贝塞尔采样；弯内始终在方块外）。
+        void Turn(Point from, Point vertex, Point to)
+        {
+            const int Steps = 6;
+
+            for (var i = 1; i <= Steps; i++)
+            {
+                var t = i / (double)Steps;
+                var u = 1 - t;
+                points.Add(new Point(
+                    (u * u * from.X) + (2 * u * t * vertex.X) + (t * t * to.X),
+                    (u * u * from.Y) + (2 * u * t * vertex.Y) + (t * t * to.Y)));
+            }
+        }
+
+        // 右侧：输出边 → 外挑 → 上行。
+        Line(new Point(box.Right + reach - corner, centerY));
+        Turn(
+            new Point(box.Right + reach - corner, centerY),
+            new Point(box.Right + reach, centerY),
+            new Point(box.Right + reach, centerY + (sign * corner)));
+        Line(new Point(box.Right + reach, edgeY - (sign * corner)));
+        Turn(
+            new Point(box.Right + reach, edgeY - (sign * corner)),
+            new Point(box.Right + reach, edgeY),
+            new Point(box.Right + reach - corner, edgeY));
+
+        // 顶部/底部横段。
+        Line(new Point(box.Left - reach + corner, edgeY));
+        Turn(
+            new Point(box.Left - reach + corner, edgeY),
+            new Point(box.Left - reach, edgeY),
+            new Point(box.Left - reach, edgeY - (sign * corner)));
+
+        // 左侧：下行 → 回到输入边。
+        Line(new Point(box.Left - reach, centerY + (sign * corner)));
+        Turn(
+            new Point(box.Left - reach, centerY + (sign * corner)),
+            new Point(box.Left - reach, centerY),
+            new Point(box.Left - reach + corner, centerY));
+        Line(new Point(box.Left, centerY));
+
+        return new SelfLoopGeometry(
+            points,
+            new Point(box.Center.X, edgeY),
+            Degraded: gap < SelfLoopApexGap - 0.001,
+            Below: !useAbove);
+    }
+
     /// <summary>两端方向色的**中点色**（拼接处两侧都用它 ⇒ 颜色必然连续）。</summary>
     /// <param name="send">发送方向色。</param>
     /// <param name="receive">接收方向色。</param>
@@ -817,6 +1018,15 @@ public sealed class ConnectionOverlay : Control
                 continue;   // 本端角色被裁掉（放不下）⇒ 线也不画（避免线头指向空处）
             }
 
+            // 自回环：两端都在本方块上 ⇒ 走"从输出侧绕到输入侧"的环线，不参与两点共线判定。
+            if (link.IsSelfLoop)
+            {
+                var role = Roles?.FirstOrDefault(item => string.Equals(item.Key, link.LocalRoleKey, StringComparison.Ordinal));
+                var infoAbove = role is not null && RoleInfoIsAbove(role, box);
+                DrawSelfLoop(context, box, window, sendColor, receiveColor, muted, infoAbove);
+                continue;
+            }
+
             var (start, end) = LinkSegment(window, box.Box, link.Target, link.LocalIsSend);
 
             if (Math.Abs(start.X - end.X) < 0.01 && Math.Abs(start.Y - end.Y) < 0.01)
@@ -865,6 +1075,103 @@ public sealed class ConnectionOverlay : Control
         }
     }
 
+    /// <summary>
+    /// 画**自回环**：从方块输出侧边缘绕到输入侧边缘（方向色/虚线/箭头与普通流线同一套语义）。
+    /// </summary>
+    /// <remarks>
+    /// **不画"未拼接"断口、不标对端名**（对端就是它自己，这两个信息都没有意义）；
+    /// 环顶只画一个小 `↻` 图形标记（**不写文字、不承载指标**）。
+    /// </remarks>
+    private void DrawSelfLoop(
+        DrawingContext context,
+        RoleBox box,
+        Rect window,
+        Color sendColor,
+        Color receiveColor,
+        IBrush muted,
+        bool preferBelow)
+    {
+        var loop = ComputeSelfLoop(window, box.Box, preferBelow);
+
+        if (!loop.IsUsable || loop.Length() < 1)
+        {
+            return;   // 退化到画不出非零长度 ⇒ 宁可不画，也不留一条零长度线
+        }
+
+        var pen = new Pen(
+            Gradient(loop.Start, loop.End, sendColor, receiveColor, transparentTail: false),
+            LineThickness)
+        {
+            DashStyle = _sendDash,
+            LineCap = PenLineCap.Flat,
+        };
+
+        var path = new StreamGeometry();
+
+        using (var sink = path.Open())
+        {
+            sink.BeginFigure(loop.Start, isFilled: false);
+
+            foreach (var point in loop.Points.Skip(1))
+            {
+                sink.LineTo(point);
+            }
+
+            sink.EndFigure(isClosed: false);
+        }
+
+        context.DrawGeometry(null, pen, path);
+
+        // 箭头指向**输入侧边缘**（数据回到自己）——与普通线"箭头指向本模块"同一语义。
+        DrawArrow(context, loop.End, PortSide.Left, new SolidColorBrush(receiveColor), ArrowSize);
+        DrawSelfLoopMarker(context, loop.Apex, muted);
+    }
+
+    /// <summary>环顶的 `↻` 图形标记（折线逼近圆弧 + 小箭头；不写文字、不承载指标）。</summary>
+    private static void DrawSelfLoopMarker(DrawingContext context, Point center, IBrush brush)
+    {
+        const int Steps = 12;
+        const double StartAngle = 45;
+        const double Sweep = 285;
+        var pen = new Pen(brush, 1.2) { LineCap = PenLineCap.Round };
+        var arc = new StreamGeometry();
+
+        using (var sink = arc.Open())
+        {
+            for (var i = 0; i <= Steps; i++)
+            {
+                var angle = (StartAngle + (Sweep * i / Steps)) * Math.PI / 180;
+                var point = new Point(
+                    center.X + (SelfLoopMarkerRadius * Math.Cos(angle)),
+                    center.Y + (SelfLoopMarkerRadius * Math.Sin(angle)));
+
+                if (i == 0)
+                {
+                    sink.BeginFigure(point, isFilled: false);
+                }
+                else
+                {
+                    sink.LineTo(point);
+                }
+            }
+
+            sink.EndFigure(isClosed: false);
+        }
+
+        context.DrawGeometry(null, pen, arc);
+
+        // 缺口末端的小箭头：取弧上最后一段的切线方向（不依赖引擎的弧长语义）。
+        var endAngle = (StartAngle + Sweep) * Math.PI / 180;
+        var tip = new Point(
+            center.X + (SelfLoopMarkerRadius * Math.Cos(endAngle)),
+            center.Y + (SelfLoopMarkerRadius * Math.Sin(endAngle)));
+        var beforeTip = new Point(
+            center.X + (SelfLoopMarkerRadius * Math.Cos(endAngle - 0.25)),
+            center.Y + (SelfLoopMarkerRadius * Math.Sin(endAngle - 0.25)));
+
+        DrawArrow(context, tip, DirectionOf(beforeTip, tip), brush, 3);
+    }
+
     /// <summary>左上信息区（身份 + 说明）的下边界：角色信息文字/对端名不得压上去。</summary>
     private static double TopInfoBottom => 8 + CaptionFontSize + 5 + SmallFontSize + 4;
 
@@ -876,6 +1183,19 @@ public sealed class ConnectionOverlay : Control
     /// 而是「**角色本身速率信息**」——即每一个角色块显示其自身的信息。
     /// ⇒ 文字随方块走（方块移，文字跟着移），方块与文字之间由**间距**而非边框表达归属。
     /// </remarks>
+    /// <summary>角色信息块是否落在方块上方（与 <see cref="DrawRoleInfo"/> 共用同一判据）。</summary>
+    private static bool RoleInfoIsAbove(RoleBoxViewModel role, RoleBox box)
+    {
+        var lines = role.InfoLines.Where(line => line.Text.Length > 0).ToList();
+        if (lines.Count == 0)
+        {
+            return true;
+        }
+
+        var blockHeight = lines.Sum(line => line.FontSize + RoleInfoLineGap) - RoleInfoLineGap;
+        return box.Box.Top - RoleInfoGap - blockHeight >= TopInfoBottom;
+    }
+
     private void DrawRoleInfo(
         DrawingContext context,
         RoleBoxViewModel role,

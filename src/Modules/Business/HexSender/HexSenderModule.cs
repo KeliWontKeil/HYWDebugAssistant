@@ -32,9 +32,7 @@ namespace HYWDebugAssistant.Modules.HexSender;
     Tags = ["hex", "sender"],
     ParticipatesInDataFlow = true,
     WindowWidth = 400,
-    WindowHeight = 240,
-    MinWidth = 400,
-    MinHeight = 240,
+    WindowHeight = 228,
     ViewFactory = typeof(Views.HexSenderViewFactory))]
 public sealed class HexSenderModule : IModule, IActivitySource
 {
@@ -854,3 +852,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
         return payload;
     }
 }
+
+
+
+

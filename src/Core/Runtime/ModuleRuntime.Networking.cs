@@ -148,12 +148,6 @@ public sealed partial class ModuleRuntime
 
                 foreach (var sender in senders)
                 {
-                    // **同一实例的端口不能自连**：这不是环检测，而是拒绝结构上无效的源=宿。
-                    if (string.Equals(sender.InstanceId, receiver.InstanceId, StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-
                     // **三层判据 + 结构回退**（与运行期/重锚同一入口）——类型标识不同默认不兼容，
                     // 派生网络**没有**"用户显式确认"这一步 ⇒ 只能按默认（拒绝）
                     if (CheckCompatibility(
@@ -358,8 +352,10 @@ public sealed partial class ModuleRuntime
             // 接触面走向：由**本口所在边**决定（口在左右边 ⇒ 左右相邻 ⇒ 沿 Y 对齐）
             var horizontal = PortEdgeGeometry.IsVertical(self.Edge);
 
-            // 把本口中心对齐到对端口中心 ⇒ 松手即可建网
-            var othersCenter = DockRule.MarkerCenter(peer, horizontal);
+            // 把本口中心对齐到对端口中心 ⇒ 松手即可建网。
+            // `MarkerCenter` 是**物理像素**；换算到本窗口 DIP 后再求归一化偏移。
+            var selfScale = self.Layout.Scale > 0 ? self.Layout.Scale : 1;
+            var othersCenter = DockRule.MarkerCenter(peer, horizontal) / selfScale;
             var origin = horizontal ? self.Layout.Y : self.Layout.X;
             var span = horizontal ? self.Layout.Height : self.Layout.Width;
 

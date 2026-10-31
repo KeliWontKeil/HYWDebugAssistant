@@ -34,6 +34,34 @@ public class SnapEngineTests
     }
 
     [Fact]
+    public void 吸附迟滞_上一帧的线在释放距离内优先保持()
+    {
+        var lines = Lines(new CanvasRect(1000, 400, 320, 200));
+        var first = SnapEngine.Snap(new CanvasRect(673, 450, 330, 220), lines);
+
+        first.X.ShouldBe(670);
+        first.XLine.ShouldBe(1000);
+
+        // 右缘离目标 9px：超过常规贴合容差 8，但仍在释放距离内 ⇒ 保持上一帧的线。
+        var held = SnapEngine.Snap(
+            new CanvasRect(679, 450, 330, 220),
+            lines,
+            memory: new SnapMemory(first.XLine, first.YLine));
+
+        held.X.ShouldBe(670, "迟滞期内不能因为越过普通容差就松手");
+        held.SnappedX.ShouldBeTrue();
+
+        // 再远到释放距离之外 ⇒ 允许松开。
+        var released = SnapEngine.Snap(
+            new CanvasRect(682, 450, 330, 220),
+            lines,
+            memory: new SnapMemory(first.XLine, first.YLine));
+
+        released.SnappedX.ShouldBeFalse("超过释放距离必须松手");
+        released.X.ShouldBe(682);
+    }
+
+    [Fact]
     public void 吸附_交叉轴无重叠时只能是边缘对齐()
     {
         var moving = new CanvasRect(673, 2000, 330, 220);   // 竖直方向相距 1400px 以上

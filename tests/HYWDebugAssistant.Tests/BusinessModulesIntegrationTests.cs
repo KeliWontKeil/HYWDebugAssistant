@@ -136,9 +136,11 @@ public class BusinessModulesIntegrationTests
             $"1 ms 连续发送在 400 ms 窗口内应远超 10 ms 定时器的约 40 条（实测 {sent}）");
 
         viewState.SetInputText("t1", "continuous", "false");
-        Thread.Sleep(80);
+
+        // 停止是**跨线程**生效：给实例循环/计时服务一个宽于常规负载的窗口（并行测试时 80 ms 会被挤掉）。
+        Thread.Sleep(250);
         var stopped = services.GetPortMetrics("t1", "out").Delivered;
-        Thread.Sleep(120);
+        Thread.Sleep(200);
         services.GetPortMetrics("t1", "out").Delivered.ShouldBe(stopped, "停止后不得再有幽灵发送");
     }
 

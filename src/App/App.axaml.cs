@@ -39,6 +39,10 @@ public partial class App : Application
 
             var window = new MainWindow { DataContext = shell };
 
+            // **先落外壳启动尺寸，再建管理器**：自动恢复的模块要等外壳显示后的真实外框就绪才创建；
+            // 启动位置在 `Opened` 中以“程序性放置”作用域应用，不会被当成用户拖动外壳。
+            window.PrepareForShow();
+
             // 模块窗口管理器：把模块集合映射为一批无边框顶层窗口（外壳是可被贴靠的"起始点"）
             var windowManager = new ModuleWindowManager(shell.Windows, window);
             window.WindowManager = windowManager;
@@ -57,9 +61,6 @@ public partial class App : Application
                     instanceId,
                     id => windowManager.WindowFor(id),
                     (source, path) => _ = command.SubmitInput(instanceId, source, path));
-
-            // 首帧之前载入设置并落定几何：有工作区按保存形状，无工作区按比例。
-            window.PrepareForShow();
 
             desktop.MainWindow = window;
 

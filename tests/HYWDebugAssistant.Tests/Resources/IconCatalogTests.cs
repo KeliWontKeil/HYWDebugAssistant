@@ -306,7 +306,7 @@ public sealed class IconCatalogTests : IDisposable
     /// </summary>
     /// <remarks>
     /// 外壳图标的键全部来自 <see cref="ShellIcons"/>；这里逐个查表，缺一个键就红。
-    /// 只断言"解析得到、有路径、画布是 2048×2048"（Fluent UI MDL2 图标），不抄具体路径数据（那是 SVG 文件自己的事）。
+    /// 只断言"解析得到、有路径、画布宽高为正"（具体画布尺寸由 SVG 自己声明，不在这里钉死）。
     /// </remarks>
     [Fact]
     public void 框架图标表_外壳图标键应全部解析()
@@ -328,8 +328,8 @@ public sealed class IconCatalogTests : IDisposable
             key.ShouldStartWith("icon.");
             IconCatalog.TryGet(assembly, key, out var asset).ShouldBeTrue($"{key} 不在 Ui 的图标表里");
             asset!.PathData.ShouldNotBeEmpty($"{key} 必须真的解析出路径");
-            asset.ViewBoxWidth.ShouldBe(2048d, $"{key} 用的是 Fluent UI MDL2 图标（2048 画布）");
-            asset.ViewBoxHeight.ShouldBe(2048d);
+            asset.ViewBoxWidth.ShouldBeGreaterThan(0, $"{key} 的 viewBox 宽度必须是正的");
+            asset.ViewBoxHeight.ShouldBeGreaterThan(0, $"{key} 的 viewBox 高度必须是正的");
         }
     }
 }

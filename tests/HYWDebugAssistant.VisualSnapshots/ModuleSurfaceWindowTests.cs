@@ -11,6 +11,7 @@ using HYWDebugAssistant.Modules.DataMonitor.Views;
 using HYWDebugAssistant.Modules.TextSender;
 using HYWDebugAssistant.Modules.TextSender.Views;
 using HYWDebugAssistant.Sdk.Ui.Controls;
+using HYWDebugAssistant.Ui.Geometry;
 using Shouldly;
 using Xunit;
 using Xunit.Abstractions;
@@ -55,16 +56,21 @@ public class ModuleSurfaceWindowTests
 
                 var host = window.GetVisualDescendants().OfType<ModuleViewHost>().Single();
                 var view = (Control)host.Content!;
-                view.Bounds.Width.ShouldBe(host.Bounds.Width, "模块视图必须填满宿主（否则 * 列拿不到余量，最右读数被裁）");
+                view.Bounds.Width.ShouldBe(
+                    Math.Max(host.Bounds.Width, view.MinWidth),
+                    0.5,
+                    "模块视图至少填满宿主；更大的 MinWidth 是模块自己的布局选择");
 
                 var origin = host.TranslatePoint(new Point(0, 0), window);
                 origin.ShouldNotBeNull();
-                origin!.Value.X.ShouldBeGreaterThanOrEqualTo(20, "左侧要留出端口标记带");
-                origin.Value.Y.ShouldBeGreaterThanOrEqualTo(22, "上方要留出端口标记带");
+                origin!.Value.X.ShouldBeGreaterThanOrEqualTo(ModuleSurfaceMetrics.InsetLeft, "左侧要留出端口标记带");
+                origin.Value.Y.ShouldBeGreaterThanOrEqualTo(ModuleSurfaceMetrics.InsetTop, "上方要留出端口标记带");
 
                 var bottom = host.TranslatePoint(new Point(host.Bounds.Width, host.Bounds.Height), window);
                 bottom.ShouldNotBeNull();
-                bottom!.Value.Y.ShouldBeLessThanOrEqualTo(240 - 24, "底边要给运行指示/端口标记留位");
+                bottom!.Value.Y.ShouldBeLessThanOrEqualTo(
+                    window.Height - ModuleSurfaceMetrics.InsetBottom,
+                    "底边要给运行指示/端口标记留位");
 
                 var marker = window.GetVisualDescendants()
                     .OfType<Border>()

@@ -8,13 +8,13 @@
              x:Class="HYWDebugAssistant.Modules.HexSender.Views.HexSenderView"
              x:CompileBindings="True"
              x:DataType="contracts:IModuleViewContext"
-             d:DesignWidth="360" d:DesignHeight="180">
+             d:DesignWidth="360" d:DesignHeight="180" MinWidth="360" MinHeight="180">
 
   <!--
-    HEX 发送器：多页输入区自适应；动作/状态条固定 70 高。
+    HEX 发送器：多页输入区自适应；动作/状态条的高度只由它自己的 Canvas 声明。
     动作条里的元素仍是绝对坐标：间隔单位 `ms` 与「已发送」的单位 `条` 都是普通文本标签。
   -->
-  <Grid RowDefinitions="Auto,*,52">
+  <Grid RowDefinitions="Auto,*,Auto">
 
     <ui:ModuleLabel Grid.Row="0" Classes="caption" Text="{loc:Tr view.inputLabel}" />
 
@@ -56,3 +56,5 @@
     </Canvas>
   </Grid>
 </ui:ModuleView>
+
+

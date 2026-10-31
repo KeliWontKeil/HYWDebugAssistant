@@ -15,8 +15,8 @@
   -->
 
   <!--
-    ① **TextBox**：常态 1px `BorderDefault` + 2 圆角 + `BgModule`；
-    聚焦 / 错误各加一圈 2px 环（焦点圈在下、错误圈在上），**边框厚度恒为 1** —— 文字不位移。
+    ① **TextBox**：常态用 `BorderDefault` 的细边框 + 小圆角 + `BgModule`；
+    聚焦 / 错误各加一圈环（焦点圈在下、错误圈在上），**边框厚度恒定** —— 文字不位移。
     指向态不改变任何东西（输入区不是按钮）。
   -->
   <Style Selector="TextBox">
@@ -180,7 +180,7 @@
   <!--
     ② **ComboBox**：与 TextBox 同一套框与圈；Fluent 的 `HighlightBackground` 与
     "聚焦黑线"（`ComboBoxBackgroundBorderBrushFocused`）不再存在。箭头 `TextSecondary`；
-    弹层 `BgModule` + 1px `BorderDefault`；指向态边框 `BorderStrong`。
+    弹层用 `BgModule` + `BorderDefault` 的细边框；指向态边框 `BorderStrong`。
   -->
   <Style Selector="ComboBox">
     <Setter Property="Background" Value="{DynamicResource BgModule}" />
@@ -194,7 +194,7 @@
     <Setter Property="Template">
       <ControlTemplate>
         <DataValidationErrors>
-          <Grid ColumnDefinitions="*,32">
+          <Grid ColumnDefinitions="*,Auto">
             <Border x:Name="PART_BorderElement"
                     Grid.Column="0"
                     Grid.ColumnSpan="2"
@@ -246,7 +246,7 @@
                     Grid.Column="1"
                     Background="Transparent"
                     Margin="0,1,1,1"
-                    Width="30"
+                    Width="0"
                     IsVisible="False"
                     HorizontalAlignment="Right" />
 
@@ -256,7 +256,7 @@
                       IsHitTestVisible="False"
                       Height="12"
                       Width="12"
-                      Margin="0,0,10,0"
+                      Margin="0,0,8,0"
                       HorizontalAlignment="Right"
                       VerticalAlignment="Center"
                       Foreground="{DynamicResource TextSecondary}"
@@ -286,7 +286,8 @@
                    MaxHeight="{TemplateBinding MaxDropDownHeight}"
                    PlacementTarget="PART_BorderElement"
                    IsLightDismissEnabled="True"
-                   InheritsTransform="True">
+                   InheritsTransform="True"
+                   Topmost="True">
               <Border x:Name="PopupBorder"
                       Background="{DynamicResource BgModule}"
                       BorderBrush="{DynamicResource BorderDefault}"
@@ -389,6 +390,11 @@
 
   <Style Selector="ComboBoxItem:disabled">
     <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+  </Style>
+
+  <!-- 自动完成下拉：与 ComboBox 下拉同一层级策略（打开时不被其它应用窗口压住）。 -->
+  <Style Selector="AutoCompleteBox /template/ Popup">
+    <Setter Property="Topmost" Value="True" />
   </Style>
 
   <!--

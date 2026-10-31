@@ -47,6 +47,8 @@ public abstract class ExternalAccessModule : IModule, IModuleInteractionSink
     private byte[] _frame = [];
     private string? _lastStateText;
     private string? _lastLinkRole;
+    private string? _lastStateRole;
+    private string? _lastDropRole;
     private string[] _configurationFields = [];
     private bool _configurationFieldsResolved;
     private bool? _lastCanOpen;
@@ -160,6 +162,7 @@ public abstract class ExternalAccessModule : IModule, IModuleInteractionSink
         ArgumentNullException.ThrowIfNull(context);
 
         _context = context;
+        ResetPresentationCache();
         var spec = Spec;
 
         if (spec.Capacity is < 1 or > BytesShape.MaxLength)
@@ -234,6 +237,8 @@ public abstract class ExternalAccessModule : IModule, IModuleInteractionSink
         {
             return;
         }
+
+        ResetPresentationCache();
 
         // 此时外部接入面已由 L4 挂上：登记回调，数据由实例循环投递。
         _context.Access.SetReceiveHandler(Spec.AccessName, OnAccessData);
@@ -380,18 +385,35 @@ public abstract class ExternalAccessModule : IModule, IModuleInteractionSink
             }
         }
 
-        var text = DescribeStatus(snapshot);
-        if (!string.Equals(text, _lastStateText, StringComparison.Ordinal))
+        var presentation = BuildPresentation(snapshot);
+
+        if (!string.Equals(presentation.Text, _lastStateText, StringComparison.Ordinal))
         {
-            _context.Display.SetText(spec.StateSource, text);
-            _lastStateText = text;
+            _context.Display.SetText(spec.StateSource, presentation.Text);
+            _lastStateText = presentation.Text;
         }
 
-        var role = LinkRole(snapshot);
-        if (!string.Equals(role, _lastLinkRole, StringComparison.Ordinal))
+        // **灯与状态文字同源**：丢失/故障 ⇒ 红（danger）；积压/饱和 ⇒ 黄（warning）；其余回落到连接状态角色。
+        var linkRole = presentation.Severity ?? LinkRole(snapshot);
+        if (!string.Equals(linkRole, _lastLinkRole, StringComparison.Ordinal))
         {
-            _context.Appearance.SetOutlineRole(spec.LinkSource, role);
-            _lastLinkRole = role;
+            _context.Appearance.SetOutlineRole(spec.LinkSource, linkRole);
+            _lastLinkRole = linkRole;
+        }
+
+        var textRole = presentation.Severity is ViewInkRoles.Danger or ViewInkRoles.Warning
+            ? presentation.Severity
+            : null;
+        if (!string.Equals(textRole, _lastStateRole, StringComparison.Ordinal))
+        {
+            _context.Appearance.SetTextRole(spec.StateSource, textRole);
+            _lastStateRole = textRole;
+        }
+
+        if (!string.Equals(presentation.DropRole, _lastDropRole, StringComparison.Ordinal))
+        {
+            _context.Appearance.SetTextRole(spec.DropCountSource, presentation.DropRole);
+            _lastDropRole = presentation.DropRole;
         }
 
         // **单一来源**：会话轴的有效字节（模块不再自建"口侧丢弃字节"这第二份账）
@@ -408,69 +430,89 @@ public abstract class ExternalAccessModule : IModule, IModuleInteractionSink
     }
 
     /// <summary>
-    /// 选出这一拍状态行要显示的那一句（**优先级只在这里定义一次**）。
+    /// **状态呈现的唯一来源**：一句话 + 灯/文字严重度 + drop 读数颜色，全部由这里一次算出。
     /// </summary>
     /// <param name="snapshot">该接入的当前快照。</param>
     /// <remarks>
-    /// 顺序：① 非打开态 ⇒ 故障 / 开合句（故障压过一切）；
-    /// ② 接收侧**已经丢了**（最近 10 s）⇒ 接收已丢弃；③ 发送侧**已经丢了**（写失败 / tx 队列丢，最近 10 s）
-    /// ⇒ 发送已丢弃；④ 接收侧饱和；⑤ <c>tx</c> 口饱和；⑥ 连接句。
-    /// <see cref="DescribePressure"/> 返回 <see langword="null"/>（模块没写压力句）⇒ 逐级回落。
+    /// 丢失只认**本次打开以来**的计数（快照的 <c>*SinceOpen</c>）与提示时间窗，避免关闭/重开后在 10 s 内
+    /// 沿用上一次的报错；累计计数仍只供 drop 读数。顺序：非打开态（故障/开合/连接句）→
+    /// 本次打开以来的接收丢失 → 发送丢失 → 发送积压饱和 → 接收饱和 → tx 口饱和 → 连接句。
     /// </remarks>
-    private string DescribeStatus(ExternalAccessSnapshot snapshot)
+    private StatusPresentation BuildPresentation(ExternalAccessSnapshot snapshot)
     {
+        var dropRole = snapshot.LastDropAtSinceOpen is not null ? ViewInkRoles.Danger : null;
+
         if (snapshot.State != ExternalAccessState.Open)
         {
-            return Describe(snapshot);
+            var closedText = Describe(snapshot);
+            var closedSeverity = snapshot.State switch
+            {
+                ExternalAccessState.Faulted => ViewInkRoles.Danger,
+                ExternalAccessState.Opening or ExternalAccessState.Closing => ViewInkRoles.Warning,
+                _ => snapshot.RejectedSinceOpen > 0 ? ViewInkRoles.Danger : null,
+            };
+
+            return new StatusPresentation(closedText, closedSeverity, dropRole);
         }
 
         var hasSendFlow = TryGetSendFlow(out var sendFlow);
+        var recent = snapshot.LastDropAtSinceOpen is { } since
+            && DateTimeOffset.UtcNow - since <= LossHintWindow;
 
-        if (snapshot.ReceiveDroppedUnits > 0
-            && IsRecent(snapshot.LastDropAt)
+        if (snapshot.ReceiveDroppedSinceOpen > 0
+            && recent
             && DescribePressure(PressureKind.ReceiveLost, in sendFlow, snapshot) is { } lostReceive)
         {
-            return lostReceive;
+            return new StatusPresentation(lostReceive, ViewInkRoles.Danger, dropRole);
         }
 
-        if ((snapshot.SendFailedUnits > 0
-                || (hasSendFlow && sendFlow.DroppedUnits > 0 && IsRecent(sendFlow.SinceLastDrop))
-                || ((snapshot.SendBacklogEvictedUnits > 0 || snapshot.SendBacklogExpiredUnits > 0)
-                    && IsRecent(snapshot.LastDropAt)))
+        var portDropped = hasSendFlow
+            && sendFlow.DroppedUnits > 0
+            && sendFlow.SinceLastDrop is { } sincePortDrop
+            && sincePortDrop <= LossHintWindow;
+
+        if (((snapshot.SendFailedSinceOpen > 0
+                    || snapshot.SendBacklogEvictedSinceOpen > 0
+                    || snapshot.SendBacklogExpiredSinceOpen > 0)
+                && recent
+                || portDropped)
             && DescribePressure(PressureKind.SendLost, in sendFlow, snapshot) is { } lostSend)
         {
-            return lostSend;
+            return new StatusPresentation(lostSend, ViewInkRoles.Danger, dropRole);
         }
 
-        if (snapshot.SendBacklogDepth > 0
+        if (snapshot.SendBacklogSaturated
             && DescribePressure(PressureKind.SendBacklogged, in sendFlow, snapshot) is { } backlogged)
         {
-            return backlogged;
+            return new StatusPresentation(backlogged, ViewInkRoles.Warning, dropRole);
         }
 
         if (snapshot.ReceiveSaturated
             && DescribePressure(PressureKind.ReceiveSaturated, in sendFlow, snapshot) is { } receive)
         {
-            return receive;
+            return new StatusPresentation(receive, ViewInkRoles.Warning, dropRole);
         }
 
         if (hasSendFlow
             && sendFlow.Saturated
             && DescribePressure(PressureKind.SendSaturated, in sendFlow, snapshot) is { } send)
         {
-            return send;
+            return new StatusPresentation(send, ViewInkRoles.Warning, dropRole);
         }
 
-        return Describe(snapshot);
+        return new StatusPresentation(Describe(snapshot), null, dropRole);
     }
 
-    /// <summary>最近一次丢弃是否还在提示时间窗内（绝对时间）。</summary>
-    private static bool IsRecent(DateTimeOffset? at) =>
-        at is { } value && DateTimeOffset.UtcNow - value <= LossHintWindow;
+    /// <summary>清空呈现缓存：注册/激活后首拍必写，避免存储重建后沿用旧值。</summary>
+    private void ResetPresentationCache()
+    {
+        _lastStateText = null;
+        _lastLinkRole = null;
+        _lastStateRole = null;
+        _lastDropRole = null;
+    }
 
-    /// <summary>最近一次丢弃是否还在提示时间窗内（相对时长）。</summary>
-    private static bool IsRecent(TimeSpan? since) =>
-        since is { } value && value <= LossHintWindow;
+    private readonly record struct StatusPresentation(string Text, string? Severity, string? DropRole);
 
     /// <summary>取本模块 <c>tx</c> 口的流动状态（口没有队列时为 <see langword="false"/> 且给空值）。</summary>
     /// <param name="state">流动状态。</param>

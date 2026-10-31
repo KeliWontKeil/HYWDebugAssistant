@@ -377,6 +377,69 @@ public sealed class ExternalAccessSessionTests
             "一次 Pump 应把暂存里的多个单元全部取走（旧实现只取一个，长文本突发时会溢出）");
     }
 
+    [Fact]
+    public void 打开失败后_故障与原因应保留到用户显式重开_改参数不得自动重开()
+    {
+        var session = NewSession(out var adapter);
+        adapter.ThrowOnOpen = true;
+
+        session.RequestOpen();
+        _ = session.Pump();
+
+        var failed = session.GetSnapshot();
+        failed.State.ShouldBe(ExternalAccessState.Faulted);
+        failed.Failure.ShouldNotBeNull("打开失败必须保留失败原因");
+        adapter.OpenCount.ShouldBe(1);
+
+        // 实例线程释放一次坏句柄（故障即释放），但状态与原因不动。
+        _ = session.Pump();
+        session.GetSnapshot().State.ShouldBe(ExternalAccessState.Faulted);
+        session.GetSnapshot().Failure.ShouldNotBeNull("释放适配件不得清掉失败事实");
+
+        // 切换端口/改参数 → NotifyConfigurationChanged：**不得**先 CloseCore 再把 Faulted 清成 Closed 并自动重开。
+        session.NotifyConfigurationChanged();
+        _ = session.Pump();
+
+        var afterRestart = session.GetSnapshot();
+        afterRestart.State.ShouldBe(ExternalAccessState.Faulted, "故障态不得被参数变更静默清成 Closed");
+        afterRestart.Failure.ShouldNotBeNull("故障原因必须保留");
+        adapter.OpenCount.ShouldBe(1, "没有显式重开意图时不得再尝试打开");
+
+        // 用户改完参数、显式按"打开"：第二次 Open 并成功。
+        adapter.ThrowOnOpen = false;
+        session.RequestOpen();
+        _ = session.Pump();
+
+        var reopened = session.GetSnapshot();
+        reopened.State.ShouldBe(ExternalAccessState.Open);
+        reopened.Failure.ShouldBeNull("打开成功必须清掉上一次失败");
+        adapter.OpenCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public void 打开失败后显式关闭_应清故障并回到已关闭_之后改参数也不再打开()
+    {
+        var session = NewSession(out var adapter);
+        adapter.ThrowOnOpen = true;
+
+        session.RequestOpen();
+        _ = session.Pump();
+        session.GetSnapshot().State.ShouldBe(ExternalAccessState.Faulted);
+
+        session.RequestClose();
+        _ = session.Pump();
+
+        var closed = session.GetSnapshot();
+        closed.State.ShouldBe(ExternalAccessState.Closed, "显式关闭允许 CloseCore 清掉故障态");
+        closed.Failure.ShouldBeNull("显式关闭必须把残留故障一起清掉");
+
+        session.NotifyConfigurationChanged();
+        _ = session.Pump();
+
+        session.GetSnapshot().State.ShouldBe(ExternalAccessState.Closed);
+        adapter.OpenCount.ShouldBe(1, "关闭之后没有打开意图，改参数不得自己打开");
+    }
+
     private static ExternalAccessSession NewSession(
         out FakeExternalAccessAdapter adapter,
         TimeSpan? writeTimeout = null)

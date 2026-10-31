@@ -349,34 +349,6 @@ public sealed class ThemeStore
         return TryParseManifest(root, id, out view, out reason);
     }
 
-    /// <summary>读一份**种子**清单（id 取清单里的 `id`，缺失时回落文件夹名）。</summary>
-    /// <param name="manifestPath">清单路径。</param>
-    /// <param name="view">读出的视图（成功时非 null）。</param>
-    /// <param name="reason">失败原因（成功时 null）。</param>
-    internal static bool TryReadSeedManifest(string manifestPath, out ThemeFileView? view, out string? reason)
-    {
-        view = null;
-        reason = null;
-
-        if (!JsonFileStore.TryReadObject(manifestPath, out var root, out var readError) || root is null)
-        {
-            reason = readError ?? CoreText.Get("core.theme.unreadable");
-            return false;
-        }
-
-        if (!TryNormalizeId(Text(root, "id"), out var id))
-        {
-            var folderName = Path.GetFileName(Path.GetDirectoryName(manifestPath));
-            if (!TryNormalizeId(folderName, out id))
-            {
-                reason = CoreText.Get("core.theme.idMissing");
-                return false;
-            }
-        }
-
-        return TryParseManifest(root, id, out view, out reason);
-    }
-
     /// <summary>把规范名收敛成"能当文件夹名的主题 id"（拒绝保留名 / 分隔符 / 以 . 开头）。</summary>
     /// <param name="raw">用户 / 文件里的 id。</param>
     /// <param name="id">规范化后的 id。</param>

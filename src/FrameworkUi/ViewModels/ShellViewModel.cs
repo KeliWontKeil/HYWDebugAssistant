@@ -483,6 +483,8 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         }
     }
 
+    private string? _allLockedActionText;
+
     /// <summary>窗口组：全部锁定。</summary>
     public bool AllLocked
     {
@@ -496,14 +498,47 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
             Windows.SetAllLocked(value);
             OnPropertyChanged();
+            RefreshAllLockedActionText();
             UpdateStatus();
         }
     }
+
+    /// <summary>"全部锁定"按钮的当前动作文字：已锁 ⇒ 全部解锁，未锁 ⇒ 全部锁定。</summary>
+    public string AllLockedActionText =>
+        _allLockedActionText ??= Loc(AllLocked ? "interaction.unlockAll" : "interaction.lockAll");
+
+    /// <summary>单个模块的锁定变化也会改变"是否全部锁定"，按钮文字随刷新同步。</summary>
+    private void RefreshAllLockedActionText()
+    {
+        var text = Loc(AllLocked ? "interaction.unlockAll" : "interaction.lockAll");
+
+        if (string.Equals(_allLockedActionText, text, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _allLockedActionText = text;
+        OnPropertyChanged(nameof(AllLockedActionText));
+    }
+
+    /// <summary>切换全体窗口锁定（按钮是一次切换动作，不把开关状态当成每窗锁定事实）。</summary>
+    [RelayCommand]
+    private void ToggleAllLocked() => AllLocked = !AllLocked;
 
     /// <summary>按刷新节拍刷新（UI 线程；由外壳窗口的节拍器调用，测试可直接调用）。</summary>
     public void Refresh()
     {
         Windows.Refresh();
+        RefreshAllLockedActionText();
+
+        // 拖动/缩放期间只保留窗口自身状态：Catalog/Issue/拓扑/类型色与指针竞争同一帧，
+        // 是"多模块拖动卡顿"的主要无关成本；松手后下一拍自然恢复。
+        if (Windows.IsInteracting)
+        {
+            ExpireStatusNotice();
+            UpdateStatus();
+            return;
+        }
 
         if (IsCompositePage)
         {
@@ -607,11 +642,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     [RelayCommand]
     private void ShowAllWindows()
     {
-        foreach (var instance in _query.GetInstances())
-        {
-            Windows.ShowWindow(instance.InstanceId);
-        }
-
+        Windows.ShowAllWindows();
         UpdateStatus();
     }
 

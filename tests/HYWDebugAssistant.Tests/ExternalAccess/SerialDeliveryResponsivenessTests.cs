@@ -30,6 +30,7 @@ namespace HYWDebugAssistant.Tests.ExternalAccess;
 /// 断言全部是**可观测事实**：命令生效时刻、显示源写入次数、移除耗时、适配器安静时刻、丢弃计数。
 /// </para>
 /// </remarks>
+[Collection("SerialLoopback")]
 public sealed class SerialDeliveryResponsivenessTests
 {
     private const string TextSenderId = "hyw/text-sender/1.0.0";

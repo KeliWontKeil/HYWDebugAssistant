@@ -49,7 +49,7 @@
     </ControlTheme>
 
     <!--
-      图标：默认 16×16；画面由 `Viewbox` 按 SVG 的 `viewBox` 等比缩放（留白一起保留），
+      图标：画面由 `Viewbox` 按 SVG 的 `viewBox` 等比缩放（留白一起保留），显示尺寸取 `Glyph.icon` 的声明；
       填充色跟随控件前景 ⇒ 按钮的 `:pointerover` / `:pressed` 换前景时图标自动跟着走。
       缺键/缺表时显示**键名**（界面字体）——宁可露出缺的是哪个键，也不要一块看不见的空白。
     -->
@@ -152,7 +152,7 @@
     </ControlTheme>
 
     <!--
-      页签本体：选中态 = 淡主题色圆角底 + 2px 主题色下沿，未选中透明 + 次文字。
+      页签本体：选中态 = 淡主题色圆角底 + 主题色下沿（下沿厚度由声明给出），未选中透明 + 次文字。
       这组属性必须住在 ControlTheme 里：Fluent 的 TabItem 主题会盖掉外部
       `TabItem` 样式；`TabControl.ItemContainerTheme` 才是容器主题的入口。
     -->
@@ -171,7 +171,7 @@
         <ControlTemplate>
           <!--
             下沿必须在**Padding 之外**、铺满页签本体：放在带 Padding 的内层 Grid 里时，
-            它只会横过文字的宽度（实测 6px），看起来像一个小蓝点。
+            它只会横过文字的宽度，看起来像一个小点。
           -->
           <Grid>
             <Border Name="PART_Root"
@@ -289,7 +289,7 @@
 
   <!--
     模块控件库的**尺寸**也在这里：视图只摆结构，不逐格写高度/字号。
-    数值与全局控件高（27）对齐，避免"同一种控件在不同模块里高矮不一"。
+    数值与全局控件高对齐（同一档 token），避免"同一种控件在不同模块里高矮不一"。
   -->
   <Style Selector="ui|ModuleButton">
     <Setter Property="MinHeight" Value="26" />
@@ -314,7 +314,7 @@
     <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
   </Style>
 
-  <!-- 按钮里那枚图标的尺寸（图标默认 16；24×20 的清空按钮用 14 更透气） -->
+  <!-- 按钮里那枚图标的尺寸（清空按钮比普通按钮更小，图标相应收窄才不挤） -->
   <Style Selector="ui|ModuleButton.icon ui|Icon">
     <Setter Property="Width" Value="14" />
     <Setter Property="Height" Value="14" />
@@ -430,24 +430,31 @@
   </Style>
   <!-- 字段编辑器：统一高度与字号，避免"一行高一行矮"（三档自然高本来各不相同）。 -->
   <!--
-    配置格的内层编辑器**必须改掉全局 TextBox/ComboBox 的固定高 27**：
-    模块内容区的行高是 22–24，按 27 排会让 5 行串口参数比内容区还高（最后一格被裁）。
+    配置格的内层编辑器**必须改掉全局 TextBox/ComboBox 的固定高**：
+    模块内容区按紧凑行高排，沿用全局高度会让参数行比内容区还高（最后一格被裁）。
     高度只在这里给，视图不再逐格写。
   -->
   <Style Selector="ui|ModuleConfigField TextBox">
-    <Setter Property="Height" Value="22" />
-    <Setter Property="MinHeight" Value="22" />
+    <Setter Property="Height" Value="{Binding Height, RelativeSource={RelativeSource AncestorType=ui:ModuleConfigField}}" />
+    <Setter Property="MinHeight" Value="0" />
     <Setter Property="FontSize" Value="11" />
     <Setter Property="Padding" Value="4,0" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
 
   <Style Selector="ui|ModuleConfigField ComboBox">
-    <Setter Property="Height" Value="22" />
-    <Setter Property="MinHeight" Value="22" />
+    <Setter Property="Height" Value="{Binding Height, RelativeSource={RelativeSource AncestorType=ui:ModuleConfigField}}" />
+    <Setter Property="MinHeight" Value="0" />
     <Setter Property="FontSize" Value="11" />
-    <Setter Property="Padding" Value="6,0" />
+    <Setter Property="Padding" Value="2,0" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+
+  <!-- 模块配置格通常只有一百来像素宽：箭头只占它真正需要的宽度，不能沿用全局箭头的宽松留白。 -->
+  <Style Selector="ComboBox.compact /template/ PathIcon#DropDownGlyph">
+    <Setter Property="Width" Value="10" />
+    <Setter Property="Height" Value="10" />
+    <Setter Property="Margin" Value="0,0,6,0" />
   </Style>
 
   <Style Selector="ui|ModuleConfigField ui|ModuleToggle">

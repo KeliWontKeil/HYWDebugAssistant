@@ -20,9 +20,6 @@ public static class ThemeIds
     /// <summary>内置主题：深色。</summary>
     public const string Dark = "dark";
 
-    /// <summary>预置自定义方案「樱色」的 id（由编译期 seed 投放，**不是内置主题**）。</summary>
-    public const string Sakura = "sakura";
-
     /// <summary>**选择项**：跟随系统（不是一套主题，故不受"覆盖"影响）。</summary>
     public const string System = "System";
 

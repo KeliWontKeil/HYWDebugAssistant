@@ -58,6 +58,9 @@ public static class ShellIcons
     /// <summary>还原。</summary>
     public const string Reset = "icon.shell.reset";
 
+    /// <summary>置顶 / 抬到最前。</summary>
+    public const string Raise = "icon.shell.raise";
+
     /// <summary>图片。</summary>
     public const string Image = "icon.shell.image";
 

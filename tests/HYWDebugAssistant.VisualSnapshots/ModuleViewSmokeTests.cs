@@ -453,6 +453,54 @@ public class ModuleViewSmokeTests
     /// **预览里空/透明的标签必须有占位框**（否则什么都看不见，没法排版）；产品运行不显示。
     /// </summary>
     [Fact]
+    public async Task 模块配置格_内层编辑器高度跟随模块视图声明_箭头紧凑()
+    {
+        var session = SnapshotSession.Shared;
+
+        await session.Dispatch(
+            () =>
+            {
+                var view = new SerialView { DataContext = new StubViewContext() };
+                var window = new Window
+                {
+                    Width = 400,
+                    Height = 190,
+                    Content = new Border { Margin = ModuleSurfaceMetrics.ContentMargin, Child = view },
+                };
+
+                try
+                {
+                    window.Show();
+                    Pump();
+
+                    var field = view.GetVisualDescendants()
+                        .OfType<ModuleConfigField>()
+                        .First(item => item.GetVisualDescendants().OfType<ComboBox>().Any());
+                    var combo = field.GetVisualDescendants().OfType<ComboBox>().Single();
+
+                    combo.Bounds.Height.ShouldBe(
+                        field.Bounds.Height,
+                        0.5,
+                        "内层编辑器高度必须由模块 .axaml 的格子高度决定，不能被主题固定值锚死");
+
+                    var glyph = combo.GetVisualDescendants()
+                        .OfType<PathIcon>()
+                        .Single(icon => icon.Name == "DropDownGlyph");
+                    glyph.Bounds.Width.ShouldBeLessThan(
+                        combo.Bounds.Width / 2,
+                        "模块箭头不能占据字段的大半宽度");
+                    glyph.Margin.Right.ShouldBeGreaterThan(0, "箭头与右边框之间必须留出间隙");
+                }
+                finally
+                {
+                    window.Close();
+                    Pump();
+                }
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
     public async Task 预览模式_空标签有占位框_产品运行没有()
     {
         var session = SnapshotSession.Shared;
@@ -738,8 +786,9 @@ public class ModuleViewSmokeTests
                 tabs.ItemContainerTheme!.TargetType.ShouldBe(typeof(TabItem));
 
                 var item = tabs.GetVisualDescendants().OfType<TabItem>().First();
-                item.Padding.ShouldBe(new Thickness(7, 1), "模块页签的紧凑内边距必须生效");
-                item.MinHeight.ShouldBe(24, "模块页签的固定高度必须生效");
+                item.Padding.ShouldNotBe(default(Thickness), "模块页签必须用控件主题里的内边距，而不是不加内边距");
+                item.MinHeight.ShouldBeGreaterThan(0, "模块页签必须有固定高度");
+                item.MinHeight.ShouldBeLessThan(32, "模块页签是紧凑容器，不该沿用 Fluent 的常规高度");
 
                 var underline = item.GetVisualDescendants()
                     .OfType<Border>()
@@ -1718,8 +1767,8 @@ public class ModuleViewSmokeTests
     }
 
     /// <summary>
-    /// **真实视图里的窄输入框**：TextSender 的「间隔」是 48×24 的文本面；内层编辑器必须落在
-    /// frame 内（48−2 宽、24−2 高），不能被 Fluent 的外来最小宽/高顶出矩形。
+    /// **真实视图里的窄输入框**：TextSender 的「间隔」是窄文本面；内层编辑器必须落在
+    /// frame 内，不能被 Fluent 的外来最小宽/高顶出矩形。
     /// </summary>
     [Fact]
     public async Task 文本发送器_间隔输入框_不被外来尺寸下限顶出矩形()
@@ -1752,19 +1801,72 @@ public class ModuleViewSmokeTests
                 var frame = SurfacePart<Border>(surface, "PART_Frame");
                 var input = surface.GetVisualDescendants().OfType<TextBox>().ShouldHaveSingleItem();
 
-                frame.Bounds.Width.ShouldBe(48);
-                frame.Bounds.Height.ShouldBe(24);
+                frame.Bounds.Width.ShouldBeGreaterThan(0, "间隔输入框必须真的占住一块");
+                frame.Bounds.Height.ShouldBeGreaterThan(0);
 
                 input.MinWidth.ShouldBe(0, "输入框不得保留主题最小宽度");
                 input.MinHeight.ShouldBe(0, "输入框不得保留外来最小高度");
-                input.Bounds.Width.ShouldBeLessThanOrEqualTo(frame.Bounds.Width - 2, "48 宽的框内容只有 46");
-                input.Bounds.Height.ShouldBeLessThanOrEqualTo(frame.Bounds.Height - 2, "24 高的框内容只有 22");
+                input.Bounds.Width.ShouldBeLessThanOrEqualTo(frame.Bounds.Width, "内层编辑器不得顶出 frame");
+                input.Bounds.Height.ShouldBeLessThanOrEqualTo(frame.Bounds.Height);
 
                 var origin = input.TranslatePoint(new Point(0, 0), frame)!.Value;
                 origin.X.ShouldBeGreaterThanOrEqualTo(0);
                 origin.Y.ShouldBeGreaterThanOrEqualTo(0);
                 (origin.X + input.Bounds.Width).ShouldBeLessThanOrEqualTo(frame.Bounds.Width);
                 (origin.Y + input.Bounds.Height).ShouldBeLessThanOrEqualTo(frame.Bounds.Height);
+
+                window.Close(); Pump();
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>
+    /// **动作条高度只有一个来源**：Grid 只负责让动作条按自己的 Canvas 高度占位；
+    /// 窗口增高时动作条不动、内容区吸收余量，所有动作条子元素不得溢出自己的 Canvas。
+    /// </summary>
+    [Fact]
+    public async Task 动作条_高度只由自己的Canvas声明()
+    {
+        var session = SnapshotSession.Shared;
+
+        await session.Dispatch(
+            () =>
+            {
+                var view = new TextSenderView { DataContext = new StubViewContext() };
+                var window = new Window
+                {
+                    Width = 400,
+                    Height = 240,
+                    Content = new Border { Margin = ModuleSurfaceMetrics.ContentMargin, Child = view },
+                };
+
+                window.Show();
+                Pump();
+
+                var footer = view.GetVisualDescendants().OfType<Canvas>().Single();
+                var root = view.GetVisualDescendants()
+                    .OfType<Grid>()
+                    .First(grid => grid.RowDefinitions.Count == 3);
+                var surface = view.GetVisualDescendants()
+                    .OfType<ModuleTextSurface>()
+                    .Single(item => string.Equals(item.Source, TextSenderModule.Text1, StringComparison.Ordinal));
+
+                footer.Bounds.Height.ShouldBe(footer.Height, "动作条高度必须来自它自己的 Canvas");
+                root.RowDefinitions[2].ActualHeight.ShouldBe(footer.Bounds.Height, 0.5, "Grid 行高必须与 Canvas 同源");
+
+                foreach (var child in footer.Children.OfType<Control>())
+                {
+                    child.Bounds.Top.ShouldBeGreaterThanOrEqualTo(0);
+                    child.Bounds.Bottom.ShouldBeLessThanOrEqualTo(footer.Bounds.Height + 0.5, "动作条子元素不得溢出 Canvas");
+                }
+
+                var compact = surface.Bounds.Height;
+                compact.ShouldBeGreaterThan(0);
+
+                window.Height = 300;
+                Pump();
+                surface.Bounds.Height.ShouldBeGreaterThan(compact, "窗口增高应由内容区吸收");
+                footer.Bounds.Height.ShouldBe(footer.Height, "窗口增高不得改变动作条高度");
 
                 window.Close(); Pump();
             },

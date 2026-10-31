@@ -4,6 +4,7 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Text;
@@ -34,6 +35,12 @@ public partial class ModuleWindow : Window
 {
     private bool _dragging;
     private bool _resizing;
+
+    /// <summary>最近一次拖动/缩放的指针位置（合并到下一个渲染帧；输入事件可能远高于刷新率）。</summary>
+    private (double X, double Y, bool? SnapEnabled)? _pendingPointer;
+
+    /// <summary>是否已把一次指针冲刷排到渲染帧。</summary>
+    private bool _pointerFlushScheduled;
     private ModuleViewViewModel? _hooked;
 
     /// <summary>锚点拖动的**启动阈值**（逻辑 px）：小于它视为"点击"，把手势留给双击改网名。</summary>
@@ -121,17 +128,16 @@ public partial class ModuleWindow : Window
     /// <param name="dipX">模型位置 X（DIP）。</param>
     /// <param name="dipY">模型位置 Y（DIP）。</param>
     /// <remarks>
-    /// DIP → 物理像素需要缩放，而"该用哪块屏的缩放"又取决于落点 ⇒ 用**主屏缩放**求一个候选点，
-    /// 再问那块屏要缩放。跨屏边界的那点误差由 `ScalingChanged` 与位置回写兜住。
+    /// DIP → 物理像素需要缩放，而"该用哪块屏的缩放"又取决于落点 ⇒ 不能固定用主屏缩放投影。
+    /// 这里改为**按 DIP 找屏**：把每块屏的物理 <c>Bounds</c> 用该屏自己的缩放换成 DIP 后判断包含关系。
+    /// 未显示时 `Screens` 已经可用；显示之后由 `PublishScaling()` 用本窗口的真值覆盖。
     /// </remarks>
-    public void PublishScalingFor(double dipX, double dipY)
-    {
-        var primary = Screens.Primary is { Scaling: > 0 } screen ? screen.Scaling : 1.0;
-
-        PublishScaling(new PixelPoint(
-            ScreenPixels.ToPixel(dipX * primary),
-            ScreenPixels.ToPixel(dipY * primary)));
-    }
+    public void PublishScalingFor(double dipX, double dipY) => PublishScalingValue(
+        ScreenGeometry.ResolveScalingForDip(
+            Screens.All,
+            dipX,
+            dipY,
+            Screens.Primary is { Scaling: > 0 } primary ? primary.Scaling : 1.0));
 
     /// <summary>按"当前位置 / 窗口自己的值"重新解析并发布缩放（`Show` 之后、真实缩放变化时）。</summary>
     public void PublishScaling() => PublishScaling(Position);
@@ -155,6 +161,11 @@ public partial class ModuleWindow : Window
             scaling = primary.Scaling;
         }
 
+        PublishScalingValue(scaling);
+    }
+
+    private void PublishScalingValue(double scaling)
+    {
         if (Math.Abs(scaling - ResolvedScaling) < 1e-6)
         {
             return;
@@ -267,7 +278,8 @@ public partial class ModuleWindow : Window
 
         if (_resizing)
         {
-            controller.ResizeTo(x, y);
+            _pendingPointer = (x, y, null);
+            SchedulePointerFlush();
             e.Handled = true;
             return;
         }
@@ -282,8 +294,43 @@ public partial class ModuleWindow : Window
             }
 
             // 按住 Alt = 本次移动临时停用吸附（Q5-1）
-            controller.DragTo(x, y, snapEnabled: e.KeyModifiers.HasFlag(KeyModifiers.Alt) ? false : null);
+            _pendingPointer = (x, y, e.KeyModifiers.HasFlag(KeyModifiers.Alt) ? false : null);
+            SchedulePointerFlush();
             e.Handled = true;
+        }
+    }
+
+    /// <summary>把"最新指针位置"排到渲染帧（同帧多次移动只处理最后一次）。</summary>
+    private void SchedulePointerFlush()
+    {
+        if (_pointerFlushScheduled)
+        {
+            return;
+        }
+
+        _pointerFlushScheduled = true;
+        Dispatcher.UIThread.Post(FlushPointerMove, DispatcherPriority.Render);
+    }
+
+    /// <summary>渲染帧冲刷：拖动/缩放只在这一步写模型，避免输入事件洪峰直接变成窗口移动洪峰。</summary>
+    private void FlushPointerMove()
+    {
+        _pointerFlushScheduled = false;
+
+        if (_pendingPointer is not { } pointer || Controller is not { } controller)
+        {
+            return;
+        }
+
+        _pendingPointer = null;
+
+        if (_resizing)
+        {
+            controller.ResizeTo(pointer.X, pointer.Y);
+        }
+        else if (_dragging)
+        {
+            controller.DragTo(pointer.X, pointer.Y, snapEnabled: pointer.SnapEnabled);
         }
     }
 
@@ -299,6 +346,9 @@ public partial class ModuleWindow : Window
         {
             return;
         }
+
+        // 松手前先吃掉最后一帧位置（否则最后一段指针移动会丢）。
+        FlushPointerMove();
 
         if (_resizing)
         {
@@ -702,7 +752,12 @@ public partial class ModuleWindow : Window
             return;
         }
 
-        var scope = await new ResetModuleDialog(module.Title).ShowDialog<ModuleResetScope?>(this);
+        var dialog = new ResetModuleDialog(module.Title);
+        var group = AppWindowGroup.Of(this);
+        group?.Track(dialog, AppWindowLayer.Modal);
+        using var modal = group?.BeginModal(dialog);
+
+        var scope = await dialog.ShowDialog<ModuleResetScope?>(this);
         if (scope is { } selected)
         {
             controller.ApplyReset(module, selected);
@@ -869,18 +924,16 @@ public partial class ModuleWindow : Window
     private (double X, double Y) ScreenPoint(PointerEventArgs e)
     {
         var local = e.GetPosition(this);
-        var scaling = RenderScaling <= 0 ? 1.0 : RenderScaling;
-
-        // 回退值：`Position` 是 DIP、`local` 是 DIP ⇒ 相加已是 DIP（不再乘缩放）。
-        var derived = (X: Position.X + local.X, Y: Position.Y + local.Y);
 
         if (e.Pointer.Type == PointerType.Mouse && NativeCursor.TryGetScreenPosition(out var systemX, out var systemY))
         {
-            // 系统光标是**物理像素** ⇒ ÷ 缩放换成 DIP
-            return (systemX / scaling, systemY / scaling);
+            // 系统光标是**物理像素**；控制器再按各窗口自己的缩放换算成 DIP。
+            return (systemX, systemY);
         }
 
-        return derived;
+        // 回退值：`PointToScreen` 给的是**物理像素**（与 `Position` 同口径）。
+        var derived = Avalonia.VisualExtensions.PointToScreen(this, local);
+        return (derived.X, derived.Y);
     }
 
 }

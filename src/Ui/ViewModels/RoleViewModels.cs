@@ -224,6 +224,15 @@ public sealed class RoleLinkViewModel
     public int PortPairCount { get; }
 
     /// <summary>
+    /// **自回环**：对端实例 = 本模块实例，且对端角色 = 本角色。
+    /// </summary>
+    /// <remarks>
+    /// 判据**只看这两个事实**（不读网络类型、端口数量、命名/显式连接）——
+    /// 自环是叠加层的呈现属性，与底层用哪种方式连出来无关。
+    /// </remarks>
+    public bool IsSelfLoop { get; internal set; }
+
+    /// <summary>
     /// 线的**瞄准点**（本窗局部坐标）= **对端角色方块的中心**。
     /// </summary>
     /// <remarks>

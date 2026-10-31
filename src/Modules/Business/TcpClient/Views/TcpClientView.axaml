@@ -8,66 +8,67 @@
              x:Class="HYWDebugAssistant.Modules.TcpClient.Views.TcpClientView"
              x:CompileBindings="True"
              x:DataType="contracts:IModuleViewContext"
-             d:DesignWidth="360" d:DesignHeight="142">
+             d:DesignWidth="360" d:DesignHeight="122" MinWidth="360" MinHeight="118">
 
   <!--
     TCP 客户端：参数、读数、开关、按钮全部绝对定位。
-    **坐标只写在这一个文件里**：参数标签 0..56（右对齐贴住编辑器）、编辑器 60..160，
-    行距 26、行高 24；「超时(秒)」与上面两行同列同高，不靠"标签换行"绕宽度。
-    动作行 = 打开 168..240、关闭 248..320（72×27）+ 清空 328..352（24×24 图标）。
+    **坐标只写在这一个文件里**：参数标签右对齐贴住编辑器、编辑器与标签同中线；
+    「超时(秒)」与上面两行同列同高，不靠"标签换行"绕宽度。
+    动作行 = 打开 / 关闭 / 清空：清空是图标按钮，宽度小于文字按钮。
   -->
   <Canvas ClipToBounds="True">
 
-    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="56" Height="24"
+    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="1" Width="56" Height="24"
                     Classes="caption right" Field="{x:Static views:TcpClientViewKeys.RemoteHost}" />
-    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="0" Width="100" Height="24"
+    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="1" Width="108" Height="24"
                           Field="{x:Static views:TcpClientViewKeys.RemoteHost}" />
 
-    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="26" Width="56" Height="24"
+    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="27" Width="56" Height="24"
                     Classes="caption right" Field="{x:Static views:TcpClientViewKeys.RemotePort}" />
-    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="26" Width="100" Height="24"
+    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="27" Width="54" Height="24"
                           Field="{x:Static views:TcpClientViewKeys.RemotePort}" />
 
-    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="52" Width="56" Height="24"
+    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="53" Width="56" Height="24"
                     Classes="caption right" Field="{x:Static views:TcpClientViewKeys.ConnectTimeout}" />
-    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="52" Width="100" Height="24"
+    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="53" Width="54" Height="24"
                           Field="{x:Static views:TcpClientViewKeys.ConnectTimeout}" />
 
-    <!-- 右栏：状态灯 + 三格读数。 -->
-    <ui:ModuleStatusLight Canvas.Left="162" Canvas.Top="10"
-                          Source="{x:Static views:TcpClientViewKeys.Link}" />
-
-    <ui:ModuleLabel Canvas.Left="174" Canvas.Top="3" Width="12" Height="24"
+    <ui:ModuleLabel Canvas.Left="172" Canvas.Top="54" Width="36" Height="20"
                     Classes="caption right" Text="{loc:Tr view.rx}" />
-    <ui:ModuleNumeric Canvas.Left="188" Canvas.Top="3" Width="40" Height="24"
+    <ui:ModuleNumeric Canvas.Left="210" Canvas.Top="54" Width="54" Height="20"
                       Source="{x:Static views:TcpClientViewKeys.RxCount}" Quantity="Bytes" />
 
-    <ui:ModuleLabel Canvas.Left="230" Canvas.Top="3" Width="12" Height="24"
+    <ui:ModuleLabel Canvas.Left="266" Canvas.Top="54" Width="36" Height="20"
                     Classes="caption right" Text="{loc:Tr view.tx}" />
-    <ui:ModuleNumeric Canvas.Left="244" Canvas.Top="3" Width="40" Height="24"
+    <ui:ModuleNumeric Canvas.Left="304" Canvas.Top="54" Width="54" Height="20"
                       Source="{x:Static views:TcpClientViewKeys.TxCount}" Quantity="Bytes" />
 
-    <ui:ModuleLabel Canvas.Left="286" Canvas.Top="3" Width="24" Height="24"
+    <ui:ModuleLabel Canvas.Left="172" Canvas.Top="79" Width="36" Height="20"
                     Classes="caption right" Text="{loc:Tr view.drop}" />
-    <ui:ModuleNumeric Canvas.Left="312" Canvas.Top="3" Width="40" Height="24"
+    <ui:ModuleNumeric Canvas.Left="210" Canvas.Top="79" Width="54" Height="20"
                       Source="{x:Static views:TcpClientViewKeys.DropCount}" Quantity="Bytes" />
 
-    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="128" Width="358" Height="14"
+    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="102" Width="358" Height="14"
                     Source="{x:Static views:TcpClientViewKeys.State}" />
 
-    <!-- 右侧开关：标签（168..224，右对齐）与开关（228..348）各一条矩形。 -->
-    <ui:ModuleLabel Canvas.Left="168" Canvas.Top="52" Width="56" Height="24"
+    <!-- 右侧开关：标签（右对齐）与开关各一条矩形，两者不互相挤压。 -->
+    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="76" Width="65" Height="24"
                     Classes="caption right" Field="{x:Static views:TcpClientViewKeys.NoDelay}" />
-    <ui:ModuleConfigField Canvas.Left="228" Canvas.Top="52" Width="120" Height="24"
+    <ui:ModuleConfigField Canvas.Left="68" Canvas.Top="77" Width="120" Height="24"
                           Field="{x:Static views:TcpClientViewKeys.NoDelay}" />
 
-    <ui:ModuleButton Canvas.Left="168" Canvas.Top="96" Width="72" Height="27"
+          <!-- 右栏：状态灯 + 三格读数。 -->
+    <ui:ModuleStatusLight Canvas.Left="180" Canvas.Top="20"
+                          Source="{x:Static views:TcpClientViewKeys.Link}" />
+    <ui:ModuleButton Canvas.Left="202" Canvas.Top="12" Width="72" Height="30"
                      CommandName="{x:Static views:TcpClientViewKeys.Open}" Content="{loc:Tr view.open}" />
-    <ui:ModuleButton Canvas.Left="248" Canvas.Top="96" Width="72" Height="27"
+    <ui:ModuleButton Canvas.Left="282" Canvas.Top="12" Width="72" Height="30"
                      CommandName="{x:Static views:TcpClientViewKeys.Close}" Content="{loc:Tr view.close}" />
-    <ui:ModuleButton Classes="icon" Canvas.Left="328" Canvas.Top="97" Width="24" Height="24"
+    <ui:ModuleButton Classes="icon" Canvas.Left="340" Canvas.Top="82" Width="16" Height="16"
                      Icon="{x:Static views:TcpClientViewKeys.ClearCountersIcon}"
                      CommandName="{x:Static views:TcpClientViewKeys.ClearCounters}"
                      ToolTip.Tip="{loc:Tr view.clearCounters}" />
   </Canvas>
 </ui:ModuleView>
+
+

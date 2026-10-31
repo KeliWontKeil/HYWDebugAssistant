@@ -50,6 +50,12 @@ public sealed class ExternalAccessSession : IExternalAccessReady
     private ExternalAccessTuning _tuning = ExternalAccessTuning.Default;
 
     private bool _wantedOpen;
+
+    /// <summary>
+    /// **打开失败后的故障保留**：故障原因与 <c>Faulted</c> 要留到用户**显式**重开或关闭，
+    /// 不能被"切换端口/改参数"触发的重启静默清掉（否则故障态会变成 Closed 并拿旧意图自动重开）。
+    /// </summary>
+    private bool _keepFault;
     private bool _suspended;
     private bool _restartPending;
     private bool _pendingNotification;
@@ -94,6 +100,14 @@ public sealed class ExternalAccessSession : IExternalAccessReady
     /// <summary>本会话最近一次丢弃（原因 + 时刻）；清空计数会把它一起清掉。</summary>
     private DropReason? _lastDropReason;
     private DateTimeOffset? _lastDropAt;
+
+    /// <summary>本次打开的时刻与各累计计数在打开时的基线（提示只认本次打开以来的丢失）。</summary>
+    private DateTimeOffset? _openedAt;
+    private long _receiveDroppedAtOpen;
+    private long _sendFailedAtOpen;
+    private long _backlogEvictedAtOpen;
+    private long _backlogExpiredAtOpen;
+    private long _rejectedAtOpen;
 
     private long _lastLivenessCheck = NoLivenessCheck;
     private int _connections;
@@ -194,6 +208,7 @@ public sealed class ExternalAccessSession : IExternalAccessReady
         lock (_gate)
         {
             _wantedOpen = true;
+            _keepFault = false;   // 显式重试 = 放弃"保留故障"，允许下一次 Pump 真正去打开
             _pendingNotification = true;
 
             // 失败后再次请求 = 用户重试：回到 Closed，允许下一次 Pump 打开。
@@ -213,6 +228,7 @@ public sealed class ExternalAccessSession : IExternalAccessReady
         lock (_gate)
         {
             _wantedOpen = false;
+            _keepFault = false;   // 显式关闭 = 放弃"保留故障"：下一拍 CloseCore 会清掉故障态
             _pendingNotification = true;
         }
 
@@ -288,6 +304,18 @@ public sealed class ExternalAccessSession : IExternalAccessReady
 
         if (restart)
         {
+            // **故障态且没有打开意图**（打开失败后的保留态）：改参数/切端口不得静默清掉故障，
+            // 也不得因 `_wantedOpen` 残留而自动重开 —— 用户改完参数必须自己再按"打开"。
+            if (RetainsFault())
+            {
+                if (ReleaseAdapterIfPending())
+                {
+                    didWork = true;
+                }
+
+                return didWork;
+            }
+
             if (CloseCore())
             {
                 didWork = true;
@@ -312,6 +340,18 @@ public sealed class ExternalAccessSession : IExternalAccessReady
 
         if (suspended || !wanted)
         {
+            // **保留故障**：只释放适配件（句柄仍由实例线程交出去），**不 CloseCore**——
+            // 否则 Faulted 会被静默变成 Closed，用户看到的失败原因凭空消失。
+            if (RetainsFault())
+            {
+                if (ReleaseAdapterIfPending())
+                {
+                    didWork = true;
+                }
+
+                return didWork;
+            }
+
             if (CloseCore())
             {
                 didWork = true;
@@ -742,6 +782,17 @@ public sealed class ExternalAccessSession : IExternalAccessReady
             var sendBacklogDroppedUnits = backlogEvictedUnits + backlogExpiredUnits + backlogDiscardedUnits;
             var sendBacklogDroppedBytes = backlogEvictedBytes + backlogExpiredBytes + backlogDiscardedBytes;
 
+            var receiveDroppedSinceOpen = Math.Max(0, receiveDroppedUnits - _receiveDroppedAtOpen);
+            var sendFailedSinceOpen = Math.Max(0, _sendFailedUnits - _sendFailedAtOpen);
+            var rejectedSinceOpen = Math.Max(0, _rejectedUnits - _rejectedAtOpen);
+            var backlogEvictedSinceOpen = Math.Max(0, backlogEvictedUnits - _backlogEvictedAtOpen);
+            var backlogExpiredSinceOpen = Math.Max(0, backlogExpiredUnits - _backlogExpiredAtOpen);
+            DateTimeOffset? lastDropSinceOpen = _lastDropAt is { } dropAt
+                && _openedAt is { } openedAt
+                && dropAt >= openedAt
+                    ? dropAt
+                    : null;
+
             DropReason? lastReason;
             DateTimeOffset? lastDropAt;
 
@@ -800,6 +851,13 @@ public sealed class ExternalAccessSession : IExternalAccessReady
                 ReceiveSaturatedFor = saturatedFor,
                 LastDropReason = lastReason,
                 LastDropAt = lastDropAt,
+                OpenedAt = _openedAt,
+                ReceiveDroppedSinceOpen = receiveDroppedSinceOpen,
+                SendFailedSinceOpen = sendFailedSinceOpen,
+                SendBacklogEvictedSinceOpen = backlogEvictedSinceOpen,
+                SendBacklogExpiredSinceOpen = backlogExpiredSinceOpen,
+                RejectedSinceOpen = rejectedSinceOpen,
+                LastDropAtSinceOpen = lastDropSinceOpen,
             };
         }
     }
@@ -828,6 +886,11 @@ public sealed class ExternalAccessSession : IExternalAccessReady
             _lastDropReason = null;
             _lastDropAt = null;
             _lastReceivedAt = null;
+            _receiveDroppedAtOpen = 0;
+            _sendFailedAtOpen = 0;
+            _backlogEvictedAtOpen = 0;
+            _backlogExpiredAtOpen = 0;
+            _rejectedAtOpen = 0;
             _pendingNotification = true;
         }
 
@@ -858,6 +921,7 @@ public sealed class ExternalAccessSession : IExternalAccessReady
         lock (_gate)
         {
             _wantedOpen = false;
+            _keepFault = false;
         }
 
         return CloseCore(timeout);
@@ -872,6 +936,7 @@ public sealed class ExternalAccessSession : IExternalAccessReady
         lock (_gate)
         {
             _wantedOpen = false;
+            _keepFault = false;
             _state = ExternalAccessState.Closed;
             _endpoint = null;
             _lastFailure = null;
@@ -896,6 +961,15 @@ public sealed class ExternalAccessSession : IExternalAccessReady
     }
 
     // ---------------------------------------------------------------- 状态机内部
+
+    /// <summary>故障保留态：打开失败留下的故障 + 没有打开意图（自行取锁，供 <see cref="Pump"/> 的非锁区使用）。</summary>
+    private bool RetainsFault()
+    {
+        lock (_gate)
+        {
+            return _keepFault && _state == ExternalAccessState.Faulted;
+        }
+    }
 
     /// <summary>
     /// 故障后的适配件释放：每个故障只释放一次，状态与失败事实都保留。
@@ -1037,7 +1111,7 @@ public sealed class ExternalAccessSession : IExternalAccessReady
     {
         lock (_gate)
         {
-            if (_state == ExternalAccessState.Closed)
+            if (_state is ExternalAccessState.Closed or ExternalAccessState.Closing)
             {
                 return false;
             }
@@ -1170,6 +1244,16 @@ public sealed class ExternalAccessSession : IExternalAccessReady
                 return;
             }
 
+            // **打开阶段失败**（参数未登记 / 适配件打开抛异常 / 打开时就地 SetFaulted，例如端口未选择）：
+            // 撤销"想打开"的意图并把故障保留下来。否则切端口触发的重启会先 CloseCore 把 Faulted 变 Closed，
+            // 再因残留意图立刻重开 —— 表现为"切个端口就自己打开了"。
+            // 运行期故障（DeviceLost / ReadFailed / WriteFailed）不在此列：意图不被强制清掉（现有语义）。
+            if (_state == ExternalAccessState.Opening)
+            {
+                _wantedOpen = false;
+                _keepFault = true;
+            }
+
             changed = _state != ExternalAccessState.Faulted || !Equals(_lastFailure, failure);
             _state = ExternalAccessState.Faulted;
             _endpoint = failure.Endpoint ?? _endpoint;
@@ -1276,6 +1360,26 @@ public sealed class ExternalAccessSession : IExternalAccessReady
         Signal();
     }
 
+    /// <summary>记录"本次打开"的起点与各累计计数的基线（提示/颜色只认当前这次打开以来的丢失）。</summary>
+    private void SetOpenBaseline()
+    {
+        var queueEvicted = _queue.Evicted;
+        var queueRejected = _queue.Rejected;
+        var queueOversized = _queue.Oversized;
+        var queueExpired = _queue.Expired;
+
+        lock (_gate)
+        {
+            _openedAt = DateTimeOffset.UtcNow;
+            _receiveDroppedAtOpen = queueEvicted + queueRejected + queueOversized + queueExpired
+                + _adapterDroppedUnits + _oversizedDroppedUnits;
+            _sendFailedAtOpen = _sendFailedUnits;
+            _backlogEvictedAtOpen = _backlog.EvictedUnits;
+            _backlogExpiredAtOpen = _backlog.ExpiredUnits;
+            _rejectedAtOpen = _rejectedUnits;
+        }
+    }
+
     /// <inheritdoc />
     public void SetOpen(ExternalAccessEndpoint? endpoint = null)
     {
@@ -1290,10 +1394,12 @@ public sealed class ExternalAccessSession : IExternalAccessReady
             _state = ExternalAccessState.Open;
             _endpoint = endpoint;
             _lastFailure = null;
+            _keepFault = false;   // 打开成功 ⇒ 没有需要保留的故障
             _releasePending = false;
             _pendingNotification = true;
         }
 
+        SetOpenBaseline();
         StartWritePump();
         Signal();
     }

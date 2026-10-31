@@ -40,8 +40,6 @@ namespace HYWDebugAssistant.Modules.DataMonitor;
     ParticipatesInDataFlow = true,
     WindowWidth = 400,
     WindowHeight = 400,
-    MinWidth = 400,
-    MinHeight = 400,
     ViewFactory = typeof(Views.DataMonitorViewFactory))]
 public sealed class DataMonitorModule : IModule, IActivitySource
 {
@@ -608,3 +606,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
         string.Equals(text, "true", StringComparison.OrdinalIgnoreCase);
 
 }
+
+
+
+

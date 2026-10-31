@@ -30,7 +30,7 @@ public class ThemeSeedTests
         File.Exists(temp.SettingsPath).ShouldBeTrue();
 
         // ② 主题单元：整目录投放（清单 + 同目录壁纸），且可读
-        var theme = service.Themes.Read(ThemeIds.Sakura).ShouldNotBeNull();
+        var theme = service.Themes.Read(SeedScope.SeedThemeId).ShouldNotBeNull();
         theme.Base.ShouldBe(ThemeBaseKind.Light);
         theme.WallpaperFileName.ShouldBe("wallpaper.png");
         theme.WallpaperVeilOpacity.ShouldBe(0.55);
@@ -62,7 +62,7 @@ public class ThemeSeedTests
         service.Current.Flow.QueueCapacity.ShouldBe(
             new ApplicationSettings().Flow.QueueCapacity,
             "没有设置文件 ⇒ 代码默认值（缺省只在设置模型里给一次）");
-        service.Themes.Exists(ThemeIds.Sakura).ShouldBeTrue("出厂主题不该因为缺设置文件而缺席");
+        service.Themes.Exists(SeedScope.SeedThemeId).ShouldBeTrue("出厂主题不该因为缺设置文件而缺席");
         service.Current.Appearance.Seeded.ShouldContain("settings/appearance/themes/sakura");
         File.Exists(temp.SettingsPath).ShouldBeTrue("投放改变了设置 ⇒ 需要落盘记录 seeded");
     }
@@ -93,11 +93,11 @@ public class ThemeSeedTests
         first.Load();
 
         // 用户改过这个主题：改标题（清单）+ 留一个自己的文件
-        var directory = Path.Combine(first.Themes.ThemesRoot, ThemeIds.Sakura);
+        var directory = Path.Combine(first.Themes.ThemesRoot, SeedScope.SeedThemeId);
         File.WriteAllText(Path.Combine(directory, "user-note.txt"), "用户自己的文件");
         var editedTitle = "我改过的樱色";
         first.Themes.Save(new ThemeSaveRequest(
-            ThemeIds.Sakura,
+            SeedScope.SeedThemeId,
             editedTitle,
             ThemeBaseKind.Light,
             new Dictionary<string, string>(StringComparer.Ordinal) { ["AccentPrimary"] = "#010203" },
@@ -114,7 +114,7 @@ public class ThemeSeedTests
         var reopened = temp.CreateService();
         reopened.Load();
 
-        var theme = reopened.Themes.Read(ThemeIds.Sakura).ShouldNotBeNull();
+        var theme = reopened.Themes.Read(SeedScope.SeedThemeId).ShouldNotBeNull();
         theme.Title.ShouldBe(editedTitle, "已存在的主题目录一个字都不该被种子改写");
         theme.Palette["AccentPrimary"].ShouldBe("#010203");
         File.Exists(Path.Combine(directory, "user-note.txt")).ShouldBeTrue("整单元投放不得清掉目录里的其它文件");
@@ -131,14 +131,14 @@ public class ThemeSeedTests
         using var temp = new SeedScope();
         var first = temp.CreateService();
         first.Load();
-        first.Themes.Exists(ThemeIds.Sakura).ShouldBeTrue();
+        first.Themes.Exists(SeedScope.SeedThemeId).ShouldBeTrue();
 
-        first.Themes.Delete(ThemeIds.Sakura).Succeeded.ShouldBeTrue();
+        first.Themes.Delete(SeedScope.SeedThemeId).Succeeded.ShouldBeTrue();
 
         var reopened = temp.CreateService();
         reopened.Load();
 
-        reopened.Themes.Exists(ThemeIds.Sakura).ShouldBeFalse("seeded 已记录 ⇒ 用户删除后不复活");
+        reopened.Themes.Exists(SeedScope.SeedThemeId).ShouldBeFalse("seeded 已记录 ⇒ 用户删除后不复活");
         reopened.Current.Appearance.Seeded.ShouldContain("settings/appearance/themes/sakura");
     }
 
@@ -151,7 +151,7 @@ public class ThemeSeedTests
         var service = temp.CreateService();
         service.Load().ShouldNotBe(SettingsLoadOutcome.DefaultsAfterFailure, "坏种子不阻断启动");
 
-        service.Themes.Exists(ThemeIds.Sakura).ShouldBeFalse("坏清单的主题不进目录");
+        service.Themes.Exists(SeedScope.SeedThemeId).ShouldBeFalse("坏清单的主题不进目录");
         temp.Runtime.Issues.Recent(20).ShouldContain(
             entry => entry.Issue.Severity == IssueSeverity.Warning);
         service.Current.Appearance.Seeded.ShouldNotContain(
@@ -165,7 +165,7 @@ public class ThemeSeedTests
         var retried = temp.CreateService();
         retried.Load();
 
-        retried.Themes.Exists(ThemeIds.Sakura).ShouldBeTrue();
+        retried.Themes.Exists(SeedScope.SeedThemeId).ShouldBeTrue();
         retried.Current.Appearance.Seeded.ShouldContain("settings/appearance/themes/sakura");
     }
 
@@ -213,7 +213,7 @@ public class ThemeSeedTests
 
         // 旧文件**不写回**（保护原文件），也不投放（投了没地方记，删了会复活）
         File.ReadAllText(temp.SettingsPath).ShouldBe(original, "旧版本设置载入时不得被改写");
-        service.Themes.Exists(ThemeIds.Sakura).ShouldBeFalse("旧版本设置不投放种子");
+        service.Themes.Exists(SeedScope.SeedThemeId).ShouldBeFalse("旧版本设置不投放种子");
 
         temp.Runtime.Issues.Recent(10).ShouldContain(
             entry => entry.Issue.Severity == IssueSeverity.Warning);
@@ -222,6 +222,9 @@ public class ThemeSeedTests
     /// <summary>出厂种子 + 程序目录的临时布局（种子根与目标根分开，互不污染）。</summary>
     private sealed class SeedScope : IDisposable
     {
+        /// <summary>出厂种子主题的 id（= 种子里的文件夹名；本夹具自己声明，不再借用产品常量）。</summary>
+        public const string SeedThemeId = "sakura";
+
         private const string SakuraManifest = """
 {
   "schemaVersion": 1,
@@ -283,7 +286,7 @@ public class ThemeSeedTests
         /// <summary>写一个主题种子（清单坏掉时传 <paramref name="manifest"/> 模拟坏种子）。</summary>
         public void WriteThemeSeed(string? manifest = null)
         {
-            var directory = Path.Combine(SeedsRoot, "settings", "appearance", "themes", "sakura");
+            var directory = Path.Combine(SeedsRoot, "settings", "appearance", "themes", SeedThemeId);
             _ = Directory.CreateDirectory(directory);
             WriteFile(Path.Combine(directory, "theme.json"), manifest ?? SakuraManifest);
             File.WriteAllBytes(Path.Combine(directory, "wallpaper.png"), WallpaperBytes);

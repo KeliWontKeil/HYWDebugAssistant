@@ -80,7 +80,14 @@ public sealed class ModuleDefinitionAttribute : Attribute
     /// </remarks>
     public double WindowWidth { get; init; }
 
-    /// <inheritdoc cref="WindowWidth"/>
+    /// <summary>窗口默认高（DIP）；<c>0</c> = 框架缺省。</summary>
+    /// <remarks>
+    /// <para>
+    /// 有视图的模块，实际初始高度由视图根 `.axaml` 的 `MinHeight` 加窗口 chrome 决定；
+    /// 这里的值只是无视图时的兜底（架构规则要求尺寸声明可被加载期读取）。
+    /// </para>
+    /// <para>兜底值应与视图内容一致，避免视图加载失败时把紧凑模块拉成统一高度。</para>
+    /// </remarks>
     public double WindowHeight { get; init; }
 
     /// <summary>窗口最小尺寸（DIP）；<c>0</c> = 用框架地板。</summary>

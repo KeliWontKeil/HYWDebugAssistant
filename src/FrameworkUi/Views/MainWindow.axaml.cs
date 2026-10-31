@@ -8,6 +8,7 @@ using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.FrameworkUi.ViewModels;
 using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Ui.Controls;
+using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.Theming;
 using HYWDebugAssistant.Ui.Views;
 
@@ -41,13 +42,17 @@ public partial class MainWindow : Window, IExitPrompt, IExitSaver, IExitPolicy
 
         Opened += (_, _) =>
         {
-            // 尺寸已在 PrepareForShow 中按“工作区优先”落定；这里只恢复位置。
+            // 启动位置是**程序性放置**，不是用户拖动外壳：期间禁止 TranslateShellGroup。
+            // 否则已按保存位置恢复的自动加载模块会再被平移一次（只有启动模块会命中的错位分支）。
+            WindowManager?.BeginStartupPlacement();
             ApplyStartupPosition();
+            WindowManager?.EndStartupPlacement();
 
-            Shell?.Refresh();
-            UiFrameClock.Subscribe(OnRefreshTick);
+            // 自动恢复的模块必须在外壳显示后的真实外框/缩放下创建。
+            WindowManager?.RefreshShellFrame();
 
-            // 快捷键：按设置重建绑定，并挂到**本应用每一个窗口**（外壳 + 模块窗口 + 弹窗）
+            // 快捷键必须先接线、再刷新现场：`Shell.Refresh()` 会创建启动时的模块窗口，
+            // 若之后再订阅 `HotkeyAttached`，这些窗口不会再触发事件（表现为"必须点主窗口快捷键才生效"）。
             if (Shell is { } shell)
             {
                 _ = shell.Hotkeys.Rebuild(shell.GetHotkeyBindings());
@@ -56,9 +61,18 @@ public partial class MainWindow : Window, IExitPrompt, IExitSaver, IExitPolicy
                 if (WindowManager is { } manager)
                 {
                     manager.HotkeyAttached += (_, window) => shell.Hotkeys.Attach(window);
-                    manager.SyncAll();
+
+                    // 新窗口统一由窗口组通知；与模块管理器事件并存是为了兼容既有调用点。
+                    manager.WindowGroup.WindowTracked += (_, window) => shell.Hotkeys.Attach(window);
+
+                    // 兜底：刷新前已经存在的窗口（工作区恢复/测试宿主）也补挂。
+                    manager.AttachExistingWindows(shell.Hotkeys.Attach);
                 }
             }
+
+            Shell?.Refresh();
+            UiFrameClock.Subscribe(OnRefreshTick);
+            WindowManager?.SyncAll();
         };
 
         Closed += (_, _) => UiFrameClock.Unsubscribe(OnRefreshTick);
@@ -223,10 +237,15 @@ public partial class MainWindow : Window, IExitPrompt, IExitSaver, IExitPolicy
             return;
         }
 
-        var scaling = RenderScaling > 0 ? RenderScaling : 1.0;
+        var scaling = ScreenGeometry.ResolveScalingForDip(
+            Screens.All,
+            placement.X,
+            placement.Y,
+            Screens.Primary is { Scaling: > 0 } primary ? primary.Scaling : 1.0);
+
         Position = new PixelPoint(
-            (int)Math.Round(placement.X * scaling),
-            (int)Math.Round(placement.Y * scaling));
+            ScreenPixels.ToPixel(placement.X * scaling),
+            ScreenPixels.ToPixel(placement.Y * scaling));
     }
 
     private ShellViewModel? Shell => DataContext as ShellViewModel;
@@ -425,8 +444,8 @@ public partial class MainWindow : Window, IExitPrompt, IExitSaver, IExitPolicy
         _dialogs[kind] = dialog;
         dialog.Show(this);
 
-        // 弹窗也纳入应用窗口组：层级统一（激活任一窗口 → 其余一并抬升；"全体置顶"一起生效）
-        WindowManager?.WindowGroup.Track(dialog);
+        // 功能面板属于浮动带：与模块窗口按最近激活互相抬前；"全体置顶"一起生效。
+        WindowManager?.WindowGroup.Track(dialog, AppWindowLayer.Panel);
         Shell?.Hotkeys.Attach(dialog);
     }
 
@@ -473,6 +492,10 @@ public partial class MainWindow : Window, IExitPrompt, IExitSaver, IExitPolicy
                 Content = new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap },
             },
         };
+
+        var group = AppWindowGroup.Of(this);
+        group?.Track(window, AppWindowLayer.Modal);
+        using var modal = group?.BeginModal(window);
 
         await window.ShowDialog(this);
     }

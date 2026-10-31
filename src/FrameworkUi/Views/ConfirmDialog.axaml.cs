@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Ui.Views;
 
 namespace HYWDebugAssistant.FrameworkUi.Views;
 
@@ -36,6 +37,10 @@ public partial class ConfirmDialog : Window
 
         dialog.PrimaryButton.Click += (_, _) => dialog.Close(true);
         dialog.CancelButton.Click += (_, _) => dialog.Close(false);
+
+        var group = AppWindowGroup.Of(owner);
+        group?.Track(dialog, AppWindowLayer.Modal);
+        using var modal = group?.BeginModal(dialog);
 
         if (owner is null)
         {

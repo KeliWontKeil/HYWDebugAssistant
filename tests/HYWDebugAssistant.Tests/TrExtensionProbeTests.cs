@@ -1,3 +1,4 @@
+using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using HYWDebugAssistant.Sdk.Text;
@@ -12,13 +13,17 @@ namespace HYWDebugAssistant.Tests;
 /// **`{loc:Tr key}` 的探针**：编译期 XAML 里 <c>ProvideValue</c> 到底能不能定位到"表的属主程序集"。
 /// </summary>
 /// <remarks>
-/// 钉住的行为：目标对象一般是**框架控件**（它所属的程序集里没有表）⇒ 必须回退到
-/// <c>IRootObjectProvider</c> 的根对象；两条路径都不通时返回**可见缺失标记**，不返回空白。
+/// 钉住的行为：属主解析顺序是 ① <c>IUriContext.BaseUri</c>（`DataTemplate` 里唯一能拿到属主的路径）
+/// → ② 目标对象 → ③ 根对象 → ④ 兜底；框架程序集（`Avalonia.*`）**不查表**（查了只会得到一条假"目录缺失"），
+/// 但四处都找不到时仍返回**可见缺失标记**，不返回空白。
 /// 表来自 <see cref="TextCatalogTestRoot"/> 造的临时根（与产品同一套目录布局）。
 /// </remarks>
 [Collection(nameof(TextCatalogTests))]
 public class TrExtensionProbeTests : IDisposable
 {
+    /// <summary>本测试程序集的 URI host（`avares://&lt;程序集简名&gt;/...` 的 host 就是程序集简名）。</summary>
+    private static readonly string ProbeAssemblyName = typeof(TrExtensionProbeTests).Assembly.GetName().Name!;
+
     private readonly TextCatalogTestRoot _tables = TextCatalogTestRoot.CreateWithProbeTables();
 
     /// <inheritdoc />
@@ -64,17 +69,78 @@ public class TrExtensionProbeTests : IDisposable
     }
 
     [Fact]
-    public void 两条路径都取不到时_应返回可见缺失标记()
+    public void DataTemplate场景_目标与根都是框架控件时_应靠URI命中测试表()
     {
+        // 复现启动期的事故形态：`DataTemplate` 里的目标是 `Button`，根对象也不是这份 XAML 的根，
+        // 只有编译期给的 BaseUri 指向真正的属主。
         var services = new FakeXamlServices
         {
-            TargetObject = new TextBlock(),
+            TargetObject = new Button(),
             RootObject = new TextBlock(),
+            BaseUri = new Uri($"avares://{ProbeAssemblyName}/Probes/TrExtensionProbeView.axaml"),
         };
 
-        new TrExtension("probe.base.label")
-            .ProvideValue(services)
-            .ShouldBe(TextCatalog.MissingValue("probe.base.label"));
+        new TrExtension("probe.base.label").ProvideValue(services).ShouldBe(_tables.Entries["probe.base.label"]);
+    }
+
+    [Fact]
+    public void 框架控件场景_URI指向测试程序集时_不应报框架表目录缺失()
+    {
+        TextCatalog.Apply(TextLanguages.ZhHans);
+
+        var diagnostics = new List<string>();
+        var previous = TextCatalog.Diagnostics;
+        TextCatalog.Diagnostics = diagnostics.Add;
+
+        try
+        {
+            var services = new FakeXamlServices
+            {
+                TargetObject = new TextBlock(),
+                RootObject = new Button(),
+                BaseUri = new Uri($"avares://{ProbeAssemblyName}/Probes/TrExtensionProbeView.axaml"),
+            };
+
+            TextCatalog.TryGet(typeof(TrExtensionProbeTests).Assembly, "probe.base.label", out var expected).ShouldBeTrue();
+            new TrExtension("probe.base.label").ProvideValue(services).ShouldBe(expected);
+        }
+        finally
+        {
+            TextCatalog.Diagnostics = previous;
+        }
+
+        diagnostics.ShouldNotContain(
+            message => message.Contains("Avalonia.Controls", StringComparison.Ordinal),
+            "框架控件不是文本表属主：不得把它当成拥有者去查表");
+    }
+
+    [Fact]
+    public void 无URI且两处都取不到时_应返回可见缺失标记且不报框架表目录缺失()
+    {
+        var diagnostics = new List<string>();
+        var previous = TextCatalog.Diagnostics;
+        TextCatalog.Diagnostics = diagnostics.Add;
+
+        try
+        {
+            var services = new FakeXamlServices
+            {
+                TargetObject = new TextBlock(),
+                RootObject = new Button(),
+            };
+
+            new TrExtension("probe.base.label")
+                .ProvideValue(services)
+                .ShouldBe(TextCatalog.MissingValue("probe.base.label"));
+        }
+        finally
+        {
+            TextCatalog.Diagnostics = previous;
+        }
+
+        diagnostics.ShouldNotContain(
+            message => message.Contains("Avalonia.Controls", StringComparison.Ordinal),
+            "两处都取不到时只该给可见缺失标记，不该为框架程序集报假诊断");
     }
 
     /// <summary>探针用的"本程序集对象"（它的程序集就是探针表的属主）。</summary>
@@ -82,8 +148,8 @@ public class TrExtensionProbeTests : IDisposable
     {
     }
 
-    /// <summary>只实现 `{loc:Tr}` 用到的两个 XAML 服务（成员按接口的**非空**契约实现）。</summary>
-    private sealed class FakeXamlServices : IServiceProvider, IProvideValueTarget, IRootObjectProvider
+    /// <summary>只实现 `{loc:Tr}` 用到的三个 XAML 服务（成员按接口的**非空**契约实现）。</summary>
+    private sealed class FakeXamlServices : IServiceProvider, IProvideValueTarget, IRootObjectProvider, IUriContext
     {
         public object TargetObject { get; init; } = new ProbeOwner();
 
@@ -93,9 +159,13 @@ public class TrExtensionProbeTests : IDisposable
 
         public object IntermediateRootObject => RootObject;
 
+        /// <summary>编译期给出的 BaseUri；**没设**时连 `IUriContext` 服务都不提供（模拟没有 URI 的旧路径）。</summary>
+        public Uri BaseUri { get; set; } = null!;
+
         public object? GetService(Type serviceType) =>
             serviceType == typeof(IProvideValueTarget) ? this
             : serviceType == typeof(IRootObjectProvider) ? this
+            : serviceType == typeof(IUriContext) && BaseUri is not null ? this
             : null;
     }
 }

@@ -52,12 +52,50 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <summary>默认窗口高度（DIP；同上来自 <c>[ModuleDefinition]</c>）。</summary>
     public double PreferredHeight { get; }
 
-    /// <summary>**有效最小宽**（DIP）= <c>max(框架地板, 模块声明值)</c>。</summary>
-    /// <remarks>声明的最小尺寸只用于**约束用户缩放**；框架地板永远在（标记长度推出来的那条）。</remarks>
-    public double EffectiveMinWidth { get; }
+    /// <summary>模块视图**自身声明**的内容最小宽（DIP；来自视图根 `MinWidth`）。</summary>
+    public double ContentMinWidth { get; private set; }
 
-    /// <summary>**有效最小高**（DIP）= <c>max(框架地板, 模块声明值)</c>。</summary>
-    public double EffectiveMinHeight { get; }
+    /// <summary>模块视图**自身声明**的内容最小高（DIP；来自视图根 `MinHeight`）。</summary>
+    public double ContentMinHeight { get; private set; }
+
+    /// <summary>**有效最小宽**（DIP）= 内容/声明值 + 窗口 chrome，且不低于框架地板。</summary>
+    /// <remarks>
+    /// 内容最小尺寸的**唯一来源是模块 `.axaml` 的视图根**（<see cref="ContentMinWidth"/>）；
+    /// 框架只加窗口 chrome（描边 + 端口预留带）并守住端口标记地板。
+    /// </remarks>
+    public double EffectiveMinWidth => Math.Max(
+        PortMarkerMetrics.MinWindowExtent,
+        Math.Max(MinWidth, ContentMinWidth + (2 * ModuleSurfaceMetrics.FrameBorder)
+            + ModuleSurfaceMetrics.InsetLeft + ModuleSurfaceMetrics.InsetRight));
+
+    /// <summary>**有效最小高**（DIP）= 内容/声明值 + 窗口 chrome，且不低于框架地板。</summary>
+    public double EffectiveMinHeight => Math.Max(
+        PortMarkerMetrics.MinWindowExtent,
+        Math.Max(MinHeight, ContentMinHeight + (2 * ModuleSurfaceMetrics.FrameBorder)
+            + ModuleSurfaceMetrics.InsetTop + ModuleSurfaceMetrics.InsetBottom));
+
+    /// <summary>视图根声明内容最小尺寸后回写；窗口最小尺寸据此重算（内容才是外观事实）。</summary>
+    /// <param name="width">内容最小宽。</param>
+    /// <param name="height">内容最小高。</param>
+    public void SetContentMinimum(double width, double height)
+    {
+        if (!double.IsFinite(width) || !double.IsFinite(height) || (width <= 0 && height <= 0))
+        {
+            return;
+        }
+
+        if (Math.Abs(ContentMinWidth - width) < 0.01 && Math.Abs(ContentMinHeight - height) < 0.01)
+        {
+            return;
+        }
+
+        ContentMinWidth = Math.Max(0, width);
+        ContentMinHeight = Math.Max(0, height);
+        OnPropertyChanged(nameof(ContentMinWidth));
+        OnPropertyChanged(nameof(ContentMinHeight));
+        OnPropertyChanged(nameof(EffectiveMinWidth));
+        OnPropertyChanged(nameof(EffectiveMinHeight));
+    }
 
     /// <summary>**有效最大宽**（DIP；<see langword="null"/> = 无上限 = 声明面没给）。</summary>
     public double? EffectiveMaxWidth { get; }
@@ -140,8 +178,6 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         PreferredWidth = window is { Width: > 0 } declaredWidth ? declaredWidth.Width : MinWidth;
         PreferredHeight = window is { Height: > 0 } declaredHeight ? declaredHeight.Height : MinHeight;
 
-        EffectiveMinWidth = MinWidth;
-        EffectiveMinHeight = MinHeight;
         EffectiveMaxWidth = null;
         EffectiveMaxHeight = null;
 
@@ -150,12 +186,24 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         Title = view.DisplayName;
         IsPlaceholder = view.IsPlaceholder;
         HasLayout = layout is not null;
+        Scaling = layout is { Scale: > 0 } ? layout.Scale : 1;
 
         // **四个数一律 DIP**（口径见 `ModuleLayoutView`）：位置直接取用、不取整（DIP 不是像素，
         // 取整只会让"贴齐"在缩放 ≠100% 时差几个物理像素）；落窗时由 `ModuleWindowManager`
         // 乘该窗口的 `RenderScaling` 换成 `PixelPoint`。
-        X = layout?.X ?? fallbackX;
-        Y = layout?.Y ?? fallbackY;
+        var x = layout?.X ?? fallbackX;
+        var y = layout?.Y ?? fallbackY;
+
+        // 低于 -20000 的坐标不是用户可达的布局：哨兵/坏数据一律回退到默认摆放位，
+        // 避免把不可见窗口的平台位置当成用户布局。
+        if (x < -20000 || y < -20000)
+        {
+            x = fallbackX;
+            y = fallbackY;
+        }
+
+        X = x;
+        Y = y;
 
         // 尺寸夹进有效区间（上下限本身就是 DIP，与模型同单位 ⇒ 不乘缩放）。
         double ClampToBounds(double dip, double minDip, double? maxDip)
@@ -193,6 +241,15 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
     /// <summary>是否已有布局记录（false = 由 UI 取默认位并写回）。</summary>
     public bool HasLayout { get; set; }
+
+    /// <summary>
+    /// **该窗口当前所在屏的缩放**：位置的物理投影 = X/Y × Scaling；尺寸仍是 DIP。
+    /// 由窗口管理器在开窗前/真实缩放变化时发布，不参与持久化判定。
+    /// </summary>
+    public double Scaling { get; set; } = 1;
+
+    /// <summary>位置与尺寸换算到屏幕物理像素后的矩形（组内贴合/物理位移用）。</summary>
+    public CanvasRect PhysicalRect => new(X * Scaling, Y * Scaling, Width * Scaling, Height * Scaling);
 
     /// <summary>X（**屏幕坐标，DIP**；DIP → 物理像素只在窗口边界换算一次）。</summary>
     [ObservableProperty]
@@ -237,6 +294,14 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <summary>是否隐藏视图（false 时窗口关闭但模块仍在运行）。</summary>
     [ObservableProperty]
     public partial bool IsViewVisible { get; set; } = true;
+
+    /// <summary>窗口是否已有宿主窗口（隐藏/占位实例为 false；由窗口管理器回写）。</summary>
+    [ObservableProperty]
+    public partial bool HasWindow { get; set; }
+
+    /// <summary>当前矩形是否落在任一屏幕的可见工作区内（窗口管理器发布工作区后计算）。</summary>
+    [ObservableProperty]
+    public partial bool IsOffScreen { get; set; }
 
     /// <summary>是否锁定（不可拖动/缩放；仍显示数据；**可被选中**，以便纳入组合范围）。</summary>
     [ObservableProperty]
@@ -444,10 +509,18 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         Height = layout.Height > 0 ? layout.Height : PreferredHeight;
         IsViewVisible = layout.IsViewVisible;
         HasLayout = true;
+
+        if (layout.Scale > 0)
+        {
+            Scaling = layout.Scale;
+        }
     }
 
     /// <summary>导出当前几何（保存/提交用）。</summary>
-    public ModuleLayoutView ToLayout() => new(InstanceId, X, Y, Width, Height, IsViewVisible);
+    public ModuleLayoutView ToLayout() => new(InstanceId, X, Y, Width, Height, IsViewVisible)
+    {
+        Scale = Scaling,
+    };
 
     private void ApplyState(string state)
     {

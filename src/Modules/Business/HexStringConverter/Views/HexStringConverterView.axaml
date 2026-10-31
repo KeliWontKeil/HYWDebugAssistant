@@ -8,10 +8,10 @@
              x:Class="HYWDebugAssistant.Modules.HexStringConverter.Views.HexStringConverterView"
              x:CompileBindings="True"
              x:DataType="contracts:IModuleViewContext"
-             d:DesignWidth="360" d:DesignHeight="250">
+             d:DesignWidth="360" d:DesignHeight="250" MinWidth="360" MinHeight="250">
 
   <!--
-    转换器（内容区 358×252）：上下两半等分。
+    转换器：上下两半等分（内容区尺寸由模块声明给出，不在这里写死）。
     每半 = 一个页签控件；页签头固定，选中页内容内部再等分为“输入文字区 / 结果文字区”。
     结果放在页签内容里，页签头就不会参与这两块文字的等分。
   -->
@@ -98,3 +98,5 @@
     </ui:ModuleTabs>
   </Grid>
 </ui:ModuleView>
+
+

@@ -442,18 +442,6 @@ public class CoreRuntimeTests
         runtime.Content.Networks.ShouldBeEmpty("拖开即自动断开");
     }
 
-    [Fact]
-    public void 同一实例的发送口与接收口不得自连()
-    {
-        using var runtime = new ModuleRuntime();
-        AddModule(runtime, "self", "self-loop", typeof(SelfLoopModule));
-
-        SetLabel(runtime, "self", SelfLoopModule.OutPort, "loop");
-        SetLabel(runtime, "self", SelfLoopModule.InPort, "loop");
-
-        runtime.Content.Networks.ShouldBeEmpty("同一实例的源/宿不能形成自环");
-        runtime.Bindings.Bindings.ShouldBeEmpty("更不得建立自绑定");
-    }
 
     [Fact]
     public void 对齐建网_打了标签的口不参与()
@@ -1185,19 +1173,31 @@ public class CoreRuntimeTests
         return condition();
     }
 
-    /// <summary>测试模块：同一实例同时有一进一出（f32），用于验证自连接被拒绝。</summary>
+    /// <summary>测试模块：同一实例同时有一进一出（f32）——用于验证**模块内自回环**（同实例不同口可连）。</summary>
     [ModuleDefinition("test", "self-loop", "1.0.0")]
     public sealed class SelfLoopModule : IModule
     {
         public const string OutPort = "out";
         public const string InPort = "in";
+        public const string TypeId = "test/self-loop";
+        public const string RoleId = "loop";
 
         public static readonly ContractShape Shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
 
+        public static readonly DataTypeRef Type = new(TypeId, 1);
+
+        public static List<float> Received { get; } = [];
+
         public void OnRegistered(IModuleContext context)
         {
-            context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape));
-            context.Declaration.DeclarePort(new PortDeclaration(InPort, PortDirection.Receive, Shape));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, 1, Shape));
+            context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape) { Type = Type });
+            context.Declaration.DeclarePort(new PortDeclaration(InPort, PortDirection.Receive, Shape) { Type = Type });
+
+            // 一个角色同时拥有输出口与输入口：同实例自回环在叠加层上是"本角色回到本角色"。
+            context.Declaration.DeclareRole(RoleDeclaration.Both(RoleId, Type, InPort, OutPort, "回环"));
+
+            context.Ports.SetReceiveHandler(InPort, payload => Received.Add(BitConverter.ToSingle(payload)));
         }
     }
 

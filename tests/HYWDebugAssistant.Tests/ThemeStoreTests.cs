@@ -163,6 +163,31 @@ public class ThemeStoreTests
     }
 
     [Fact]
+    public void 主题文件夹改名后_LoadAll用新文件夹名返回且不报错()
+    {
+        using var scope = new ThemeScope();
+        var sink = new CollectingIssueSink();
+        var store = new ThemeStore(scope.ThemesRoot, sink);
+
+        var title = "renamed theme";
+        store.Save(new ThemeSaveRequest("original", title, ThemeBaseKind.Light, EmptyPalette(), null, false, 0.55, 0.70))
+            .Succeeded.ShouldBeTrue();
+
+        // 整目录改名：清单里的 id 仍是 original，文件夹变成 renamed。
+        Directory.Move(
+            Path.Combine(scope.ThemesRoot, "original"),
+            Path.Combine(scope.ThemesRoot, "renamed"));
+
+        var themes = store.LoadAll();
+
+        themes.ShouldHaveSingleItem().Id.ShouldBe("renamed", "主题 id 的权威是文件夹名（复制/改名后仍可用）");
+        themes[0].Title.ShouldBe(title);
+        store.Read("renamed").ShouldNotBeNull();
+        store.Read("original").ShouldBeNull();
+        sink.Issues.ShouldBeEmpty("清单本身合法：目录名与清单 id 不一致不该记 Issue");
+    }
+
+    [Fact]
     public void 删除_应删掉整个文件夹且重复删除不报错()
     {
         using var scope = new ThemeScope();

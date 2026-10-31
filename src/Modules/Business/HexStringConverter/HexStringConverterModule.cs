@@ -34,9 +34,7 @@ namespace HYWDebugAssistant.Modules.HexStringConverter;
     Tags = ["hex", "tool"],
     ParticipatesInDataFlow = false,
     WindowWidth = 400,
-    WindowHeight = 300,
-    MinWidth = 400,
-    MinHeight = 300,
+    WindowHeight = 298,
     ViewFactory = typeof(Views.HexStringConverterViewFactory))]
 public sealed class HexStringConverterModule : IModule, IActivitySource
 {
@@ -293,3 +291,7 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
         context.Display.SetText(toHex ? HexResultSource : CharResultSource, result ?? string.Empty);
     }
 }
+
+
+
+

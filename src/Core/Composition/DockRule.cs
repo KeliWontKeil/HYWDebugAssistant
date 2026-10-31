@@ -149,10 +149,17 @@ public static class DockRule
         aIsLeftOrTop = true;
         horizontal = true;
 
+        // **接触判定在物理像素空间做**：两个窗口可能在不同缩放的屏上，DIP 没有统一定义。
+        var aScale = ScaleOf(a);
+        var bScale = ScaleOf(b);
+        var tolerance = EdgeContactTolerance * Math.Min(aScale, bScale);
+
         // ① 左右相邻：A 在左、B 在右（或反之）
-        var (left, right) = a.X <= b.X ? (a, b) : (b, a);
-        if (Math.Abs(left.X + left.Width - right.X) <= EdgeContactTolerance
-            && Overlap(left.Y, left.Height, right.Y, right.Height) > EdgeContactTolerance)
+        var (left, right) = (a.X * aScale) <= (b.X * bScale) ? (a, b) : (b, a);
+        var leftScale = ScaleOf(left);
+        var rightScale = ScaleOf(right);
+        if (Math.Abs(((left.X + left.Width) * leftScale) - (right.X * rightScale)) <= tolerance
+            && Overlap(left.Y * leftScale, left.Height * leftScale, right.Y * rightScale, right.Height * rightScale) > tolerance)
         {
             aIsLeftOrTop = ReferenceEquals(left, a);
             horizontal = true;
@@ -160,9 +167,11 @@ public static class DockRule
         }
 
         // ② 上下相邻：A 在上、B 在下（或反之）
-        var (top, bottom) = a.Y <= b.Y ? (a, b) : (b, a);
-        if (Math.Abs(top.Y + top.Height - bottom.Y) <= EdgeContactTolerance
-            && Overlap(top.X, top.Width, bottom.X, bottom.Width) > EdgeContactTolerance)
+        var (top, bottom) = (a.Y * aScale) <= (b.Y * bScale) ? (a, b) : (b, a);
+        var topScale = ScaleOf(top);
+        var bottomScale = ScaleOf(bottom);
+        if (Math.Abs(((top.Y + top.Height) * topScale) - (bottom.Y * bottomScale)) <= tolerance
+            && Overlap(top.X * topScale, top.Width * topScale, bottom.X * bottomScale, bottom.Width * bottomScale) > tolerance)
         {
             aIsLeftOrTop = ReferenceEquals(top, a);
             horizontal = false;
@@ -190,8 +199,9 @@ public static class DockRule
             return false;
         }
 
-        // ③ 标记中心沿接触面必须对齐（"标记对齐"）
-        return Math.Abs(MarkerCenter(source, horizontal) - MarkerCenter(target, horizontal)) <= MarkerAlignTolerance;
+        // ③ 标记中心沿接触面必须对齐（"标记对齐"；中心与容差都换到物理像素）
+        var markerTolerance = MarkerAlignTolerance * Math.Min(ScaleOf(source.Layout), ScaleOf(target.Layout));
+        return Math.Abs(MarkerCenter(source, horizontal) - MarkerCenter(target, horizontal)) <= markerTolerance;
     }
 
     /// <summary>端口标记中心在屏幕坐标下的位置（左右相邻取 Y、上下相邻取 X）。</summary>
@@ -200,10 +210,13 @@ public static class DockRule
     public static double MarkerCenter(DockEnd end, bool horizontal)
     {
         var offset = Math.Clamp(end.Geometry.Offset, 0, 1);
+        var scale = ScaleOf(end.Layout);
         return horizontal
-            ? end.Layout.Y + (end.Layout.Height * offset)
-            : end.Layout.X + (end.Layout.Width * offset);
+            ? (end.Layout.Y + (end.Layout.Height * offset)) * scale
+            : (end.Layout.X + (end.Layout.Width * offset)) * scale;
     }
+
+    private static double ScaleOf(ModuleLayoutView layout) => layout.Scale > 0 ? layout.Scale : 1;
 
     /// <summary>两段区间在某一轴上的重叠长度。</summary>
     private static double Overlap(double startA, double lengthA, double startB, double lengthB) =>

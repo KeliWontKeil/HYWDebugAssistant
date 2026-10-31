@@ -85,6 +85,9 @@ public sealed class ExternalAccessRuntimeTests
 
         WaitFor(() => snapshot().State == ExternalAccessState.Faulted, "打开失败应进入 Faulted");
         snapshot().Failure!.Kind.ShouldBe(ExternalAccessFailureKind.OpenFailed);
+
+        // 失败先进入会话队列，由下一拍实例循环泵出并转 Issue；等待这一拍，不靠"两个线程刚好同时"。
+        WaitFor(() => runtime.Issues.Count > 0, "失败应转成 Issue");
         runtime.Issues.Count.ShouldBeGreaterThan(0, "失败应转成 Issue");
         runtime.Issues.Snapshot().ShouldContain(
             entry => entry.Issue.Severity == IssueSeverity.Warning,

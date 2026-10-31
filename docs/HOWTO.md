@@ -51,12 +51,13 @@
 | `-KeepDesignerHost` | 不先停 VS 的 Avalonia 设计器宿主 |
 
 **完整门禁**：`.\build.ps1 [-StopDesignerHost] [-RunBenchmarks]`
-= 文档审计 → 颜色口径审计 → **资源与文本审计** → 还原 → 构建（**0 error / 0 warning**）→ 模块包校验 → **资源包校验** → 许可审计 → 全部测试。
+= 文档审计 → 颜色口径审计 → **资源与文本审计** → **注释布局数值审计** → 还原 → 构建（**0 error / 0 warning**）→ 模块包校验 → **资源包校验** → 许可审计 → 全部测试。
 
 **资源、SDK / 独立编译 / release**：
 
 ```
 .\tools\audit-resources.ps1                        # 源侧：种子包 / 主题清单 / 16 张文本表 / 可本地化层零中文 / {loc:Tr} 键 / 死键
+.\tools\audit-layout-comments.ps1                  # 源侧：src/**/*.axaml 注释不得写当前坐标 / 尺寸 / 像素值
 .\tools\verify-resources.ps1                       # 产物侧：输出 resources\ 与仓库 resources\ 逐文件 + SHA256 一致
 .\tools\pack-sdk.ps1                               # 生成 artifacts/sdk-packages（三个契约包）
 .\tools\verify-standalone-module.ps1               # 示例模块只靠 PackageReference 构建 + 宿主加载

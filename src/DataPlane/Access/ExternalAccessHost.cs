@@ -376,9 +376,21 @@ public sealed class ExternalAccessHost : IDisposable
         var list = new List<AccessFailure>();
         var timeout = HalfOfStopTimeout(_options.StopTimeout);
 
+        // 多会话**并行**收尾（总时长取最大值而不是求和）。
+        var closes = new List<Task>(instance.Sessions.Count);
+
         foreach (var session in instance.Sessions.Values)
         {
-            _ = session.CloseFromHost(timeout);
+            closes.Add(Task.Run(() => _ = session.CloseFromHost(timeout)));
+        }
+
+        if (closes.Count > 0)
+        {
+            _ = Task.WaitAll([.. closes], timeout);
+        }
+
+        foreach (var session in instance.Sessions.Values)
+        {
             session.DrainFailures(list);
         }
 

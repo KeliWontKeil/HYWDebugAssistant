@@ -1,13 +1,14 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    构建与验证门禁（ADR-0025 §4）：文档 / 颜色 / 资源与文本审计 → 还原 → 构建 → 模块包与资源校验 → 依赖许可审计 → 测试。
+    构建与验证门禁（ADR-0025 §4）：文档 / 颜色 / 资源与文本 / 注释布局审计 → 还原 → 构建 → 模块包与资源校验 → 依赖许可审计 → 测试。
 
 .DESCRIPTION
     0) 清除被污染的环境变量 Platform（否则 MSBuild 会把它当作目标平台，报 MSB4126）
     1) 文档机械审计（docs/tools/audit-docs.ps1，只读）—— 规定就在该脚本头部注释的「判据」清单里
-       颜色口径审计（docs/tools/audit-colors.ps1）与资源与文本审计（tools/audit-resources.ps1）
-       —— 三者都只读，且同受 -SkipDocAudit 控制
+       颜色口径审计（docs/tools/audit-colors.ps1）、资源与文本审计（tools/audit-resources.ps1）
+       与注释布局数值审计（tools/audit-layout-comments.ps1）
+       —— 四者都只读，且同受 -SkipDocAudit 控制
     2) dotnet restore / build
     3) 校验内置模块包归拢（应用输出 modules\ + artifacts\modules\）
     4) 校验输出资源包（tools/verify-resources.ps1）+ 依赖许可审计（tools/audit-licenses.ps1，
@@ -99,6 +100,14 @@ if (-not $SkipDocAudit) {
     if ($LASTEXITCODE -ne 0) { throw '资源与文本审计未通过（见上方 文件:行号；判据见 tools/audit-resources.ps1 头部注释）' }
 }
 
+# ---- 1d) 源码注释的布局数值审计（只读；判据见该脚本头部注释）----
+# 注释里的"当前坐标/尺寸/像素值"会随布局调整过期，成为代码/主题/声明之外的第二份事实源；
+# 与资源审计同一位置、同一理由，也同受 -SkipDocAudit 控制。
+if (-not $SkipDocAudit) {
+    & (Join-Path $root 'tools\audit-layout-comments.ps1')
+    if ($LASTEXITCODE -ne 0) { throw '注释布局数值审计未通过（见上方 文件:行号；判据见 tools/audit-layout-comments.ps1 头部注释）' }
+}
+
 Write-Host "===== 2/5 还原 =====" -ForegroundColor Cyan
 dotnet restore $sln
 if ($LASTEXITCODE -ne 0) { throw '还原失败' }
@@ -156,7 +165,7 @@ if (-not $SkipTests) {
 $testNote = if ($SkipTests) { ' · 测试已跳过' } else { '' }
 $docNote = if ($SkipDocAudit) { ' · 文档审计已跳过' } else { '' }
 Write-Host ""
-Write-Host "✅ 门禁全部通过：文档 · 颜色 · 资源与文本审计 · 构建成功 · 模块包与资源校验 · 许可合规$testNote$docNote" -ForegroundColor Green
+Write-Host "✅ 门禁全部通过：文档 · 颜色 · 资源与文本 · 注释布局审计 · 构建成功 · 模块包与资源校验 · 许可合规$testNote$docNote" -ForegroundColor Green
 
 if ($RunBenchmarks) {
     Write-Host ""

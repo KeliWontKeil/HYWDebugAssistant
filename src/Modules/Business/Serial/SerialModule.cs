@@ -29,8 +29,6 @@ namespace HYWDebugAssistant.Modules.Serial;
     ParticipatesInDataFlow = true,
     WindowWidth = 400,
     WindowHeight = 190,
-    MinWidth = 400,
-    MinHeight = 190,
     ViewFactory = typeof(Views.SerialViewFactory))]
 public sealed class SerialModule : ExternalAccessModule
 {
@@ -115,8 +113,8 @@ public sealed class SerialModule : ExternalAccessModule
             _ => snapshot.Suspended ? Tr(SerialText.StatusSuspended) : Tr(SerialText.StatusIdle),
         };
 
-        return snapshot.RejectedUnits > 0 && snapshot.State != ExternalAccessState.Open
-            ? text + Tr(SerialText.StatusRejectedSuffix, snapshot.RejectedUnits)
+        return snapshot.RejectedSinceOpen > 0 && snapshot.State != ExternalAccessState.Open
+            ? text + Tr(SerialText.StatusRejectedSuffix, snapshot.RejectedSinceOpen)
             : text;
     }
 
@@ -153,3 +151,7 @@ public sealed class SerialModule : ExternalAccessModule
             _ => null,
         };
 }
+
+
+
+

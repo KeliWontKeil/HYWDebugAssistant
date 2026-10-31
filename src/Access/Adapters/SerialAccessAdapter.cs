@@ -279,6 +279,14 @@ public sealed class SerialAccessAdapter : IExternalAccessAdapter, IExternalAcces
                 {
                     // 已断开/已释放：关闭路径不向外抛。
                 }
+
+                var current = Thread.CurrentThread;
+                if (_portName.Length > 0
+                    && PendingCloses.TryGetValue(_portName, out var registered)
+                    && ReferenceEquals(registered, current))
+                {
+                    _ = PendingCloses.TryRemove(_portName, out _);
+                }
             })
             {
                 IsBackground = true,

@@ -1,5 +1,6 @@
 using HYWDebugAssistant.Core.Changes;
 using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Core.Composition;
 using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Services;
 using HYWDebugAssistant.Hosting.Registry;
@@ -35,6 +36,21 @@ namespace HYWDebugAssistant.Tests;
 /// </remarks>
 public class DockRuleTests
 {
+    /// <summary>
+    /// **跨缩放接触按物理投影判定**：两块在各自屏上 DIP 数值不同，但物理边贴合 ⇒ 仍然算接触。
+    /// </summary>
+    [Fact]
+    public void 跨缩放接触_按物理投影判定()
+    {
+        var left = new ModuleLayoutView("a", 0, 0, 200, 100) { Scale = 1.0 };
+        var right = new ModuleLayoutView("b", 200.0 / 1.5, 0, 200, 100) { Scale = 1.5 };
+
+        DockRule.TryGetContact(left, right, out var aIsLeftOrTop, out var horizontal).ShouldBeTrue();
+
+        aIsLeftOrTop.ShouldBeTrue();
+        horizontal.ShouldBeTrue();
+    }
+
     /// <summary>
     /// **四种摆法都必须连上**（发送端在左/右/上/下都能连，只要两个口各自冲着对方）。
     /// </summary>

@@ -26,9 +26,7 @@ namespace HYWDebugAssistant.Modules.TcpClient;
     Capabilities = ModuleCapability.Network,
     ParticipatesInDataFlow = true,
     WindowWidth = 400,
-    WindowHeight = 190,
-    MinWidth = 400,
-    MinHeight = 190,
+    WindowHeight = 166,
     ViewFactory = typeof(Views.TcpClientViewFactory))]
 public sealed class TcpClientModule : ExternalAccessModule
 {
@@ -113,8 +111,8 @@ public sealed class TcpClientModule : ExternalAccessModule
             _ => snapshot.Suspended ? Tr(TcpClientText.StatusSuspended) : Tr(TcpClientText.StatusIdle),
         };
 
-        return snapshot.RejectedUnits > 0 && snapshot.State != ExternalAccessState.Open
-            ? text + Tr(TcpClientText.StatusRejectedSuffix, snapshot.RejectedUnits)
+        return snapshot.RejectedSinceOpen > 0 && snapshot.State != ExternalAccessState.Open
+            ? text + Tr(TcpClientText.StatusRejectedSuffix, snapshot.RejectedSinceOpen)
             : text;
     }
 
@@ -159,3 +157,7 @@ public sealed class TcpClientModule : ExternalAccessModule
             _ => null,
         };
 }
+
+
+
+

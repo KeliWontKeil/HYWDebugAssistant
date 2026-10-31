@@ -98,6 +98,8 @@ public readonly record struct PortAnchorPair(bool AlignsX, double OtherCoordinat
 /// <param name="XKind">X 轴命中的级别（null = 未命中）。</param>
 /// <param name="YKind">Y 轴命中的级别（null = 未命中）。</param>
 /// <param name="Guides">要显示的辅助线（"会吸到哪里"的预览）。</param>
+/// <param name="XLine">X 轴命中的参照线坐标（未命中为 null，供下一帧迟滞使用）。</param>
+/// <param name="YLine">Y 轴命中的参照线坐标（未命中为 null）。</param>
 public readonly record struct SnapResult(
     double X,
     double Y,
@@ -105,7 +107,14 @@ public readonly record struct SnapResult(
     bool SnappedY,
     SnapKind? XKind,
     SnapKind? YKind,
-    IReadOnlyList<GuideLine> Guides);
+    IReadOnlyList<GuideLine> Guides,
+    double? XLine = null,
+    double? YLine = null);
+
+/// <summary>上一帧的吸附记忆：只在越过释放距离后才允许换线/松手，消除阈值附近的来回跳。</summary>
+/// <param name="XLine">上一帧 X 轴参照线坐标（null = 无）。</param>
+/// <param name="YLine">上一帧 Y 轴参照线坐标（null = 无）。</param>
+public readonly record struct SnapMemory(double? XLine, double? YLine);
 
 /// <summary>
 /// **几何吸附**（候选统一为「参照线」模型）——
@@ -199,7 +208,8 @@ public static class SnapEngine
         double tolerance = DefaultTolerance,
         IReadOnlyList<PortAnchorPair>? portAnchors = null,
         double flushTolerance = FlushTolerance,
-        double portReach = PortAlignReach)
+        double portReach = PortAlignReach,
+        SnapMemory memory = default)
     {
         ArgumentNullException.ThrowIfNull(lines);
 
@@ -216,8 +226,12 @@ public static class SnapEngine
             CollectPortAnchor(moving, pair, xs, ys, portReach);
         }
 
-        var chosenX = Best(Deduplicate(xs), tolerance, flushTolerance);
-        var chosenY = Best(Deduplicate(ys), tolerance, flushTolerance);
+        var dedupedX = Deduplicate(xs);
+        var dedupedY = Deduplicate(ys);
+        var release = Math.Max(tolerance, flushTolerance) + 2;
+
+        var chosenX = PreferMemory(Best(dedupedX, tolerance, flushTolerance), dedupedX, memory.XLine, release);
+        var chosenY = PreferMemory(Best(dedupedY, tolerance, flushTolerance), dedupedY, memory.YLine, release);
 
         var x = chosenX is { } cx ? moving.X + cx.Delta : moving.X;
         var y = chosenY is { } cy ? moving.Y + cy.Delta : moving.Y;
@@ -242,7 +256,52 @@ public static class SnapEngine
                 End: Math.Max(snapped.Right, gy.LineEnd) + GuideOvershoot));
         }
 
-        return new SnapResult(x, y, chosenX is not null, chosenY is not null, chosenX?.Kind, chosenY?.Kind, guides);
+        return new SnapResult(
+            x,
+            y,
+            chosenX is not null,
+            chosenY is not null,
+            chosenX?.Kind,
+            chosenY?.Kind,
+            guides,
+            chosenX?.LineCoordinate,
+            chosenY?.LineCoordinate);
+    }
+
+    /// <summary>
+    /// 吸附迟滞：上一帧的线仍在释放距离内时优先保持它，避免指针停在阈值附近时"吸/不吸"来回跳。
+    /// </summary>
+    private static Candidate? PreferMemory(Candidate? chosen, List<Candidate> candidates, double? line, double release)
+    {
+        if (line is not { } rememberedLine)
+        {
+            return chosen;
+        }
+
+        if (chosen is { } current && Math.Abs(current.LineCoordinate - rememberedLine) <= 0.5)
+        {
+            return current;
+        }
+
+        Candidate? remembered = null;
+        var bestDistance = double.MaxValue;
+
+        foreach (var candidate in candidates)
+        {
+            if (Math.Abs(candidate.LineCoordinate - rememberedLine) > 0.5)
+            {
+                continue;
+            }
+
+            var distance = Math.Abs(candidate.Delta);
+            if (distance <= release && distance < bestDistance)
+            {
+                remembered = candidate;
+                bestDistance = distance;
+            }
+        }
+
+        return remembered ?? chosen;
     }
 
     /// <summary>

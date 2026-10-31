@@ -373,6 +373,101 @@ public class RoleProjectionTests
         }
     }
 
+    // ------------------------------------------------------------ 判据 5f/5g：自回环几何（纯函数）
+
+    [Fact]
+    public void 判据5f_自回环几何_有限非零_在方块外且在本窗内()
+    {
+        var window = new Rect(0, 0, 320, 220);
+        var box = new Rect(96, 93, 128, 34);
+
+        var loop = ConnectionOverlay.ComputeSelfLoop(window, box);
+
+        loop.IsUsable.ShouldBeTrue();
+        loop.Start.X.ShouldBe(box.Right, 0.001, "从**输出侧边缘**出发");
+        loop.End.X.ShouldBe(box.Left, 0.001, "绕到**输入侧边缘**");
+        loop.Start.Y.ShouldBe(box.Center.Y, 0.001);
+        loop.End.Y.ShouldBe(box.Center.Y, 0.001);
+
+        loop.Below.ShouldBeFalse("空间充足 ⇒ 环画在方块上方");
+        loop.Degraded.ShouldBeFalse("空间充足 ⇒ 不退化");
+        loop.Apex.Y.ShouldBeLessThan(box.Top, "弧顶必须在方块上方（从输出绕到输入）");
+        Math.Abs(loop.PointAt(0.5).X - loop.Apex.X).ShouldBeLessThan(0.001, "Apex 就是折线 t = 0.5 处的点（↻ 标记画在这里）");
+        Math.Abs(loop.PointAt(0.5).Y - loop.Apex.Y).ShouldBeLessThan(0.001, "Apex 就是折线 t = 0.5 处的点（↻ 标记画在这里）");
+
+        foreach (var t in new[] { 0.1, 0.25, 0.5, 0.75, 0.9 })
+        {
+            var point = loop.PointAt(t);
+
+            double.IsFinite(point.X).ShouldBeTrue($"t={t} 的 X 必须有限");
+            double.IsFinite(point.Y).ShouldBeTrue($"t={t} 的 Y 必须有限");
+            IsStrictlyInside(box, point).ShouldBeFalse($"t={t} 不得落进方块内部");
+            window.Contains(point).ShouldBeTrue($"t={t} 不得画到窗外");
+        }
+
+        loop.Length().ShouldBeGreaterThan(20, "自环必须是一条**非零长度**的曲线（不得退化成点）");
+    }
+
+    [Fact]
+    public void 判据5h_角色信息在上时_自环落到下方避开文本块()
+    {
+        var window = new Rect(0, 0, 320, 220);
+        var box = new Rect(96, 93, 128, 34);
+
+        var loop = ConnectionOverlay.ComputeSelfLoop(window, box, preferBelow: true);
+
+        loop.IsUsable.ShouldBeTrue();
+        loop.Below.ShouldBeTrue("角色信息在上方 ⇒ 环必须让到下方");
+        loop.Apex.Y.ShouldBeGreaterThan(box.Bottom, "弧顶必须在方块下边缘之外");
+
+        foreach (var t in new[] { 0.1, 0.25, 0.5, 0.75, 0.9 })
+        {
+            var point = loop.PointAt(t);
+            point.Y.ShouldBeGreaterThanOrEqualTo(box.Top, "自环不得压到方块上方的角色信息");
+            window.Contains(point).ShouldBeTrue($"t={t} 不得画到窗外");
+        }
+    }
+
+    [Fact]
+    public void 判据5g_空间不足时自回环退化为贴方块的半环_仍不出窗()
+    {
+        // 上方只剩 6.5 DIP（放不下完整的 11 DIP 弧顶）⇒ 收窄成贴方块的半环，而不是掉到下方或出窗。
+        var window = new Rect(0, 0, 320, 80);
+        var box = new Rect(96, 16, 128, 34);
+
+        var loop = ConnectionOverlay.ComputeSelfLoop(window, box);
+
+        loop.IsUsable.ShouldBeTrue();
+        loop.Degraded.ShouldBeTrue("空间不足 ⇒ 明确标记为退化（贴方块的半环）");
+        loop.Below.ShouldBeFalse("上方仍有可用空间 ⇒ 优先留上方");
+        loop.Apex.Y.ShouldBeLessThan(box.Top);
+        (box.Top - loop.Apex.Y).ShouldBeLessThan(ConnectionOverlay.SelfLoopApexGap);
+
+        foreach (var t in new[] { 0.1, 0.25, 0.5, 0.75, 0.9 })
+        {
+            var point = loop.PointAt(t);
+
+            IsStrictlyInside(box, point).ShouldBeFalse($"t={t} 不得落进方块内部");
+            window.Contains(point).ShouldBeTrue($"t={t} 不得画到窗外（含退化的半环）");
+        }
+
+        // 上方完全没空间 ⇒ 回退到下方半环，仍不出窗。
+        var bottomLoop = ConnectionOverlay.ComputeSelfLoop(new Rect(0, 0, 320, 80), new Rect(96, 2, 128, 34));
+
+        bottomLoop.Below.ShouldBeTrue("上方放不下 ⇒ 落到方块下方");
+        bottomLoop.Apex.Y.ShouldBeGreaterThan(36);
+        Math.Abs(bottomLoop.PointAt(0.5).Y - bottomLoop.Apex.Y).ShouldBeLessThan(0.001);
+
+        foreach (var t in new[] { 0.25, 0.5, 0.75 })
+        {
+            bottomLoop.PointAt(t).Y.ShouldBeGreaterThan(36, "下方半环必须整体在方块下边缘之外");
+        }
+    }
+
+    /// <summary>点是否**严格**落在矩形内部（边界不算"内部"；自环的端点就在边界上）。</summary>
+    private static bool IsStrictlyInside(Rect rect, Point point) =>
+        point.X > rect.Left && point.X < rect.Right && point.Y > rect.Top && point.Y < rect.Bottom;
+
     /// <summary>
     /// 把点从 <paramref name="fromOrigin"/> 那个窗口的局部坐标换算到 <paramref name="toOrigin"/> 那个窗口的局部坐标。
     /// </summary>

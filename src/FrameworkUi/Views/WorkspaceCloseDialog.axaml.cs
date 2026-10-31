@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Ui.Views;
 
 namespace HYWDebugAssistant.FrameworkUi.Views;
 
@@ -42,6 +43,10 @@ public partial class WorkspaceCloseDialog : Window
         dialog.SaveButton.Click += (_, _) => dialog.Close(Result(WorkspaceCloseChoice.Save));
         dialog.DiscardButton.Click += (_, _) => dialog.Close(Result(WorkspaceCloseChoice.Discard));
         dialog.CancelButton.Click += (_, _) => dialog.Close(Result(WorkspaceCloseChoice.Cancel));
+
+        var group = AppWindowGroup.Of(owner);
+        group?.Track(dialog, AppWindowLayer.Modal);
+        using var modal = group?.BeginModal(dialog);
 
         return await dialog.ShowDialog<WorkspaceCloseResult>(owner);
     }

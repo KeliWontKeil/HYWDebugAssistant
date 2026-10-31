@@ -432,12 +432,6 @@ public sealed partial class ModuleRuntime : IDisposable
                 continue;
             }
 
-            if (string.Equals(connect.Source.InstanceId, target.InstanceId, StringComparison.Ordinal))
-            {
-                errors.Add(CoreText.Get("core.runtime.selfConnect", connect.Source, target));
-                continue;
-            }
-
             // 兼容判定：**三层判据**（类型标识/版本 + 结构回退）；不自动转换
             var compatibility = CheckCompatibility(
                 connect.Source.InstanceId, sourcePort,
@@ -689,9 +683,9 @@ public sealed partial class ModuleRuntime : IDisposable
                 continue;
             }
 
-            // **同一实例的端口不能自连**：与命名网络构建同一口径，防止历史/显式网络形成自环。
+            // **允许同一实例的源 → 宿**（模块内自回环）：结构与显式连接都不再排除自连；
+            // 真正约束仍是方向 + 契约兼容（逐对过滤）。
             var targets = network.Targets
-                .Where(target => !string.Equals(target.InstanceId, source.InstanceId, StringComparison.Ordinal))
                 .Where(target => IsPairCompatible(network, source, target))
                 .ToList();
             if (targets.Count == 0)

@@ -19,7 +19,7 @@
        · `theme.json` 可解析、`schemaVersion` 是认识的版本；
        · `base ∈ {light, dark}`；
        · `palette` 的每个键都是色板契约（`src/Ui/Styles/palette.json` 的 tokens）里登记过的 token；
-       · 清单里的 `id` 与目录名一致（id 的权威是目录名，写错说明它是从别处抄来的）；
+       · 清单里的 `id` **只是说明**，不要求与目录名一致（id 的权威是目录名：复制文件夹后改名仍可用）；
        · `wallpaper` 是**同目录单文件名**且文件存在、是 PNG（magic bytes）、体积不超过上限。
          上限与 `src/Core/Themes/ThemeStore.cs` 的 `MaxWallpaperBytes` **同值**（本脚本会读那份定义核对，
          两处不一致即判红——否则"审计通过"与"运行期拒收"会各说各话）。
@@ -544,7 +544,6 @@ if (Test-Path -LiteralPath $seedsRoot -PathType Container) {
         }
 
         $themePackageCount++
-        $themeId = $match.Groups['id'].Value
         $manifestPath = Join-Path $directory 'theme.json'
         $manifestRel = "$relative/theme.json"
 
@@ -572,12 +571,6 @@ if (Test-Path -LiteralPath $seedsRoot -PathType Container) {
         if ($base -ne 'light' -and $base -ne 'dark') {
             $line = Get-FirstLineNumber -Path $manifestPath -Pattern '"base"'
             Add-Problem "${manifestRel}:${line}" ("base 必须是 light 或 dark（当前 '{0}'）" -f $base)
-        }
-
-        $id = [string]$manifest.id
-        if (-not [string]::Equals($id, $themeId, [StringComparison]::Ordinal)) {
-            $line = Get-FirstLineNumber -Path $manifestPath -Pattern '"id"'
-            Add-Problem "${manifestRel}:${line}" ("清单 id '{0}' 与目录名 '{1}' 不一致" -f $id, $themeId)
         }
 
         if ($null -ne $manifest.palette) {

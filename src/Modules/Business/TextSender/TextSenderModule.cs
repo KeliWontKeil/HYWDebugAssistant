@@ -34,8 +34,6 @@ namespace HYWDebugAssistant.Modules.TextSender;
     ParticipatesInDataFlow = true,
     WindowWidth = 400,
     WindowHeight = 240,
-    MinWidth = 400,
-    MinHeight = 240,
     ViewFactory = typeof(Views.TextSenderViewFactory))]
 public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
 {
@@ -970,3 +968,6 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
         return payload;
     }
 }
+
+
+

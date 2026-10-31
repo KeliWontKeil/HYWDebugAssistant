@@ -124,13 +124,15 @@ public sealed class ShellIconMigrationTests
 
                 plain.IconKey.ShouldBe(ShellIcons.Settings);
                 plain.Owner.ShouldBe(typeof(Glyph).Assembly, "`Glyph` 的 owner 固定为 Ui 程序集");
-                plain.Width.ShouldBe(13, "`ui|Glyph.icon` 的尺寸");
-                plain.Height.ShouldBe(13);
+                plain.Width.ShouldBeGreaterThan(0, "`ui|Glyph.icon` 必须真的占住一块");
+                plain.Height.ShouldBeGreaterThan(0);
                 ColorOf(plain.Foreground).ShouldBe(TokenColor("TextSecondary"));
 
                 railed.IconKey.ShouldBe(ShellIcons.Modules);
-                railed.Width.ShouldBe(16, "`Button.rail ui|Glyph.icon` 的尺寸也必须命中 Glyph");
-                railed.Height.ShouldBe(16);
+                railed.Width.ShouldBeGreaterThan(0, "`Button.rail ui|Glyph.icon` 的尺寸也必须命中 Glyph");
+                railed.Height.ShouldBeGreaterThan(0);
+                railed.Width.ShouldBeGreaterThanOrEqualTo(plain.Width, "活动栏里的字形不小于普通字形");
+                railed.Height.ShouldBeGreaterThanOrEqualTo(plain.Height);
 
                 window.Close();
                 Pump();

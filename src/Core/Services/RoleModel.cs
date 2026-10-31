@@ -77,11 +77,7 @@ internal static class RoleModel
 
                 foreach (var member in counterparts)
                 {
-                    if (string.Equals(member.InstanceId, instance.InstanceId, StringComparison.Ordinal))
-                    {
-                        continue;   // 自环不算对端
-                    }
-
+                    // 自回环也是**真实的对端连接**：同实例同角色不应被排除，否则线画出来了、m/n 仍是 0。
                     _ = peers.Add(roleKeyOf(member.InstanceId, member.PortName));
                 }
             }

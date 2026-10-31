@@ -348,7 +348,14 @@ public sealed record ModuleLayoutView(
     double Y,
     double Width,
     double Height,
-    bool IsViewVisible = true);
+    bool IsViewVisible = true)
+{
+    /// <summary>
+    /// **落位时该窗口所在屏的缩放**（位置的物理投影 = X/Y × Scale；尺寸仍是 DIP）。
+    /// 旧组合件没有该字段 ⇒ 1；运行期由窗口真实的 `ResolvedScaling` 刷新。
+    /// </summary>
+    public double Scale { get; init; } = 1;
+}
 
 /// <summary>端口几何（用户在边缘上调整过的位置；未调整时为默认值）。</summary>
 /// <param name="PortName">口名。</param>

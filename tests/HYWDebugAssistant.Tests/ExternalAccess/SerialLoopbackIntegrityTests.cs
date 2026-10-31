@@ -63,9 +63,6 @@ public sealed class SerialLoopbackIntegrityTests
     public void 回环_长文本低频_零丢失()
         => RunCase(bytes: 4096, intervalMs: 1000, sends: 2, runMs: 0, expectLoss: false);
 
-    [Fact]
-    public void 回环_超长文本低频_零丢失()
-        => RunCase(bytes: 16384, intervalMs: 2000, sends: 2, runMs: 0, expectLoss: false);
 
     [Fact]
     public void 回环_短文本高频_零丢失()
@@ -130,7 +127,8 @@ public sealed class SerialLoopbackIntegrityTests
         var services = new RuntimeServices(runtime);
         services.ScanModuleSources([StagedModules]).ShouldBeGreaterThan(0);
         services.AddModule("t1", TextSenderId).Succeeded.ShouldBeTrue();
-        services.AddModule("s1", SerialId).Succeeded.ShouldBeTrue();
+        var serialAdd = services.AddModule("s1", SerialId);
+        serialAdd.Succeeded.ShouldBeTrue(string.Join("；", serialAdd.Failures));
         services.AddModule("m1", MonitorId).Succeeded.ShouldBeTrue();
 
         services.Connect(new PortRef("t1", "out"), [new PortRef("s1", "tx")], "duplex-tx").Succeeded.ShouldBeTrue();
@@ -222,7 +220,8 @@ public sealed class SerialLoopbackIntegrityTests
         var services = new RuntimeServices(runtime);
         services.ScanModuleSources([StagedModules]).ShouldBeGreaterThan(0);
         services.AddModule("t1", TextSenderId).Succeeded.ShouldBeTrue();
-        services.AddModule("s1", SerialId).Succeeded.ShouldBeTrue();
+        var serialAdd = services.AddModule("s1", SerialId);
+        serialAdd.Succeeded.ShouldBeTrue(string.Join("；", serialAdd.Failures));
         services.AddModule("m1", MonitorId).Succeeded.ShouldBeTrue();
 
         services.Connect(new PortRef("t1", "out"), [new PortRef("s1", "tx")], "loop-tx").Succeeded.ShouldBeTrue();

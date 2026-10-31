@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using Avalonia;
 using CommunityToolkit.Mvvm.ComponentModel;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Ports;
@@ -99,22 +100,34 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     private double _dragPointerOffsetX;
     private double _dragPointerOffsetY;
 
+    /// <summary>拖动开始时缓存的参照线/端口锚点（拖动中其它模块不动，不必每帧重建）。</summary>
+    private IReadOnlyList<SnapLine> _dragLines = [];
+    private IReadOnlyList<PortAnchorPair> _dragAnchors = [];
+    private SnapMemory _snapMemory;
+
+    /// <summary>拖动时"即将建网"预览的节流（每帧查询 Core 建网预览代价高）。</summary>
+    private long _lastDockPreviewTicks;
+    private int _lastDockPreviewCount = -1;
+
     /// <summary>整体平移造成的位置变化、**尚未落盘**的实例（合并提交用，见 <see cref="CommitSceneTranslation"/>）。</summary>
     private readonly HashSet<string> _pendingSceneCommits = new(StringComparer.Ordinal);
 
-    /// <summary>本次拖动已施加到外壳上的累计位移（用于取消拖动时还原，以及终结时落盘）。</summary>
-    private double _shellDragDx;
-    private double _shellDragDy;
+    /// <summary>本次拖动已施加到外壳上的累计**物理像素**位移（取消/拆分时按绝对起点还原）。</summary>
+    private double _shellDragPxX;
+    private double _shellDragPxY;
+
+    /// <summary>本次拖动开始时外壳的物理原点（绝对目标以它为基准，避免逐帧取整累加漂移）。</summary>
+    private PixelPoint? _shellDragOrigin;
 
     /// <summary>
-    /// **请求把外壳窗口平移 (dx, dy)**：拖动组包含外壳时（模块单侧吸附在外壳上）触发，
-    /// 由 `ModuleWindowManager` 落到真实窗口上。
+    /// **请求把外壳移动到绝对物理目标**：拖动组包含外壳时（模块单侧吸附在外壳上）触发，
+    /// 由 `ModuleWindowManager` 直接落到真实窗口上；不再传 DIP 增量，避免二次缩放与逐帧取整。
     /// </summary>
     /// <remarks>
     /// 主窗口与模块形成一个视觉整体后，移动谁都是整体动 ——
     /// 外壳不是"应用的框架"，而是**拼图里的一个节点**；因此拖模块与拖外壳走的是同一套成组逻辑。
     /// </remarks>
-    public event EventHandler<(double Dx, double Dy)>? ShellTranslationRequested;
+    public event EventHandler<PixelPoint>? ShellMoveRequested;
 
     private string? _resizingId;
     private ResizeHandle _resizeHandle;
@@ -142,6 +155,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <summary>模块窗口（每个模块一项）。</summary>
     public ObservableCollection<ModuleViewViewModel> Modules { get; } = [];
 
+    /// <summary>交互页「窗口管理」列表的行（按模块增量同步；对象身份稳定）。</summary>
+    public ObservableCollection<ModuleOverviewRowViewModel> Overview { get; } = [];
+
+    /// <summary>所有屏幕的工作区（**DIP**；用于判断模块是否落在屏幕外）。</summary>
+    public IReadOnlyList<CanvasRect> WorkAreas { get; private set; } = [];
+
     /// <summary>
     /// 屏幕工作区（**DIP**；外壳窗口关闭时为 null = 不做屏幕吸附与钳制）。
     /// </summary>
@@ -157,6 +176,25 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// </summary>
     [ObservableProperty]
     public partial CanvasRect? ShellRect { get; set; }
+
+    /// <summary>外壳**可见外框**的物理像素矩形（与 <see cref="ShellRect"/> 同一次探测发布）。</summary>
+    public CanvasRect? ShellPhysicalRect { get; private set; }
+
+    /// <summary>外壳窗口的**物理位置**（<c>Window.Position</c>；绝对移动的目标必须用它，不能拿可见外框原点）。</summary>
+    public PixelPoint? ShellWindowPosition { get; private set; }
+
+    /// <summary>由窗口管理器原子发布外壳的 DIP 矩形与物理外框（两份事实必须同源）。</summary>
+    /// <param name="dip">DIP 矩形（模型/叠加层用）。</param>
+    /// <param name="physical">物理像素矩形（成组/吸附/接触判定用）。</param>
+    public void SetShellFrame(CanvasRect dip, CanvasRect physical)
+    {
+        ShellRect = dip;
+        ShellPhysicalRect = physical;
+    }
+
+    /// <summary>发布外壳窗口的物理位置（与可见外框分开发布）。</summary>
+    /// <param name="position">窗口位置（物理像素）。</param>
+    public void SetShellWindowPosition(PixelPoint position) => ShellWindowPosition = position;
 
     /// <summary>
     /// 是否显示**叠加信息层**（端口标记本身常显，本开关只控制叠加层）。
@@ -464,8 +502,25 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     [ObservableProperty]
     public partial bool AllLocked { get; set; }
 
+    /// <summary>外壳窗口当前所在屏的缩放（由窗口管理器发布；组内物理位移换算用）。</summary>
+    public double ShellScaling { get; set; } = 1;
+
     /// <summary>是否正在拖动或缩放。</summary>
     public bool IsInteracting => _draggingId is not null || _resizingId is not null;
+
+    /// <summary>由窗口管理器回写某模块窗口的真实缩放（开窗前/跨屏后）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="scaling">缩放；≤0 忽略。</param>
+    public void SetModuleScaling(string instanceId, double scaling)
+    {
+        if (scaling > 0 && Find(instanceId) is { } module)
+        {
+            module.Scaling = scaling;
+
+            // Core 的建网/接触判定也要读同一份 Scale：缩放变化后立即把布局事实刷新一次。
+            _ = _command.UpdateModuleLayout(module.ToLayout());
+        }
+    }
 
     /// <summary>模块数（状态栏用）。</summary>
     public int ModuleCount => Modules.Count;
@@ -475,6 +530,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
     /// <summary>窗口可见性变化（窗口管理器订阅：开窗/关窗）。</summary>
     public event EventHandler<ModuleWindowVisibilityChange>? VisibilityChanged;
+
+    /// <summary>请求把某个模块窗口显示并置于应用内最前（窗口管理器订阅）。</summary>
+    public event EventHandler<string>? WindowActivationRequested;
 
     /// <summary>
     /// **面向用户的提示**（建网结果、端口标签提交结果等）——外壳把它显示到状态栏。
@@ -513,6 +571,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         SyncModules();
         RefreshSubscriptions();
         RefreshOverlayPeers();
+        RefreshOverview();
     }
 
     /// <summary>
@@ -658,9 +717,28 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         module.IsViewVisible = false;
         _ = _command.UpdateModuleLayout(module.ToLayout());
         VisibilityChanged?.Invoke(this, new ModuleWindowVisibilityChange(instanceId, IsVisible: false));
+        RefreshOverview();
     }
 
-    /// <summary>重新显示某个模块窗口（模块清单弹窗的"显示窗口"）。</summary>
+    /// <summary>显示全部被隐藏的模块窗口（不再逐个激活，避免焦点在窗口间跳）。</summary>
+    public void ShowAllWindows()
+    {
+        foreach (var module in Modules)
+        {
+            if (module.IsViewVisible)
+            {
+                continue;
+            }
+
+            module.IsViewVisible = true;
+            _ = _command.UpdateModuleLayout(module.ToLayout());
+            VisibilityChanged?.Invoke(this, new ModuleWindowVisibilityChange(module.InstanceId, IsVisible: true));
+        }
+
+        RefreshOverview();
+    }
+
+    /// <summary>重新显示某个模块窗口（窗口管理区的"显示"）。</summary>
     /// <param name="instanceId">实例 ID。</param>
     public void ShowWindow(string instanceId)
     {
@@ -672,6 +750,186 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         module.IsViewVisible = true;
         _ = _command.UpdateModuleLayout(module.ToLayout());
         VisibilityChanged?.Invoke(this, new ModuleWindowVisibilityChange(instanceId, IsVisible: true));
+        RefreshOverview();
+        WindowActivationRequested?.Invoke(this, instanceId);
+    }
+
+    /// <summary>显示并置于应用内最前（窗口管理区的"置顶"；不是系统级 Topmost）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    public void RaiseModule(string instanceId)
+    {
+        if (Find(instanceId) is not { } module)
+        {
+            return;
+        }
+
+        if (!module.IsViewVisible)
+        {
+            ShowWindow(instanceId);
+            return;
+        }
+
+        WindowActivationRequested?.Invoke(this, instanceId);
+    }
+
+    /// <summary>把屏幕外的模块召回最近屏幕的可见区域，然后显示并抬前。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    public void RecallModule(string instanceId)
+    {
+        if (Find(instanceId) is not { } module || !module.Rect.IsValid || WorkAreas.Count == 0)
+        {
+            ShowWindow(instanceId);
+            return;
+        }
+
+        var target = WorkAreas
+            .OrderBy(area => DistanceSquared(module.Rect, area))
+            .First();
+
+        var width = Math.Min(module.Width, target.Width);
+        var height = Math.Min(module.Height, target.Height);
+        var x = Math.Clamp(module.X, target.Left, Math.Max(target.Left, target.Right - width));
+        var y = Math.Clamp(module.Y, target.Top, Math.Max(target.Top, target.Bottom - height));
+
+        module.X = x;
+        module.Y = y;
+        module.Width = width;
+        module.Height = height;
+        module.HasLayout = true;
+        module.IsOffScreen = false;
+
+        _ = _command.UpdateModuleLayout(module.ToLayout());
+        RaiseGeometry(module);
+        ShowWindow(instanceId);
+    }
+
+    /// <summary>由窗口管理器发布全部屏幕工作区（DIP）。</summary>
+    /// <param name="areas">各屏工作区；空 = 未知（不判屏幕外）。</param>
+    public void SetWorkAreas(IEnumerable<CanvasRect> areas)
+    {
+        WorkAreas = [.. areas.Where(area => area.IsValid)];
+        RefreshOverview();
+    }
+
+    /// <summary>由窗口管理器回写某模块是否有宿主窗口。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="hasWindow">是否已有窗口。</param>
+    public void SetModuleWindowPresence(string instanceId, bool hasWindow)
+    {
+        if (Find(instanceId) is { } module)
+        {
+            module.HasWindow = hasWindow;
+        }
+    }
+
+    /// <summary>窗口管理列表是否为空。</summary>
+    public bool OverviewIsEmpty => Overview.Count == 0;
+
+    /// <summary>模块总览摘要（模块数 / 隐藏数 / 屏幕外数）。</summary>
+    public string OverviewSummary
+    {
+        get
+        {
+            var hidden = Modules.Count(module => !module.IsViewVisible);
+            var offScreen = Modules.Count(module => module.IsOffScreen && module.IsViewVisible);
+            return TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.overview.summary", Modules.Count, hidden, offScreen);
+        }
+    }
+
+    /// <summary>按当前事实增量刷新窗口管理列表（不重建行对象）。</summary>
+    private void RefreshOverview()
+    {
+        foreach (var module in Modules)
+        {
+            module.IsOffScreen = !IsModuleOnScreen(module.Rect);
+
+            var row = Overview.FirstOrDefault(item => string.Equals(item.InstanceId, module.InstanceId, StringComparison.Ordinal));
+            if (row is null)
+            {
+                row = new ModuleOverviewRowViewModel(
+                    module.InstanceId,
+                    ShowWindow,
+                    HideWindow,
+                    RaiseModule,
+                    RecallModule,
+                    ToggleLock,
+                    CloseModule);
+                Overview.Add(row);
+            }
+
+            row.Update(
+                module.Title,
+                BuildOverviewStatus(module),
+                module.State,
+                module.IsViewVisible,
+                module.IsLocked,
+                module.IsPlaceholder,
+                module.IsOffScreen,
+                module.HasWindow);
+        }
+
+        for (var index = Overview.Count - 1; index >= 0; index--)
+        {
+            if (Modules.All(module => !string.Equals(module.InstanceId, Overview[index].InstanceId, StringComparison.Ordinal)))
+            {
+                Overview.RemoveAt(index);
+            }
+        }
+
+        OnPropertyChanged(nameof(OverviewSummary));
+        OnPropertyChanged(nameof(OverviewIsEmpty));
+    }
+
+    private static string BuildOverviewStatus(ModuleViewViewModel module)
+    {
+        var parts = new List<string>(3);
+        if (!module.IsViewVisible)
+        {
+            parts.Add(TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.overview.hidden"));
+        }
+
+        if (module.IsOffScreen)
+        {
+            parts.Add(TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.overview.offScreen"));
+        }
+
+        if (!module.HasWindow && module.IsViewVisible)
+        {
+            parts.Add(TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.overview.noWindow"));
+        }
+
+        parts.Add(module.StateText);
+        return string.Join(" · ", parts);
+    }
+
+    private bool IsModuleOnScreen(CanvasRect rect)
+    {
+        if (!rect.IsValid || WorkAreas.Count == 0)
+        {
+            return true;
+        }
+
+        var needWidth = Math.Min(32, rect.Width);
+        var needHeight = Math.Min(32, rect.Height);
+
+        foreach (var area in WorkAreas)
+        {
+            var overlapWidth = Math.Min(area.Right, rect.Right) - Math.Max(area.Left, rect.Left);
+            var overlapHeight = Math.Min(area.Bottom, rect.Bottom) - Math.Max(area.Top, rect.Top);
+            if (overlapWidth >= needWidth && overlapHeight >= needHeight)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static double DistanceSquared(CanvasRect left, CanvasRect right)
+    {
+        var dx = (left.Left + (left.Width / 2)) - (right.Left + (right.Width / 2));
+        var dy = (left.Top + (left.Height / 2)) - (right.Top + (right.Height / 2));
+        return (dx * dx) + (dy * dy);
     }
 
     /// <summary>关闭某个模块窗口 = **移除该模块实例**（级联清理绑定）；只从选择集移除它本身。</summary>
@@ -705,7 +963,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         // **锁定成员不随组移动**：编组时就把锁定的成员排除，
         // 于是拖动整组时它们留在原地（组自然"解开"）—— 这比"拖完再纠正"更直观。
         // **外壳也在这个组里**（单侧吸附完成即同组）：
-        // 拖动一个贴在外壳上的模块时，外壳窗口要跟着一起走（"视觉整体"）；见 _shellDragDx/Dy 与 ShellTranslationRequested。
+        // 拖动一个贴在外壳上的模块时，外壳窗口要跟着一起走（"视觉整体"）；见 _shellDragPxX/Y 与 ShellMoveRequested。
         _dragGroup = independent
             ? [instanceId]
             : [.. GroupOfNode(instanceId).Where(id => Find(id) is not { IsLocked: true })];
@@ -720,8 +978,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             }
         }
 
-        _shellDragDx = 0;
-        _shellDragDy = 0;
+        _shellDragPxX = 0;
+        _shellDragPxY = 0;
+        _shellDragOrigin = ShellWindowPosition
+            ?? (ShellPhysicalRect is { IsValid: true } shellPhysical
+                ? new PixelPoint(ScreenPixels.ToPixel(shellPhysical.X), ScreenPixels.ToPixel(shellPhysical.Y))
+                : null);
 
         // 组内成员**也由指针驱动**：
         // 否则 `ModuleWindowManager.OnWindowMoved` 会把窗口取整后的位置回写到它们的模型上
@@ -733,8 +995,17 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 member.IsInteracting = true;
             }
         }
-        _dragPointerOffsetX = pointerX - module.X;
-        _dragPointerOffsetY = pointerY - module.Y;
+        var dragScale = module.Scaling > 0 ? module.Scaling : 1;
+        _dragPointerOffsetX = pointerX - (module.X * dragScale);
+        _dragPointerOffsetY = pointerY - (module.Y * dragScale);
+
+        // 拖动期间其他模块不动 ⇒ 参照线/端口锚点只算一次（不再每次指针事件全量重建）。
+        _dragLines = CollectLines(instanceId);
+        _dragAnchors = BuildPortAnchors(instanceId);
+        _snapMemory = default;
+        _lastDockPreviewTicks = 0;
+        _lastDockPreviewCount = -1;
+
         SelectOrKeep(instanceId);
         return true;
     }
@@ -760,17 +1031,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             return;   // 已经是独立拖动
         }
 
-        // ① 外壳已经跟着走了 → 按累计位移**还回去**（模型 + 真实窗口）
-        if ((Math.Abs(_shellDragDx) > 0.5 || Math.Abs(_shellDragDy) > 0.5)
-            && ShellRect is { IsValid: true } shell)
-        {
-            var (backX, backY) = (-_shellDragDx, -_shellDragDy);
-            ShellRect = shell.OffsetBy(backX, backY);
-            ShellTranslationRequested?.Invoke(this, (backX, backY));
-        }
-
-        _shellDragDx = 0;
-        _shellDragDy = 0;
+        // ① 外壳已经跟着走了 → 回到**本次拖动的绝对物理起点**（模型 + 真实窗口）
+        RestoreShellOrigin();
 
         // ② 其余成员回到拖动起点（被拖的那个不动：它由指针驱动，下一帧 DragTo 会继续带着它）
         foreach (var memberId in _dragGroup)
@@ -796,6 +1058,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         dragged.IsInteracting = true;
         _dragStartRects.Clear();
         _dragStartRects[draggingId] = dragged.Rect;
+
+        // 组变小 ⇒ 被放回原位的成员重新成为参照线/端口锚点。
+        _dragLines = CollectLines(draggingId);
+        _dragAnchors = BuildPortAnchors(draggingId);
+        _snapMemory = default;
     }
 
     /// <summary>
@@ -805,17 +1072,58 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// 这是"主窗口与模块形成视觉整体后，移动谁都是整体动"的落点。
     /// 真实窗口由 `ModuleWindowManager` 移动；它移动时会回推一次 `ShellRect`（交互期间只刷新参照、不联动平移）。
     /// </remarks>
-    private void ApplyShellDelta(double dx, double dy)
+    private void ApplyShellDelta(double dxPhysical, double dyPhysical)
     {
-        if (!_dragGroup.Contains(ShellNodeId) || ShellRect is not { IsValid: true } shell)
+        if (!_dragGroup.Contains(ShellNodeId) || _shellDragOrigin is not { } origin)
         {
             return;
         }
 
-        ShellRect = shell.OffsetBy(dx, dy);
-        _shellDragDx += dx;
-        _shellDragDy += dy;
-        ShellTranslationRequested?.Invoke(this, (dx, dy));
+        _shellDragPxX += dxPhysical;
+        _shellDragPxY += dyPhysical;
+
+        // **绝对物理目标**：起点 + 累计位移取整一次；不再“每帧增量取整后累加”。
+        var target = new PixelPoint(
+            origin.X + ScreenPixels.ToPixel(_shellDragPxX),
+            origin.Y + ScreenPixels.ToPixel(_shellDragPxY));
+
+        ShellMoveRequested?.Invoke(this, target);
+        SetShellWindowPosition(target);
+
+        // 乐观更新 DIP 模型（真实值随后由管理器的 ShellPhysicalRect 回推校正）。
+        var shellScale = ShellScaling > 0 ? ShellScaling : 1;
+        if (ShellRect is { IsValid: true } shell)
+        {
+            SetShellFrame(
+                new CanvasRect(
+                    target.X / shellScale,
+                    target.Y / shellScale,
+                    shell.Width,
+                    shell.Height),
+                new CanvasRect(target.X, target.Y, shell.Width * shellScale, shell.Height * shellScale));
+        }
+    }
+
+    /// <summary>把外壳恢复到本次拖动的物理起点（Ctrl 拆分 / 取消拖动）。</summary>
+    private void RestoreShellOrigin()
+    {
+        if (_shellDragOrigin is not { } origin
+            || ShellPhysicalRect is not { IsValid: true } physical
+            || (Math.Abs(_shellDragPxX) < 0.5 && Math.Abs(_shellDragPxY) < 0.5))
+        {
+            return;
+        }
+
+        ShellMoveRequested?.Invoke(this, origin);
+        SetShellWindowPosition(origin);
+
+        var shellScale = ShellScaling > 0 ? ShellScaling : 1;
+        SetShellFrame(
+            new CanvasRect(origin.X / shellScale, origin.Y / shellScale, physical.Width / shellScale, physical.Height / shellScale),
+            new CanvasRect(origin.X, origin.Y, physical.Width, physical.Height));
+
+        _shellDragPxX = 0;
+        _shellDragPxY = 0;
     }
 
     /// <summary>
@@ -834,19 +1142,19 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     ///   <item>位置仍存**绝对屏幕坐标**（组合件格式不变）。</item>
     /// </list>
     /// </remarks>
-    /// <param name="dx">外壳位移 X（物理像素）。</param>
-    /// <param name="dy">外壳位移 Y（物理像素）。</param>
-    /// <param name="preMoveShell">
-    /// **移动前**的外壳矩形：分组必须用它判定"谁与外壳拼在一起"。
+    /// <param name="dxPixels">外壳位移 X（**物理像素**）。</param>
+    /// <param name="dyPixels">外壳位移 Y（**物理像素**）。</param>
+    /// <param name="preMoveShellPixels">
+    /// **移动前**的外壳物理矩形：分组必须用它判定"谁与外壳拼在一起"。
     /// </param>
     /// <remarks>
-    /// <b>为什么必须传"移动前"的矩形</b>：调用方通常已把 `ShellRect` 刷新成移动后的位置，
+    /// <b>为什么必须传"移动前"的矩形</b>：调用方通常已把外壳刷新成移动后的位置，
     /// 而此时模块还在旧位置上 —— 若用新矩形判分组，"贴上"会被判成"没贴上"，于是**模块不跟随**
     /// （同一类错误：**任何"谁和谁相连"的判定都必须用同一时刻的几何**）。
     /// </remarks>
-    public void TranslateShellGroup(double dx, double dy, CanvasRect preMoveShell)
+    public void TranslateShellGroup(double dxPixels, double dyPixels, CanvasRect preMoveShellPixels)
     {
-        if ((Math.Abs(dx) < 0.5 && Math.Abs(dy) < 0.5) || !preMoveShell.IsValid)
+        if ((Math.Abs(dxPixels) < 0.5 && Math.Abs(dyPixels) < 0.5) || !preMoveShellPixels.IsValid)
         {
             return;
         }
@@ -856,7 +1164,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         // 那一帧它就会被判成"已拼上"并跟着走
         // ⇒ 现象正是"经过模块时导致模块**错位粘连**（没有产生吸附行为却拼上去了）"。
         // ⇒ 冻结集合只在**一次拖动开始时**算一次（用移动前的外壳矩形），拖动过程中**不吸收新成员**。
-        _shellDragGroup ??= GroupOfNode(ShellNodeId, preMoveShell);
+        _shellDragGroup ??= GroupOfNode(ShellNodeId, preMoveShellPixels);
 
         foreach (var module in Modules)
         {
@@ -865,8 +1173,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 continue;
             }
 
-            module.X = ScreenPixels.RoundDip(module.X + dx);
-            module.Y = ScreenPixels.RoundDip(module.Y + dy);
+            var moduleScale = module.Scaling > 0 ? module.Scaling : 1;
+            module.X += dxPixels / moduleScale;
+            module.Y += dyPixels / moduleScale;
             RaiseGeometry(module);
             _ = _pendingSceneCommits.Add(module.InstanceId);
         }
@@ -914,14 +1223,14 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>拖动中：吸附 → 整组平移 → 更新辅助线。</summary>
-    /// <param name="pointerX">指针 X（屏幕坐标，**DIP**）。</param>
-    /// <param name="pointerY">指针 Y（屏幕坐标，**DIP**）。</param>
+    /// <param name="pointerX">指针 X（屏幕**物理像素**）。</param>
+    /// <param name="pointerY">指针 Y（屏幕**物理像素**）。</param>
     /// <param name="snapEnabled">本次是否吸附（null = 用开关值；按住 Alt 传 false）。</param>
     /// <remarks>
     /// **拖动中实时吸附**（松手才吸附操作不友好）；
     /// 目标手感 = **Visio 式**：吸附半径小（几像素）、离开即松、靠参考线给反馈。
-    /// 另：位置在写入模型前**统一取整到整 DIP**（<see cref="ScreenPixels.RoundDip"/>）——
-    /// 吸附在整数格上做，才不会出现"小数 DIP 乘缩放后两端各自舍入 ⇒ 看得见的缝"。
+    /// 写入模型前把目标落到**整数物理像素**（不是整 DIP）：125%/150% 下 1 DIP 不是 1 像素，
+    /// 按 DIP 取整会让窗口每次跳 1.25/1.5 px，表现为水平拖动的弹簧与细缝。
     /// </remarks>
     public void DragTo(double pointerX, double pointerY, bool? snapEnabled = null)
     {
@@ -930,46 +1239,62 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             return;
         }
 
-        // 原始位置（指针推出来的，未被吸附修正）——吸附是它的**纯函数**，不累加上一帧的结果
-        var targetX = pointerX - _dragPointerOffsetX;
-        var targetY = pointerY - _dragPointerOffsetY;
+        // 原始位置（指针推出来的，未被吸附修正）——吸附是它的**纯函数**，不累加上一帧的结果。
+        // 指针是物理像素，先按被拖窗口自己的缩放换成 DIP（吸附在 DIP 模型里做），
+        // 组内成员再按**同一个物理位移**各自换回 DIP ⇒ 跨屏缩放不同也不会拉开相对位置。
+        var dragScale = module.Scaling > 0 ? module.Scaling : 1;
+        var targetX = (pointerX - _dragPointerOffsetX) / dragScale;
+        var targetY = (pointerY - _dragPointerOffsetY) / dragScale;
 
         IReadOnlyList<GuideLine> guides = [];
-        var neighbourCount = 0;
+        var snapping = snapEnabled ?? SnapEnabled;
 
-        if (snapEnabled ?? SnapEnabled)
+        if (snapping)
         {
-            var lines = CollectLines(draggingId);
-            neighbourCount = lines.Count;
-
             var snapped = SnapEngine.Snap(
                 module.Rect.At(targetX, targetY),
-                lines,
+                _dragLines,
                 SnapDistance,                 // 对齐类容差 = 设置里的「吸附距离」
-                BuildPortAnchors(draggingId),
-                SnapDistance * 2);            // 贴合类容差 = 2×（拼接是主用途，值得给宽容差）
+                _dragAnchors,
+                SnapDistance * 2,             // 贴合类容差 = 2×（拼接是主用途，值得给宽容差）
+                memory: _snapMemory);
 
             targetX = snapped.X;
             targetY = snapped.Y;
             guides = snapped.Guides;
+            _snapMemory = new SnapMemory(snapped.XLine, snapped.YLine);
+        }
+        else
+        {
+            _snapMemory = default;
         }
 
-        // 统一取整：模型几何一律**整 DIP**（唯一量化点，见 `ScreenPixels.RoundDip`）
-        var dx = ScreenPixels.RoundDip(targetX) - module.X;
-        var dy = ScreenPixels.RoundDip(targetY) - module.Y;
+        // 量化点：目标先落到**整数物理像素**；组内成员跟同一个物理位移，再各自 ÷ 自己的 Scale。
+        // 不再对 DIP 取整 —— 125% 下 1 DIP = 1.25 px，按 DIP 取整会让窗口每次跳 1.25 px。
+        var targetPixelX = ScreenPixels.ToPixel(targetX * dragScale);
+        var targetPixelY = ScreenPixels.ToPixel(targetY * dragScale);
+        var dxPhysical = targetPixelX - module.PhysicalRect.X;
+        var dyPhysical = targetPixelY - module.PhysicalRect.Y;
+
+        // 物理死区：没有吸附参与且位移不足半个像素时，不让高频指针噪声推动窗口。
+        if (!snapping && Math.Abs(dxPhysical) < 0.5 && Math.Abs(dyPhysical) < 0.5)
+        {
+            return;
+        }
 
         foreach (var memberId in _dragGroup)
         {
             if (Find(memberId) is { } member)
             {
-                member.X += dx;
-                member.Y += dy;
+                var memberScale = member.Scaling > 0 ? member.Scaling : 1;
+                member.X += dxPhysical / memberScale;
+                member.Y += dyPhysical / memberScale;
                 RaiseGeometry(member);
             }
         }
 
         // 组内含外壳（模块单侧吸附在外壳上）→ 外壳窗口也一起走（"视觉整体"）
-        ApplyShellDelta(dx, dy);
+        ApplyShellDelta(dxPhysical, dyPhysical);
 
         // 窗内绘制用：辅助线挂到**被拖的模块**上（其余成员只跟随位移）
         if (Find(draggingId) is { } dragged)
@@ -983,15 +1308,54 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>把"将会连上"的端口标记高亮（拖动中实时；松手后由网络行为落地）。</summary>
+    /// <summary>当前已建网的 `源 → 宿` 字面量对（预览不能把已有连接再标成“即将建网”）。</summary>
+    private HashSet<(string Source, string Target)> BuildExistingBindings()
+    {
+        var existing = new HashSet<(string Source, string Target)>();
+
+        foreach (var network in _query.GetNetworks())
+        {
+            IReadOnlyList<string> sources = network.Sources.Count > 0 ? network.Sources : [network.Source];
+            foreach (var source in sources)
+            {
+                if (source.Length == 0)
+                {
+                    continue;
+                }
+
+                foreach (var target in network.Targets)
+                {
+                    _ = existing.Add((source, target));
+                }
+            }
+        }
+
+        return existing;
+    }
+
     private void UpdateDockPreview()
     {
+        // Core 的建网预览要遍历全部候选；拖动帧率远高于它需要的刷新率 ⇒ 约 20 Hz + 数量变化才发提示。
+        var now = Environment.TickCount64;
+        if (now - _lastDockPreviewTicks < 50)
+        {
+            return;
+        }
+
+        _lastDockPreviewTicks = now;
+
         var provisional = _dragGroup
             .Select(Find)
             .Where(m => m is not null)
             .Select(m => m!.ToLayout())
             .ToList();
 
-        var candidates = _query.PreviewConnections(provisional);
+        var existing = BuildExistingBindings();
+        var candidates = DockPreviewPolicy.Filter(
+            _query.PreviewConnections(provisional),
+            existing,
+            _dragGroup);
+
         var marked = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var candidate in candidates)
@@ -1008,15 +1372,22 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             }
         }
 
-        if (candidates.Count > 0)
+        if (candidates.Count > 0 && candidates.Count != _lastDockPreviewCount)
         {
+            _lastDockPreviewCount = candidates.Count;
             RaiseNotice(TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.notice.autoNetwork", candidates.Count));
+        }
+        else if (candidates.Count == 0)
+        {
+            _lastDockPreviewCount = -1;
         }
     }
 
     /// <summary>清掉"即将建网"高亮（拖动结束/取消时）。</summary>
     private void ClearDockPreview()
     {
+        _lastDockPreviewTicks = 0;
+        _lastDockPreviewCount = -1;
         foreach (var module in Modules)
         {
             foreach (var marker in module.Ports)
@@ -1225,16 +1596,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _draggingId = null;
         _dragGroup = [];
 
-        // 组内含外壳时，外壳窗口也被拖走了 → 还原时把它移回去（累计位移取反）
-        if ((Math.Abs(_shellDragDx) > 0.5 || Math.Abs(_shellDragDy) > 0.5)
-            && ShellRect is { IsValid: true } shell)
-        {
-            ShellRect = shell.OffsetBy(-_shellDragDx, -_shellDragDy);
-            ShellTranslationRequested?.Invoke(this, (-_shellDragDx, -_shellDragDy));
-        }
-
-        _shellDragDx = 0;
-        _shellDragDy = 0;
+        // 组内含外壳时，外壳窗口也被拖走了 → 还原到本次拖动的绝对物理起点
+        RestoreShellOrigin();
 
         var layoutById = _query.GetLayout().ToDictionary(l => l.InstanceId, StringComparer.Ordinal);
         foreach (var memberId in group)
@@ -1290,6 +1653,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         var start = _resizeStartRect;
+
+        // 指针是物理像素；缩放的起点/尺寸都是 DIP ⇒ 按本窗口缩放换回来。
+        var resizeScale = module.Scaling > 0 ? module.Scaling : 1;
+        pointerX /= resizeScale;
+        pointerY /= resizeScale;
+
         // 缩放约束来自**本模块的代码声明**：
         // 下限 = max(框架下限, 模块声明的 min)，上限 = 模块声明的 max（无声明 ⇒ 无上限）。
         // **四个数都是 DIP**（与模型同单位）：本次缩放的指针位置由调用方按该窗口的缩放换成 DIP
@@ -2475,6 +2844,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     {
         var flows = _query.GetRoleFlows(module.InstanceId);
         var links = new List<RoleLinkViewModel>(flows.Count);
+        var selfLoops = new Dictionary<(string Local, string PeerRole, string PeerInstance), int>();
 
         foreach (var flow in flows)
         {
@@ -2485,14 +2855,39 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 flow.PeerRoleKey,
                 flow.PortPairCount);
 
-            // 对端角色方块中心（本窗局部坐标）；算不出 ⇒ 对端窗口中心
+            // **自回环判据只看"同实例 + 同角色"**：不读网络类型、口数、命名/显式连接 ——
+            // 它是叠加层的呈现事实，与底层怎么连出来无关。
+            link.IsSelfLoop = string.Equals(flow.PeerInstanceId, module.InstanceId, StringComparison.Ordinal)
+                && string.Equals(flow.PeerRoleKey, flow.LocalRoleKey, StringComparison.Ordinal);
+
+            // 对端角色方块中心（本窗局部坐标）；自环时它就是本方块中心；算不出 ⇒ 对端窗口中心
             link.Target = ResolvePeerAnchor(module, flow) ?? ResolvePeerCenter(module, flow.PeerInstanceId);
-            link.PeerAdjacent = IsPeerAdjacent(module, flow.PeerInstanceId);
+
+            // 自环没有"窗外对端"：不画断口、不标对端名（环的两端都在本方块上）。
+            link.PeerAdjacent = link.IsSelfLoop || IsPeerAdjacent(module, flow.PeerInstanceId);
             link.PeerText = link.PeerAdjacent
                 ? null
                 : Find(flow.PeerInstanceId) is { } peer
                     ? OverlayIdentity(peer)
                     : null;
+
+            if (link.IsSelfLoop)
+            {
+                // 同一（本角色, 对端角色, 对端实例）的自环只画一个环：**保留发送侧**那条。
+                // 口对数仍由 Core 聚合（链接已带着它），UI 不重新累加。
+                var key = (link.LocalRoleKey, link.PeerRoleKey, link.PeerInstanceId);
+                if (selfLoops.TryGetValue(key, out var existingIndex))
+                {
+                    if (!links[existingIndex].LocalIsSend && link.LocalIsSend)
+                    {
+                        links[existingIndex] = link;
+                    }
+
+                    continue;
+                }
+
+                selfLoops[key] = links.Count;
+            }
 
             links.Add(link);
         }
@@ -2558,9 +2953,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             return null;   // 该角色没被画出来（放不下被裁掉）⇒ 交给回退
         }
 
-        // 世界增量：**两端同单位（DIP）⇒ 直接相减**
-        var dx = peer.Rect.X - module.Rect.X;
-        var dy = peer.Rect.Y - module.Rect.Y;
+        // 世界增量：先算**物理像素**差（跨屏缩放不同也成立），再换回本窗 DIP。
+        var scale = module.Scaling > 0 ? module.Scaling : 1;
+        var dx = (peer.PhysicalRect.X - module.PhysicalRect.X) / scale;
+        var dy = (peer.PhysicalRect.Y - module.PhysicalRect.Y) / scale;
 
         return new Avalonia.Point(box.Center.X + dx, box.Center.Y + dy);
     }
@@ -2570,9 +2966,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     {
         if (Find(peerInstanceId) is { } peer && peer.Rect.IsValid && module.Rect.IsValid)
         {
+            var scale = module.Scaling > 0 ? module.Scaling : 1;
             return new Avalonia.Point(
-                peer.Rect.X + (peer.Rect.Width / 2) - module.Rect.X,
-                peer.Rect.Y + (peer.Rect.Height / 2) - module.Rect.Y);
+                ((peer.PhysicalRect.X + (peer.PhysicalRect.Width / 2)) - module.PhysicalRect.X) / scale,
+                ((peer.PhysicalRect.Y + (peer.PhysicalRect.Height / 2)) - module.PhysicalRect.Y) / scale);
         }
 
         return new Avalonia.Point(module.CanvasWidth / 2, module.CanvasHeight / 2);
@@ -2582,8 +2979,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     private bool IsPeerAdjacent(ModuleViewViewModel module, string peerInstanceId) =>
         Find(peerInstanceId) is { } peer
         && peer.Rect.IsValid
-        && module.Rect.IsValid
-        && AreNodesJoined((module.InstanceId, module.Rect), (peer.InstanceId, peer.Rect), GroupTolerance);
+        && AreNodesJoined((module.InstanceId, module.PhysicalRect), (peer.InstanceId, peer.PhysicalRect), GroupTolerance);
     /// <summary>
     /// **速率文本**（每秒字节数）：**如实显示**，不做"低于阈值就显示占位符"的模糊化。
     /// </summary>
@@ -2594,18 +2990,28 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
     private static string FormatBytes(long bytes) => ByteQuantity.Format(bytes);
 
+    /// <summary>成组判定用的模块矩形（**物理像素**；不同缩放屏上才有共同单位）。</summary>
     private IReadOnlyList<(string Id, CanvasRect Rect)> ModuleRects() =>
-        [.. Modules.Where(m => m.IsViewVisible).Select(m => (m.InstanceId, m.Rect))];
+        [.. Modules.Where(m => m.IsViewVisible).Select(m => (m.InstanceId, m.PhysicalRect))];
 
     /// <summary>外壳在**拼图图**里的节点 id（与实例 id 不会冲突）。</summary>
     public const string ShellNodeId = "#shell";
 
     /// <summary>拼图图的全部节点：外壳（若可用）+ 可见模块（成组判定的输入）。</summary>
-    /// <param name="shellOverride">用指定的外壳矩形代替模型里的当前值（**分组判定要用移动前的几何**）。</param>
-    private List<(string Id, CanvasRect Rect)> TilingNodes(CanvasRect? shellOverride = null)
+    /// <param name="shellOverridePixels">
+    /// 用指定的外壳**物理矩形**代替模型里的当前值（**分组判定要用移动前的几何**）。
+    /// </param>
+    private List<(string Id, CanvasRect Rect)> TilingNodes(CanvasRect? shellOverridePixels = null)
     {
         var nodes = ModuleRects().ToList();
-        var shell = shellOverride ?? ShellRect;
+        var shell = shellOverridePixels ?? ShellPhysicalRect;
+
+        // 向后兼容：测试/旧调用只设了 ShellRect 时，按当前缩放投成物理再判定。
+        if (shell is not { IsValid: true } && ShellRect is { IsValid: true } dip)
+        {
+            var shellScale = ShellScaling > 0 ? ShellScaling : 1;
+            shell = new CanvasRect(dip.X * shellScale, dip.Y * shellScale, dip.Width * shellScale, dip.Height * shellScale);
+        }
 
         if (shell is { IsValid: true } validShell)
         {
@@ -2644,6 +3050,42 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         return SnapEngine.AreJoined(a.Rect, b.Rect, tolerance);
+    }
+
+    /// <summary>
+    /// 某模块当前所在的**模块组**（不包含外壳）：供“焦点进入任一模块 ⇒ 抬起整组”使用。
+    /// </summary>
+    /// <param name="instanceId">模块实例 ID。</param>
+    /// <returns>实例 ID 列表（至少包含自身）。</returns>
+    public IReadOnlyList<string> GroupMembersOf(string instanceId) =>
+        [.. GroupOfNode(instanceId).Where(id => !string.Equals(id, ShellNodeId, StringComparison.Ordinal) && Find(id) is not null)];
+
+    /// <summary>
+    /// 按**物理位移**平移一组模块（跨屏缩放变化后的组内重贴用）。
+    /// </summary>
+    /// <param name="instanceIds">要平移的实例（不含调用方自己）。</param>
+    /// <param name="dxPixels">物理位移 X。</param>
+    /// <param name="dyPixels">物理位移 Y。</param>
+    public void TranslateModulesByPixels(IReadOnlyList<string> instanceIds, double dxPixels, double dyPixels)
+    {
+        if ((Math.Abs(dxPixels) < 0.5 && Math.Abs(dyPixels) < 0.5) || instanceIds.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var instanceId in instanceIds)
+        {
+            if (Find(instanceId) is not { } module || module.IsLocked)
+            {
+                continue;
+            }
+
+            var scale = module.Scaling > 0 ? module.Scaling : 1;
+            module.X += dxPixels / scale;
+            module.Y += dyPixels / scale;
+            RaiseGeometry(module);
+            _ = _pendingSceneCommits.Add(module.InstanceId);
+        }
     }
 
     /// <summary>某节点所在的**拼图组**（接触连通分量，含自身；外壳也参与）。</summary>
@@ -2693,20 +3135,52 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     private List<SnapLine> CollectLines(string draggingId)
     {
         var lines = new List<SnapLine>();
+        var dragScale = Find(draggingId)?.Scaling ?? 1.0;
+        if (dragScale <= 0)
+        {
+            dragScale = 1.0;
+        }
 
         foreach (var module in Modules.Where(m => m.IsViewVisible
             && !_dragGroup.Contains(m.InstanceId, StringComparer.Ordinal)
             && !string.Equals(m.InstanceId, draggingId, StringComparison.Ordinal)))
         {
-            lines.AddRange(SnapEngine.LinesOf(module.Rect));
+            lines.AddRange(SnapEngine.LinesOf(ToDragDip(module.PhysicalRect, dragScale)));
         }
 
-        if (ShellRect is { IsValid: true } shell)
+        var shellPhysical = ShellPhysicalRect;
+        if (shellPhysical is not { IsValid: true } && ShellRect is { IsValid: true } dip)
         {
-            lines.Add(SnapEngine.LineOf(new SnapReferenceLine(true, shell.X + shell.Width, shell.Y, shell.Y + shell.Height)));
+            var shellScale = ShellScaling > 0 ? ShellScaling : 1;
+            shellPhysical = new CanvasRect(
+                dip.X * shellScale,
+                dip.Y * shellScale,
+                dip.Width * shellScale,
+                dip.Height * shellScale);
+        }
+
+        if (shellPhysical is { IsValid: true } shell)
+        {
+            var shellRect = ToDragDip(shell, dragScale);
+            lines.Add(SnapEngine.LineOf(new SnapReferenceLine(
+                true,
+                shellRect.X + shellRect.Width,
+                shellRect.Y,
+                shellRect.Y + shellRect.Height)));
         }
 
         return lines;
+    }
+
+    /// <summary>把物理矩形换算成"被拖窗口的 DIP"（吸附/端口锚点在同一坐标系里比较）。</summary>
+    private static CanvasRect ToDragDip(CanvasRect physical, double dragScale)
+    {
+        var scale = dragScale > 0 ? dragScale : 1;
+        return new CanvasRect(
+            physical.X / scale,
+            physical.Y / scale,
+            physical.Width / scale,
+            physical.Height / scale);
     }
 
     /// <summary>
@@ -2731,6 +3205,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         var pairs = new List<PortAnchorPair>();
+        var dragScale = moving.Scaling > 0 ? moving.Scaling : 1.0;
 
         foreach (var other in Modules.Where(m => m.IsViewVisible
             && !_dragGroup.Contains(m.InstanceId, StringComparer.Ordinal)
@@ -2752,13 +3227,15 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                         continue;   // **不是面对面** ⇒ 插不上，不产生对齐候选
                     }
 
-                    // 端口的对齐轴 = 它所在的边：左/右边 → 约束 Y（横向参照线）；上/下边 → 约束 X
+                    // 端口的对齐轴 = 它所在的边：左/右边 → 约束 Y（横向参照线）；上/下边 → 约束 X。
+                    // 对端几何先换成"被拖窗口的 DIP"（跨屏缩放不同也成立）。
+                    var otherRect = ToDragDip(other.PhysicalRect, dragScale);
                     var alignsX = !mine.IsVertical;
                     var otherCoordinate = alignsX
-                        ? other.X + (other.Width * theirs.Offset)
-                        : other.Y + (other.Height * theirs.Offset);
+                        ? otherRect.X + (otherRect.Width * theirs.Offset)
+                        : otherRect.Y + (otherRect.Height * theirs.Offset);
 
-                    pairs.Add(new PortAnchorPair(alignsX, otherCoordinate, other.Rect, mine.Offset));
+                    pairs.Add(new PortAnchorPair(alignsX, otherCoordinate, otherRect, mine.Offset));
                 }
             }
         }
@@ -2767,7 +3244,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 }
 
-/// <summary>窗口几何变化事件参数（屏幕坐标，物理像素）。</summary>
+/// <summary>窗口几何变化事件参数（模型 DIP；落位时按窗口 Scale 投影为物理像素）。</summary>
 /// <param name="InstanceId">实例 ID。</param>
 /// <param name="X">X。</param>
 /// <param name="Y">Y。</param>

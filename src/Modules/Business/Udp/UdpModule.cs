@@ -27,9 +27,7 @@ namespace HYWDebugAssistant.Modules.Udp;
     Capabilities = ModuleCapability.Network,
     ParticipatesInDataFlow = true,
     WindowWidth = 400,
-    WindowHeight = 190,
-    MinWidth = 400,
-    MinHeight = 190,
+    WindowHeight = 170,
     ViewFactory = typeof(Views.UdpViewFactory))]
 public sealed class UdpModule : ExternalAccessModule
 {
@@ -114,8 +112,8 @@ public sealed class UdpModule : ExternalAccessModule
             _ => snapshot.Suspended ? Tr(UdpText.StatusSuspended) : Tr(UdpText.StatusIdle),
         };
 
-        return snapshot.RejectedUnits > 0 && snapshot.State != ExternalAccessState.Open
-            ? text + Tr(UdpText.StatusRejectedSuffix, snapshot.RejectedUnits)
+        return snapshot.RejectedSinceOpen > 0 && snapshot.State != ExternalAccessState.Open
+            ? text + Tr(UdpText.StatusRejectedSuffix, snapshot.RejectedSinceOpen)
             : text;
     }
 
@@ -159,3 +157,7 @@ public sealed class UdpModule : ExternalAccessModule
             _ => null,
         };
 }
+
+
+
+

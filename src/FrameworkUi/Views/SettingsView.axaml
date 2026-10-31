@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:HYWDebugAssistant.FrameworkUi.ViewModels"
              xmlns:ui="using:HYWDebugAssistant.Ui.Controls"
+             xmlns:controls="using:HYWDebugAssistant.FrameworkUi.Controls"
              xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
              x:Class="HYWDebugAssistant.FrameworkUi.Views.SettingsView"
              x:DataType="vm:SettingsPanelViewModel"
@@ -274,37 +275,33 @@
                             <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                        ToolTip.Tip="{loc:Tr appearance.font.ui.tip}"
                                        Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.font.uiLatin.label}" />
-                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="300"
-                                      IsEditable="True"
-                                      ItemsSource="{Binding FontFamilyOptions}"
-                                      Text="{Binding UiFontLatin, Mode=TwoWay}" />
+                            <controls:FontFamilyPicker Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="300"
+                                                       Options="{Binding FontFamilyOptions}"
+                                                       SelectedFont="{Binding UiFontLatin, Mode=TwoWay}" />
                         </Grid>
                         <Grid ColumnDefinitions="170,*">
                             <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                        ToolTip.Tip="{loc:Tr appearance.font.ui.tip}"
                                        Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.font.uiCjk.label}" />
-                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="300"
-                                      IsEditable="True"
-                                      ItemsSource="{Binding FontFamilyOptions}"
-                                      Text="{Binding UiFontCjk, Mode=TwoWay}" />
+                            <controls:FontFamilyPicker Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="300"
+                                                       Options="{Binding FontFamilyOptions}"
+                                                       SelectedFont="{Binding UiFontCjk, Mode=TwoWay}" />
                         </Grid>
                         <Grid ColumnDefinitions="170,*">
                             <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                        ToolTip.Tip="{loc:Tr appearance.font.data.tip}"
                                        Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.font.dataLatin.label}" />
-                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="300"
-                                      IsEditable="True"
-                                      ItemsSource="{Binding FontFamilyOptions}"
-                                      Text="{Binding DataFontLatin, Mode=TwoWay}" />
+                            <controls:FontFamilyPicker Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="300"
+                                                       Options="{Binding FontFamilyOptions}"
+                                                       SelectedFont="{Binding DataFontLatin, Mode=TwoWay}" />
                         </Grid>
                         <Grid ColumnDefinitions="170,*">
                             <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                        ToolTip.Tip="{loc:Tr appearance.font.data.tip}"
                                        Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.font.dataCjk.label}" />
-                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="300"
-                                      IsEditable="True"
-                                      ItemsSource="{Binding FontFamilyOptions}"
-                                      Text="{Binding DataFontCjk, Mode=TwoWay}" />
+                            <controls:FontFamilyPicker Grid.Column="1" HorizontalAlignment="Stretch" MaxWidth="300"
+                                                       Options="{Binding FontFamilyOptions}"
+                                                       SelectedFont="{Binding DataFontCjk, Mode=TwoWay}" />
                         </Grid>
                         <TextBlock Classes="note" Text="{loc:Tr appearance.font.note}" />
 

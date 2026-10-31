@@ -11,6 +11,7 @@ using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Reporting;
 using Shouldly;
 using Xunit;
 
@@ -173,6 +174,61 @@ public class NetworkAndResourceRulesTests
         // 空现场仍然可用：再次加入不受影响
         services.AddModule("s3", "test/view-sender/1.0.0").Succeeded.ShouldBeTrue();
         runtime.Carriers.Carriers.Count.ShouldBe(1);
+    }
+
+    // ------------------------------------------------------------ 同一实例自回环（显式 / 命名两条入口）
+
+    [Fact]
+    public void 同一实例的发送口与接收口_可形成命名自回环并投递到自己的接收口()
+    {
+        using var runtime = new ModuleRuntime();
+        CoreRuntimeTests.AddModule(runtime, "self", "self-loop", typeof(CoreRuntimeTests.SelfLoopModule));
+
+        CoreRuntimeTests.SelfLoopModule.Received.Clear();
+        CoreRuntimeTests.SetLabel(runtime, "self", CoreRuntimeTests.SelfLoopModule.OutPort, "1");
+        CoreRuntimeTests.SetLabel(runtime, "self", CoreRuntimeTests.SelfLoopModule.InPort, "1");
+
+        // 同名标签在同一实例上形成源 → 宿：网络包含两个成员（不再被"同实例"排除）。
+        var network = runtime.Content.Networks.ShouldHaveSingleItem();
+        network.Name.ShouldBe("1");
+        network.Sources.ShouldBe([new NetworkMember("self", "out", PortDirection.Send)]);
+        network.Targets.ShouldBe([new NetworkMember("self", "in", PortDirection.Receive)]);
+
+        var binding = runtime.Bindings.Bindings.ShouldHaveSingleItem();
+        binding.Source.ShouldBe(new NetworkMember("self", "out", PortDirection.Send));
+        binding.Targets.ShouldBe([new NetworkMember("self", "in", PortDirection.Receive)]);
+
+        runtime.Content.TryGetInstance("self", out var instance).ShouldBeTrue();
+        instance!.Context.Ports.TrySend("out", BitConverter.GetBytes(3.5f))
+            .ShouldBeTrue("自回环是合法绑定：发送应被自己的接收口队列接受");
+
+        SpinWait.SpinUntil(() => CoreRuntimeTests.SelfLoopModule.Received.Count == 1, 2000)
+            .ShouldBeTrue("模块内自回环必须真的把数据投递到自己的接收口");
+        CoreRuntimeTests.SelfLoopModule.Received.ShouldHaveSingleItem().ShouldBe(3.5f);
+
+        runtime.Issues.Recent(50).ShouldNotContain(
+            entry => entry.Issue.Category == IssueCategory.InterfaceError,
+            "自回环是合法拓扑：不得报 networkExcluded / contractIncompatible 之类的排除问题");
+    }
+
+    [Fact]
+    public void 同一实例不同口_可显式连接()
+    {
+        using var runtime = new ModuleRuntime();
+        CoreRuntimeTests.AddModule(runtime, "self", "self-loop", typeof(CoreRuntimeTests.SelfLoopModule));
+
+        runtime.Apply(ChangeSet.OfOne(new ConnectNetworkOperation(
+                new NetworkMember("self", "out", PortDirection.Send),
+                [new NetworkMember("self", "in", PortDirection.Receive)],
+                "loopback")))
+            .Applied.ShouldBeTrue("同实例不同口是最普通的直连形态，不应被拒绝");
+
+        runtime.Content.Networks.ShouldHaveSingleItem().Name.ShouldBe("loopback");
+        runtime.Bindings.Bindings.ShouldHaveSingleItem();
+
+        runtime.Issues.Recent(50).ShouldNotContain(
+            entry => entry.Issue.Category == IssueCategory.InterfaceError,
+            "显式自连同样不得产生「排除成员」「契约不兼容」问题");
     }
 
     // ------------------------------------------------------------ 辅助
