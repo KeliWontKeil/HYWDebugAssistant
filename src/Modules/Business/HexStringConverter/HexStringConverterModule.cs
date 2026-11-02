@@ -186,16 +186,23 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     /// <summary>最近一次失败原因（成功 / 空输入为 <see langword="null"/>）。</summary>
     public string? LastFailure { get; private set; }
 
-    /// <summary>上一次转换用的是哪一格、什么内容（"没变就不重算"的判据）。</summary>
-    private readonly Dictionary<string, string> _converted = new(StringComparer.Ordinal);
+    /// <summary>
+    /// **屏幕上那份结果现在属于哪一格、哪段文本**（按方向记：<see langword="true"/> = char → HEX）。
+    /// </summary>
+    /// <remarks>
+    /// 结果面是**每个方向一份**的共享面：它摆在当前选中页下面，切页之后就不再对应当前页。
+    /// 判据因此落在"输出属于谁"上，而不是"这一格转过什么"——后者会在切回某页时判成"没变化"，
+    /// 让输出停在另一页的结果上。
+    /// </remarks>
+    private readonly Dictionary<bool, (string Source, string Text)> _published = new();
 
     /// <summary>
     /// **看一眼两个方向、该转就转**（活动体的单步；模块测试可直接调用）。
     /// </summary>
     /// <param name="context">模块上下文。</param>
     /// <remarks>
-    /// 每拍调一次。判据是"**（源名, 文本）这一对变没变**"：文本一变就重算，切页即使文本相同
-    /// 也重算（源名进了比较键）；两者都没变 ⇒ 一个字都不动（静止时零开销，也避免每拍重写显示缓冲）。
+    /// 每拍调一次。判据是"**输出现在属于哪一格、哪段文本**"：切页（选中源变了）或该页文本变了
+    /// ⇒ 重算并重写结果面；两者都不变 ⇒ 一个字都不动（静止时零开销，也避免每拍重写显示缓冲）。
     /// </remarks>
     public void Poll(IModuleContext context)
     {
@@ -205,7 +212,7 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
         Refresh(context, toHex: false);
     }
 
-    /// <summary>对**一个方向**做一次"变了就转"。</summary>
+    /// <summary>对**一个方向**做一次"输出该不该重写"的结算。</summary>
     /// <param name="context">模块上下文。</param>
     /// <param name="toHex">true = char → HEX；false = HEX → char。</param>
     private void Refresh(IModuleContext context, bool toHex)
@@ -214,12 +221,14 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
         var source = toHex ? CharSourceOf(page) : HexSourceOf(page);
         var text = context.ViewState.GetInputText(source) ?? string.Empty;
 
-        if (_converted.TryGetValue(source, out var previous) && string.Equals(previous, text, StringComparison.Ordinal))
+        if (_published.TryGetValue(toHex, out var shown)
+            && string.Equals(shown.Source, source, StringComparison.Ordinal)
+            && string.Equals(shown.Text, text, StringComparison.Ordinal))
         {
-            return;   // 这一格没变 ⇒ 不重算、不重写
+            return;   // 输出已经属于这一格、这段文本 ⇒ 不重算、不重写
         }
 
-        _converted[source] = text;
+        _published[toHex] = (source, text);
 
         Convert(context, text, toHex, source);
     }

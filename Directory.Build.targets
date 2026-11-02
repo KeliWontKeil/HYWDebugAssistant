@@ -1,0 +1,40 @@
+<Project>
+
+  <!--
+    本地输出裁剪：`HywFullRuntimeAssets` 未开启的项目，只把**本机平台**的原生资产复制进输出。
+
+    无 RID 构建会把每个依赖包 `runtimes/` 下的全部平台原生资产复制进**每个**可执行输出；
+    SkiaSharp / HarfBuzzSharp 还带原生符号文件 ⇒ 单份输出到 550 MB 量级，而测试、预览宿主、
+    独立宿主这些输出只在本机运行。这里在复制前把这些项移出复制清单：
+    · 去掉非本机 RID 的 `native/` 资产（保留本机 RID 与其 RID 家族，例如 win-x64 与 win）；
+    · 去掉 `runtimes/` 下的原生 PDB —— 运行与测试都不读它，只在原生崩溃栈里用；
+    · **保留所有 `runtimes/<rid>/lib/` 托管资产**：它们是按平台分片的托管实现
+      （`System.IO.Ports` 的 unix 实现就是 `runtimes/unix/lib/`），体量只有几百 KB，
+      却是 RID 回退链（`unix` / `any` / `win64` …）的全部依据；裁掉它们等于在非 Windows
+      主机上丢掉平台能力。原生资产才是体量所在，托管分片全部留下。
+
+    托管资产、`*.deps.json` 与复制清单之外的输出（模块包、`resources/`、`modules/`）不受影响；
+    发布形态的输出（App Release，见 src/App 的项目文件）不做裁剪。
+  -->
+  <PropertyGroup>
+    <HywHostRuntimeIdentifier Condition="'$(HywHostRuntimeIdentifier)' == ''">$(NETCoreSdkRuntimeIdentifier)</HywHostRuntimeIdentifier>
+    <HywHostRuntimeFamily Condition="'$(HywHostRuntimeFamily)' == '' and '$(HywHostRuntimeIdentifier)' != ''">$([System.String]::Copy('$(HywHostRuntimeIdentifier)').Split('-')[0])</HywHostRuntimeFamily>
+  </PropertyGroup>
+
+  <Target Name="HywTrimLocalRuntimeAssets"
+          BeforeTargets="_CopyFilesMarkedCopyLocal"
+          Condition="'$(HywFullRuntimeAssets)' != 'true' and '$(HywHostRuntimeIdentifier)' != ''">
+
+    <ItemGroup>
+      <!-- 非本机 RID 的原生资产：DestinationSubDirectory 形如 `runtimes\win-x86\native\` -->
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)"
+          Condition="$([System.String]::Copy('%(ReferenceCopyLocalPaths.DestinationSubDirectory)').Replace('\','/').StartsWith('runtimes/')) and $([System.String]::Copy('%(ReferenceCopyLocalPaths.DestinationSubDirectory)').Replace('\','/').Contains('/native/')) and !$([System.String]::Copy('%(ReferenceCopyLocalPaths.DestinationSubDirectory)').Replace('\','/').StartsWith('runtimes/$(HywHostRuntimeIdentifier)/')) and !$([System.String]::Copy('%(ReferenceCopyLocalPaths.DestinationSubDirectory)').Replace('\','/').StartsWith('runtimes/$(HywHostRuntimeFamily)/'))" />
+
+      <!-- 原生符号 -->
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)"
+          Condition="$([System.String]::Copy('%(ReferenceCopyLocalPaths.DestinationSubDirectory)').Replace('\','/').StartsWith('runtimes/')) and '%(ReferenceCopyLocalPaths.Extension)' == '.pdb'" />
+    </ItemGroup>
+
+  </Target>
+
+</Project>

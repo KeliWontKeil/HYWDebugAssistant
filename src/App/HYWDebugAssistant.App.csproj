@@ -7,6 +7,12 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!--
+      Release 输出是**发布形态**（tools/package-release.ps1 直接复制它，不引入 RID / self-contained）：
+      全部平台的原生资产必须齐全，因此不参与根目录 Directory.Build.targets 的本地输出裁剪。
+      Debug 输出只服务本机运行，按本机 RID 裁剪。
+    -->
+    <HywFullRuntimeAssets Condition="'$(Configuration)' == 'Release'">true</HywFullRuntimeAssets>
   </PropertyGroup>
 
   <!-- **模块项目按目录发现**（在引用它们之前求值）：新增模块零改动即进构建序。 -->
