@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Reflection;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Platform;
@@ -419,6 +420,16 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
 
     /// <summary>数据字体 · 中文的框架默认值。</summary>
     public static string DefaultDataFontCjk => DefaultAppearance.DataFonts.Cjk;
+
+    /// <summary>
+    /// **当前构建版本**（四段：大.小.修订.轮次）：来自本程序集的 `InformationalVersion`，
+    /// 与仓库根 `version.props` 同源（构建期派生，运行期不读文件）。
+    /// </summary>
+    public static string VersionText { get; } = TextCatalog.Get(
+        typeof(SettingsPanelViewModel).Assembly,
+        "settings.about.version",
+        typeof(SettingsPanelViewModel).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "—");
 
     private static List<string> LoadSystemFonts()
     {

@@ -63,7 +63,7 @@ public sealed class IconCatalogTests : IDisposable
             </svg>
             """);
         _tables.WriteManifest("""
-            { "schemaVersion": 1, "entries": { "icon.probe.two": "probe/two.svg" } }
+            { "entries": { "icon.probe.two": "probe/two.svg" } }
             """);
         _tables.Use();
 
@@ -79,7 +79,6 @@ public sealed class IconCatalogTests : IDisposable
         _tables.WriteAsset("probe/kept.svg", IconCatalogTestRoot.ProbeLowerSvg);
         _tables.WriteManifest("""
             {
-              "schemaVersion": 1,
               "entries": {
                 "bad.prefix": "probe/kept.svg",
                 "icon.bad.absent": "probe/missing.svg",
@@ -122,7 +121,6 @@ public sealed class IconCatalogTests : IDisposable
         _tables.WriteAsset("probe/nopath.svg", """<svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10" /></svg>""");
         _tables.WriteManifest("""
             {
-              "schemaVersion": 1,
               "entries": {
                 "icon.broken.xml": "probe/broken.svg",
                 "icon.broken.nopath": "probe/nopath.svg"
@@ -159,7 +157,7 @@ public sealed class IconCatalogTests : IDisposable
             </svg>
             """);
         _tables.WriteManifest("""
-            { "schemaVersion": 1, "entries": { "icon.probe.unsupported": "probe/unsupported.svg" } }
+            { "entries": { "icon.probe.unsupported": "probe/unsupported.svg" } }
             """);
         _tables.Use();
 
@@ -182,7 +180,7 @@ public sealed class IconCatalogTests : IDisposable
     [Fact]
     public void 坏JSON_应跳过整份清单并报诊断()
     {
-        _tables.WriteManifest("""{ "schemaVersion": 1, """);
+        _tables.WriteManifest("""{ """);
         _tables.Use();
 
         var diagnostics = new List<string>();
@@ -200,35 +198,12 @@ public sealed class IconCatalogTests : IDisposable
         diagnostics.ShouldContain(message => message.Contains("icons.json", StringComparison.Ordinal));
     }
 
-    [Fact]
-    public void 清单版本不认识_整份跳过()
-    {
-        _tables.WriteManifest("""
-            { "schemaVersion": 99, "entries": { "icon.probe.refresh": "probe/refresh.svg" } }
-            """);
-        _tables.Use();
-
-        var diagnostics = new List<string>();
-        IconCatalog.Diagnostics = diagnostics.Add;
-
-        try
-        {
-            IconCatalog.TryGet(Owner, "icon.probe.refresh", out _).ShouldBeFalse();
-        }
-        finally
-        {
-            IconCatalog.Diagnostics = null;
-        }
-
-        diagnostics.ShouldContain(message => message.Contains("schemaVersion", StringComparison.Ordinal));
-    }
 
     [Fact]
     public void 重复键_先者生效并报诊断()
     {
         _tables.WriteManifest("""
             {
-              "schemaVersion": 1,
               "entries": {
                 "icon.probe.refresh": "probe/refresh.svg",
                 "icon.probe.refresh": "probe/lower.svg"
@@ -263,7 +238,7 @@ public sealed class IconCatalogTests : IDisposable
             <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><path d="M0 0H16V16H0Z" /></svg>
             """);
         _tables.WriteManifest("""
-            { "schemaVersion": 1, "entries": { "icon.probe.refresh": "probe/replaced.svg" } }
+            { "entries": { "icon.probe.refresh": "probe/replaced.svg" } }
             """);
 
         IconCatalog.TryGet(Owner, "icon.probe.refresh", out var cached).ShouldBeTrue();

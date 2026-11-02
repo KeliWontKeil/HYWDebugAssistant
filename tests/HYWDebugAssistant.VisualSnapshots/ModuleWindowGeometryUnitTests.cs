@@ -30,7 +30,7 @@ public class ModuleWindowGeometryUnitTests
         var layout = new ModuleLayoutView("geo-1", 100, 200, width, height);
 
         using var harness = new OverlaySnapshotTests.SnapshotHarness();
-        harness.Services.AddModule("geo-1", "test/snapshot-sender/1.0.0").Succeeded.ShouldBeTrue();
+        harness.Services.AddModule("geo-1", "test/snapshot-sender").Succeeded.ShouldBeTrue();
 
         var instance = harness.Services.GetInstances()
             .First(i => string.Equals(i.InstanceId, "geo-1", StringComparison.Ordinal));
@@ -59,7 +59,7 @@ public class ModuleWindowGeometryUnitTests
         var layout = new ModuleLayoutView("geo-2", 0, 0, 333, 222);
 
         using var harness = new OverlaySnapshotTests.SnapshotHarness();
-        harness.Services.AddModule("geo-2", "test/snapshot-sender/1.0.0").Succeeded.ShouldBeTrue();
+        harness.Services.AddModule("geo-2", "test/snapshot-sender").Succeeded.ShouldBeTrue();
 
         var instance = harness.Services.GetInstances()
             .First(i => string.Equals(i.InstanceId, "geo-2", StringComparison.Ordinal));

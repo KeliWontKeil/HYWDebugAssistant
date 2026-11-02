@@ -16,17 +16,6 @@ namespace HYWDebugAssistant.Sdk.Contracts;
 public delegate bool SampleDecoder(ReadOnlySpan<byte> sample, out double value);
 
 /// <summary>
-/// **数据类型的引用**（口 / 数据源指向一个已声明的数据类型）。
-/// </summary>
-/// <param name="TypeId">类型标识（建议带模块/作者前缀，如 <c>hyw/f32</c>、<c>acme/temp.v2</c>）。</param>
-/// <param name="Version">类型版本（同标识不同版本走版本规则）。</param>
-public readonly record struct DataTypeRef(string TypeId, int Version)
-{
-    /// <inheritdoc />
-    public override string ToString() => $"{TypeId}@v{Version}";
-}
-
-/// <summary>
 /// **计量块**（随类型声明，全字段可选）：框架据此**机械**给出四档速率，零解析。
 /// </summary>
 /// <remarks>
@@ -81,16 +70,16 @@ public sealed record MeteringBlock
 }
 
 /// <summary>
-/// **数据类型声明**（模块声明并注册）：标识 + 版本 + 尺寸（定长）+ 传输语义 + 计量块 + 解码器。
+/// **数据类型声明**（模块声明并注册）：标识 + 尺寸（定长）+ 传输语义 + 计量块 + 解码器。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>类型身份归模块</b>：框架只持**机械镜像**（标识/版本/尺寸/语义/计量/解码器句柄），
+///   <item><b>类型身份归模块</b>：框架只持**机械镜像**（标识/尺寸/语义/计量/解码器句柄），
 ///         不理解"这是什么量"（"可声明 ≠ 可判定"）；</item>
+///   <item><b>标识就是身份，没有版本</b>：类型只能改形状，不能"升一个版本再兼容"——改形状就是破坏性变更；</item>
 ///   <item><b>尺寸属于传输</b>（定长，v1 不变长）、**语义属于模块**；<see cref="Shape"/> 是尺寸的唯一来源；</item>
-///   <item><b>兼容判定</b>：同标识 + 同版本 + 形状**完全一致** = 兼容；**同标识不同版本 = 不兼容**
-///         （类型变更是破坏性变更，没有"尾部追加即兼容"这条规则）；
-///         **不同标识 = 框架无资格判定 ⇒ 默认不兼容**（形状相同也不自动认，需显式确认强连，且强连后仍要求形状完全一致）；</item>
+///   <item><b>兼容判定</b>：同标识 + 形状**完全一致** = 兼容；**不同标识 = 不兼容**
+///         （形状相同也不自动认，框架无资格判定"是不是同一种量"）；</item>
 ///   <item><b>解码器可选</b>：不提供 ⇒ 呈现层显示"未声明解码器 + 字节数"，**不猜**；</item>
 ///   <item>任一方未声明类型 ⇒ 只按形状**完全一致**判定，不因缺少声明而放宽。</item>
 /// </list>
@@ -101,30 +90,23 @@ public sealed record DataTypeDeclaration
     /// <param name="typeId">
     /// 类型标识（非空；建议 <c>作者/名字</c> 形式并带模块前缀）。**跨模块同名 = 同一类型**，故务必加前缀。
     /// </param>
-    /// <param name="version">版本（≥ 1）。</param>
     /// <param name="shape">定长形状（尺寸由它决定）。</param>
     /// <param name="semantics">传输语义（流/消息/事件；跨语义不判兼容）。</param>
     public DataTypeDeclaration(
         string typeId,
-        int version,
         ContractShape shape,
         TransferSemantics semantics = TransferSemantics.Stream)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeId);
-        ArgumentOutOfRangeException.ThrowIfLessThan(version, 1);
         ArgumentNullException.ThrowIfNull(shape);
 
         TypeId = typeId;
-        Version = version;
         Shape = shape;
         Semantics = semantics;
     }
 
-    /// <summary>类型标识。</summary>
+    /// <summary>类型标识（身份；同一标识只许声明一次）。</summary>
     public string TypeId { get; }
-
-    /// <summary>类型版本（≥ 1）。</summary>
-    public int Version { get; }
 
     /// <summary>定长形状（尺寸 = <see cref="ContractShape.SizeInBytes"/>）。</summary>
     public ContractShape Shape { get; }
@@ -149,9 +131,6 @@ public sealed record DataTypeDeclaration
     /// <remarks>**禁止参与任何框架判定**（与"契约不含单位/量纲语义"一致：可声明 ≠ 可判定）。</remarks>
     public IReadOnlyList<string> SemanticTags { get; init; } = [];
 
-    /// <summary>类型引用（本声明的标识 + 版本）。</summary>
-    public DataTypeRef Reference => new(TypeId, Version);
-
     /// <inheritdoc />
-    public override string ToString() => $"{Reference} ({Shape.Describe()}, {SizeInBytes}B)";
+    public override string ToString() => $"{TypeId} ({Shape.Describe()}, {SizeInBytes}B)";
 }

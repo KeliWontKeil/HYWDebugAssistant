@@ -11,12 +11,9 @@
     不得出现"按 kind 派发"、描述表、界面 schema 一类第二份词汇表。
   -->
   <PropertyGroup>
-    <!-- SDK 契约版本（与 Sdk / Sdk.AccessKit 同步）。 -->
-    <AssemblyVersion>2.3.0.0</AssemblyVersion>
-    <!-- NuGet 包：包版本 = 契约版本；产品 Version 仍是 0.1.0。 -->
+    <!-- NuGet 包：包版本 = 产品四段版本（由根 `version.props` 派生）；不单独覆盖任何版本项。 -->
     <IsPackable>true</IsPackable>
     <PackageId>HYWDebugAssistant.Sdk.Ui</PackageId>
-    <PackageVersion>2.3.0</PackageVersion>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Description>HYWDebugAssistant 模块界面契约与控件库（视图工厂/上下文/控件与主题），依赖 Avalonia。</Description>
   </PropertyGroup>

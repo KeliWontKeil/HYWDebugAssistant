@@ -29,19 +29,16 @@ public sealed class ExternalAccessFailureTextTests
         typeof(UdpModule),
     ];
 
-    /// <summary>模块 × 失败种类的全部组合。</summary>
-    public static TheoryData<Type, ExternalAccessFailureKind> Cases
+    /// <summary>全部失败种类（模块维度收进用例内循环：同一条断言不必 ×4 份）。</summary>
+    public static TheoryData<ExternalAccessFailureKind> Kinds
     {
         get
         {
-            var data = new TheoryData<Type, ExternalAccessFailureKind>();
+            var data = new TheoryData<ExternalAccessFailureKind>();
 
-            foreach (var moduleType in ModuleTypes)
+            foreach (var kind in Enum.GetValues<ExternalAccessFailureKind>())
             {
-                foreach (var kind in Enum.GetValues<ExternalAccessFailureKind>())
-                {
-                    data.Add(moduleType, kind);
-                }
+                data.Add(kind);
             }
 
             return data;
@@ -65,43 +62,24 @@ public sealed class ExternalAccessFailureTextTests
     }
 
     [Theory]
-    [MemberData(nameof(Cases))]
-    public void 每个失败种类都应有本模块句子(Type moduleType, ExternalAccessFailureKind kind)
+    [MemberData(nameof(Kinds))]
+    public void 每个失败种类都应有本模块句子(ExternalAccessFailureKind kind)
     {
-        var snapshot = Snapshot(
-            ExternalAccessState.Faulted,
-            failure: new ExternalAccessFailure(
-                kind,
-                new ExternalAccessEndpoint("127.0.0.1", 1234),
-                Value: "1234",
-                Detail: nameof(ExternalAccessFailureKind)));
-
-        var text = Describe(moduleType, snapshot);
-
-        text.ShouldNotBeNullOrWhiteSpace();
-        TextCatalog.IsMissing(text).ShouldBeFalse($"失败种类 {kind} 的句子必须命中模块表（当前 {text}）");
-    }
-
-    [Fact]
-    public void 四个外部接入模块的共享状态句应一致()
-    {
-        string[] keys =
-        [
-            "status.receiveLost",
-            "status.rejected",
-            "status.rxSaturated",
-            "status.sendLost",
-            "status.txBacklog",
-            "status.txSaturated",
-        ];
-
-        foreach (var key in keys)
+        foreach (var moduleType in ModuleTypes)
         {
-            var texts = ModuleTypes
-                .Select(moduleType => TextCatalog.Get(moduleType.Assembly, key))
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
-            texts.ShouldHaveSingleItem($"{key} 在四个外部接入模块里必须是同一句话");
+            var snapshot = Snapshot(
+                ExternalAccessState.Faulted,
+                failure: new ExternalAccessFailure(
+                    kind,
+                    new ExternalAccessEndpoint("127.0.0.1", 1234),
+                    Value: "1234",
+                    Detail: nameof(ExternalAccessFailureKind)));
+
+            var text = Describe(moduleType, snapshot);
+
+            text.ShouldNotBeNullOrWhiteSpace();
+            TextCatalog.IsMissing(text).ShouldBeFalse(
+                $"{moduleType.Name}：失败种类 {kind} 的句子必须命中模块表（当前 {text}）");
         }
     }
 

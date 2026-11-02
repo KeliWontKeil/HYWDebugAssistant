@@ -59,14 +59,12 @@ public class ModuleWindowLayoutLoadTests
         using var runtime = new ModuleRuntime();
         var services = new RuntimeServices(runtime);
         var definition = new ModuleDefinition(
-            ModuleId.Create("test", "placement", "1.0.0"),
+            ModuleId.Create("test", "placement"),
             "placement",
             "placement",
             [],
             ModuleCapability.None,
-            [],
-            null,
-            true,
+            [], true,
             typeof(CoreRuntimeTests.SenderModule),
             string.Empty,
             string.Empty,
@@ -75,7 +73,7 @@ public class ModuleWindowLayoutLoadTests
             windowHeight: 228);
         services.Registry.TryRegister(definition, out var failure).ShouldBeTrue(failure);
 
-        services.AddModule("old", "test/placement/1.0.0").Succeeded.ShouldBeTrue();
+        services.AddModule("old", "test/placement").Succeeded.ShouldBeTrue();
         // 实际宽度 = 内容 360 + 左右 chrome 42；声明宽度是 400。
         services.UpdateModuleLayout(new ModuleLayoutView("old", 408, 0, 402, 228)).Succeeded.ShouldBeTrue();
 
@@ -86,7 +84,7 @@ public class ModuleWindowLayoutLoadTests
         windows.Refresh();
 
         var oldModule = windows.Modules.Single(module => module.InstanceId == "old");
-        services.AddModule("new", "test/placement/1.0.0").Succeeded.ShouldBeTrue();
+        services.AddModule("new", "test/placement").Succeeded.ShouldBeTrue();
         windows.Refresh();
 
         var fresh = windows.Modules.Single(module => module.InstanceId == "new");

@@ -23,10 +23,10 @@ namespace HYWDebugAssistant.Tests;
 /// </remarks>
 public class BusinessModulesIntegrationTests
 {
-    private const string TextSenderId = "hyw/text-sender/1.0.0";
-    private const string HexSenderId = "hyw/hex-sender/1.0.0";
-    private const string MonitorId = "hyw/data-monitor/1.0.0";
-    private const string ConverterId = "hyw/hex-string-converter/1.0.0";
+    private const string TextSenderId = "hyw/text-sender";
+    private const string HexSenderId = "hyw/hex-sender";
+    private const string MonitorId = "hyw/data-monitor";
+    private const string ConverterId = "hyw/hex-string-converter";
 
     private static readonly string Configuration =
         AppContext.BaseDirectory.Contains(
@@ -164,7 +164,7 @@ public class BusinessModulesIntegrationTests
         var services = new RuntimeServices(runtime);
         services.ScanModuleSources([staged]).ShouldBeGreaterThan(0);
 
-        services.AddModule("s1", "hyw/serial/1.0.0").Succeeded.ShouldBeTrue();
+        services.AddModule("s1", "hyw/serial").Succeeded.ShouldBeTrue();
 
         services.TryGetConfigurationSchema("s1", out var schema).ShouldBeTrue();
         schema.ShouldNotBeNull();
@@ -213,9 +213,9 @@ public class BusinessModulesIntegrationTests
     /// 所以"它是不是下拉"在任何机器上都可判。
     /// </remarks>
     [Theory]
-    [InlineData("hyw/tcp-client/1.0.0", "c1", "", "RemoteHost", "RemotePort")]
-    [InlineData("hyw/tcp-server/1.0.0", "s1", "LocalAddress", "", "LocalPort")]
-    [InlineData("hyw/udp/1.0.0", "u1", "LocalAddress", "RemoteAddress", "LocalPort")]
+    [InlineData("hyw/tcp-client", "c1", "", "RemoteHost", "RemotePort")]
+    [InlineData("hyw/tcp-server", "s1", "LocalAddress", "", "LocalPort")]
+    [InlineData("hyw/udp", "u1", "LocalAddress", "RemoteAddress", "LocalPort")]
     public void 网络类模块的地址与端口应按各自性质呈现(
         string moduleId,
         string instanceId,
@@ -277,20 +277,18 @@ public class BusinessModulesIntegrationTests
         var services = new RuntimeServices(runtime);
 
         var definition = new HYWDebugAssistant.Hosting.Registry.ModuleDefinition(
-            HYWDebugAssistant.Sdk.ModuleId.Create("test", "nested-input", "1.0.0"),
+            HYWDebugAssistant.Sdk.ModuleId.Create("test", "nested-input"),
             typeof(NestedInputModule).Name,
             string.Empty,
             [],
             HYWDebugAssistant.Sdk.ModuleCapability.None,
-            [],
-            null,
-            true,
+            [], true,
             typeof(NestedInputModule),
             TestViewPackages.For(typeof(NestedInputModule)),
             string.Empty);
 
         services.Registry.TryRegister(definition, out var failure).ShouldBeTrue(failure);
-        services.AddModule("n1", "test/nested-input/1.0.0").Succeeded.ShouldBeTrue();
+        services.AddModule("n1", "test/nested-input").Succeeded.ShouldBeTrue();
 
         // 输入由模块代码声明 ⇒ 提交必须被接受
         services.SubmitInput("n1", NestedInputModule.NestedSource, "回车提交")
@@ -301,7 +299,7 @@ public class BusinessModulesIntegrationTests
     }
 
     /// <summary>测试夹具：输入声明在 `TabPages` 页内的最小模块。</summary>
-    [HYWDebugAssistant.Sdk.ModuleDefinition("test", "nested-input", "1.0.0")]
+    [HYWDebugAssistant.Sdk.ModuleDefinition("test", "nested-input")]
     public sealed class NestedInputModule : HYWDebugAssistant.Sdk.Lifecycle.IModule
     {
         /// <summary>页内输入源名。</summary>

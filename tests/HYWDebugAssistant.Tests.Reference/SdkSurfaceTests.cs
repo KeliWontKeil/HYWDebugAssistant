@@ -19,19 +19,19 @@ public class SdkSurfaceTests
     [Fact]
     public void 模块标识_字面量应可往返解析()
     {
-        var id = ModuleId.Create("hyw", "serial-port", "1.2.3");
+        var id = ModuleId.Create("hyw", "serial-port");
 
-        id.ToString().ShouldBe("hyw/serial-port/1.2.3");
-        ModuleId.TryParse("hyw/serial-port/1.2.3", out var parsed).ShouldBeTrue();
+        id.ToString().ShouldBe("hyw/serial-port");
+        ModuleId.TryParse("hyw/serial-port", out var parsed).ShouldBeTrue();
         parsed.ShouldBe(id);
     }
 
     [Theory]
-    [InlineData("hyw/serial-port")]          // 段数不足
-    [InlineData("HYW/serial/1.0.0")]         // 大写非法
-    [InlineData("hyw/serial/1.0")]           // 版本非三段
-    [InlineData("hyw//1.0.0")]               // 空模块名
-    [InlineData("-hyw/serial/1.0.0")]        // 段首连字符
+    [InlineData("hyw/serial/1")]             // 三段（旧形态）应被拒绝
+    [InlineData("HYW/serial")]               // 大写非法
+    [InlineData("hyw//serial")]              // 空模块名
+    [InlineData("/serial")]                  // 空作者
+    [InlineData("-hyw/serial")]              // 段首连字符
     public void 模块标识_非法字面量应被拒绝(string literal)
     {
         ModuleId.TryParse(literal, out _).ShouldBeFalse();
@@ -83,7 +83,7 @@ public class SdkSurfaceTests
         var attribute = typeof(TextSenderModule).GetCustomAttribute<ModuleDefinitionAttribute>();
 
         attribute.ShouldNotBeNull();
-        attribute!.Id.ToString().ShouldBe("hyw/text-sender/1.0.0");
+        attribute!.Id.ToString().ShouldBe("hyw/text-sender");
         attribute.DisplayName.ShouldBeEmpty("字面量已进文本表（DisplayNameKey）");
         attribute.DisplayNameKey.ShouldBe("module.title");
         attribute.DescriptionKey.ShouldBe("module.description");
@@ -109,7 +109,6 @@ public class SdkSurfaceTests
         port.Name.ShouldBe(TextSenderModule.OutPort);
         port.Direction.ShouldBe(PortDirection.Send);
         port.Shape.SizeInBytes.ShouldBe(2 + 1472, "`{ len:u16, data:bytes[1472] }`");
-        port.ParticipatesInAutoNetwork.ShouldBeTrue();
         port.Edge.ShouldBe(PortEdge.Bottom, "口的默认边是代码声明的一部分");
 
         context.DeclaredDataTypes.ShouldHaveSingleItem().TypeId.ShouldBe(TextSenderModule.RawBytesTypeId);

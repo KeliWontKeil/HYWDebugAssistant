@@ -16,7 +16,7 @@
          （默认值的唯一来源是代码；发布时由 `--emit-default-settings` 生成到导出目录）。
 
     ② **种子主题包合法**（每个 `seeds/settings/appearance/themes/<id>/`）
-       · `theme.json` 可解析、`schemaVersion` 是认识的版本；
+       · `theme.json` 可解析、字段合法；
        · `base ∈ {light, dark}`；
        · `palette` 的每个键都是色板契约（`src/Ui/Styles/palette.json` 的 tokens）里登记过的 token；
        · 清单里的 `id` **只是说明**，不要求与目录名一致（id 的权威是目录名：复制文件夹后改名仍可用）；
@@ -25,14 +25,16 @@
          两处不一致即判红——否则"审计通过"与"运行期拒收"会各说各话）。
 
     ③ **文本表**（每份 `resources/i18n/<程序集简名>/*.json`）
-       · 可解析、`schemaVersion` 认知；
+       · 可解析、`entries` 是对象；
        · `language` 与文件名首段一致（`zh-Hans.json` / `zh-Hans.settings.json` → `zh-Hans`）；
        · 键格式 `^[a-z][a-zA-Z0-9]*(\.[a-zA-Z0-9]+)+$`，值是字符串；
        · 同一拥有者同一语言的**跨分片键不重复**（运行期是"先者胜"，重复即是第二份事实）；
-       · 同一拥有者各语言的**键集合**与每个键的**占位符集合**（`{0}` / `{1}`…）一致。
+       · 同一拥有者各语言的**键集合**与每个键的**占位符集合**（`{0}` / `{1}`…）一致；
+       · 值里不得出现**字面反斜杠 + n**（两个字符）——换行必须写成 JSON 转义，否则界面原样显示 `\n`
+         （唯一白名单：路径示例 `hosting.package.assemblyMissing` 的 `bin\{1}\net10.0`）。
 
     ③b **框架图标清单**（`resources/icons/<程序集简名>/icons.json`）
-       · 可解析、`schemaVersion` 认知、文件名固定 `icons.json`（一个拥有者一张清单）；
+       · 可解析、`entries` 是对象、文件名固定 `icons.json`（一个拥有者一张清单）；
        · 键必须是 `icon.xxx` 形式，值是**相对路径的 `.svg`**（相对、不得跳出拥有者目录、必须存在）；
        · 每个 SVG 只认子集：根 `<svg>` + `viewBox`（或 width/height）+ 至少一个 `<path d>`；
          不许 `use` / `script` / `image` / `foreignObject` / 外部 `href` / `<path transform>`；
@@ -105,10 +107,10 @@ if (-not (Test-Path -LiteralPath $root -PathType Container)) {
     exit 1
 }
 
-# 主题清单 / 文本表 / 图标表认识的结构版本（与 ThemeStore.CurrentSchemaVersion、TextCatalog / IconCatalog 同步）
-$themeSchemaVersion = 1
-$textSchemaVersion = 1
-$iconSchemaVersion = 1
+
+# 文本值里允许出现"反斜杠 + n"字面量的键。只放**路径示例**：`bin\{1}\net10.0` 的 `\n`
+# 是分隔符 + 目录名，不是换行（见 ③ 的最后一条判据）。
+$literalBackslashNewlineAllowed = @('hosting.package.assemblyMissing')
 
 # 壁纸体积上限的**来源**是 ThemeStore.MaxWallpaperBytes；下面只是缺省值，
 # 读到源码定义后会覆盖它，并核对两者一致（不接受"脚本比运行期松"）。
@@ -560,12 +562,6 @@ if (Test-Path -LiteralPath $seedsRoot -PathType Container) {
             continue
         }
 
-        $version = 0
-        if (-not [int]::TryParse([string]$manifest.schemaVersion, [ref]$version) -or $version -ne $themeSchemaVersion) {
-            $line = Get-FirstLineNumber -Path $manifestPath -Pattern '"schemaVersion"'
-            Add-Problem "${manifestRel}:${line}" `
-                ("schemaVersion 不认识（'{0}'；本应用支持 {1}）" -f $manifest.schemaVersion, $themeSchemaVersion)
-        }
 
         $base = [string]$manifest.base
         if ($base -ne 'light' -and $base -ne 'dark') {
@@ -676,12 +672,6 @@ foreach ($table in ($tableFiles | Sort-Object { $_.File.FullName })) {
         continue
     }
 
-    $version = 0
-    if (-not [int]::TryParse([string]$document.schemaVersion, [ref]$version) -or $version -ne $textSchemaVersion) {
-        $line = Get-FirstLineNumber -Path $file.FullName -Pattern '"schemaVersion"'
-        Add-Problem "${relative}:${line}" `
-            ("schemaVersion 不认识（'{0}'；本应用支持 {1}）" -f $document.schemaVersion, $textSchemaVersion)
-    }
 
     $language = [string]$document.language
     if (-not [string]::Equals($language, $firstSegment, [StringComparison]::OrdinalIgnoreCase)) {
@@ -707,6 +697,13 @@ foreach ($table in ($tableFiles | Sort-Object { $_.File.FullName })) {
 
         if ([string]::IsNullOrEmpty($value)) {
             Add-Problem "${relative}:${line}" ("键 '{0}' 的值是空字符串（缺文本必须用 ⟦key⟧ 暴露，不能靠空白）" -f $key)
+        }
+
+        # 换行必须写成 JSON 转义（解析后的值是**真正的换行**）。若值里出现"反斜杠 + n"两个字面字符，
+        # 界面会原样显示 `\n`——`TextCatalog` 不做二次反转义（实测端口标记的悬停提示就是这样坏掉的）。
+        # 白名单只放**路径示例**（`bin\{1}\net10.0` 里的 `\n` 是分隔符 + 目录名，不是换行）。
+        if ($value -match '\\n' -and $literalBackslashNewlineAllowed -notcontains $key) {
+            Add-Problem "${relative}:${line}" ("键 '{0}' 含字面反斜杠 + n（两个字符）——换行必须写成 JSON 转义" -f $key)
         }
 
         $entries[$key] = $value
@@ -921,12 +918,6 @@ foreach ($iconOwner in $iconOwnerDirectories) {
             continue
         }
 
-        $version = 0
-        if (-not [int]::TryParse([string]$document.schemaVersion, [ref]$version) -or $version -ne $iconSchemaVersion) {
-            $line = Get-FirstLineNumber -Path $file.FullName -Pattern '"schemaVersion"'
-            Add-Problem "${relative}:${line}" `
-                ("schemaVersion 不认识（'{0}'；本应用支持 {1}）" -f $document.schemaVersion, $iconSchemaVersion)
-        }
 
         if ($null -eq $document.entries) {
             Add-Problem $relative '图标表缺少 entries'

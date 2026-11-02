@@ -9,8 +9,6 @@ namespace HYWDebugAssistant.Core.Composition;
 /// <param name="PortName">口名。</param>
 /// <param name="IsSend">是否发送口。</param>
 /// <param name="Geometry">端口几何（含标签与边缘偏移）。</param>
-/// <param name="Shape">端口契约形状。</param>
-/// <param name="Semantics">端口传输语义。</param>
 /// <param name="Edge">
 /// 端口的**有效挂载边**（已按"用户覆盖 &gt; 包内声明"解析，没有惯例回退；见 <see cref="PortEdgeResolution"/>）。
 /// </param>
@@ -20,8 +18,6 @@ public readonly record struct DockEnd(
     string PortName,
     bool IsSend,
     PortGeometryView Geometry,
-    HYWDebugAssistant.Sdk.Contracts.ContractShape Shape,
-    HYWDebugAssistant.Sdk.Contracts.TransferSemantics Semantics,
     HYWDebugAssistant.Sdk.Ports.PortEdge Edge);
 
 /// <summary>一个**建网候选**（发送端 → 接收端）。</summary>
@@ -37,18 +33,25 @@ public readonly record struct DockPair(DockEnd Source, DockEnd Target)
 }
 
 /// <summary>
-/// **"接触且对齐"建网判定**——纯几何 + 契约判定，**没有副作用**。
+/// **"接触且对齐"建网判定**——**只判几何与标签资格**，不判契约。
 /// </summary>
 /// <remarks>
-/// <list type="bullet">
-///   <item><b>只有一份实现</b>：网络行为（L4 推导）与 UI 预览（拖动中高亮"即将建网"）**共用本类**，
-///     因此"预览会连上"与"松手后真的连上"永远一致；</item>
-///   <item><b>与吸附无关</b>：吸附是 UI 行为（让用户容易对上），本判定只看几何事实——
-///     吸附对齐后自然满足条件，满足条件即可建网；</item>
-///   <item><b>严格以防误建</b>：接触（相邻边间隙 ≤ <see cref="EdgeContactTolerance"/>）+
-///     接触面投影重叠 + 标记中心对齐（≤ <see cref="MarkerAlignTolerance"/>）+
-///     方向（发送↔接收）+ 契约兼容（形状**完全一致**）+ **双方均未打标签**（打了标签的口只参与命名网络）。</item>
-/// </list>
+/// <para>
+/// <b>职责边界（唯一）</b>：本类回答"这两个口在几何上是不是互相对着、是否有资格参与自动建网"；
+/// **契约兼容由 L4 的唯一入口判**（<c>ModuleRuntime.CheckCompatibility</c> → <c>ContractCompatibility.Check</c>）。
+/// 所以本类**不引用任何契约类型**——契约判定只有 L4 的唯一入口；在这里再判一次就会出现"贴合能连、打标签不能连"的偏移，
+/// 于是同一对端口"贴合能连、打标签不能连"，两条建网路径各说一套。
+/// </para>
+/// <para>
+/// <b>只有一份实现</b>：网络行为（L4 推导）与 UI 预览（拖动中高亮"即将建网"）**共用本类**，
+/// 因此"预览会连上"与"松手后真的连上"在几何这一层永远一致；契约那一层由 L4 再过滤一次
+/// （预览也走同一条过滤，见 <c>ModuleRuntime.CollectAcceptedDockPairs</c>）。
+/// </para>
+/// <para>
+/// <b>严格以防误建</b>：接触（相邻边间隙 ≤ <see cref="EdgeContactTolerance"/>）+
+/// 接触面投影重叠 + 标记中心对齐（≤ <see cref="MarkerAlignTolerance"/>）+
+/// 方向（发送↔接收）+ **双方均未打标签**（打了标签的口只参与命名网络）。
+/// </para>
 /// </remarks>
 public static class DockRule
 {
@@ -126,7 +129,7 @@ public static class DockRule
         {
             foreach (var target in receiverSide.Ends.Where(e => !e.IsSend && e.Edge == receiverFacing))
             {
-                if (!IsDockable(source, target, horizontal)
+                if (!IsAligned(source, target, horizontal)
                     || !seen.Add((source.InstanceId + "." + source.PortName, target.InstanceId + "." + target.PortName)))
                 {
                     continue;
@@ -181,11 +184,13 @@ public static class DockRule
         return false;
     }
 
-    /// <summary>严格判定两端是否可建网（"朝向接触面"已由调用方按候选枚举筛过）。</summary>
+    /// <summary>
+    /// **几何 + 标签资格**判定（"朝向接触面"已由调用方按候选枚举筛过）；**不含契约**。
+    /// </summary>
     /// <param name="source">发送端（其有效边必须朝向接触面，见 <see cref="ComputeDockPairs"/>）。</param>
     /// <param name="target">接收端（其有效边必须朝向接触面）。</param>
     /// <param name="horizontal">接触面是否竖直（决定"标记中心"取哪个坐标轴）。</param>
-    public static bool IsDockable(DockEnd source, DockEnd target, bool horizontal)
+    private static bool IsAligned(DockEnd source, DockEnd target, bool horizontal)
     {
         // ① 双方都不得打标签：打了标签的口只参与"命名网络"（两种机制不混用）
         if (!string.IsNullOrWhiteSpace(source.Geometry.Label) || !string.IsNullOrWhiteSpace(target.Geometry.Label))
@@ -193,20 +198,12 @@ public static class DockRule
             return false;
         }
 
-        // ② 契约必须兼容（接收 ⊇ 发送；不自动转换）
-        if (!ContractCompatibility.Check(source.Shape, source.Semantics, target.Shape, target.Semantics).IsCompatible)
-        {
-            return false;
-        }
-
-        // ③ 标记中心沿接触面必须对齐（"标记对齐"；中心与容差都换到物理像素）
+        // ② 标记中心沿接触面必须对齐（"标记对齐"；中心与容差都换到物理像素）
         var markerTolerance = MarkerAlignTolerance * Math.Min(ScaleOf(source.Layout), ScaleOf(target.Layout));
         return Math.Abs(MarkerCenter(source, horizontal) - MarkerCenter(target, horizontal)) <= markerTolerance;
     }
 
     /// <summary>端口标记中心在屏幕坐标下的位置（左右相邻取 Y、上下相邻取 X）。</summary>
-    /// <param name="end">端口端。</param>
-    /// <param name="horizontal">接触面是否竖直。</param>
     public static double MarkerCenter(DockEnd end, bool horizontal)
     {
         var offset = Math.Clamp(end.Geometry.Offset, 0, 1);

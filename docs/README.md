@@ -18,7 +18,7 @@
 > **怎么写一个模块**：界面 = 代码声明 + 模块 XAML（键用 `{x:Static}`）；控件库只承载标准控件做不到的行为。
 > 模块只引 `Sdk` / `Sdk.Ui` / `Sdk.AccessKit`；外部接入只声明标准标识，适配器/参数类型由框架提供，模块包不带宿主程序集。
 > 独立编译示例见 `samples/ExternalModule/`：先 `tools/pack-sdk.ps1`，再 `tools/verify-standalone-module.ps1`。
-> 模块开发工作流（新建模块的步骤、`module.json` 与生命周期约定）尚未定稿；当前状态见 [`TODO.md`](TODO.md) §3 第 15 项，界面机制见 [`architecture/CODEX.md`](architecture/CODEX.md) §7.7。
+> 模块开发工作流（新建模块的步骤、`module.json` 与生命周期约定）尚未定稿；当前状态见 [`TODO.md`](TODO.md) §3「模块开发工作流」，界面机制见 [`architecture/CODEX.md`](architecture/CODEX.md) §7.7。
 
 ### ② 正在做什么
 

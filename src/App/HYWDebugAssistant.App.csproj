@@ -9,6 +9,11 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
+  <!-- **模块项目按目录发现**（在引用它们之前求值）：新增模块零改动即进构建序。 -->
+  <ItemGroup>
+    <ModuleProject Include="$(MSBuildThisFileDirectory)..\Modules\Business\*\*.csproj" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Ui\HYWDebugAssistant.Ui.csproj" />
     <ProjectReference Include="..\FrameworkUi\HYWDebugAssistant.FrameworkUi.csproj" />
@@ -27,15 +32,13 @@
       `ReferenceOutputAssembly=false` ⇒ 不产生程序集引用（AR-12 仍然成立），
       只是让 MSBuild 先构建这些模块项目；不要把这几条当成"应用依赖模块"。
     -->
-    <ProjectReference Include="..\Modules\Business\DataMonitor\HYWDebugAssistant.Modules.DataMonitor.csproj" ReferenceOutputAssembly="false" Private="false" />
-    <ProjectReference Include="..\Modules\Business\HexSender\HYWDebugAssistant.Modules.HexSender.csproj" ReferenceOutputAssembly="false" Private="false" />
-    <ProjectReference Include="..\Modules\Business\HexStringConverter\HYWDebugAssistant.Modules.HexStringConverter.csproj" ReferenceOutputAssembly="false" Private="false" />
-    <ProjectReference Include="..\Modules\Business\Serial\HYWDebugAssistant.Modules.Serial.csproj" ReferenceOutputAssembly="false" Private="false" />
-    <ProjectReference Include="..\Modules\Business\TcpClient\HYWDebugAssistant.Modules.TcpClient.csproj" ReferenceOutputAssembly="false" Private="false" />
-    <ProjectReference Include="..\Modules\Business\TcpServer\HYWDebugAssistant.Modules.TcpServer.csproj" ReferenceOutputAssembly="false" Private="false" />
-    <ProjectReference Include="..\Modules\Business\TextSender\HYWDebugAssistant.Modules.TextSender.csproj" ReferenceOutputAssembly="false" Private="false" />
-    <ProjectReference Include="..\Modules\Business\Udp\HYWDebugAssistant.Modules.Udp.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="@(ModuleProject)" ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
+
+  <!-- 通配为空 = 模块目录结构被改坏：构建期直接失败，避免"镜像了 0 个包却一切正常"。 -->
+  <Target Name="EnsureModuleProjectsDiscovered" BeforeTargets="PrepareForBuild">
+    <Error Condition="'@(ModuleProject)' == ''" Text="未发现任何模块项目（src/Modules/Business/*/*.csproj）" />
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Desktop" />
@@ -44,7 +47,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- 允许测试项目访问组合根内部类型（冒烟测试） -->
+    <!-- 允许测试项目访问组合根内部类型（组合级用例直接构造装配） -->
     <InternalsVisibleTo Include="HYWDebugAssistant.Tests" />
   </ItemGroup>
 
@@ -52,17 +55,29 @@
     **出厂种子镜像**（阶段 C）：仓库 `resources\**`（只读出厂种子，当前只有主题包）
     原样复制到 `<应用输出>\resources\`。程序启动时由投放器把 `resources\seeds\` 合并进程序目录；
     用户数据（`settings\` / `workspace\` / `logs\` …）**不进发布、也不由构建写入**。
+
+    两个通配源登记进**过期判定**（UpToDateCheckInput）：它们只出现在本目标的 Include 里、
+    不是项目项 ⇒ MSBuild 与 VS 的"是否最新"判定看不见它们。不登记时：改一条文案 / 重编一个模块包后，
+    App 被判"最新"、本目标不跑、输出里的 `resources\` 与 `modules\` 保持旧值（表现为"必须删掉
+    编译产物再重新生成才会更新"，实为**构建没被触发**，不是拷贝错了）。
+    同一模式在 `src/Modules/Directory.Build.targets` 里已为 `module.json` 用过一次。
   -->
+  <ItemGroup>
+    <UpToDateCheckInput Include="$(MSBuildThisFileDirectory)..\..\resources\**\*" />
+    <UpToDateCheckInput Include="$(MSBuildThisFileDirectory)..\..\artifacts\modules\$(Configuration)\**\*" />
+  </ItemGroup>
+
   <Target Name="StageResources" AfterTargets="Build">
     <ItemGroup>
       <ResourceSeedFile Include="$(MSBuildThisFileDirectory)..\..\resources\**\*" />
     </ItemGroup>
 
+    <!-- 先清空再复制：verify-resources 校验的是**文件集**相等（少文件 / 多文件都判红），
+         因此这里是"镜像"而不是"增量合并"；`SkipUnchangedFiles` 在 RemoveDir 之后没有意义，已删。 -->
     <RemoveDir Directories="$(OutDir)resources" Condition="Exists('$(OutDir)resources')" />
     <MakeDir Directories="$(OutDir)resources" Condition="'@(ResourceSeedFile)' != ''" />
     <Copy SourceFiles="@(ResourceSeedFile)"
           DestinationFolder="$(OutDir)resources\%(RecursiveDir)"
-          SkipUnchangedFiles="true"
           Condition="'@(ResourceSeedFile)' != ''" />
 
     <Message Importance="high"
@@ -85,7 +100,6 @@
     <MakeDir Directories="$(OutDir)modules" Condition="'@(BuiltInModuleFile)' != ''" />
     <Copy SourceFiles="@(BuiltInModuleFile)"
           DestinationFolder="$(OutDir)modules\%(RecursiveDir)"
-          SkipUnchangedFiles="true"
           Condition="'@(BuiltInModuleFile)' != ''" />
 
     <Message Importance="high"

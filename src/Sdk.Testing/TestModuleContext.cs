@@ -48,7 +48,7 @@ public sealed class TestModuleContext : IModuleContext, IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
 
         InstanceId = instanceId;
-        ModuleId = moduleId ?? HYWDebugAssistant.Sdk.ModuleId.Create("test", "under-test", "1.0.0");
+        ModuleId = moduleId ?? HYWDebugAssistant.Sdk.ModuleId.Create("test", "under-test");
         Declaration = new DeclarationCollector(
             _ports, _dataTypes, _flows, _roles, _displaySources, _inputs, _commands, _externalAccesses);
         Issues = new IssueCollector(ReportedIssues);

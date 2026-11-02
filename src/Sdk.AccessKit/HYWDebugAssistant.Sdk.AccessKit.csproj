@@ -5,12 +5,9 @@
     依赖纪律：只引 Sdk；零第三方依赖；由宿主随附，模块包里不带本程序集。
   -->
   <PropertyGroup>
-    <!-- SDK 契约版本（与 Sdk / Sdk.Ui 同步）。 -->
-    <AssemblyVersion>2.3.0.0</AssemblyVersion>
-    <!-- NuGet 包：包版本 = 契约版本；产品 Version 仍是 0.1.0。 -->
+    <!-- NuGet 包：包版本 = 产品四段版本（由根 `version.props` 派生）；不单独覆盖任何版本项。 -->
     <IsPackable>true</IsPackable>
     <PackageId>HYWDebugAssistant.Sdk.AccessKit</PackageId>
-    <PackageVersion>2.3.0</PackageVersion>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Description>HYWDebugAssistant 外部接入模块共用骨架（RawBytes 契约、双口、状态/计数发布），依赖 Sdk。</Description>
   </PropertyGroup>

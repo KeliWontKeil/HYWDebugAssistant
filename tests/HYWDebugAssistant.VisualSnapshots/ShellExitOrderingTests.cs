@@ -70,7 +70,7 @@ public sealed class ShellExitOrderingTests
                     typeof(TextSenderViewFactory),
                     windowWidth: 400,
                     windowHeight: 240);
-                harness.AddModule("exit-module", "test/exit-module/1.0.0", 400, 240);
+                harness.AddModule("exit-module", "test/exit-module", 400, 240);
 
                 var shell = new Window
                 {
@@ -141,7 +141,7 @@ public sealed class ShellExitOrderingTests
                     typeof(TextSenderViewFactory),
                     windowWidth: 400,
                     windowHeight: 240);
-                harness.AddModule("close-module", "test/close-module/1.0.0", 400, 240);
+                harness.AddModule("close-module", "test/close-module", 400, 240);
 
                 var module = harness.Windows.Modules.Single(item => item.InstanceId == "close-module");
                 var window = harness.OpenWindow(module);

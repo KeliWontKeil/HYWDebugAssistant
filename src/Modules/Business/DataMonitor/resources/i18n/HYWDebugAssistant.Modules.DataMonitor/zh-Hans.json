@@ -1,5 +1,4 @@
 {
-  "schemaVersion": 1,
   "language": "zh-Hans",
   "entries": {
     "module.description": "以特定格式(文本/十六进制)显示接收的字节流",

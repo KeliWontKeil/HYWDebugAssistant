@@ -1,8 +1,7 @@
 {
-  "id": "hyw/hex-sender/1.0.0",
+  "id": "hyw/hex-sender",
   "entryAssembly": "HYWDebugAssistant.Modules.HexSender.dll",
   "entryType": "HYWDebugAssistant.Modules.HexSender.HexSenderModule",
-  "frameworkCompatibility": ">=2.0.0 <3.0.0",
   "dependsOn": [],
   "resources": ["resources/i18n"]
 }

@@ -20,6 +20,16 @@ namespace HYWDebugAssistant.Ui.Views;
 /// </remarks>
 public sealed class ModuleWindowManager : IDisposable
 {
+    /// <summary>
+    /// **最小化哨兵位置**（Win32 的 `ICONICWINDOWPLACEMENT`：`-32000` 附近）。只作为附加保险。
+    /// </summary>
+    /// <remarks>
+    /// 判据的**主依据是 `WindowState == Minimized`**（跨平台）；这个常量只兜住"平台已把它挪到哨兵位置、
+    /// 但状态还没落定"的过渡帧。反过来只认哨兵会在 X11/Wayland 上漏判（那里最小化后位置可能是 `(0,0)`），
+    /// 把 `(0,0)` 写回模型 ⇒ 模块跳到左上角。
+    /// </remarks>
+    private const int MinimizedSentinel = -30000;
+
     private readonly ModuleWindowsViewModel _controller;
     private readonly Window _shell;
     private readonly Dictionary<string, ModuleWindow> _windows = new(StringComparer.Ordinal);
@@ -446,7 +456,10 @@ public sealed class ModuleWindowManager : IDisposable
         var scale = window.ResolvedScaling > 0 ? window.ResolvedScaling : 1;
         var position = window.Position;
 
-        if (position.X <= -30000 || position.Y <= -30000)
+        // 最小化 / 被挪到哨兵位置时，平台位置不是模型事实（判据见 `MinimizedSentinel` 的说明）。
+        if (window.WindowState == WindowState.Minimized
+            || position.X <= MinimizedSentinel
+            || position.Y <= MinimizedSentinel)
         {
             return;
         }
@@ -477,8 +490,8 @@ public sealed class ModuleWindowManager : IDisposable
             return;   // 隐藏/最小化时的平台位置不是模型事实
         }
 
-        // Win32 最小化窗口的经典哨兵位置；绝不能写回模型。
-        if (window.Position.X <= -30000 || window.Position.Y <= -30000)
+        // 过渡帧兜底（状态已保持 Normal、但位置还是哨兵）：绝不能写回模型。
+        if (window.Position.X <= MinimizedSentinel || window.Position.Y <= MinimizedSentinel)
         {
             return;
         }

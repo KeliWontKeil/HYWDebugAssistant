@@ -188,12 +188,12 @@ public class OverlaySnapshotTests
                 var ids = new List<string> { "text-sender-1", "text-sender-2", "text-sender-3" };
                 foreach (var id in ids)
                 {
-                    harness.AddModule(id, "test/text-sender/1.0.0", 358, 192);
+                    harness.AddModule(id, "test/text-sender", 358, 192);
                 }
 
                 harness.Windows.Refresh();
                 var modules = harness.Windows.Modules
-                    .Where(module => string.Equals(module.ModuleId, "test/text-sender/1.0.0", StringComparison.Ordinal))
+                    .Where(module => string.Equals(module.ModuleId, "test/text-sender", StringComparison.Ordinal))
                     .ToList();
 
                 modules.Select(module => module.OverlayInfo.Identity).ToList().ShouldBe(
@@ -205,13 +205,13 @@ public class OverlaySnapshotTests
                 harness.Windows.Refresh();
 
                 modules = harness.Windows.Modules
-                    .Where(module => string.Equals(module.ModuleId, "test/text-sender/1.0.0", StringComparison.Ordinal))
+                    .Where(module => string.Equals(module.ModuleId, "test/text-sender", StringComparison.Ordinal))
                     .ToList();
                 modules.Select(module => module.OverlayInfo.Identity).ToList().ShouldBe(
                     new List<string> { $"{displayName} 1", $"{displayName} 2" });
 
                 // 新实例补到当前数量之后，不跳到全局计数器的 4/9。
-                harness.AddModule("text-sender-9", "test/text-sender/1.0.0", 358, 192);
+                harness.AddModule("text-sender-9", "test/text-sender", 358, 192);
                 harness.Windows.Refresh();
 
                 harness.Windows.Modules
@@ -336,7 +336,7 @@ public class OverlaySnapshotTests
     }
 
     /// <summary>快照用发送模块（一个发送口）：**声明一个"发送"角色**（纯源分块，无输入口）。</summary>
-    [ModuleDefinition("test", "snapshot-sender", "1.0.0")]
+    [ModuleDefinition("test", "snapshot-sender")]
     public sealed class SnapshotSenderModule : IModule
     {
         /// <summary>快照用数据类型标识。</summary>
@@ -350,34 +350,34 @@ public class OverlaySnapshotTests
         /// <inheritdoc />
         public void OnRegistered(IModuleContext context)
         {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, 1, Shape));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, Shape));
             context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, Shape)
             {
-                Type = new DataTypeRef(TypeId, 1),
+                TypeId = TypeId,
             });
 
             context.Declaration.DeclareRole(RoleDeclaration.Output(
-                "send", new DataTypeRef(TypeId, 1), "out", "发送"));
+                "send", TypeId, "out", "发送"));
         }
     }
 
     /// <summary>快照用接收模块（一个接收口）：**声明一个"显示"角色**（纯汇分块，无输出口）。</summary>
-    [ModuleDefinition("test", "snapshot-sink", "1.0.0")]
+    [ModuleDefinition("test", "snapshot-sink")]
     public sealed class SnapshotSinkModule : IModule
     {
         /// <inheritdoc />
         public void OnRegistered(IModuleContext context)
         {
             context.Declaration.DeclareDataType(
-                new DataTypeDeclaration(SnapshotSenderModule.TypeId, 1, SnapshotSenderModule.Shape));
+                new DataTypeDeclaration(SnapshotSenderModule.TypeId, SnapshotSenderModule.Shape));
             context.Declaration.DeclarePort(new PortDeclaration(
                 "in", PortDirection.Receive, SnapshotSenderModule.Shape)
             {
-                Type = new DataTypeRef(SnapshotSenderModule.TypeId, 1),
+                TypeId = SnapshotSenderModule.TypeId,
             });
 
             context.Declaration.DeclareRole(RoleDeclaration.Input(
-                "show", new DataTypeRef(SnapshotSenderModule.TypeId, 1), "in", "显示"));
+                "show", SnapshotSenderModule.TypeId, "in", "显示"));
 
             context.Ports.SetReceiveHandler("in", _ => { });
         }
@@ -419,9 +419,9 @@ public class OverlaySnapshotTests
 
         public ModuleWindowsViewModel Windows { get; }
 
-        public void AddSender(string instanceId, double x, double y) => Add(instanceId, "test/snapshot-sender/1.0.0", x, y);
+        public void AddSender(string instanceId, double x, double y) => Add(instanceId, "test/snapshot-sender", x, y);
 
-        public void AddSink(string instanceId, double x, double y) => Add(instanceId, "test/snapshot-sink/1.0.0", x, y);
+        public void AddSink(string instanceId, double x, double y) => Add(instanceId, "test/snapshot-sink", x, y);
 
         /// <summary>往某实例的显示缓冲里追加一行（走模块侧同一条"请求 → 落地"通道）。</summary>
         public void AppendDisplayLine(string instanceId, string sourceName, string text) =>
@@ -475,14 +475,12 @@ public class OverlaySnapshotTests
             string? displayName = null)
         {
             var definition = new ModuleDefinition(
-                ModuleId.Create("test", name, "1.0.0"),
+                ModuleId.Create("test", name),
                 displayName ?? entryType.Name,
                 string.Empty,
                 [],
                 ModuleCapability.None,
-                [],
-                null,
-                true,
+                [], true,
                 entryType,
                 packageDirectory: string.Empty,
                 assemblyPath: string.Empty,

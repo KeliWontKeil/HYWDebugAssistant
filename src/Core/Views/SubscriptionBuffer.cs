@@ -102,7 +102,7 @@ public sealed class SubscriptionBuffer
     public SampleDecoder? Decoder { get; init; }
 
     /// <summary>该数据源引用的**数据类型**（未引用 = <see langword="null"/>）——用于呈现"类型身份"。</summary>
-    public DataTypeRef? DataType { get; init; }
+    public string? DataType { get; init; }
 
     /// <summary>样本字节数（尚未写入过时为 0）。</summary>
     public int SampleSizeInBytes => Volatile.Read(ref _slotSize);

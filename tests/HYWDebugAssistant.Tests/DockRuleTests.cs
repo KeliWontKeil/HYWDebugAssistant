@@ -229,12 +229,12 @@ public class DockRuleTests
             .Applied.ShouldBeTrue();
 
     private static ModuleDefinition TestDefinition(string name, Type entryType) =>
-        new(ModuleId.Create("test", name, "1.0.0"),
-            name, string.Empty, [], ModuleCapability.None, [], null, true,
+        new(ModuleId.Create("test", name),
+            name, string.Empty, [], ModuleCapability.None, [], true,
             entryType, TestViewPackages.For(entryType), string.Empty);
 
     /// <summary>发送模块（f32 输出口；边在包内声明里给出 ⇒ 有效边由"用户覆盖 &gt; 声明值"决定）。</summary>
-    [ModuleDefinition("test", "sender", "1.0.0")]
+    [ModuleDefinition("test", "sender")]
     public sealed class SenderModule : IModule
     {
         /// <summary>输出口名。</summary>
@@ -247,7 +247,7 @@ public class DockRuleTests
     }
 
     /// <summary>接收模块（f32 输入口）。</summary>
-    [ModuleDefinition("test", "receiver", "1.0.0")]
+    [ModuleDefinition("test", "receiver")]
     public sealed class ReceiverModule : IModule
     {
         /// <summary>输入口名。</summary>

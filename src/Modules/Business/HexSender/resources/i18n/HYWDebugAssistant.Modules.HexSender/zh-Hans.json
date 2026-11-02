@@ -1,5 +1,4 @@
 {
-  "schemaVersion": 1,
   "language": "zh-Hans",
   "entries": {
     "module.description": "以文本形式发送十六进制字符串",

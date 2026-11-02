@@ -226,7 +226,7 @@ public static class ModuleContract
         IReadOnlyList<PortDeclaration> ports,
         List<string> problems)
     {
-        var known = new HashSet<DataTypeRef>();
+        var known = new HashSet<string>();
 
         foreach (var type in types)
         {
@@ -241,29 +241,29 @@ public static class ModuleContract
                 problems.Add($"数据类型标识不规范：'{type.TypeId}'（建议 <作者/名字> 形式，不含空格）");
             }
 
-            if (!known.Add(type.Reference))
+            if (!known.Add(type.TypeId))
             {
-                problems.Add($"数据类型重复声明：{type.Reference}（同一（标识, 版本）只能声明一次）");
+                problems.Add($"数据类型重复声明：{type.TypeId}（同一标识只能声明一次）");
                 continue;
             }
 
-            CheckShape(type.Shape, $"数据类型 {type.Reference}", problems);
+            CheckShape(type.Shape, $"数据类型 {type.TypeId}", problems);
 
             if (type.Metering.SamplesPerUnit <= 0)
             {
-                problems.Add($"数据类型 {type.Reference} 的计量块 SamplesPerUnit 必须 > 0（当前 {type.Metering.SamplesPerUnit}）");
+                problems.Add($"数据类型 {type.TypeId} 的计量块 SamplesPerUnit 必须 > 0（当前 {type.Metering.SamplesPerUnit}）");
             }
 
             if (type.Metering.ChannelCount <= 0)
             {
-                problems.Add($"数据类型 {type.Reference} 的计量块 ChannelCount 必须 > 0（当前 {type.Metering.ChannelCount}）");
+                problems.Add($"数据类型 {type.TypeId} 的计量块 ChannelCount 必须 > 0（当前 {type.Metering.ChannelCount}）");
             }
 
             if (type.Metering.PayloadSizeInBytes is { } payload
                 && (payload <= 0 || payload > type.SizeInBytes))
             {
                 problems.Add(
-                    $"数据类型 {type.Reference} 的 PayloadSizeInBytes = {payload} 不合理（应 > 0 且 ≤ 契约尺寸 {type.SizeInBytes}）");
+                    $"数据类型 {type.TypeId} 的 PayloadSizeInBytes = {payload} 不合理（应 > 0 且 ≤ 契约尺寸 {type.SizeInBytes}）");
             }
 
             // **有效长度字段声明**必须真的能读（速率只统计有效数据）：
@@ -276,7 +276,7 @@ public static class ModuleContract
                 if (!layout.TryGetField(lengthField, out var field))
                 {
                     problems.Add(
-                        $"数据类型 {type.Reference} 的计量块声明了有效长度字段 '{lengthField}'，"
+                        $"数据类型 {type.TypeId} 的计量块声明了有效长度字段 '{lengthField}'，"
                         + $"但契约形状里没有这个顶层字段（现有：{string.Join("、", layout.Fields.Select(f => f.Name))}）");
                 }
                 else if (field.Shape is not PrimitiveShape primitive
@@ -286,7 +286,7 @@ public static class ModuleContract
                         or ContractPrimitive.I64 or ContractPrimitive.U64))
                 {
                     problems.Add(
-                        $"数据类型 {type.Reference} 的有效长度字段 '{lengthField}' 必须是**整型**原语"
+                        $"数据类型 {type.TypeId} 的有效长度字段 '{lengthField}' 必须是**整型**原语"
                         + "（字节数是从它读出来的一个整数；浮点/字节块/结构都不行）");
                 }
             }
@@ -295,9 +295,9 @@ public static class ModuleContract
         // 引用必须能在**本模块**解析：解析不了 ⇒ 框架只能回退结构比较（不是错误，但作者必须知道）
         foreach (var port in ports)
         {
-            if (port.Type is { } reference && !known.Contains(reference))
+            if (port.TypeId is { } typeId && !known.Contains(typeId))
             {
-                problems.Add($"口 '{port.Name}' 引用了本模块未声明的数据类型 {reference}——该口将回退为**结构**兼容判定");
+                problems.Add($"口 '{port.Name}' 引用了本模块未声明的数据类型 {typeId}——该口将回退为**结构**兼容判定");
             }
         }
     }
@@ -325,7 +325,7 @@ public static class ModuleContract
         List<string> problems,
         List<string> advice)
     {
-        var knownTypes = new HashSet<DataTypeRef>(types.Select(t => t.Reference));
+        var knownTypes = new HashSet<string>(types.Select(t => t.TypeId));
         var ids = new HashSet<string>(StringComparer.Ordinal);
         var claimed = new Dictionary<string, string>(StringComparer.Ordinal);
         var withRoles = new HashSet<string>(StringComparer.Ordinal);
@@ -345,9 +345,9 @@ public static class ModuleContract
                 continue;
             }
 
-            if (!knownTypes.Contains(role.Type))
+            if (!knownTypes.Contains(role.TypeId))
             {
-                problems.Add($"角色 '{role.Id}' 引用了本模块未声明的数据类型 {role.Type}（先把类型声明出来）");
+                problems.Add($"角色 '{role.Id}' 引用了本模块未声明的数据类型 {role.TypeId}（先把类型声明出来）");
                 continue;
             }
 
@@ -388,11 +388,11 @@ public static class ModuleContract
                 // 一个角色只有一种数据类型，本条约束的是**两侧是否同型**。
                 // ⇒ **类型转换 = 两个数据角色**（「收 A」+「发 B」）+ DeclareFlow；叠加层上表现为两个方块。
                 // 口**未声明类型**（可声明 ≠ 必须声明的模块形态）⇒ 无可比对象，**跳过不报**。
-                if (port.Type is { } portType && portType != role.Type)
+                if (port.TypeId is { } portType && !string.Equals(portType, role.TypeId, StringComparison.Ordinal))
                 {
                     problems.Add(
                         $"角色 '{role.Id}' 的{(expected == PortDirection.Receive ? "输入" : "输出")}口 '{name}' 的类型是 {portType}，" +
-                        $"与角色的类型 {role.Type} 不一致（一个角色的输入口与输出口必须同一种数据类型；" +
+                        $"与角色的类型 {role.TypeId} 不一致（一个角色的输入口与输出口必须同一种数据类型；" +
                         "**类型转换请拆成两个角色** + DeclareFlow）");
                     continue;
                 }

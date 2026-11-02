@@ -54,12 +54,12 @@ public class PipelineBenchmarks : IDisposable
         Register("mid", typeof(LatencyMidModule));
         Register("sink", typeof(LatencySinkModule));
 
-        Require(_services.AddModule("a", "bench/source/1.0.0").Succeeded, "加入源实例");
-        Require(_services.AddModule("b", "bench/mid/1.0.0").Succeeded, "加入中间实例");
-        Require(_services.AddModule("c", "bench/sink/1.0.0").Succeeded, "加入末端实例");
+        Require(_services.AddModule("a", "bench/source").Succeeded, "加入源实例");
+        Require(_services.AddModule("b", "bench/mid").Succeeded, "加入中间实例");
+        Require(_services.AddModule("c", "bench/sink").Succeeded, "加入末端实例");
 
-        Require(_services.Connect(new PortRef("a", "out"), [new PortRef("b", "in")], "ab").Succeeded, "建网 ab");
-        Require(_services.Connect(new PortRef("b", "out"), [new PortRef("c", "in")], "bc").Succeeded, "建网 bc");
+        Require(Link("a", "out", "b", "in", "ab"), "建网 ab");
+        Require(Link("b", "out", "c", "in", "bc"), "建网 bc");
 
         Require(_runtime.Content.TryGetInstance("a", out var source) && source is not null, "取源实例");
         Require(_runtime.Content.TryGetInstance("c", out var sink) && sink is not null, "取末端实例");
@@ -122,6 +122,12 @@ public class PipelineBenchmarks : IDisposable
         _ = signal.Wait(fallback);
     }
 
+    /// <summary>建网（只有一条用户路径：两端同名标签 ⇒ 推导 ⇒ 命名网络）。</summary>
+    private bool Link(string sourceInstance, string sourcePort, string targetInstance, string targetPort, string name) =>
+        _services.UpdatePortNetwork(sourceInstance, sourcePort, name).Succeeded
+        && _services.UpdatePortNetwork(targetInstance, targetPort, name).Succeeded
+        && _services.GetNetworks().Any(network => string.Equals(network.Name, name, StringComparison.Ordinal));
+
     private static void Require(bool condition, string what)
     {
         if (!condition)
@@ -133,13 +139,12 @@ public class PipelineBenchmarks : IDisposable
     private void Register(string name, Type entryType)
     {
         var definition = new ModuleDefinition(
-            ModuleId.Create("bench", name, "1.0.0"),
+            ModuleId.Create("bench", name),
             entryType.Name,
             string.Empty,
             [],
             ModuleCapability.None,
             [],
-            null,
             true,
             entryType,
             string.Empty,
@@ -149,7 +154,7 @@ public class PipelineBenchmarks : IDisposable
     }
 
     /// <summary>源模块：只声明发送口（发送由基准驱动）。</summary>
-    [ModuleDefinition("bench", "source", "1.0.0")]
+    [ModuleDefinition("bench", "source")]
     public sealed class LatencySourceModule : IModule
     {
         public static readonly ContractShape UnitShape = ContractShape.OfStruct(
@@ -163,7 +168,7 @@ public class PipelineBenchmarks : IDisposable
     }
 
     /// <summary>中间模块：主动收 → 原样转发（一次处理 + 一次再投递）。</summary>
-    [ModuleDefinition("bench", "mid", "1.0.0")]
+    [ModuleDefinition("bench", "mid")]
     public sealed class LatencyMidModule : IModule, IActivitySource
     {
         public ActivityKind Kind => ActivityKind.EventDriven;
@@ -209,7 +214,7 @@ public class PipelineBenchmarks : IDisposable
     }
 
     /// <summary>末端模块：逐个记录端到端延迟（主动接收）。</summary>
-    [ModuleDefinition("bench", "sink", "1.0.0")]
+    [ModuleDefinition("bench", "sink")]
     public sealed class LatencySinkModule : IModule, IActivitySource
     {
         private readonly Lock _gate = new();

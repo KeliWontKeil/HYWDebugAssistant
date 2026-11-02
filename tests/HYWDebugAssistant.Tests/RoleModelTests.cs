@@ -46,7 +46,7 @@ public class RoleModelTests
         single.DisplayName.ShouldNotBeNullOrWhiteSpace("功能名来自角色声明");
         single.Inputs.ShouldBe(["in"]);
         single.Outputs.ShouldBe(["out"]);
-        single.TypeKey.ShouldBe($"{TypeId}@v1");
+        single.TypeKey.ShouldBe(TypeId);
 
         var two = services.GetRoles("two");
         two.Count.ShouldBe(2, "声明两个角色 ⇒ 两个方块（与「方向×类型」的组合数无关）");
@@ -69,14 +69,14 @@ public class RoleModelTests
         before.OutboundRoleCount.ShouldBe(0, "有输出口但没连 ⇒ 0");
 
         // 连上：本角色两个输出口指向同一个对端角色 ⇒ 仍只算 1 个对端角色
-        Connect(runtime, "hub", "out1", "a", "in", "n1");
-        Connect(runtime, "hub", "out2", "a", "in", "n2");
+        Connect(services, "hub", "out1", "a", "in", "n1");
+        Connect(services, "hub", "out2", "a", "in", "n2");
 
         var one = services.GetRoles("hub").ShouldHaveSingleItem();
         one.OutboundRoleCount.ShouldBe(1, "同一对端角色的多个口仍算 1 个对端角色");
 
         // 再连第二个对端 ⇒ 2
-        Connect(runtime, "hub", "out1", "b", "in", "n3");
+        Connect(services, "hub", "out1", "b", "in", "n3");
         services.GetRoles("hub").ShouldHaveSingleItem().OutboundRoleCount.ShouldBe(2);
 
         // 纯源/纯汇：没有那一侧 ⇒ null（界面写 `--`）
@@ -130,12 +130,12 @@ public class RoleModelTests
         Add(runtime, "withRole", "role-single", typeof(SingleRoleModule));
         Add(runtime, "noRole", "role-single", typeof(SingleRoleModule));
 
-        var result = runtime.Apply(ChangeSet.OfOne(new ConnectNetworkOperation(
-            new NetworkMember("withRole", "out", PortDirection.Send),
-            [new NetworkMember("noRole", "in", PortDirection.Receive)],
-            "link")));
+        TestLink.Link(
+            services,
+            new HYWDebugAssistant.Core.Api.PortRef("withRole", "out"),
+            new HYWDebugAssistant.Core.Api.PortRef("noRole", "in"),
+            "link");
 
-        result.Applied.ShouldBeTrue("角色不参与建网判定");
         services.GetNetworks().ShouldHaveSingleItem();
         runtime.Bindings.Bindings.Count.ShouldBe(1, "角色不参与绑定构建");
 
@@ -151,13 +151,12 @@ public class RoleModelTests
     private static void Add(ModuleRuntime runtime, string instanceId, string name, Type entryType)
     {
         var definition = new ModuleDefinition(
-            ModuleId.Create("test", name, "1.0.0"),
+            ModuleId.Create("test", name),
             entryType.Name,
             string.Empty,
             [],
             ModuleCapability.None,
             [],
-            null,
             true,
             entryType,
             string.Empty,
@@ -167,97 +166,98 @@ public class RoleModelTests
     }
 
     private static void Connect(
-        ModuleRuntime runtime,
+        RuntimeServices services,
         string sourceInstance,
         string sourcePort,
         string targetInstance,
         string targetPort,
-        string name) =>
-        runtime.Apply(ChangeSet.OfOne(new ConnectNetworkOperation(
-            new NetworkMember(sourceInstance, sourcePort, PortDirection.Send),
-            [new NetworkMember(targetInstance, targetPort, PortDirection.Receive)],
-            name))).Applied.ShouldBeTrue();
+        string name)
+    {
+        services.UpdatePortNetwork(sourceInstance, sourcePort, name).Succeeded.ShouldBeTrue();
+        services.UpdatePortNetwork(targetInstance, targetPort, name).Succeeded.ShouldBeTrue();
+        TestLink.HasNetwork(services, name).ShouldBeTrue();
+    }
 
     // ------------------------------------------------------------ 测试模块
 
     /// <summary>一个角色（一进一出）。</summary>
-    [ModuleDefinition("test", "role-single", "1.0.0")]
+    [ModuleDefinition("test", "role-single")]
     public sealed class SingleRoleModule : IModule
     {
         /// <inheritdoc />
         public void OnRegistered(IModuleContext context)
         {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, 1, Sample));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, Sample));
             context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, Sample)
             {
-                Type = new DataTypeRef(TypeId, 1),
+                TypeId = TypeId,
             });
             context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, Sample)
             {
-                Type = new DataTypeRef(TypeId, 1),
+                TypeId = TypeId,
             });
 
             context.Declaration.DeclareRole(RoleDeclaration.Both(
-                "only", new DataTypeRef(TypeId, 1), "in", "out", "单块"));
+                "only", TypeId, "in", "out", "单块"));
         }
     }
 
     /// <summary>两个角色（各自一进一出，同类型）。</summary>
-    [ModuleDefinition("test", "role-double", "1.0.0")]
+    [ModuleDefinition("test", "role-double")]
     public sealed class DoubleRoleModule : IModule
     {
         /// <inheritdoc />
         public void OnRegistered(IModuleContext context)
         {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, 1, Sample));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, Sample));
 
             foreach (var (input, output) in new[] { ("in1", "out1"), ("in2", "out2") })
             {
                 context.Declaration.DeclarePort(new PortDeclaration(input, PortDirection.Receive, Sample)
                 {
-                    Type = new DataTypeRef(TypeId, 1),
+                    TypeId = TypeId,
                 });
                 context.Declaration.DeclarePort(new PortDeclaration(output, PortDirection.Send, Sample)
                 {
-                    Type = new DataTypeRef(TypeId, 1),
+                    TypeId = TypeId,
                 });
             }
 
             context.Declaration.DeclareRole(RoleDeclaration.Both(
-                "first", new DataTypeRef(TypeId, 1), "in1", "out1", "第一块"));
+                "first", TypeId, "in1", "out1", "第一块"));
             context.Declaration.DeclareRole(RoleDeclaration.Both(
-                "second", new DataTypeRef(TypeId, 1), "in2", "out2", "第二块"));
+                "second", TypeId, "in2", "out2", "第二块"));
         }
     }
 
     /// <summary>一个角色 + 两个输出口（用于 `n` 的去重与"未连=0"）。</summary>
-    [ModuleDefinition("test", "role-hub", "1.0.0")]
+    [ModuleDefinition("test", "role-hub")]
     public sealed class HubModule : IModule
     {
         /// <inheritdoc />
         public void OnRegistered(IModuleContext context)
         {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, 1, Sample));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, Sample));
             context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, Sample)
             {
-                Type = new DataTypeRef(TypeId, 1),
+                TypeId = TypeId,
             });
             context.Declaration.DeclarePort(new PortDeclaration("out1", PortDirection.Send, Sample)
             {
-                Type = new DataTypeRef(TypeId, 1),
+                TypeId = TypeId,
             });
             context.Declaration.DeclarePort(new PortDeclaration("out2", PortDirection.Send, Sample)
             {
-                Type = new DataTypeRef(TypeId, 1),
+                TypeId = TypeId,
             });
 
             context.Declaration.DeclareRole(new RoleDeclaration(
-                "hub", new DataTypeRef(TypeId, 1), ["in"], ["out1", "out2"], "转发"));
+                "hub", TypeId, ["in"], ["out1", "out2"], "转发"));
         }
     }
 
     /// <summary>接收端 A（一个角色、一个输入口）。</summary>
-    [ModuleDefinition("test", "role-sink-a", "1.0.0")]
+    [ModuleDefinition("test", "role-sink-a")]
     public sealed class SinkA : IModule
     {
         /// <inheritdoc />
@@ -265,7 +265,7 @@ public class RoleModelTests
     }
 
     /// <summary>接收端 B。</summary>
-    [ModuleDefinition("test", "role-sink-b", "1.0.0")]
+    [ModuleDefinition("test", "role-sink-b")]
     public sealed class SinkB : IModule
     {
         /// <inheritdoc />
@@ -273,48 +273,48 @@ public class RoleModelTests
     }
 
     /// <summary>四条非法声明 + 一条合法（判据 3）。</summary>
-    [ModuleDefinition("test", "role-bad", "1.0.0")]
+    [ModuleDefinition("test", "role-bad")]
     public sealed class BadRoleModule : IModule
     {
         /// <inheritdoc />
         public void OnRegistered(IModuleContext context)
         {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, 1, Sample));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, Sample));
             context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, Sample)
             {
-                Type = new DataTypeRef(TypeId, 1),
+                TypeId = TypeId,
             });
             context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, Sample)
             {
-                Type = new DataTypeRef(TypeId, 1),
+                TypeId = TypeId,
             });
 
             // ① 引用了未声明的类型
             context.Declaration.DeclareRole(RoleDeclaration.Both(
-                "no-type", new DataTypeRef("test/missing", 1), "in", "out"));
+                "no-type", "test/missing", "in", "out"));
 
             // ② 引用了不存在的口
             context.Declaration.DeclareRole(RoleDeclaration.Both(
-                "no-port", new DataTypeRef(TypeId, 1), "nope", "out"));
+                "no-port", TypeId, "nope", "out"));
 
             // ③ 方向不符（把发送口当输入口）
-            context.Declaration.DeclareRole(RoleDeclaration.Input("wrong-dir", new DataTypeRef(TypeId, 1), "out"));
+            context.Declaration.DeclareRole(RoleDeclaration.Input("wrong-dir", TypeId, "out"));
 
             // ④ 口已被合法角色占用
             context.Declaration.DeclareRole(RoleDeclaration.Both(
-                "good", new DataTypeRef(TypeId, 1), "in", "out", "合法"));
-            context.Declaration.DeclareRole(RoleDeclaration.Input("steal", new DataTypeRef(TypeId, 1), "in"));
+                "good", TypeId, "in", "out", "合法"));
+            context.Declaration.DeclareRole(RoleDeclaration.Input("steal", TypeId, "in"));
         }
     }
 
     /// <summary>一个角色但有 3 个输出口（判据 3b：口数不设上限）。</summary>
-    [ModuleDefinition("test", "role-many", "1.0.0")]
+    [ModuleDefinition("test", "role-many")]
     public sealed class ManyPortRoleModule : IModule
     {
         /// <inheritdoc />
         public void OnRegistered(IModuleContext context)
         {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, 1, Sample));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, Sample));
 
             var outputs = new List<string>();
 
@@ -324,22 +324,22 @@ public class RoleModelTests
                 outputs.Add(name);
                 context.Declaration.DeclarePort(new PortDeclaration(name, PortDirection.Send, Sample)
                 {
-                    Type = new DataTypeRef(TypeId, 1),
+                    TypeId = TypeId,
                 });
             }
 
             context.Declaration.DeclareRole(new RoleDeclaration(
-                "many", new DataTypeRef(TypeId, 1), [], outputs, "多输出"));
+                "many", TypeId, [], outputs, "多输出"));
         }
     }
 
     private static void DeclareSink(IModuleContext context, string roleId)
     {
-        context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, 1, Sample));
+        context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, Sample));
         context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, Sample)
         {
-            Type = new DataTypeRef(TypeId, 1),
+            TypeId = TypeId,
         });
-        context.Declaration.DeclareRole(RoleDeclaration.Input(roleId, new DataTypeRef(TypeId, 1), "in", "接收"));
+        context.Declaration.DeclareRole(RoleDeclaration.Input(roleId, TypeId, "in", "接收"));
     }
 }

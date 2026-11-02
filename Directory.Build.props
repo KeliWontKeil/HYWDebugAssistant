@@ -1,5 +1,8 @@
 <Project>
 
+  <!-- 唯一版本事实源：四段数字都在这里（由 tools/version.ps1 写），本文件只做派生。 -->
+  <Import Project="$(MSBuildThisFileDirectory)version.props" />
+
   <!-- 公共编译属性（作用于本目录下所有项目） -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -12,12 +15,29 @@
     <AnalysisLevel>latest-Recommended</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
 
+    <!--
+      输出路径**不随环境漂移**：`$(PlatformName)` 直接决定 `bin\` / `obj\` 下的子目录
+      （Microsoft.Common.CurrentVersion.targets：PlatformName != AnyCPU ⇒ `bin\<Platform>\<Configuration>\`）。
+      本机存在机器级环境变量 `PLATFORM`（被别的工具写成一条路径），MSBuild 会把它当作目标平台 ⇒
+      `bin\C:\...\Debug\net10.0` 这种非法路径（实测 MSB4018）。VS 又会把解决方案平台 `Any CPU`
+      （带空格）当全局属性传下来 ⇒ 与 CLI 产出 `bin\Any CPU\Debug\` 并行的第二棵树，资源各拷各的。
+      固定 `PlatformName=AnyCPU`（目标里只在为空时才从 Platform 推导，因此这里赢）⇒ 全仓只有一棵产物树。
+    -->
+    <PlatformName>AnyCPU</PlatformName>
+
     <!-- 可复现构建 -->
     <Deterministic>true</Deterministic>
     <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
 
-    <!-- 版本信息（后续统一维护） -->
-    <Version>0.1.0</Version>
+    <!--
+      版本 = 大.小.修订.轮次（四段，来自 version.props）。`AssemblyVersion` / `FileVersion` /
+      `InformationalVersion` / NuGet 包版本都由 SDK 从 `$(Version)` 派生 ⇒ 这里**只允许**出现
+      这一个版本属性；不要再单独覆盖任何版本项（门禁 tools/audit-versions.ps1 会拦）。
+    -->
+    <Version>$(HywVersionMajor).$(HywVersionMinor).$(HywVersionPatch).$(HywVersionRound)</Version>
+    <!-- 信息版本保持四段原样，不追加源码修订号 -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+
     <Authors>HYW</Authors>
     <Product>何译位调试助手</Product>
     <NeutralLanguage>zh-Hans</NeutralLanguage>

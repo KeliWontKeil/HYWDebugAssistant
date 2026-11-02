@@ -33,8 +33,8 @@ namespace HYWDebugAssistant.Tests.ExternalAccess;
 [Collection("SerialLoopback")]
 public sealed class SerialDeliveryResponsivenessTests
 {
-    private const string TextSenderId = "hyw/text-sender/1.0.0";
-    private const string SerialId = "hyw/serial/1.0.0";
+    private const string TextSenderId = "hyw/text-sender";
+    private const string SerialId = "hyw/serial";
     private const string AccessName = "serial";
     private const int Baud = 115200;
     private const double LineCapacityBytesPerSecond = Baud / 10.0;
@@ -296,8 +296,8 @@ public sealed class SerialDeliveryResponsivenessTests
         services.AddModule("t1", TextSenderId).Succeeded.ShouldBeTrue();
         services.AddModule("s1", SerialId).Succeeded.ShouldBeTrue();
 
-        var connect = services.Connect(new PortRef("t1", "out"), [new PortRef("s1", "tx")], "responsiveness");
-        connect.Succeeded.ShouldBeTrue(string.Join("；", connect.Failures));
+        // 建网（只有一条用户路径：两端同名标签）
+        TestLink.Link(services, new PortRef("t1", "out"), new PortRef("s1", "tx"), "responsiveness");
 
         services.UpdateConfigurationField("s1", nameof(SerialConfig.PortName), "PROBE0")
             .Succeeded.ShouldBeTrue();

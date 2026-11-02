@@ -26,7 +26,6 @@ namespace HYWDebugAssistant.Tests.Reference.Stubs;
 [ModuleDefinition(
     "test",
     "reject-counting-sender",
-    "1.0.0",
     DisplayName = "发送拒绝计数桩（测试用）",
     Description = "1 ms 一条持续发送；分别累计「框架接受了多少次」与「框架拒绝了多少次」",
     Tags = ["test", "source"])]
@@ -91,14 +90,14 @@ public sealed class RejectCountingSenderStubModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        context.Declaration.DeclareDataType(new DataTypeDeclaration(RawBytesTypeId, RawBytesVersion, RawBytesShape));
+        context.Declaration.DeclareDataType(new DataTypeDeclaration(RawBytesTypeId, RawBytesShape));
 
         context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, RawBytesShape)
         {
-            Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
+            TypeId = RawBytesTypeId,
         });
 
-        context.Declaration.DeclareRole(RoleDeclaration.Output(RoleId, new DataTypeRef(RawBytesTypeId, RawBytesVersion), OutPort, "发数"));
+        context.Declaration.DeclareRole(RoleDeclaration.Output(RoleId, RawBytesTypeId, OutPort, "发数"));
 
         // 测试按名字读这两个计数 ⇒ 必须在代码里声明显示源（声明是缓冲的唯一来源）。
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(SentSource, ViewDataSourceKind.Value, ContractPrimitive.U64));

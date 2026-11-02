@@ -62,7 +62,7 @@ public class HostingPackageTests
 
         result.Succeeded.ShouldBeTrue(result.FailureReason);
         var package = result.Package!;
-        package.Id.ToString().ShouldBe("hyw/text-sender/1.0.0");
+        package.Id.ToString().ShouldBe("hyw/text-sender");
         package.EntryType.Name.ShouldBe("TextSenderModule");
         package.DefinitionAttribute.DisplayName.ShouldBeEmpty("字面量已进文本表（DisplayNameKey）");
         package.DefinitionAttribute.DisplayNameKey.ShouldBe("module.title");
@@ -268,10 +268,9 @@ public class HostingPackageTests
                 Path.Combine(directory, "module.json"),
                 $$"""
                 {
-                  "id": "test/nested-input/1.0.0",
+                  "id": "test/nested-input",
                   "entryAssembly": "{{assemblyName}}",
-                  "entryType": "HYWDebugAssistant.Tests.BusinessModulesIntegrationTests+NestedInputModule",
-                  "frameworkCompatibility": ">=2.0.0 <3.0.0"
+                  "entryType": "HYWDebugAssistant.Tests.BusinessModulesIntegrationTests+NestedInputModule"
                 }
                 """);
 
@@ -318,8 +317,8 @@ public class HostingPackageTests
     [Fact]
     public void 清单与代码声明不一致_应拒绝加载()
     {
-        // 清单写 2.0.0，而代码声明是 1.0.0 → 拒绝（避免同名歧义）
-        using var temp = new TempPackage(TextSenderPackage, manifestId: "hyw/text-sender/2.0.0");
+        // 清单写的是另一个合法 ID，而代码声明是 hyw/text-sender → 拒绝（避免同名歧义）
+        using var temp = new TempPackage(TextSenderPackage, manifestId: "hyw/other-sender");
 
         var result = ModulePackageLoader.Load(temp.Directory);
 
@@ -328,7 +327,7 @@ public class HostingPackageTests
     }
 
     [Fact]
-    public void 注册表_重复注册同版本应被拒绝()
+    public void 注册表_重复注册同ID应被拒绝()
     {
         var definition = DefinitionFromRealPackage();
         var registry = new ModuleRegistry();
@@ -338,25 +337,6 @@ public class HostingPackageTests
         secondFailure.ShouldNotBeNullOrWhiteSpace();
     }
 
-    [Fact]
-    public void 注册表_多版本应可共存且可按名解析()
-    {
-        var registry = new ModuleRegistry();
-        var v1 = DefinitionFromRealPackage();
-        var v2 = new ModuleDefinition(
-            ModuleId.Create("hyw", "text-sender", "2.0.0"),
-            v1.DisplayName, v1.Description, v1.Tags, v1.Capabilities, v1.DependsOn,
-            v1.FrameworkCompatibility, v1.ParticipatesInDataFlow, v1.EntryType, v1.PackageDirectory, v1.AssemblyPath);
-
-        registry.TryRegister(v1, out _).ShouldBeTrue();
-        registry.TryRegister(v2, out _).ShouldBeTrue();
-
-        registry.Definitions.Count.ShouldBe(2);
-        registry.ResolveVersions("hyw", "text-sender").Count.ShouldBe(2);
-
-        registry.TryResolve(ModuleId.Create("hyw", "text-sender", "2.0.0"), out var resolved).ShouldBeTrue();
-        resolved!.Id.Version.ShouldBe("2.0.0");
-    }
 
     [Fact]
     public void 注册表_可注销()

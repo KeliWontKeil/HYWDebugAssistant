@@ -350,7 +350,7 @@ public static class ModuleInstanceFactory
         var roles = new List<Sdk.Contracts.RoleDeclaration>(context.DeclaredRoles.Count);
         var ids = new HashSet<string>(StringComparer.Ordinal);
         var claimed = new Dictionary<string, string>(StringComparer.Ordinal);   // 口名 → 已占用它的角色 Id
-        var knownTypes = new HashSet<DataTypeRef>(dataTypes.Select(t => t.Reference));
+        var knownTypes = new HashSet<string>(dataTypes.Select(t => t.TypeId));
 
         foreach (var role in context.DeclaredRoles)
         {
@@ -366,9 +366,9 @@ public static class ModuleInstanceFactory
                 continue;
             }
 
-            if (!knownTypes.Contains(role.Type))
+            if (!knownTypes.Contains(role.TypeId))
             {
-                Report(HostingText.Get("hosting.instance.roleTypeUndeclared", role.Id, role.Type));
+                Report(HostingText.Get("hosting.instance.roleTypeUndeclared", role.Id, role.TypeId));
                 continue;
             }
 
@@ -378,8 +378,8 @@ public static class ModuleInstanceFactory
                 continue;
             }
 
-            if (!ValidatePorts(role.Id, role.Type, role.Inputs, Sdk.Ports.PortDirection.Receive)
-                || !ValidatePorts(role.Id, role.Type, role.Outputs, Sdk.Ports.PortDirection.Send))
+            if (!ValidatePorts(role.Id, role.TypeId, role.Inputs, Sdk.Ports.PortDirection.Receive)
+                || !ValidatePorts(role.Id, role.TypeId, role.Outputs, Sdk.Ports.PortDirection.Send))
             {
                 continue;
             }
@@ -410,7 +410,7 @@ public static class ModuleInstanceFactory
 
         bool ValidatePorts(
             string roleId,
-            Sdk.Contracts.DataTypeRef roleType,
+            string roleType,
             IReadOnlyList<string> names,
             Sdk.Ports.PortDirection expected)
         {
@@ -445,7 +445,7 @@ public static class ModuleInstanceFactory
                 // 角色的**输入口与输出口必须承载同一种数据类型**（= `roleType`）。
                 // ⇒ 类型转换 = **两个数据角色**（「收 A」+「发 B」）+ DeclareFlow（叠加层上是两个方块）。
                 // 口**未声明类型**（旧模块形态）⇒ 无可比对象，跳过（与「可声明 ≠ 必须声明」一致）。
-                if (port.Declaration.Type is { } portType && portType != roleType)
+                if (port.Declaration.TypeId is { } portType && !string.Equals(portType, roleType, StringComparison.Ordinal))
                 {
                     Report(HostingText.Get(
                         "hosting.instance.rolePortTypeMismatch",
@@ -521,7 +521,7 @@ public static class ModuleInstanceFactory
     }
 
     /// <summary>
-    /// 建立数据类型的**机械镜像**（标识/版本/尺寸/语义/计量/解码器句柄）：同（标识, 版本）重复即报 Issue 并跳过。
+    /// 建立数据类型的**机械镜像**（标识/尺寸/语义/计量/解码器句柄）：同标识重复即报 Issue 并跳过。
     /// </summary>
     /// <remarks>
     /// 框架**不解释**类型语义——只登记"有什么类型、多大、怎么解"，供兼容判定与呈现期回调使用。
@@ -532,16 +532,16 @@ public static class ModuleInstanceFactory
         Diagnostics.IIssueSink issues)
     {
         var types = new List<DataTypeDeclaration>(context.DeclaredDataTypes.Count);
-        var seen = new HashSet<DataTypeRef>();
+        var seen = new HashSet<string>();
 
         foreach (var declaration in context.DeclaredDataTypes)
         {
-            if (!seen.Add(declaration.Reference))
+            if (!seen.Add(declaration.TypeId))
             {
                 issues.Report(objectPath, new Sdk.Reporting.IssueReport(
                     Sdk.Reporting.IssueCategory.InterfaceError,
                     Sdk.Reporting.IssueSeverity.Error,
-                    HostingText.Get("hosting.instance.dataTypeDuplicate", declaration.Reference)));
+                    HostingText.Get("hosting.instance.dataTypeDuplicate", declaration.TypeId)));
                 continue;
             }
 
@@ -551,12 +551,12 @@ public static class ModuleInstanceFactory
         // 口引用了未声明的类型 ⇒ 明确报 Issue（不静默当作"没声明"）
         foreach (var port in context.DeclaredPorts)
         {
-            if (port.Type is { } reference && !seen.Contains(reference))
+            if (port.TypeId is { } typeId && !seen.Contains(typeId))
             {
                 issues.Report(objectPath, new Sdk.Reporting.IssueReport(
                     Sdk.Reporting.IssueCategory.InterfaceError,
                     Sdk.Reporting.IssueSeverity.Warning,
-                    HostingText.Get("hosting.instance.portUndeclaredType", port.Name, reference),
+                    HostingText.Get("hosting.instance.portUndeclaredType", port.Name, typeId),
                     port.Name));
             }
         }

@@ -43,7 +43,7 @@ public class ThreadScalingBenchmarks
 
         for (var i = 0; i < Instances; i++)
         {
-            if (!services.AddModule($"m{i}", "bench/idle/1.0.0").Succeeded)
+            if (!services.AddModule($"m{i}", "bench/idle").Succeeded)
             {
                 throw new InvalidOperationException("加入实例失败");
             }
@@ -65,13 +65,12 @@ public class ThreadScalingBenchmarks
     private static void Register(RuntimeServices services)
     {
         var definition = new ModuleDefinition(
-            ModuleId.Create("bench", "idle", "1.0.0"),
+            ModuleId.Create("bench", "idle"),
             "IdleBenchModule",
             string.Empty,
             [],
             ModuleCapability.None,
             [],
-            null,
             true,
             typeof(IdleBenchModule),
             string.Empty,
@@ -84,7 +83,7 @@ public class ThreadScalingBenchmarks
     }
 
     /// <summary>空转模块：只声明一个口、没有任何活动（纯"占一个专属线程"）。</summary>
-    [ModuleDefinition("bench", "idle", "1.0.0")]
+    [ModuleDefinition("bench", "idle")]
     public sealed class IdleBenchModule : IModule
     {
         public void OnRegistered(IModuleContext context) =>

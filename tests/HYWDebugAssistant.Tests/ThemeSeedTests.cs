@@ -45,7 +45,6 @@ public class ThemeSeedTests
         var persisted = System.Text.Json.Nodes.JsonNode
             .Parse(File.ReadAllText(temp.SettingsPath))!
             .AsObject();
-        persisted["schemaVersion"]!.GetValue<int>().ShouldBe(HYWDebugAssistant.Core.Api.ApplicationSettings.CurrentSchemaVersion);
         persisted["appearance"]!["seeded"]!.AsArray()
             .Select(item => item!.GetValue<string>())
             .ShouldContain("settings/appearance/themes/sakura");
@@ -182,42 +181,6 @@ public class ThemeSeedTests
         temp.Runtime.Issues.Count.ShouldBe(0, "没有出厂种子不是异常（删掉 resources\\ 的安装照样启动）");
     }
 
-    [Fact]
-    public void 旧版本设置_不迁移也不写回_且不投放种子()
-    {
-        using var temp = new SeedScope();
-        Directory.CreateDirectory(Path.GetDirectoryName(temp.SettingsPath)!);
-
-        var original = """
-{
-  "schemaVersion": 3,
-  "appearance": {
-    "theme": "sakura",
-    "systemLightScheme": "sakura",
-    "systemDarkScheme": "sakura",
-    "seededThemes": [ "sakura" ],
-    "schemes": [ { "id": "sakura", "title": "樱色", "base": "light" } ],
-    "paletteOverrides": { "sakura": { "AccentPrimary": "#112233" } }
-  }
-}
-""";
-        File.WriteAllText(temp.SettingsPath, original);
-
-        var service = temp.CreateService();
-        service.Load().ShouldBe(SettingsLoadOutcome.Loaded);
-
-        // 只读已知标量键；外观主题回落内置（自定义主题没有文件夹 ⇒ 跟随系统 / 内置浅深）
-        service.Current.Appearance.ThemeSelection.ShouldBe(ThemeIds.System);
-        service.Current.Appearance.SystemLightScheme.ShouldBe(ThemeIds.Light);
-        service.Current.Appearance.SystemDarkScheme.ShouldBe(ThemeIds.Dark);
-
-        // 旧文件**不写回**（保护原文件），也不投放（投了没地方记，删了会复活）
-        File.ReadAllText(temp.SettingsPath).ShouldBe(original, "旧版本设置载入时不得被改写");
-        service.Themes.Exists(SeedScope.SeedThemeId).ShouldBeFalse("旧版本设置不投放种子");
-
-        temp.Runtime.Issues.Recent(10).ShouldContain(
-            entry => entry.Issue.Severity == IssueSeverity.Warning);
-    }
 
     /// <summary>出厂种子 + 程序目录的临时布局（种子根与目标根分开，互不污染）。</summary>
     private sealed class SeedScope : IDisposable
@@ -227,7 +190,6 @@ public class ThemeSeedTests
 
         private const string SakuraManifest = """
 {
-  "schemaVersion": 1,
   "id": "sakura",
   "title": "樱色",
   "base": "light",

@@ -17,7 +17,7 @@ namespace HYWDebugAssistant.Hosting.Instances;
 /// </remarks>
 public sealed class ModuleInstance
 {
-    private readonly Dictionary<DataTypeRef, DataTypeDeclaration> _dataTypes;
+    private readonly Dictionary<string, DataTypeDeclaration> _dataTypes;
 
     internal ModuleInstance(
         string instanceId,
@@ -48,12 +48,12 @@ public sealed class ModuleInstance
         ExternalAccesses = externalAccesses;
         Context = context;
 
-        // 机械镜像：按（标识, 版本）索引，供口/数据源的引用解析（同键重复时以**先声明者**为准，重复已由工厂报 Issue）
-        _dataTypes = new Dictionary<DataTypeRef, DataTypeDeclaration>(dataTypes.Count);
+        // 机械镜像：按类型标识索引，供口/数据源的引用解析（同键重复时以**先声明者**为准，重复已由工厂报 Issue）
+        _dataTypes = new Dictionary<string, DataTypeDeclaration>(dataTypes.Count);
 
         foreach (var type in dataTypes)
         {
-            _ = _dataTypes.TryAdd(type.Reference, type);
+            _ = _dataTypes.TryAdd(type.TypeId, type);
         }
     }
 
@@ -135,10 +135,10 @@ public sealed class ModuleInstance
     public PortInstance? FindPort(string name) =>
         Ports.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.Ordinal));
 
-    /// <summary>按（标识, 版本）查找已声明的数据类型（未声明 = <see langword="null"/> ⇒ 兼容判定回退结构比较）。</summary>
-    /// <param name="reference">类型引用。</param>
-    public DataTypeDeclaration? FindDataType(DataTypeRef reference) =>
-        _dataTypes.TryGetValue(reference, out var type) ? type : null;
+    /// <summary>按类型标识查找已声明的数据类型（未声明 = <see langword="null"/> ⇒ 兼容判定回退结构比较）。</summary>
+    /// <param name="typeId">类型标识。</param>
+    public DataTypeDeclaration? FindDataType(string typeId) =>
+        _dataTypes.TryGetValue(typeId, out var type) ? type : null;
 
     /// <inheritdoc />
     public override string ToString() => $"{InstanceId}@{Definition.Id}";

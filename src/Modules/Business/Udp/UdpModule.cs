@@ -20,7 +20,6 @@ namespace HYWDebugAssistant.Modules.Udp;
 [ModuleDefinition(
     "hyw",
     "udp",
-    "1.0.0",
     DisplayNameKey = UdpText.Title,
     DescriptionKey = UdpText.Description,
     Tags = ["udp", "io"],

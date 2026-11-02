@@ -1,5 +1,4 @@
 {
-  "schemaVersion": 1,
   "language": "zh-Hans",
   "entries": {
     "module.description": "将一个UDP端口接入上位机，以与其他UDP端口进行数据交换",

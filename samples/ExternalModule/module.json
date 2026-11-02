@@ -1,8 +1,7 @@
 {
-  "id": "sample/serial-access/1.0.0",
+  "id": "sample/serial-access",
   "entryAssembly": "HYWDebugAssistant.Samples.ExternalModule.dll",
   "entryType": "HYWDebugAssistant.Samples.ExternalModule.SampleSerialModule",
-  "frameworkCompatibility": ">=2.0.0 <3.0.0",
   "dependsOn": [],
   "resources": []
 }

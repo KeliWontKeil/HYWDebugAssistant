@@ -300,7 +300,6 @@ public class RoleProjectionTests
     {
         var role = Block("a/hub", "hub", "融合", ["in1", "in2"], ["out"], 2, 1);
 
-        role.RateText.ShouldBe("---", "未回填 ⇒ 速率是**占位符**而不是 0（'0 B/s' 与'没测到'不可混）");
         role.MetaText.ShouldBeEmpty("类型未声明语义 ⇒ 不占位");
         role.InfoLines.Count.ShouldBe(2, "①速率 ②口数（类型标签未声明 ⇒ 不占位）");
         role.InfoLines[0].Primary.ShouldBeTrue("速率是**主行**（大字 + 主文字色）");

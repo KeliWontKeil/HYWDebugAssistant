@@ -19,7 +19,6 @@ namespace HYWDebugAssistant.Modules.TcpClient;
 [ModuleDefinition(
     "hyw",
     "tcp-client",
-    "1.0.0",
     DisplayNameKey = TcpClientText.Title,
     DescriptionKey = TcpClientText.Description,
     Tags = ["tcp", "client", "io"],

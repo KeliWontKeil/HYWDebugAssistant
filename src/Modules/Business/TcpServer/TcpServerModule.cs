@@ -20,7 +20,6 @@ namespace HYWDebugAssistant.Modules.TcpServer;
 [ModuleDefinition(
     "hyw",
     "tcp-server",
-    "1.0.0",
     DisplayNameKey = TcpServerText.Title,
     DescriptionKey = TcpServerText.Description,
     Tags = ["tcp", "server", "io"],

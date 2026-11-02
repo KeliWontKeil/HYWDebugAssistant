@@ -1,14 +1,14 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    打包三个 SDK 契约程序集到本地 NuGet 源（`artifacts/sdk-packages`）。
+    打包三个 SDK 程序集到本地 NuGet 源（`artifacts/sdk-packages`）。
 
 .DESCRIPTION
-    产物只含三个包（版本 = 各项目的 PackageVersion，即 SDK 契约版本）：
+    产物只含三个包（包版本 = 产品四段版本，取自仓库根 `version.props`）：
       · HYWDebugAssistant.Sdk
       · HYWDebugAssistant.Sdk.Ui（依赖 Avalonia）
       · HYWDebugAssistant.Sdk.AccessKit（依赖 Sdk）
-    产品版本（Directory.Build.props 的 Version=0.1.0）不变。
+    版本不在本脚本维护：`version.props` 是唯一事实源（见 docs/architecture/VERSIONING.md）。
     该目录是**构建产物**（每次清空重建），示例模块/独立验证脚本从这里还原。
 
 .EXAMPLE
@@ -20,6 +20,12 @@ param()
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+. (Join-Path $PSScriptRoot 'dotnet-env.ps1')
+
+$version = (& (Join-Path $PSScriptRoot 'version.ps1') -Value).Trim()
+if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+    throw "无法从 version.props 取得四段版本（得到 '$version'）"
+}
 
 foreach ($name in @('Platform', 'Platform(x86)')) {
     if (Test-Path "Env:$name") {
@@ -38,7 +44,7 @@ New-Item -ItemType Directory -Force -Path $output | Out-Null
 
 # NuGet 以 id+version 为缓存键：同版本重打包后，全局缓存里的旧 nuspec 会遮蔽新包。
 # 只清这三个第一方包目录，不动整个缓存。
-$globalPackages = Join-Path $env:USERPROFILE '.nuget\packages'
+$globalPackages = Get-NuGetGlobalPackagesDirectory
 foreach ($packageId in @('hywdebugassistant.sdk', 'hywdebugassistant.sdk.ui', 'hywdebugassistant.sdk.accesskit')) {
     $cached = Join-Path $globalPackages $packageId
     if (Test-Path -LiteralPath $cached) {
@@ -61,7 +67,7 @@ foreach ($project in $projects) {
     }
 }
 
-# 校验按**产物**枚举，不写死版本号：版本由各项目的 PackageVersion 决定，改版本不该再改这个脚本。
+# 校验按**产物**枚举：版本取自 version.props，改版本不需要改本脚本。
 $packageIds = @(
     'HYWDebugAssistant.Sdk',
     'HYWDebugAssistant.Sdk.Ui',
@@ -72,7 +78,7 @@ function Test-SdkPackageName {
     param([string]$Name)
 
     foreach ($id in $packageIds) {
-        if ($Name -match ('^' + [regex]::Escape($id) + '\.\d+\.\d+\.\d+.*\.nupkg$')) {
+        if ($Name -match ('^' + [regex]::Escape($id) + '\.\d+\.\d+\.\d+\.\d+\.nupkg$')) {
             return $true
         }
     }
@@ -84,9 +90,10 @@ $produced = @(Get-ChildItem $output -File)
 
 $missing = @()
 foreach ($id in $packageIds) {
-    $hit = @($produced | Where-Object { $_.Name -match ('^' + [regex]::Escape($id) + '\.\d+\.\d+\.\d+.*\.nupkg$') })
+    $expectedName = "$id.$version.nupkg"
+    $hit = @($produced | Where-Object { $_.Name -eq $expectedName })
     if ($hit.Count -ne 1) {
-        $missing += "$id（匹配到 $($hit.Count) 个）"
+        $missing += "$expectedName（匹配到 $($hit.Count) 个）"
     }
 }
 
@@ -102,4 +109,4 @@ if ($extra.Count -gt 0) {
 $produced | Sort-Object Name |
     ForEach-Object { Write-Host ("[pack]   {0,-48} {1,8:N1} KB" -f $_.Name, ($_.Length / 1KB)) }
 
-Write-Host "[pack] 三个 SDK 包已生成：$output" -ForegroundColor Green
+Write-Host "[pack] 三个 SDK 包已生成（$version）：$output" -ForegroundColor Green

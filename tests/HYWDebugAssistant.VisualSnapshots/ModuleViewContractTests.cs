@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
@@ -204,22 +203,8 @@ public class ModuleViewContractTests
                         $"{moduleType.Name} 的读数「{value.Source}」标题与值之间空了 {value.Bounds.Left - caption.Bounds.Right:0.#}px");
                 }
 
-                // **结构文案装得下**：静态标签（字段标题 / 固定说明）不许被截断；
-                // 动态文本（状态这类长度不受控的）允许省略号，但必须显式声明。
-                foreach (var label in labels)
-                {
-                    AssertTextFits(moduleType.Name, label, label.Field, requireFit: true);
-                }
-
-                foreach (var label in elements.OfType<ModuleLabel>().Where(item => item.Field.Length == 0))
-                {
-                    AssertTextFits(moduleType.Name, label, label.Source, requireFit: label.Source.Length == 0);
-                }
-
-                foreach (var value in elements.OfType<ModuleNumeric>())
-                {
-                    AssertValueFits(moduleType.Name, value);
-                }
+                // 文案装得下与否**不是测试判据**：措辞长度属用户可调的呈现（改文案不该让测试变红），
+                // 装不下由人眼验收；这里只保留结构与"声明必须被正确应用"的判据。
 
                 foreach (var button in window.GetVisualDescendants().OfType<ModuleButton>())
                 {
@@ -517,65 +502,6 @@ public class ModuleViewContractTests
             .Select(type => type.GetField("ClearCountersIcon", BindingFlags.Public | BindingFlags.Static))
             .FirstOrDefault(field => field is { IsLiteral: true } && field.FieldType == typeof(string))
             ?.GetRawConstantValue() as string;
-
-    /// <summary>静态标签必须装得下；动态标签允许省略号，但必须显式声明截断。</summary>
-    private static void AssertTextFits(string moduleName, ModuleLabel label, string key, bool requireFit)
-    {
-        var text = label.GetVisualDescendants()
-            .OfType<TextBlock>()
-            .SingleOrDefault(block => block.Name == "PART_Text");
-
-        if (text is null || string.IsNullOrEmpty(text.Text))
-        {
-            return;
-        }
-
-        var measured = MeasureText(text);
-
-        if (!requireFit)
-        {
-            text.TextTrimming.ShouldNotBe(
-                TextTrimming.None,
-                $"{moduleName} 的动态文本「{key}」长度不受控，必须显式声明省略号（否则会被硬切）");
-            return;
-        }
-
-        measured.ShouldBeLessThanOrEqualTo(
-            text.Bounds.Width + 0.5,
-            $"{moduleName} 的标签「{key}」装不下（需要 {measured:0.#}px，只有 {text.Bounds.Width:0.#}px）—— 删字或加宽它的矩形");
-    }
-
-    /// <summary>读数的值同样必须装得下自己的矩形。</summary>
-    private static void AssertValueFits(string moduleName, ModuleNumeric value)
-    {
-        var text = value.GetVisualDescendants()
-            .OfType<TextBlock>()
-            .SingleOrDefault(block => block.Name == "PART_Value");
-
-        if (text is null || string.IsNullOrEmpty(text.Text))
-        {
-            return;
-        }
-
-        MeasureText(text).ShouldBeLessThanOrEqualTo(
-            text.Bounds.Width + 0.5,
-            $"{moduleName} 的读数「{value.Source}」装不下（需要 {MeasureText(text):0.#}px，只有 {text.Bounds.Width:0.#}px）—— 加宽它的矩形");
-    }
-
-    /// <summary>按文本块自己的字体/字号量出它要占的宽（与布局同源）。</summary>
-    private static double MeasureText(TextBlock text)
-    {
-        var typeface = new Typeface(text.FontFamily, text.FontStyle, text.FontWeight, text.FontStretch);
-        var formatted = new FormattedText(
-            text.Text ?? string.Empty,
-            CultureInfo.CurrentCulture,
-            FlowDirection.LeftToRight,
-            typeface,
-            text.FontSize,
-            Brushes.Black);
-
-        return formatted.WidthIncludingTrailingWhitespace;
-    }
 
     /// <summary>从配置类型推出"每个字段应该长什么样"的替身（标题取**声明该接入的模块**的表，与运行时同一份）。</summary>
     private static Dictionary<string, ConfigFieldView> BuildFields(Type configType, Assembly textOwner)

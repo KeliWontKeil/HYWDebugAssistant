@@ -1,5 +1,4 @@
 {
-  "schemaVersion": 1,
   "entries": {
     "icon.shell.modules": "shell/modules.svg",
     "icon.shell.composite": "shell/composite.svg",

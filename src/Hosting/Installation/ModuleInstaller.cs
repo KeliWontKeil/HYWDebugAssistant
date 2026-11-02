@@ -9,16 +9,16 @@ namespace HYWDebugAssistant.Hosting.Installation;
 /// <summary>模块包安装结果分类（只有 <see cref="Failed"/> 是真正的失败）。</summary>
 public enum ModuleInstallOutcome
 {
-    /// <summary>新装入（新包或同 ID 的新版本）。</summary>
+    /// <summary>新装入（注册表里没有同 ID 的包）。</summary>
     Installed = 0,
 
-    /// <summary>同包目录、同 ID 同版本、内容未变：已载入。</summary>
+    /// <summary>同包目录、内容未变：已载入。</summary>
     AlreadyLoaded = 1,
 
-    /// <summary>同 ID 同版本但来自另一个包目录：先到者胜。</summary>
+    /// <summary>同 ID 但来自另一个包目录：先到者胜。</summary>
     DuplicatePackage = 2,
 
-    /// <summary>同包目录、同 ID 同版本，但包文件在本次进程启动后被重新构建：需重启。</summary>
+    /// <summary>同包目录，但包文件在本次进程启动后被重新构建：需重启。</summary>
     ContentChanged = 3,
 
     /// <summary>真正的加载/校验/依赖/注册失败。</summary>
@@ -49,9 +49,9 @@ public sealed record ModuleInstallResult(
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>显式加载</b>：由用户指定包目录（或来源目录扫描的结果）触发；不自动扫描任意位置。</item>
-///   <item><b>校验</b>：包结构（<see cref="ModulePackageLoader"/>）→ **框架兼容范围** → **依赖存在性**。</item>
-///   <item><b>失败</b>：只有结构/兼容/依赖/注册失败才报 Error；同包重复是正常状态。</item>
-///   <item><b>多版本</b>：同 ID 不同版本共存注册；同 ID 同版本**不覆盖、不报错**。</item>
+///   <item><b>校验</b>：包结构（<see cref="ModulePackageLoader"/>）→ **依赖存在性**。</item>
+///   <item><b>失败</b>：只有结构/依赖/注册失败才报 Error；同包重复是正常状态。</item>
+///   <item><b>一个 ID 一个定义</b>：同 ID 不共存、不覆盖；内容变化由"同目录重建"表达（需重启）。</item>
 /// </list>
 /// </remarks>
 public sealed class ModuleInstaller
@@ -91,16 +91,7 @@ public sealed class ModuleInstaller
 
         var candidate = ModuleDefinition.FromPackage(loadResult.Package!);
 
-        // ② 框架兼容范围
-        if (!FrameworkCompatibility.IsSatisfied(
-                candidate.FrameworkCompatibility,
-                FrameworkCompatibility.CurrentFrameworkVersion,
-                out var compatibilityError))
-        {
-            return Fail(objectPath, $"{candidate.Id}：{compatibilityError}");
-        }
-
-        // ③ 依赖存在性（缺失依赖 → Issue，不静默降级）
+        // ② 依赖存在性（缺失依赖 → Issue，不静默降级）
         foreach (var dependency in candidate.DependsOn)
         {
             if (!ModuleId.TryParse(dependency, out var dependencyId))
@@ -114,7 +105,7 @@ public sealed class ModuleInstaller
             }
         }
 
-        // ④ 同 ID 同版本已在注册表：不覆盖、不报错；区分“同一包”与“另一个包”
+        // ③ 同 ID 已在注册表：不覆盖、不报错；区分“同一包”与“另一个包”
         if (_registry.TryResolve(candidate.Id, out var existing) && existing is not null)
         {
             var samePackage = string.Equals(
@@ -142,7 +133,7 @@ public sealed class ModuleInstaller
                 HostingText.Get("hosting.install.loadedOtherDir", candidate.Id, existing.PackageDirectory));
         }
 
-        // ⑤ 注册（同 ID 不同版本可共存）
+        // ④ 注册（一个 ID 一个定义）
         if (!_registry.TryRegister(candidate, out var registerError))
         {
             return Fail(objectPath, registerError!);

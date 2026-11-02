@@ -31,9 +31,9 @@ internal static class RoleModel
     /// <param name="instance">实例（取类型镜像）。</param>
     internal static string TypeTextOf(RoleDeclaration role, ModuleInstance instance)
     {
-        var declaration = instance.FindDataType(role.Type);
+        var declaration = instance.FindDataType(role.TypeId);
         return declaration is null
-            ? CoreText.Get("core.services.roleUndeclaredType", role.Type)
+            ? CoreText.Get("core.services.roleUndeclaredType", role.TypeId)
             : declaration.Shape.Describe();
     }
 

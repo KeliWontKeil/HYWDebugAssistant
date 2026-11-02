@@ -50,9 +50,6 @@ public static class PaletteManifest
     /// <summary>清单的逻辑资源名（在 `Ui.csproj` 里显式指定，不靠"猜资源名的拼法"）。</summary>
     public const string ResourceName = "HYWDebugAssistant.Ui.Styles.palette.json";
 
-    /// <summary>契约版本（主题文件据此判断"这套主题还认不认得"）。</summary>
-    public static int ContractVersion { get; }
-
     /// <summary>全部 token（按契约里的顺序）。</summary>
     public static IReadOnlyList<PaletteToken> Tokens { get; }
 
@@ -79,10 +76,6 @@ public static class PaletteManifest
 
         using var document = JsonDocument.Parse(stream);
         var root = document.RootElement;
-
-        ContractVersion = root.TryGetProperty("contractVersion", out var version) && version.TryGetInt32(out var parsed)
-            ? parsed
-            : 1;
 
         var groups = new List<PaletteGroup>();
         foreach (var item in root.GetProperty("groups").EnumerateArray())

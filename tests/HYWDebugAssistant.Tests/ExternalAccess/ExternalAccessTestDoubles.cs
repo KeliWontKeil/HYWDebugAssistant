@@ -284,13 +284,12 @@ public sealed class FakeAccessModule : IModule, IModuleInteractionSink
 internal static class FakeModuleDefinition
 {
     public static ModuleDefinition Create(Type entryType) => new(
-        ModuleId.Create("test", "access", "1.0.0"),
+        ModuleId.Create("test", "access"),
         "测试接入模块",
         "框架用例用的无活动体模块",
         [],
         ModuleCapability.None,
         [],
-        frameworkCompatibility: null,
         participatesInDataFlow: false,
         entryType: entryType,
         packageDirectory: string.Empty,

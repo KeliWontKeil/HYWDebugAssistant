@@ -174,11 +174,10 @@ public abstract class ExternalAccessModule : IModule, IModuleInteractionSink
         _frame = new byte[RawBytesFraming.FrameSize(spec.Capacity)];
 
         var shape = RawBytesFraming.Shape(spec.Capacity);
-        var type = new DataTypeRef(RawBytesFraming.TypeId, RawBytesFraming.Version);
+        var type = RawBytesFraming.TypeId;
 
         context.Declaration.DeclareDataType(new DataTypeDeclaration(
             RawBytesFraming.TypeId,
-            RawBytesFraming.Version,
             shape)
         {
             Metering = new MeteringBlock { PayloadLengthField = "len" },
@@ -186,13 +185,13 @@ public abstract class ExternalAccessModule : IModule, IModuleInteractionSink
 
         context.Declaration.DeclarePort(new PortDeclaration(spec.RxPort, PortDirection.Send, shape)
         {
-            Type = type,
+            TypeId = type,
             Edge = PortEdge.Bottom,
         });
 
         context.Declaration.DeclarePort(new PortDeclaration(spec.TxPort, PortDirection.Receive, shape)
         {
-            Type = type,
+            TypeId = type,
             Edge = PortEdge.Top,
         });
 

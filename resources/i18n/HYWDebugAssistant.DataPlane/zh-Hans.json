@@ -1,5 +1,4 @@
 {
-  "schemaVersion": 1,
   "language": "zh-Hans",
   "entries": {
     "dataplane.access.adapterFactoryReturnedNull": "标准 '{0}' 的适配件工厂返回空",

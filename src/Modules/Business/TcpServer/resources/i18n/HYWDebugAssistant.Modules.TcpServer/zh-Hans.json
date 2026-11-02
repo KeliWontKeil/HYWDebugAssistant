@@ -1,5 +1,4 @@
 {
-  "schemaVersion": 1,
   "language": "zh-Hans",
   "entries": {
     "module.description": "将一个TCP服务端接入上位机，以启动一个基础的TCP服务器并进行数据交换",

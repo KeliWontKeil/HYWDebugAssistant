@@ -24,10 +24,9 @@ public class CompositeImportTests
         {
             File.WriteAllText(path, """
                 {
-                  "schemaVersion": 3,
                   "name": "missing",
                   "instances": [
-                    { "instanceId": "m1", "moduleId": "hyw/missing/1.0.0", "enabled": true }
+                    { "instanceId": "m1", "moduleId": "hyw/missing", "enabled": true }
                   ],
                   "networks": [],
                   "layout": {}
@@ -37,7 +36,7 @@ public class CompositeImportTests
             var file = services.GetCompositeFiles().Single(f => f.Path == path);
             file.ModuleCount.ShouldBe(1);
             file.ReadError.ShouldBeNull();
-            file.MissingModules.ShouldNotBeNull().ShouldContain("hyw/missing/1.0.0");
+            file.MissingModules.ShouldNotBeNull().ShouldContain("hyw/missing");
         }
         finally
         {

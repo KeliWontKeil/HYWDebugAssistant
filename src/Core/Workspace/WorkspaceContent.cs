@@ -131,9 +131,6 @@ public sealed class WorkspaceContent
         return true;
     }
 
-    /// <summary>已占用的网络名（命名冲突校验用）。</summary>
-    internal bool IsNameTaken(string networkName) =>
-        _networks.Any(n => string.Equals(n.Name, networkName, StringComparison.Ordinal));
 
     private bool RemoveAddOrder(string instanceId) => _addOrder.Remove(instanceId);
 }

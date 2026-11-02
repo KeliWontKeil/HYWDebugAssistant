@@ -129,7 +129,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     /// <remarks>
     /// <list type="bullet">
     ///   <item>按列表**顺序**逐根扫描；每根只扫**直接子目录**中含模块清单文件者（**不递归、不扫任意位置**）；</item>
-    ///   <item>同 ID 同版本重复 → **先到者胜**，后者记 **Info**（不刷 Warning）；同 ID 不同版本 → 共存；</item>
+    ///   <item>同 ID 重复 → **先到者胜**，后者记 **Info**（不刷 Warning）；</item>
     ///   <item>每个包独立处理，失败只记 Issue 并计入诊断结果；</item>
     ///   <item>结果写入 <see cref="GetModuleSources"/> 的数据源（供「模块清单」弹窗诊断）。</item>
     /// </list>
@@ -159,6 +159,12 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             var duplicates = 0;
             var changed = 0;
 
+            // **依赖顺序无关**：先把带 module.json 的包排成队列，按"依赖已就位"分轮安装；
+            // 这一轮装不了的留到下一轮。目录枚举顺序不再决定成败（旧写法里"被依赖的包排在后面"
+            // 会让先遇到的包整包失败，用户看到的是随机失败）。
+            var pending = new List<string>();
+            var manifests = new Dictionary<string, string[]>(StringComparer.Ordinal);
+
             foreach (var directory in Directory.EnumerateDirectories(root))
             {
                 if (!File.Exists(Path.Combine(directory, "module.json")))
@@ -168,6 +174,52 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 }
 
                 found++;
+                pending.Add(directory);
+                _ = ModuleManifestReader.TryRead(directory, out var manifest, out _);
+                manifests[directory] = manifest?.DependsOn ?? [];
+            }
+
+            var progress = true;
+            while (pending.Count > 0 && progress)
+            {
+                progress = false;
+
+                for (var index = pending.Count - 1; index >= 0; index--)
+                {
+                    if (!DependenciesReady(manifests[pending[index]]))
+                    {
+                        continue;   // 留到下一轮
+                    }
+
+                    var directory = pending[index];
+                    pending.RemoveAt(index);
+                    progress = true;
+                    InstallOne(directory);
+                }
+            }
+
+            // 依赖始终不满足：仍走同一条安装路径，让安装器给出**明确原因**（不静默跳过）。
+            foreach (var directory in pending)
+            {
+                InstallOne(directory);
+            }
+
+            bool DependenciesReady(string[] dependsOn)
+            {
+                foreach (var dependency in dependsOn)
+                {
+                    if (ModuleId.TryParse(dependency, out var dependencyId)
+                        && !_registry.TryResolve(dependencyId, out _))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+
+            void InstallOne(string directory)
+            {
                 var name = Path.GetFileName(directory);
                 var result = _installer.Install(directory);
 
@@ -176,7 +228,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                     // 失败原因已由安装器记 Issue 并归属 package:<目录>
                     failed++;
                     messages.Add(CoreText.Get("core.services.rescan.installFailed", name));
-                    continue;
+                    return;
                 }
 
                 var packageDirectory = Path.GetFullPath(directory);
@@ -264,8 +316,12 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     public IReadOnlyList<ModuleSourceView> GetModuleSources() => _moduleSources;
 
     /// <inheritdoc />
+    /// <remarks>
+    /// **只返回会被真正建立的连接**：几何候选再经 L4 的唯一接受判定（方向 + 契约）过滤，
+    /// 与落地同一规则——否则预览会比实际多（"预告能连、松手不连"）。
+    /// </remarks>
     public IReadOnlyList<ConnectionCandidateView> PreviewConnections(IReadOnlyList<ModuleLayoutView>? provisionalLayouts = null) =>
-        [.. _runtime.CollectDockPairs(provisionalLayouts)
+        [.. _runtime.CollectAcceptedDockPairs(provisionalLayouts)
             .Select(pair => new ConnectionCandidateView(pair.SourceLiteral, pair.TargetLiteral))];
 
     /// <inheritdoc />
@@ -412,9 +468,12 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 continue;
             }
 
-            if (_registry.TryResolve(definition.Id, out _))
+            if (_registry.TryResolve(definition.Id, out var existing))
             {
-                failures.Add(CoreText.Get("core.services.import.versionExists", definition.Id));
+                failures.Add(CoreText.Get(
+                    "core.services.import.alreadyExists",
+                    definition.Id,
+                    existing!.PackageDirectory));
                 continue;
             }
 
@@ -558,28 +617,6 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     /// <inheritdoc />
     public CommandResult SetModuleEnabled(string instanceId, bool enabled) =>
         Map(_runtime.Apply(ChangeSet.OfOne(new SetModuleEnabledOperation(instanceId, enabled))));
-
-    /// <inheritdoc />
-    public CommandResult Connect(
-        PortRef source,
-        IReadOnlyList<PortRef> targets,
-        string? name = null,
-        bool allowUnverifiedTypeMatch = false)
-    {
-        ArgumentNullException.ThrowIfNull(targets);
-
-        var sourceMember = new NetworkMember(source.InstanceId, source.PortName, PortDirection.Send);
-        var targetMembers = targets
-            .Select(t => new NetworkMember(t.InstanceId, t.PortName, PortDirection.Receive))
-            .ToList();
-
-        return Map(_runtime.Apply(ChangeSet.OfOne(
-            new ConnectNetworkOperation(sourceMember, targetMembers, name, allowUnverifiedTypeMatch))));
-    }
-
-    /// <inheritdoc />
-    public CommandResult Disconnect(string networkName) =>
-        Map(_runtime.Apply(ChangeSet.OfOne(new DisconnectNetworkOperation(networkName))));
 
     /// <inheritdoc />
     public CommandResult UpdateConfiguration(string instanceId, object configuration) =>
@@ -1331,7 +1368,6 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             return new NetworkView(
                 n.Name,
                 IsAnonymous: !n.IsNamed,
-                n.IsAutoGenerated,
                 n.IsStalled,
                 sources.Count > 0 ? sources[0] : string.Empty,
                 [.. n.Targets.Select(t => t.ToString())],
@@ -1829,8 +1865,8 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 : RoleModel.PeersOf(instance, role.Outputs, networks, PeerRoleKeyOf).Count;
 
             var key = RoleModel.RoleKey(instanceId, role.Id);
-            var typeKey = $"{role.Type.TypeId}@v{role.Type.Version}";
-            var declaration = instance.FindDataType(role.Type);
+            var typeKey = role.TypeId;
+            var declaration = instance.FindDataType(role.TypeId);
 
             // **角色自身的量**：产出侧优先（有输出口 ⇒ 看它发出去多少；纯汇分块 ⇒ 看它收进来多少）。
             // **不把入/出两侧相加**：那是多条不同通路的和，会被读成"这块功能的总吞吐"（口径不清、无意义）。
@@ -2064,7 +2100,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 // 【G5 · C5-7】**有效挂载边**：用户拖动覆盖 > 包内声明（没有惯例回退）；
                 // 已在上面一次解析完，这里直接用。
                 Edge = geometry.Edge,
-                // **类型身份**（色板键）：已声明 ⇒ `标识@v版本`；未声明 ⇒ 结构描述。
+                // **类型身份**（色板键）：已声明 ⇒ 类型标识；未声明 ⇒ 结构描述。
                 // 与角色键**同一来源**（`DescribePortTypeKey`）⇒ 端口标记的窄色条与角色方块填充色永远一致。
                 TypeKey = _runtime.DescribePortTypeKey(instance.InstanceId, port),
             });

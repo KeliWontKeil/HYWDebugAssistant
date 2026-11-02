@@ -4,7 +4,7 @@ using HYWDebugAssistant.Sdk.Contracts;
 namespace HYWDebugAssistant.Sdk.AccessKit;
 
 /// <summary>
-/// **应用标准 `RawBytes@v1` 的组帧 / 拆帧**：`{ len: u16, data: bytes[capacity] }`。
+/// **应用标准 `RawBytes` 的组帧 / 拆帧**：`{ len: u16, data: bytes[capacity] }`。
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,8 +21,6 @@ public static class RawBytesFraming
     /// <summary>数据类型标识（与既有四个基础模块逐字相同）。</summary>
     public const string TypeId = "RawBytes";
 
-    /// <summary>数据类型版本。</summary>
-    public const int Version = 1;
 
     /// <summary>默认单单元字节区容量（与既有 <c>RawBytes</c> 契约一致）。</summary>
     public const int Capacity = 1472;

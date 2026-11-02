@@ -15,25 +15,6 @@ namespace HYWDebugAssistant.Core.Api;
 /// </remarks>
 public sealed class ApplicationSettings
 {
-    /// <summary>当前设置 Schema 版本（写入文件，用于迁移判断）。</summary>
-    /// <remarks>
-    /// v2：外观块新增 <c>appearance.schemes</c>（自定义主题方案元数据）；
-    /// 旧文件里的内置主题覆盖会在读时迁移为自定义方案。
-    /// v3：樱色改为编译期 seed 生成的普通自定义方案，新增 <c>appearance.seededThemes</c>。
-    /// v4：**主题收回设置内部的一个子项** —— 外观块只剩 `theme` / `systemLightScheme` / `systemDarkScheme` /
-    /// <c>seeded[]</c> / <c>fonts</c>；内联方案与色板覆盖删除，主题住 `settings\appearance\themes\&lt;id&gt;\`。
-    /// v5：**字体轴拆成西文 / 中文两个字段** —— `fonts.ui` / `fonts.data` 从回退列表字符串变成
-    /// `{ latin, cjk }`；v4 的字符串读时折叠，写侧只留新形状。
-    /// v6：**数据面机制参数收进 `flow` 块** —— 队列容量 / 满时策略 / 停止等待 / 饱和判据 /
-    /// 积压上限 / 外部写超时都从这里给；v5 及以下的三个根键
-    /// （<c>inputQueueCapacity</c> / <c>stopTimeoutSeconds</c> / <c>diagnosticHintThreshold</c>）
-    /// 读时折叠进 `flow`，写侧把它们删掉（一份事实只能有一个来源）。
-    /// v3 及更低版本的设置文件**不做内联迁移**：只读已知标量键、外观主题回落内置、记一条 Warning、不写回。
-    /// </remarks>
-    public const int CurrentSchemaVersion = 6;
-
-    /// <summary>设置 Schema 版本。</summary>
-    public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
     /// <summary>
     /// **数据面（缓冲与流控）机制参数**：队列容量、满时策略、停止等待、饱和判据、积压上限、外部写超时。
@@ -181,7 +162,7 @@ public sealed class ApplicationSettings
     /// <summary>复制一份（避免外部持有共享实例）。</summary>
     public ApplicationSettings Clone() => new()
     {
-        SchemaVersion = SchemaVersion,
+
         // **数据面块是 record**：`with { }` 复制出一个新实例（标量全拷）。
         // 不能直接赋引用，否则"读出来改一份"会改到生效值。
         Flow = Flow with { },

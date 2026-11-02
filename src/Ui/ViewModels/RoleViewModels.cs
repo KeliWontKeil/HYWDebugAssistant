@@ -227,7 +227,7 @@ public sealed class RoleLinkViewModel
     /// **自回环**：对端实例 = 本模块实例，且对端角色 = 本角色。
     /// </summary>
     /// <remarks>
-    /// 判据**只看这两个事实**（不读网络类型、端口数量、命名/显式连接）——
+    /// 判据**只看这两个事实**（不读网络类型、端口数量、命名/对齐）——
     /// 自环是叠加层的呈现属性，与底层用哪种方式连出来无关。
     /// </remarks>
     public bool IsSelfLoop { get; internal set; }

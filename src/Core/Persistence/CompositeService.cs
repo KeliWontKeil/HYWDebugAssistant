@@ -38,8 +38,6 @@ public sealed class CompositeService
     /// 旧文件若在与保存时不同缩放的屏上打开，尺寸会差一个比例（一次性近似，第一次保存后固化）。
     /// </para>
     /// </remarks>
-    public static double ScreenScale { get; set; } = 1.0;
-
     /// <summary>创建服务。</summary>
     /// <param name="runtime">运行时（捕获与加载的目标）。</param>
     /// <param name="registry">模块注册表（加载时按标识 + 版本重锚）。</param>
@@ -167,21 +165,13 @@ public sealed class CompositeService
                 readError));
         }
 
-        if (!CompositeSerializer.TryParse(root!, out var composite, out var warnings, out var parseFailure, ScreenScale))
+        if (!CompositeSerializer.TryParse(root!, out var composite, out var warnings, out var parseFailure))
         {
             return Reject(filePath, CoreText.Get("core.composite.parseFailed", parseFailure));
         }
 
-        if (composite!.SchemaVersion > Composite.CurrentSchemaVersion)
-        {
-            // 能迁移则自动迁移，不能则**拒绝并保护原文件**（§9.3）
-            return Reject(filePath, CoreText.Get(
-                "core.composite.schemaTooNew", composite.SchemaVersion, Composite.CurrentSchemaVersion));
-        }
-
-        Migrate(composite);
-        LoadAssets(composite, filePath);
-        LastLoadedWorkspacePlacement = composite.WorkspacePlacement;
+        LoadAssets(composite!, filePath);
+        LastLoadedWorkspacePlacement = composite!.WorkspacePlacement;
 
         foreach (var warning in warnings)
         {
@@ -238,18 +228,13 @@ public sealed class CompositeService
             return new CompositeInspection(0, [], CoreText.Get("core.composite.load.prefixedError", prefix, readError));
         }
 
-        if (!CompositeSerializer.TryParse(root!, out var composite, out _, out var parseFailure, ScreenScale))
+        if (!CompositeSerializer.TryParse(root!, out var composite, out _, out var parseFailure))
         {
             return new CompositeInspection(0, [], CoreText.Get("core.composite.parseFailedShort", parseFailure));
         }
 
-        if (composite!.SchemaVersion > Composite.CurrentSchemaVersion)
-        {
-            return new CompositeInspection(0, [], CoreText.Get("core.composite.versionTooNew"));
-        }
-
         var missing = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var instance in composite.Instances)
+        foreach (var instance in composite!.Instances)
         {
             if (!ResolveDefinition(instance.ModuleId, out _, out _))
             {
@@ -320,28 +305,8 @@ public sealed class CompositeService
         return CommandResult.Fail([message]);
     }
 
-    /// <summary>
-    /// Schema 迁移（**逐级升版，不猜测字段语义**）。
-    /// </summary>
-    /// <remarks>
-    /// <list type="bullet">
-    ///   <item><b>v1 → v2</b>：网络源成员由单数 <c>source</c> 改为数组 <c>sources</c>。
-    ///     字段形态的归一在**解析期**完成（<c>CompositeSerializer.ReadSources</c> 读旧字段即写进
-    ///     <c>record.Sources</c>）⇒ 此处只需升版号；写回时旧字段被移除、新字段写出。</item>
-    ///   <item><b>v2 → v3</b>：布局四数由**屏幕物理像素**改为 **DIP**。单位换算同样在**解析期**完成
-    ///     （<c>CompositeSerializer.TryParse</c> 按 <see cref="ScreenScale"/> ÷）⇒ 此处只升版号。</item>
-    ///   <item>版本号**过新**由调用方拒绝（见 <see cref="LoadComposite"/>），不回退猜测。</item>
-    /// </list>
-    /// </remarks>
-    private static void Migrate(Composite composite)
-    {
-        if (composite.SchemaVersion < Composite.CurrentSchemaVersion)
-        {
-            composite.SchemaVersion = Composite.CurrentSchemaVersion;
-        }
-    }
 
-    /// <summary>按标识 + 版本解析定义（含框架兼容范围判定；不满足 → 缺失态 + 原因）。</summary>
+    /// <summary>按标识解析定义（未安装 → 缺失态 + 原因；没有版本判定）。</summary>
     private bool ResolveDefinition(string moduleIdLiteral, out ModuleDefinition? definition, out string? reason)
     {
         definition = null;
@@ -355,21 +320,6 @@ public sealed class CompositeService
         if (!_registry.TryResolve(moduleId, out definition) || definition is null)
         {
             reason = CoreText.Get("core.composite.definitionMissing", moduleIdLiteral);
-            return false;
-        }
-
-        if (!FrameworkCompatibility.IsSatisfied(
-                definition.FrameworkCompatibility,
-                FrameworkCompatibility.CurrentFrameworkVersion,
-                out var compatibilityError))
-        {
-            var incompatible = definition;
-            definition = null;
-            reason = CoreText.Get(
-                "core.composite.compatibilityUnsatisfied",
-                moduleIdLiteral,
-                compatibilityError,
-                incompatible.FrameworkCompatibility);
             return false;
         }
 

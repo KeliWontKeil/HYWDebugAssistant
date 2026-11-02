@@ -57,11 +57,11 @@ public class AcceptanceCriteriaTests
         "HexStringConverter",
     ];
 
-    private const string MonitorModuleId = "hyw/data-monitor/1.0.0";
+    private const string MonitorModuleId = "hyw/data-monitor";
 
-    private const string RateSourceModuleId = "test/rate-source/1.0.0";
+    private const string RateSourceModuleId = "test/rate-source";
 
-    private const string FusionStubModuleId = "test/fusion-stub/1.0.0";
+    private const string FusionStubModuleId = "test/fusion-stub";
 
     // ------------------------------------------------------------ AC-1
 
@@ -139,13 +139,13 @@ public class AcceptanceCriteriaTests
         composition.Register("sink-a", typeof(CountingSinkModule));
         composition.Register("sink-b", typeof(CountingSinkModule));
 
-        composition.Services.AddModule("h1", "test/healthy/1.0.0").Succeeded.ShouldBeTrue();
-        composition.Services.AddModule("f1", "test/faulty/1.0.0").Succeeded.ShouldBeTrue();
-        composition.Services.AddModule("sa", "test/sink-a/1.0.0").Succeeded.ShouldBeTrue();
-        composition.Services.AddModule("sb", "test/sink-b/1.0.0").Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("h1", "test/healthy").Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("f1", "test/faulty").Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("sa", "test/sink-a").Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("sb", "test/sink-b").Succeeded.ShouldBeTrue();
 
-        composition.Services.Connect(new PortRef("h1", "out"), [new PortRef("sa", "in")], "healthy-link").Succeeded.ShouldBeTrue();
-        composition.Services.Connect(new PortRef("f1", "out"), [new PortRef("sb", "in")], "faulty-link").Succeeded.ShouldBeTrue();
+        TestLink.Link(composition.Services, new PortRef("h1", "out"), new PortRef("sa", "in"), "healthy-link");
+        TestLink.Link(composition.Services, new PortRef("f1", "out"), new PortRef("sb", "in"), "faulty-link");
 
         // ① 故障模块的活动体抛异常 → 受控捕获 + 上报，**不影响**健康链路
         composition.WaitForCount("h1", "value", atLeast: 1).ShouldBeTrue("健康链路应照常产生数据");
@@ -373,11 +373,10 @@ public class AcceptanceCriteriaTests
         composition.Register("new-shape", typeof(NewShapeSourceModule));
         composition.Register("new-shape-sink", typeof(NewShapeSinkModule));
 
-        composition.Services.AddModule("ns", "test/new-shape/1.0.0").Succeeded.ShouldBeTrue();
-        composition.Services.AddModule("nk", "test/new-shape-sink/1.0.0").Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("ns", "test/new-shape").Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("nk", "test/new-shape-sink").Succeeded.ShouldBeTrue();
 
-        composition.Services.Connect(new PortRef("ns", NewShapeSourceModule.OutputPort), [new PortRef("nk", NewShapeSinkModule.InputPort)], "new-shape-link")
-            .Succeeded.ShouldBeTrue();
+        TestLink.Link(composition.Services, new PortRef("ns", NewShapeSourceModule.OutputPort), new PortRef("nk", NewShapeSinkModule.InputPort), "new-shape-link");
 
         composition.WaitForCount("ns", NewShapeSourceModule.ValueSource, atLeast: 1)
             .ShouldBeTrue("新形状模块应能自行运行并写订阅缓冲");
@@ -443,7 +442,7 @@ public class AcceptanceCriteriaTests
     // ------------------------------------------------------------ 测试局部模块
 
     /// <summary>健康模块：周期写订阅 + 发一个 u32 口。</summary>
-    [ModuleDefinition("test", "healthy", "1.0.0")]
+    [ModuleDefinition("test", "healthy")]
     public sealed class HealthyGeneratorModule : IModule, IActivitySource
     {
         public const string OutPort = "out";
@@ -478,7 +477,7 @@ public class AcceptanceCriteriaTests
     }
 
     /// <summary>故障模块：活动体立刻抛异常（验证异常边界）。</summary>
-    [ModuleDefinition("test", "faulty", "1.0.0")]
+    [ModuleDefinition("test", "faulty")]
     public sealed class FaultyGeneratorModule : IModule, IActivitySource
     {
         public ActivityKind Kind => ActivityKind.EventDriven;
@@ -496,7 +495,7 @@ public class AcceptanceCriteriaTests
     }
 
     /// <summary>计数接收模块（被动接收）。</summary>
-    [ModuleDefinition("test", "sink-a", "1.0.0")]
+    [ModuleDefinition("test", "sink-a")]
     public sealed class CountingSinkModule : IModule
     {
         /// <summary>输入端口名。</summary>
@@ -514,7 +513,7 @@ public class AcceptanceCriteriaTests
     }
 
     /// <summary>新形状源模块：<c>{ id: u32, block: bytes[16] }</c>（AC-6 的"新数据类型"）。</summary>
-    [ModuleDefinition("test", "new-shape", "1.0.0")]
+    [ModuleDefinition("test", "new-shape")]
     public sealed class NewShapeSourceModule : IModule, IActivitySource
     {
         public const string OutPort = "out";
@@ -562,7 +561,7 @@ public class AcceptanceCriteriaTests
     }
 
     /// <summary>新形状宿模块。</summary>
-    [ModuleDefinition("test", "new-shape-sink", "1.0.0")]
+    [ModuleDefinition("test", "new-shape-sink")]
     public sealed class NewShapeSinkModule : IModule
     {
         /// <summary>输入端口名。</summary>

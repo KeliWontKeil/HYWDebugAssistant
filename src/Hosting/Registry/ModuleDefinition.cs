@@ -23,7 +23,6 @@ public sealed class ModuleDefinition
         IReadOnlyList<string> tags,
         ModuleCapability capabilities,
         IReadOnlyList<string> dependsOn,
-        string? frameworkCompatibility,
         bool participatesInDataFlow,
         Type entryType,
         string packageDirectory,
@@ -40,7 +39,6 @@ public sealed class ModuleDefinition
         Tags = tags;
         Capabilities = capabilities;
         DependsOn = dependsOn;
-        FrameworkCompatibility = frameworkCompatibility;
         ParticipatesInDataFlow = participatesInDataFlow;
         EntryType = entryType;
         PackageDirectory = packageDirectory;
@@ -52,7 +50,7 @@ public sealed class ModuleDefinition
         MinHeight = minHeight;
     }
 
-    /// <summary>模块标识（结构化三元组，含版本）。</summary>
+    /// <summary>模块标识（作者/模块名，两段）。</summary>
     public ModuleId Id { get; }
 
     /// <summary>目录展示名。</summary>
@@ -69,9 +67,6 @@ public sealed class ModuleDefinition
 
     /// <summary>依赖的其他模块标识字面量。</summary>
     public IReadOnlyList<string> DependsOn { get; }
-
-    /// <summary>框架兼容范围（为空 = 不限制）。</summary>
-    public string? FrameworkCompatibility { get; }
 
     /// <summary>是否参与数据活动。</summary>
     public bool ParticipatesInDataFlow { get; }
@@ -123,7 +118,6 @@ public sealed class ModuleDefinition
             attribute.Tags,
             attribute.Capabilities,
             attribute.DependsOn.Length > 0 ? attribute.DependsOn : package.Manifest.DependsOn,
-            attribute.FrameworkCompatibility.Length > 0 ? attribute.FrameworkCompatibility : package.Manifest.FrameworkCompatibility,
             attribute.ParticipatesInDataFlow,
             package.EntryType,
             package.PackageDirectory,

@@ -50,8 +50,7 @@ public partial class App : Application
             // **进程级屏幕缩放**：只给"读旧组合件（< v3）时把布局从物理像素换成 DIP"用一次。
             // 放在窗口建好之后取（那时才有 RenderScaling）；窗口在这一步还没 `Show`，
             // 但 `Screens` 已经可用，取不到就保持 1（新格式的组合件不受影响）。
-            CompositeService.ScreenScale = window.Screens.Primary?.Scaling ?? 1.0;
-
+    
             // **文件选择请求面**：按实例解析到模块窗口，选定后把路径经**输入通道**投回模块。
             // 挂在这里的理由：宿主窗口只有 UI 侧知道（`ModuleWindowManager` 持有实例 → 窗口的映射）。
             var command = provider.GetRequiredService<HYWDebugAssistant.Core.Api.IRuntimeCommand>();
@@ -94,7 +93,7 @@ public partial class App : Application
                 }
 
                 // 走到这里只可能是系统关机或程序化 Shutdown（用户的关窗请求先经过 `MainWindow.Closing`）：
-                // 不弹窗，静默保存后放行。`IsOSShutdown` 在 Avalonia 12.1.2 是 internal，无法据此分支。
+                // 不弹窗，静默保存后放行。`IsOSShutdown` 在 Avalonia 里是 internal，无法据此分支。
                 e.Cancel = true;
                 _ = exit.RequestAsync(isOsShutdown: true);
             };

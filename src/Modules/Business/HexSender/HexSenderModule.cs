@@ -17,7 +17,7 @@ namespace HYWDebugAssistant.Modules.HexSender;
 ///   <item><b>模块页</b>：`docs/modules/hyw-hex-sender.md`；</item>
 ///   <item><b>与 `hyw/text-sender` 是「同形态的两兄弟」</b>：视图结构、活动形态、拆包口径完全一致，
 ///     **唯一差别 = 输入解析**（那边按 UTF-8 编码文本，这边按「每字节两位十六进制」解析字节）；
-///     **两边声明同一个类型标识 `RawBytes`@v1** ⇒ 与 `hyw/data-monitor` **开箱即连**；</item>
+///     **两边声明同一个类型标识 `RawBytes`** ⇒ 与 `hyw/data-monitor` **开箱即连**；</item>
 ///   <item><b>多页消息 + 回读</b>：`TabPages` 各页一个输入框（源名 `hex1…hex3`），
 ///     **只有一个「发送」按钮** —— 点它时模块**回读**当前选中页与那一页的当前文本；</item>
 ///   <item><b>结构约定</b>：按 ①标识与常量 ②声明块 ③钩子块 ④接线与业务 的固定四段写。</item>
@@ -26,7 +26,6 @@ namespace HYWDebugAssistant.Modules.HexSender;
 [ModuleDefinition(
     "hyw",
     "hex-sender",
-    "1.0.0",
     DisplayNameKey = HexSenderText.Title,
     DescriptionKey = HexSenderText.Description,
     Tags = ["hex", "sender"],
@@ -113,13 +112,10 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// <summary>数据类型标识（**与两个兄弟模块逐字相同**）。</summary>
     public const string RawBytesTypeId = "RawBytes";
 
-    /// <summary>数据类型版本。</summary>
-    public const int RawBytesVersion = 1;
-
     /// <summary>单条字节上限（= `data` 字节区长度；一个完整 UDP 载荷）。</summary>
     public const int TextCapacity = 1472;
 
-    /// <summary>**`RawBytes`@v1 的契约形状**：`{ len: u16, data: bytes[1472] }`（与两兄弟完全一致）。</summary>
+    /// <summary>**`RawBytes` 的契约形状**：`{ len: u16, data: bytes[1472] }`（与两兄弟完全一致）。</summary>
     public static ContractShape RawBytesShape { get; } = ContractShape.OfStruct(
         ("len", ContractShape.OfPrimitive(ContractPrimitive.U16)),
         ("data", ContractShape.OfBytes(TextCapacity)));
@@ -133,7 +129,6 @@ public sealed class HexSenderModule : IModule, IActivitySource
 
         context.Declaration.DeclareDataType(new DataTypeDeclaration(
             RawBytesTypeId,
-            RawBytesVersion,
             RawBytesShape)
         {
             // 「速率只要有效数据」同文本发送器：`len` = 有效字节数 ⇒ 声明它，
@@ -143,7 +138,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
 
         context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, RawBytesShape)
         {
-            Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
+            TypeId = RawBytesTypeId,
 
             // 发送口在**下边**（与监视器的上边配对：上下叠放即可连）。用户仍可拖动覆盖。
             Edge = PortEdge.Bottom,
@@ -151,7 +146,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
 
         context.Declaration.DeclareRole(RoleDeclaration.Output(
             RoleId,
-            new DataTypeRef(RawBytesTypeId, RawBytesVersion),
+            RawBytesTypeId,
             OutPort,
             Tr(HexSenderText.RoleSend)));
 

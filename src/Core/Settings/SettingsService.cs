@@ -29,8 +29,7 @@ public enum SettingsLoadOutcome
     /// <summary>文件损坏/不可读 → 使用默认设置 + Issue（**不阻断启动**）。</summary>
     DefaultsAfterFailure = 2,
 
-    /// <summary>文件来自更高版本 → 使用默认值 + Issue，并**禁止写回**（保护原文件）。</summary>
-    FutureVersion = 3,
+
 }
 
 /// <summary>
@@ -41,9 +40,7 @@ public enum SettingsLoadOutcome
 ///   <item><b>载体</b>：设置根（`StoragePaths.SettingsFile`）的单个 JSON 文件（便携式）；**与组合件完全分离**；</item>
 ///   <item><b>未知字段保留</b>：以 <see cref="JsonObject"/> 为底稿，只更新已知字段 → 未识别字段原样保留（AC-4 同策略）；</item>
 ///   <item><b>原子写</b>：写失败 → **内存态保留**（已生效）+ 提示未持久化；</item>
-///   <item><b>未来版本</b>：文件版本更高 ⇒ 默认值 + Warning + **禁止写回**（保护原文件）；</item>
-///   <item><b>低版本（v3 及更低）</b>：**不做内联主题迁移** —— 只读已知标量键（主题选择 / 跟随系统方案 / 字体），
-///     外观主题回落内置，记一条 Warning，且**载入时不写回**（原文件保持不变）；</item>
+
 ///   <item><b>主题</b>：主题是设置内部的一个子项，住 `<c>&lt;settings&gt;\appearance\themes\&lt;id&gt;\theme.json</c>`；
 ///     设置文件只记"选了哪套 / 跟随系统各用哪套 / 投放过什么"（本类持有 <see cref="Themes"/>，UI 经查询面读）；</item>
 ///   <item><b>出厂种子投放</b>：`resources\seeds\` 与程序目录同构 —— 单文件（设置文件）缺失才复制，
@@ -59,8 +56,6 @@ public sealed class SettingsService
 
     private JsonObject _preserved = new();
 
-    /// <summary>文件版本高于当前支持版本时置位：**禁止任何写回**（保护原文件）。</summary>
-    private bool _writesBlocked;
 
     /// <summary>创建设置服务。</summary>
     /// <param name="runtime">运行时（设置中的参数即时应用到它）。</param>
@@ -137,7 +132,6 @@ public sealed class SettingsService
         {
             Current = new ApplicationSettings();
             _preserved = new JsonObject();
-            _writesBlocked = false;
 
             // ③ 主题单元照投（出厂主题不该因为缺设置文件而缺席）
             if (ApplySeedUnits())
@@ -153,7 +147,6 @@ public sealed class SettingsService
         {
             Current = new ApplicationSettings();
             _preserved = new JsonObject();
-            _writesBlocked = false;
 
             _issues.Report("settings", new IssueReport(
                 IssueCategory.ConfigurationError,
@@ -164,61 +157,8 @@ public sealed class SettingsService
             return SettingsLoadOutcome.DefaultsAfterFailure;
         }
 
-        var version = ReadInt(root!, "schemaVersion", ApplicationSettings.CurrentSchemaVersion);
-        if (version > ApplicationSettings.CurrentSchemaVersion)
-        {
-            // **未来版本**：用默认值跑，但绝不回写（否则会用旧结构覆盖新文件）。
-            _writesBlocked = true;
-            Current = new ApplicationSettings();
-            _preserved = new JsonObject();
-            ApplyToRuntime(Current);
-
-            _issues.Report("settings", new IssueReport(
-                IssueCategory.ConfigurationError,
-                IssueSeverity.Warning,
-                CoreText.Get(
-                    "core.settings.futureVersion",
-                    version,
-                    ApplicationSettings.CurrentSchemaVersion,
-                    FilePath)));
-
-            return SettingsLoadOutcome.FutureVersion;
-        }
-
-        _writesBlocked = false;
         _preserved = root!;
         Current = FromJson(root!);
-
-        if (version is 4 or 5)
-        {
-            // **v4 / v5 → v6**：字体轴折叠（v4 的回退列表）＋ 数据面参数收进 `flow` 块（v5 的三个根键）。
-            // 两者都是兼容扩展（读旧写新）：载入即写回新形状；v3 及更低版本仍走下面的"不迁移"分支。
-            _ = NormalizeAppearance(Current.Appearance);
-            ApplyToRuntime(Current);
-            PersistAfterSeed();
-            return SettingsLoadOutcome.Loaded;
-        }
-
-        if (version < 4)
-        {
-            // **v3 及更低版本**：旧文件把主题方案与色板覆盖内联在 `appearance` 里，
-            // 而新形状把主题收回"一个主题一个文件夹"。**不做内联迁移**（那会把用户数据悄悄改写成另一种形状）：
-            // 只读已知标量键（theme / systemLightScheme / systemDarkScheme / fonts），
-            // 外观主题回落内置；**载入时不写回**（原文件保持原样，保护用户数据）。
-            _ = NormalizeAppearance(Current.Appearance);
-            ApplyToRuntime(Current);
-
-            _issues.Report("settings", new IssueReport(
-                IssueCategory.ConfigurationError,
-                IssueSeverity.Warning,
-                CoreText.Get(
-                    "core.settings.oldVersion",
-                    version,
-                    ApplicationSettings.CurrentSchemaVersion,
-                    FilePath)));
-
-            return SettingsLoadOutcome.Loaded;
-        }
 
         // ③ 主题单元投放 —— 必须在归一化**之前**：否则"选了刚投放的出厂主题"会被判成不存在而回落内置。
         var seeded = ApplySeedUnits();
@@ -325,7 +265,6 @@ public sealed class SettingsService
     /// <summary>种子投放 / 外观归一化之后落盘；失败不阻断启动，但记 Error。</summary>
     private void PersistAfterSeed()
     {
-        Current.SchemaVersion = ApplicationSettings.CurrentSchemaVersion;
         MergeInto(_preserved, Current);
 
         if (!JsonFileStore.TryWriteObjectAtomic(FilePath, _preserved, out var writeError))
@@ -344,10 +283,6 @@ public sealed class SettingsService
         ArgumentNullException.ThrowIfNull(settings);
         LastWriteSucceeded = true;
 
-        if (_writesBlocked)
-        {
-            return CommandResult.Fail([CoreText.Get("core.settings.writeBlockedUpdate")]);
-        }
 
         var failures = Validate(settings);
         if (failures.Count > 0)
@@ -356,7 +291,6 @@ public sealed class SettingsService
         }
 
         Current = settings.Clone();
-        Current.SchemaVersion = ApplicationSettings.CurrentSchemaVersion;
         Current.UiLanguage = NormalizeUiLanguage(Current.UiLanguage);
         ApplyToRuntime(Current);
 
@@ -405,11 +339,6 @@ public sealed class SettingsService
     /// <summary>保存当前设置（首次落盘用）。</summary>
     public bool Save(out string? error)
     {
-        if (_writesBlocked)
-        {
-            error = CoreText.Get("core.settings.writeBlockedSave");
-            return false;
-        }
 
         MergeInto(_preserved, Current);
         return JsonFileStore.TryWriteObjectAtomic(FilePath, _preserved, out error);
@@ -453,7 +382,6 @@ public sealed class SettingsService
     {
         var root = new JsonObject();
         var clone = settings.Clone();
-        clone.SchemaVersion = ApplicationSettings.CurrentSchemaVersion;
         MergeInto(root, clone);
         return root;
     }
@@ -586,21 +514,11 @@ public sealed class SettingsService
     {
         var settings = new ApplicationSettings();
 
-        settings.SchemaVersion = ReadInt(root, "schemaVersion", settings.SchemaVersion);
         settings.Flow = ReadFlow(root);
         settings.UiRefreshRateHz = ReadInt(root, "uiRefreshRateHz", settings.UiRefreshRateHz);
         settings.ShowPerformanceMonitor = ReadBool(root, "showPerformanceMonitor", settings.ShowPerformanceMonitor);
-        // 对齐自动建网：新键优先、旧键（加入即连）兼容读取
-        settings.AlignAutoNetworkEnabled = ReadBool(
-            root,
-            "alignAutoNetwork",
-            ReadBool(root, "autoNetworkEnabled", settings.AlignAutoNetworkEnabled));
-        // 新键优先；旧键（showPortMarkers → 更旧 showLinkLines）兼容读取：
-        // 语义经两次变更（连线层 → 口上标记 → **叠加信息层**），默认值都是"显示"。
-        settings.ShowInfoOverlay = ReadBool(
-            root,
-            "showInfoOverlay",
-            ReadBool(root, "showPortMarkers", ReadBool(root, "showLinkLines", settings.ShowInfoOverlay)));
+        settings.AlignAutoNetworkEnabled = ReadBool(root, "alignAutoNetwork", settings.AlignAutoNetworkEnabled);
+        settings.ShowInfoOverlay = ReadBool(root, "showInfoOverlay", settings.ShowInfoOverlay);
 
         // 模块来源根列表已移除：模块只扫描默认目录（modules + modules/external）。
         settings.LogLevel = ReadString(root, "logLevel") ?? settings.LogLevel;
@@ -647,17 +565,9 @@ public sealed class SettingsService
     private static FlowSettings ReadFlow(JsonObject root)
     {
         var defaults = new FlowSettings();
-        var block = root.TryGetPropertyValue("flow", out var node) && node is JsonObject nested ? nested : null;
-
-        if (block is null)
-        {
-            return defaults with
-            {
-                QueueCapacity = ReadInt(root, "inputQueueCapacity", defaults.QueueCapacity),
-                StopTimeoutSeconds = ReadDouble(root, "stopTimeoutSeconds", defaults.StopTimeoutSeconds),
-                HintDepth = ReadInt(root, "diagnosticHintThreshold", defaults.HintDepth),
-            };
-        }
+        var block = root.TryGetPropertyValue("flow", out var node) && node is JsonObject nested
+            ? nested
+            : new JsonObject();
 
         return defaults with
         {
@@ -697,18 +607,15 @@ public sealed class SettingsService
     private static void MergeInto(JsonObject root, ApplicationSettings settings)
     {
         // 只更新**已知字段**；未识别字段原样保留（文件的其余内容不动）
-        root["schemaVersion"] = ApplicationSettings.CurrentSchemaVersion;
 
         // **数据面块**：写新形状，再把三个旧根键删掉 —— 留着就会出现"两个来源"，下次读到时又得判谁优先
         root["flow"] = WriteFlow(settings.Flow);
-        _ = root.Remove("inputQueueCapacity");
-        _ = root.Remove("stopTimeoutSeconds");
-        _ = root.Remove("diagnosticHintThreshold");
+
 
         root["uiRefreshRateHz"] = settings.UiRefreshRateHz;
         root["showPerformanceMonitor"] = settings.ShowPerformanceMonitor;
         root["alignAutoNetwork"] = settings.AlignAutoNetworkEnabled;
-        _ = root.Remove("autoNetworkEnabled");   // 旧键已迁移（语义由"加入即连"改为"对齐建网"）
+
         root["showInfoOverlay"] = settings.ShowInfoOverlay;
         root["appTopmost"] = settings.AppTopmost;
 
@@ -716,10 +623,6 @@ public sealed class SettingsService
         // 写新形状，并把**全部旧外观键**删掉 —— 留着会出现"两个来源"，下次读到时又得判谁优先。
         root["appearance"] = WriteAppearance(settings.Appearance);
 
-        foreach (var legacy in LegacyAppearanceKeys)
-        {
-            _ = root.Remove(legacy);
-        }
 
         // 界面语言（值域收敛：未知 / 非法 ⇒ 跟随系统）
         root["uiLanguage"] = NormalizeUiLanguage(settings.UiLanguage);
@@ -729,9 +632,6 @@ public sealed class SettingsService
         root["workspaceExitBehavior"] = NormalizeExitBehavior(settings.WorkspaceExitBehavior);
         root["snapDistance"] = settings.SnapDistance;
 
-        // 模块来源根已移除；清掉旧键，避免“两个来源”
-        _ = root.Remove("moduleSourceDirectories");
-        _ = root.Remove("moduleSourceDirectory");
 
         root["logLevel"] = settings.LogLevel;
 
@@ -1004,22 +904,6 @@ public sealed class SettingsService
         return null;
     }
 
-    /// <summary>
-    /// **旧外观键**（写侧一律删掉）：主题 / 色板覆盖（扁平表）/ 字体两项 /
-    /// 以及更早的五个专项颜色字段（主题色 / 背景档位 / 方向色）。
-    /// </summary>
-    private static readonly string[] LegacyAppearanceKeys =
-    [
-        "theme",
-        "paletteOverrides",
-        "uiFontFamily",
-        "dataFontFamily",
-        "accentColor",
-        "backgroundMode",
-        "backgroundColor",
-        "directionSendColor",
-        "directionReceiveColor",
-    ];
 
     /// <summary>写**外观块**（v4：只写选择 / 已投放 / 字体 —— 主题色板住在各自的主题文件夹里）。</summary>
     /// <param name="appearance">外观块。</param>

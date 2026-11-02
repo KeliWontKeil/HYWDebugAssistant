@@ -43,8 +43,6 @@ public sealed record IconAsset(
 /// </remarks>
 public static class IconCatalog
 {
-    /// <summary>表结构版本（不认识的版本当作没有这张表）。</summary>
-    private const int SchemaVersion = 1;
 
     /// <summary>每个拥有者的清单文件名（一个拥有者一张表）。</summary>
     private const string ManifestFileName = "icons.json";
@@ -248,7 +246,7 @@ public static class IconCatalog
         {
             if (!TryGetEntries(document.RootElement, out var element))
             {
-                ReportFile(path, "schemaVersion 不认识或 entries 形状不对");
+                ReportFile(path, "entries 形状不对");
                 return entries;
             }
 
@@ -465,23 +463,16 @@ public static class IconCatalog
         return (DefaultViewBoxSize, DefaultViewBoxSize);
     }
 
-    /// <summary>表结构校验：版本 + `entries` 必须是对象。</summary>
+    /// <summary>表结构校验：`entries` 必须是对象。</summary>
     /// <param name="root">表根元素。</param>
     /// <param name="entries">条目表。</param>
     private static bool TryGetEntries(JsonElement root, out JsonElement entries)
     {
         entries = default;
 
-        if (root.ValueKind != JsonValueKind.Object
-            || !root.TryGetProperty("schemaVersion", out var version)
-            || version.ValueKind != JsonValueKind.Number
-            || !version.TryGetInt32(out var number)
-            || number != SchemaVersion)
-        {
-            return false;
-        }
-
-        return root.TryGetProperty("entries", out entries) && entries.ValueKind == JsonValueKind.Object;
+        return root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("entries", out entries)
+            && entries.ValueKind == JsonValueKind.Object;
     }
 
     private static void ReportFile(string path, string failure) =>

@@ -90,9 +90,9 @@ public class BusinessChainTests
         composition.Register("reject-counting-sender", typeof(Stubs.RejectCountingSenderStubModule));
         composition.Register("rate-source", typeof(Stubs.RateSourceStubModule));
 
-        composition.Services.AddModule("p", "test/reject-counting-sender/1.0.0").Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("p", "test/reject-counting-sender").Succeeded.ShouldBeTrue();
         composition.Services.AddModule("monitor", MonitorModuleId).Succeeded.ShouldBeTrue();
-        composition.Services.AddModule("quiet", "test/rate-source/1.0.0").Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("quiet", "test/rate-source").Succeeded.ShouldBeTrue();
 
         composition.Services.UpdatePortNetwork("p", Stubs.RejectCountingSenderStubModule.OutPort, "bus").Succeeded.ShouldBeTrue();
         composition.Services.UpdatePortNetwork("monitor", DataMonitorModule.InPort, "bus").Succeeded.ShouldBeTrue();
@@ -383,11 +383,11 @@ public class BusinessChainTests
         TextSenderModule.RawBytesShape.SizeInBytes.ShouldBe(2 + 1472);
     }
 
-    private const string TextSenderModuleId = "hyw/text-sender/1.0.0";
+    private const string TextSenderModuleId = "hyw/text-sender";
 
-    private const string HexSenderModuleId = "hyw/hex-sender/1.0.0";
+    private const string HexSenderModuleId = "hyw/hex-sender";
 
-    private const string MonitorModuleId = "hyw/data-monitor/1.0.0";
+    private const string MonitorModuleId = "hyw/data-monitor";
 
     /// <summary>失败时的现场说明（数据源计数 / 网络 / Issue），用于定位链路断点。</summary>
     private static string Diagnose(Composition composition, string instanceId, string dataSourceName)
@@ -445,19 +445,17 @@ public class BusinessChainTests
         }
 
         /// <summary>注册一个**测试桩模块**（不经过包加载；用于判据项目内的本地载体）。</summary>
-        /// <param name="name">模块名（构成 `test/<name>/1.0.0`）。</param>
+        /// <param name="name">模块名（构成 `test/<name>`）。</param>
         /// <param name="entryType">入口类型。</param>
         public void Register(string name, Type entryType)
         {
             var definition = new Hosting.Registry.ModuleDefinition(
-                Sdk.ModuleId.Create("test", name, "1.0.0"),
+                Sdk.ModuleId.Create("test", name),
                 entryType.Name,
                 string.Empty,
                 [],
                 Sdk.ModuleCapability.None,
-                [],
-                null,
-                true,
+                [], true,
                 entryType,
                 TestViewPackages.For(entryType),
                 string.Empty);

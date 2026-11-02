@@ -1,5 +1,4 @@
 {
-  "schemaVersion": 1,
   "language": "zh-Hans",
   "entries": {
     "moduleField.reject.missingFieldName": "ModuleConfigField 缺少 Field 属性，没有可绑定的字段名",

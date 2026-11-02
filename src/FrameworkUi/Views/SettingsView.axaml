@@ -717,6 +717,7 @@
                     <StackPanel Margin="10" Spacing="6">
                         <TextBlock Foreground="{DynamicResource TextPrimary}" Text="{loc:Tr settings.about.title}" />
                         <TextBlock Classes="note" Text="{loc:Tr settings.about.tagline}" />
+                        <TextBlock Classes="note" Text="{x:Static vm:SettingsPanelViewModel.VersionText}" />
 
                         <Grid ColumnDefinitions="*,Auto">
                             <TextBlock Grid.Column="0" Classes="note" VerticalAlignment="Center"

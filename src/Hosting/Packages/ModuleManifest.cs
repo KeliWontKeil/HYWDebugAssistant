@@ -13,7 +13,7 @@ namespace HYWDebugAssistant.Hosting.Packages;
 /// </remarks>
 public sealed record ModuleManifest
 {
-    /// <summary>模块标识字面量（<c>作者/模块名/版本</c>，如 <c>hyw/text-sender/1.0.0</c>）。</summary>
+    /// <summary>模块标识字面量（<c>作者/模块名</c>，如 <c>hyw/text-sender</c>）。</summary>
     public string Id { get; init; } = string.Empty;
 
     /// <summary>实现程序集文件名（相对包目录）。</summary>
@@ -21,9 +21,6 @@ public sealed record ModuleManifest
 
     /// <summary>实现类型全名（模块入口类型）。</summary>
     public string EntryType { get; init; } = string.Empty;
-
-    /// <summary>框架兼容范围（如 <c>&gt;=2.0.0 &lt;3.0.0</c>）；为空表示不限制。</summary>
-    public string? FrameworkCompatibility { get; init; }
 
     /// <summary>依赖的其他模块标识字面量；缺失依赖 → Issue，**不静默降级**。</summary>
     public string[] DependsOn { get; init; } = [];

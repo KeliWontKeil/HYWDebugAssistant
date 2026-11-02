@@ -44,7 +44,7 @@ public class ModuleWindowManagerTests
                     typeof(TextSenderViewFactory),
                     windowWidth: 400,
                     windowHeight: 240);
-                harness.AddModule("manager-text-sender", "test/manager-text-sender/1.0.0", 400, 240);
+                harness.AddModule("manager-text-sender", "test/manager-text-sender", 400, 240);
 
                 var shell = new Window { Width = 800, Height = 600 };
                 shell.Show();
@@ -113,7 +113,7 @@ public class ModuleWindowManagerTests
                     typeof(TextSenderViewFactory),
                     windowWidth: 400,
                     windowHeight: 240);
-                harness.AddModule("startup-text-sender", "test/startup-text-sender/1.0.0", 400, 240);
+                harness.AddModule("startup-text-sender", "test/startup-text-sender", 400, 240);
 
                 var shell = new Window { Width = 800, Height = 600 };
                 var manager = new ModuleWindowManager(harness.Windows, shell);
@@ -158,10 +158,10 @@ public class ModuleWindowManagerTests
                 harness.Register("tcp-server-a", typeof(TcpServerModule), typeof(TcpServerViewFactory), 400, 0);
                 harness.Register("udp-a", typeof(UdpModule), typeof(UdpViewFactory), 400, 0);
 
-                harness.Services.AddModule("serial-a", "test/serial-a/1.0.0").Succeeded.ShouldBeTrue();
-                harness.Services.AddModule("tcp-client-a", "test/tcp-client-a/1.0.0").Succeeded.ShouldBeTrue();
-                harness.Services.AddModule("tcp-server-a", "test/tcp-server-a/1.0.0").Succeeded.ShouldBeTrue();
-                harness.Services.AddModule("udp-a", "test/udp-a/1.0.0").Succeeded.ShouldBeTrue();
+                harness.Services.AddModule("serial-a", "test/serial-a").Succeeded.ShouldBeTrue();
+                harness.Services.AddModule("tcp-client-a", "test/tcp-client-a").Succeeded.ShouldBeTrue();
+                harness.Services.AddModule("tcp-server-a", "test/tcp-server-a").Succeeded.ShouldBeTrue();
+                harness.Services.AddModule("udp-a", "test/udp-a").Succeeded.ShouldBeTrue();
                 harness.Windows.Refresh();
 
                 var shell = new Window { Width = 900, Height = 700 };
@@ -212,7 +212,7 @@ public class ModuleWindowManagerTests
                     typeof(TextSenderViewFactory),
                     windowWidth: 400,
                     windowHeight: 240);
-                harness.AddModule("closed-hook-text-sender", "test/closed-hook-text-sender/1.0.0", 400, 240);
+                harness.AddModule("closed-hook-text-sender", "test/closed-hook-text-sender", 400, 240);
 
                 var shell = new Window { Width = 800, Height = 600 };
                 shell.Show();

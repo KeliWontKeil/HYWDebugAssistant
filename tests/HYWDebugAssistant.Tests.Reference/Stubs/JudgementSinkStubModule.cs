@@ -52,7 +52,6 @@ public sealed class JudgementSinkStubConfig
 [ModuleDefinition(
     "test",
     "judgement-sink",
-    "1.0.0",
     DisplayName = "判据接收桩（测试用）",
     Description = "记录统计并判定序号 / 范围 / 容差，按类别限流上报 Issue",
     Tags = ["test", "sink", "judge"])]
@@ -133,12 +132,12 @@ public sealed class JudgementSinkStubModule : IModule
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        context.Declaration.DeclareDataType(new DataTypeDeclaration(SampleTypeId, SampleVersion, SampleShape));
+        context.Declaration.DeclareDataType(new DataTypeDeclaration(SampleTypeId, SampleShape));
         context.Declaration.DeclarePort(new PortDeclaration(InPort, PortDirection.Receive, SampleShape)
         {
-            Type = new DataTypeRef(SampleTypeId, SampleVersion),
+            TypeId = SampleTypeId,
         });
-        context.Declaration.DeclareRole(RoleDeclaration.Input(RoleId, new DataTypeRef(SampleTypeId, SampleVersion), InPort, "判据"));
+        context.Declaration.DeclareRole(RoleDeclaration.Input(RoleId, SampleTypeId, InPort, "判据"));
 
         // 被动接收模式：单元解出 `{ seq, value }` 后逐条判定（测试也可直接调 `Judge`）
         context.Ports.SetReceiveHandler(InPort, payload => Handle(context, payload));

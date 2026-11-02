@@ -36,9 +36,9 @@ public sealed class SerialLoopbackTestGroup
 [Collection("SerialLoopback")]
 public sealed class SerialLoopbackIntegrityTests
 {
-    private const string TextSenderId = "hyw/text-sender/1.0.0";
-    private const string SerialId = "hyw/serial/1.0.0";
-    private const string MonitorId = "hyw/data-monitor/1.0.0";
+    private const string TextSenderId = "hyw/text-sender";
+    private const string SerialId = "hyw/serial";
+    private const string MonitorId = "hyw/data-monitor";
     private const string AccessName = "serial";
     private const int Baud = 115200;
 
@@ -131,8 +131,8 @@ public sealed class SerialLoopbackIntegrityTests
         serialAdd.Succeeded.ShouldBeTrue(string.Join("；", serialAdd.Failures));
         services.AddModule("m1", MonitorId).Succeeded.ShouldBeTrue();
 
-        services.Connect(new PortRef("t1", "out"), [new PortRef("s1", "tx")], "duplex-tx").Succeeded.ShouldBeTrue();
-        services.Connect(new PortRef("s1", "rx"), [new PortRef("m1", "in")], "duplex-rx").Succeeded.ShouldBeTrue();
+        TestLink.Link(services, new PortRef("t1", "out"), new PortRef("s1", "tx"), "duplex-tx");
+        TestLink.Link(services, new PortRef("s1", "rx"), new PortRef("m1", "in"), "duplex-rx");
 
         services.UpdateConfigurationField("s1", nameof(SerialConfig.PortName), "LOOP")
             .Succeeded.ShouldBeTrue();
@@ -224,8 +224,8 @@ public sealed class SerialLoopbackIntegrityTests
         serialAdd.Succeeded.ShouldBeTrue(string.Join("；", serialAdd.Failures));
         services.AddModule("m1", MonitorId).Succeeded.ShouldBeTrue();
 
-        services.Connect(new PortRef("t1", "out"), [new PortRef("s1", "tx")], "loop-tx").Succeeded.ShouldBeTrue();
-        services.Connect(new PortRef("s1", "rx"), [new PortRef("m1", "in")], "loop-rx").Succeeded.ShouldBeTrue();
+        TestLink.Link(services, new PortRef("t1", "out"), new PortRef("s1", "tx"), "loop-tx");
+        TestLink.Link(services, new PortRef("s1", "rx"), new PortRef("m1", "in"), "loop-rx");
 
         services.UpdateConfigurationField("s1", nameof(SerialConfig.PortName), realPort ?? "LOOP")
             .Succeeded.ShouldBeTrue();

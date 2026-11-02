@@ -31,8 +31,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'app-output.ps1')
+
 $packageRoot = Join-Path $root "artifacts\modules\$Configuration"
-$appOutput = Join-Path $root "src\App\bin\$Configuration\net10.0"
+
+# 应用输出只向 MSBuild 要（不手抄 `bin\<配置>\net10.0`；理由见 tools/app-output.ps1 头注释）。
+$appOutput = Get-AppOutputDirectory -Root $root -Configuration $Configuration
 $appModules = Join-Path $appOutput 'modules'
 
 # 源码模块目录（id → 目录）：包内随包文本要与源码逐字对账。
@@ -135,8 +139,8 @@ function Test-ModulePackages {
             throw "包清单缺少 entryAssembly：$manifestPath"
         }
 
-        if ([string]::IsNullOrWhiteSpace($manifest.frameworkCompatibility)) {
-            throw "包清单缺少 frameworkCompatibility：$manifestPath"
+        if ($manifest.id -notmatch '^[a-z0-9-]+/[a-z0-9-]+$') {
+            throw "包清单的 id 必须是两段（作者/模块名）：$manifestPath → $($manifest.id)"
         }
 
         $entryAssembly = Join-Path $package.FullName $manifest.entryAssembly

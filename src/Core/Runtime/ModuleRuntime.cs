@@ -217,32 +217,6 @@ public sealed partial class ModuleRuntime : IDisposable
 
                     break;
 
-                case ConnectNetworkOperation connect:
-                    var connectErrors = ValidateConnect(connect, out var network);
-                    failures.AddRange(connectErrors);
-                    if (connectErrors.Count == 0 && network is not null)
-                    {
-                        plan.AddNetworks.Add(network);
-                    }
-
-                    break;
-
-                case DisconnectNetworkOperation disconnect:
-                    if (string.IsNullOrWhiteSpace(disconnect.NetworkName))
-                    {
-                        failures.Add(CoreText.Get("core.runtime.disconnectNeedsName"));
-                    }
-                    else if (!Content.Networks.Any(n => string.Equals(n.Name, disconnect.NetworkName, StringComparison.Ordinal)))
-                    {
-                        failures.Add(CoreText.Get("core.runtime.networkMissing", disconnect.NetworkName));
-                    }
-                    else
-                    {
-                        plan.RemoveNetworks.Add(disconnect.NetworkName);
-                    }
-
-                    break;
-
                 case UpdateConfigurationOperation update:
                     if (!Content.TryGetInstance(update.InstanceId, out _))
                     {
@@ -387,90 +361,6 @@ public sealed partial class ModuleRuntime : IDisposable
         return failures;
     }
 
-    private List<string> ValidateConnect(ConnectNetworkOperation connect, out Network? network)
-    {
-        network = null;
-        var errors = new List<string>();
-
-        if (!Content.TryGetInstance(connect.Source.InstanceId, out var sourceInstance) || sourceInstance is null)
-        {
-            errors.Add(CoreText.Get("core.runtime.sourceInstanceMissing", connect.Source.InstanceId));
-            return errors;
-        }
-
-        var sourcePort = sourceInstance.FindPort(connect.Source.PortName);
-        if (sourcePort is null)
-        {
-            errors.Add(CoreText.Get("core.runtime.sourcePortMissing", connect.Source));
-            return errors;
-        }
-
-        if (sourcePort.Direction != PortDirection.Send)
-        {
-            errors.Add(CoreText.Get("core.runtime.sourceNotSend", connect.Source, sourcePort.Direction));
-        }
-
-        var targets = new List<NetworkMember>();
-        foreach (var target in connect.Targets)
-        {
-            if (!Content.TryGetInstance(target.InstanceId, out var targetInstance) || targetInstance is null)
-            {
-                errors.Add(CoreText.Get("core.runtime.targetInstanceMissing", target.InstanceId));
-                continue;
-            }
-
-            var targetPort = targetInstance.FindPort(target.PortName);
-            if (targetPort is null)
-            {
-                errors.Add(CoreText.Get("core.runtime.targetPortMissing", target));
-                continue;
-            }
-
-            if (targetPort.Direction != PortDirection.Receive)
-            {
-                errors.Add(CoreText.Get("core.runtime.targetNotReceive", target, targetPort.Direction));
-                continue;
-            }
-
-            // 兼容判定：**三层判据**（类型标识/版本 + 结构回退）；不自动转换
-            var compatibility = CheckCompatibility(
-                connect.Source.InstanceId, sourcePort,
-                target.InstanceId, targetPort,
-                connect.AllowUnverifiedTypeMatch);
-
-            if (!compatibility.IsCompatible)
-            {
-                errors.Add(CoreText.Get("core.runtime.contractIncompatible", connect.Source, target, compatibility.Reason));
-                continue;
-            }
-
-            targets.Add(target);
-        }
-
-        if (connect.Name is { Length: > 0 } name)
-        {
-            if (!NetworkNaming.TryValidateName(name, out var nameError))
-            {
-                errors.Add(DescribeNetworkNameError(nameError, name));
-            }
-            else if (Content.IsNameTaken(name))
-            {
-                errors.Add(CoreText.Get("core.runtime.networkNameTaken", name));
-            }
-        }
-
-        if (errors.Count == 0)
-        {
-            network = new Network(
-                connect.Name ?? string.Empty,
-                [connect.Source],
-                targets,
-                allowUnverifiedTypeMatch: connect.AllowUnverifiedTypeMatch);
-        }
-
-        return errors;
-    }
-
     private void Commit(ApplyPlan plan, List<string> notices)
     {
         // 先加（实例 → 网络/绑定 → 状态 → 配置），后减（网络 → 实例）
@@ -499,11 +389,6 @@ public sealed partial class ModuleRuntime : IDisposable
             }
 
             _lifecycle.Activate(instance);
-        }
-
-        foreach (var network in plan.AddNetworks)
-        {
-            AddNetworkCore(network);
         }
 
         foreach (var (instanceId, enabled) in plan.StateChanges)
@@ -578,11 +463,6 @@ public sealed partial class ModuleRuntime : IDisposable
                 NotifyConfigurationChanged(instanceId);
                 notices.Add(CoreText.Get("core.runtime.configReset", resetInstance.Definition.DisplayName));
             }
-        }
-
-        foreach (var networkName in plan.RemoveNetworks)
-        {
-            RemoveNetworkCore(networkName);
         }
 
         foreach (var instanceId in plan.RemoveInstances)
@@ -683,10 +563,10 @@ public sealed partial class ModuleRuntime : IDisposable
                 continue;
             }
 
-            // **允许同一实例的源 → 宿**（模块内自回环）：结构与显式连接都不再排除自连；
+            // **允许同一实例的源 → 宿**（模块内自回环）：标签建网与贴合都不排除自连；
             // 真正约束仍是方向 + 契约兼容（逐对过滤）。
             var targets = network.Targets
-                .Where(target => IsPairCompatible(network, source, target))
+                .Where(target => IsPairCompatible(source, target))
                 .ToList();
             if (targets.Count == 0)
             {
@@ -732,7 +612,11 @@ public sealed partial class ModuleRuntime : IDisposable
     }
 
     /// <summary>逐 **(源, 宿)** 对判定契约兼容（方向 + 契约；只排除不兼容的那一对）。</summary>
-    private bool IsPairCompatible(Network network, NetworkMember source, NetworkMember target)
+    /// <remarks>
+    /// 派生网络的成员**在落地时已按同一判定筛过**；本方法仍保留，是给"加载重锚 / 停流网络"的
+    /// 持久化成员做防御性复核——**同一个判定函数**，不是第二套规则。
+    /// </remarks>
+    private bool IsPairCompatible(NetworkMember source, NetworkMember target)
     {
         var from = FindPort(source.InstanceId, source.PortName);
         var to = FindPort(target.InstanceId, target.PortName);
@@ -741,16 +625,15 @@ public sealed partial class ModuleRuntime : IDisposable
             && to is not null
             && from.Declaration.Direction == PortDirection.Send
             && to.Declaration.Direction == PortDirection.Receive
-            && CheckCompatibility(
-                source.InstanceId, from, target.InstanceId, to, network.AllowUnverifiedTypeMatch).IsCompatible;
+            && CheckCompatibility(source.InstanceId, from, target.InstanceId, to).IsCompatible;
     }
 
     /// <summary>
-    /// 一个口的**类型身份**：已声明类型 ⇒ `标识@v版本`；未声明/引用不可解析 ⇒ **结构描述**。
+    /// 一个口的**类型身份**：已声明类型 ⇒ 类型标识；未声明/引用不可解析 ⇒ **结构描述**。
     /// </summary>
     /// <remarks>
     /// **只用于呈现**（端口标记的类型色条 / 色板映射）：不参与任何判定。
-    /// 之所以不复用呈现文本：`f32` 无法区分"声明了 `hyw/f32@1`"与"声明了别的标识但形状相同"，
+    /// 之所以不复用呈现文本：`f32` 无法区分"声明了 `hyw/f32`"与"声明了别的标识但形状相同"，
     /// 而二者**不是同一种量** ⇒ 用文本会把两种类型混为一色。
     /// </remarks>
     /// <param name="instanceId">实例 ID。</param>
@@ -759,9 +642,9 @@ public sealed partial class ModuleRuntime : IDisposable
     {
         ArgumentNullException.ThrowIfNull(port);
 
-        if (ResolveTypeReference(instanceId, port) is { } reference)
+        if (ResolveTypeReference(instanceId, port) is { } typeId)
         {
-            return $"{reference.TypeId}@v{reference.Version}";
+            return typeId;
         }
 
         return port.Declaration.Shape.Describe();
@@ -793,7 +676,7 @@ public sealed partial class ModuleRuntime : IDisposable
 
                 foreach (var target in network.Targets)
                 {
-                    if (!IsPairCompatible(network, source, target))
+                    if (!IsPairCompatible(source, target))
                     {
                         continue;
                     }
@@ -808,48 +691,49 @@ public sealed partial class ModuleRuntime : IDisposable
 
     /// <summary>
     /// **契约兼容判定的唯一入口**：解析两侧的**数据类型引用**（本模块已声明的类型），
-    /// 交给 <see cref="ContractCompatibility.Check(ContractShape, TransferSemantics, DataTypeRef?, ContractShape, TransferSemantics, DataTypeRef?, bool)"/>
+    /// 交给 <see cref="ContractCompatibility.Check(ContractShape, TransferSemantics, string?, ContractShape, TransferSemantics, string?)"/>
     /// 走**类型身份 + 形状完全一致**的判据；任一方未声明类型 ⇒ 只比形状。
     /// </summary>
+    /// <remarks>
+    /// 建网（标签 / 贴合）、绑定构建、加载重锚、预览**全部**只经这里判定——
+    /// 没有"只比形状"的旁路，也没有"用户强制连接"的放行参数。
+    /// </remarks>
     /// <param name="sourceInstanceId">源的实例 ID（用于解析该实例声明的类型）。</param>
     /// <param name="source">源口。</param>
     /// <param name="targetInstanceId">宿的实例 ID。</param>
     /// <param name="target">宿口。</param>
-    /// <param name="allowUnverified">用户是否已显式确认允许"不同标识"强连。</param>
     private CompatibilityResult CheckCompatibility(
         string sourceInstanceId,
         PortInstance source,
         string targetInstanceId,
-        PortInstance target,
-        bool allowUnverified = false) =>
+        PortInstance target) =>
         ContractCompatibility.Check(
             source.Declaration.Shape,
             source.Declaration.Semantics,
             ResolveTypeReference(sourceInstanceId, source),
             target.Declaration.Shape,
             target.Declaration.Semantics,
-            ResolveTypeReference(targetInstanceId, target),
-            allowUnverified);
+            ResolveTypeReference(targetInstanceId, target));
 
     /// <summary>
-    /// 解析口上的数据类型引用：**引用必须能在本实例声明的类型里找到**，否则视为"未声明"（回退结构判定）。
+    /// 解析口上的数据类型标识：**标识必须能在本实例声明的类型里找到**，否则视为"未声明"（回退结构判定）。
     /// </summary>
     /// <remarks>
     /// 为什么必须"本模块声明"：框架要靠声明拿到**尺寸/解码器/计量块**才能替模块做机械判断；
     /// 只写一个标识而本模块不声明该类型 = 框架不知道它的形状 ⇒ 只能回退结构比较（并已由实例化工位报 Issue）。
     /// </remarks>
-    private DataTypeRef? ResolveTypeReference(string instanceId, PortInstance port)
+    private string? ResolveTypeReference(string instanceId, PortInstance port)
     {
-        if (port.Declaration.Type is not { } reference)
+        if (port.Declaration.TypeId is not { } typeId)
         {
             return null;
         }
 
         if (Content.TryGetInstance(instanceId, out var instance)
             && instance is not null
-            && instance.FindDataType(reference) is not null)
+            && instance.FindDataType(typeId) is not null)
         {
-            return reference;
+            return typeId;
         }
 
         return null;
@@ -1403,10 +1287,6 @@ public sealed partial class ModuleRuntime : IDisposable
         public List<string> RemoveInstances { get; } = [];
 
         public List<(string InstanceId, bool Enabled)> StateChanges { get; } = [];
-
-        public List<Network> AddNetworks { get; } = [];
-
-        public List<string> RemoveNetworks { get; } = [];
 
         public List<(string InstanceId, object Configuration)> ConfigChanges { get; } = [];
 

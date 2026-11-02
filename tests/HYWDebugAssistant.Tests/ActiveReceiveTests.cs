@@ -34,9 +34,9 @@ public class ActiveReceiveTests
         Register(services, "burst-sender", typeof(BurstSenderModule));
         Register(services, "active-drain", typeof(ActiveDrainModule));
 
-        services.AddModule("s", "test/burst-sender/1.0.0").Succeeded.ShouldBeTrue();
-        services.AddModule("d", "test/active-drain/1.0.0").Succeeded.ShouldBeTrue();
-        services.Connect(new Core.Api.PortRef("s", "out"), [new Core.Api.PortRef("d", "in")], "link").Succeeded.ShouldBeTrue();
+        services.AddModule("s", "test/burst-sender").Succeeded.ShouldBeTrue();
+        services.AddModule("d", "test/active-drain").Succeeded.ShouldBeTrue();
+        TestLink.Link(services, new Core.Api.PortRef("s", "out"), new Core.Api.PortRef("d", "in"), "link");
 
         // 模块在自己的活动体里用 TryReceive 取数据（主动接收），计数写入订阅缓冲供框架侧观察
         WaitUntil(() => services.GetSubscriptionSources()
@@ -68,14 +68,12 @@ public class ActiveReceiveTests
     private static void Register(RuntimeServices services, string name, Type entryType)
     {
         var definition = new ModuleDefinition(
-            ModuleId.Create("test", name, "1.0.0"),
+            ModuleId.Create("test", name),
             entryType.Name,
             string.Empty,
             [],
             ModuleCapability.None,
-            [],
-            null,
-            true,
+            [], true,
             entryType,
             TestViewPackages.For(entryType),
             string.Empty);
@@ -84,7 +82,7 @@ public class ActiveReceiveTests
     }
 
     /// <summary>源模块：周期发出一批 u32 单元。</summary>
-    [ModuleDefinition("test", "burst-sender", "1.0.0")]
+    [ModuleDefinition("test", "burst-sender")]
     public sealed class BurstSenderModule : IModule, IActivitySource
     {
         public static readonly ContractShape Shape = ContractShape.OfPrimitive(ContractPrimitive.U32);
@@ -111,7 +109,7 @@ public class ActiveReceiveTests
     }
 
     /// <summary>宿模块：**主动接收**——在自己的活动体里取数据、用完归还，并把计数写入订阅缓冲。</summary>
-    [ModuleDefinition("test", "active-drain", "1.0.0")]
+    [ModuleDefinition("test", "active-drain")]
     public sealed class ActiveDrainModule : IModule, IActivitySource
     {
         public const string ReceivedSource = "received";

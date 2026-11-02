@@ -190,22 +190,27 @@ public class PortFlowQueryTests
         pool.RentAndFill(Layout, span => BitConverter.TryWriteBytes(span, (float)value));
 
     private static ModuleDefinition TestDefinition(string name, Type entryType) =>
-        new(ModuleId.Create("test", name, "1.0.0"),
-            name, string.Empty, [], ModuleCapability.None, [], null, true,
+        new(ModuleId.Create("test", name),
+            name, string.Empty, [], ModuleCapability.None, [], true,
             entryType, TestViewPackages.For(entryType), string.Empty);
 
     private static void AddModule(ModuleRuntime runtime, string instanceId, string name, Type entryType) =>
         runtime.Apply(ChangeSet.OfOne(new AddModuleOperation(instanceId, TestDefinition(name, entryType))))
             .Applied.ShouldBeTrue();
 
-    private static bool Connect(ModuleRuntime runtime, string sourceInstance, string sourcePort, string targetInstance, string targetPort) =>
-        runtime.Apply(ChangeSet.OfOne(new ConnectNetworkOperation(
-            new NetworkMember(sourceInstance, sourcePort, PortDirection.Send),
-            [new NetworkMember(targetInstance, targetPort, PortDirection.Receive)],
-            $"{sourceInstance}-{targetInstance}"))).Applied;
+    /// <summary>建网（**只有一条用户路径**：两端同名标签 ⇒ 推导 ⇒ 命名网络）。</summary>
+    private static bool Connect(ModuleRuntime runtime, string sourceInstance, string sourcePort, string targetInstance, string targetPort)
+    {
+        var services = new RuntimeServices(runtime);
+        return TestLink.TryLink(
+            services,
+            new PortRef(sourceInstance, sourcePort),
+            new PortRef(targetInstance, targetPort),
+            $"{sourceInstance}-{targetInstance}");
+    }
 
     /// <summary>接收口（f32）；处理器每单元占 200 ms —— 用"慢消费者"把队列顶满。</summary>
-    [ModuleDefinition("test", "slow-receiver", "1.0.0")]
+    [ModuleDefinition("test", "slow-receiver")]
     public sealed class SlowReceiverModule : IModule
     {
         /// <summary>接收口名。</summary>

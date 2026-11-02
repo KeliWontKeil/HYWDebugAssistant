@@ -27,7 +27,7 @@
 
 | # | 日期 | 约束 | 位置 | 原因 | 复查条件 | 处置人 | 状态 |
 |---|---|---|---|---|---|---|---|
-| — | — | — | — | （暂无） | — | — | — |
+| 1 | 2026-11-02 | AR-8（`Ui` / `FrameworkUi` 只引用 `Sdk` + `Core.Api`） | `src/Ui/HYWDebugAssistant.Ui.csproj`、`src/FrameworkUi/HYWDebugAssistant.FrameworkUi.csproj` | 两个项目直接引用 `Sdk.Ui`：模块区与外壳都要用模块控件库（`ModuleView*` / `Icon` / 设计 token），经第三方转引只会让"界面契约层"多出一条看不见的边 | 把控件库上收到 `Ui`（框架侧只留一个界面层）时关闭 | 开发者 | 生效 |
 
 ## 已关闭的例外
 

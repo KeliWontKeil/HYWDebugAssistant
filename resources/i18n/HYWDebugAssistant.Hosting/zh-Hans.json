@@ -1,15 +1,11 @@
 {
-  "schemaVersion": 1,
   "language": "zh-Hans",
   "entries": {
-    "hosting.compat.notSatisfied": "框架版本 {0} 不满足兼容范围 '{1}'",
-    "hosting.compat.rangeSyntax": "兼容范围语法非法：'{0}'（支持 >=、>、<=、<、=，如 >=2.0.0 <3.0.0）",
-    "hosting.compat.versionInvalid": "框架版本号非法：'{0}'",
-    "hosting.install.contentChanged": "{0}：同版本包内容已变化，需重启应用生效",
+    "hosting.install.contentChanged": "{0}：同包内容已变化，需重启应用生效",
     "hosting.install.dependencyIdInvalid": "{0}：依赖标识非法 '{1}'",
     "hosting.install.dependencyMissing": "{0}：缺少依赖模块 {1}（请先安装该模块）",
     "hosting.install.installed": "{0}：已装入",
-    "hosting.install.loadedOtherDir": "{0}：同 ID 同版本已由 {1} 载入（先到者胜）",
+    "hosting.install.loadedOtherDir": "{0}：同 ID 已由 {1} 载入（先到者胜）",
     "hosting.install.loadedUnchanged": "{0}：已载入（内容未变）",
     "hosting.install.packageLoadFailed": "模块包加载失败：{0}",
     "hosting.instance.accessAdapterFactoryMissing": "标准 '{0}' 缺少适配件工厂（已忽略接入 '{1}'）",
@@ -23,7 +19,7 @@
     "hosting.instance.accessUnitLimit": "外部接入 {0} 的单元上限必须在 1–{1} 字节之间（当前 {2}），已忽略该条",
     "hosting.instance.accessUnknownStandard": "未知外部标准标识：{0}（接入 {1}），已忽略该条",
     "hosting.instance.commandDuplicate": "命令「{0}」重复声明（已忽略重复项）",
-    "hosting.instance.dataTypeDuplicate": "数据类型重复声明：{0}；同一标识与版本只能声明一次，重复声明已忽略",
+    "hosting.instance.dataTypeDuplicate": "数据类型重复声明：{0}；同一标识只能声明一次，重复声明已忽略",
     "hosting.instance.direction.input": "输入",
     "hosting.instance.direction.output": "输出",
     "hosting.instance.displaySourceDuplicate": "显示源「{0}」重复声明（已忽略重复项）",
@@ -62,9 +58,11 @@
     "hosting.package.entryTypeMissing": "入口类型不存在：{0}",
     "hosting.package.entryTypeNotModule": "入口类型未实现 IModule：{0}",
     "hosting.package.hostAssemblyMissing": "宿主未提供 {0}，模块包无法加载；请检查应用输出是否完整",
-    "hosting.package.legacyAccessReference": "旧包引用了模块侧 Access，请用 SDK 2.0 重编",
-    "hosting.package.manifestIdInvalid": "清单中的模块标识不合法：'{0}'（应为 作者/模块名/版本，如 hyw/my-module/1.0.0）",
-    "hosting.package.sdkVersionTooHigh": "模块引用了 {0} {1}，高于宿主 {2}（请用与宿主匹配的 SDK 重编）",
-    "hosting.registry.alreadyRegistered": "模块已注册（同 ID 同版本）：{0}"
+    "hosting.package.sdkReference": "（编译时引用 {0} {1}；请用当前 SDK 重编）",
+    "hosting.package.legacyAccessReference": "旧包引用了模块侧 Access，请用当前 SDK 重编",
+    "hosting.package.manifestIdInvalid": "清单中的模块标识不合法：'{0}'（应为 作者/模块名，如 hyw/my-module）",
+    "hosting.package.resourceInvalid": "清单声明的资源路径必须相对、且不得越界：'{0}'",
+    "hosting.package.resourceMissing": "清单声明的资源目录不存在：'{0}'（模块包内容不完整）",
+    "hosting.registry.alreadyRegistered": "模块已注册（同 ID）：{0}"
   }
 }

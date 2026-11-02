@@ -17,14 +17,11 @@
     <ProjectReference Include="..\..\src\Ui\HYWDebugAssistant.Ui.csproj" />
     <!-- 外部标准 → 配置类型（预览器据此把 [ModuleViewDesignData(标准标识)] 画成字段）。 -->
     <ProjectReference Include="..\..\src\Access\HYWDebugAssistant.Access.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Business\DataMonitor\HYWDebugAssistant.Modules.DataMonitor.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Business\HexSender\HYWDebugAssistant.Modules.HexSender.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Business\HexStringConverter\HYWDebugAssistant.Modules.HexStringConverter.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Business\Serial\HYWDebugAssistant.Modules.Serial.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Business\TcpClient\HYWDebugAssistant.Modules.TcpClient.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Business\TcpServer\HYWDebugAssistant.Modules.TcpServer.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Business\TextSender\HYWDebugAssistant.Modules.TextSender.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Business\Udp\HYWDebugAssistant.Modules.Udp.csproj" />
+    <!--
+      **按目录发现模块**（不是手写清单）：新增模块项目只进 slnx 与目录，预览目标自动包含它。
+      手写清单的代价是"新模块在预览器里永远没有目标"，而且没人会记得回来补。
+    -->
+    <ProjectReference Include="..\..\src\Modules\Business\*\*.csproj" />
   </ItemGroup>
 
   <ItemGroup>

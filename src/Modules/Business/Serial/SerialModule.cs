@@ -21,7 +21,6 @@ namespace HYWDebugAssistant.Modules.Serial;
 [ModuleDefinition(
     "hyw",
     "serial",
-    "1.0.0",
     DisplayNameKey = SerialText.Title,
     DescriptionKey = SerialText.Description,
     Tags = ["serial", "io"],

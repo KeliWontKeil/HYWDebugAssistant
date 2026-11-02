@@ -3026,7 +3026,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 flow.PeerRoleKey,
                 flow.PortPairCount);
 
-            // **自回环判据只看"同实例 + 同角色"**：不读网络类型、口数、命名/显式连接 ——
+            // **自回环判据只看"同实例 + 同角色"**：不读网络类型、口数、命名/对齐 ——
             // 它是叠加层的呈现事实，与底层怎么连出来无关。
             link.IsSelfLoop = string.Equals(flow.PeerInstanceId, module.InstanceId, StringComparison.Ordinal)
                 && string.Equals(flow.PeerRoleKey, flow.LocalRoleKey, StringComparison.Ordinal);

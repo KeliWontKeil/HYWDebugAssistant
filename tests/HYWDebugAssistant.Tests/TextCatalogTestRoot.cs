@@ -42,7 +42,6 @@ internal sealed class TextCatalogTestRoot : IDisposable
 
         tables.WriteTable("zh-Hans.json", """
             {
-              "schemaVersion": 1,
               "language": "zh-Hans",
               "entries": {
                 "probe.base.label": "探针基础表",
@@ -54,7 +53,6 @@ internal sealed class TextCatalogTestRoot : IDisposable
 
         tables.WriteTable("zh-Hans.settings.json", """
             {
-              "schemaVersion": 1,
               "language": "zh-Hans",
               "entries": {
                 "probe.shard.label": "分片表"
@@ -64,7 +62,6 @@ internal sealed class TextCatalogTestRoot : IDisposable
 
         tables.WriteTable("zh.json", """
             {
-              "schemaVersion": 1,
               "language": "zh",
               "entries": {
                 "probe.neutral.label": "语言中立表"

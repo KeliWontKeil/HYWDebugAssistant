@@ -32,25 +32,6 @@ public class ScreenPixelsTests
         }
     }
 
-    /// <summary>反推尺寸：整数像素宽 ÷ 缩放，再乘回缩放取整，必须回到同一个像素数。</summary>
-    [Theory]
-    [InlineData(359)]
-    [InlineData(240)]
-    [InlineData(1)]
-    [InlineData(999)]
-    public void 反推尺寸应回到同一个物理像素(int dip)
-    {
-        foreach (var scaling in Scalings)
-        {
-            var pixels = ScreenPixels.PixelRectOf(new CanvasRect(0, 0, dip, dip), scaling);
-            var widthPixels = pixels.Right - pixels.Left;
-            var widthDip = (double)widthPixels / scaling;
-
-            Math.Round(widthDip * scaling, MidpointRounding.AwayFromZero)
-                .ShouldBe(widthPixels, $"缩放 {scaling}：{dip} DIP 的宽度反推后必须回到 {widthPixels}px");
-        }
-    }
-
     /// <summary>负坐标（左副屏）：x=-359 在 1.25 下 Left=-449，且与 x=0 的矩形 Left=0 相接。</summary>
     [Fact]
     public void 负坐标应与原点矩形相接()

@@ -71,7 +71,6 @@ public class TextCatalogTests : IDisposable
         using var alternate = TextCatalogTestRoot.CreateEmpty();
         alternate.WriteTable("zh-Hans.json", """
             {
-              "schemaVersion": 1,
               "language": "zh-Hans",
               "entries": {
                 "probe.root.label": "临时根"
@@ -113,7 +112,6 @@ public class TextCatalogTests : IDisposable
             _ = Directory.CreateDirectory(ownerDirectory);
             File.WriteAllText(tablePath, """
                 {
-                  "schemaVersion": 1,
                   "language": "zh-Hans",
                   "entries": {
                     "probe.defaultRoot.label": "默认根表"
@@ -189,7 +187,6 @@ public class TextCatalogTests : IDisposable
             _ = Directory.CreateDirectory(packageRoot);
             File.WriteAllText(tablePath, """
                 {
-                  "schemaVersion": 1,
                   "language": "zh-Hans",
                   "entries": {
                     "probe.package.label": "程序集旁的表"
@@ -267,7 +264,7 @@ public class TextCatalogTests : IDisposable
     [Fact]
     public void 坏文件_应跳过该文件并报诊断()
     {
-        _tables.WriteTable("zh-Hans.broken.json", """{ "schemaVersion": 1, """);
+        _tables.WriteTable("zh-Hans.broken.json", """{ "entries": """);
         _tables.Use();   // 同一根里多了文件：重设根以清掉按旧文件集算出的缓存
 
         var diagnostics = new List<string>();
@@ -294,7 +291,6 @@ public class TextCatalogTests : IDisposable
     {
         _tables.WriteTable("zh-Hans.zz.json", """
             {
-              "schemaVersion": 1,
               "language": "zh-Hans",
               "entries": {
                 "probe.duplicate.label": "分片后到",
@@ -439,7 +435,6 @@ public class TextCatalogTests : IDisposable
 
             File.WriteAllText(defaultTable, """
                 {
-                  "schemaVersion": 1,
                   "language": "zh-Hans",
                   "entries": { "probe.priority.label": "默认根" }
                 }
@@ -447,7 +442,6 @@ public class TextCatalogTests : IDisposable
 
             File.WriteAllText(explicitTable, """
                 {
-                  "schemaVersion": 1,
                   "language": "zh-Hans",
                   "entries": { "probe.priority.label": "显式根" }
                 }

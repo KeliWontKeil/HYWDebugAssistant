@@ -71,17 +71,17 @@ public class ReceiveModeBenchmarks : IDisposable
 
         Register("source", typeof(SourceModule));
 
-        Require(_services.AddModule("a", "bench/source/1.0.0").Succeeded, "加入源实例");
+        Require(_services.AddModule("a", "bench/source").Succeeded, "加入源实例");
 
         var sinkLiteral = Mode switch
         {
-            ReceiveIdleMode.PassiveFrameworkLoop => "bench/passive-sink/1.0.0",
-            ReceiveIdleMode.ActiveStopSignalWait => "bench/wait-sink/1.0.0",
-            _ => "bench/spin-sink/1.0.0",
+            ReceiveIdleMode.PassiveFrameworkLoop => "bench/passive-sink",
+            ReceiveIdleMode.ActiveStopSignalWait => "bench/wait-sink",
+            _ => "bench/spin-sink",
         };
 
         Require(_services.AddModule("b", sinkLiteral).Succeeded, "加入宿实例");
-        Require(_services.Connect(new PortRef("a", "out"), [new PortRef("b", "in")], "ab").Succeeded, "建网 ab");
+        Require(Link("a", "out", "b", "in", "ab"), "建网 ab");
 
         Require(_runtime.Content.TryGetInstance("a", out var source) && source is not null, "取源实例");
         Require(_runtime.Content.TryGetInstance("b", out var sink) && sink is not null, "取宿实例");
@@ -131,6 +131,12 @@ public class ReceiveModeBenchmarks : IDisposable
     /// <summary>当前模式的静态投影（模块类读它；每个参数组合各自 Setup）。</summary>
     internal static ReceiveIdleMode CurrentMode { get; private set; }
 
+    /// <summary>建网（只有一条用户路径：两端同名标签 ⇒ 推导 ⇒ 命名网络）。</summary>
+    private bool Link(string sourceInstance, string sourcePort, string targetInstance, string targetPort, string name) =>
+        _services.UpdatePortNetwork(sourceInstance, sourcePort, name).Succeeded
+        && _services.UpdatePortNetwork(targetInstance, targetPort, name).Succeeded
+        && _services.GetNetworks().Any(network => string.Equals(network.Name, name, StringComparison.Ordinal));
+
     private static void Require(bool condition, string what)
     {
         if (!condition)
@@ -142,13 +148,12 @@ public class ReceiveModeBenchmarks : IDisposable
     private void Register(string name, Type entryType)
     {
         var definition = new ModuleDefinition(
-            ModuleId.Create("bench", name, "1.0.0"),
+            ModuleId.Create("bench", name),
             entryType.Name,
             string.Empty,
             [],
             ModuleCapability.None,
             [],
-            null,
             true,
             entryType,
             string.Empty,
@@ -230,7 +235,7 @@ public class ReceiveModeBenchmarks : IDisposable
     }
 
     /// <summary>源模块：只声明发送口（发送由基准驱动）。</summary>
-    [ModuleDefinition("bench", "source", "1.0.0")]
+    [ModuleDefinition("bench", "source")]
     public sealed class SourceModule : IModule
     {
         public static readonly ContractShape UnitShape = ContractShape.OfStruct(
@@ -244,7 +249,7 @@ public class ReceiveModeBenchmarks : IDisposable
     }
 
     /// <summary>模式一：**被动接收**（框架投递循环用事件唤醒）——模块不实现活动源。</summary>
-    [ModuleDefinition("bench", "passive-sink", "1.0.0")]
+    [ModuleDefinition("bench", "passive-sink")]
     public sealed class PassiveSinkModule : ReceiveProbe
     {
         public override void OnRegistered(IModuleContext context)
@@ -255,7 +260,7 @@ public class ReceiveModeBenchmarks : IDisposable
     }
 
     /// <summary>模式二：**主动接收 + 框架停止信号等待**（用 <c>StopSignal.Wait</c> 当轮询间隔）。</summary>
-    [ModuleDefinition("bench", "wait-sink", "1.0.0")]
+    [ModuleDefinition("bench", "wait-sink")]
     public sealed class StopSignalWaitSinkModule : ReceiveProbe, IActivitySource
     {
         public ActivityKind Kind => ActivityKind.EventDriven;
@@ -298,7 +303,7 @@ public class ReceiveModeBenchmarks : IDisposable
     }
 
     /// <summary>模式三：**主动接收 + 自旋轮询**（忙等，占一个核）。</summary>
-    [ModuleDefinition("bench", "spin-sink", "1.0.0")]
+    [ModuleDefinition("bench", "spin-sink")]
     public sealed class SpinPollSinkModule : ReceiveProbe, IActivitySource
     {
         public ActivityKind Kind => ActivityKind.EventDriven;

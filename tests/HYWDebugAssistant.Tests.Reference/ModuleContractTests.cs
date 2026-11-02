@@ -73,8 +73,8 @@ public class ModuleContractTests
         fuse.Id.ShouldBe(FusionStubModule.RoleId);
         fuse.Inputs.ShouldBe([FusionStubModule.InputPort1, FusionStubModule.InputPort2]);
         fuse.Outputs.ShouldBe([FusionStubModule.OutputPort]);
-        fuse.Type.ShouldBe(
-            new DataTypeRef(FusionStubModule.RawBytesTypeId, FusionStubModule.RawBytesVersion),
+        fuse.TypeId.ShouldBe(
+            FusionStubModule.RawBytesTypeId,
             "一个角色只有**一种**数据类型");
 
         fusion.DeclaredFlows.ShouldBeEmpty("单块模块没有「角色 → 角色」的内部顺序 ⇒ 零声明零线");
@@ -217,11 +217,11 @@ public class ModuleContractTests
         {
             var probe = ModuleContract.Probe(type);
             var rawBytes = probe.DataTypes.SingleOrDefault(t =>
-                t.TypeId == TextSenderModule.RawBytesTypeId && t.Version == TextSenderModule.RawBytesVersion);
+                t.TypeId == TextSenderModule.RawBytesTypeId);
 
-            rawBytes.ShouldNotBeNull($"{type.Name} 应声明 {TextSenderModule.RawBytesTypeId}@{TextSenderModule.RawBytesVersion}");
+            rawBytes.ShouldNotBeNull($"{type.Name} 应声明 {TextSenderModule.RawBytesTypeId}");
             ContractShape.AreSame(rawBytes!.Shape, expected)
-                .ShouldBeTrue($"{type.Name} 的 {TextSenderModule.RawBytesTypeId}@{TextSenderModule.RawBytesVersion} 形状必须逐字段一致");
+                .ShouldBeTrue($"{type.Name} 的 {TextSenderModule.RawBytesTypeId} 形状必须逐字段一致");
         }
     }
 
@@ -386,7 +386,7 @@ public class ModuleContractTests
     /// **有效长度字段写错**的计量模块：① 字段名在形状里不存在 ② 字段存在但不是整型。
     /// </summary>
     /// <remarks>用于验证契约自检**真的会报**（否则写错只会表现为"有效速率恒等于搬运速率"这种静默归零）。</remarks>
-    [ModuleDefinition("test", "broken-metering", "1.0.0")]
+    [ModuleDefinition("test", "broken-metering")]
     public sealed class BrokenMeteringModule : IModule
     {
         public void OnRegistered(IModuleContext context)
@@ -396,13 +396,13 @@ public class ModuleContractTests
                 ("data", ContractShape.OfBytes(16)));
 
             // ① 字段名拼错：形状里没有 `length`
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/broken-metering-a", 1, shape)
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/broken-metering-a", shape)
             {
                 Metering = new MeteringBlock { PayloadLengthField = "length" },
             });
 
             // ② 字段存在但**不是整型**（浮点不能当字节数）
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/broken-metering-b", 1, shape)
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/broken-metering-b", shape)
             {
                 Metering = new MeteringBlock { PayloadLengthField = "data" },
             });
@@ -410,7 +410,7 @@ public class ModuleContractTests
     }
 
     /// <summary>**有效长度字段写对**的计量模块（对照组：不得报任何问题）。</summary>
-    [ModuleDefinition("test", "good-metering", "1.0.0")]
+    [ModuleDefinition("test", "good-metering")]
     public sealed class GoodMeteringModule : IModule
     {
         public void OnRegistered(IModuleContext context)
@@ -419,7 +419,7 @@ public class ModuleContractTests
                 ("len", ContractShape.OfPrimitive(ContractPrimitive.U16)),
                 ("data", ContractShape.OfBytes(16)));
 
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/good-metering", 1, shape)
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/good-metering", shape)
             {
                 Metering = new MeteringBlock { PayloadLengthField = "len" },
             });
@@ -427,7 +427,7 @@ public class ModuleContractTests
     }
 
     /// <summary>故意写坏的模块（验证契约自检**确实能发现问题**）。</summary>
-    [ModuleDefinition("test", "broken", "1.0.0")]
+    [ModuleDefinition("test", "broken")]
     public sealed class BrokenModule : IModule
     {
         public void OnRegistered(IModuleContext context)
@@ -440,18 +440,18 @@ public class ModuleContractTests
     }
 
     /// <summary>内部处理顺序写错的模块：自环 / 引用了未声明的角色 / 重复。</summary>
-    [ModuleDefinition("test", "broken-flow", "1.0.0")]
+    [ModuleDefinition("test", "broken-flow")]
     public sealed class BrokenFlowModule : IModule
     {
         public void OnRegistered(IModuleContext context)
         {
             var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
-            var type = new DataTypeRef("test/broken-flow", 1);
+            var type = "test/broken-flow";
 
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/broken-flow", 1, shape));
-            context.Declaration.DeclarePort(new PortDeclaration("in1", PortDirection.Receive, shape) { Type = type });
-            context.Declaration.DeclarePort(new PortDeclaration("out1", PortDirection.Send, shape) { Type = type });
-            context.Declaration.DeclarePort(new PortDeclaration("in2", PortDirection.Receive, shape) { Type = type });
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/broken-flow", shape));
+            context.Declaration.DeclarePort(new PortDeclaration("in1", PortDirection.Receive, shape) { TypeId = type });
+            context.Declaration.DeclarePort(new PortDeclaration("out1", PortDirection.Send, shape) { TypeId = type });
+            context.Declaration.DeclarePort(new PortDeclaration("in2", PortDirection.Receive, shape) { TypeId = type });
 
             context.Declaration.DeclareRole(RoleDeclaration.Both("a", type, "in1", "out1", "甲"));
             context.Declaration.DeclareRole(RoleDeclaration.Input("b", type, "in2", "乙"));
@@ -464,27 +464,27 @@ public class ModuleContractTests
     }
 
     /// <summary>角色声明写错的模块：重复 Id / 类型未声明 / 口不存在 / 方向不符 / 口被两个角色占 / 3 个口。</summary>
-    [ModuleDefinition("test", "broken-role", "1.0.0")]
+    [ModuleDefinition("test", "broken-role")]
     public sealed class BrokenRoleModule : IModule
     {
         public void OnRegistered(IModuleContext context)
         {
             var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
-            var known = new DataTypeRef("test/broken-role", 1);
+            var known = "test/broken-role";
 
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/broken-role", 1, shape));
-            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { Type = known });
-            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { Type = known });
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/broken-role", shape));
+            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { TypeId = known });
+            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { TypeId = known });
 
             for (var i = 1; i <= 3; i++)
             {
-                context.Declaration.DeclarePort(new PortDeclaration($"out{i}", PortDirection.Send, shape) { Type = known });
+                context.Declaration.DeclarePort(new PortDeclaration($"out{i}", PortDirection.Send, shape) { TypeId = known });
             }
 
             context.Declaration.DeclareRole(RoleDeclaration.Both("dup", known, "in", "out", "甲"));
             context.Declaration.DeclareRole(RoleDeclaration.Both("dup", known, "in", "out", "甲（重复 Id）"));   // ① Id 重复
             context.Declaration.DeclareRole(RoleDeclaration.Both(
-                "no-type", new DataTypeRef("test/missing", 1), "in", "out"));                                   // ② 类型未声明
+                "no-type", "test/missing", "in", "out"));                                   // ② 类型未声明
             context.Declaration.DeclareRole(RoleDeclaration.Both("no-port", known, "nope", "out"));            // ③ 口不存在
             context.Declaration.DeclareRole(RoleDeclaration.Output("wrong-dir", known, "in"));                 // ④ 方向不符（拿接收口当输出）
             context.Declaration.DeclareRole(RoleDeclaration.Input("steal", known, "in"));                      // ⑤ 口已被 dup 占用
@@ -494,19 +494,19 @@ public class ModuleContractTests
     }
 
     /// <summary>**α 的反例**：把"收 A 出 B"写进**同一个**角色（角色的输入口与输出口类型不同）。</summary>
-    [ModuleDefinition("test", "mixed-role", "1.0.0")]
+    [ModuleDefinition("test", "mixed-role")]
     public sealed class MixedTypeRoleModule : IModule
     {
         public void OnRegistered(IModuleContext context)
         {
             var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
-            var typeA = new DataTypeRef("test/type-a", 1);
-            var typeB = new DataTypeRef("test/type-b", 1);
+            var typeA = "test/type-a";
+            var typeB = "test/type-b";
 
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/type-a", 1, shape));
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/type-b", 1, shape));
-            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { Type = typeA });
-            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { Type = typeB });
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/type-a", shape));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/type-b", shape));
+            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { TypeId = typeA });
+            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { TypeId = typeB });
 
             // ✗ 一个角色跨两种类型 ⇒ 报 Problem（α）
             context.Declaration.DeclareRole(RoleDeclaration.Both("convert", typeA, "in", "out", "转换（写法错误）"));
@@ -514,19 +514,19 @@ public class ModuleContractTests
     }
 
     /// <summary>**α 的正例**：类型转换 = **两个角色**（收 A / 发 B）+ 一条内部顺序。</summary>
-    [ModuleDefinition("test", "converter", "1.0.0")]
+    [ModuleDefinition("test", "converter")]
     public sealed class ConverterModule : IModule
     {
         public void OnRegistered(IModuleContext context)
         {
             var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
-            var typeA = new DataTypeRef("test/recv-a", 1);
-            var typeB = new DataTypeRef("test/send-b", 1);
+            var typeA = "test/recv-a";
+            var typeB = "test/send-b";
 
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/recv-a", 1, shape));
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/send-b", 1, shape));
-            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { Type = typeA });
-            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { Type = typeB });
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/recv-a", shape));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/send-b", shape));
+            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { TypeId = typeA });
+            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { TypeId = typeB });
 
             context.Declaration.DeclareRole(RoleDeclaration.Input("recv", typeA, "in", "接收 A"));
             context.Declaration.DeclareRole(RoleDeclaration.Output("send", typeB, "out", "发出 B"));
@@ -535,15 +535,15 @@ public class ModuleContractTests
     }
 
     /// <summary>**旧模块形态**：口**未声明** `Type` ⇒ 同型检查无可比对象，不报（向后兼容）。</summary>
-    [ModuleDefinition("test", "untyped-port-role", "1.0.0")]
+    [ModuleDefinition("test", "untyped-port-role")]
     public sealed class UntypedPortRoleModule : IModule
     {
         public void OnRegistered(IModuleContext context)
         {
             var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
-            var type = new DataTypeRef("test/untyped-role", 1);
+            var type = "test/untyped-role";
 
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/untyped-role", 1, shape));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/untyped-role", shape));
             context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape));    // 不带 Type
             context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape));     // 不带 Type
 
@@ -552,35 +552,35 @@ public class ModuleContractTests
     }
 
     /// <summary>**B5 反例之一**：有数据口，但**一个角色都没声明** ⇒ 建议补 `DeclareRole`（不是问题）。</summary>
-    [ModuleDefinition("test", "no-role", "1.0.0")]
+    [ModuleDefinition("test", "no-role")]
     public sealed class NoRoleModule : IModule
     {
         public void OnRegistered(IModuleContext context)
         {
             var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
-            var type = new DataTypeRef("test/no-role", 1);
+            var type = "test/no-role";
 
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/no-role", 1, shape));
-            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { Type = type });
-            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { Type = type });
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/no-role", shape));
+            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { TypeId = type });
+            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { TypeId = type });
 
             // 刻意不声明任何角色（契约的措辞是「应当」⇒ 只给建议）
         }
     }
 
     /// <summary>**B5 反例之二**：有角色，但 `in2` **不属于任何角色** ⇒ 建议（不是问题）。</summary>
-    [ModuleDefinition("test", "orphan-port", "1.0.0")]
+    [ModuleDefinition("test", "orphan-port")]
     public sealed class OrphanPortModule : IModule
     {
         public void OnRegistered(IModuleContext context)
         {
             var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
-            var type = new DataTypeRef("test/orphan-port", 1);
+            var type = "test/orphan-port";
 
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/orphan-port", 1, shape));
-            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { Type = type });
-            context.Declaration.DeclarePort(new PortDeclaration("in2", PortDirection.Receive, shape) { Type = type });
-            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { Type = type });
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/orphan-port", shape));
+            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, shape) { TypeId = type });
+            context.Declaration.DeclarePort(new PortDeclaration("in2", PortDirection.Receive, shape) { TypeId = type });
+            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, shape) { TypeId = type });
 
             // 只声明一块功能，且**没有**把 in2 收进去 ⇒ in2 成为"无归属口"
             context.Declaration.DeclareRole(RoleDeclaration.Both("blk", type, "in", "out", "块"));

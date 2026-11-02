@@ -77,7 +77,6 @@ public sealed class ModuleIconTableTests
             _ = Directory.CreateDirectory(fakeOwner);
             File.WriteAllText(Path.Combine(fakeOwner, "icons.json"), $$"""
                 {
-                  "schemaVersion": 1,
                   "entries": { "icon.refresh": "probe.svg" }
                 }
                 """);

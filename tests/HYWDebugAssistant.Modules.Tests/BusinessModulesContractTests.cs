@@ -46,14 +46,13 @@ public class BusinessModulesContractTests
 
         var type = probe.DataTypes.ShouldHaveSingleItem();
         type.TypeId.ShouldBe("RawBytes");
-        type.Version.ShouldBe(1);
         ContractShape.AreSame(type.Shape, RawBytesShape).ShouldBeTrue("形状 = { len: u16, data: bytes[1472] }（跨模块兼容的前提）");
 
         var port = probe.Ports.ShouldHaveSingleItem();
         port.Name.ShouldBe("out");
         port.Direction.ShouldBe(PortDirection.Send);
         port.Edge.ShouldBe(PortEdge.Bottom, "宽 > 高 ⇒ 口在下边（与显示器的上边配对）");
-        port.Type.GetValueOrDefault().ShouldBe(new DataTypeRef("RawBytes", 1));
+        port.TypeId.ShouldBe("RawBytes");
 
         var role = probe.DeclaredRoles.ShouldHaveSingleItem();
         role.Id.ShouldBe("text-send");
@@ -144,19 +143,18 @@ public class BusinessModulesContractTests
 
         var type = probe.DataTypes.ShouldHaveSingleItem();
         type.TypeId.ShouldBe("RawBytes", "**共用同一标识**才能与既有模块开箱即连（不同标识默认不兼容）");
-        type.Version.ShouldBe(1);
         ContractShape.AreSame(type.Shape, RawBytesShape).ShouldBeTrue("形状 = { len: u16, data: bytes[1472] }（跨模块兼容的前提）");
 
         probe.Ports.Count.ShouldBe(2);
 
         var rx = probe.Ports.Single(port => port.Name == "rx");
         rx.Direction.ShouldBe(PortDirection.Send);
-        rx.Type.GetValueOrDefault().ShouldBe(new DataTypeRef("RawBytes", 1));
+        rx.TypeId.ShouldBe("RawBytes");
         rx.Edge.ShouldBe(PortEdge.Bottom, "设备来的字节从下边出去（与数据监视器的上边配对）");
 
         var tx = probe.Ports.Single(port => port.Name == "tx");
         tx.Direction.ShouldBe(PortDirection.Receive);
-        tx.Type.GetValueOrDefault().ShouldBe(new DataTypeRef("RawBytes", 1));
+        tx.TypeId.ShouldBe("RawBytes");
         tx.Edge.ShouldBe(PortEdge.Top, "发往设备的字节从上边进来（与发送器的下边配对）");
 
         // **一个分块、一进一出、两侧同型** —— "一个通道 = 一个设备会话"在声明面的样子
@@ -184,7 +182,6 @@ public class BusinessModulesContractTests
 
         var type = probe.DataTypes.ShouldHaveSingleItem();
         type.TypeId.ShouldBe("RawBytes", "**共用同一标识**才能与既有模块开箱即连");
-        type.Version.ShouldBe(1);
         ContractShape.AreSame(type.Shape, RawBytesShape).ShouldBeTrue("形状 = { len: u16, data: bytes[1472] }");
 
         probe.Ports.Count.ShouldBe(2);

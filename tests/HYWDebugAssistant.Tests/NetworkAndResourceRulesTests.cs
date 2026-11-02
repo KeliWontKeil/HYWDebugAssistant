@@ -90,7 +90,9 @@ public class NetworkAndResourceRulesTests
         TransferSemantics receiverSemantics,
         bool expected)
     {
-        var result = ContractCompatibility.Check(sender, senderSemantics, receiver, receiverSemantics);
+        // **唯一入口**：未声明类型时传 null（规则自动回退为形状比较），不再有"只比形状"的独立重载。
+        var result = ContractCompatibility.Check(
+            sender, senderSemantics, senderTypeId: null, receiver, receiverSemantics, receiverTypeId: null);
 
         result.IsCompatible.ShouldBe(expected, $"{description}：{result.Reason}");
 
@@ -102,20 +104,8 @@ public class NetworkAndResourceRulesTests
 
     // ------------------------------------------------------------ T2 · 快速建网 R0–R6
 
-    /// <summary>表驱动：既有实例类型序列 → 新加入实例类型 → 期望建立的网络数。</summary>
-    public static TheoryData<string, Type[], Type, int> AutoNetworkCases => new()
-    {
-        { "R1/R2：新实例的接收口匹配既有发送口", [typeof(Sender32Module)], typeof(Receiver32Module), 1 },
-        { "新实例只有发送口 → 不主动匹配（R2/R6）", [typeof(Receiver32Module)], typeof(Sender32Module), 0 },
-        { "R4：契约不匹配 → 不建网", [typeof(Sender32Module)], typeof(Receiver64Module), 0 },
-        { "口级开关：发送口声明不参与自动建网", [typeof(NoAutoSenderModule)], typeof(Receiver32Module), 0 },
-        { "无候选：仅有接收口实例", [typeof(Receiver32Module)], typeof(Receiver32Module), 0 },
-        { "结构契约：{seq,value} 对 {seq,value}", [typeof(StructSenderModule)], typeof(StructReceiverModule), 1 },
-        { "首个实例没有可匹配的上游", [], typeof(Receiver32Module), 0 },
-    };
-
-
-    // 建网只由「**接触且对齐**」判定：加入模块**不**自动连线（隐式连线反直觉，不利学习与探索）。
+    // 建网只由「**接触且对齐**」或「**端口标签同名**」判定：加入模块**不**自动连线
+    // （隐式连线反直觉，不利学习与探索）。
 
     [Fact]
     public void 移除实例_应释放承载与订阅且不影响其他实例()
@@ -125,10 +115,10 @@ public class NetworkAndResourceRulesTests
 
         Register(services, typeof(ViewSenderModule));
         Register(services, typeof(Receiver32Module));
-        services.AddModule("s1", "test/view-sender/1.0.0").Succeeded.ShouldBeTrue();
-        services.AddModule("s2", "test/view-sender/1.0.0").Succeeded.ShouldBeTrue();
-        services.AddModule("r1", "test/receiver32/1.0.0").Succeeded.ShouldBeTrue();
-        services.Connect(new PortRef("s1", "out"), [new PortRef("r1", "in")], "link-1").Succeeded.ShouldBeTrue();
+        services.AddModule("s1", "test/view-sender").Succeeded.ShouldBeTrue();
+        services.AddModule("s2", "test/view-sender").Succeeded.ShouldBeTrue();
+        services.AddModule("r1", "test/receiver32").Succeeded.ShouldBeTrue();
+        TestLink.Link(services, new PortRef("s1", "out"), new PortRef("r1", "in"), "link-1");
 
         runtime.Carriers.Carriers.Count.ShouldBe(3, "每个实例一个承载（专属线程）");
         runtime.Subscriptions.Count.ShouldBe(3, "每个实例一套订阅缓冲");
@@ -160,8 +150,8 @@ public class NetworkAndResourceRulesTests
         var services = new RuntimeServices(runtime, new Core.Settings.SettingsService(runtime, TempSettingsPath()));
 
         Register(services, typeof(ViewSenderModule));
-        services.AddModule("s1", "test/view-sender/1.0.0").Succeeded.ShouldBeTrue();
-        services.AddModule("s2", "test/view-sender/1.0.0").Succeeded.ShouldBeTrue();
+        services.AddModule("s1", "test/view-sender").Succeeded.ShouldBeTrue();
+        services.AddModule("s2", "test/view-sender").Succeeded.ShouldBeTrue();
 
         services.RemoveModule("s1").Succeeded.ShouldBeTrue();
         services.RemoveModule("s2").Succeeded.ShouldBeTrue();
@@ -172,7 +162,7 @@ public class NetworkAndResourceRulesTests
         runtime.Bindings.Bindings.ShouldBeEmpty();
 
         // 空现场仍然可用：再次加入不受影响
-        services.AddModule("s3", "test/view-sender/1.0.0").Succeeded.ShouldBeTrue();
+        services.AddModule("s3", "test/view-sender").Succeeded.ShouldBeTrue();
         runtime.Carriers.Carriers.Count.ShouldBe(1);
     }
 
@@ -212,23 +202,21 @@ public class NetworkAndResourceRulesTests
     }
 
     [Fact]
-    public void 同一实例不同口_可显式连接()
+    public void 同一实例不同口_可建成自回环()
     {
         using var runtime = new ModuleRuntime();
+        var services = new RuntimeServices(runtime);
         CoreRuntimeTests.AddModule(runtime, "self", "self-loop", typeof(CoreRuntimeTests.SelfLoopModule));
 
-        runtime.Apply(ChangeSet.OfOne(new ConnectNetworkOperation(
-                new NetworkMember("self", "out", PortDirection.Send),
-                [new NetworkMember("self", "in", PortDirection.Receive)],
-                "loopback")))
-            .Applied.ShouldBeTrue("同实例不同口是最普通的直连形态，不应被拒绝");
+        // **建网的唯一入口是标签 / 贴合**（显式 Connect API 已删除）：同名标签即连。
+        TestLink.Link(services, new PortRef("self", "out"), new PortRef("self", "in"), "loopback");
 
         runtime.Content.Networks.ShouldHaveSingleItem().Name.ShouldBe("loopback");
         runtime.Bindings.Bindings.ShouldHaveSingleItem();
 
         runtime.Issues.Recent(50).ShouldNotContain(
             entry => entry.Issue.Category == IssueCategory.InterfaceError,
-            "显式自连同样不得产生「排除成员」「契约不兼容」问题");
+            "自回环同样不得产生「排除成员」「契约不兼容」问题");
     }
 
     // ------------------------------------------------------------ 辅助
@@ -285,9 +273,7 @@ public class NetworkAndResourceRulesTests
             string.Empty,
             [],
             ModuleCapability.None,
-            [],
-            null,
-            true,
+            [], true,
             entryType,
             TestViewPackages.For(entryType),
             string.Empty);
@@ -301,7 +287,7 @@ public class NetworkAndResourceRulesTests
     // ------------------------------------------------------------ 测试模块
 
     /// <summary>f32 发送口。</summary>
-    [ModuleDefinition("test", "sender32", "1.0.0")]
+    [ModuleDefinition("test", "sender32")]
     public sealed class Sender32Module : IModule
     {
         public void OnRegistered(IModuleContext context) =>
@@ -309,28 +295,15 @@ public class NetworkAndResourceRulesTests
     }
 
     /// <summary>f64 发送口（契约与 f32 接收口不匹配）。</summary>
-    [ModuleDefinition("test", "sender64", "1.0.0")]
+    [ModuleDefinition("test", "sender64")]
     public sealed class Sender64Module : IModule
     {
         public void OnRegistered(IModuleContext context) =>
             context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, F64));
     }
 
-    /// <summary>声明"不参与自动建网"的发送口。</summary>
-    [ModuleDefinition("test", "no-auto-sender", "1.0.0")]
-    public sealed class NoAutoSenderModule : IModule
-    {
-        public void OnRegistered(IModuleContext context) =>
-            context.Declaration.DeclarePort(new PortDeclaration(
-                "out",
-                PortDirection.Send,
-                F32,
-                TransferSemantics.Stream,
-                participatesInAutoNetwork: false));
-    }
-
     /// <summary>f32 接收口。</summary>
-    [ModuleDefinition("test", "receiver32", "1.0.0")]
+    [ModuleDefinition("test", "receiver32")]
     public sealed class Receiver32Module : IModule
     {
         public void OnRegistered(IModuleContext context)
@@ -341,7 +314,7 @@ public class NetworkAndResourceRulesTests
     }
 
     /// <summary>f64 接收口。</summary>
-    [ModuleDefinition("test", "receiver64", "1.0.0")]
+    [ModuleDefinition("test", "receiver64")]
     public sealed class Receiver64Module : IModule
     {
         public void OnRegistered(IModuleContext context) =>
@@ -349,7 +322,7 @@ public class NetworkAndResourceRulesTests
     }
 
     /// <summary>结构发送口 <c>{seq: u64, value: f32}</c>。</summary>
-    [ModuleDefinition("test", "struct-sender", "1.0.0")]
+    [ModuleDefinition("test", "struct-sender")]
     public sealed class StructSenderModule : IModule
     {
         public void OnRegistered(IModuleContext context) =>
@@ -357,7 +330,7 @@ public class NetworkAndResourceRulesTests
     }
 
     /// <summary>结构接收口（同形状）。</summary>
-    [ModuleDefinition("test", "struct-receiver", "1.0.0")]
+    [ModuleDefinition("test", "struct-receiver")]
     public sealed class StructReceiverModule : IModule
     {
         public void OnRegistered(IModuleContext context)
@@ -368,7 +341,7 @@ public class NetworkAndResourceRulesTests
     }
 
     /// <summary>资源生命周期测试用的发送模块（**无界面**：界面声明不再由代码给出）。</summary>
-    [ModuleDefinition("test", "view-sender", "1.0.0")]
+    [ModuleDefinition("test", "view-sender")]
     public sealed class ViewSenderModule : IModule
     {
         public void OnRegistered(IModuleContext context)

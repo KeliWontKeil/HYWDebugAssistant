@@ -301,7 +301,7 @@ public sealed class ShellIconMigrationTests
                     typeof(TextSenderViewFactory),
                     windowWidth: 400,
                     windowHeight: 240);
-                harness.AddModule("icon-module", "test/icon-module/1.0.0", 400, 240);
+                harness.AddModule("icon-module", "test/icon-module", 400, 240);
 
                 var shell = new Window { Width = 800, Height = 600 };
                 shell.Show();

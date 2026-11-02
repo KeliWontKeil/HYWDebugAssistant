@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Lifecycle;
 
@@ -13,13 +15,17 @@ namespace HYWDebugAssistant.Hosting.Packages;
 ///   <item>包目录存在且含 <c>module.json</c>；</item>
 ///   <item>清单中的模块标识字面量合法（<see cref="ModuleId.TryParse"/>）；</item>
 ///   <item>实现程序集存在；</item>
-///   <item>引用的宿主程序集版本不高于宿主（旧包引用模块侧 <c>Access</c> 直接拒绝）；</item>
+///   <item>引用的宿主程序集**在宿主里存在**（旧包引用模块侧 <c>Access</c> 直接拒绝；不比较版本）；</item>
 ///   <item>入口类型存在且实现 <see cref="IModule"/>；</item>
 ///   <item>入口类型带 <c>[ModuleDefinition]</c> 声明，且其标识与清单**一致**。</item>
 /// </list>
 /// <para>
-/// <b>只做结构校验</b>：框架兼容范围与依赖存在性的判定需要注册表信息，由调用方（L4/注册流程）完成——
-/// 见 <see cref="Registry.ModuleRegistry"/> 与 M1-4 后续步骤。
+/// <b>只做结构校验</b>：依赖存在性的判定需要注册表信息，由调用方（L4/注册流程）完成——
+/// 见 <see cref="Registry.ModuleRegistry"/>。
+/// </para>
+/// <para>
+/// <b>不做版本门禁</b>：模块与宿主之间没有"契约版本区间"。按旧 SDK 编译的模块在加载/实例化失败时，
+/// 错误文案带上**它编译时引用的 SDK 版本**，用于判断"是不是该重编"（见 <see cref="TryReadReferencedSdkVersion"/>）。
 /// </para>
 /// </remarks>
 public static class ModulePackageLoader
@@ -43,6 +49,23 @@ public static class ModulePackageLoader
             return PackageLoadResult.Failure(HostingText.Get("hosting.package.entryPointMissing"));
         }
 
+        // **清单声明的资源目录必须真的存在**（这条字段过去只被构建期审计读、运行期完全忽略——
+        // 模块作者写错路径时，界面只在"少一个图标"时才暴露，且没有任何提示）。
+        foreach (var resource in manifest.Resources)
+        {
+            if (string.IsNullOrWhiteSpace(resource)
+                || Path.IsPathRooted(resource)
+                || resource.Split('\\', '/').Any(segment => segment == ".."))
+            {
+                return PackageLoadResult.Failure(HostingText.Get("hosting.package.resourceInvalid", resource));
+            }
+
+            if (!Directory.Exists(Path.Combine(packageDirectory, resource)))
+            {
+                return PackageLoadResult.Failure(HostingText.Get("hosting.package.resourceMissing", resource));
+            }
+        }
+
         var assemblyPath = Path.GetFullPath(Path.Combine(packageDirectory, manifest.EntryAssembly));
         if (!File.Exists(assemblyPath))
         {
@@ -62,10 +85,16 @@ public static class ModulePackageLoader
         }
         catch (Exception ex) when (ex is BadImageFormatException or FileLoadException or FileNotFoundException)
         {
-            return PackageLoadResult.Failure(HostingText.Get("hosting.package.assemblyLoadFailed", ex.Message));
+            var message = HostingText.Get("hosting.package.assemblyLoadFailed", ex.Message);
+            if (TryReadReferencedSdkVersion(assemblyPath) is { } sdkVersion)
+            {
+                message += HostingText.Get("hosting.package.sdkReference", SdkAssemblyName, sdkVersion);
+            }
+
+            return PackageLoadResult.Failure(message);
         }
 
-        if (ValidateAssemblyReferences(assembly) is { } referenceFailure)
+        if (ValidateHostAssemblies(assembly) is { } referenceFailure)
         {
             return PackageLoadResult.Failure(referenceFailure);
         }
@@ -117,13 +146,10 @@ public static class ModulePackageLoader
     private const string SdkAccessKitAssemblyName = "HYWDebugAssistant.Sdk.AccessKit";
 
     /// <summary>
-    /// 校验模块对**宿主程序集**的引用：旧包引用模块侧 Access、或 SDK 版本高于宿主 ⇒ 拒绝。
+    /// 校验模块对**宿主程序集**的引用：引用模块侧的旧 <c>Access</c> ⇒ 拒绝；
+    /// 引用本应随宿主提供却缺席的 SDK 程序集 ⇒ 拒绝。**不比较版本**。
     /// </summary>
-    /// <remarks>
-    /// 版本比较看 AssemblyRef 的**请求版本**：模块编译时绑定哪个 SDK，就要求宿主至少提供那个契约版本。
-    /// 宿主程序集版本以**宿主目录里的文件**为准（不依赖它是否已被加载）。
-    /// </remarks>
-    private static string? ValidateAssemblyReferences(Assembly assembly)
+    private static string? ValidateHostAssemblies(Assembly assembly)
     {
         foreach (var reference in assembly.GetReferencedAssemblies())
         {
@@ -138,53 +164,73 @@ public static class ModulePackageLoader
                 return HostingText.Get("hosting.package.legacyAccessReference");
             }
 
-            if (!string.Equals(name, SdkAssemblyName, StringComparison.Ordinal)
-                && !string.Equals(name, SdkUiAssemblyName, StringComparison.Ordinal)
-                && !string.Equals(name, SdkAccessKitAssemblyName, StringComparison.Ordinal))
+            if (!IsHostAssemblyName(name))
             {
                 continue;
             }
 
-            var hostVersion = HostVersionOf(name);
-            if (hostVersion is null)
+            if (!IsHostAssemblyPresent(name))
             {
                 return HostingText.Get("hosting.package.hostAssemblyMissing", name);
-            }
-
-            if (reference.Version is { } requested && requested.CompareTo(hostVersion) > 0)
-            {
-                return HostingText.Get("hosting.package.sdkVersionTooHigh", name, requested, hostVersion);
             }
         }
 
         return null;
     }
 
-    /// <summary>取宿主提供的程序集版本（先看宿主目录文件，再看已加载程序集）。</summary>
-    private static Version? HostVersionOf(string assemblyName)
+    private static bool IsHostAssemblyName(string name) =>
+        string.Equals(name, SdkAssemblyName, StringComparison.Ordinal)
+        || string.Equals(name, SdkUiAssemblyName, StringComparison.Ordinal)
+        || string.Equals(name, SdkAccessKitAssemblyName, StringComparison.Ordinal);
+
+    private static bool IsHostAssemblyPresent(string assemblyName)
     {
-        var sdkAssembly = typeof(IModule).Assembly;
-        if (string.Equals(assemblyName, sdkAssembly.GetName().Name, StringComparison.Ordinal))
+        if (string.Equals(assemblyName, typeof(IModule).Assembly.GetName().Name, StringComparison.Ordinal))
         {
-            return sdkAssembly.GetName().Version;
+            return true;
         }
 
         var path = Path.Combine(AppContext.BaseDirectory, assemblyName + ".dll");
         if (File.Exists(path))
         {
-            try
-            {
-                return AssemblyName.GetAssemblyName(path).Version;
-            }
-            catch (Exception ex) when (ex is BadImageFormatException or FileLoadException or FileNotFoundException)
-            {
-                // 落到"已加载程序集"兜底。
-            }
+            return true;
         }
 
-        return AppDomain.CurrentDomain.GetAssemblies()
-            .FirstOrDefault(candidate => string.Equals(
-                candidate.GetName().Name, assemblyName, StringComparison.Ordinal))
-            ?.GetName().Version;
+        return AppDomain.CurrentDomain.GetAssemblies().Any(candidate =>
+            string.Equals(candidate.GetName().Name, assemblyName, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// 读模块程序集**编译时引用的 SDK 版本**（只作加载失败时的诊断信息，不参与任何判定）。
+    /// </summary>
+    private static string? TryReadReferencedSdkVersion(string assemblyPath)
+    {
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var peReader = new PEReader(stream);
+            if (!peReader.HasMetadata)
+            {
+                return null;
+            }
+
+            var reader = peReader.GetMetadataReader();
+            foreach (var handle in reader.AssemblyReferences)
+            {
+                var reference = reader.GetAssemblyReference(handle);
+                if (!string.Equals(reader.GetString(reference.Name), SdkAssemblyName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                return reference.Version.ToString();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            // 诊断信息读不到就算了：失败原因本身仍然返回。
+        }
+
+        return null;
     }
 }

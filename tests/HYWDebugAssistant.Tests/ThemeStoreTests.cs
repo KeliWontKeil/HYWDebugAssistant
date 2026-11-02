@@ -51,7 +51,6 @@ public class ThemeStoreTests
         File.Exists(manifestPath).ShouldBeTrue();
 
         var manifest = JsonNode.Parse(File.ReadAllText(manifestPath))!.AsObject();
-        manifest["schemaVersion"]!.GetValue<int>().ShouldBe(1);
         manifest["id"]!.GetValue<string>().ShouldBe("sakura");
         manifest["base"]!.GetValue<string>().ShouldBe("light");
         manifest["wallpaper"]!.GetValue<string>().ShouldBe("wallpaper.png");
@@ -128,11 +127,9 @@ public class ThemeStoreTests
         store.Save(new ThemeSaveRequest("good", "好主题", ThemeBaseKind.Light, EmptyPalette(), null, false, 0.55, 0.70))
             .Succeeded.ShouldBeTrue();
 
-        // ① 版本不认识
-        WriteManifest(scope, "future", """{ "schemaVersion": 9, "title": "未来" }""");
-
+        // ① 壁纸名越界
         // ② 壁纸名越界
-        WriteManifest(scope, "escape", """{ "schemaVersion": 1, "title": "越界", "wallpaper": "../evil.png" }""");
+        WriteManifest(scope, "escape", """{ "title": "越界", "wallpaper": "../evil.png" }""");
 
         // ③ 根本不是 JSON
         WriteManifest(scope, "broken", "{ not json");
@@ -140,12 +137,12 @@ public class ThemeStoreTests
         var themes = store.LoadAll();
 
         themes.ShouldHaveSingleItem().Id.ShouldBe("good");
-        sink.Issues.Count(issue => issue.Issue.Severity == IssueSeverity.Warning).ShouldBe(3);
-        sink.Issues.Count(issue => issue.Issue.Severity == IssueSeverity.Warning).ShouldBe(3);
+        sink.Issues.Count(issue => issue.Issue.Severity == IssueSeverity.Warning).ShouldBe(2);
+        sink.Issues.Count(issue => issue.Issue.Severity == IssueSeverity.Warning).ShouldBe(2);
 
         // 同一份坏清单只报一次（查询面会被反复调用）
         _ = store.LoadAll();
-        sink.Issues.Count.ShouldBe(3);
+        sink.Issues.Count.ShouldBe(2);
     }
 
     [Fact]
@@ -154,7 +151,7 @@ public class ThemeStoreTests
         using var scope = new ThemeScope();
         var store = new ThemeStore(scope.ThemesRoot);
 
-        WriteManifest(scope, "copied", """{ "schemaVersion": 1, "id": "origin", "title": "复制来的", "base": "dark" }""");
+        WriteManifest(scope, "copied", """{ "id": "origin", "title": "复制来的", "base": "dark" }""");
 
         var themes = store.LoadAll();
         themes.ShouldHaveSingleItem().Id.ShouldBe("copied", "复制文件夹后改名仍应可用（id = 文件夹名）");
@@ -232,7 +229,7 @@ public class ThemeStoreTests
         WriteManifest(
             scope,
             "locale",
-            """{ "schemaVersion": 1, "title": "区域", "wallpaperVeilOpacity": 0.55, "surfaceOpacity": 0.70 }""");
+            """{ "title": "区域", "wallpaperVeilOpacity": 0.55, "surfaceOpacity": 0.70 }""");
 
         var previous = CultureInfo.CurrentCulture;
 

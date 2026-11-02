@@ -174,21 +174,19 @@ public class PortNetworkLabelTests
         public RuntimeServices Services { get; }
 
         public void Add(string instanceId, string kind) =>
-            Services.AddModule(instanceId, $"test/{kind}/1.0.0").Succeeded.ShouldBeTrue();
+            Services.AddModule(instanceId, $"test/{kind}").Succeeded.ShouldBeTrue();
 
         public void Dispose() => Runtime.Dispose();
 
         private void Register(string name, Type entryType)
         {
             var definition = new ModuleDefinition(
-                ModuleId.Create("test", name, "1.0.0"),
+                ModuleId.Create("test", name),
                 entryType.Name,
                 string.Empty,
                 [],
                 ModuleCapability.None,
-                [],
-                null,
-                true,
+                [], true,
                 entryType,
                 string.Empty,
                 string.Empty);
@@ -197,7 +195,7 @@ public class PortNetworkLabelTests
         }
     }
 
-    [ModuleDefinition("test", "sender", "1.0.0")]
+    [ModuleDefinition("test", "sender")]
     public sealed class SenderModule : IModule
     {
         public void OnRegistered(IModuleContext context) =>
@@ -207,7 +205,7 @@ public class PortNetworkLabelTests
                 ContractShape.OfPrimitive(ContractPrimitive.F32)));
     }
 
-    [ModuleDefinition("test", "receiver", "1.0.0")]
+    [ModuleDefinition("test", "receiver")]
     public sealed class ReceiverModule : IModule
     {
         public void OnRegistered(IModuleContext context) =>
@@ -217,7 +215,7 @@ public class PortNetworkLabelTests
                 ContractShape.OfPrimitive(ContractPrimitive.F32)));
     }
 
-    [ModuleDefinition("test", "wide-receiver", "1.0.0")]
+    [ModuleDefinition("test", "wide-receiver")]
     public sealed class WideReceiverModule : IModule
     {
         public void OnRegistered(IModuleContext context) =>

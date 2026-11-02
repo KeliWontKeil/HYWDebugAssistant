@@ -10,13 +10,13 @@
     步骤：
       1. 清理 PLATFORM，`dotnet build HYWDebugAssistant.slnx -c Release`；
       2. `tools/verify-module-packages.ps1 -Configuration Release`（门禁）；
-      3. 复制 `src/App/bin/Release/net10.0` 到干净目标目录，**排除**用户目录
+      3. 复制应用输出（`$(OutDir)`，由 MSBuild 求值，不手抄目录结构）到干净目标目录，**排除**用户目录
          （settings/ workspace/ logs/ composites/ framework/ modules/external/）；
       4. 复核目标 modules 内无宿主程序集、模块 ID 与源码一致；
-      5. 用导出目录里的 `HYWDebugAssistant.App.exe --emit-default-settings` 生成
+      5. 用导出目录里的应用入口 `--emit-default-settings` 生成
          `resources/seeds/settings/settings.json`（默认值唯一来源是代码，发布时才落盘）；
       6. 断言发布边界：禁止项缺席、种子主题包在位、整个导出目录里 wallpaper.png 只有一份；
-      7. 写 `release.json`（产品版本、SDK 契约版本、layoutVersion、resources[] 全树哈希、8 个模块 ID/版本/文件 hash）。
+      7. 写 `release.json`（产品四段版本、resources[] 全树哈希、8 个模块 ID/文件 hash）。
     安全护栏：目标目录必须**在仓库外**且为空/不存在；脚本不会清理仓库内路径。
 
 .EXAMPLE
@@ -34,6 +34,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+. (Join-Path $PSScriptRoot 'app-output.ps1')
 
 foreach ($name in @('Platform', 'Platform(x86)')) {
     if (Test-Path "Env:$name") {
@@ -80,7 +81,8 @@ if ($LASTEXITCODE -ne 0) { throw "Release 构建失败" }
 Write-Host "[release] 校验模块包（Release）" -ForegroundColor Cyan
 & (Join-Path $PSScriptRoot 'verify-module-packages.ps1') -Configuration $Configuration
 
-$appOutput = Join-Path $root "src\App\bin\$Configuration\net10.0"
+# 应用输出只向 MSBuild 要（不手抄 `bin\<配置>\net10.0`；理由见 tools/app-output.ps1 头注释）。
+$appOutput = Get-AppOutputDirectory -Root $root -Configuration $Configuration
 if (-not (Test-Path -LiteralPath $appOutput)) {
     throw "宿主输出目录不存在：$appOutput"
 }
@@ -180,7 +182,6 @@ foreach ($package in ($packages | Sort-Object Name)) {
     $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
     if ([string]::IsNullOrWhiteSpace($manifest.id)) { throw "导出包缺少 id：$manifestPath" }
     if ([string]::IsNullOrWhiteSpace($manifest.entryAssembly)) { throw "导出包缺少 entryAssembly：$manifestPath" }
-    if ([string]::IsNullOrWhiteSpace($manifest.frameworkCompatibility)) { throw "导出包缺少 frameworkCompatibility：$manifestPath" }
 
     if ($actualIds.Contains($manifest.id)) { throw "导出模块 ID 重复：$($manifest.id)" }
     $actualIds.Add($manifest.id)
@@ -197,7 +198,6 @@ foreach ($package in ($packages | Sort-Object Name)) {
 
     $moduleRecords.Add([pscustomobject]@{
         id = $manifest.id
-        version = ($manifest.id -split '/')[-1]
         package = $package.Name
         entryAssembly = $manifest.entryAssembly
         entryAssemblySha256 = (Get-FileHash -LiteralPath $entryPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -215,14 +215,27 @@ if ($missing.Count -gt 0 -or $extra.Count -gt 0) {
 
 # 默认设置的唯一来源是代码：发布时才用导出目录里的程序生成基线（不在仓库里手工维护第二份）。
 Write-Host "[release] 生成出厂设置基线（--emit-default-settings）" -ForegroundColor Cyan
-$appExe = Join-Path $target 'HYWDebugAssistant.App.exe'
-if (-not (Test-Path -LiteralPath $appExe)) { throw "导出目录缺少应用入口：$appExe" }
-
 $settingsSeed = Join-Path $target 'resources\seeds\settings\settings.json'
+$seedArgument = '"' + $settingsSeed + '"'
+
+# 入口形态随平台：Windows 用 apphost（.exe），其他平台用 `dotnet <dll>`（没有 `.exe` 后缀的 apphost）。
 # 应用是 WinExe：脚本里用 `&` 调用不会等它退出 ⇒ 必须 Start-Process -Wait，否则文件还没写完就检查。
-$emit = Start-Process -FilePath $appExe `
-    -ArgumentList @('--emit-default-settings', ('"' + $settingsSeed + '"')) `
-    -Wait -PassThru -WindowStyle Hidden
+if ($IsWindows) {
+    $appExe = Join-Path $target 'HYWDebugAssistant.App.exe'
+    if (-not (Test-Path -LiteralPath $appExe)) { throw "导出目录缺少应用入口：$appExe" }
+
+    $emit = Start-Process -FilePath $appExe `
+        -ArgumentList @('--emit-default-settings', $seedArgument) `
+        -Wait -PassThru -WindowStyle Hidden
+}
+else {
+    $appDll = Join-Path $target 'HYWDebugAssistant.App.dll'
+    if (-not (Test-Path -LiteralPath $appDll)) { throw "导出目录缺少应用入口：$appDll" }
+
+    $emit = Start-Process -FilePath 'dotnet' `
+        -ArgumentList @(('"' + $appDll + '"'), '--emit-default-settings', $seedArgument) `
+        -Wait -PassThru
+}
 if ($emit.ExitCode -ne 0) {
     throw "生成出厂设置基线失败（--emit-default-settings 退出码 $($emit.ExitCode)）"
 }
@@ -248,11 +261,23 @@ foreach ($entry in $forbiddenEntries) {
 }
 
 # 出厂种子主题包必须在位，且整个导出目录里壁纸只有一份。
-$seedThemeDirectory = Join-Path $target 'resources\seeds\settings\appearance\themes\sakura'
-foreach ($name in @('theme.json', 'wallpaper.png')) {
-    $seedThemeFile = Join-Path $seedThemeDirectory $name
-    if (-not (Test-Path -LiteralPath $seedThemeFile -PathType Leaf)) {
-        throw "出厂种子主题包不完整：缺少 $seedThemeFile"
+# 主题包**按目录发现**（不写死某套主题名：目录名就是 id，清单里的 wallpaper 才是文件名）。
+$seedThemeRoot = Join-Path $target 'resources\seeds\settings\appearance\themes'
+$seedThemes = @(Get-ChildItem -LiteralPath $seedThemeRoot -Directory -ErrorAction SilentlyContinue)
+if ($seedThemes.Count -eq 0) { throw "导出目录里没有任何种子主题包：$seedThemeRoot" }
+
+foreach ($themeDirectory in $seedThemes) {
+    $manifestPath = Join-Path $themeDirectory.FullName 'theme.json'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "出厂种子主题包不完整：缺少 $manifestPath"
+    }
+
+    $wallpaperName = [string](Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json).wallpaper
+    if ($wallpaperName.Length -gt 0) {
+        $wallpaperPath = Join-Path $themeDirectory.FullName $wallpaperName
+        if (-not (Test-Path -LiteralPath $wallpaperPath -PathType Leaf)) {
+            throw "出厂种子主题包不完整：缺少 $wallpaperPath（清单声明了它）"
+        }
     }
 }
 
@@ -266,14 +291,10 @@ Write-Host "[release] 发布边界通过：用户目录缺席；种子主题包�
 
 # ---------------------------------------------------------------- release.json
 
-[xml]$buildProps = Get-Content (Join-Path $root 'Directory.Build.props') -Raw
-$productVersion = @($buildProps.Project.PropertyGroup.Version | Where-Object { $_ })[0]
-if ([string]::IsNullOrWhiteSpace($productVersion)) { throw "Directory.Build.props 缺少 Version" }
-
-$sdkDll = Join-Path $target 'HYWDebugAssistant.Sdk.dll'
-if (-not (Test-Path -LiteralPath $sdkDll)) { throw "导出目录缺少 HYWDebugAssistant.Sdk.dll" }
-$sdkVersion = [System.Reflection.AssemblyName]::GetAssemblyName($sdkDll).Version
-if ($null -eq $sdkVersion) { throw "无法读取 Sdk.dll 的 AssemblyVersion" }
+$productVersion = (& (Join-Path $PSScriptRoot 'version.ps1') -Value).Trim()
+if ($productVersion -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+    throw "无法从 version.props 取得四段版本：'$productVersion'"
+}
 
 # 出厂资源清单：`resources/` **全树**（相对路径 + SHA256）。`seeds/` 是投放源、`i18n/` 是就地读的
 # 文本表，两者一起纳入同一张清单；发布校验按这份清单逐文件核对。
@@ -296,9 +317,7 @@ foreach ($file in (Get-ChildItem -LiteralPath $resourcesRoot -Recurse -File | So
 if ($resourceRecords.Count -eq 0) { throw '导出目录的出厂资源为空（至少应有设置基线与文本表）' }
 
 $release = [pscustomobject]@{
-    productVersion = [string]$productVersion
-    sdkContractVersion = $sdkVersion.ToString(3)
-    layoutVersion = 2
+    version = [string]$productVersion
     configuration = $Configuration
     resources = $resourceRecords
     modules = $moduleRecords
@@ -313,13 +332,13 @@ if ($written.modules.Count -ne $expectedIds.Count) {
     throw "release.json 的模块数量不正确：$($written.modules.Count)"
 }
 
-if ($written.layoutVersion -ne 2) {
-    throw "release.json 的 layoutVersion 不正确：$($written.layoutVersion)"
+if ([string]$written.version -ne $productVersion) {
+    throw "release.json 的 version 不正确：$($written.version)"
 }
 
 if (@($written.resources).Count -ne $resourceRecords.Count) {
     throw "release.json 的 resources 数量不正确：$(@($written.resources).Count)"
 }
 
-Write-Host "[release] release.json：product=$productVersion sdk=$($sdkVersion.ToString(3)) layout=$($written.layoutVersion) resources=$(@($written.resources).Count) modules=$($written.modules.Count)" -ForegroundColor Green
+Write-Host "[release] release.json：version=$($written.version) resources=$(@($written.resources).Count) modules=$($written.modules.Count)" -ForegroundColor Green
 Write-Host "[release] 导出完成：$target" -ForegroundColor Green

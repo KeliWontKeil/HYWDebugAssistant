@@ -28,7 +28,7 @@ public class ConfigurationChoicesTests
         var services = new RuntimeServices(runtime);
 
         Register(services, "configurable", typeof(ConfigurableModule));
-        services.AddModule("c1", "test/configurable/1.0.0").Succeeded.ShouldBeTrue();
+        services.AddModule("c1", "test/configurable").Succeeded.ShouldBeTrue();
 
         services.TryGetConfigurationSchema("c1", out var schema).ShouldBeTrue();
         schema.ShouldNotBeNull();
@@ -61,14 +61,12 @@ public class ConfigurationChoicesTests
     private static void Register(RuntimeServices services, string name, Type entryType)
     {
         var definition = new ModuleDefinition(
-            ModuleId.Create("test", name, "1.0.0"),
+            ModuleId.Create("test", name),
             entryType.Name,
             string.Empty,
             [],
             ModuleCapability.None,
-            [],
-            null,
-            true,
+            [], true,
             entryType,
             TestViewPackages.For(entryType),
             string.Empty);
@@ -77,7 +75,7 @@ public class ConfigurationChoicesTests
     }
 
     /// <summary>只有一个配置类型的桩：读一次即登记（与真实模块同一条路径）。</summary>
-    [ModuleDefinition("test", "configurable", "1.0.0")]
+    [ModuleDefinition("test", "configurable")]
     public sealed class ConfigurableModule : IModule
     {
         /// <inheritdoc />

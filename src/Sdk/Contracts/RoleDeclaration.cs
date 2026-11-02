@@ -14,63 +14,63 @@ namespace HYWDebugAssistant.Sdk.Contracts;
 ///     （这些红线不因角色声明而放宽）；</item>
 ///   <item><b>声明即契约</b>（**不做旧模块回退**）：本框架处于开发早期，
 ///     有数据口的模块**应当**声明角色；没声明 ⇒ 叠加层不画方块。**运行期不报**；由 SDK 自检
-///     （`ModuleContract`）给一条**建议**（`Advisories`，**不进 `Problems`**）—— 见 B5 裁定；</item>
-///   <item><b>两侧同型</b>：角色的**输入口与输出口承载同一种数据类型**（= <see cref="Type"/>）。
+///     （`ModuleContract`）给一条**建议**（`Advisories`，**不进 `Problems`**）；</item>
+///   <item><b>两侧同型</b>：角色的**输入口与输出口承载同一种数据类型**（= <see cref="TypeId"/>）。
 ///     一个角色只有一种数据类型，本条约束的是它没约束的那半 —— **两侧是否同型**。
 ///     ⇒ <b>类型转换 = 两个数据角色</b>（"收 A" 的角色 + "发 B" 的角色）+ <c>DeclareFlow</c> 表达先后；
 ///     叠加层上表现为**两个方块**、各按自己的类型色（一个方块只填一种类型色，故一个角色只能表达一种类型）。
 ///     违反 ⇒ SDK 自检进 <c>Problems</c>、加载期报 Issue 并**忽略该条**；
-///     **口未声明 <see cref="Ports.PortDeclaration.Type"/>（旧模块形态）时不校验**（"可声明 ≠ 必须声明"）；</item>
+///     **口未声明 <see cref="Ports.PortDeclaration.TypeId"/>（旧模块形态）时不校验**（"可声明 ≠ 必须声明"）；</item>
 ///   <item><b>名字是呈现文本</b>：<see cref="DisplayName"/> 与视图元素标题同级，框架**不理解**它
 ///     （主文档 §6.2：不引入业务分类；框架**不内置**任何角色类型枚举）。</item>
 /// </list>
 /// </remarks>
 /// <param name="Id">角色标识（**模块内唯一**、稳定；用于配对与呈现键）。</param>
-/// <param name="Type">该分块处理的**数据类型引用**（必须在**本模块**已声明；一个角色只有一种类型）。</param>
+/// <param name="TypeId">该分块处理的**数据类型标识**（必须在**本模块**已声明；一个角色只有一种类型）。</param>
 /// <param name="Inputs">**输入口名**（可为空 = 纯源分块；口必须是本模块的接收口）。</param>
 /// <param name="Outputs">**输出口名**（可为空 = 纯汇分块；口必须是本模块的发送口）。</param>
 /// <param name="DisplayName">功能名（给人看，如"融合"；空 ⇒ 呈现层回退为类型短名）。</param>
 public sealed record RoleDeclaration(
     string Id,
-    DataTypeRef Type,
+    string TypeId,
     IReadOnlyList<string> Inputs,
     IReadOnlyList<string> Outputs,
     string? DisplayName = null)
 {
     /// <summary>**纯汇**分块（只有输入口）——如显示器、记录器。</summary>
     /// <param name="id">角色标识。</param>
-    /// <param name="type">数据类型引用。</param>
+    /// <param name="typeId">数据类型标识。</param>
     /// <param name="inputPort">输入口名。</param>
     /// <param name="displayName">功能名。</param>
-    public static RoleDeclaration Input(string id, DataTypeRef type, string inputPort, string? displayName = null) =>
-        new(id, type, [inputPort], [], displayName);
+    public static RoleDeclaration Input(string id, string typeId, string inputPort, string? displayName = null) =>
+        new(id, typeId, [inputPort], [], displayName);
 
     /// <summary>**纯源**分块（只有输出口）——如数据发生器。</summary>
     /// <param name="id">角色标识。</param>
-    /// <param name="type">数据类型引用。</param>
+    /// <param name="typeId">数据类型标识。</param>
     /// <param name="outputPort">输出口名。</param>
     /// <param name="displayName">功能名。</param>
-    public static RoleDeclaration Output(string id, DataTypeRef type, string outputPort, string? displayName = null) =>
-        new(id, type, [], [outputPort], displayName);
+    public static RoleDeclaration Output(string id, string typeId, string outputPort, string? displayName = null) =>
+        new(id, typeId, [], [outputPort], displayName);
 
     /// <summary>**处理**分块（一进一出）——最常见形态。</summary>
     /// <param name="id">角色标识。</param>
-    /// <param name="type">数据类型引用。</param>
+    /// <param name="typeId">数据类型标识。</param>
     /// <param name="inputPort">输入口名。</param>
     /// <param name="outputPort">输出口名。</param>
     /// <param name="displayName">功能名。</param>
     public static RoleDeclaration Both(
         string id,
-        DataTypeRef type,
+        string typeId,
         string inputPort,
         string outputPort,
         string? displayName = null) =>
-        new(id, type, [inputPort], [outputPort], displayName);
+        new(id, typeId, [inputPort], [outputPort], displayName);
 
     /// <summary>输入口数与输出口数之和（自检用于"是否建议拆分"）。</summary>
     public int PortCount => Inputs.Count + Outputs.Count;
 
     /// <inheritdoc />
     public override string ToString() =>
-        $"{Id}（{Type}；in=[{string.Join(",", Inputs)}] out=[{string.Join(",", Outputs)}]）";
+        $"{Id}（{TypeId}；in=[{string.Join(",", Inputs)}] out=[{string.Join(",", Outputs)}]）";
 }

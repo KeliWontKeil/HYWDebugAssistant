@@ -55,6 +55,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+. (Join-Path $PSScriptRoot 'app-output.ps1')
 
 # 【2026-09 缺陷修复】**过滤词不许自带 `FullyQualifiedName~` 前缀** —— 脚本自己会拼一层。
 # 曾把 `-Filter "FullyQualifiedName~X"` 原样再拼一次 ⇒ `FullyQualifiedName~FullyQualifiedName~X`
@@ -342,9 +343,21 @@ switch ($Mode) {
         dotnet build (Join-Path $root 'src\App\HYWDebugAssistant.App.csproj') -c $Configuration --nologo -v q
         if ($LASTEXITCODE -ne 0) { throw '构建失败' }
 
-        $exe = Join-Path $root "src\App\bin\$Configuration\net10.0\HYWDebugAssistant.App.exe"
-        Write-Host "[dev] 启动：$exe" -ForegroundColor Green
-        Start-Process -FilePath $exe
+        # 输出目录与入口形态都按平台/MSBuild 求值（不手抄 `bin\<配置>\net10.0`，也不写死 `.exe`）。
+        $appOutput = Get-AppOutputDirectory -Root $root -Configuration $Configuration
+
+        if ($IsWindows) {
+            $exe = Join-Path $appOutput 'HYWDebugAssistant.App.exe'
+            if (-not (Test-Path -LiteralPath $exe)) { throw "未找到应用入口：$exe" }
+            Write-Host "[dev] 启动：$exe" -ForegroundColor Green
+            Start-Process -FilePath $exe
+        }
+        else {
+            $dll = Join-Path $appOutput 'HYWDebugAssistant.App.dll'
+            if (-not (Test-Path -LiteralPath $dll)) { throw "未找到应用入口：$dll" }
+            Write-Host "[dev] 启动：dotnet $dll" -ForegroundColor Green
+            Start-Process -FilePath 'dotnet' -ArgumentList @(('"' + $dll + '"'))
+        }
         break
     }
 

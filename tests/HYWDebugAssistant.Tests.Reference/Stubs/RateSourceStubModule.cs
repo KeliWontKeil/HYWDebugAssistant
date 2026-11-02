@@ -40,7 +40,6 @@ public sealed class RateSourceStubConfig
 [ModuleDefinition(
     "test",
     "rate-source",
-    "1.0.0",
     DisplayName = "定值数据源桩（测试用）",
     Description = "按间隔发出定长单元并写数值订阅；配置（间隔 / 定值）热生效",
     Tags = ["test", "source"])]
@@ -113,15 +112,15 @@ public sealed class RateSourceStubModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        context.Declaration.DeclareDataType(new DataTypeDeclaration(RawBytesTypeId, RawBytesVersion, RawBytesShape));
+        context.Declaration.DeclareDataType(new DataTypeDeclaration(RawBytesTypeId, RawBytesShape));
 
         context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, RawBytesShape)
         {
-            Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
+            TypeId = RawBytesTypeId,
         });
 
         // 单口单块（与两个发送器同一形态）——框架不派生角色，模块自己声明
-        context.Declaration.DeclareRole(RoleDeclaration.Output(RoleId, new DataTypeRef(RawBytesTypeId, RawBytesVersion), OutPort, "发数"));
+        context.Declaration.DeclareRole(RoleDeclaration.Output(RoleId, RawBytesTypeId, OutPort, "发数"));
 
         // **界面契约也在代码里**：测试要读 `value` / `tick`，就必须先声明它们。
         // 声明缺失时框架不建缓冲（写入被丢弃），现场表现是"订阅源列表里没有这一条"。

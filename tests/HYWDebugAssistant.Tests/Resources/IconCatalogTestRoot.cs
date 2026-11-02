@@ -47,7 +47,6 @@ internal sealed class IconCatalogTestRoot : IDisposable
         tables.WriteAsset("probe/lower.svg", ProbeLowerSvg);
         tables.WriteManifest("""
             {
-              "schemaVersion": 1,
               "entries": {
                 "icon.probe.refresh": "probe/refresh.svg",
                 "icon.probe.lower": "probe/lower.svg"

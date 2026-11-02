@@ -1015,7 +1015,7 @@ public class ArchitectureRulesTests
     /// <remarks>
     /// <list type="number">
     ///   <item><b>旧根字面量</b>：`"framework"` / `"theme-seeds"` 不得重新出现在源码里
-    ///     （`frameworkCompatibility` 是模块契约字段，不受影响）；</item>
+    ///     （模块包的清单字段不受影响）；</item>
     ///   <item><b>用户数据文件名</b>：设置 / 工作区 / 重启快照三个文件名只允许出现在路径解析器
     ///     （与 AR-17 同一扫描，文件名清单已扩到三个）；</item>
     ///   <item><b>资源路径段</b>：`resources` / `seeds` 作为路径段只允许出现在路径解析器、

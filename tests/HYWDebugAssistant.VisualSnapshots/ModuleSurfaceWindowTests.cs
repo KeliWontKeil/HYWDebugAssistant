@@ -46,7 +46,7 @@ public class ModuleSurfaceWindowTests
                     windowWidth: 400,
                     windowHeight: 240);
 
-                harness.AddModule("real-text-sender", "test/real-text-sender/1.0.0", 400, 240);
+                harness.AddModule("real-text-sender", "test/real-text-sender", 400, 240);
 
                 var module = harness.Windows.Modules.Single(item => item.InstanceId == "real-text-sender");
                 var window = harness.OpenWindow(module);
@@ -110,7 +110,7 @@ public class ModuleSurfaceWindowTests
                     windowWidth: 400,
                     windowHeight: 352);
 
-                harness.AddModule("dm", "test/data-monitor/1.0.0", 400, 352);
+                harness.AddModule("dm", "test/data-monitor", 400, 352);
 
                 var module = harness.Windows.Modules.Single(item => item.InstanceId == "dm");
                 var window = harness.OpenWindow(module);
@@ -164,7 +164,7 @@ public class ModuleSurfaceWindowTests
                     windowWidth: 400,
                     windowHeight: 240);
 
-                harness.AddModule("hide-show", "test/hide-show-text-sender/1.0.0", 400, 240);
+                harness.AddModule("hide-show", "test/hide-show-text-sender", 400, 240);
                 var module = harness.Windows.Modules.Single(item => item.InstanceId == "hide-show");
 
                 var first = harness.OpenWindow(module);

@@ -27,6 +27,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# NuGet 全局包目录只向 `dotnet` 要（不拼 `$env:USERPROFILE`：非 Windows 上它为空，
+# 会让"找不到 nuspec"退化成静默通过）。见 tools/dotnet-env.ps1 头注释。
+. (Join-Path $PSScriptRoot 'dotnet-env.ps1')
+$globalPackages = Get-NuGetGlobalPackagesDirectory
+
 # ---------------- 许可文本识别（用于 type="file" 的包） ----------------
 
 function Get-LicenseFromText {
@@ -87,7 +92,7 @@ function Get-PackageLicense {
     param([string]$Id, [string]$Version)
 
     $idLower = $Id.ToLowerInvariant()
-    $pkgDir = Join-Path $env:USERPROFILE ".nuget\packages\$idLower\$Version"
+    $pkgDir = Join-Path (Join-Path $script:globalPackages $idLower) $Version
     $nuspec = Join-Path $pkgDir "$idLower.nuspec"
     if (-not (Test-Path $nuspec)) { return @{ License = '<nuspec not found>'; Source = 'missing' } }
 

@@ -158,19 +158,19 @@ public class HostingLifecycleTests
 
         var first = installer.Install(TextSenderPackage);
         first.Outcome.ShouldBe(ModuleInstallOutcome.Installed);
-        first.Definition!.Id.ToString().ShouldBe("hyw/text-sender/1.0.0");
+        first.Definition!.Id.ToString().ShouldBe("hyw/text-sender");
         registry.Definitions.Count.ShouldBe(1);
 
         var second = installer.Install(TextSenderPackage);
         second.Outcome.ShouldBe(ModuleInstallOutcome.AlreadyLoaded);
-        second.Definition!.Id.ToString().ShouldBe("hyw/text-sender/1.0.0");
+        second.Definition!.Id.ToString().ShouldBe("hyw/text-sender");
         sink.Issues.ShouldBeEmpty("同一包重复安装是正常状态，不是 Error");
     }
 
     [Fact]
     public void 安装器_缺少依赖应拒绝安装并报Issue()
     {
-        using var temp = new TempPackage(TextSenderPackage, dependsOn: "hyw/not-installed/1.0.0");
+        using var temp = new TempPackage(TextSenderPackage, dependsOn: "hyw/not-installed");
         var sink = new CollectingIssueSink();
         var installer = new ModuleInstaller(new ModuleRegistry(), sink);
 
@@ -180,53 +180,13 @@ public class HostingLifecycleTests
         sink.Issues[0].Issue.Message.ShouldNotBeNullOrWhiteSpace();
     }
 
-    [Fact]
-    public void 安装器_框架兼容范围不满足应拒绝安装()
-    {
-        using var temp = new TempPackage(TextSenderPackage, frameworkCompatibility: ">=9.0.0");
-        var sink = new CollectingIssueSink();
-        var installer = new ModuleInstaller(new ModuleRegistry(), sink);
 
-        installer.TryInstall(temp.Directory, out _).ShouldBeFalse();
-
-        sink.Issues.Count.ShouldBe(1);
-        sink.Issues[0].Issue.Message.ShouldNotBeNullOrWhiteSpace();
-    }
-
-    /// <summary>兼容范围样例**从当前 SDK 版本派生**（升级 SDK 不再改测试；TODO G56）。</summary>
-    public static IEnumerable<object?[]> 兼容范围样例()
-    {
-        var current = FrameworkCompatibility.CurrentFrameworkVersion;
-        var parts = current.Split('.');
-        var major = int.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture);
-        var minor = int.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
-        var lower = $"{major - 1}.0.0";
-        var next = $"{major}.{minor + 1}.0";
-
-        yield return [null, true];
-        yield return ["", true];
-        yield return [$">={lower} <{next}", true];
-        yield return [$">={lower}", true];
-        yield return [$"={current}", true];
-        yield return [$">={next}", false];
-        yield return [$"<{lower}", false];
-        yield return [$">{current}", false];
-    }
-
-    [Theory]
-    [MemberData(nameof(兼容范围样例))]
-    public void 框架兼容范围_判定应正确(string? range, bool expected)
-    {
-        FrameworkCompatibility
-            .IsSatisfied(range, FrameworkCompatibility.CurrentFrameworkVersion, out _)
-            .ShouldBe(expected);
-    }
 
     [Fact]
     public void 模块上下文_应收集声明并把问题归属到实例与口()
     {
         var sink = new CollectingIssueSink();
-        var context = new ModuleContext("ctx-1", ModuleId.Create("hyw", "ctx", "1.0.0"), sink);
+        var context = new ModuleContext("ctx-1", ModuleId.Create("hyw", "ctx"), sink);
 
         context.Declaration.DeclarePort(new PortDeclaration(
             "p", PortDirection.Receive, ContractShape.OfPrimitive(ContractPrimitive.U8)));
@@ -249,8 +209,8 @@ public class HostingLifecycleTests
     }
 
     private static ModuleDefinition TestDefinition(string name, Type entryType) =>
-        new(ModuleId.Create("test", name, "1.0.0"),
-            name, string.Empty, [], ModuleCapability.None, [], null, true,
+        new(ModuleId.Create("test", name),
+            name, string.Empty, [], ModuleCapability.None, [], true,
             entryType, string.Empty, string.Empty);
 
     private static string FindRepoRoot()
@@ -273,7 +233,7 @@ public class HostingLifecycleTests
     /// 记录钩子调用顺序的测试模块。
     /// 注：工厂用 <c>Activator</c> 创建实例，故追踪用**静态**集合（xunit 同类内测试串行，安全）。
     /// </summary>
-    [ModuleDefinition("test", "tracing", "1.0.0")]
+    [ModuleDefinition("test", "tracing")]
     public sealed class TracingModule : IModule
     {
         public static List<string> Trace { get; set; } = [];
@@ -292,7 +252,7 @@ public class HostingLifecycleTests
     }
 
     /// <summary>声明两个同名口的测试模块（验证口名唯一性校验）。</summary>
-    [ModuleDefinition("test", "dup-port", "1.0.0")]
+    [ModuleDefinition("test", "dup-port")]
     public sealed class DuplicatePortModule : IModule
     {
         public void OnRegistered(IModuleContext context)
@@ -304,7 +264,7 @@ public class HostingLifecycleTests
     }
 
     /// <summary>OnRegistered 抛异常的测试模块。</summary>
-    [ModuleDefinition("test", "throwing", "1.0.0")]
+    [ModuleDefinition("test", "throwing")]
     public sealed class ThrowingModule : IModule
     {
         public void OnRegistered(IModuleContext context) =>
@@ -312,7 +272,7 @@ public class HostingLifecycleTests
     }
 
     /// <summary>OnActivated 抛异常的测试模块。</summary>
-    [ModuleDefinition("test", "throwing-activate", "1.0.0")]
+    [ModuleDefinition("test", "throwing-activate")]
     public sealed class ThrowingOnActivateModule : IModule
     {
         public void OnActivated() => throw new InvalidOperationException("契约：故意在 OnActivated 抛出");
@@ -321,7 +281,7 @@ public class HostingLifecycleTests
     /// <summary>临时包：复制真实包输出并篡改清单字段，用于验证拒绝路径。</summary>
     private sealed class TempPackage : IDisposable
     {
-        public TempPackage(string sourceDirectory, string? dependsOn = null, string? frameworkCompatibility = null)
+        public TempPackage(string sourceDirectory, string? dependsOn = null)
         {
             // **确定性临时目录**：跨进程复用同一个名字；启动时先尝试删掉上一次的副本
             // （上一进程的锁已释放），本进程内因 LoadFrom 仍锁定而不删 ⇒ 不会无限堆积。
@@ -345,15 +305,13 @@ public class HostingLifecycleTests
             }
 
             var depends = dependsOn is null ? "[]" : $"[\"{dependsOn}\"]";
-            var compatibility = frameworkCompatibility is null
-                ? string.Empty
-                : $",{Environment.NewLine}  \"frameworkCompatibility\": \"{frameworkCompatibility}\"";
+
             var manifest = $$"""
             {
-              "id": "hyw/text-sender/1.0.0",
+              "id": "hyw/text-sender",
               "entryAssembly": "HYWDebugAssistant.Modules.TextSender.dll",
               "entryType": "HYWDebugAssistant.Modules.TextSender.TextSenderModule",
-              "dependsOn": {{depends}}{{compatibility}}
+              "dependsOn": {{depends}}
             }
             """;
 

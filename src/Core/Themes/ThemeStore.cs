@@ -33,8 +33,6 @@ public sealed class ThemeStore
     /// <summary>保存壁纸时使用的文件名（读时以清单的 `wallpaper` 字段为准，可以是别的名字）。</summary>
     public const string WallpaperFileName = "wallpaper.png";
 
-    /// <summary>主题清单版本（本应用能读的最高版本）。</summary>
-    public const int CurrentSchemaVersion = 1;
 
     /// <summary>单个壁纸文件的大小上限（32 MB）——防止把超大图片读进内存。</summary>
     public const long MaxWallpaperBytes = 32L * 1024 * 1024;
@@ -407,12 +405,6 @@ public sealed class ThemeStore
         view = null;
         reason = null;
 
-        var version = ReadInt(root, "schemaVersion", CurrentSchemaVersion);
-        if (version > CurrentSchemaVersion)
-        {
-            reason = CoreText.Get("core.theme.versionUnknown", version, CurrentSchemaVersion);
-            return false;
-        }
 
         string? wallpaper = null;
         if (Text(root, "wallpaper") is { Length: > 0 } rawWallpaper)
@@ -477,7 +469,7 @@ public sealed class ThemeStore
 
         var manifest = new JsonObject
         {
-            ["schemaVersion"] = CurrentSchemaVersion,
+
             ["id"] = id,
             ["title"] = title,
             ["base"] = baseKind == ThemeBaseKind.Dark ? "dark" : "light",

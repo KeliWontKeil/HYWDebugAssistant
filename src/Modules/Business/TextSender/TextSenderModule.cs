@@ -27,7 +27,6 @@ namespace HYWDebugAssistant.Modules.TextSender;
 [ModuleDefinition(
     "hyw",
     "text-sender",
-    "1.0.0",
     DisplayNameKey = TextSenderText.Title,
     DescriptionKey = TextSenderText.Description,
     Tags = ["text", "sender"],
@@ -150,9 +149,6 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
     /// </remarks>
     public const string RawBytesTypeId = "RawBytes";
 
-    /// <summary>数据类型版本。</summary>
-    public const int RawBytesVersion = 1;
-
     /// <summary>
     /// **单条文本的字节上限**（= `data` 字节区的长度；**一个完整 UDP 载荷**）。
     /// </summary>
@@ -163,7 +159,7 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
     public const int TextCapacity = 1472;
 
     /// <summary>
-    /// **`RawBytes`@v1 的契约形状**：`{ len: u16, data: bytes[1472] }`。
+    /// **`RawBytes` 的契约形状**：`{ len: u16, data: bytes[1472] }`。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
@@ -188,7 +184,6 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
         // ① 数据类型（形状即契约）→ ② 口 → ③ 角色 → ④ 视图（顺序即 `06` §C.2 的声明块顺序）
         context.Declaration.DeclareDataType(new DataTypeDeclaration(
             RawBytesTypeId,
-            RawBytesVersion,
             RawBytesShape)
         {
             // 「速率只要有效数据」：`len` 就是**有效字节数**（0–1472，尾部补零不算）
@@ -199,7 +194,7 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
 
         context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, RawBytesShape)
         {
-            Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
+            TypeId = RawBytesTypeId,
 
             // 发送口在**下边**（与监视器的上边配对：上下叠放即可连）。用户仍可拖动覆盖。
             Edge = PortEdge.Bottom,
@@ -208,7 +203,7 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
         // 纯源角色：**只有输出口** ⇒ α（两侧同型）天然满足；单角色 ⇒ 不声明 DeclareFlow
         context.Declaration.DeclareRole(RoleDeclaration.Output(
             RoleId,
-            new DataTypeRef(RawBytesTypeId, RawBytesVersion),
+            RawBytesTypeId,
             OutPort,
             Tr(TextSenderText.RoleSend)));
 

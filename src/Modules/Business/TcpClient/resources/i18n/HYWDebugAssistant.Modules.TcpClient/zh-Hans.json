@@ -1,5 +1,4 @@
 {
-  "schemaVersion": 1,
   "language": "zh-Hans",
   "entries": {
     "module.description": "将一个TCP客户端接入上位机，以连接到远端TCP服务器进行数据交换",

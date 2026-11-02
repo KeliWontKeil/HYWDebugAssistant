@@ -9,7 +9,7 @@ namespace HYWDebugAssistant.Sdk;
 /// </remarks>
 /// <example>
 /// <code>
-/// [ModuleDefinition("hyw", "serial-port", "1.0.0",
+/// [ModuleDefinition("hyw", "serial-port",
 ///     DisplayName = "串口收发",
 ///     Description = "串口数据的收发与解析入口",
 ///     Capabilities = ModuleCapability.SerialPort)]
@@ -22,13 +22,12 @@ public sealed class ModuleDefinitionAttribute : Attribute
     /// <summary>创建模块声明。</summary>
     /// <param name="author">作者命名空间（<c>[a-z0-9-]</c>）。</param>
     /// <param name="name">模块名（<c>[a-z0-9-]</c>）。</param>
-    /// <param name="version">版本（SemVer 三段式）。</param>
-    public ModuleDefinitionAttribute(string author, string name, string version)
+    public ModuleDefinitionAttribute(string author, string name)
     {
-        Id = ModuleId.Create(author, name, version);
+        Id = ModuleId.Create(author, name);
     }
 
-    /// <summary>模块标识（结构化三元组）。</summary>
+    /// <summary>模块标识（作者/模块名，两段）。</summary>
     public ModuleId Id { get; }
 
     /// <summary>目录展示名（不构成框架业务分类，P16）。</summary>
@@ -55,13 +54,8 @@ public sealed class ModuleDefinitionAttribute : Attribute
     /// <summary>所需能力（加载时透明提示，不拦截）。</summary>
     public ModuleCapability Capabilities { get; init; } = ModuleCapability.None;
 
-    /// <summary>依赖的其他模块标识字面量（如 <c>hyw/protocol-core/1.0.0</c>）；缺失依赖 → Issue，不静默降级。</summary>
+    /// <summary>依赖的其他模块标识字面量（如 <c>hyw/protocol-core</c>）；缺失依赖 → Issue，不静默降级。</summary>
     public string[] DependsOn { get; init; } = [];
-
-    /// <summary>
-    /// 框架兼容范围（如 <c>&gt;=1.0.0 &lt;2.0.0</c>）；加载期校验，不满足即拒绝注册。
-    /// </summary>
-    public string FrameworkCompatibility { get; init; } = string.Empty;
 
     /// <summary>是否参与数据活动（供 L2/L3 决定承载方式；不构成框架分类）。</summary>
     public bool ParticipatesInDataFlow { get; init; } = true;

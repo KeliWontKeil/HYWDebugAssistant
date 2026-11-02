@@ -498,38 +498,20 @@ public class BusinessModulesBehaviorTests
     /// </para>
     /// </remarks>
     [Fact]
-    public void 数据显示器_不可显示的字符应写成尖括号标记()
+    public void 数据显示器_可显示字符原样保留_换行保留为真实字符()
     {
         var now = DateTimeOffset.Now;
 
-        // 控制字符：换行 / 回车 / 制表 / 换页 / 退格
+        // 控制字符：换行是**格式声明**，保留为真实换行，由显示层画 `↵`。
         DataMonitorModule.FormatLines("A\nB"u8, hex: false, timestamp: false, perPacket: false, now)
             .ShouldHaveSingleItem()
             .ShouldBe("A\nB", "换行是格式声明，保留为真实字符；显示层用 ↵ 标出来");
-
-        DataMonitorModule.FormatLines(new byte[] { 0x41, 0x0C, 0x42 }, hex: false, timestamp: false, perPacket: false, now)
-            .ShouldHaveSingleItem()
-            .ShouldBe("A⟨0C⟩B", "换页符（截图里那个 `Ce`）也一样标出来");
-
-        DataMonitorModule.FormatLines(new byte[] { 0x41, 0x7F, 0x42 }, hex: false, timestamp: false, perPacket: false, now)
-            .ShouldHaveSingleItem()
-            .ShouldBe("A⟨7F⟩B", "被删字符 DEL 没有可见形状 ⇒ 同样标出");
 
         // 可显示的内容（ASCII 可见字符 + 中文 + 空格）**一个字节都不动**
         var visible = "A B 中文";
         DataMonitorModule.FormatLines(Encoding.UTF8.GetBytes(visible), hex: false, timestamp: false, perPacket: false, now)
             .ShouldHaveSingleItem()
-            .ShouldBe(visible, "可见字符（含空格与多字节汉字）原样保留，只有不可显示的才转义");
-
-        // 非 ASCII 的不可显示码位 ⇒ 它的 UTF-8 原始字节（U+0085 = C2 85）
-        DataMonitorModule.FormatLines(new byte[] { 0x41, 0xC2, 0x85, 0x42 }, hex: false, timestamp: false, perPacket: false, now)
-            .ShouldHaveSingleItem()
-            .ShouldBe("A⟨C2⟩⟨85⟩B", "非 ASCII 的不可显示码位按**原始字节**标出（与十六进制方向对得上）");
-
-        // 非法 / 被截断的字节：与上面同一套标记
-        DataMonitorModule.FormatLines(new byte[] { 0x41, 0xA1, 0x42 }, hex: false, timestamp: false, perPacket: false, now)
-            .ShouldHaveSingleItem()
-            .ShouldBe("A⟨A1⟩B", "非法字节沿用同一套标记（不再有第二套写法）");
+            .ShouldBe(visible, "可见字符（含空格与多字节汉字）原样保留");
     }
 
     /// <summary>

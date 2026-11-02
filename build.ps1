@@ -6,9 +6,9 @@
 .DESCRIPTION
     0) 清除被污染的环境变量 Platform（否则 MSBuild 会把它当作目标平台，报 MSB4126）
     1) 文档机械审计（docs/tools/audit-docs.ps1，只读）—— 规定就在该脚本头部注释的「判据」清单里
-       颜色口径审计（docs/tools/audit-colors.ps1）、资源与文本审计（tools/audit-resources.ps1）
-       与注释布局数值审计（tools/audit-layout-comments.ps1）
-       —— 四者都只读，且同受 -SkipDocAudit 控制
+       颜色口径审计（docs/tools/audit-colors.ps1）、资源与文本审计（tools/audit-resources.ps1）、
+       注释布局数值审计（tools/audit-layout-comments.ps1）与版本纪律审计（tools/audit-versions.ps1）
+       —— 都只读；前四者同受 -SkipDocAudit 控制，版本审计始终执行（它不只看文档）
     2) dotnet restore / build
     3) 校验内置模块包归拢（应用输出 modules\ + artifacts\modules\）
     4) 校验输出资源包（tools/verify-resources.ps1）+ 依赖许可审计（tools/audit-licenses.ps1，
@@ -107,6 +107,13 @@ if (-not $SkipDocAudit) {
     & (Join-Path $root 'tools\audit-layout-comments.ps1')
     if ($LASTEXITCODE -ne 0) { throw '注释布局数值审计未通过（见上方 文件:行号；判据见 tools/audit-layout-comments.ps1 头部注释）' }
 }
+
+# ---- 1e) 版本纪律审计（只读；判据见 tools/audit-versions.ps1 头部注释）----
+# 唯一版本事实源、禁止第二版本轴字段、模块清单两段标识：都是"编译期看不见"的事实，
+# 放在构建之前当场拦下。它查的不只是文档，因此**不受** -SkipDocAudit 控制。
+Write-Host "===== 1e/5 版本纪律审计 =====" -ForegroundColor Cyan
+& (Join-Path $root 'tools\audit-versions.ps1')
+if ($LASTEXITCODE -ne 0) { throw '版本纪律审计未通过（见上方 文件:行号；判据见 tools/audit-versions.ps1 头部注释）' }
 
 Write-Host "===== 2/5 还原 =====" -ForegroundColor Cyan
 dotnet restore $sln

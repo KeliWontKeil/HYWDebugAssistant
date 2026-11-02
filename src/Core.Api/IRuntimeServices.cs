@@ -284,22 +284,6 @@ public interface IRuntimeCommand
     /// <summary>启用 / 禁用实例（保留实例、拓扑与配置，只停流）。</summary>
     CommandResult SetModuleEnabled(string instanceId, bool enabled);
 
-    /// <summary>建立网络（<paramref name="name"/> 为空 = 匿名直连）。</summary>
-    /// <param name="source">源端口。</param>
-    /// <param name="targets">宿端口（1:N）。</param>
-    /// <param name="name">网络名（空 = 匿名）。</param>
-    /// <param name="allowUnverifiedTypeMatch">
-    /// 是否已**显式确认**允许「**数据类型标识不同**」的强连（默认 <see langword="false"/> = 拒绝）。
-    /// </param>
-    CommandResult Connect(
-        PortRef source,
-        IReadOnlyList<PortRef> targets,
-        string? name = null,
-        bool allowUnverifiedTypeMatch = false);
-
-    /// <summary>断开命名网络（匿名网络随实例移除级联清理）。</summary>
-    CommandResult Disconnect(string networkName);
-
     /// <summary>更新实例配置。</summary>
     CommandResult UpdateConfiguration(string instanceId, object configuration);
 

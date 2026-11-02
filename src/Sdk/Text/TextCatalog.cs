@@ -37,8 +37,6 @@ public static class TextCatalog
 
     private const string MissingRight = "\u27E7";
 
-    /// <summary>表结构版本（不认识的版本当作没有这张表）。</summary>
-    private const int SchemaVersion = 1;
 
     /// <summary>已解析的表缓存；键里的代号随根变更递增（旧根下迟到的加载不会污染新根）。</summary>
     private static readonly ConcurrentDictionary<(string Owner, string Language, int Generation), IReadOnlyDictionary<string, string>> _tables = new();
@@ -514,7 +512,7 @@ public static class TextCatalog
         {
             if (!TryGetEntries(document.RootElement, out var element))
             {
-                failure = "schemaVersion 不认识或 entries 形状不对";
+                failure = "entries 形状不对";
                 return false;
             }
 
@@ -558,22 +556,15 @@ public static class TextCatalog
             && file.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>表结构校验：版本 + `entries` 必须是对象。</summary>
+    /// <summary>表结构校验：`entries` 必须是对象。</summary>
     /// <param name="root">表根元素。</param>
     /// <param name="entries">条目表。</param>
     private static bool TryGetEntries(JsonElement root, out JsonElement entries)
     {
         entries = default;
 
-        if (root.ValueKind != JsonValueKind.Object
-            || !root.TryGetProperty("schemaVersion", out var version)
-            || version.ValueKind != JsonValueKind.Number
-            || !version.TryGetInt32(out var number)
-            || number != SchemaVersion)
-        {
-            return false;
-        }
-
-        return root.TryGetProperty("entries", out entries) && entries.ValueKind == JsonValueKind.Object;
+        return root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("entries", out entries)
+            && entries.ValueKind == JsonValueKind.Object;
     }
 }

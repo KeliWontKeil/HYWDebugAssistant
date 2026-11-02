@@ -1,8 +1,7 @@
 {
-  "id": "hyw/hex-string-converter/1.0.0",
+  "id": "hyw/hex-string-converter",
   "entryAssembly": "HYWDebugAssistant.Modules.HexStringConverter.dll",
   "entryType": "HYWDebugAssistant.Modules.HexStringConverter.HexStringConverterModule",
-  "frameworkCompatibility": ">=2.0.0 <3.0.0",
   "dependsOn": [],
   "resources": ["resources/i18n"]
 }

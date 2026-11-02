@@ -30,7 +30,7 @@ public class MultiSourceChainTests
 
         composition.Services.AddModule("s1", TextSenderModuleId).Succeeded.ShouldBeTrue();
         composition.Services.AddModule("s2", HexSenderModuleId).Succeeded.ShouldBeTrue();
-        composition.Services.AddModule("fuser", "test/fusion-stub/1.0.0").Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("fuser", "test/fusion-stub").Succeeded.ShouldBeTrue();
         composition.Services.AddModule("monitor", MonitorModuleId).Succeeded.ShouldBeTrue();
 
         // 三条网络：s1→fuser.in1（"a"）· s2→fuser.in2（"b"）· fuser.out→monitor.in（"bus"）
@@ -127,7 +127,7 @@ public class MultiSourceChainTests
 
         composition.Services.AddModule("s1", TextSenderModuleId).Succeeded.ShouldBeTrue();
         composition.Services.AddModule("s2", HexSenderModuleId).Succeeded.ShouldBeTrue();
-        composition.Services.AddModule("fuser", "test/fusion-stub/1.0.0").Succeeded.ShouldBeTrue();
+        composition.Services.AddModule("fuser", "test/fusion-stub").Succeeded.ShouldBeTrue();
 
         composition.Services.UpdatePortNetwork("s1", TextSenderModule.OutPort, "a").Succeeded.ShouldBeTrue();
         composition.Services.UpdatePortNetwork("fuser", FusionStubModule.InputPort1, "a").Succeeded.ShouldBeTrue();
@@ -152,11 +152,11 @@ public class MultiSourceChainTests
             .ShouldBe(8.0, 0.0001, "Priority = 只要第 1 路有数据就用第 1 路");
     }
 
-    private const string TextSenderModuleId = "hyw/text-sender/1.0.0";
+    private const string TextSenderModuleId = "hyw/text-sender";
 
-    private const string HexSenderModuleId = "hyw/hex-sender/1.0.0";
+    private const string HexSenderModuleId = "hyw/hex-sender";
 
-    private const string MonitorModuleId = "hyw/data-monitor/1.0.0";
+    private const string MonitorModuleId = "hyw/data-monitor";
 
     /// <summary>文本发送器发一段文本（输入 + 发送命令 —— 与界面同一条路径）。</summary>
     private static void SendText(BusinessChainTests.Composition composition, string instanceId, string text)

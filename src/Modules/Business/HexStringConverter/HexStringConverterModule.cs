@@ -28,7 +28,6 @@ namespace HYWDebugAssistant.Modules.HexStringConverter;
 [ModuleDefinition(
     "hyw",
     "hex-string-converter",
-    "1.0.0",
     DisplayNameKey = HexStringConverterText.Title,
     DescriptionKey = HexStringConverterText.Description,
     Tags = ["hex", "tool"],

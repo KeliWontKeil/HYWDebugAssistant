@@ -19,11 +19,13 @@
   </PropertyGroup>
 
   <!--
-    **模块私有平台分片**（`runtimes/<rid>/lib/<tfm>/`）也要进包：
+    **模块私有平台分片**（`runtimes/<rid>/lib/<tfm>/` 与 `runtimes/<rid>/native/`）也要进包：
     带平台分片的**模块私有依赖**在包根平铺的那份是平台无关的引用版，方法体直接抛
     `PlatformNotSupportedException`；真正的实现按 RID 分片放着。库项目的普通构建**不会**把它们
     拷进输出目录（只有 RID 构建 / 发布才拷）⇒ 不给这一条，模块包在真机上会"在 Windows 上报告
     只支持 Windows"这种自相矛盾的失败（实测）。
+    **`native/` 与 `lib/` 同一理由**：带原生库的第三方依赖只在 `runtimes/<rid>/native/` 下，
+    少拷这一支 = 所有平台都缺库（且只有在真机上才暴露）。
     归拢（`StageModulePackage`）在本目标之后跑；**宿主提供的平台分片不在此列**（它们随宿主输出）。
   -->
   <Target Name="StageRuntimeSpecificAssets"
@@ -34,12 +36,19 @@
     <ItemGroup>
       <RuntimeLibAsset Include="$(NuGetPackageRoot)%(PackageReference.Identity)\%(PackageReference.Version)\runtimes\*\lib\*\*.dll"
                        Condition="'%(PackageReference.Version)' != ''" />
+      <RuntimeNativeAsset Include="$(NuGetPackageRoot)%(PackageReference.Identity)\%(PackageReference.Version)\runtimes\*\native\**\*"
+                          Condition="'%(PackageReference.Version)' != ''" />
     </ItemGroup>
 
     <Copy SourceFiles="@(RuntimeLibAsset)"
           DestinationFiles="@(RuntimeLibAsset->'$(TargetDir)runtimes\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true"
           Condition="'@(RuntimeLibAsset)' != ''" />
+
+    <Copy SourceFiles="@(RuntimeNativeAsset)"
+          DestinationFiles="@(RuntimeNativeAsset->'$(TargetDir)runtimes\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(RuntimeNativeAsset)' != ''" />
   </Target>
 
   <Target Name="StageModulePackage"

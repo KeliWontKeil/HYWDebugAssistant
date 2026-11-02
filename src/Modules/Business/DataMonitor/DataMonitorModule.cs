@@ -33,7 +33,6 @@ namespace HYWDebugAssistant.Modules.DataMonitor;
 [ModuleDefinition(
     "hyw",
     "data-monitor",
-    "1.0.0",
     DisplayNameKey = DataMonitorText.Title,
     DescriptionKey = DataMonitorText.Description,
     Tags = ["monitor", "display"],
@@ -115,13 +114,10 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     /// <summary>数据类型标识（**与两个发送器逐字相同** ⇒ 开箱即连）。</summary>
     public const string RawBytesTypeId = "RawBytes";
 
-    /// <summary>数据类型版本。</summary>
-    public const int RawBytesVersion = 1;
-
     /// <summary>单条字节上限（与发送端一致）。</summary>
     public const int TextCapacity = 1472;
 
-    /// <summary>**`RawBytes`@v1 的契约形状**：`{ len: u16, data: bytes[1472] }`。</summary>
+    /// <summary>**`RawBytes` 的契约形状**：`{ len: u16, data: bytes[1472] }`。</summary>
     public static ContractShape RawBytesShape { get; } = ContractShape.OfStruct(
         ("len", ContractShape.OfPrimitive(ContractPrimitive.U16)),
         ("data", ContractShape.OfBytes(TextCapacity)));
@@ -138,7 +134,6 @@ public sealed class DataMonitorModule : IModule, IActivitySource
 
         context.Declaration.DeclareDataType(new DataTypeDeclaration(
             RawBytesTypeId,
-            RawBytesVersion,
             RawBytesShape)
         {
             // 「速率只要有效数据」三个模块同口径：`len` = 有效字节数。
@@ -149,7 +144,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
 
         context.Declaration.DeclarePort(new PortDeclaration(InPort, PortDirection.Receive, RawBytesShape)
         {
-            Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
+            TypeId = RawBytesTypeId,
 
             // 接收口在**上边**（与两个发送器的下边配对：上下叠放即可连）。
             Edge = PortEdge.Top,
@@ -157,7 +152,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
 
         context.Declaration.DeclareRole(RoleDeclaration.Input(
             RoleId,
-            new DataTypeRef(RawBytesTypeId, RawBytesVersion),
+            RawBytesTypeId,
             InPort,
             Tr(DataMonitorText.RoleDisplay)));
 

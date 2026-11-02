@@ -13,10 +13,8 @@ namespace HYWDebugAssistant.Samples.ExternalModule;
 [ModuleDefinition(
     "sample",
     "serial-access",
-    "1.0.0",
     DisplayName = "示例串口接入",
     Description = "只声明 serial 标准接入的最小外部模块（独立编译示例）",
-    FrameworkCompatibility = ">=2.0.0 <3.0.0",
     Tags = ["sample", "serial"],
     Capabilities = ModuleCapability.SerialPort,
     ParticipatesInDataFlow = true,
@@ -59,6 +57,9 @@ public sealed class SampleSerialModule : ExternalAccessModule
     /// <summary>命令：关闭。</summary>
     public const string CloseCommand = "close";
 
+    /// <summary>命令：清空计数。</summary>
+    public const string ClearCountersCommand = "clear-counters";
+
     /// <inheritdoc />
     protected override AccessModuleSpec Spec { get; } = new(
         AccessName,
@@ -75,7 +76,9 @@ public sealed class SampleSerialModule : ExternalAccessModule
         OpenCommand,
         "打开",
         CloseCommand,
-        "关闭");
+        "关闭",
+        ClearCountersCommand,
+        "清空计数");
 
     /// <inheritdoc />
     protected override string Describe(ExternalAccessSnapshot snapshot) => snapshot.State switch
@@ -83,9 +86,9 @@ public sealed class SampleSerialModule : ExternalAccessModule
         ExternalAccessState.Open => "已打开",
         ExternalAccessState.Opening => "正在打开…",
         ExternalAccessState.Closing => "正在关闭…",
-        ExternalAccessState.Faulted => string.IsNullOrWhiteSpace(snapshot.LastError)
-            ? "打开失败"
-            : snapshot.LastError,
+        ExternalAccessState.Faulted => snapshot.Failure is { } failure
+            ? $"打开失败（{failure.Kind}）"
+            : "打开失败",
         _ => snapshot.Suspended ? "实例已停用" : "未打开",
     };
 }

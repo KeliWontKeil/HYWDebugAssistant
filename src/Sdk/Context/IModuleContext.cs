@@ -41,11 +41,11 @@ public sealed record InputDeclaration(string Name)
 public interface IModuleDeclaration
 {
     /// <summary>
-    /// 声明一个**数据类型**：标识 + 版本 + 尺寸（由形状定）+ 传输语义 + 计量块 + **解码器**。
+    /// 声明一个**数据类型**：标识 + 尺寸（由形状定）+ 传输语义 + 计量块 + **解码器**。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item>类型是**契约的身份**：口用 <see cref="PortDeclaration.Type"/> 引用它，兼容判定据此走三层判据；</item>
+    ///   <item>类型是**契约的身份**：口用 <see cref="PortDeclaration.TypeId"/> 引用它，兼容判定据此比较标识与形状；</item>
     ///   <item>解码器随类型注册：**呈现期解码由模块做，框架只回调**（D1 ③）；不提供则不显示数值，不猜；</item>
     ///   <item>不声明类型的模块**照常工作**（回退结构判定）——本声明是兼容扩展，不是必填项。</item>
     /// </list>

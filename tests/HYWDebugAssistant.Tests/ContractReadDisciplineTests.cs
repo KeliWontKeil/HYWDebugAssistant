@@ -1,3 +1,4 @@
+using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Core.Changes;
 using HYWDebugAssistant.Core.Composition;
 using HYWDebugAssistant.Core.Runtime;
@@ -76,7 +77,7 @@ public class ContractReadDisciplineTests
     public void 形状不一致_应拒绝直连_且不产生任何投递()
     {
         // v1 源（12B）→ v2 接收方（16B，尾部追加）**不兼容**：
-        // 版本升级按破坏性变更处理 ⇒ 拒绝直连（这是「不让接收方拿到短于自己契约的数据报」的根治办法）
+        // 版本升级按破坏性变更处理 ⇒ 不建网（这是「不让接收方拿到短于自己契约的数据报」的根治办法）
         using var runtime = new ModuleRuntime();
         var services = new RuntimeServices(runtime);
         PrefixReceiver.Reset();
@@ -84,13 +85,11 @@ public class ContractReadDisciplineTests
         Add(runtime, "s1", "discipline-sender-v1", typeof(SenderV1));
         Add(runtime, "r2", "discipline-receiver", typeof(PrefixReceiver));
 
-        var result = runtime.Apply(ChangeSet.OfOne(new ConnectNetworkOperation(
-            new NetworkMember("s1", "out", PortDirection.Send),
-            [new NetworkMember("r2", "in", PortDirection.Receive)],
-            "link")));
+        // 建网只有一条用户路径：两端打同名标签 ⇒ 不兼容则**不建网**（标签保留）
+        TestLink.TryLink(services, new PortRef("s1", "out"), new PortRef("r2", "in"), "link")
+            .ShouldBeFalse("形状不一致（12B vs 16B）必须拒绝建网");
 
-        result.Applied.ShouldBeFalse("形状不一致（12B vs 16B）必须拒绝直连");
-
+        runtime.Content.Networks.ShouldBeEmpty();
 
         SendV1(runtime, "s1", seq: 1, value: 1.5f);
         Thread.Sleep(150);
@@ -99,9 +98,9 @@ public class ContractReadDisciplineTests
     }
 
     [Fact]
-    public void 多源同口混入不同版本_应只保留形状一致的那一路_同一口上永不出现两种长度()
+    public void 多源同口混入不同形状_应只保留形状一致的那一路_同一口上永不出现两种长度()
     {
-        // **同名标签但版本/形状不同**的两个发布者：
+        // **同名标签但形状不同**的两个发布者：
         // 形状不一致的那一路**不建立该 (源,宿) 对的投递**（其余源照常），
         // ⇒ 同一宿口上**永远不会**混入不同长度的数据报。
         using var runtime = new ModuleRuntime();
@@ -119,7 +118,10 @@ public class ContractReadDisciplineTests
         }
 
         var network = services.GetNetworks().ShouldHaveSingleItem();
-        network.Sources.Count.ShouldBe(2, "同名标签多发送端仍是一条多源网络（多源本身仍合法）");
+
+        // **成员 = 被接受的对**：形状不一致的源不进入 `Sources`（不是"连上了但没有绑定"）。
+        // 这样口标记的"已连接"与"真的能投递"才是同一件事。
+        network.Sources.ShouldBe(["s2.out"], "形状不一致的源不得成为网络成员");
         network.Targets.Count.ShouldBe(1);
 
         SendV1(runtime, "s1", seq: 1, value: 1.5f);
@@ -183,14 +185,12 @@ public class ContractReadDisciplineTests
     private static void Add(ModuleRuntime runtime, string instanceId, string name, Type entryType)
     {
         var definition = new ModuleDefinition(
-            ModuleId.Create("test", name, "1.0.0"),
+            ModuleId.Create("test", name),
             entryType.Name,
             string.Empty,
             [],
             ModuleCapability.None,
-            [],
-            null,
-            true,
+            [], true,
             entryType,
             string.Empty,
             string.Empty);
@@ -199,29 +199,29 @@ public class ContractReadDisciplineTests
     }
 
     /// <summary>v1 发送模块（声明 <c>test/read-discipline@1</c> = 12B）。</summary>
-    [ModuleDefinition("test", "discipline-sender-v1", "1.0.0")]
+    [ModuleDefinition("test", "discipline-sender-v1")]
     public sealed class SenderV1 : IModule
     {
         public void OnRegistered(IModuleContext context)
         {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, 1, V1));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, V1));
             context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, V1)
             {
-                Type = new DataTypeRef(TypeId, 1),
+                TypeId = TypeId,
             });
         }
     }
 
     /// <summary>v2 发送模块（同标识**尾部追加** <c>tag:u32</c> ⇒ 16B）。</summary>
-    [ModuleDefinition("test", "discipline-sender-v2", "1.0.0")]
+    [ModuleDefinition("test", "discipline-sender-v2")]
     public sealed class SenderV2 : IModule
     {
         public void OnRegistered(IModuleContext context)
         {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, 2, V2));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, V2));
             context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, V2)
             {
-                Type = new DataTypeRef(TypeId, 2),
+                TypeId = TypeId,
             });
         }
     }
@@ -229,7 +229,7 @@ public class ContractReadDisciplineTests
     /// <summary>
     /// 声明 **v2（16B）** 但**按到达长度读公共前缀**的接收模块 —— 正确的接收方写法。
     /// </summary>
-    [ModuleDefinition("test", "discipline-receiver", "1.0.0")]
+    [ModuleDefinition("test", "discipline-receiver")]
     public sealed class PrefixReceiver : IModule
     {
         /// <summary>每次收到的**数据报实际长度**（用于断言"长度 = 发送方契约尺寸"）。</summary>
@@ -240,10 +240,10 @@ public class ContractReadDisciplineTests
 
         public void OnRegistered(IModuleContext context)
         {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, 2, V2));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, V2));
             context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, V2)
             {
-                Type = new DataTypeRef(TypeId, 2),
+                TypeId = TypeId,
             });
 
             context.Ports.SetReceiveHandler("in", payload =>

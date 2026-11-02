@@ -51,7 +51,6 @@ public sealed class FusionStubConfig
 [ModuleDefinition(
     "test",
     "fusion-stub",
-    "1.0.0",
     DisplayName = "多源融合桩（测试用）",
     Description = "两路输入 + 一路输出：合并策略由模块自己决定（框架永不仲裁）",
     Tags = ["test", "fuse"])]
@@ -113,26 +112,26 @@ public sealed class FusionStubModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        context.Declaration.DeclareDataType(new DataTypeDeclaration(RawBytesTypeId, RawBytesVersion, RawBytesShape));
+        context.Declaration.DeclareDataType(new DataTypeDeclaration(RawBytesTypeId, RawBytesShape));
 
         context.Declaration.DeclarePort(new PortDeclaration(InputPort1, PortDirection.Receive, RawBytesShape)
         {
-            Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
+            TypeId = RawBytesTypeId,
         });
         context.Declaration.DeclarePort(new PortDeclaration(InputPort2, PortDirection.Receive, RawBytesShape)
         {
-            Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
+            TypeId = RawBytesTypeId,
         });
         context.Declaration.DeclarePort(new PortDeclaration(OutputPort, PortDirection.Send, RawBytesShape)
         {
-            Type = new DataTypeRef(RawBytesTypeId, RawBytesVersion),
+            TypeId = RawBytesTypeId,
         });
 
         // **两入一出 = 一块功能分块**（角色由模块自己声明，框架不派生）
         // 两入一出 ⇒ **直接构造**（`Both` 只收单口；多口角色用构造器）
         context.Declaration.DeclareRole(new RoleDeclaration(
             RoleId,
-            new DataTypeRef(RawBytesTypeId, RawBytesVersion),
+            RawBytesTypeId,
             [InputPort1, InputPort2],
             [OutputPort],
             "融合"));

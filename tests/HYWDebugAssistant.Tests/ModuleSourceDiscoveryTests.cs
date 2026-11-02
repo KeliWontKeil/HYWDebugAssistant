@@ -22,8 +22,8 @@ public class ModuleSourceDiscoveryTests
         using var fixture = new SourceFixture();
         var first = fixture.CreateRoot("root-a");
         var second = fixture.CreateRoot("root-b");
-        SourceFixture.CreatePackage(first, "hyw", "alpha", "1.0.0", FixtureModuleType.Alpha);
-        SourceFixture.CreatePackage(second, "hyw", "beta", "1.0.0", FixtureModuleType.Beta);
+        SourceFixture.CreatePackage(first, "hyw", "alpha", FixtureModuleType.Alpha);
+        SourceFixture.CreatePackage(second, "hyw", "beta", FixtureModuleType.Beta);
 
         var installed = fixture.Services.ScanModuleSources([first, second]);
 
@@ -36,7 +36,7 @@ public class ModuleSourceDiscoveryTests
         sources[0].Messages.ShouldContain(m => m.Contains("alpha"));
 
         fixture.Services.GetModuleCatalog().Select(c => c.ModuleId)
-            .ShouldBe(["hyw/alpha/1.0.0", "hyw/beta/1.0.0"], ignoreOrder: true);
+            .ShouldBe(["hyw/alpha", "hyw/beta"], ignoreOrder: true);
     }
 
     [Fact]
@@ -54,13 +54,13 @@ public class ModuleSourceDiscoveryTests
     }
 
     [Fact]
-    public void 相同版本重复_应先到者胜且只记一次提示()
+    public void 同ID重复_应先到者胜且只记一次提示()
     {
         using var fixture = new SourceFixture();
         var first = fixture.CreateRoot("root-a");
         var second = fixture.CreateRoot("root-b");
-        SourceFixture.CreatePackage(first, "hyw", "alpha", "1.0.0", FixtureModuleType.Alpha);
-        SourceFixture.CreatePackage(second, "hyw", "alpha", "1.0.0", FixtureModuleType.Alpha);
+        SourceFixture.CreatePackage(first, "hyw", "alpha", FixtureModuleType.Alpha);
+        SourceFixture.CreatePackage(second, "hyw", "alpha", FixtureModuleType.Alpha);
 
         fixture.Services.ScanModuleSources([first, second]).ShouldBe(1, "第二个同 ID 同版本包不重复装入");
 
@@ -69,30 +69,17 @@ public class ModuleSourceDiscoveryTests
         fixture.Services.GetModuleSources()[1].FailedPackages.ShouldBe(0, "重复包不是失败");
     }
 
-    [Fact]
-    public void 不同版本_应共存且目录里两行都在()
-    {
-        using var fixture = new SourceFixture();
-        var root = fixture.CreateRoot("root-a");
-        SourceFixture.CreatePackage(root, "hyw", "multi", "1.0.0", FixtureModuleType.MultiV1);
-        SourceFixture.CreatePackage(root, "hyw", "multi", "2.0.0", FixtureModuleType.MultiV2);
-
-        fixture.Services.ScanModuleSources([root]).ShouldBe(2);
-
-        fixture.Services.GetModuleCatalog().Select(c => c.ModuleId)
-            .ShouldBe(["hyw/multi/1.0.0", "hyw/multi/2.0.0"], ignoreOrder: true);
-    }
 
     [Fact]
     public void 重扫_应能发现新增的包()
     {
         using var fixture = new SourceFixture();
         var root = fixture.CreateRoot("root-a");
-        SourceFixture.CreatePackage(root, "hyw", "first", "1.0.0", FixtureModuleType.First);
+        SourceFixture.CreatePackage(root, "hyw", "first", FixtureModuleType.First);
         fixture.Services.ScanModuleSources([root]).ShouldBe(1);
 
         // 新增一个包后再扫（等价于「立即重扫」）
-        SourceFixture.CreatePackage(root, "hyw", "second", "1.0.0", FixtureModuleType.Second);
+        SourceFixture.CreatePackage(root, "hyw", "second", FixtureModuleType.Second);
         fixture.Services.ScanModuleSources([root]).ShouldBe(1, "只新增一个包");
         fixture.Services.GetModuleCatalog().Count.ShouldBe(2);
         fixture.Runtime.Issues.Recent(50)
@@ -105,7 +92,7 @@ public class ModuleSourceDiscoveryTests
     {
         using var fixture = new SourceFixture();
         var root = fixture.CreateRoot("built-in");
-        SourceFixture.CreatePackage(root, "hyw", "from-settings", "1.0.0", FixtureModuleType.FromSettings);
+        SourceFixture.CreatePackage(root, "hyw", "from-settings", FixtureModuleType.FromSettings);
 
         fixture.Services.BuiltInModuleDirectory = root;
 
@@ -113,7 +100,7 @@ public class ModuleSourceDiscoveryTests
 
         result.Succeeded.ShouldBeTrue();
         result.Notices.ShouldNotBeEmpty();
-        fixture.Services.GetModuleCatalog().ShouldHaveSingleItem().ModuleId.ShouldBe("hyw/from-settings/1.0.0");
+        fixture.Services.GetModuleCatalog().ShouldHaveSingleItem().ModuleId.ShouldBe("hyw/from-settings");
     }
 
     /// <summary>
@@ -139,7 +126,7 @@ public class ModuleSourceDiscoveryTests
         var builtIn = fixture.CreateRoot("built-in");
 
         // 注意：包清单里的 (author,name,version) 必须与入口类型的 [ModuleDefinition] 一致（加载器的校验点）
-        SourceFixture.CreatePackage(builtIn, "hyw", "from-settings", "1.0.0", FixtureModuleType.FromSettings);
+        SourceFixture.CreatePackage(builtIn, "hyw", "from-settings", FixtureModuleType.FromSettings);
 
         // 现场 = 只有内置目录，用户一个来源根都没配
         fixture.Services.BuiltInModuleDirectory = builtIn;
@@ -153,11 +140,11 @@ public class ModuleSourceDiscoveryTests
             builtIn,
             "内置包目录必须仍在扫描结果里（旧实现：根列表为空 ⇒ 结果表被清空 ⇒ 界面上「目录消失」）");
         fixture.Services.GetModuleCatalog().ShouldContain(
-            e => e.ModuleId == "hyw/from-settings/1.0.0",
+            e => e.ModuleId == "hyw/from-settings",
             "内置目录里的包必须仍在可用模块清单里");
 
         // 重扫绝不删磁盘文件（"消失的只是列表内容"）
-        File.Exists(Path.Combine(builtIn, "from-settings-1.0.0", "module.json")).ShouldBeTrue();
+        File.Exists(Path.Combine(builtIn, "from-settings", "module.json")).ShouldBeTrue();
     }
 
     [Fact]
@@ -167,8 +154,8 @@ public class ModuleSourceDiscoveryTests
         var builtIn = fixture.CreateRoot("built-in");
         var external = fixture.CreateRoot("external");
         var source = fixture.CreateRoot("source");
-        SourceFixture.CreatePackage(source, "hyw", "alpha", "1.0.0", FixtureModuleType.Alpha);
-        File.WriteAllBytes(Path.Combine(source, "alpha-1.0.0", "preview.png"), [0x89, 0x50, 0x4E, 0x47]);
+        SourceFixture.CreatePackage(source, "hyw", "alpha", FixtureModuleType.Alpha);
+        File.WriteAllBytes(Path.Combine(source, "alpha", "preview.png"), [0x89, 0x50, 0x4E, 0x47]);
 
         fixture.Services.BuiltInModuleDirectory = builtIn;
         fixture.Services.ExternalModuleDirectory = external;
@@ -177,23 +164,23 @@ public class ModuleSourceDiscoveryTests
 
         result.Succeeded.ShouldBeTrue(string.Join("；", result.Failures));
         var entry = fixture.Services.GetModuleCatalog().ShouldHaveSingleItem();
-        entry.ModuleId.ShouldBe("hyw/alpha/1.0.0");
+        entry.ModuleId.ShouldBe("hyw/alpha");
         entry.IsExternal.ShouldBeTrue("导入包位于 modules/external，必须标注外部");
         entry.PreviewImagePath.ShouldNotBeNull();
         File.Exists(entry.PreviewImagePath).ShouldBeTrue("包内 preview.png 应作为模块封面路径");
-        Directory.Exists(Path.Combine(external, "alpha-1.0.0")).ShouldBeTrue("包应复制进默认外部目录");
+        Directory.Exists(Path.Combine(external, "alpha")).ShouldBeTrue("包应复制进默认外部目录");
     }
 
     [Fact]
-    public void 外部导入_同ID同版本应拒绝且不复制()
+    public void 外部导入_同ID应拒绝且不复制()
     {
         using var fixture = new SourceFixture();
         var builtIn = fixture.CreateRoot("built-in");
         var external = fixture.CreateRoot("external");
         var first = fixture.CreateRoot("source-a");
         var second = fixture.CreateRoot("source-b");
-        SourceFixture.CreatePackage(first, "hyw", "alpha", "1.0.0", FixtureModuleType.Alpha);
-        SourceFixture.CreatePackage(second, "hyw", "alpha", "1.0.0", FixtureModuleType.Alpha);
+        SourceFixture.CreatePackage(first, "hyw", "alpha", FixtureModuleType.Alpha);
+        SourceFixture.CreatePackage(second, "hyw", "alpha", FixtureModuleType.Alpha);
 
         fixture.Services.BuiltInModuleDirectory = builtIn;
         fixture.Services.ExternalModuleDirectory = external;
@@ -215,7 +202,7 @@ public class ModuleSourceDiscoveryTests
         _ = Directory.CreateDirectory(package);
         File.WriteAllText(
             Path.Combine(package, "module.json"),
-            """{"id":"hyw/broken/1.0.0","entryAssembly":"Nope.dll","entryType":"Nope.Type","frameworkCompatibility":">=1.0.0 <2.0.0"}""");
+            """{"id":"hyw/broken","entryAssembly":"Nope.dll","entryType":"Nope.Type","dependsOn":"not-an-array"}""");
 
         fixture.Services.ScanModuleSources([root]).ShouldBe(0);
 
@@ -261,9 +248,9 @@ public class ModuleSourceDiscoveryTests
         /// 入口类型见本文件末尾的 <see cref="FixtureModuleType"/> —— 其 <c>[ModuleDefinition]</c> 标识
         /// 必须与清单一致（这正是加载器的校验点之一）。
         /// </remarks>
-        public static void CreatePackage(string root, string author, string name, string version, Type entryType)
+        public static void CreatePackage(string root, string author, string name, Type entryType)
         {
-            var package = Path.Combine(root, $"{name}-{version}");   // 包目录名可自由：扫描按 module.json 识别
+            var package = Path.Combine(root, name);   // 包目录名可自由：扫描按 module.json 识别
             _ = Directory.CreateDirectory(package);
 
             var testAssemblyPath = typeof(FixtureModuleType).Assembly.Location;
@@ -274,10 +261,9 @@ public class ModuleSourceDiscoveryTests
                 Path.Combine(package, "module.json"),
                 $$"""
                 {
-                  "id": "{{author}}/{{name}}/{{version}}",
+                  "id": "{{author}}/{{name}}",
                   "entryAssembly": "{{assemblyName}}",
                   "entryType": "{{entryType.FullName}}",
-                  "frameworkCompatibility": ">=2.0.0 <3.0.0",
                   "dependsOn": [],
                   "resources": []
                 }

@@ -65,7 +65,13 @@
 .\tools\package-release.ps1 -OutputDirectory <仓库外空目录>
 ```
 
-`package-release.ps1` 只导出程序层（程序文件 + `modules/` + `resources/`），并在导出后调用 `HYWDebugAssistant.App.exe --emit-default-settings` 生成出厂设置基线；`settings/` `workspace/` `logs/` `composites/` `modules/external/` 一律不导出。`release.json` 记录 `layoutVersion` 与 `resources[]`（全树相对路径 + SHA256）。
+`package-release.ps1` 只导出程序层（程序文件 + `modules/` + `resources/`），并在导出后调用应用的 `--emit-default-settings` 生成出厂设置基线；`settings/` `workspace/` `logs/` `composites/` `modules/external/` 一律不导出。`release.json` 记录 `layoutVersion` 与 `resources[]`（全树相对路径 + SHA256）。
+
+**改了文案 / 资源却"没生效"**：
+
+1. **不需要**删 `bin` / `obj`。两个镜像目标（`resources\` 与 `modules\`）已登记 `UpToDateCheckInput`：改仓库 `resources\**` 或任一模块包都会让 App 项目重新被判"过期"并重跑镜像。
+2. 输出目录只有一棵：`Directory.Build.props` 固定 `PlatformName=AnyCPU`，`$(Platform)` 被环境变量污染（本机 `PLATFORM`）或 VS 传 `Any CPU` 都不会再产生 `bin\Any CPU\` 第二棵树。看到 `bin\Any CPU\` 只可能是旧会话遗留，可整目录删除。
+3. 校验脚本不手抄输出路径：`verify-resources` / `verify-module-packages` / `package-release` 都向 MSBuild 要 `$(OutDir)`（`tools/app-output.ps1` 是唯一解析实现）。
 
 **加一种语言**（框架与模块各自加，互不牵连）：
 
@@ -73,7 +79,9 @@
 2. 模块：在该模块的包内 `i18n/<程序集简名>/` 下加同名文件（源码里放 `src/Modules/.../i18n/<程序集简名>/`，构建会随包带走）。
 3. 表格式与键集合必须与中文表**逐键一致**（占位符也要一致），否则审计判红；改完重编，或发布后直接替换发布目录里的表文件（文本是数据，不在 DLL 里）。
 4. 语言下拉会自动出现新语言（`TextCatalog.SupportedLanguages` 扫表目录得出）；缺某语言的模块按回退链显示中文。
-5. **加完语言跑一次视图契约用例**（`ModuleViewContractTests`）：静态标签装不下自己的矩形会红；按红的地方在那个视图的 `.axaml` 里加宽那条矩形或缩短标题 —— **不动坐标体系**，也不许把标签改成自动换行/缩字号来"塞进去"。
+5. **加完语言跑一次视图契约用例**（`ModuleViewContractTests`）：键↔声明必须逐条对上（**不判文案长度**：措辞属呈现，装不下由人眼验收）。
+
+**版本**：仓库根 `version.props` 是唯一事实源，改版本只走 `tools/version.ps1`（`-Round` / `-Minor` / `-Commit "<说明>"`）。模块标识、数据类型、本地格式都**没有版本**；按旧 SDK 编译的模块在加载失败时会被明确报错（文案带它编译时引用的 SDK 版本），不会出现"运行到一半才抛 `MissingMethodException`"的静默失败。完整规则见 [`architecture/VERSIONING.md`](architecture/VERSIONING.md)。
 
 ---
 
