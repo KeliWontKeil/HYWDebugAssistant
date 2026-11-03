@@ -13,11 +13,14 @@
     3) 校验内置模块包归拢（应用输出 modules\ + artifacts\modules\）
     4) 校验输出资源包（tools/verify-resources.ps1）+ 依赖许可审计（tools/audit-licenses.ps1，
        白名单：MIT/Apache-2.0/BSD 等宽松许可）
+    4c) 模块作者包：pack-sdk.ps1 生成四个包 → verify-sdk-packages.ps1 校验 dll / xml / 依赖组
+       （-SkipPack 可跳过；发布前不得跳过）
     5) dotnet test
 
 .EXAMPLE
     ./build.ps1                 # 完整门禁
     ./build.ps1 -SkipTests      # 只做文档站检查 / 颜色 / 资源审计 + 构建 + 模块包/资源校验 + 许可审计
+    ./build.ps1 -SkipPack       # 迭代时跳过作者包打包（约 10–20 s）
 #>
 [CmdletBinding()]
 param(
@@ -27,6 +30,8 @@ param(
     [switch]$SkipAudit,
     # 跳过文档站检查与文档派生审计（仅当本次改动确实不涉及 docs/ 时使用）
     [switch]$SkipDocs,
+    # 跳过模块作者包打包与校验（迭代时用；发布/交付前不得跳过）
+    [switch]$SkipPack,
     # Gate B 数值实测：跑 BenchmarkDotNet 基准（Release）。
     # 不进常规门禁（耗时且数值随机器波动）；数值只记录、不设阈值。
     [switch]$RunBenchmarks,
@@ -76,7 +81,7 @@ if (-not (Test-Path $sln)) { throw "未找到解决方案：$sln" }
 # ---- 1) 文档站检查（严格构建 + 结构；文字质量不靠脚本判断）----
 # 放在最前：文档问题最便宜、且不依赖构建产物；结构规则见 dev/workflow.md。
 if (-not $SkipDocs) {
-    Write-Host "===== 1/5 文档站检查 =====" -ForegroundColor Cyan
+    Write-Host "===== 1/6 文档站检查 =====" -ForegroundColor Cyan
     & (Join-Path $root 'docs\build.ps1') -Mode Check
     if ($LASTEXITCODE -ne 0) { throw '文档站检查未通过（见上方输出；结构规则见 dev/workflow.md）' }
 }
@@ -111,22 +116,22 @@ if (-not $SkipDocs) {
 # ---- 1e) 版本纪律审计（只读；判据见 tools/audit-versions.ps1 头部注释）----
 # 唯一版本事实源、禁止第二版本轴字段、模块清单两段标识：都是"编译期看不见"的事实，
 # 放在构建之前当场拦下。它查的不只是文档，因此不受 -SkipDocs 控制。
-Write-Host "===== 1e/5 版本纪律审计 =====" -ForegroundColor Cyan
+Write-Host "===== 1e/6 版本纪律审计 =====" -ForegroundColor Cyan
 & (Join-Path $root 'tools\audit-versions.ps1')
 if ($LASTEXITCODE -ne 0) { throw '版本纪律审计未通过（见上方 文件:行号；判据见 tools/audit-versions.ps1 头部注释）' }
 
-Write-Host "===== 2/5 还原 =====" -ForegroundColor Cyan
+Write-Host "===== 2/6 还原 =====" -ForegroundColor Cyan
 dotnet restore $sln
 if ($LASTEXITCODE -ne 0) { throw '还原失败' }
 
-Write-Host "===== 3/5 构建（$Configuration）=====" -ForegroundColor Cyan
+Write-Host "===== 3/6 构建（$Configuration）=====" -ForegroundColor Cyan
 dotnet build $sln -c $Configuration --no-restore
 if ($LASTEXITCODE -ne 0) { throw '构建失败' }
 
 # ---- 4) 校验模块包归拢结果（应用输出 modules\ + artifacts\modules\）----
 # 包由构建自动归拢（src/Modules/Directory.Build.targets + App 镜像目标）；
 # 本步只做一致性校验：让"内置模块开箱可用"这件事在门禁里可验证。
-Write-Host "===== 4/5 校验模块包 + 资源包 + 依赖许可审计 =====" -ForegroundColor Cyan
+Write-Host "===== 4/6 校验模块包 + 资源包 + 依赖许可审计 =====" -ForegroundColor Cyan
 & (Join-Path $root 'tools\verify-module-packages.ps1') -Configuration $Configuration
 if ($LASTEXITCODE -ne 0) { throw '模块包校验失败' }
 
@@ -140,8 +145,23 @@ if (-not $SkipAudit) {
     if ($LASTEXITCODE -ne 0) { throw '依赖许可审计未通过（见上方违规清单）' }
 }
 
+# ---- 4c) 模块作者包产物：打包 → 校验（作者拿不到源码，包内 XML 文档是 API 语义来源）----
+# 单独一步的理由：包产物是"外部作者能不能开发"的前提，不能只靠手工跑脚本；
+# 迭代时可 -SkipPack 跳过（约 10–20 s）。
+if (-not $SkipPack) {
+    Write-Host "===== 4c/6 模块作者包（SDK）=====" -ForegroundColor Cyan
+    & (Join-Path $root 'tools\pack-sdk.ps1') -Configuration $Configuration
+    if ($LASTEXITCODE -ne 0) { throw 'SDK 打包失败' }
+
+    & (Join-Path $root 'tools\verify-sdk-packages.ps1')
+    if ($LASTEXITCODE -ne 0) { throw 'SDK 包产物校验失败（见上方 x 行）' }
+}
+else {
+    Write-Host "[skip] 模块作者包打包已跳过（-SkipPack）" -ForegroundColor Yellow
+}
+
 if (-not $SkipTests) {
-    Write-Host "===== 5/5 测试 =====" -ForegroundColor Cyan
+    Write-Host "===== 5/6 测试 =====" -ForegroundColor Cyan
 
     # VisualSnapshots 必须单独进程跑：无头渲染平台是进程级配置，与其它测试项目并发时
     # 真实渲染互相破坏，产生假失败。门禁的"通过"必须可信 ⇒ 逐个串行，快照项目最后单独跑。
@@ -169,8 +189,9 @@ if (-not $SkipTests) {
 
 $testNote = if ($SkipTests) { ' · 测试已跳过' } else { '' }
 $docNote = if ($SkipDocs) { ' · 文档检查已跳过' } else { '' }
+$packNote = if ($SkipPack) { ' · 作者包已跳过' } else { '' }
 Write-Host ""
-Write-Host "✅ 门禁全部通过：文档站 · 颜色 · 资源与文本 · 注释布局 · 版本纪律 · 构建成功 · 模块包与资源校验 · 许可合规$testNote$docNote" -ForegroundColor Green
+Write-Host "✅ 门禁全部通过：文档站 · 颜色 · 资源与文本 · 注释布局 · 版本纪律 · 构建成功 · 模块包与资源校验 · 作者包 · 许可合规$testNote$docNote$packNote" -ForegroundColor Green
 
 if ($RunBenchmarks) {
     Write-Host ""

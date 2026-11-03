@@ -1,19 +1,24 @@
 using HYWDebugAssistant.Access;
-using HYWDebugAssistant.Access.Parameters;
 using HYWDebugAssistant.Hosting.Diagnostics;
 using HYWDebugAssistant.Hosting.Instances;
 using HYWDebugAssistant.Hosting.Packages;
 using HYWDebugAssistant.Hosting.Registry;
-using HYWDebugAssistant.Sdk.Access;
+using HYWDebugAssistant.Sdk.Reporting;
 
 namespace HYWDebugAssistant.StandaloneModuleHost;
 
 /// <summary>
-/// dev-only 验证宿主：加载一个模块包目录，按内置 catalog 创建实例，断言外部接入声明与参数类型。
+/// dev-only 验证宿主：加载一个模块包目录，按真实路径创建实例，断言声明面**没有 Error**。
 /// </summary>
 /// <remarks>
+/// <para>
+/// 判据与模块形态无关（数据变换模块没有外部接入，外部接入模块没有数据口）：
+/// 只要求"能被装入、声明面不报错、声明过的东西能解析"。
+/// </para>
+/// <para>
 /// 退出码：0 成功；1 加载/断言失败；2 参数用法错误。
 /// 这是"独立编译"的闭环证据 —— 示例模块只靠 SDK NuGet 包构建，宿主按真实加载路径校验。
+/// </para>
 /// </remarks>
 internal static class Program
 {
@@ -49,43 +54,43 @@ internal static class Program
             Console.Error.WriteLine($"[host] 声明期问题（{issue.Issue.Severity}）：{issue.Issue.Message}");
         }
 
-        if (instance.ExternalAccesses.Count != 1)
+        if (issues.Issues.Any(issue => issue.Issue.Severity == IssueSeverity.Error))
         {
-            Console.Error.WriteLine($"[host] 断言失败：外部接入数量应为 1，实际 {instance.ExternalAccesses.Count}");
+            Console.Error.WriteLine("[host] 断言失败：声明期存在 Error");
             return 1;
         }
 
-        var declaration = instance.ExternalAccesses[0];
-        if (string.IsNullOrWhiteSpace(declaration.Name)
-            || string.IsNullOrWhiteSpace(declaration.StandardId))
+        if (instance.Ports.Count == 0 && instance.ExternalAccesses.Count == 0)
         {
-            Console.Error.WriteLine("[host] 断言失败：接入名或标准标识为空");
+            Console.Error.WriteLine("[host] 断言失败：既没有端口也没有外部接入（这不是一个可组合的模块）");
             return 1;
         }
 
-        if (!catalog.TryResolve(declaration.StandardId, out var descriptor))
+        foreach (var access in instance.ExternalAccesses)
         {
-            Console.Error.WriteLine($"[host] 断言失败：标准标识无法解析：{declaration.StandardId}");
-            return 1;
-        }
+            if (string.IsNullOrWhiteSpace(access.Name) || string.IsNullOrWhiteSpace(access.StandardId))
+            {
+                Console.Error.WriteLine("[host] 断言失败：接入名或标准标识为空");
+                return 1;
+            }
 
-        if (descriptor.ParametersType != typeof(SerialConfig))
-        {
-            Console.Error.WriteLine(
-                $"[host] 断言失败：serial 标准的参数类型应为 {typeof(SerialConfig).FullName}，实际 {descriptor.ParametersType.FullName}");
-            return 1;
-        }
+            if (!catalog.TryResolve(access.StandardId, out var descriptor))
+            {
+                Console.Error.WriteLine($"[host] 断言失败：标准标识无法解析：{access.StandardId}");
+                return 1;
+            }
 
-        var typeName = descriptor.ParametersType.FullName;
-        if (typeName is null || !instance.Context.ConfigurationSnapshot.ContainsKey(typeName))
-        {
-            Console.Error.WriteLine("[host] 断言失败：参数类型未登记进实例配置快照");
-            return 1;
+            var typeName = descriptor.ParametersType.FullName;
+            if (typeName is null || !instance.Context.ConfigurationSnapshot.ContainsKey(typeName))
+            {
+                Console.Error.WriteLine($"[host] 断言失败：{access.StandardId} 的参数类型未登记进实例配置快照");
+                return 1;
+            }
         }
 
         Console.WriteLine(
-            $"[host] OK：模块 {definition.Id}，接入 '{declaration.Name}'，"
-            + $"标准 '{declaration.StandardId}'，参数类型 {descriptor.ParametersType.Name}");
+            $"[host] OK：模块 {definition.Id}，端口 {instance.Ports.Count}，"
+            + $"接入 {instance.ExternalAccesses.Count}，类型 {instance.DataTypes.Count}");
         return 0;
     }
 }

@@ -62,7 +62,7 @@ public static class ResourceLayout
     /// **显式指定某个类别的资源根**（宿主、测试与预览可用）；传 <c>null</c> 恢复默认解析。
     /// </summary>
     /// <param name="kind">资源类别。</param>
-    /// <param name="path">资源根下 `<kind>/` 目录的路径；<c>null</c>/空 = 清掉显式根。</param>
+    /// <param name="path">资源根下 `&lt;kind&gt;/` 目录的路径；<c>null</c>/空 = 清掉显式根。</param>
     /// <remarks>设定后代号递增：所有以代号为缓存键的读取方都会重读（见类型备注）。</remarks>
     public static void UseRoot(string kind, string? path)
     {

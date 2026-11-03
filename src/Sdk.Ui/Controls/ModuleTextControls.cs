@@ -27,8 +27,8 @@ public enum ModuleQuantity
 /// 视图要在哪儿显示标签，就在哪儿摆一个本控件 —— 字段标题、读数标题、区标题、状态、单位都是它。
 /// </para>
 /// <para>
-/// **文案来源优先级：<see cref="Field"/> &gt; <see cref="Source"/> &gt; <see cref="Text"/>**，视图只用其中一条：
-/// 配置字段的标题不复制到视图里（<see cref="Field"/> 读配置元数据）；动态一句话走 <see cref="Source"/>；
+/// **文案来源优先级：<see cref="Field"/> &gt; <see cref="ModuleElement.Source"/> &gt; <see cref="Text"/>**，视图只用其中一条：
+/// 配置字段的标题不复制到视图里（<see cref="Field"/> 读配置元数据）；动态一句话走 <see cref="ModuleElement.Source"/>；
 /// 固定一句话走 <see cref="Text"/>。
 /// </para>
 /// <para>
@@ -71,7 +71,7 @@ public sealed class ModuleLabel : ModuleElement
         };
     }
 
-    /// <summary>不绑源时的静态文字（与 <see cref="Source"/> / <see cref="Field"/> 互斥）。</summary>
+    /// <summary>不绑源时的静态文字（与 <see cref="ModuleElement.Source"/> / <see cref="Field"/> 互斥）。</summary>
     public string Text
     {
         get => _textValue;

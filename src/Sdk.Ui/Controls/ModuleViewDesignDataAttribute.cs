@@ -8,7 +8,7 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 /// </summary>
 /// <remarks>
 /// 只影响设计环境（<see cref="Design.IsDesignMode"/> 或 <see cref="ModuleView.IsPreviewHost"/>）；
-/// 运行时 <see cref="ModuleViewHost"/> 会覆盖 <see cref="ModuleView.DataContext"/>，真实上下文优先。
+/// 运行时 <see cref="ModuleViewHost"/> 会覆盖 <c>DataContext</c>，真实上下文优先。
 /// <para>
 /// 两种写法：模块自带配置类型时给 <see cref="ConfigType"/>；配置类型在框架侧时只给
 /// <see cref="StandardId"/>，由预览宿主把标准标识映射到配置类型（映射注册属于框架接线）。

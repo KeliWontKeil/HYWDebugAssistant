@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    模块打包规则包（作者工具）：把 `build/module-package.props|targets` 打进 NuGet 包。
+    外部作者的模块项目引用它即可零配置得到可装载的模块包；仓库内模块共用同一份 targets。
+    它**不是运行时依赖**：不随宿主发布、不进模块包（与 Sdk.Testing 同属作者包）。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackageId>HYWDebugAssistant.Module.Build</PackageId>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Description>模块打包规则：按 module.json 归拢模块包（宿主程序集排除、resources 复制、包目录清理），模块项目零配置接入。</Description>
+    <!-- 只发 props/targets，没有程序集输出。 -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\build\module-package.props" Pack="true" PackagePath="build\HYWDebugAssistant.Module.Build.props" />
+    <None Include="..\..\build\module-package.targets" Pack="true" PackagePath="build\HYWDebugAssistant.Module.Build.targets" />
+  </ItemGroup>
+
+</Project>

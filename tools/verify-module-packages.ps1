@@ -50,12 +50,12 @@ foreach ($manifestFile in (Get-ChildItem (Join-Path $root 'src\Modules') -Recurs
 }
 
 # 宿主提供的程序集：它们随 App 输出，绝不允许出现在模块包里。
+# 作者包（Sdk.Testing）同样不得进包：它只给作者的测试项目用，不是运行时依赖。
 $forbiddenHostPatterns = @(
-    'HYWDebugAssistant.Sdk.dll',
-    'HYWDebugAssistant.Sdk.pdb',
-    'HYWDebugAssistant.Sdk.Ui.*',
-    'HYWDebugAssistant.Sdk.AccessKit.*',
-    'HYWDebugAssistant.Access.*',
+    'HYWDebugAssistant.Sdk*.dll',
+    'HYWDebugAssistant.Sdk*.pdb',
+    'HYWDebugAssistant.Sdk*.xml',
+    'HYWDebugAssistant.Access*.dll',
     'Avalonia*',
     'System.IO.Ports*',
     'SkiaSharp*',

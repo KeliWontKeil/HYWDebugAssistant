@@ -53,6 +53,7 @@
     "hosting.manifest.parseFailed": "{0} 解析失败：{1}",
     "hosting.package.assemblyLoadFailed": "实现程序集加载失败：{0}",
     "hosting.package.assemblyMissing": "实现程序集不存在：{0}。模块包目录必须同时包含 module.json 与实现程序集；如果你选的是源码目录，请改选构建产物目录 bin\\{1}\\net10.0，或应用目录下的 modules\\<模块名>",
+    "hosting.package.authorKitReference": "模块引用了作者包 HYWDebugAssistant.Sdk.Testing（契约自检套件只给测试项目用）；请把它从模块的运行时引用里去掉",
     "hosting.package.declarationMismatch": "清单标识与代码声明不一致：清单 '{0}' vs 代码 '{1}'（拒绝加载，避免同名歧义）",
     "hosting.package.definitionAttributeMissing": "入口类型缺少 [ModuleDefinition] 声明：{0}",
     "hosting.package.entryPointMissing": "清单缺少 entryAssembly 或 entryType",

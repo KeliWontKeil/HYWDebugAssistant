@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    纯数据变换样例：**没有外部接入**，只有两个端口 + 一种数据类型 + 一个角色。
+    与 ExternalModule 对照：那个演示"接入面只搬字节"，这个演示"模块自己声明数据契约"。
+    打包走作者包 `HYWDebugAssistant.Module.Build`（module.json / resources / 包目录全部自动），
+    因此本工程**不需要**手写任何归拢项。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <!-- 样例独立于仓库的中央包管理（作者包版本由 PackageReference 显式给出，值来自根 version.props）。 -->
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <AssemblyName>HYWDebugAssistant.Samples.DataModule</AssemblyName>
+    <RootNamespace>HYWDebugAssistant.Samples.DataModule</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="HYWDebugAssistant.Sdk" Version="$(Version)" />
+    <!-- 只参与构建：打包规则，不是运行时依赖。 -->
+    <PackageReference Include="HYWDebugAssistant.Module.Build" Version="$(Version)" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

@@ -16,6 +16,8 @@
     <PackageId>HYWDebugAssistant.Sdk.Ui</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Description>HYWDebugAssistant 模块界面契约与控件库（视图工厂/上下文/控件与主题），依赖 Avalonia。</Description>
+    <!-- 与 Sdk 同口径：包内 XML 文档是模块作者能读到的控件与属性语义。 -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  模块包归拢规则（宿主与外部作者**共用同一份**）：
+    · 判定"是模块项目"的依据 = 项目目录下存在 module.json（不引入额外开关）；
+    · 包目录名 = $(ModulePackageName)，缺省取项目名最后一个点段；
+    · 包根按构建配置分目录（缺省 bin/<配置>/module-package/；仓库内覆盖为 artifacts/modules/<配置>）；
+    · 每个包目录**先清空再复制**，避免新旧程序集混放导致"改了代码没生效"；
+    · **包只含模块自有文件**：宿主提供的程序集与 *.deps.json 一律不进包。
+-->
+<Project>
+  <PropertyGroup>
+    <ModulePackageName Condition="'$(ModulePackageName)' == ''">$(MSBuildProjectName.Substring($([MSBuild]::Add($(MSBuildProjectName.LastIndexOf('.')), 1))))</ModulePackageName>
+    <ModulePackageRoot Condition="'$(ModulePackageRoot)' == ''">$(BaseOutputPath)module-package\</ModulePackageRoot>
+    <ModulePackageRoot Condition="'$(ModulePackageRoot)' == ''">bin\module-package\</ModulePackageRoot>
+    <ModulePackageDirectory>$(ModulePackageRoot)$(ModulePackageName)</ModulePackageDirectory>
+  </PropertyGroup>
+
+  <!--
+    **模块私有平台分片**（`runtimes/<rid>/lib/<tfm>/` 与 `runtimes/<rid>/native/`）也要进包：
+    带平台分片的**模块私有依赖**在包根平铺的那份是平台无关的引用版，方法体直接抛
+    `PlatformNotSupportedException`；真正的实现按 RID 分片放着。库项目的普通构建**不会**把它们
+    拷进输出目录（只有 RID 构建 / 发布才拷）⇒ 不给这一条，模块包在真机上会"在 Windows 上报告
+    只支持 Windows"这种自相矛盾的失败。
+    **`native/` 与 `lib/` 同一理由**：带原生库的第三方依赖只在 `runtimes/<rid>/native/` 下，
+    少拷这一支 = 所有平台都缺库（且只有在真机上才暴露）。
+    归拢（`StageModulePackage`）在本目标之后跑；**宿主提供的平台分片不在此列**（它们随宿主输出）。
+  -->
+  <Target Name="StageRuntimeSpecificAssets"
+          AfterTargets="Build"
+          BeforeTargets="StageModulePackage"
+          Condition="Exists('$(MSBuildProjectDirectory)\module.json')">
+
+    <ItemGroup>
+      <RuntimeLibAsset Include="$(NuGetPackageRoot)%(PackageReference.Identity)\%(PackageReference.Version)\runtimes\*\lib\*\*.dll"
+                       Condition="'%(PackageReference.Version)' != ''" />
+      <RuntimeNativeAsset Include="$(NuGetPackageRoot)%(PackageReference.Identity)\%(PackageReference.Version)\runtimes\*\native\**\*"
+                          Condition="'%(PackageReference.Version)' != ''" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(RuntimeLibAsset)"
+          DestinationFiles="@(RuntimeLibAsset->'$(TargetDir)runtimes\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(RuntimeLibAsset)' != ''" />
+
+    <Copy SourceFiles="@(RuntimeNativeAsset)"
+          DestinationFiles="@(RuntimeNativeAsset->'$(TargetDir)runtimes\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(RuntimeNativeAsset)' != ''" />
+  </Target>
+
+  <Target Name="StageModulePackage"
+          AfterTargets="Build"
+          Condition="Exists('$(MSBuildProjectDirectory)\module.json')">
+
+    <ItemGroup>
+      <!-- 只归拢**模块自有文件**；宿主提供的程序集即使出现在模块输出目录也不进包。 -->
+      <ModulePackageFile Include="$(TargetDir)**\*"
+                         Exclude="$(TargetDir)HYWDebugAssistant.Sdk*;$(TargetDir)HYWDebugAssistant.Access*;$(TargetDir)Avalonia*;$(TargetDir)System.IO.Ports*;$(TargetDir)SkiaSharp*;$(TargetDir)HarfBuzzSharp*;$(TargetDir)MicroCom.Runtime*;$(TargetDir)**\*.deps.json" />
+
+      <!-- 清单与模块自有资源从**项目目录**直接归拢：不依赖它们是否被复制进输出目录。 -->
+      <ModuleManifestFile Include="$(MSBuildProjectDirectory)\module.json" Condition="Exists('$(MSBuildProjectDirectory)\module.json')" />
+      <ModuleResourceFile Include="$(MSBuildProjectDirectory)\resources\**\*" Condition="Exists('$(MSBuildProjectDirectory)\resources')" />
+    </ItemGroup>
+
+    <RemoveDir Directories="$(ModulePackageDirectory)" Condition="Exists('$(ModulePackageDirectory)')" />
+    <MakeDir Directories="$(ModulePackageDirectory)" />
+    <Copy SourceFiles="@(ModulePackageFile)"
+          DestinationFolder="$(ModulePackageDirectory)\%(RecursiveDir)"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(ModuleManifestFile)"
+          DestinationFolder="$(ModulePackageDirectory)"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(ModuleResourceFile)"
+          DestinationFiles="@(ModuleResourceFile->'$(ModulePackageDirectory)\resources\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(ModuleResourceFile)' != ''" />
+
+    <Message Importance="high" Text="[module-pkg] $(ModulePackageName) → $(ModulePackageDirectory)" />
+  </Target>
+
+  <!--
+    包声明文件登记进**过期判定**：`module.json` 是包的输入，但它不参与编译，
+    MSBuild 与 VS 的"是否最新"判定**看不见它** —— 只改清单而点"重新生成解决方案"时，
+    模块项目会被判"最新"、归拢（AfterTargets="Build"）不跑 ⇒ 改动进不了包。
+    登记成 UpToDateCheckInput 后，它的改动会让项目重新被判过期。
+  -->
+  <ItemGroup>
+    <UpToDateCheckInput Include="module.json" Condition="Exists('$(MSBuildProjectDirectory)\module.json')" />
+  </ItemGroup>
+
+</Project>

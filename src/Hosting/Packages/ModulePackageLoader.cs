@@ -144,10 +144,12 @@ public static class ModulePackageLoader
     private const string SdkAssemblyName = "HYWDebugAssistant.Sdk";
     private const string SdkUiAssemblyName = "HYWDebugAssistant.Sdk.Ui";
     private const string SdkAccessKitAssemblyName = "HYWDebugAssistant.Sdk.AccessKit";
+    private const string SdkTestingAssemblyName = "HYWDebugAssistant.Sdk.Testing";
 
     /// <summary>
     /// 校验模块对**宿主程序集**的引用：引用模块侧的旧 <c>Access</c> ⇒ 拒绝；
-    /// 引用本应随宿主提供却缺席的 SDK 程序集 ⇒ 拒绝。**不比较版本**。
+    /// 引用**作者包**（契约自检套件）⇒ 拒绝；引用本应随宿主提供却缺席的 SDK 程序集 ⇒ 拒绝。
+    /// **不比较版本**。
     /// </summary>
     private static string? ValidateHostAssemblies(Assembly assembly)
     {
@@ -162,6 +164,12 @@ public static class ModulePackageLoader
             if (string.Equals(name, AccessAssemblyName, StringComparison.Ordinal))
             {
                 return HostingText.Get("hosting.package.legacyAccessReference");
+            }
+
+            // 作者包只服务测试项目；模块运行时引用它 = 包会把它带进模块目录、且宿主不提供 ⇒ 明确拒绝。
+            if (string.Equals(name, SdkTestingAssemblyName, StringComparison.Ordinal))
+            {
+                return HostingText.Get("hosting.package.authorKitReference");
             }
 
             if (!IsHostAssemblyName(name))

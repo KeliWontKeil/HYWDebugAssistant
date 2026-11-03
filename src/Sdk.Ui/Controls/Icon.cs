@@ -10,7 +10,7 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
 /// <summary>
 /// **一个图标**：<see cref="IconKey"/> 是键、<see cref="Owner"/> 是图标表的拥有者，
-/// 图形来自 `<owner>/icons.json` 指向的 `.svg`（见 <see cref="IconCatalog"/>）。
+/// 图形来自 `&lt;owner&gt;/icons.json` 指向的 `.svg`（见 <see cref="IconCatalog"/>）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">

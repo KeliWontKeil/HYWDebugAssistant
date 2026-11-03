@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  外部作者的模块项目**零配置**起点（随 HYWDebugAssistant.Module.Build 包自动导入）：
+    · 包名与包根给缺省值（可在项目里覆盖）；
+    · `module.json` 与 `resources/**` 由 targets 直接归拢进包（不依赖输出目录里的副本）。
+  仓库内的模块项目**不导入本文件**（它们自己声明这些项），只导入 targets。
+-->
+<Project>
+  <PropertyGroup>
+    <ModulePackageName Condition="'$(ModulePackageName)' == ''">$(MSBuildProjectName.Substring($([MSBuild]::Add($(MSBuildProjectName.LastIndexOf('.')), 1))))</ModulePackageName>
+    <!-- 绝对路径：不依赖 BaseOutputPath 在 props 导入时是否已求值。 -->
+    <ModulePackageRoot Condition="'$(ModulePackageRoot)' == ''">$(MSBuildProjectDirectory)\bin\module-package\$(Configuration)\</ModulePackageRoot>
+  </PropertyGroup>
+</Project>

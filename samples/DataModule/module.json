@@ -1,0 +1,7 @@
+{
+  "id": "sample/data-module",
+  "entryAssembly": "HYWDebugAssistant.Samples.DataModule.dll",
+  "entryType": "HYWDebugAssistant.Samples.DataModule.SampleDataModule",
+  "dependsOn": [],
+  "resources": []
+}

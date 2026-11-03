@@ -21,7 +21,7 @@ namespace HYWDebugAssistant.Sdk.Text;
 ///   <item><b>模块无需注册目录</b>：包内文本就在实现程序集旁的 `i18n/&lt;程序集简名&gt;/`，
 ///     加载后自动命中第二级；框架拥有者住在 `resources/i18n/`，命中第一级；</item>
 ///   <item><b>坏表降级</b>：读取失败 / JSON 坏 / 版本不认识 / 分片键重复 ⇒ **跳过该文件**并经
-///     <see cref="Diagnostics"/> 报一条，界面不崩；**整张表目录缺失**（登记目录或 `<根>/<拥有者>` 不存在，
+///     <see cref="Diagnostics"/> 报一条，界面不崩；**整张表目录缺失**（登记目录或 `&lt;根&gt;/&lt;拥有者&gt;` 不存在，
 ///     且确实发生了查表）⇒ **每个拥有者报一次**；缺键不报（界面的标记已经可见，缺失由审计在构建期拦）；</item>
 ///   <item><b>回退链</b>：精确 culture → 语言中立（<c>zh</c>）→ <c>zh-Hans</c> → 可见缺失标记 <c>⟦key⟧</c>。
 ///     缺表与缺键都**不返回空白**：空白会被当成"这个控件天生没有文字"，排查时完全看不见；</item>
@@ -97,7 +97,7 @@ public static class TextCatalog
     /// **显式指定文本包根**（宿主、测试与预览可用）；传 <c>null</c> 恢复默认解析。
     /// </summary>
     /// <param name="path">
-    /// 资源根下 `i18n/` 目录的路径（其下是 `<程序集简名>/` 目录）；<c>null</c>/空 = 清掉显式根。
+    /// 资源根下 `i18n/` 目录的路径（其下是 `&lt;程序集简名&gt;/` 目录）；<c>null</c>/空 = 清掉显式根。
     /// </param>
     /// <remarks>设定后清空表缓存与语言扫描结果（下一次取值按新根重读）。</remarks>
     public static void UseRoot(string? path)
@@ -307,7 +307,7 @@ public static class TextCatalog
         return result;
     }
 
-    /// <summary>收集某个表目录里出现过的语言名（只看 `<culture>[.<area>].json` 的文件名首段）。</summary>
+    /// <summary>收集某个表目录里出现过的语言名（只看 `&lt;culture&gt;[.&lt;area&gt;].json` 的文件名首段）。</summary>
     /// <param name="directory">表目录。</param>
     /// <param name="languages">语言集合（就地追加）。</param>
     private static void CollectLanguages(string directory, HashSet<string> languages)

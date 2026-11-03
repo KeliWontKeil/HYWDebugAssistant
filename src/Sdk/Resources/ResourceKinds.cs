@@ -9,9 +9,9 @@ namespace HYWDebugAssistant.Sdk.Resources;
 /// </remarks>
 public static class ResourceKinds
 {
-    /// <summary>界面文本表：`<拥有者>/<culture>[.<area>].json`。</summary>
+    /// <summary>界面文本表：`&lt;拥有者&gt;/&lt;culture&gt;[.&lt;area&gt;].json`。</summary>
     public const string Text = "i18n";
 
-    /// <summary>界面图标：`<拥有者>/icons.json`（键 → 相对路径的 `.svg`）。</summary>
+    /// <summary>界面图标：`&lt;拥有者&gt;/icons.json`（键 → 相对路径的 `.svg`）。</summary>
     public const string Icons = "icons";
 }

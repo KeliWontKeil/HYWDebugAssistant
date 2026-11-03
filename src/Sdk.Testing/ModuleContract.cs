@@ -9,6 +9,7 @@ namespace HYWDebugAssistant.Sdk.Testing;
 /// <summary>契约探针结果：声明面 + 问题清单 + 建议清单。</summary>
 /// <param name="EntryType">模块入口类型。</param>
 /// <param name="Ports">已声明的口。</param>
+/// <param name="DataTypes">已声明的数据类型（每个模块各自声明自己携带的约定）。</param>
 /// <param name="Problems">契约问题（空 = 合法）；面向作者的**具体、可定位**描述。</param>
 /// <param name="Flows">已声明的**内部处理顺序**（角色 → 角色）。</param>
 /// <param name="Roles">已声明的**角色**（模块的功能分块）。</param>
@@ -17,6 +18,7 @@ namespace HYWDebugAssistant.Sdk.Testing;
 /// `Problems` 的语义是「空 = 合法」（`IsValid`/`CheckAll`/门禁用例都按它写），
 /// 建议放进去会把「能跑但有话说」变成「不合法」。运行期**不产生**这类提示（不能在自家正确模块的 Issue 中心里报警）。
 /// </param>
+/// <param name="ExternalAccesses">已声明的**外部接入**（名字 + 标准标识；数据只有原始字节）。</param>
 /// <remarks>
 /// **界面契约也在代码里**：显示源 / 输入源 / 命令由模块的 <c>OnRegistered</c> 声明；
 /// 视图（XAML）只按这些名字取数、提交。本结果当前汇总数据面；界面键与声明的对账由

@@ -79,6 +79,7 @@ public sealed class TestModuleContext : IModuleContext, IDisposable
     /// <param name="ReadOnly">设的运行期只读；<see langword="null"/> = 未动这一键位。</param>
     /// <param name="OutlineRole">设的边框**角色词**（相对色）；<see langword="null"/> = 未动这一键位。</param>
     /// <param name="TextRole">设的文字**角色词**（相对色）；<see langword="null"/> = 未动这一键位。</param>
+    /// <param name="Enabled">设的可用状态；<see langword="null"/> = 未动这一键位。</param>
     public readonly record struct AppearanceReport(
         string SourceName,
         uint? Outline,

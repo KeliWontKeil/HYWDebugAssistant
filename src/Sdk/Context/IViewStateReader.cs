@@ -30,7 +30,7 @@ namespace HYWDebugAssistant.Sdk.Context;
 /// </para>
 /// <para>
 /// <b>怎么写</b>：模块用声明里的名字寻址 —— 输入源 / 显示源用**数据源名**；容器（如 <c>TabPages</c>）
-/// **没有数据源名** ⇒ 用 <see cref="HYWDebugAssistant.Sdk.Views.ViewElement.StateKey"/>（可选 `init` 属性）。
+/// **没有数据源名** ⇒ 用声明里的 `stateKey`（可选 `init` 属性）。
 /// </para>
 /// </remarks>
 public interface IViewStateReader
@@ -38,7 +38,7 @@ public interface IViewStateReader
     /// <summary>
     /// 某 <c>TabPages</c> 的**当前选中页序号**（0 基）。
     /// </summary>
-    /// <param name="stateKey">容器声明里的 <see cref="HYWDebugAssistant.Sdk.Views.ViewElement.StateKey"/>。</param>
+    /// <param name="stateKey">容器声明里的 `stateKey`。</param>
     /// <returns>选中页序号；未声明该键 / 无此容器 ⇒ <see langword="null"/>。</returns>
     int? GetSelectedPage(string stateKey);
 

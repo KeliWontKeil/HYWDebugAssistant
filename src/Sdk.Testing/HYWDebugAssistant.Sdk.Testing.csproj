@@ -8,6 +8,18 @@
     依赖：**只引 Sdk**（与 Sdk 同源的零框架依赖原则，AR-9 精神）；
         自身**不引测试框架**——断言由作者用自己的测试框架做（`Problems` 是可断言的字符串列表）。
   -->
+  <PropertyGroup>
+    <!--
+      作者包：只给**模块作者的测试项目**用，不随宿主发布、也不进模块包（见 AR-25 与包边界清单）。
+      版本同样取自产品四段版本：包组只是同一版本的产物子集，不引入第二个版本轴。
+    -->
+    <IsPackable>true</IsPackable>
+    <PackageId>HYWDebugAssistant.Sdk.Testing</PackageId>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Description>HYWDebugAssistant 模块契约自检套件：声明面探测与测试上下文（作者包，不随宿主发布）。</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Sdk\HYWDebugAssistant.Sdk.csproj" />
   </ItemGroup>

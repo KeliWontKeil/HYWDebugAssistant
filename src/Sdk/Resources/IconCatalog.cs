@@ -13,9 +13,9 @@ namespace HYWDebugAssistant.Sdk.Resources;
 /// <remarks>
 /// 这里刻意只放**数据**（字符串 + 数值），不放 `Geometry`：`Sdk` 是零依赖契约层，
 /// 不能引 Avalonia；把路径数据合成 `Geometry` 是界面层（`Sdk.Ui.Controls.Icon`）的事。
-/// 一个图标允许多条 `<path>`（有些图形分片画），它们共用同一个填充规则。
+/// 一个图标允许多条 `&lt;path&gt;`（有些图形分片画），它们共用同一个填充规则。
 /// </remarks>
-/// <param name="PathData">每条 `<path d>` 的原始路径数据。</param>
+/// <param name="PathData">每条 `&lt;path d&gt;` 的原始路径数据。</param>
 /// <param name="ViewBoxWidth">画布宽（SVG `viewBox` 的第三个数）。</param>
 /// <param name="ViewBoxHeight">画布高（SVG `viewBox` 的第四个数）。</param>
 /// <param name="EvenOdd">填充规则是否 `evenodd`（否则按 `nonzero`）。</param>
@@ -36,7 +36,7 @@ public sealed record IconAsset(
 ///   <item><b>每 owner 自己的表，没有跨 owner 回退</b>：别人的键在这里就是缺键，
 ///     不让"恰好同名"把图标来源变成隐式共享；</item>
 ///   <item><b>缺表与缺键都不返回空白</b>：缺键返回键名本身——界面上看得见是哪个键没配；</item>
-///   <item><b>SVG 只支持子集</b>：`viewBox` + `<path d>`（+ `fill-rule`）。`<use>` / 脚本 /
+///   <item><b>SVG 只支持子集</b>：`viewBox` + `&lt;path d&gt;`（+ `fill-rule`）。`&lt;use&gt;` / 脚本 /
 ///     外部引用 / `transform` 一律跳过并报诊断——不引第三方 SVG 引擎，也不执行文件里的任何东西；</item>
 ///   <item><b>缓存按 (owner, 代号)</b>：<see cref="UseRoot"/> 让代号递增，旧根下算出的表自然失效。</item>
 /// </list>
@@ -320,7 +320,7 @@ public static class IconCatalog
         return true;
     }
 
-    /// <summary>读一个 SVG 文件并提取子集（`viewBox` + `<path d>` + `fill-rule`）。</summary>
+    /// <summary>读一个 SVG 文件并提取子集（`viewBox` + `&lt;path d&gt;` + `fill-rule`）。</summary>
     /// <param name="path">SVG 路径。</param>
     /// <param name="asset">解析结果（成功时）。</param>
     /// <param name="failure">失败原因（成功时为 <see langword="null"/>）。</param>
