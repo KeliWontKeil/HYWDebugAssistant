@@ -1,8 +1,13 @@
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.AccessKit;
+using HYWDebugAssistant.Sdk.Contracts;
+using HYWDebugAssistant.Sdk.Context;
+using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Modules.Udp;
 
@@ -14,7 +19,9 @@ namespace HYWDebugAssistant.Modules.Udp;
 /// <list type="bullet">
 ///   <item><b>绑定 = 一个会话</b>：UDP 无连接 ⇒ 会话里没有"连接状态"，只有"绑定没绑定"；</item>
 ///   <item>一次接收 = 一个数据报；超过单元容量的部分被截断并计数；</item>
-///   <item><b>不自动重试</b>：绑定失败/解绑后用户再次〔绑定〕。</item>
+///   <item><b>不自动重试</b>：绑定失败/解绑后用户再次〔绑定〕；</item>
+///   <item><b>两条边界</b>：外部接入面只搬原始字节（<see cref="ExternalAccessChannel"/>）；
+///     数据单元的类型与组帧由本模块自己声明与实现（<see cref="PortType"/> / <see cref="RawBytesCodec"/>）。</item>
 /// </list>
 /// </remarks>
 [ModuleDefinition(
@@ -28,7 +35,7 @@ namespace HYWDebugAssistant.Modules.Udp;
     WindowWidth = 400,
     WindowHeight = 170,
     ViewFactory = typeof(Views.UdpViewFactory))]
-public sealed class UdpModule : ExternalAccessModule
+public sealed class UdpModule : IModule, IModuleInteractionSink
 {
     /// <summary>接入名（模块内唯一）。</summary>
     public const string AccessName = "udp";
@@ -66,6 +73,36 @@ public sealed class UdpModule : ExternalAccessModule
     /// <summary>命令：清空本接入的计数（队列数据、连接数与故障态都不动）。</summary>
     public const string ClearCountersCommand = "clearCounters";
 
+    /// <summary>本模块声明的数据类型标识（模块间约定，模块自己携带）。</summary>
+    public const string RawBytesTypeId = "RawBytes";
+
+    /// <summary>本模块声明的数据类型形状：<c>{ len: u16, data: bytes[1472] }</c>。</summary>
+    public static readonly ContractShape RawBytesShape = ContractShape.OfStruct(
+        ("len", ContractShape.OfPrimitive(ContractPrimitive.U16)),
+        ("data", ContractShape.OfBytes(RawBytesCodec.Capacity)));
+
+    /// <summary>本模块声明的数据类型（口与角色都引用它）。</summary>
+    public static readonly DataTypeDeclaration PortType = new(RawBytesTypeId, RawBytesShape)
+    {
+        // 「速率只要有效数据」：`len` 就是有效字节数 ⇒ 声明它，框架逐单元读它累计有效字节。
+        Metering = new MeteringBlock { PayloadLengthField = "len" },
+    };
+
+    private static readonly ExternalAccessChannelSpec ChannelSpec = new(
+        AccessName,
+        LinkSource,
+        StateSource,
+        RxCountSource,
+        TxCountSource,
+        DropCountSource,
+        OpenCommand,
+        CloseCommand,
+        ClearCountersCommand);
+
+    private readonly byte[] _frame = new byte[RawBytesCodec.FrameSize];
+    private IModuleContext? _context;
+    private ExternalAccessChannel? _channel;
+
     /// <summary>取一条本模块文本表里的文案（拥有者 = 本模块程序集）。</summary>
     private static string Tr(string key) => TextCatalog.Get(typeof(UdpModule).Assembly, key);
 
@@ -74,27 +111,132 @@ public sealed class UdpModule : ExternalAccessModule
         TextCatalog.Get(typeof(UdpModule).Assembly, key, args);
 
     /// <inheritdoc />
-    protected override AccessModuleSpec Spec { get; } = new(
-        AccessName,
-        ExternalAccessStandardIds.Udp,
-        RxPort,
-        TxPort,
-        RoleId,
-        Tr(UdpText.RoleDatagram),
-        LinkSource,
-        StateSource,
-        RxCountSource,
-        TxCountSource,
-        DropCountSource,
-        OpenCommand,
-        Tr(UdpText.Open),
-        CloseCommand,
-        Tr(UdpText.Close),
-        ClearCountersCommand,
-        Tr(UdpText.ViewClearCounters));
+    public void OnRegistered(IModuleContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        _context = context;
+
+        // ① 数据类型（模块间约定，本模块自己声明）→ ② 口 → ③ 角色 → ④ 界面契约 → ⑤ 接入
+        context.Declaration.DeclareDataType(PortType);
+
+        context.Declaration.DeclarePort(new PortDeclaration(RxPort, PortDirection.Send, PortType.Shape)
+        {
+            TypeId = PortType.TypeId,
+            Edge = PortEdge.Bottom,
+        });
+
+        context.Declaration.DeclarePort(new PortDeclaration(TxPort, PortDirection.Receive, PortType.Shape)
+        {
+            TypeId = PortType.TypeId,
+            Edge = PortEdge.Top,
+        });
+
+        context.Declaration.DeclareRole(RoleDeclaration.Both(
+            RoleId,
+            PortType.TypeId,
+            TxPort,
+            RxPort,
+            Tr(UdpText.RoleDatagram)));
+
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(LinkSource, ViewDataSourceKind.Text));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(StateSource, ViewDataSourceKind.Text));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(RxCountSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(TxCountSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(DropCountSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
+
+        context.Declaration.DeclareCommand(OpenCommand, Tr(UdpText.Open));
+        context.Declaration.DeclareCommand(CloseCommand, Tr(UdpText.Close));
+        context.Declaration.DeclareCommand(ClearCountersCommand, Tr(UdpText.ViewClearCounters));
+
+        // 模块只声明"接入名 + 标准标识"；适配器与参数类型都由框架按标准创建/登记。
+        context.Declaration.DeclareExternalAccess(new ExternalAccessDeclaration(AccessName, ExternalAccessStandardIds.Udp)
+        {
+            MaxUnitBytes = RawBytesCodec.Capacity,
+        });
+
+        context.Ports.SetReceiveHandler(TxPort, OnPortData);
+
+        _channel = new ExternalAccessChannel(context, ChannelSpec, Describe, DescribePressure);
+    }
 
     /// <inheritdoc />
-    protected override string Describe(ExternalAccessSnapshot snapshot)
+    public void OnActivated() => _channel?.Attach(OnAccessData);
+
+    /// <inheritdoc />
+    public void OnCommand(string commandName) => _ = _channel?.HandleCommand(commandName);
+
+    /// <inheritdoc />
+    public void OnInput(string sourceName, string text)
+    {
+        _ = sourceName;
+        _ = text;
+    }
+
+    /// <inheritdoc />
+    public void OnWork() => _channel?.PublishStatus();
+
+    /// <summary>外部原始字节到达（实例线程）：组帧并从 <c>rx</c> 口发出。</summary>
+    /// <param name="payload">原始字节块（长度由框架的单元上限决定）。</param>
+    private void OnAccessData(ReadOnlySpan<byte> payload)
+    {
+        if (_context is null || !RawBytesCodec.TryWriteFrame(payload, _frame))
+        {
+            return;
+        }
+
+        _ = _context.Ports.TrySend(RxPort, _frame);
+    }
+
+    /// <summary>口数据到达（实例线程）：按 <c>len</c> 取有效字节并写回外部。</summary>
+    /// <param name="payload">定长载荷。</param>
+    private void OnPortData(ReadOnlySpan<byte> payload)
+    {
+        if (_context is null || _channel is null)
+        {
+            return;
+        }
+
+        if (!RawBytesCodec.TryReadContent(payload, out var content))
+        {
+            _context.Ports.ReportLoss(TxPort, DropReason.ModuleInternal, 1, payload.Length);
+            return;
+        }
+
+        if (content.Length == 0)
+        {
+            return;
+        }
+
+        _ = _channel.Write(content);
+    }
+
+    /// <summary>状态句：绑定句 + 本模块自己的 <c>tx</c> 口压力（口侧事实，通道不读）。</summary>
+    /// <param name="snapshot">该接入的当前快照。</param>
+    private ExternalAccessStatus Describe(ExternalAccessSnapshot snapshot)
+    {
+        if (snapshot.State == ExternalAccessState.Open
+            && _context is not null
+            && _context.Ports.TryGetFlowState(TxPort, out var flow))
+        {
+            if (flow.DroppedUnits > 0
+                && flow.SinceLastDrop is { } since
+                && since <= ExternalAccessChannel.LossHintWindow)
+            {
+                return new ExternalAccessStatus(Tr(UdpText.StatusSendLost), ViewInkRoles.Danger);
+            }
+
+            if (flow.Saturated)
+            {
+                return new ExternalAccessStatus(
+                    Tr(UdpText.StatusTxSaturated, flow.Depth, flow.DroppedWhileSaturatedUnits),
+                    ViewInkRoles.Warning);
+            }
+        }
+
+        return new ExternalAccessStatus(ConnectionText(snapshot));
+    }
+
+    private static string ConnectionText(ExternalAccessSnapshot snapshot)
     {
         var endpoint = EndpointText(snapshot.Endpoint);
 
@@ -139,24 +281,21 @@ public sealed class UdpModule : ExternalAccessModule
         };
     }
 
-    /// <inheritdoc />
-    protected override string? DescribePressure(
-        PressureKind kind,
-        in PortFlowState sendFlow,
-        ExternalAccessSnapshot snapshot) => kind switch
-        {
-            PressureKind.ReceiveLost => Tr(UdpText.StatusReceiveLost, snapshot.ReceiveDroppedSinceOpen),
-            PressureKind.SendLost => Tr(UdpText.StatusSendLost),
-            PressureKind.SendBacklogged => Tr(UdpText.StatusTxBacklog, snapshot.SendBacklogDepth),
-            PressureKind.ReceiveSaturated => Tr(UdpText.StatusRxSaturated, snapshot.ReceiveQueueDepth),
-            PressureKind.SendSaturated => Tr(
-                UdpText.StatusTxSaturated,
-                sendFlow.Depth,
-                sendFlow.DroppedWhileSaturatedUnits),
-            _ => null,
-        };
+    /// <summary>把结构化端点拼成 <c>address[:port]</c>（只搬运事实，不含界面词）。</summary>
+    private static string EndpointText(ExternalAccessEndpoint? endpoint) =>
+        endpoint is { } value
+            ? value.Port is { } port
+                ? $"{value.Address}:{port}"
+                : value.Address
+            : string.Empty;
+
+    /// <summary>会话侧压力句（措辞归本模块）。</summary>
+    private static string? DescribePressure(ExternalAccessPressure kind, ExternalAccessSnapshot snapshot) => kind switch
+    {
+        ExternalAccessPressure.ReceiveLost => Tr(UdpText.StatusReceiveLost, snapshot.ReceiveDroppedSinceOpen),
+        ExternalAccessPressure.SendLost => Tr(UdpText.StatusSendLost),
+        ExternalAccessPressure.SendBacklogged => Tr(UdpText.StatusTxBacklog, snapshot.SendBacklogDepth),
+        ExternalAccessPressure.ReceiveSaturated => Tr(UdpText.StatusRxSaturated, snapshot.ReceiveQueueDepth),
+        _ => null,
+    };
 }
-
-
-
-

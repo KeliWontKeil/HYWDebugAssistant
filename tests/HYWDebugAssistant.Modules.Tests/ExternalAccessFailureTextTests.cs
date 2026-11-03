@@ -5,6 +5,7 @@ using HYWDebugAssistant.Modules.TcpClient;
 using HYWDebugAssistant.Modules.TcpServer;
 using HYWDebugAssistant.Modules.Udp;
 using HYWDebugAssistant.Sdk.Access;
+using HYWDebugAssistant.Sdk.AccessKit;
 using HYWDebugAssistant.Sdk.Text;
 using Shouldly;
 using Xunit;
@@ -140,6 +141,9 @@ public sealed class ExternalAccessFailureTextTests
         var method = moduleType.GetMethod("Describe", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException($"{moduleType.Name} 没有 Describe 方法");
 
-        return (string)method.Invoke(module, [snapshot])!;
+        var result = method.Invoke(module, [snapshot])!;
+
+        // 状态句的返回值带可选的严重度；这里只关心文本（严重度由通道按会话状态补）。
+        return result is ExternalAccessStatus status ? status.Text : (string)result;
     }
 }

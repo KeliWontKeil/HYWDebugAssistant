@@ -36,7 +36,7 @@ public sealed class ExternalAccessAdapterTests
 
         transport.Feed([1, 2, 3]);
 
-        var buffer = new byte[RawBytesFraming.Capacity];
+        var buffer = new byte[RawBytesFixture.Capacity];
         WaitFor(() => adapter.TryRead(buffer, out _), "串口读泵应把数据交给适配件");
         buffer[..3].ShouldBe(new byte[] { 1, 2, 3 });
 
@@ -204,7 +204,7 @@ public sealed class ExternalAccessAdapterTests
         adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
         adapter.Write([1, 2, 3]).ShouldBeTrue();
 
-        var buffer = new byte[RawBytesFraming.Capacity];
+        var buffer = new byte[RawBytesFixture.Capacity];
         WaitFor(() => adapter.TryRead(buffer, out _), "硬件回声应作为接收数据到达");
         buffer[..3].ShouldBe([1, 2, 3]);
 
@@ -362,7 +362,7 @@ public sealed class ExternalAccessAdapterTests
             ready.Endpoint!.Value.Port.ShouldBe(port);
 
             await server.GetStream().WriteAsync(new byte[] { 1, 2, 3 });
-            var buffer = new byte[RawBytesFraming.Capacity];
+            var buffer = new byte[RawBytesFixture.Capacity];
             WaitFor(() => adapter.TryRead(buffer, out _), "客户端应收到数据");
             buffer[..3].ShouldBe(new byte[] { 1, 2, 3 });
 
@@ -412,7 +412,7 @@ public sealed class ExternalAccessAdapterTests
             WaitFor(() => ready.Connections == 2, "应接受两条连接");
 
             await first.GetStream().WriteAsync(new byte[] { 7, 8, 9 });
-            var buffer = new byte[RawBytesFraming.Capacity];
+            var buffer = new byte[RawBytesFixture.Capacity];
             WaitFor(() => adapter.TryRead(buffer, out _), "服务端应收到客户端数据");
             buffer[..3].ShouldBe(new byte[] { 7, 8, 9 });
 
@@ -459,7 +459,7 @@ public sealed class ExternalAccessAdapterTests
 
             await peer.SendAsync(new byte[] { 1, 2, 3 }, new IPEndPoint(IPAddress.Loopback, localPort));
 
-            var buffer = new byte[RawBytesFraming.Capacity];
+            var buffer = new byte[RawBytesFixture.Capacity];
             WaitFor(() => adapter.TryRead(buffer, out _), "UDP 应收到数据报");
             buffer[..3].ShouldBe(new byte[] { 1, 2, 3 });
 
@@ -469,14 +469,14 @@ public sealed class ExternalAccessAdapterTests
             received.Buffer.ShouldBe(new byte[] { 4, 5 });
 
             await peer.SendAsync(
-                new byte[RawBytesFraming.Capacity + 8],
+                new byte[RawBytesFixture.Capacity + 8],
                 new IPEndPoint(IPAddress.Loopback, localPort));
 
             WaitFor(
                 () => ready.DroppedUnits >= 1,
                 $"超长数据报应被检测到（state={ready.State}, kind={ready.Failure?.Kind}）");
 
-            WaitFor(() => adapter.TryRead(buffer, out var length) && length == RawBytesFraming.Capacity, "超长数据报应被截断");
+            WaitFor(() => adapter.TryRead(buffer, out var length) && length == RawBytesFixture.Capacity, "超长数据报应被截断");
         }
         finally
         {
@@ -505,13 +505,13 @@ public sealed class ExternalAccessAdapterTests
         context.Access.Deliver(SerialModule.AccessName, [1, 2, 3]);
         var sent = context.Sent.ShouldHaveSingleItem();
         sent.PortName.ShouldBe(SerialModule.RxPort);
-        sent.Payload.Length.ShouldBe(RawBytesFraming.FrameSize(RawBytesFraming.Capacity));
+        sent.Payload.Length.ShouldBe(RawBytesFixture.FrameSize(RawBytesFixture.Capacity));
         BinaryPrimitives.ReadUInt16LittleEndian(sent.Payload).ShouldBe((ushort)3);
         sent.Payload[2..5].ShouldBe(new byte[] { 1, 2, 3 });
 
         // tx → 外部：按 len 取有效字节，不把补零写出去。
-        var frame = new byte[RawBytesFraming.FrameSize(RawBytesFraming.Capacity)];
-        RawBytesFraming.WriteFrame([6, 7], frame, RawBytesFraming.Capacity);
+        var frame = new byte[RawBytesFixture.FrameSize(RawBytesFixture.Capacity)];
+        RawBytesFixture.WriteFrame([6, 7], frame, RawBytesFixture.Capacity);
         context.Deliver(SerialModule.TxPort, frame);
 
         var written = context.Access.Written.ShouldHaveSingleItem();

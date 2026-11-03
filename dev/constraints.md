@@ -39,7 +39,7 @@
 | 注释 | AR-19 源码注释只承载"为什么 / 不变量 / 坑"，不得携带日期、决定编号、用户原话、实测读数与当前坐标 / 尺寸 / 像素值 |
 | 界面唯一性 | AR-20 界面描述文件禁止复活（无 `view.json` / `view.schema.json`） · AR-21 `Sdk.Ui` 只许控件 / 契约 / 主题 · AR-22 模块 XAML 的绑定键只许 `{x:Static}` 常量 |
 | 模块计时 | AR-23 模块包不得自建 Timer / Thread.Sleep / DispatcherTimer / Task.Delay / 平台专有调度 API |
-| 包边界 | AR-24 模块包不得含宿主提供程序集（`Sdk*` / `Sdk.Ui*` / `Sdk.AccessKit*` / `Access*` / Avalonia / 外部接入第三方依赖） |
+| 包边界 | AR-24 模块包不得含宿主提供程序集（`Sdk*` / `Sdk.Ui*` / `Sdk.AccessKit*` / `Access*` / Avalonia / 外部接入第三方依赖） · AR-25 外部接入面只搬原始字节（`Sdk.AccessKit` 不得出现数据类型 / 组帧 / 端口概念），数据类型声明只由模块自身在 `OnRegistered` 完成 |
 
 执行方式：
 

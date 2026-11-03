@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    模块侧外部接入共用骨架（Sdk.AccessKit）：声明 `RawBytes` 契约、两个口、角色、显示源、命令与接入。
+    模块侧外部接入通道（Sdk.AccessKit）：把模块接到框架的外部接入面 —— 只搬原始字节。
+    不含数据类型、数据包与组帧：那是模块间通信，由模块自己声明与实现。
     依赖纪律：只引 Sdk；零第三方依赖；由宿主随附，模块包里不带本程序集。
   -->
   <PropertyGroup>
@@ -9,7 +10,7 @@
     <IsPackable>true</IsPackable>
     <PackageId>HYWDebugAssistant.Sdk.AccessKit</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Description>HYWDebugAssistant 外部接入模块共用骨架（RawBytes 契约、双口、状态/计数发布），依赖 Sdk。</Description>
+    <Description>HYWDebugAssistant 外部接入通道（请求/读写原始字节/状态呈现），依赖 Sdk。</Description>
   </PropertyGroup>
 
   <ItemGroup>
