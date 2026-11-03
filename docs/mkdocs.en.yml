@@ -1,0 +1,20 @@
+INHERIT: mkdocs.base.yml
+
+site_name: HYW Debug Assistant
+site_description: Documentation for HYW Debug Assistant
+
+theme:
+  language: en
+
+docs_dir: en
+site_dir: ../artifacts/docs-site/en
+
+plugins:
+  - search:
+      lang: en
+
+extra:
+  locale: en
+
+nav:
+  - Home: index.md

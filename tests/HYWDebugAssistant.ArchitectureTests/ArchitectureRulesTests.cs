@@ -8,7 +8,7 @@ using Xunit;
 namespace HYWDebugAssistant.ArchitectureTests;
 
 /// <summary>
-/// 架构约束检查：<b>AR-0 ~ AR-22</b>（规则集的权威定义见 docs/architecture/CODEX.md §9.1）。
+/// 架构约束检查：<b>AR-0 ~ AR-22</b>（规则集的权威定义见 dev/constraints.md）。
 /// <para>
 /// 依赖类（AR-1~AR-12）：读取**已编译程序集的 AssemblyRef 表**（覆盖间接依赖，比源码扫描可靠）。
 /// 源码类（AR-0、AR-13~AR-19）：源码扫描（项目清单、命名空间一致性、业务词汇、排除清单、公开签名、数据路径、模块几何、注释纪律）。
@@ -278,7 +278,7 @@ public class ArchitectureRulesTests
                 if (!allowed.Contains(reference, StringComparer.Ordinal))
                 {
                     var permitted = allowed.Length == 0 ? "无（本层不得引用任何框架程序集）" : string.Join(", ", allowed);
-                    violations.Add($"{assembly.ProjectName} 引用了 {reference}；允许集合为：{permitted}（docs/architecture/01 §1.3）");
+                    violations.Add($"{assembly.ProjectName} 引用了 {reference}；允许集合为：{permitted}（dev/constraints.md）");
                 }
             }
         }
@@ -330,7 +330,7 @@ public class ArchitectureRulesTests
                 {
                     var permitted = allowed.Length == 0 ? "无（本层不得引用任何框架项目）" : string.Join(", ", allowed);
                     violations.Add(
-                        $"{Path.GetRelativePath(RepoRoot, csproj)} 引用了 {reference}；允许集合为：{permitted}（docs/architecture/01 §1.3）");
+                        $"{Path.GetRelativePath(RepoRoot, csproj)} 引用了 {reference}；允许集合为：{permitted}（dev/constraints.md）");
                 }
             }
         }

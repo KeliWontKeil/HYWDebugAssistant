@@ -2,7 +2,7 @@
 
 模块化工程上位机平台（HYW 调试助手）。.NET 10 + Avalonia。
 
-- **文档入口**：[`docs/README.md`](docs/README.md)（全部文档只分三类：是什么 / 正在做什么 / 怎么去做）
-- **系统是什么**：[`docs/architecture/CODEX.md`](docs/architecture/CODEX.md)
-- **状态与待办**：[`docs/TODO.md`](docs/TODO.md)　**手工验收**：[`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md)
-- **构建与门禁**：`pwsh -File .\build.ps1`（文档审计 → 构建 → 模块包 → 许可 → 测试）；开发内环见 [`docs/HOWTO.md`](docs/HOWTO.md)
+- **对外文档站**：`docs/`（MkDocs 工程；中文内容在 `docs/zh/`，英文在 `docs/en/`）
+- **开发文档**：`dev/`（约束、工作流、状态、验收；不对外发布）
+- **构建与门禁**：`pwsh -File .\build.ps1`
+- **文档站**：`.\docs\build.ps1 -Mode Check` 结构检查 · `-Mode Serve` 本地预览（需要 Python 3.11+ 与 `docs/requirements.txt` 中的依赖）

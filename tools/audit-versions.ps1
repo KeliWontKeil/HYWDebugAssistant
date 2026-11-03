@@ -4,7 +4,7 @@
     版本纪律审计（只读）：唯一版本事实源、四段版本、无格式 / 模块 / 类型版本。
 
 .DESCRIPTION
-    判据（事实源与规则见 docs/architecture/VERSIONING.md）：
+    判据（事实源与规则见 docs/zh/reference/versioning.md）：
 
       1. `version.props` 存在、四段都是 0..65535 的整数、轮次 >= 1；
          `Directory.Build.props` 导入它，且**只**派生一个四段 `<Version>`。
@@ -13,7 +13,7 @@
          `VersionPrefix` / `VersionSuffix`），也不得在 `Directory.Build.props` 之外出现 `<Version>`。
          XML 注释不参与判定。
       3. 源码 / 资源 / 脚本 / 文档里不得出现三段版本字面量（四段 IP 与 `§` 章节号先遮掉）；
-         历史材料 `docs/archive` 与第三方版本清单（`docs/STYLE.md`）不参与。
+         历史材料 `dev/archive` 与第三方版本清单（`dev/constraints.md`）不参与。
       4. 代码 / 资源 / 脚本里不得出现 `schemaVersion` / `contractVersion` /
          `frameworkCompatibility` / `layoutVersion` / `sdkContractVersion`
          —— 这些是"第二个版本轴"的标记。
@@ -177,7 +177,7 @@ $allowLiteralFiles = @(
     'Directory.Packages.props',
     'global.json',
     'tools/license-allowlist.json',
-    'docs/STYLE.md'
+    'dev/constraints.md'
 )
 
 $literalFiles = @(Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object {
@@ -186,7 +186,7 @@ $literalFiles = @(Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object
 
 foreach ($file in $literalFiles) {
     $relative = Get-RelativePath $file.FullName
-    if ($relative -like 'docs/archive/*') { continue }
+    if ($relative -like 'dev/archive/*') { continue }
     if ($allowLiteralFiles -contains $relative) { continue }
 
     $isDoc = $relative.EndsWith('.md')
@@ -341,7 +341,7 @@ foreach ($file in $releaseFiles) {
 # ---------------------------------------------------------------- 结果
 
 if ($problems.Count -gt 0) {
-    Write-Host "[FAIL] 版本纪律审计：$($problems.Count) 项违规（事实源与规则见 docs/architecture/VERSIONING.md）" -ForegroundColor Red
+    Write-Host "[FAIL] 版本纪律审计：$($problems.Count) 项违规（事实源与规则见 docs/zh/reference/versioning.md）" -ForegroundColor Red
     $problems | Select-Object -First 50 | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
     if ($problems.Count -gt 50) {
         Write-Host "  …（其余 $($problems.Count - 50) 项略）" -ForegroundColor Red

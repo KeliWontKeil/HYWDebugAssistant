@@ -86,7 +86,7 @@ public enum ModuleLogLevel
 /// </summary>
 /// <param name="Category">问题类别（七类）。</param>
 /// <param name="Severity">严重度（影响呈现打扰度）。</param>
-/// <param name="Message">面向用户的描述（**事实 + 影响 + 建议**，不出错误码——docs/architecture/10 §3.2）。</param>
+/// <param name="Message">面向用户的描述（**事实 + 影响 + 建议**，不出错误码）。</param>
 /// <param name="ObjectPath">可选的更细归属（如口名、配置项名）；为空表示归属整个实例。</param>
 /// <param name="Source">来源（框架判定 / 模块报告）；**模块侧无需填写**——框架在模块上报路径上自动置为 <see cref="IssueSource.Module"/>。</param>
 public sealed record IssueReport(

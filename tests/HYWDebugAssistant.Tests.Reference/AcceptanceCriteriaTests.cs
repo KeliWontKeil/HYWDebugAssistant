@@ -21,7 +21,7 @@ using ActivityKind = HYWDebugAssistant.Sdk.Lifecycle.ActivityKind;
 namespace HYWDebugAssistant.Tests.Reference;
 
 /// <summary>
-/// **T1 判据测试（AC-1~6）**——主文档 §17 / `docs/architecture/06` §6.4、`08` §M1-12。
+/// **T1 判据测试（AC-1~6）**——判据口径见 dev/workflow.md。
 /// </summary>
 /// <remarks>
 /// <para>

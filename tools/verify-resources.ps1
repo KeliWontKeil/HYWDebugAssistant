@@ -4,7 +4,7 @@
   资源包校验（产物侧）：应用输出里的 `resources\` 必须与仓库 `resources\` 完全一致。
 
 .DESCRIPTION
-  判据（与 docs/design/resource-architecture.md 阶段 E 对齐；**任一不满足即 exit 1**）：
+  判据（与 docs/zh/concepts/resources-and-text.md 的规则对齐；**任一不满足即 exit 1**）：
 
     ① **文件集一致**：应用输出（`$(OutDir)`，由 MSBuild 求值，不手抄目录结构）的 `resources\`
        与仓库 `resources\` 的相对路径集合完全相同——输出少文件、多文件都判红

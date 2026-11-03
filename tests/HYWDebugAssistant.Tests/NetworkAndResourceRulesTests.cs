@@ -18,7 +18,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// T2（契约兼容矩阵 + 快速建网 R0–R6 表驱动）与 T3（资源生命周期）——`docs/architecture/06` §6.5。
+/// T2（契约兼容矩阵 + 建网表驱动）与 T3（资源生命周期）——见 dev/workflow.md。
 /// </summary>
 public class NetworkAndResourceRulesTests
 {

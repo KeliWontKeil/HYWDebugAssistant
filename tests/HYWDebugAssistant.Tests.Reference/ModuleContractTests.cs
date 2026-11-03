@@ -18,7 +18,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests.Reference;
 
 /// <summary>
-/// **T6 契约测试套件**（`Sdk.Testing`）——docs/architecture/06 §6.5：模块作者在自己的测试项目里的用法示范。
+/// **T6 契约测试套件**（`Sdk.Testing`）——见 dev/workflow.md：模块作者在自己的测试项目里的用法示范。
 /// </summary>
 /// <remarks>
 /// <para>

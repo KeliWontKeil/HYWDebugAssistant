@@ -11,7 +11,7 @@ namespace HYWDebugAssistant.Sdk;
 /// </list>
 /// <para>
 /// **标识不含版本**：模块的"新旧"由包内容决定（同目录重建 / 重新打包），同 ID 只有一个注册项；
-/// 版本只属于产品构建（见 docs/architecture/VERSIONING.md）。
+/// 版本只属于产品构建（见 docs/zh/reference/versioning.md）。
 /// </para>
 /// </remarks>
 public readonly record struct ModuleId

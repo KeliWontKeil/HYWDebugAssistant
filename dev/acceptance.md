@@ -1,7 +1,7 @@
 # 手工验收清单（用户本人执行）
 
 > **自动化测试覆盖不到的应用层行为**由你亲自确认；确认结果作为里程碑收尾依据。
-> 系统是什么样 → [`architecture/CODEX.md`](architecture/CODEX.md)；怎么跑 → [`HOWTO.md`](HOWTO.md)；当前进度与缺口 → [`TODO.md`](TODO.md)。
+> 系统是什么样 → 文档站（`docs/zh/`）；怎么跑 → `dev/workflow.md`；当前进度与缺口 → `dev/status.md`。
 >
 > **2026-11 状态**：A1–A113 已由用户核查通过；逐轮明细归档在 [`archive/acceptance-2026-11.md`](archive/acceptance-2026-11.md)。现行清单只保留"怎么跑、仍未验证、本轮新增、结论"。
 

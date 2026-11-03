@@ -364,3 +364,8 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# 文档站（MkDocs + Material）：本地虚拟环境与构建产物
+.venv-docs/
+.docs-env-freeze.txt
+docs/tools/__pycache__/

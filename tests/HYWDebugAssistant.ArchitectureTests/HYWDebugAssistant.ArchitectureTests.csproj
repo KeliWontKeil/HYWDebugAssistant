@@ -12,7 +12,7 @@
   </PropertyGroup>
 
   <!--
-    架构约束测试：**AR-1 ~ AR-16**（唯一来源 docs/architecture/06 §6.3；ADR-0032）
+    架构约束测试：**AR-1 ~ AR-16**（唯一来源 dev/constraints.md）
     · 依赖类（AR-1~AR-12）：读取已编译程序集的 AssemblyRef 表（覆盖间接依赖）
     · 源码类（AR-13~AR-16）：源码扫描
     · **目标程序集缺失即失败**（禁止"无对象则跳过"）

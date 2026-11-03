@@ -2,7 +2,7 @@
 
   <!--
     T2–T5 承载：契约兼容矩阵 / 建网规则 R0–R6 / ChangeSet 原子性 / 增量重建 / 资源释放 /
-    持久化 round-trip / 故障注入（docs/architecture/06 §6.5）
+    持久化 round-trip / 故障注入（见 dev/workflow.md）
     测试项目可跨层引用（AR 规则只约束 src/ 下的产品程序集）
   -->
   <PropertyGroup>

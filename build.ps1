@@ -1,14 +1,14 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    构建与验证门禁（ADR-0025 §4）：文档 / 颜色 / 资源与文本 / 注释布局审计 → 还原 → 构建 → 模块包与资源校验 → 依赖许可审计 → 测试。
+    构建与验证门禁：文档站检查 / 颜色 / 资源与文本 / 注释布局 / 版本纪律审计 → 还原 → 构建 → 模块包与资源校验 → 依赖许可审计 → 测试。
 
 .DESCRIPTION
     0) 清除被污染的环境变量 Platform（否则 MSBuild 会把它当作目标平台，报 MSB4126）
-    1) 文档机械审计（docs/tools/audit-docs.ps1，只读）—— 规定就在该脚本头部注释的「判据」清单里
-       颜色口径审计（docs/tools/audit-colors.ps1）、资源与文本审计（tools/audit-resources.ps1）、
+    1) 文档站结构检查（docs/build.ps1 -Mode Check：严格构建 + 导航完整性 + 生成内容自检），
+       以及颜色口径审计（docs/tools/audit-colors.ps1）、资源与文本审计（tools/audit-resources.ps1）、
        注释布局数值审计（tools/audit-layout-comments.ps1）与版本纪律审计（tools/audit-versions.ps1）
-       —— 都只读；前四者同受 -SkipDocAudit 控制，版本审计始终执行（它不只看文档）
+       —— 前四者同受 -SkipDocs 控制，版本审计始终执行（它不只看文档）
     2) dotnet restore / build
     3) 校验内置模块包归拢（应用输出 modules\ + artifacts\modules\）
     4) 校验输出资源包（tools/verify-resources.ps1）+ 依赖许可审计（tools/audit-licenses.ps1，
@@ -17,7 +17,7 @@
 
 .EXAMPLE
     ./build.ps1                 # 完整门禁
-    ./build.ps1 -SkipTests      # 只做文档/颜色/资源审计 + 构建 + 模块包/资源校验 + 许可审计
+    ./build.ps1 -SkipTests      # 只做文档站检查 / 颜色 / 资源审计 + 构建 + 模块包/资源校验 + 许可审计
 #>
 [CmdletBinding()]
 param(
@@ -25,10 +25,10 @@ param(
     [string]$Configuration = 'Debug',
     [switch]$SkipTests,
     [switch]$SkipAudit,
-    # 跳过文档机械审计（仅当本次改动确实不涉及 docs/ 时使用；判据见 docs/tools/audit-docs.ps1 头部）
-    [switch]$SkipDocAudit,
-    # Gate B 数值实测（04a §5 清单）：跑 BenchmarkDotNet 基准（Release）。
-    # **不进常规门禁**（耗时且数值随机器波动）；数值**只记录、不设阈值**。
+    # 跳过文档站检查与文档派生审计（仅当本次改动确实不涉及 docs/ 时使用）
+    [switch]$SkipDocs,
+    # Gate B 数值实测：跑 BenchmarkDotNet 基准（Release）。
+    # 不进常规门禁（耗时且数值随机器波动）；数值只记录、不设阈值。
     [switch]$RunBenchmarks,
     # VS 的 Avalonia XAML 预览器（设计器宿主）会加载并锁定输出 DLL，导致构建失败；
     # 加此开关可在构建前自动停止它（VS 需要时会自行重启预览器）。
@@ -73,44 +73,44 @@ foreach ($name in @('Platform', 'Platform(x86)')) {
 $sln = Join-Path $root 'HYWDebugAssistant.slnx'
 if (-not (Test-Path $sln)) { throw "未找到解决方案：$sln" }
 
-# ---- 1) 文档机械审计（只读；判据见该脚本头部注释）----
-# 放在最前：文档问题最便宜、且不依赖构建产物；改了 docs/ 却忘了跑审计会在这里被拦下。
-if (-not $SkipDocAudit) {
-    Write-Host "===== 1/5 文档机械审计 =====" -ForegroundColor Cyan
-    & (Join-Path $root 'docs\tools\audit-docs.ps1')
-    if ($LASTEXITCODE -ne 0) { throw '文档机械审计未通过（见上方 文件:行号；判据见 docs/tools/audit-docs.ps1 头部注释）' }
+# ---- 1) 文档站检查（严格构建 + 结构；文字质量不靠脚本判断）----
+# 放在最前：文档问题最便宜、且不依赖构建产物；结构规则见 dev/workflow.md。
+if (-not $SkipDocs) {
+    Write-Host "===== 1/5 文档站检查 =====" -ForegroundColor Cyan
+    & (Join-Path $root 'docs\build.ps1') -Mode Check
+    if ($LASTEXITCODE -ne 0) { throw '文档站检查未通过（见上方输出；结构规则见 dev/workflow.md）' }
 }
 else {
-    Write-Host "[skip] 文档机械审计已跳过（-SkipDocAudit）" -ForegroundColor Yellow
+    Write-Host "[skip] 文档站检查已跳过（-SkipDocs）" -ForegroundColor Yellow
 }
 
 # ---- 1b) 颜色口径审计（只读；判据见该脚本头部注释）----
-# 与文档审计同一位置、同一理由：**相对色引 token / 绝对色带理由标记**这条口径，
-# 靠"改了源码就顺手跑一次"是守不住的；放在构建最前，违规当场拦下。
-if (-not $SkipDocAudit) {
-    & (Join-Path $root 'docs\tools\audit-colors.ps1')
-    if ($LASTEXITCODE -ne 0) { throw '颜色口径审计未通过（见上方 文件:行号；判据见 docs/tools/audit-colors.ps1 头部注释）' }
+# 相对色引 token / 绝对色带理由标记这条口径，靠"改了源码就顺手跑一次"是守不住的；
+# 放在构建最前，违规当场拦下。
+if (-not $SkipDocs) {
+    & (Join-Path $root 'tools\audit-colors.ps1')
+    if ($LASTEXITCODE -ne 0) { throw '颜色口径审计未通过（见上方 文件:行号；判据见 tools/audit-colors.ps1 头部注释）' }
 }
 
 # ---- 1c) 资源与文本审计（只读；判据见该脚本头部注释）----
-# 出厂种子形状 / 主题清单 / 文本表 / 迁移锁死 / {loc:Tr} 键 / 死键 都是"编译期看不见"的事实，
-# 放在构建之前：坏种子与死键不该等到发布打包才发现。与颜色审计同受 -SkipDocAudit 控制。
-if (-not $SkipDocAudit) {
+# 出厂种子形状 / 主题清单 / 文本表 / {loc:Tr} 键 / 死键 都是"编译期看不见"的事实，
+# 放在构建之前：坏种子与死键不该等到发布打包才发现。与颜色审计同受 -SkipDocs 控制。
+if (-not $SkipDocs) {
     & (Join-Path $root 'tools\audit-resources.ps1')
     if ($LASTEXITCODE -ne 0) { throw '资源与文本审计未通过（见上方 文件:行号；判据见 tools/audit-resources.ps1 头部注释）' }
 }
 
 # ---- 1d) 源码注释的布局数值审计（只读；判据见该脚本头部注释）----
 # 注释里的"当前坐标/尺寸/像素值"会随布局调整过期，成为代码/主题/声明之外的第二份事实源；
-# 与资源审计同一位置、同一理由，也同受 -SkipDocAudit 控制。
-if (-not $SkipDocAudit) {
+# 与资源审计同一位置、同一理由，也同受 -SkipDocs 控制。
+if (-not $SkipDocs) {
     & (Join-Path $root 'tools\audit-layout-comments.ps1')
     if ($LASTEXITCODE -ne 0) { throw '注释布局数值审计未通过（见上方 文件:行号；判据见 tools/audit-layout-comments.ps1 头部注释）' }
 }
 
 # ---- 1e) 版本纪律审计（只读；判据见 tools/audit-versions.ps1 头部注释）----
 # 唯一版本事实源、禁止第二版本轴字段、模块清单两段标识：都是"编译期看不见"的事实，
-# 放在构建之前当场拦下。它查的不只是文档，因此**不受** -SkipDocAudit 控制。
+# 放在构建之前当场拦下。它查的不只是文档，因此不受 -SkipDocs 控制。
 Write-Host "===== 1e/5 版本纪律审计 =====" -ForegroundColor Cyan
 & (Join-Path $root 'tools\audit-versions.ps1')
 if ($LASTEXITCODE -ne 0) { throw '版本纪律审计未通过（见上方 文件:行号；判据见 tools/audit-versions.ps1 头部注释）' }
@@ -124,7 +124,7 @@ dotnet build $sln -c $Configuration --no-restore
 if ($LASTEXITCODE -ne 0) { throw '构建失败' }
 
 # ---- 4) 校验模块包归拢结果（应用输出 modules\ + artifacts\modules\）----
-# 包由**构建自动归拢**（src/Modules/Directory.Build.targets + App 镜像目标）；
+# 包由构建自动归拢（src/Modules/Directory.Build.targets + App 镜像目标）；
 # 本步只做一致性校验：让"内置模块开箱可用"这件事在门禁里可验证。
 Write-Host "===== 4/5 校验模块包 + 资源包 + 依赖许可审计 =====" -ForegroundColor Cyan
 & (Join-Path $root 'tools\verify-module-packages.ps1') -Configuration $Configuration
@@ -143,11 +143,9 @@ if (-not $SkipAudit) {
 if (-not $SkipTests) {
     Write-Host "===== 5/5 测试 =====" -ForegroundColor Cyan
 
-    # 【F 裁定 · 2026-09 · 与 tools/dev.ps1 -Mode Test -AllTests 同一口径】
-    # `VisualSnapshots` **必须单独进程跑**：`AvaloniaHeadlessPlatform` 是**进程级**配置，与其它测试项目并发时
-    # 真实 Skia 渲染互相破坏 ⇒ **假失败**（实测 `ColorPickerDialogSnapshotTests` 并发下红、单独跑全绿）。
-    # 门禁的"通过"必须可信 ⇒ 这里逐个串行跑，快照项目最后单独跑。
-    # 项目清单按目录发现（目录名 = 项目名），新增测试项目零改动；`Benchmarks` 不是 xUnit 用例 ⇒ 排除。
+    # VisualSnapshots 必须单独进程跑：无头渲染平台是进程级配置，与其它测试项目并发时
+    # 真实渲染互相破坏，产生假失败。门禁的"通过"必须可信 ⇒ 逐个串行，快照项目最后单独跑。
+    # 项目清单按目录发现（目录名 = 项目名），新增测试项目零改动；Benchmarks 不是 xUnit 用例 ⇒ 排除。
     $testProjects = Get-ChildItem (Join-Path $root 'tests') -Directory |
         ForEach-Object { Join-Path $_.FullName "$($_.Name).csproj" } |
         Where-Object { Test-Path -LiteralPath $_ } |
@@ -170,9 +168,9 @@ if (-not $SkipTests) {
 }
 
 $testNote = if ($SkipTests) { ' · 测试已跳过' } else { '' }
-$docNote = if ($SkipDocAudit) { ' · 文档审计已跳过' } else { '' }
+$docNote = if ($SkipDocs) { ' · 文档检查已跳过' } else { '' }
 Write-Host ""
-Write-Host "✅ 门禁全部通过：文档 · 颜色 · 资源与文本 · 注释布局审计 · 构建成功 · 模块包与资源校验 · 许可合规$testNote$docNote" -ForegroundColor Green
+Write-Host "✅ 门禁全部通过：文档站 · 颜色 · 资源与文本 · 注释布局 · 版本纪律 · 构建成功 · 模块包与资源校验 · 许可合规$testNote$docNote" -ForegroundColor Green
 
 if ($RunBenchmarks) {
     Write-Host ""
@@ -181,5 +179,5 @@ if ($RunBenchmarks) {
     if ($LASTEXITCODE -ne 0) { throw '基准运行失败' }
 
     Write-Host ""
-    Write-Host "数值已输出；按 ADR-0033 回写到主文档 §13.2 与 docs/architecture/04a §5（只记录、不设阈值）" -ForegroundColor Yellow
+    Write-Host "数值已输出；只记录、不设阈值。" -ForegroundColor Yellow
 }

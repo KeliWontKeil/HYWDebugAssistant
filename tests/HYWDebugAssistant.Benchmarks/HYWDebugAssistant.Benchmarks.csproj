@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Gate B 数值实测（docs/architecture/04a §5 清单；ADR-0032 C6-2）
+    Gate B 数值实测（清单与口径见 dev/workflow.md）
     **不进常规门禁**：`build.ps1 -RunBenchmarks` 按需运行
     数值**只记录、不设阈值**（用户裁决：设计期只定结构与不变量，数值经实测后回写）
   -->

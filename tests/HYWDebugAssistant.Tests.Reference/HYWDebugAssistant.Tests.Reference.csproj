@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    T1 判据测试（AC-1~6）：**四个基础模块**（判据载体，2026-09 起）+ 框架 —— docs/architecture/06 §6.4/§6.5
+    T1 判据测试（AC-1~6）：**四个基础模块**（判据载体，2026-09 起）+ 框架 —— 口径见 dev/workflow.md
     测试项目可跨层引用（AR 规则只约束 src/ 下的产品程序集）
   -->
   <PropertyGroup>
@@ -32,7 +32,7 @@
       【2026-09 用户裁定"完全删除旧的模块和数据结构，新测试全部转入新的四个模块"】
       判据载体 = **四个正式模块**（文本发送器 / HEX 发送器 / 数据显示器 / 转换器）+ **本项目内的测试桩**
       （`Stubs/`：多源融合 / 定值数据源 / 判据接收）——参考模块独有的能力（仲裁 / 阈值断言 / 记录统计 /
-      定时出数）由桩承载，**框架能力与接口一个都不删**（见 `docs/architecture/06` §G 的"能力→载体"对照表）。
+      定时出数）由桩承载，**框架能力与接口一个都不删**。
     -->
     <ProjectReference Include="..\..\src\Modules\Business\TextSender\HYWDebugAssistant.Modules.TextSender.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\HexSender\HYWDebugAssistant.Modules.HexSender.csproj" />

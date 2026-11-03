@@ -1,0 +1,48 @@
+INHERIT: mkdocs.base.yml
+
+site_name: 何译位调试助手
+site_description: 何译位调试助手：把串口、TCP、UDP 等外部连接接入统一数据流环境
+
+theme:
+  language: zh
+
+docs_dir: zh
+site_dir: ../artifacts/docs-site
+
+extra:
+  locale: zh
+
+nav:
+  - 首页: index.md
+  - 开始使用: start/index.md
+  - 使用指南: guides/index.md
+  - 深入理解:
+      - concepts/index.md
+      - 系统概览: concepts/overview.md
+      - 分层与依赖: concepts/layers.md
+      - 模块与契约: concepts/modules-and-contracts.md
+      - 数据协议: concepts/data-protocol.md
+      - 运行期: concepts/runtime.md
+      - 网络模型: concepts/network-model.md
+      - 界面外壳与叠加层: concepts/shell-and-overlay.md
+      - 设置与持久化: concepts/settings-and-data.md
+      - 资源与文本: concepts/resources-and-text.md
+  - 模块开发:
+      - develop/index.md
+      - 项目与包布局: develop/project-layout.md
+      - 契约声明: develop/contracts.md
+      - SDK 版本与兼容: develop/sdk-version.md
+      - 界面: develop/ui.md
+      - 资源与文本: develop/resources.md
+      - 测试与验证: develop/testing.md
+      - 发布与独立编译: develop/publishing.md
+  - 参考:
+      - reference/index.md
+      - 模块清单: reference/modules.md
+      - 端口与数据类型: reference/ports-and-types.md
+      - 版本与兼容: reference/versioning.md
+      - 更新日志: reference/changelog.md
+      - 术语表: reference/glossary.md
+  - 关于:
+      - about/index.md
+      - 许可与第三方: about/license.md

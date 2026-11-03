@@ -18,7 +18,7 @@ namespace HYWDebugAssistant.Tests;
 /// </summary>
 /// <remarks>
 /// 分层验证：<b>丢弃语义</b>在有界队列层（确定性、无时序依赖）；<b>承载行为</b>（线程/回调/停止）
-/// 在承载者层（用独立夹具，不依赖建网/绑定）——即 docs/architecture/08 §2 M1-5 要求的验收方式。
+/// 在承载者层（用独立夹具，不依赖建网/绑定）——即数据面承载验收要求的验证方式。
 /// </remarks>
 public class DataPlaneCarrierTests
 {

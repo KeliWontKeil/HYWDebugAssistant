@@ -8,7 +8,7 @@
       · HYWDebugAssistant.Sdk
       · HYWDebugAssistant.Sdk.Ui（依赖 Avalonia）
       · HYWDebugAssistant.Sdk.AccessKit（依赖 Sdk）
-    版本不在本脚本维护：`version.props` 是唯一事实源（见 docs/architecture/VERSIONING.md）。
+    版本不在本脚本维护：`version.props` 是唯一事实源（见 docs/zh/reference/versioning.md）。
     该目录是**构建产物**（每次清空重建），示例模块/独立验证脚本从这里还原。
 
 .EXAMPLE
