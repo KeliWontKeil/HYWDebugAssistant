@@ -21,6 +21,7 @@ nav:
       - 系统概览: concepts/overview.md
       - 分层与依赖: concepts/layers.md
       - 模块与契约: concepts/modules-and-contracts.md
+      - 外部接入: concepts/external-access.md
       - 数据协议: concepts/data-protocol.md
       - 运行期: concepts/runtime.md
       - 网络模型: concepts/network-model.md
@@ -40,6 +41,8 @@ nav:
       - reference/index.md
       - 模块清单: reference/modules.md
       - 端口与数据类型: reference/ports-and-types.md
+      - 数据类型约定: reference/types.md
+      - 被拒原因: reference/rejections.md
       - 版本与兼容: reference/versioning.md
       - 更新日志: reference/changelog.md
       - 术语表: reference/glossary.md
