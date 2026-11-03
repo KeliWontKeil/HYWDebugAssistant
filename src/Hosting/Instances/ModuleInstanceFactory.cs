@@ -524,7 +524,13 @@ public static class ModuleInstanceFactory
     /// 建立数据类型的**机械镜像**（标识/尺寸/语义/计量/解码器句柄）：同标识重复即报 Issue 并跳过。
     /// </summary>
     /// <remarks>
+    /// <para>
     /// 框架**不解释**类型语义——只登记"有什么类型、多大、怎么解"，供兼容判定与呈现期回调使用。
+    /// </para>
+    /// <para>
+    /// **端口形状必须与所引用类型的形状完全相同**：传输按端口形状算布局、计量块按类型形状算偏移，
+    /// 两者不一致时有效长度字段会读到别处（速率静默算错）⇒ 加载期直接报错，不等运行期。
+    /// </para>
     /// </remarks>
     private static List<DataTypeDeclaration> BuildDataTypeMirror(
         Context.ModuleContext context,
@@ -532,11 +538,11 @@ public static class ModuleInstanceFactory
         Diagnostics.IIssueSink issues)
     {
         var types = new List<DataTypeDeclaration>(context.DeclaredDataTypes.Count);
-        var seen = new HashSet<string>();
+        var byId = new Dictionary<string, DataTypeDeclaration>(StringComparer.Ordinal);
 
         foreach (var declaration in context.DeclaredDataTypes)
         {
-            if (!seen.Add(declaration.TypeId))
+            if (byId.ContainsKey(declaration.TypeId))
             {
                 issues.Report(objectPath, new Sdk.Reporting.IssueReport(
                     Sdk.Reporting.IssueCategory.InterfaceError,
@@ -545,18 +551,39 @@ public static class ModuleInstanceFactory
                 continue;
             }
 
+            byId[declaration.TypeId] = declaration;
             types.Add(declaration);
         }
 
-        // 口引用了未声明的类型 ⇒ 明确报 Issue（不静默当作"没声明"）
         foreach (var port in context.DeclaredPorts)
         {
-            if (port.TypeId is { } typeId && !seen.Contains(typeId))
+            if (port.TypeId is not { } typeId)
+            {
+                continue;
+            }
+
+            // 口引用了未声明的类型 ⇒ 明确报 Issue（不静默当作"没声明"）
+            if (!byId.TryGetValue(typeId, out var type))
             {
                 issues.Report(objectPath, new Sdk.Reporting.IssueReport(
                     Sdk.Reporting.IssueCategory.InterfaceError,
                     Sdk.Reporting.IssueSeverity.Warning,
                     HostingText.Get("hosting.instance.portUndeclaredType", port.Name, typeId),
+                    port.Name));
+                continue;
+            }
+
+            if (!ContractShape.AreSame(port.Shape, type.Shape))
+            {
+                issues.Report(objectPath, new Sdk.Reporting.IssueReport(
+                    Sdk.Reporting.IssueCategory.InterfaceError,
+                    Sdk.Reporting.IssueSeverity.Error,
+                    HostingText.Get(
+                        "hosting.instance.portShapeMismatch",
+                        port.Name,
+                        typeId,
+                        port.Shape.Describe(),
+                        type.Shape.Describe()),
                     port.Name));
             }
         }

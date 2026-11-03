@@ -48,6 +48,19 @@ public interface IExternalAccess
     /// <param name="payload">有效字节（不含应用组帧）。</param>
     bool Write(string accessName, ReadOnlySpan<byte> payload);
 
+    /// <summary>
+    /// 推进本实例的全部接入会话：执行打开/关闭请求、取数、探活。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>**有活动体的模块每轮循环都要调用一次**：打开/关闭请求由会话推进执行，不推进就永远不打开；</item>
+    ///   <item>无活动体的模块由框架的实例循环代为推进，模块不需要调用；</item>
+    ///   <item>默认实现什么都不做（未接线的替身与旧实现不必改）。</item>
+    /// </list>
+    /// </remarks>
+    /// <returns>这一拍是否有工作。</returns>
+    bool Pump() => false;
+
     /// <summary>取当前快照（未知接入名 ⇒ <see cref="ExternalAccessSnapshot.None"/>）。</summary>
     /// <param name="accessName">接入名。</param>
     ExternalAccessSnapshot GetSnapshot(string accessName);

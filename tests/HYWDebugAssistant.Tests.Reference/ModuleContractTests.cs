@@ -233,6 +233,15 @@ public class ModuleContractTests
         problems.ShouldNotBeEmpty();
     }
 
+    [Fact]
+    public void 契约自检_应发现端口形状与所引用类型形状不一致()
+    {
+        var probe = ModuleContract.Probe(typeof(ShapeMismatchContractModule));
+
+        // 判据取"端口被点名"，不钉文案（文案是资源表的事）。
+        probe.Problems.ShouldContain(problem => problem.Contains("out", StringComparison.Ordinal));
+    }
+
     // ------------------------------------------------------------ 行为自检（模块级，无需框架）
 
     [Fact]
@@ -584,6 +593,28 @@ public class ModuleContractTests
 
             // 只声明一块功能，且**没有**把 in2 收进去 ⇒ in2 成为"无归属口"
             context.Declaration.DeclareRole(RoleDeclaration.Both("blk", type, "in", "out", "块"));
+        }
+    }
+
+    /// <summary>口形状与所引用类型形状不一致（传输与计量会各读一份）。</summary>
+    [ModuleDefinition("test", "shape-mismatch-contract")]
+    public sealed class ShapeMismatchContractModule : IModule
+    {
+        public void OnRegistered(IModuleContext context)
+        {
+            var declared = ContractShape.OfStruct(
+                ("len", ContractShape.OfPrimitive(ContractPrimitive.U16)),
+                ("data", ContractShape.OfBytes(16)));
+
+            var portShape = ContractShape.OfStruct(
+                ("len", ContractShape.OfPrimitive(ContractPrimitive.U16)),
+                ("data", ContractShape.OfBytes(32)));
+
+            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/shape-mismatch", declared));
+            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, portShape)
+            {
+                TypeId = "test/shape-mismatch",
+            });
         }
     }
 }

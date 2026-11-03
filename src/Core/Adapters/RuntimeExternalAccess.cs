@@ -22,6 +22,9 @@ public sealed class RuntimeExternalAccess : IExternalAccess
     private readonly string _instanceId;
     private readonly IIssueSink _issues;
     private readonly string _objectPath;
+    private bool _receiveHandlerSet;
+    private bool _readUsed;
+    private bool _dualConsumerReported;
 
     /// <summary>创建存取面。</summary>
     /// <param name="host">数据面接入宿主。</param>
@@ -82,6 +85,15 @@ public sealed class RuntimeExternalAccess : IExternalAccess
     /// <inheritdoc />
     public bool TryRead(string accessName, Span<byte> destination, out int length)
     {
+        if (_receiveHandlerSet)
+        {
+            // 接口语义：回调投递与主动读取互斥 —— 先设了回调就不能再主动取（否则两个消费者抢同一队列）。
+            length = 0;
+            ReportDualConsumer(accessName);
+            return false;
+        }
+
+        _readUsed = true;
         _ = Pump();
         var read = _host.TryRead(_instanceId, accessName, destination, out length);
         Report(_host.DrainFailures(_instanceId));
@@ -89,8 +101,18 @@ public sealed class RuntimeExternalAccess : IExternalAccess
     }
 
     /// <inheritdoc />
-    public void SetReceiveHandler(string accessName, ReceiveHandler handler) =>
+    public void SetReceiveHandler(string accessName, ReceiveHandler handler)
+    {
+        if (_readUsed)
+        {
+            // 反向同样互斥：已经主动取过就不再设回调（先用的那种模式胜出）。
+            ReportDualConsumer(accessName);
+            return;
+        }
+
+        _receiveHandlerSet = true;
         _host.SetReceiveHandler(_instanceId, accessName, handler);
+    }
 
     /// <inheritdoc />
     public bool Write(string accessName, ReadOnlySpan<byte> payload)
@@ -123,5 +145,21 @@ public sealed class RuntimeExternalAccess : IExternalAccess
                     failure.AccessName,
                     failure.Message)));
         }
+    }
+
+    /// <summary>两种消费方式并用：拒绝后一次，只报一次（同一条事实不刷屏）。</summary>
+    /// <param name="accessName">接入名。</param>
+    private void ReportDualConsumer(string accessName)
+    {
+        if (_dualConsumerReported)
+        {
+            return;
+        }
+
+        _dualConsumerReported = true;
+        _issues.Report(_objectPath, new IssueReport(
+            IssueCategory.InterfaceError,
+            IssueSeverity.Warning,
+            CoreText.Get("core.runtime.accessDualConsumer", accessName)));
     }
 }

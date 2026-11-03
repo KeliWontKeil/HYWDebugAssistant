@@ -94,6 +94,12 @@ public sealed class ExternalAccessChannel
     public bool Write(ReadOnlySpan<byte> payload) => _context.Access.Write(_spec.AccessName, payload);
 
     /// <summary>
+    /// 推进本实例的接入会话（执行打开/关闭请求、取数、探活）。
+    /// </summary>
+    /// <remarks>有活动体的模块每轮循环调用一次；无活动体的模块由框架代为推进。</remarks>
+    public bool Pump() => _context.Access.Pump();
+
+    /// <summary>
     /// 处理一条模块命令：打开 / 关闭 / 清空计数。
     /// </summary>
     /// <param name="commandName">命令名（模块声明的名字）。</param>

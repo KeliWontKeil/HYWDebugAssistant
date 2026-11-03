@@ -41,6 +41,7 @@ public class ContractReadDisciplineTests
         ("tag", ContractShape.OfPrimitive(ContractPrimitive.U32)));              // 16B（尾部追加）
 
     private const string TypeId = "test/read-discipline";
+    private const string TypeIdV1 = "test/read-discipline-v1";
 
     // ------------------------------------------------------------ SDK 原语
 
@@ -198,16 +199,16 @@ public class ContractReadDisciplineTests
         runtime.Apply(ChangeSet.OfOne(new AddModuleOperation(instanceId, definition))).Applied.ShouldBeTrue();
     }
 
-    /// <summary>v1 发送模块（声明 <c>test/read-discipline@1</c> = 12B）。</summary>
+    /// <summary>v1 发送模块（另一种标识、12B）——同标识必须是同一种形状，故 v1 用自己的标识。</summary>
     [ModuleDefinition("test", "discipline-sender-v1")]
     public sealed class SenderV1 : IModule
     {
         public void OnRegistered(IModuleContext context)
         {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, V1));
+            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeIdV1, V1));
             context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, V1)
             {
-                TypeId = TypeId,
+                TypeId = TypeIdV1,
             });
         }
     }

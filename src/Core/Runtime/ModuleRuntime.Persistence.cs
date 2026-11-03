@@ -447,6 +447,7 @@ public sealed partial class ModuleRuntime
     {
         var adapter = new ModuleCarrierAdapter(instance, instance.Context, Issues);
         Content.AddInstance(instance);
+        _dataTypeLedger.Reconcile(Content.Instances, Issues);
         _adapters[instance.InstanceId] = adapter;
         _subscriptions[instance.InstanceId] = new SubscriptionSet(
             instance.InstanceId, instance.DisplaySources);

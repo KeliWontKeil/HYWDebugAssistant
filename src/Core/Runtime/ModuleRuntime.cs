@@ -44,6 +44,7 @@ public sealed partial class ModuleRuntime : IDisposable
     private readonly Dictionary<string, Views.SubscriptionSet> _subscriptions = new(StringComparer.Ordinal);
     private readonly IExternalAccessCatalog? _catalog;
     private readonly ModuleLifecycleController _lifecycle;
+    private readonly Diagnostics.DataTypeLedger _dataTypeLedger = new();
 
     private BindingSet _bindings = BindingSet.Empty;
     private bool _disposed;
@@ -389,6 +390,12 @@ public sealed partial class ModuleRuntime : IDisposable
             }
 
             _lifecycle.Activate(instance);
+        }
+
+        if (plan.AddInstances.Count > 0)
+        {
+            // 声明面已全部就绪：按当前全场实例对一次类型台账（同标识两形状在此报出）。
+            _dataTypeLedger.Reconcile(Content.Instances, Issues);
         }
 
         foreach (var (instanceId, enabled) in plan.StateChanges)
@@ -1029,6 +1036,8 @@ public sealed partial class ModuleRuntime : IDisposable
         _ = Content.RemoveInstance(instanceId);
         _ = Content.Layout.RemoveInstance(instanceId);
         _ = _configurationFragments.Remove(instanceId);
+
+        _dataTypeLedger.Reconcile(Content.Instances, Issues);
     }
 
 

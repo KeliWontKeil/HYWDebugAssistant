@@ -34,6 +34,7 @@
     "hosting.instance.portAlreadyOwned": "端口 {0} 已属于角色 {1}，一个端口最多属于一个角色；已忽略角色 {2}",
     "hosting.instance.portNameDuplicate": "端口名重复：{0}；端口名在模块内必须唯一，重复声明已忽略",
     "hosting.instance.portUndeclaredType": "端口 {0} 引用了未声明的数据类型 {1}；该端口按结构参与兼容判定",
+    "hosting.instance.portShapeMismatch": "端口 {0} 引用了数据类型 {1}，但口形状 {2} 与该类型形状 {3} 不一致；传输按口形状、计量按类型形状，两者必须完全相同",
     "hosting.instance.roleIdDuplicate": "角色标识重复：{0}；模块内必须唯一，已忽略重复声明",
     "hosting.instance.roleIdEmpty": "角色的标识不能为空（已忽略该条）",
     "hosting.instance.roleNoPorts": "角色 {0} 既没有输入端口也没有输出端口，已忽略该条",
