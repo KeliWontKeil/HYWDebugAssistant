@@ -1,4 +1,5 @@
 using HYWDebugAssistant.Sdk.Context;
+using HYWDebugAssistant.Sdk.Lifecycle;
 
 namespace HYWDebugAssistant.DataPlane.Carriers;
 
@@ -12,7 +13,7 @@ namespace HYWDebugAssistant.DataPlane.Carriers;
 /// 因此宿主侧（L2/L4）通过实现本接口把实例交给数据面承载；
 /// 由 **L4（Core）** 提供适配器（Core 同时引用 L2 与 L3）。
 /// </para>
-/// <para>承载者只做三件事：调度投递、承载活动、驱动停止信号。</para>
+/// <para>承载者只做三件事：调度投递、承载 step/投递循环、有界停止。</para>
 /// </remarks>
 public interface ICarrierTarget
 {
@@ -25,49 +26,42 @@ public interface ICarrierTarget
     /// <summary>取某个接收口的处理；未注册该口时返回 <see langword="false"/>。</summary>
     bool TryGetReceiveHandler(string portName, out ReceiveHandler handler);
 
-    /// <summary>是否实现自发活动（<c>IActivitySource</c>）——决定承载模式。</summary>
-    bool HasActivity { get; }
+    /// <summary>是否使用 step 模型（框架调用 <see cref="OnStep"/>，而不是模块自建循环）。</summary>
+    bool HasStepModel => false;
+
+    /// <summary>端口/外部接入的数据消费方式。</summary>
+    ReceiveMode ReceiveMode => ReceiveMode.Push;
+
+    /// <summary>收件箱里是否有待处理命令/输入。</summary>
+    bool HasPendingInbox => false;
 
     /// <summary>
-    /// 无活动体时，是否有"口队列之外"的辅助工作源（外部接入会话 / 命令输入收件箱）。
+    /// 是否有"口队列之外"的辅助工作源（外部接入会话）。
     /// </summary>
-    /// <remarks>有活动体时恒为 <see langword="false"/>：实例线程归活动体，框架不投递辅助工作。</remarks>
     bool HasAuxiliaryWork => false;
 
     /// <summary>
-    /// 推进辅助工作源（应用会话开关、把就绪数据取进队列、把命令/输入交给模块回调）。
+    /// 推进辅助工作源（应用会话开关、把就绪数据取进队列）。
     /// </summary>
     /// <returns>这一拍是否做了工作。</returns>
-    /// <remarks>仅在没有活动体时由承载者的投递循环调用；实现必须非阻塞或只有有界等待。</remarks>
+    /// <remarks>由承载者的循环调用；实现必须非阻塞或只有有界等待。</remarks>
     bool PumpAuxiliary() => false;
 
-    /// <summary>本拍工作处理完（用于模块侧的 <c>OnWork</c>；只提示去读快照，不携带状态值）。</summary>
-    void NotifyWorkCompleted()
-    {
-    }
-
     /// <summary>
-    /// **下一条周期性需求的到期时间**（离现在多久；<see langword="null"/> = 没有周期需求）。
+    /// **下一条外部探活需求的到期时间**（离现在多久；<see langword="null"/> = 没有）。
     /// </summary>
     /// <remarks>
-    /// 承载者的等待是**事件驱动**的（入队 / 会话就绪 / 命令都会立即唤醒），本属性只回答
-    /// "完全没有事件时，最晚多久必须回来推进一次" —— 目前的唯一来源是设备探活。
-    /// 它**不承担数据延迟**：数据到达不依赖它。
+    /// 它**不承担数据延迟**：数据到达不依赖它。模块自己的周期到期由 <c>StepDueTimer</c>
+    /// 通过工作信号投递，不走本属性。
     /// </remarks>
     TimeSpan? NextWakeupDue => null;
 
-    /// <summary>运行模块活动体（由承载者在**该实例的专属线程**上调用；实现内部可阻塞）。</summary>
-    void RunActivity();
+    /// <summary>一步：处理本拍合并后的工作原因（由框架在实例线程调用）。</summary>
+    /// <param name="reason">本拍的工作原因（可多位合并）。</param>
+    void OnStep(StepReason reason)
+    {
+    }
 
-    /// <summary>停止信号（承载者请求停止时置位；模块活动体应据此尽快退出）。</summary>
-    IStopSignal StopSignal { get; }
-
-    /// <summary>
-    /// 请求停止：承载者在**停止协议开始时**调用（模块活动体据此退出）。
-    /// </summary>
-    /// <remarks>与 <see cref="StopSignal"/> 配对：前者置位、后者查询（模块侧只读）。</remarks>
-    void RequestStop();
-
-    /// <summary>报告模块活动体的异常（由承载者的异常边界调用，**不抛出**）。</summary>
-    void ReportActivityFailure(Exception exception);
+    /// <summary>报告承载循环的异常（由承载者的异常边界调用，**不抛出**）。</summary>
+    void ReportFailure(Exception exception);
 }

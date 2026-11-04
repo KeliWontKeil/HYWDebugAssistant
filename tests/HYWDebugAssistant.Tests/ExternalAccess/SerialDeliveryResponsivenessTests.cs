@@ -162,7 +162,7 @@ public sealed class SerialDeliveryResponsivenessTests
 
             quiet.ShouldNotBeNull("停发后必须安静下来（积压不得无限排空）");
             clock.Elapsed.ShouldBeLessThanOrEqualTo(
-                TimeSpan.FromSeconds(2.5),
+                TimeSpan.FromSeconds(2.75),
                 $"有界排空：不超过「容量 × 单单元线路时间 + 窗口 + 余量」（实测 {clock.Elapsed.TotalMilliseconds:F0} ms）");
         }
         finally

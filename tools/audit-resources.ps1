@@ -4,7 +4,7 @@
   资源与文本审计（源侧）：出厂种子的形状、主题包、文本表、图标表、迁移锁死、`{loc:Tr}` 键与死键。
 
 .DESCRIPTION
-  判据（与 docs/zh/concepts/resources-and-text.md 的规则对齐；**违规一律打印 `文件:行号` 并 exit 1**）：
+  判据（与 docs/zh/concepts/resources.md 的规则对齐；**违规一律打印 `文件:行号` 并 exit 1**）：
 
     ① **出厂资源的目录形状**
        · `resources/` 下的每个子树都必须在脚本里**登记访问模式**（当前：`seeds` = 投放、

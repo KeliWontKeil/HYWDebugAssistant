@@ -12,7 +12,6 @@ using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
-using ActivityKind = HYWDebugAssistant.Sdk.Lifecycle.ActivityKind;
 
 namespace HYWDebugAssistant.Benchmarks;
 
@@ -24,19 +23,13 @@ namespace HYWDebugAssistant.Benchmarks;
 /// <list type="bullet">
 ///   <item>**一次基准调用 = 一个数据单元的完整往返**（A 发出 → B 转发 → C 收到），
 ///     由 BenchmarkDotNet 直接给出 ns/op = 单单元端到端延迟（不拿"整批时间"当延迟）；</item>
-///   <item>**两种空闲策略对照**（对应 `04a` §7 的收敛手段）：
-///     <c>false</c> = 走框架停止信号的阻塞等待（受 Windows 定时器粒度影响）；
-///     <c>true</c> = 模块自行自旋轮询（拿到"传输本身"的量级，代价是占用一个 CPU 核）；</item>
+///   <item>中间/末端模块走 step Pull：数据到达由承载者投工作信号，模块在 OnStep 中自取；</item>
 ///   <item>数据单元带发送时刻戳（<c>ticks</c>），末端模块另算一遍延迟供交叉核对。</item>
 /// </list>
 /// </remarks>
 [MemoryDiagnoser]
 public class PipelineBenchmarks : IDisposable
 {
-    /// <summary>是否用自旋轮询替代阻塞等待（对照项；见类型备注）。</summary>
-    [Params(false, true)]
-    public bool SpinPolling { get; set; }
-
     private ModuleRuntime _runtime = null!;
     private RuntimeServices _services = null!;
     private ModuleInstance _source = null!;
@@ -45,8 +38,6 @@ public class PipelineBenchmarks : IDisposable
     [GlobalSetup]
     public void Setup()
     {
-        SpinPoll = SpinPolling;
-
         _runtime = new ModuleRuntime();
         _services = new RuntimeServices(_runtime);
 
@@ -95,7 +86,7 @@ public class PipelineBenchmarks : IDisposable
         // 等末端收到（自旋等待在**基准线程**上，不影响被测路径）
         if (!_sink.WaitForAll(1, TimeSpan.FromSeconds(5)))
         {
-            throw new TimeoutException($"单元未在期限内抵达末端（当前空闲策略：{(SpinPoll ? "自旋" : "阻塞等待")}）");
+            throw new TimeoutException("单元未在期限内抵达末端");
         }
     }
 
@@ -105,21 +96,6 @@ public class PipelineBenchmarks : IDisposable
     {
         ThreeHopRoundTrip();
         return _sink.AverageLatencyNs();
-    }
-
-    /// <summary>当前空闲策略（两个模块读它；每个参数组合各自 Setup）。</summary>
-    internal static bool SpinPoll { get; private set; }
-
-    /// <summary>空闲一次：自旋轮询或框架停止信号等待。</summary>
-    internal static void Idle(IStopSignal signal, TimeSpan fallback)
-    {
-        if (SpinPoll)
-        {
-            Thread.SpinWait(20);
-            return;
-        }
-
-        _ = signal.Wait(fallback);
     }
 
     /// <summary>建网（只有一条用户路径：两端同名标签 ⇒ 推导 ⇒ 命名网络）。</summary>
@@ -171,9 +147,7 @@ public class PipelineBenchmarks : IDisposable
     [ModuleDefinition("bench", "mid")]
     public sealed class LatencyMidModule : IModule, IActivitySource
     {
-        public ActivityKind Kind => ActivityKind.EventDriven;
-
-        public TimeSpan Interval => TimeSpan.FromMilliseconds(1);
+        public ReceiveMode Receive => ReceiveMode.Pull;
 
         public void OnRegistered(IModuleContext context)
         {
@@ -181,33 +155,22 @@ public class PipelineBenchmarks : IDisposable
             context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, LatencySourceModule.UnitShape));
         }
 
-        public void RunActivity(IModuleContext context)
+        public void OnStep(IModuleContext context, StepReason reason)
         {
-            while (!context.StopSignal.IsStopRequested)
+            while (context.Ports.TryReceive(out var buffer, out _))
             {
-                var drained = false;
-
-                while (context.Ports.TryReceive(out var buffer, out _))
+                if (buffer is null)
                 {
-                    drained = true;
-                    if (buffer is null)
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        _ = context.Ports.TrySend("out", buffer.Span);
-                    }
-                    finally
-                    {
-                        context.Ports.ReleaseBuffer(buffer);
-                    }
+                    continue;
                 }
 
-                if (!drained)
+                try
                 {
-                    Idle(context.StopSignal, TimeSpan.FromMilliseconds(1));
+                    _ = context.Ports.TrySend("out", buffer.Span);
+                }
+                finally
+                {
+                    context.Ports.ReleaseBuffer(buffer);
                 }
             }
         }
@@ -223,51 +186,38 @@ public class PipelineBenchmarks : IDisposable
         private int _received;
         private double _totalTicks;
 
-        public ActivityKind Kind => ActivityKind.EventDriven;
-
-        public TimeSpan Interval => TimeSpan.FromMilliseconds(1);
+        public ReceiveMode Receive => ReceiveMode.Pull;
 
         public void OnRegistered(IModuleContext context) =>
             context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, LatencySourceModule.UnitShape));
 
-        public void RunActivity(IModuleContext context)
+        public void OnStep(IModuleContext context, StepReason reason)
         {
-            while (!context.StopSignal.IsStopRequested)
+            while (context.Ports.TryReceive(out var buffer, out _))
             {
-                var drained = false;
-
-                while (context.Ports.TryReceive(out var buffer, out _))
+                if (buffer is null)
                 {
-                    drained = true;
-                    if (buffer is null)
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        var reader = new PayloadReader(buffer.Span, buffer.Layout);
-                        _ = reader.ReadU64("seq");
-                        var ticks = reader.ReadU64("ticks");
-                        var latency = Stopwatch.GetTimestamp() - (long)ticks;
-
-                        lock (_gate)
-                        {
-                            _received++;
-                            _totalTicks += latency;
-                        }
-
-                        _ = Interlocked.Increment(ref _arrived);
-                    }
-                    finally
-                    {
-                        context.Ports.ReleaseBuffer(buffer);
-                    }
+                    continue;
                 }
 
-                if (!drained)
+                try
                 {
-                    Idle(context.StopSignal, TimeSpan.FromMilliseconds(1));
+                    var reader = new PayloadReader(buffer.Span, buffer.Layout);
+                    _ = reader.ReadU64("seq");
+                    var ticks = reader.ReadU64("ticks");
+                    var latency = Stopwatch.GetTimestamp() - (long)ticks;
+
+                    lock (_gate)
+                    {
+                        _received++;
+                        _totalTicks += latency;
+                    }
+
+                    _ = Interlocked.Increment(ref _arrived);
+                }
+                finally
+                {
+                    context.Ports.ReleaseBuffer(buffer);
                 }
             }
         }

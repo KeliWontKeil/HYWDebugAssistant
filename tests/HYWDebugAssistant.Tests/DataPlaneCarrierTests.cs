@@ -6,6 +6,7 @@ using HYWDebugAssistant.DataPlane.Queues;
 using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Data;
+using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using Shouldly;
@@ -151,13 +152,13 @@ public class DataPlaneCarrierTests
     }
 
     [Fact]
-    public void 活动体异常_应上报且不影响其他实例()
+    public void step异常_应上报且不影响其他实例()
     {
         using var host = new CarrierHost();
         var broken = new TestTarget("broken")
         {
-            HasActivity = true,
-            ActivityBody = _ => throw new InvalidOperationException("契约：活动体故意抛出"),
+            HasStepModel = true,
+            StepBody = _ => throw new InvalidOperationException("契约：step 故意抛出"),
         };
         var healthy = new TestTarget("healthy");
 
@@ -165,7 +166,7 @@ public class DataPlaneCarrierTests
         host.TryActivate(healthy, out var healthyCarrier, out _).ShouldBeTrue();
         try
         {
-            broken.WaitForFailure(TimeSpan.FromSeconds(2)).ShouldBeTrue("活动体异常应被边界捕获并上报");
+            broken.WaitForFailure(TimeSpan.FromSeconds(2)).ShouldBeTrue("step 异常应被边界捕获并上报");
 
             // 另一实例不受影响（AC-2 隔离性）
             healthyCarrier!.TryEnqueue("in", BuildUnit(host.Buffers, 7, 7f))
@@ -181,62 +182,18 @@ public class DataPlaneCarrierTests
     }
 
     [Fact]
-    public void 活动体模块_每次投递不得向框架信号溢出()
+    public void 停止_step目标应按时退出()
     {
-        // 回归：活动体实例的线程在 RunActivity 里，从不 Wait(_dataAvailable)。
-        // 二值信号若仍对活动体投递，第一次入队后永远为满 ⇒ 后续每个数据单元都抛/捕
-        // SemaphoreFullException（表现为“每一次文本投递都卡”）。
         using var host = new CarrierHost();
-        var target = new TestTarget("activity-signal")
-        {
-            HasActivity = true,
-            ActivityBody = self =>
-            {
-                while (!self.StopSignal.IsStopRequested)
-                {
-                    _ = self.StopSignal.Wait(TimeSpan.FromMilliseconds(5));
-                }
-            },
-        };
+        var target = new TestTarget("s1") { HasStepModel = true };
 
         host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
-        try
-        {
-            for (var i = 0; i < 20; i++)
-            {
-                carrier!.TryEnqueue("in", BuildUnit(host.Buffers, (ulong)i, i))
-                    .ShouldBe(CarrierEnqueueResult.Accepted);
-
-                // 命令/输入同样走这个信号；活动体实例也必须 no-op。
-                carrier.SignalWork();
-            }
-
-            carrier!.Diagnostics.SignalOverflows.ShouldBe(
-                0,
-                "活动体模块不等待框架信号；不能在每个数据单元上走 SemaphoreFullException 的抛/捕路径");
-        }
-        finally
-        {
-            host.TryDeactivate("activity-signal", out _);
-        }
-    }
-
-    [Fact]
-    public void 停止_模块响应时应正常停止且停止信号已置位()
-    {
-        using var host = new CarrierHost();
-        var target = new TestTarget("s1") { HasActivity = true };
-
-        // 活动体阻塞等待停止信号（模拟"读硬件→处理→投递"循环）
-        target.ActivityBody = self => self.StopSignal.Wait(TimeSpan.FromSeconds(10));
-
-        host.TryActivate(target, out _, out _).ShouldBeTrue();
         try
         {
             host.TryDeactivate("s1", out var result).ShouldBeTrue();
 
             result.ShouldBe(CarrierStopResult.Stopped);
-            target.StopSignal.IsStopRequested.ShouldBeTrue("停止协议必须置位模块的停止信号");
+            carrier!.IsRunning.ShouldBeFalse("停止后实例线程应退出");
         }
         finally
         {
@@ -251,8 +208,9 @@ public class DataPlaneCarrierTests
             options: new CarrierOptions { QueueCapacity = 2, StopTimeout = TimeSpan.FromMilliseconds(200) });
         var target = new TestTarget("stuck")
         {
-            HasActivity = true,
-            ActivityBody = _ => Thread.Sleep(TimeSpan.FromSeconds(30)),   // 故意不响应停止
+            HasStepModel = true,
+            ReceiveMode = ReceiveMode.Pull,
+            StepBody = _ => Thread.Sleep(TimeSpan.FromSeconds(30)),   // 故意不响应停止
         };
         host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
 
@@ -426,8 +384,8 @@ public class DataPlaneCarrierTests
         // 活动体实例：框架不跑投递循环 ⇒ 队列不会自己变浅，深度可确定地断言
         var target = new TestTarget("flow")
         {
-            HasActivity = true,
-            ActivityBody = self => self.StopSignal.Wait(TimeSpan.FromSeconds(10)),
+            HasStepModel = true,
+            ReceiveMode = ReceiveMode.Pull,
         };
         host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
 
@@ -461,8 +419,8 @@ public class DataPlaneCarrierTests
         using var host = new CarrierHost();
         var target = new TestTarget("loss")
         {
-            HasActivity = true,
-            ActivityBody = self => self.StopSignal.Wait(TimeSpan.FromSeconds(10)),
+            HasStepModel = true,
+            ReceiveMode = ReceiveMode.Pull,
         };
         host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
 
@@ -493,8 +451,8 @@ public class DataPlaneCarrierTests
         using var host = new CarrierHost(options: new CarrierOptions { QueueCapacity = 4 });
         var target = new TestTarget("purge")
         {
-            HasActivity = true,
-            ActivityBody = self => self.StopSignal.Wait(TimeSpan.FromSeconds(10)),
+            HasStepModel = true,
+            ReceiveMode = ReceiveMode.Pull,
         };
         host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
 
@@ -825,8 +783,8 @@ public class DataPlaneCarrierTests
 
         var stuck = new TestTarget("stuck")
         {
-            HasActivity = true,
-            ActivityBody = _ => Thread.Sleep(TimeSpan.FromSeconds(30)),   // 故意不响应停止
+            HasStepModel = true,
+            StepBody = _ => Thread.Sleep(TimeSpan.FromSeconds(30)),   // 故意不响应停止
         };
 
         host.TryActivate(stuck, out _, out _).ShouldBeTrue();
@@ -881,7 +839,6 @@ public class DataPlaneCarrierTests
     private sealed class TestTarget(string instanceId) : ICarrierTarget
     {
         private readonly ConcurrentQueue<float> _received = new();
-        private readonly SimpleStopSignal _stop = new();
         private volatile bool _firstDelivery;
         private volatile bool _failureReported;
         private int _delivered;
@@ -890,7 +847,11 @@ public class DataPlaneCarrierTests
 
         public IReadOnlyList<string> ReceivePortNames => ["in"];
 
-        public bool HasActivity { get; set; }
+        /// <summary>为真时按 step 模型承载；否则按投递循环承载。</summary>
+        public bool HasStepModel { get; set; }
+
+        /// <summary>step 模型的数据消费方式（Pull 用于"不消费队列"的夹具）。</summary>
+        public ReceiveMode ReceiveMode { get; set; } = ReceiveMode.Push;
 
         /// <summary>是否有辅助工作源（口队列之外：会话 / 命令 / 状态发布）——回泵用例用它计数。</summary>
         public bool HasAuxiliaryWork { get; set; }
@@ -923,7 +884,8 @@ public class DataPlaneCarrierTests
             return false;
         }
 
-        public Action<TestTarget>? ActivityBody { get; set; }
+        /// <summary>step 模型的一步（阻塞/抛异常/不消费都由用例决定）。</summary>
+        public Action<TestTarget>? StepBody { get; set; }
 
         public Exception? Failure { get; private set; }
 
@@ -937,10 +899,6 @@ public class DataPlaneCarrierTests
         public int DeliveredCount => Volatile.Read(ref _delivered);
 
         public IReadOnlyList<float> Received => [.. _received];
-
-        public IStopSignal StopSignal => _stop;
-
-        public void RequestStop() => _stop.Request();
 
         public bool WaitForFirstDelivery(TimeSpan timeout) => WaitUntil(() => _firstDelivery, timeout);
 
@@ -958,9 +916,20 @@ public class DataPlaneCarrierTests
             return false;
         }
 
-        public void RunActivity() => ActivityBody?.Invoke(this);
+        public void OnStep(StepReason reason)
+        {
+            StepBody?.Invoke(this);
 
-        public void ReportActivityFailure(Exception exception)
+            // 队列冻结夹具：Pull 但不消费时短睡，避免 step 循环空转。
+            if (StepBody is null
+                && ReceiveMode == ReceiveMode.Pull
+                && reason.HasFlag(StepReason.Data))
+            {
+                Thread.Sleep(1);
+            }
+        }
+
+        public void ReportFailure(Exception exception)
         {
             Failure = exception;
             _failureReported = true;
@@ -980,18 +949,6 @@ public class DataPlaneCarrierTests
         }
     }
 
-    /// <summary>测试用停止信号（轮询实现，避免可释放字段）。</summary>
-    private sealed class SimpleStopSignal : IStopSignal
-    {
-        private volatile bool _requested;
-
-        public bool IsStopRequested => _requested;
-
-        public bool Wait(TimeSpan timeout) => WaitUntil(() => _requested, timeout);
-
-        public void Request() => _requested = true;
-    }
-
     /// <summary>
     /// **两个接收口**的夹具（`slow` 口慢、`fast` 口快）——用于验证"每 (实例, 口) 一条队列"。
     /// </summary>
@@ -999,7 +956,6 @@ public class DataPlaneCarrierTests
     {
         private readonly ConcurrentQueue<float> _slow = new();
         private readonly ConcurrentQueue<float> _fast = new();
-        private readonly SimpleStopSignal _stop = new();
 
         public string InstanceId { get; } = instanceId;
 
@@ -1011,12 +967,6 @@ public class DataPlaneCarrierTests
         public IReadOnlyList<float> SlowReceived => [.. _slow];
 
         public IReadOnlyList<float> FastReceived => [.. _fast];
-
-        public bool HasActivity => false;
-
-        public IStopSignal StopSignal => _stop;
-
-        public void RequestStop() => _stop.Request();
 
         public bool TryGetReceiveHandler(string portName, out ReceiveHandler handler)
         {
@@ -1036,9 +986,10 @@ public class DataPlaneCarrierTests
             return false;
         }
 
-        public void RunActivity() => throw new NotSupportedException("本夹具不实现自发活动");
-
-        public void ReportActivityFailure(Exception exception) => throw new NotSupportedException(exception.Message);
+        public void ReportFailure(Exception exception)
+        {
+            throw new NotSupportedException(exception.Message);
+        }
 
         private void OnSlow(ReadOnlySpan<byte> payload)
         {

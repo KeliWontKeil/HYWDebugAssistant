@@ -24,7 +24,6 @@
     "hosting.instance.direction.output": "输出",
     "hosting.instance.displaySourceDuplicate": "显示源「{0}」重复声明（已忽略重复项）",
     "hosting.instance.displaySourceEmptyName": "显示源的名字不能为空（已忽略该条）",
-    "hosting.instance.dualConsumption": "模块同时实现活动体与交互回调：框架按活动体模式运行，交互回调不会投递（请只选一种消费方式）",
     "hosting.instance.flowDuplicate": "内部处理关系重复声明：{0}（已忽略重复项）",
     "hosting.instance.flowRoleIdEmpty": "内部处理关系的角色标识不能为空：{0}（已忽略该条）",
     "hosting.instance.flowSelfLoop": "内部处理关系不得自环：{0}（已忽略该条）",

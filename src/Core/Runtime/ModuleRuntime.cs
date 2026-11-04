@@ -42,6 +42,7 @@ public sealed partial class ModuleRuntime : IDisposable
     private readonly Dictionary<string, ModuleCarrierAdapter> _adapters = new(StringComparer.Ordinal);
     private readonly Dictionary<string, RuntimeExternalAccess> _accesses = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Views.SubscriptionSet> _subscriptions = new(StringComparer.Ordinal);
+    private readonly Services.ViewStateStore? _viewStateStore;
     private readonly IExternalAccessCatalog? _catalog;
     private readonly ModuleLifecycleController _lifecycle;
     private readonly Diagnostics.DataTypeLedger _dataTypeLedger = new();
@@ -77,6 +78,78 @@ public sealed partial class ModuleRuntime : IDisposable
         Content = new WorkspaceContent();
         _lifecycle = new ModuleLifecycleController(Issues);
         ViewState = viewState;
+
+        if (viewState is Services.ViewStateStore store)
+        {
+            _viewStateStore = store;
+            store.InputChanged = SignalInputChanged;
+        }
+    }
+
+    private ModuleCarrierAdapter CreateAdapter(ModuleInstance instance)
+    {
+        var dueTimer = instance.ActivitySource is null
+            ? null
+            : new StepDueTimer(reason =>
+            {
+                if (Carriers.TryGet(instance.InstanceId, out var carrier) && carrier is not null)
+                {
+                    carrier.SignalReasons(reason);
+                }
+            });
+
+        return new ModuleCarrierAdapter(instance, instance.Context, Issues, dueTimer);
+    }
+
+    /// <summary>
+    /// 把已加入现场的实例接到数据面并启动承载（**加入与加载共用同一条路径**）。
+    /// </summary>
+    /// <param name="instance">已加入 <see cref="Content"/> 的实例。</param>
+    /// <param name="adapter">该实例的承载适配器。</param>
+    /// <param name="enabled">是否立即进入 Active；false 时启动后立即置 Disabled。</param>
+    /// <returns>承载是否启动成功。</returns>
+    private bool AttachAndStart(ModuleInstance instance, ModuleCarrierAdapter adapter, bool enabled)
+    {
+        _adapters[instance.InstanceId] = adapter;
+        _subscriptions[instance.InstanceId] = new Views.SubscriptionSet(
+            instance.InstanceId, instance.DisplaySources);
+        instance.Context.AttachDataPlane(new RuntimePortAccess(this, instance.InstanceId, instance.Context));
+
+        // 外部接入必须在承载启动前挂上：实例循环的第一拍就会用到它。
+        var runtimeAccess = AttachExternalAccess(instance);
+
+        if (runtimeAccess is not null)
+        {
+            _accesses[instance.InstanceId] = runtimeAccess;
+        }
+
+        if (!Carriers.TryActivate(adapter, out _, out var failure))
+        {
+            Issues.Report($"module:{instance.InstanceId}", new IssueReport(
+                IssueCategory.RuntimeError,
+                IssueSeverity.Error,
+                CoreText.Get("core.runtime.carrierStartFailed", failure)));
+            return false;
+        }
+
+        _lifecycle.Activate(instance);
+
+        if (!enabled)
+        {
+            adapter.PauseDue();
+            _lifecycle.Disable(instance);
+            runtimeAccess?.SetSuspended(true);
+        }
+
+        return true;
+    }
+
+    private void SignalInputChanged(string instanceId)
+    {
+        if (Carriers.TryGet(instanceId, out var carrier) && carrier is not null)
+        {
+            carrier.SignalReasons(StepReason.Input);
+        }
     }
 
     /// <summary>
@@ -174,7 +247,7 @@ public sealed partial class ModuleRuntime : IDisposable
                     }
 
                     // 实例化在此完成（对象创建 + OnRegistered 声明）；**不启动线程、不改动现场**
-                    // 视图状态**按实例绑定**交给模块（只读）：模块在活动体里拉取快照。
+                    // 视图状态**按实例绑定**交给模块（只读）：模块在 OnStep 里拉取快照。
                     var created = ModuleInstanceFactory.Create(
                         add.InstanceId,
                         add.Definition,
@@ -183,7 +256,7 @@ public sealed partial class ModuleRuntime : IDisposable
                         (ViewState as Services.ViewStateStore)?.DisplayFor(add.InstanceId),
                         FileAccessFor?.Invoke(add.InstanceId),
                         catalog: _catalog);
-                    plan.AddInstances.Add((created, new ModuleCarrierAdapter(created, created.Context, Issues)));
+                    plan.AddInstances.Add((created, CreateAdapter(created)));
                     break;
 
                 case RemoveModuleOperation remove:
@@ -368,28 +441,7 @@ public sealed partial class ModuleRuntime : IDisposable
         foreach (var (instance, adapter) in plan.AddInstances)
         {
             Content.AddInstance(instance);
-            _adapters[instance.InstanceId] = adapter;
-            _subscriptions[instance.InstanceId] = new Views.SubscriptionSet(
-                instance.InstanceId, instance.DisplaySources);
-            instance.Context.AttachDataPlane(new RuntimePortAccess(this, instance.InstanceId, instance.Context));
-
-            // 外部接入必须在承载启动前挂上：实例循环的第一拍就会用到它。
-            var runtimeAccess = AttachExternalAccess(instance);
-            if (runtimeAccess is not null)
-            {
-                _accesses[instance.InstanceId] = runtimeAccess;
-            }
-
-            if (!Carriers.TryActivate(adapter, out _, out var failure))
-            {
-                Issues.Report($"module:{instance.InstanceId}", new IssueReport(
-                    IssueCategory.RuntimeError,
-                    IssueSeverity.Error,
-                    CoreText.Get("core.runtime.carrierStartFailed", failure)));
-                continue;
-            }
-
-            _lifecycle.Activate(instance);
+            _ = AttachAndStart(instance, adapter, enabled: true);
         }
 
         if (plan.AddInstances.Count > 0)
@@ -897,9 +949,19 @@ public sealed partial class ModuleRuntime : IDisposable
         if (enabled)
         {
             _lifecycle.Enable(instance);
+
+            if (_adapters.TryGetValue(instanceId, out var resumedAdapter) && resumedAdapter is not null)
+            {
+                resumedAdapter.ResumeDue();
+            }
         }
         else
         {
+            if (_adapters.TryGetValue(instanceId, out var pausedAdapter) && pausedAdapter is not null)
+            {
+                pausedAdapter.PauseDue();
+            }
+
             _lifecycle.Disable(instance);
         }
 
@@ -1010,6 +1072,11 @@ public sealed partial class ModuleRuntime : IDisposable
         foreach (var networkName in removedNetworks)
         {
             Content.RemoveNetwork(networkName);
+        }
+
+        if (_adapters.TryGetValue(instanceId, out var removedAdapter) && removedAdapter is not null)
+        {
+            removedAdapter.DisposeDue();
         }
 
         if (Carriers.TryDeactivate(instanceId, out var result) && result == CarrierStopResult.TimedOut)
@@ -1287,6 +1354,17 @@ public sealed partial class ModuleRuntime : IDisposable
         }
 
         _disposed = true;
+
+        if (_viewStateStore is { } store)
+        {
+            store.InputChanged = null;
+        }
+
+        foreach (var adapter in _adapters.Values)
+        {
+            adapter.DisposeDue();
+        }
+
         ExternalAccessHost.Dispose();
         Carriers.Dispose();
     }

@@ -85,18 +85,21 @@ public sealed record ConfigFieldView(
 /// <param name="Lines">当前保留的全部行（只读快照，可安全跨帧持有）。</param>
 /// <param name="Dropped">因超出容量被丢弃的旧行累计数（诊断用；界面只提示"满过"，不显示数量）。</param>
 /// <param name="Capacity">这块缓冲的行容量。</param>
-/// <param name="Sequence">世代号（每次清空递增；变了说明手里的副本过期）。</param>
 /// <param name="Revision">缓冲变更号（追加/替换/清空都会递增；同一个号 ⇒ 内容没变，可以跳过重排）。</param>
 public readonly record struct TextBufferSnapshot(
     IReadOnlyList<string> Lines,
     int Dropped,
     int Capacity,
-    long Sequence,
     long Revision = 0)
 {
     /// <summary>空缓冲。</summary>
-    public static readonly TextBufferSnapshot Empty = new([], 0, 0, 0, 0);
+    public static readonly TextBufferSnapshot Empty = new([], 0, 0, 0);
 }
+
+/// <summary>显示缓冲的**尾部窗口**（呈现超预算时跳读用）。</summary>
+/// <param name="Snapshot">尾部快照（只含尾部行）。</param>
+/// <param name="Cursor">尾部对应的游标（后续增量从这之后开始）。</param>
+public readonly record struct TextTailSnapshot(TextBufferSnapshot Snapshot, TextCursor Cursor);
 
 /// <summary>
 /// 模块在运行期给某个元素设的**外观**（只含值，不含语义）。
@@ -159,18 +162,44 @@ public interface IModuleViewContext
     /// <param name="source">显示源名。</param>
     TextBufferSnapshot ReadText(string source);
 
+    /// <summary>取某显示缓冲的**变更号**（同一个号 ⇒ 内容没变，可跳过整表复制）。</summary>
+    /// <param name="source">显示源名。</param>
+    /// <returns>变更号；无缓冲 ⇒ 0。</returns>
+    long ReadTextRevision(string source);
+
     /// <summary>
-    /// 取某显示缓冲**自游标以来**的增量（每帧热路径：只取新增的已封口行与当前行的新增后缀）。
+    /// 取某显示缓冲**自游标以来**的窗口（每帧热路径：只取新增的已封口行与当前行的新增后缀）。
     /// </summary>
     /// <param name="source">显示源名。</param>
     /// <param name="cursor">上一拍读到的位置。</param>
     /// <param name="sealedLines">接收新增已封口行的缓冲（调用方持有，方法先清空再填）。</param>
-    /// <returns>
-    /// 增量；默认实现返回"需要全量重建" —— 旧宿主与设计期假实现不必实现本方法，
-    /// 由 <see cref="ReadText"/> 走全量路径（语义不变，只是每帧多一次行表复制）。
-    /// </returns>
-    DisplayDelta ReadTextDelta(string source, in DisplayCursor cursor, List<string> sealedLines) =>
-        DisplayDelta.ResetRequired(cursor, 0, 0);
+    /// <param name="maxChars">本次窗口的字符预算（&lt;=0 ⇒ 不限；超出返回 <c>Overflow</c>）。</param>
+    /// <param name="window">窗口（游标失效时 <c>Reset</c> 为真，随附当前全部行与当前行）。</param>
+    /// <returns>是否取到（<see langword="false"/> = 宿主未实现，调用方回退全量）。</returns>
+    bool TryReadTextWindow(
+        string source,
+        in TextCursor cursor,
+        List<string> sealedLines,
+        int maxChars,
+        out TextWindow window)
+    {
+        window = default;
+        return false;
+    }
+
+    /// <summary>
+    /// 取某显示缓冲的**尾部窗口**（呈现超预算时跳读；返回 <see langword="false"/> 表示宿主未实现）。
+    /// </summary>
+    /// <param name="source">显示源名。</param>
+    /// <param name="maxLines">最多取多少行。</param>
+    /// <param name="maxChars">最多取多少字符（含当前行；首行可能被截成后缀）。</param>
+    /// <param name="tail">尾部快照与对应游标。</param>
+    /// <returns>是否取到尾部窗口。</returns>
+    bool TryReadTextTail(string source, int maxLines, int maxChars, out TextTailSnapshot tail)
+    {
+        tail = default;
+        return false;
+    }
 
     /// <summary>把一个输入值提交给模块（名字未声明 ⇒ 被拒并报 Issue）。</summary>
     /// <param name="source">输入源名。</param>

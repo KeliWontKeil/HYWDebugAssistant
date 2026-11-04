@@ -396,7 +396,7 @@ public sealed record PortGeometryView(
 /// <param name="Written">累计写入样本数。</param>
 /// <param name="Overwritten">被覆盖的旧样本数（UI 读取是否跟得上的事实指标）。</param>
 /// <param name="Dropped">被丢弃的样本数（尺寸不一致等）。</param>
-public sealed record SubscriptionSourceView(
+public readonly record struct SubscriptionSourceView(
     string InstanceId,
     string DataSourceName,
     HYWDebugAssistant.Sdk.Views.ViewDataSourceKind Kind,

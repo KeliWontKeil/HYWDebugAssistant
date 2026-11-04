@@ -3,7 +3,7 @@
   <!--
     L5 UI 构成（Shell）：主窗口 / 模块区（工作区层）/ 信息类层（连线·标记·诊断）
     依赖：只允许 Sdk + Core.Api（AR-7）；不引用任何模块实现程序集
-    视觉取值见 docs/zh/concepts/shell-and-overlay.md
+    视觉取值见 docs/zh/concepts/shell.md
   -->
   <ItemGroup>
     <ProjectReference Include="..\Sdk\HYWDebugAssistant.Sdk.csproj" />

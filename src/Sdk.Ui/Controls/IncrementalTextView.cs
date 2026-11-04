@@ -28,7 +28,7 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 /// </para>
 /// <para>
 /// 绘制只遍历与滚动窗口相交的视觉行；选择/复制用扁平文本偏移，跨视觉行/硬换行都按真实文本处理。
-/// 显示刷新由外部按全局节拍调用 <see cref="ApplySnapshot"/>；没有新内容时一行都不重排。
+/// 显示刷新由外部按全局节拍调用 <see cref="ApplyWindow"/>；没有新内容时一行都不重排。
 /// </para>
 /// </remarks>
 public sealed class IncrementalTextView : TemplatedControl
@@ -59,9 +59,9 @@ public sealed class IncrementalTextView : TemplatedControl
     /// <remarks>
     /// 折行布局按块做（每块一个 `TextLayout`，块尾的最后一行留给下一块避免硬断）。块越大，
     /// 同样多的字符产生的布局对象越少（对象头/缓存/字形数组的固定开销被摊薄）；
-    /// 块过大会让单次布局的延迟变差。8K 是"分配速率"与"单帧延迟"之间的折中。
+    /// 块过大会让单次布局的延迟变差。512 是"分配速率"与"单帧延迟"之间的折中。
     /// </remarks>
-    private const int MaxAppendChunk = 8192;
+    private const int MaxAppendChunk = 512;
 
     private readonly List<RawLine> _raw = [];
     private readonly List<DisplayLine> _display = [];
@@ -69,6 +69,7 @@ public sealed class IncrementalTextView : TemplatedControl
 
     private double _layoutWidth = -1;
     private double _contentHeight;
+    private int _flatEnd;
     private long _revision = -1;
     private int _selectionStart;
     private int _selectionEnd;
@@ -95,20 +96,18 @@ public sealed class IncrementalTextView : TemplatedControl
     /// <summary>当前真正持有 <see cref="TextLayout"/> 的视觉行（只有可见窗口附近的行；其余行只留文本切片）。</summary>
     private readonly List<VisualLine> _laidOut = [];
 
-    /// <summary>已应用的"已丢弃行数"（增量应用用它把头部裁掉多少条）。</summary>
-    private int _droppedApplied;
-
-    /// <summary>已应用的"已封口行总数"（绝对计数；只用于一致性检查）。</summary>
+    /// <summary>已应用的"已封口行总数"（绝对计数；尾部跳读后仍以它为绝对坐标）。</summary>
     private int _sealedApplied;
 
+    /// <summary>已应用的内容版本（清空/整块替换时变）。</summary>
+    private long _version;
+
     /// <summary>已应用的当前行世代号（变了 ⇒ 当前行整行换掉，而不是接后缀）。</summary>
-    private long _openGeneration;
+    private long _openVersion;
 
     /// <summary>已应用的当前行字符数（只用于一致性检查）。</summary>
     private int _openLength;
 
-    /// <summary>已应用的"当前行被头部裁剪"世代号（变了 ⇒ 视图手里那份文本被截过，要整行换）。</summary>
-    private long _openTrimGeneration;
 
     /// <summary>当前行对应的那条 raw（没有内容时为 <see langword="null"/>）。</summary>
     private RawLine? _openRaw;
@@ -233,19 +232,7 @@ public sealed class IncrementalTextView : TemplatedControl
     public int LiveLayoutCount => _laidOut.Count;
 
     /// <summary>当前扁平文本长度。</summary>
-    public int TextLength
-    {
-        get
-        {
-            var length = 0;
-            foreach (var line in _display)
-            {
-                length += line.Text.Length + (line.HasBreak ? 1 : 0);
-            }
-
-            return length;
-        }
-    }
+    public int TextLength => _flatEnd;
 
     /// <summary>把内容替换成一条完整文本（静态只读文本用；内部按 `\n` 拆段）。</summary>
     /// <param name="text">完整文本。</param>
@@ -258,8 +245,9 @@ public sealed class IncrementalTextView : TemplatedControl
     }
 
     /// <summary>
-    /// 应用一次显示缓冲快照（每帧调用；变更号相同 ⇒ 立即返回，不做任何工作）。
+    /// 应用一次显示缓冲全量快照（设计期/未实现窗口的宿主回退用；变更号相同 ⇒ 立即返回）。
     /// </summary>
+    /// <remarks>热路径的增量只有 <see cref="ApplyWindow"/>；本方法每次变更都全量重建。</remarks>
     /// <param name="lines">缓冲当前保留的全部原始行（行间是通道换行，行内可含真实 `\n`）。</param>
     /// <param name="revision">缓冲变更号。</param>
     /// <returns>是否应用了新内容。</returns>
@@ -272,130 +260,10 @@ public sealed class IncrementalTextView : TemplatedControl
             return false;
         }
 
-        var appended = false;
-
-        if (_raw.Count == 0)
-        {
-            Rebuild(lines);
-            _revision = revision;
-            InvalidateMeasure();
-            InvalidateVisual();
-            return true;
-        }
-
-        if (TryApplyAppend(lines, out appended))
-        {
-            _revision = revision;
-            RecomputeLayout();
-            InvalidateMeasure();
-            InvalidateVisual();
-            ScrollToEndIfNeeded(appended);
-            return true;
-        }
-
-        if (TryApplyRolling(lines))
-        {
-            appended = true;
-            _revision = revision;
-            RecomputeLayout();
-            InvalidateMeasure();
-            InvalidateVisual();
-            ScrollToEndIfNeeded(appended);
-            return true;
-        }
-
-        // 非追加/尾部裁剪（清空、替换、任意修改）⇒ 重建；这类操作不在热路径上。
+        // 快照路径只服务设计期/未实现窗口的宿主：全量重建即可。
+        // 热路径的增量只有 ApplyWindow 一条实现。
         Rebuild(lines);
         _revision = revision;
-        InvalidateMeasure();
-        InvalidateVisual();
-        return true;
-    }
-
-    /// <summary>
-    /// **应用一次增量**（每帧热路径）：只处理新增的已封口行、当前行的新增后缀与头部裁剪。
-    /// </summary>
-    /// <param name="delta">缓冲给出的增量（游标失效时为 <see cref="DisplayDelta.Reset"/>）。</param>
-    /// <param name="sealedLines">与增量配套的新增已封口行。</param>
-    /// <returns>是否应用成功；<see langword="false"/> = 控件内部状态与增量对不上，调用方应改用全量快照。</returns>
-    /// <remarks>
-    /// 它替代"每帧取全量快照再比对"：追加只碰最后一条，头部裁剪只删最旧的若干条，
-    /// 代价与**这一拍新增的数据量**成正比，与缓冲里已有多少内容无关。
-    /// </remarks>
-    public bool ApplyDelta(DisplayDelta delta, IReadOnlyList<string> sealedLines)
-    {
-        ArgumentNullException.ThrowIfNull(sealedLines);
-
-        if (delta.Reset)
-        {
-            return false;
-        }
-
-        if (delta.SealedFromStart)
-        {
-            ResetFromDelta(delta, sealedLines);
-            return true;
-        }
-
-        var removed = delta.Dropped - _droppedApplied;
-        if (removed < 0 || removed > _raw.Count)
-        {
-            return false;
-        }
-
-        if (delta.SealedCount < _sealedApplied)
-        {
-            return false;
-        }
-
-        if (delta.OpenGeneration == _openGeneration
-            && delta.OpenLength != _openLength + (delta.OpenSuffix?.Length ?? 0))
-        {
-            return false;
-        }
-
-        if (removed > 0)
-        {
-            RemoveFrontRaw(removed);
-        }
-
-        _droppedApplied = delta.Dropped;
-
-        var index = 0;
-
-        if (_openRaw is not null && sealedLines.Count > 0)
-        {
-            // 刚才那条"当前行"已经封口：它已经是视图里的最后一条 raw，不重复追加。
-            // 只有缓冲真的截过它的开头时才整行重排；单纯封口时视图手里的文本就是对的。
-            if (delta.OpenTrimGeneration != _openTrimGeneration)
-            {
-                ReplaceRawText(_openRaw, sealedLines[0]);
-            }
-
-            _openRaw = null;
-            index = 1;
-        }
-
-        for (; index < sealedLines.Count; index++)
-        {
-            AppendRawLine(sealedLines[index]);
-        }
-
-        if (delta.OpenGeneration != _openGeneration)
-        {
-            ReplaceOpenLine(delta.OpenText ?? string.Empty);
-        }
-        else if (!string.IsNullOrEmpty(delta.OpenSuffix))
-        {
-            AppendOpenText(delta.OpenSuffix!);
-        }
-
-        _openGeneration = delta.OpenGeneration;
-        _openLength = delta.OpenLength;
-        _openTrimGeneration = delta.OpenTrimGeneration;
-        _sealedApplied = delta.SealedCount;
-
-        RecomputeLayout();
         InvalidateMeasure();
         InvalidateVisual();
         ScrollToEndIfNeeded(appended: true);
@@ -403,34 +271,143 @@ public sealed class IncrementalTextView : TemplatedControl
     }
 
     /// <summary>
-    /// 记下"全量快照已经应用到哪个游标"（<see cref="ApplySnapshot"/> 之后调用）。
+    /// **应用一次窗口**（每帧热路径）：只处理新增的已封口行、当前行的新增后缀/整行与头部裁剪。
     /// </summary>
-    /// <param name="cursor">快照对应的游标。</param>
-    public void SetDeltaCursor(DisplayCursor cursor)
+    /// <param name="window">缓冲给出的窗口（<see cref="TextWindow.Reset"/> 时随附全部内容）。</param>
+    /// <param name="sealedLines">与窗口配套的已封口行。</param>
+    /// <returns>是否应用成功；<see langword="false"/> = 控件内部状态与窗口对不上，调用方应改用全量快照。</returns>
+    /// <remarks>
+    /// 它替代"每帧取全量快照再比对"：追加只碰最后一条，头部裁剪只删最旧的若干条，
+    /// 代价与**这一拍新增的数据量**成正比，与缓冲里已有多少内容无关。
+    /// </remarks>
+    public bool ApplyWindow(TextWindow window, IReadOnlyList<string> sealedLines)
     {
-        _droppedApplied = cursor.Dropped;
+        ArgumentNullException.ThrowIfNull(sealedLines);
+
+        if (window.Reset)
+        {
+            ResetAll();
+
+            foreach (var text in sealedLines)
+            {
+                AppendSealedRawLine(text);
+            }
+
+            ReplaceOpenLine(window.OpenText ?? string.Empty);
+
+            _version = window.Version;
+            _sealedApplied = window.SealedCount;
+            _openLength = window.OpenLength;
+            _openVersion = window.OpenVersion;
+            _revision = window.Revision;
+
+            RecomputeLayout();
+            InvalidateMeasure();
+            InvalidateVisual();
+            ScrollToEndIfNeeded(appended: true);
+            return true;
+        }
+
+        var sealedRawCount = _raw.Count - (_openRaw is null ? 0 : 1);
+        var firstRawAbsolute = _sealedApplied - sealedRawCount;
+        var removed = window.Dropped - firstRawAbsolute;
+
+        if (removed < 0 || window.SealedCount < _sealedApplied)
+        {
+            return false;
+        }
+
+        removed = Math.Min(removed, sealedRawCount);
+
+        var oldDisplayCount = _display.Count;
+        var oldVisualCount = _visuals.Count;
+        var changedOpen = _openRaw is not null;
+        var oldOpenSegments = _openRaw?.Segments.Count ?? 0;
+        var oldOpenVisualStart = oldOpenSegments > 0
+            ? _openRaw!.Segments[0].VisualStart
+            : oldVisualCount;
+
+        if (removed > 0)
+        {
+            RemoveFrontRaw(removed);
+        }
+
+        var index = 0;
+
+        if (_openRaw is not null && sealedLines.Count > 0)
+        {
+            // 旧当前行封口：用缓冲给的最终文本替换它（封口/裁剪都可能改过它）。
+            ReplaceRawText(_openRaw, sealedLines[0]);
+            _openRaw = null;
+            index = 1;
+        }
+
+        for (; index < sealedLines.Count; index++)
+        {
+            AppendSealedRawLine(sealedLines[index]);
+        }
+
+        if (window.OpenText is not null)
+        {
+            ReplaceOpenLine(window.OpenText);
+        }
+        else if (!string.IsNullOrEmpty(window.OpenSuffix))
+        {
+            AppendOpenText(window.OpenSuffix!);
+        }
+
+        _version = window.Version;
+        _openVersion = window.OpenVersion;
+        _openLength = window.OpenLength;
+        _sealedApplied = window.SealedCount;
+        _revision = window.Revision;
+
+        if (removed == 0 && oldDisplayCount > 0 && window.OpenText is null)
+        {
+            var startLine = changedOpen
+                ? oldDisplayCount - oldOpenSegments
+                : oldDisplayCount;
+
+            if (startLine >= 0 && startLine < _display.Count)
+            {
+                var startVisual = changedOpen
+                    ? oldOpenVisualStart
+                    : oldVisualCount;
+
+                RecomputeLayoutFrom(startLine, startVisual);
+            }
+            else
+            {
+                RecomputeLayout();
+            }
+        }
+        else
+        {
+            RecomputeLayout();
+        }
+
+        InvalidateMeasure();
+        InvalidateVisual();
+        ScrollToEndIfNeeded(appended: true);
+        return true;
+    }
+
+    /// <summary>记下"全量快照/尾部窗口已经应用到哪个游标"（<see cref="ApplySnapshot"/> 之后调用）。</summary>
+    /// <param name="cursor">快照对应的游标。</param>
+    public void SetCursor(TextCursor cursor)
+    {
+        _version = cursor.Version;
         _sealedApplied = cursor.SealedCount;
-        _openGeneration = cursor.OpenGeneration;
         _openLength = cursor.OpenLength;
-        _openTrimGeneration = cursor.OpenTrimGeneration;
+        _openVersion = cursor.OpenVersion;
 
         // 快照里最后一条就是"当前行"（它非空时才会被写进快照）。
         _openRaw = cursor.OpenLength > 0 && _raw.Count > 0 ? _raw[^1] : null;
     }
 
-    /// <summary>
-    /// **封口行从头重来**时的视图重建（数据全部来自增量，不取全量快照）。
-    /// </summary>
-    /// <remarks>
-    /// 触发条件是"视图游标落后于裁剪点"：它手里的封口行都没了，但当前行仍在。
-    /// 这里只重排"当前封口行 + 当前行"，不会为了拿一行文本去造整块快照 ——
-    /// 那会在 LOH 上周期性地分配大字符串，表现为"关闭显示器也不回落"的缓慢增长。
-    /// </remarks>
-    private void ResetFromDelta(DisplayDelta delta, IReadOnlyList<string> sealedLines)
+    /// <summary>清空视图的全部文本/布局状态（重置窗口用）。</summary>
+    private void ResetAll()
     {
-        var previousOpen = _openRaw?.Text.ToString() ?? string.Empty;
-        var openText = delta.OpenText ?? previousOpen + (delta.OpenSuffix ?? string.Empty);
-
         foreach (var line in _display)
         {
             DisposeVisuals(line);
@@ -441,25 +418,6 @@ public sealed class IncrementalTextView : TemplatedControl
         _visuals.Clear();
         _laidOut.Clear();
         _openRaw = null;
-
-        foreach (var text in sealedLines)
-        {
-            AppendRawLine(text);
-        }
-
-        ReplaceOpenLine(openText);
-
-        _sealedApplied = delta.SealedCount;
-        _droppedApplied = delta.Dropped;
-        _openGeneration = delta.OpenGeneration;
-        _openLength = delta.OpenLength;
-        _openTrimGeneration = delta.OpenTrimGeneration;
-        _revision = delta.Revision;
-
-        RecomputeLayout();
-        InvalidateMeasure();
-        InvalidateVisual();
-        ScrollToEndIfNeeded(appended: true);
     }
 
     /// <summary>清除选择。</summary>
@@ -868,7 +826,9 @@ public sealed class IncrementalTextView : TemplatedControl
         for (var i = 0; i < lines.Count; i++)
         {
             var text = lines[i] ?? string.Empty;
-            var raw = new RawLine { Text = new StringBuilder(text), Index = i };
+            var raw = i == lines.Count - 1
+                ? new RawLine { Text = new StringBuilder(text), Index = i }
+                : new RawLine { SealedText = text, Index = i };
             AddSegments(raw, text);
             _raw.Add(raw);
         }
@@ -878,6 +838,7 @@ public sealed class IncrementalTextView : TemplatedControl
             SetChannelBreak(_raw[i], true);
         }
 
+        _openRaw = _raw.Count > 0 ? _raw[^1] : null;
         RecomputeLayout();
     }
 
@@ -892,30 +853,31 @@ public sealed class IncrementalTextView : TemplatedControl
                 continue;
             }
 
-            var segmentText = text[start..i];
-            if (segmentText.EndsWith('\r'))
+            var length = i - start;
+            if (length > 0 && text[i - 1] == '\r')
             {
-                segmentText = segmentText[..^1];
+                length--;
             }
 
-            AddDisplayLine(raw, segmentText, realBreak: true);
+            AddDisplayLine(raw, start, length, realBreak: true);
             start = i + 1;
         }
 
-        var last = text[start..];
-        if (last.EndsWith('\r'))
+        var tailLength = text.Length - start;
+        if (tailLength > 0 && text[^1] == '\r')
         {
-            last = last[..^1];
+            tailLength--;
         }
 
-        AddDisplayLine(raw, last, realBreak: false);
+        AddDisplayLine(raw, start, tailLength, realBreak: false);
     }
 
-    private void AddDisplayLine(RawLine raw, string text, bool realBreak)
+    private void AddDisplayLine(RawLine raw, int startInRaw, int length, bool realBreak)
     {
         var line = new DisplayLine
         {
-            Text = new StringBuilder(text),
+            StartInRaw = startInRaw,
+            Length = length,
             RealBreak = realBreak,
             Owner = raw,
         };
@@ -941,109 +903,6 @@ public sealed class IncrementalTextView : TemplatedControl
         last.ChannelBreak = value;
     }
 
-    private bool TryApplyAppend(IReadOnlyList<string> lines, out bool appended)
-    {
-        appended = false;
-
-        var oldCount = _raw.Count;
-        var newCount = lines.Count;
-
-        if (newCount < oldCount)
-        {
-            return false;
-        }
-
-        // 前面的原始行必须一一相同；只允许“最后一行变长 / 尾部新增行”。
-        for (var i = 0; i < oldCount - 1; i++)
-        {
-            if (!string.Equals(_raw[i].Text.ToString(), lines[i], StringComparison.Ordinal))
-            {
-                return false;
-            }
-        }
-
-        var lastText = _raw[^1].Text.ToString();
-
-        if (string.Equals(lastText, lines[oldCount - 1], StringComparison.Ordinal))
-        {
-            if (newCount == oldCount)
-            {
-                return true; // 变更号变了但内容一样（例如只改了丢弃计数）
-            }
-
-            for (var i = oldCount; i < newCount; i++)
-            {
-                AppendRawLine(lines[i]);
-            }
-
-            appended = true;
-            return true;
-        }
-
-        if (!lines[oldCount - 1].StartsWith(lastText, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var suffix = lines[oldCount - 1][lastText.Length..];
-        AppendToRaw(_raw[^1], suffix);
-
-        for (var i = oldCount; i < newCount; i++)
-        {
-            AppendRawLine(lines[i]);
-        }
-
-        appended = true;
-        return true;
-    }
-
-    private bool TryApplyRolling(IReadOnlyList<string> lines)
-    {
-        var oldCount = _raw.Count;
-        var newCount = lines.Count;
-
-        if (newCount == 0 || newCount > oldCount)
-        {
-            return false;
-        }
-
-        if (newCount == oldCount && string.Equals(_raw[0].Text.ToString(), lines[0], StringComparison.Ordinal))
-        {
-            return false; // 等长且头部没变：这是“最后一行变化”，不是删头+追尾
-        }
-
-        // 容量到顶时缓冲会“删头 + 追尾”同时发生；只允许从头部裁掉少量行（正常每帧 1 行）。
-        // 这里做的是“先找到旧列表的一个后缀 == 新列表的前缀”，再删头、把余下部分按追加处理；
-        // 不能退回 Rebuild——那会在 20k 行时每追加一行都重排全文。
-        var maxRemove = Math.Min(oldCount - 1, 64);
-
-        for (var remove = 1; remove <= maxRemove; remove++)
-        {
-            var remaining = oldCount - remove;
-            var compare = Math.Min(remaining, newCount);
-            var match = compare > 0;
-
-            for (var i = 0; i < compare; i++)
-            {
-                if (!string.Equals(_raw[remove + i].Text.ToString(), lines[i], StringComparison.Ordinal))
-                {
-                    match = false;
-                    break;
-                }
-            }
-
-            if (!match)
-            {
-                continue;
-            }
-
-            RemoveFrontRaw(remove);
-            return TryApplyAppend(lines, out _);
-        }
-
-        return false;
-    }
-
     private void RemoveFrontRaw(int count)
     {
         var removedChars = 0;
@@ -1053,7 +912,7 @@ public sealed class IncrementalTextView : TemplatedControl
         {
             foreach (var segment in _raw[i].Segments)
             {
-                removedChars += segment.Text.Length + (segment.HasBreak ? 1 : 0);
+                removedChars += segment.Length + (segment.HasBreak ? 1 : 0);
                 removedSegments++;
                 DisposeVisuals(segment);
             }
@@ -1089,7 +948,7 @@ public sealed class IncrementalTextView : TemplatedControl
         _selectionAnchor = Math.Max(0, _selectionAnchor - removedChars);
     }
 
-    private void AppendRawLine(string text)
+    private void AppendRawLine(string text, bool sealedLine = false)
     {
         if (_raw.Count > 0)
         {
@@ -1097,10 +956,20 @@ public sealed class IncrementalTextView : TemplatedControl
         }
 
         var value = text ?? string.Empty;
-        var raw = new RawLine { Text = new StringBuilder(value), Index = _raw.Count };
+        var raw = sealedLine
+            ? new RawLine { SealedText = value, Index = _raw.Count }
+            : new RawLine { Text = new StringBuilder(value), Index = _raw.Count };
+
         AddSegments(raw, value);
         _raw.Add(raw);
+
+        if (!sealedLine)
+        {
+            _openRaw = raw;
+        }
     }
+
+    private void AppendSealedRawLine(string text) => AppendRawLine(text, sealedLine: true);
 
     private void AppendToRaw(RawLine raw, string suffix)
     {
@@ -1109,13 +978,15 @@ public sealed class IncrementalTextView : TemplatedControl
             return;
         }
 
-        raw.Text.Append(suffix);
+        var baseOffset = raw.Length;
+        raw.EnsureOpen();
+        raw.Text!.Append(suffix);
 
         var last = raw.Segments.Count > 0 ? raw.Segments[^1] : null;
 
         if (last is null)
         {
-            AddDisplayLine(raw, string.Empty, realBreak: false);
+            AddDisplayLine(raw, 0, 0, realBreak: false);
             last = raw.Segments[^1];
         }
 
@@ -1127,40 +998,45 @@ public sealed class IncrementalTextView : TemplatedControl
                 continue;
             }
 
-            var part = suffix[start..i];
-            if (part.EndsWith('\r'))
+            var length = i - start;
+            if (length > 0 && suffix[i - 1] == '\r')
             {
-                part = part[..^1];
+                length--;
             }
 
-            AppendToDisplayLine(last, part);
+            AppendToDisplayLine(last, length);
             last.RealBreak = true;
             last.ChannelBreak = false;
 
-            last = new DisplayLine { Text = new StringBuilder(), Owner = raw };
+            last = new DisplayLine
+            {
+                StartInRaw = baseOffset + i + 1,
+                Owner = raw,
+            };
+
             raw.Segments.Add(last);
             _display.Add(last);
             LayoutLine(last, append: false);
             start = i + 1;
         }
 
-        var tail = suffix[start..];
-        if (tail.EndsWith('\r'))
+        var tailLength = suffix.Length - start;
+        if (tailLength > 0 && suffix[^1] == '\r')
         {
-            tail = tail[..^1];
+            tailLength--;
         }
 
-        AppendToDisplayLine(last, tail);
+        AppendToDisplayLine(last, tailLength);
     }
 
-    private void AppendToDisplayLine(DisplayLine line, string suffix)
+    private void AppendToDisplayLine(DisplayLine line, int length)
     {
-        if (suffix.Length == 0)
+        if (length == 0)
         {
             return;
         }
 
-        line.Text.Append(suffix);
+        line.Length += length;
         line.RealBreak = false;
         line.ChannelBreak = false;
         LayoutLine(line, append: true);
@@ -1180,7 +1056,7 @@ public sealed class IncrementalTextView : TemplatedControl
             return;
         }
 
-        AppendRawLine(text);
+        AppendRawLine(text, sealedLine: false);
         _openRaw = _raw[^1];
     }
 
@@ -1189,7 +1065,7 @@ public sealed class IncrementalTextView : TemplatedControl
     {
         if (_openRaw is null)
         {
-            AppendRawLine(suffix);
+            AppendRawLine(suffix, sealedLine: false);
             _openRaw = _raw[^1];
             return;
         }
@@ -1204,8 +1080,8 @@ public sealed class IncrementalTextView : TemplatedControl
 
         RemoveRawSegments(raw);
         raw.Segments.Clear();
-        raw.Text.Clear();
-        raw.Text.Append(value);
+        raw.SealedText = value;
+        raw.Text = null;
         AddSegments(raw, value);
     }
 
@@ -1273,13 +1149,13 @@ public sealed class IncrementalTextView : TemplatedControl
         if (!append || line.Visuals.Count == 0)
         {
             DisposeVisuals(line);
-            AppendChunk(line, line.Text.ToString(), startInLine: 0);
+            AppendChunk(line, line.GetText(), startInLine: 0);
             return;
         }
 
         // 只重建最后一个视觉行：前面的视觉行已经固定。
         var last = line.Visuals[^1];
-        var pendingText = line.Text.ToString(last.StartInLine, line.Text.Length - last.StartInLine);
+        var pendingText = line.GetText(last.StartInLine, line.Length - last.StartInLine);
         ReleaseLayout(last);
         line.Visuals.RemoveAt(line.Visuals.Count - 1);
         AppendChunk(line, pendingText, last.StartInLine);
@@ -1374,7 +1250,8 @@ public sealed class IncrementalTextView : TemplatedControl
         foreach (var line in _display)
         {
             line.FlatStart = flat;
-            flat += line.Text.Length + (line.HasBreak ? 1 : 0);
+            flat += line.Length + (line.HasBreak ? 1 : 0);
+            line.VisualStart = _visuals.Count;
 
             foreach (var visual in line.Visuals)
             {
@@ -1386,6 +1263,52 @@ public sealed class IncrementalTextView : TemplatedControl
         }
 
         _contentHeight = top;
+        _flatEnd = flat;
+        _selectionStart = Math.Clamp(_selectionStart, 0, flat);
+        _selectionEnd = Math.Clamp(_selectionEnd, 0, flat);
+    }
+
+    /// <summary>
+    /// 只重排从 <paramref name="startLine"/> 起新增/变化的显示行；追加时不必扫描整段文本。
+    /// </summary>
+    private void RecomputeLayoutFrom(int startLine, int startVisual)
+    {
+        if (startLine <= 0
+            || startLine >= _display.Count
+            || startVisual < 0
+            || startVisual > _visuals.Count)
+        {
+            RecomputeLayout();
+            return;
+        }
+
+        _visuals.RemoveRange(startVisual, _visuals.Count - startVisual);
+
+        var previous = _display[startLine - 1];
+        var flat = previous.FlatStart + previous.Length + (previous.HasBreak ? 1 : 0);
+        var lineHeight = LineHeight;
+        var top = previous.Visuals.Count > 0
+            ? previous.Visuals[^1].Top + lineHeight
+            : _contentHeight;
+
+        for (var index = startLine; index < _display.Count; index++)
+        {
+            var line = _display[index];
+            line.FlatStart = flat;
+            flat += line.Length + (line.HasBreak ? 1 : 0);
+            line.VisualStart = _visuals.Count;
+
+            foreach (var visual in line.Visuals)
+            {
+                visual.Top = top;
+                visual.Index = _visuals.Count;
+                top += lineHeight;
+                _visuals.Add(visual);
+            }
+        }
+
+        _contentHeight = top;
+        _flatEnd = flat;
         _selectionStart = Math.Clamp(_selectionStart, 0, flat);
         _selectionEnd = Math.Clamp(_selectionEnd, 0, flat);
     }
@@ -1421,7 +1344,7 @@ public sealed class IncrementalTextView : TemplatedControl
 
         visual.Materialized ??= visual.Length == 0
             ? string.Empty
-            : visual.Owner.Text.ToString(visual.StartInLine, visual.Length);
+            : visual.Owner.GetText(visual.StartInLine, visual.Length);
 
         var layout = CreateLayout(visual.Materialized, wrap: false);
         visual.Layout = layout;
@@ -1618,7 +1541,7 @@ public sealed class IncrementalTextView : TemplatedControl
 
         foreach (var line in _display)
         {
-            builder.Append(line.Text);
+            builder.Append(line.GetText());
 
             if (line.HasBreak)
             {
@@ -1631,16 +1554,46 @@ public sealed class IncrementalTextView : TemplatedControl
 
     private sealed class RawLine
     {
-        public StringBuilder Text = new();
+        /// <summary>已封口行：直接引用缓冲给出的字符串，不复制。</summary>
+        public string? SealedText;
+
+        /// <summary>当前行（未封口）的追加缓冲；封口行不分配。</summary>
+        public StringBuilder? Text;
 
         public int Index;
 
         public List<DisplayLine> Segments { get; } = [];
+
+        public int Length => SealedText?.Length ?? Text?.Length ?? 0;
+
+        public string GetText() => SealedText ?? Text?.ToString() ?? string.Empty;
+
+        public string Slice(int start, int length) =>
+            SealedText is { } text
+                ? text.Substring(start, length)
+                : Text?.ToString(start, length) ?? string.Empty;
+
+        /// <summary>把封口行转回可追加的当前行（只对真正要追加的行调用）。</summary>
+        public void EnsureOpen()
+        {
+            if (SealedText is { } text)
+            {
+                Text = new StringBuilder(text);
+                SealedText = null;
+                return;
+            }
+
+            Text ??= new StringBuilder();
+        }
     }
 
     private sealed class DisplayLine
     {
-        public StringBuilder Text = new();
+        /// <summary>本条显示行在 <see cref="Owner"/> 的 raw 文本里的起点。</summary>
+        public int StartInRaw;
+
+        /// <summary>本条显示行的字符数（不含真实换行符）。</summary>
+        public int Length;
 
         public bool RealBreak;
 
@@ -1650,9 +1603,18 @@ public sealed class IncrementalTextView : TemplatedControl
 
         public int FlatStart;
 
+        public int VisualStart;
+
         public RawLine Owner = null!;
 
         public List<VisualLine> Visuals { get; } = [];
+
+        /// <summary>取整条显示行文本（复制；仅 Text/复制等非热路径用）。</summary>
+        public string GetText() => Owner.Slice(StartInRaw, Length);
+
+        /// <summary>取显示行内从 <paramref name="start"/> 起的 <paramref name="length"/> 个字符（复制）。</summary>
+        public string GetText(int start, int length) =>
+            Owner.Slice(StartInRaw + start, length);
     }
 
     private sealed class VisualLine

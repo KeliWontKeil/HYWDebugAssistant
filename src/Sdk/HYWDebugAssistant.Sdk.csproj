@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    L1 契约层（模块作者唯一引用面）：分层与依赖见 docs/zh/concepts/layers.md
+    L1 契约层（模块作者唯一引用面）：分层与依赖见 docs/zh/project/code-structure.md
     硬约束：零框架依赖 —— 不得引任何 ProjectReference / PackageReference（AR-9 / C1-4）
     内容：模块特性与声明基元、生命周期钩子接口、上下文服务面、契约形状声明、上报 API
   -->

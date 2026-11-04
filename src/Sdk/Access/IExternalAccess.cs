@@ -10,8 +10,8 @@ namespace HYWDebugAssistant.Sdk.Access;
 ///   <item><b>双向</b>：<see cref="TryRead"/> / <see cref="SetReceiveHandler"/> 收，<see cref="Write"/> 发；</item>
 ///   <item><b>模块只发请求</b>：<see cref="RequestOpen"/> / <see cref="RequestClose"/> 不直接操作连接，
 ///     由框架在实例循环里执行并持有会话；</item>
-///   <item><b>两种消费方式由"有没有活动体"唯一决定</b>：有活动体的模块不设接收回调、在自己的循环里
-///     <see cref="TryRead"/>；无活动体的模块设回调、由实例循环投递。<b>不能同时有两个消费者</b>；</item>
+///   <item><b>两种消费方式由模块的 <c>ReceiveMode</c> 唯一决定</b>：Push 设回调、由实例循环投递；
+///     Pull 在 <c>OnStep(Session)</c> 里 <see cref="TryRead"/>。<b>不能同时有两个消费者</b>；</item>
 ///   <item><b>状态不做事</b>事件面：<see cref="GetSnapshot"/> 是唯一事实源。</item>
 /// </list>
 /// </remarks>
@@ -30,14 +30,14 @@ public interface IExternalAccess
     /// <summary>
     /// 主动取一个数据单元（非阻塞；无数据时返回 <see langword="false"/>）。
     /// </summary>
-    /// <remarks>适用于有活动体的模块；**设了接收回调的会话不应再调本方法**（两个消费者）。</remarks>
+    /// <remarks>适用于 Pull 模式；**设了接收回调的会话不应再调本方法**（两个消费者）。</remarks>
     /// <param name="accessName">接入名。</param>
     /// <param name="destination">目标缓冲；小于单元长度 ⇒ 丢弃并计数。</param>
     /// <param name="length">实际字节数。</param>
     bool TryRead(string accessName, Span<byte> destination, out int length);
 
     /// <summary>
-    /// 设接收回调（无活动体模块用）：框架在实例线程上把数据单元交给它；与 <see cref="TryRead"/> 互斥。
+    /// 设接收回调（Push 模式）：框架在实例线程上把数据单元交给它；与 <see cref="TryRead"/> 互斥。
     /// </summary>
     /// <param name="accessName">接入名。</param>
     /// <param name="handler">处理委托（生命周期仅限本次调用；需要留存时自行拷贝）。</param>
@@ -48,23 +48,9 @@ public interface IExternalAccess
     /// <param name="payload">有效字节（不含应用组帧）。</param>
     bool Write(string accessName, ReadOnlySpan<byte> payload);
 
-    /// <summary>
-    /// 推进本实例的全部接入会话：执行打开/关闭请求、取数、探活。
-    /// </summary>
-    /// <remarks>
-    /// <list type="bullet">
-    ///   <item>**有活动体的模块每轮循环都要调用一次**：打开/关闭请求由会话推进执行，不推进就永远不打开；</item>
-    ///   <item>无活动体的模块由框架的实例循环代为推进，模块不需要调用；</item>
-    ///   <item>默认实现什么都不做（未接线的替身与旧实现不必改）。</item>
-    /// </list>
-    /// </remarks>
-    /// <returns>这一拍是否有工作。</returns>
-    bool Pump() => false;
-
     /// <summary>取当前快照（未知接入名 ⇒ <see cref="ExternalAccessSnapshot.None"/>）。</summary>
     /// <param name="accessName">接入名。</param>
     ExternalAccessSnapshot GetSnapshot(string accessName);
-
     /// <summary>
     /// 清空该接入的计数（收 / 发 / 丢弃 / 被拒）。
     /// </summary>
@@ -84,13 +70,4 @@ public interface IExternalAccess
     /// </remarks>
     /// <param name="accessName">接入名。</param>
     Type? GetParametersType(string accessName) => null;
-
-    /// <summary>
-    /// **下一条周期性需求**：本实例的接入会话里最晚多久必须回来推进一次（无 ⇒ <see langword="null"/>）。
-    /// </summary>
-    /// <remarks>
-    /// 只为"没有事件也会变化"的会话准备（设备探活）；数据 / 开关 / 故障都有信号，不靠它。
-    /// 默认实现返回 <see langword="null"/>（未接线的替身不必关心）。
-    /// </remarks>
-    TimeSpan? NextWakeup => null;
 }

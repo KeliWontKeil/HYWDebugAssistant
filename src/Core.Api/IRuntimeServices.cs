@@ -197,6 +197,11 @@ public interface IRuntimeQuery
     /// <param name="instanceId">实例 ID（不存在 / 占位实例 ⇒ 空列表）。</param>
     IReadOnlyList<AppearanceView> GetAppearance(string instanceId);
 
+    /// <summary>某实例外观表的变更号（UI 据此跳过未变化的整表读取/角色解析）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <returns>变更号；实例不存在 ⇒ 0。</returns>
+    long GetAppearanceRevision(string instanceId) => 0;
+
     /// <summary>
     /// 某实例参与的**角色间数据流**清单：已按（本端角色, 对端实例, 对端角色）**聚合**并给出口对数。
     /// </summary>

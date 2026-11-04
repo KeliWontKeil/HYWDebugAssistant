@@ -35,7 +35,7 @@ namespace HYWDebugAssistant.Modules.TcpServer;
     WindowWidth = 400,
     WindowHeight = 166,
     ViewFactory = typeof(Views.TcpServerViewFactory))]
-public sealed class TcpServerModule : IModule, IModuleInteractionSink
+public sealed class TcpServerModule : IModule, IActivitySource
 {
     /// <summary>接入名（模块内唯一）。</summary>
     public const string AccessName = "tcp-server";
@@ -168,16 +168,37 @@ public sealed class TcpServerModule : IModule, IModuleInteractionSink
     public void OnActivated() => _channel?.Attach(OnAccessData);
 
     /// <inheritdoc />
-    public void OnCommand(string commandName) => _ = _channel?.HandleCommand(commandName);
+    public ReceiveMode Receive => ReceiveMode.Push;
 
     /// <inheritdoc />
-    public void OnInput(string sourceName, string text)
+    public void OnStep(IModuleContext context, StepReason reason)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        while (context.Inbox.TryDequeueCommand(out var command))
+        {
+            OnCommand(command);
+        }
+
+        while (context.Inbox.TryDequeueInput(out var source, out var text))
+        {
+            OnInput(source, text);
+        }
+
+        OnWork();
+    }
+
+    /// <summary>执行一条命令（step 与直接测试共用）。</summary>
+    public void OnCommand(string commandName) => _ = _channel?.HandleCommand(commandName);
+
+    /// <summary>输入回调（本模块没有输入语义）。</summary>
+    public static void OnInput(string sourceName, string text)
     {
         _ = sourceName;
         _ = text;
     }
 
-    /// <inheritdoc />
+    /// <summary>发布状态（step 与直接测试共用）。</summary>
     public void OnWork() => _channel?.PublishStatus();
 
     /// <summary>外部原始字节到达（实例线程）：组帧并从 <c>rx</c> 口发出。</summary>

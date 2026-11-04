@@ -43,7 +43,6 @@ internal sealed class SurfaceSourceReader
     private readonly byte[] _seriesScratch = new byte[SeriesScratchSize];
     private readonly double[] _seriesValues = new double[MaxSeriesPoints];
     private readonly Dictionary<(string InstanceId, string Source), SubscriptionSourceView> _sources = [];
-    private readonly Dictionary<(string InstanceId, string Source), long> _bufferSequences = [];
 
     /// <summary>显示缓冲的最近一次快照（同一个变更号 ⇒ 直接复用，不再复制行表）。</summary>
     private readonly Dictionary<(string InstanceId, string Source), BufferSnapshot> _bufferCache = [];
@@ -155,36 +154,34 @@ internal sealed class SurfaceSourceReader
     }
 
     /// <summary>
-    /// 取某个**显示缓冲**自游标以来的增量（每帧热路径）。
+    /// 取某个**显示缓冲**自游标以来的窗口（每帧热路径）。
     /// </summary>
     /// <param name="instanceId">实例 ID。</param>
     /// <param name="sourceName">显示源名。</param>
     /// <param name="cursor">上一拍读到的位置。</param>
     /// <param name="sealedLines">接收新增已封口行的缓冲（调用方持有）。</param>
-    /// <returns>增量；没有视图状态（设计期/未接线）或游标失效时为"需要全量重建"。</returns>
-    internal DisplayDelta ReadDelta(
+    /// <returns>窗口；没有视图状态（设计期/未接线）时为重置窗口。</returns>
+    internal TextWindow ReadWindow(
         string instanceId,
         string sourceName,
-        in DisplayCursor cursor,
-        List<string> sealedLines)
+        in TextCursor cursor,
+        List<string> sealedLines,
+        int maxChars = 0)
     {
         if (sourceName is not { Length: > 0 } || _viewState is null)
         {
-            return DisplayDelta.ResetRequired(cursor, 0, 0);
+            sealedLines.Clear();
+            return TextWindow.ResetRequired(cursor, 0);
         }
 
-        var buffer = _viewState.Display(instanceId, sourceName);
-
-        // 缓冲换了（重建 / 清空请求）⇒ 让缓存与游标一起作废，避免把旧快照当新内容。
-        var sequence = _bufferSequences.TryGetValue((instanceId, sourceName), out var value) ? value : 0L;
-        if (_bufferCache.TryGetValue((instanceId, sourceName), out var cached) && cached.Sequence != sequence)
-        {
-            _ = _bufferCache.Remove((instanceId, sourceName));
-            return DisplayDelta.ResetRequired(cursor, buffer.Capacity, buffer.Revision);
-        }
-
-        return buffer.ReadDelta(cursor, sealedLines);
+        return _viewState.Display(instanceId, sourceName).ReadWindow(cursor, sealedLines, maxChars);
     }
+
+    /// <summary>取某显示缓冲的变更号。</summary>
+    internal long ReadRevision(string instanceId, string sourceName) =>
+        sourceName is { Length: > 0 } && _viewState is not null
+            ? _viewState.Display(instanceId, sourceName).Revision
+            : 0;
 
     /// <summary>
     /// 读某个**显示缓冲**的当前全量行。
@@ -193,9 +190,8 @@ internal sealed class SurfaceSourceReader
     /// <param name="sourceName">视图绑定的显示源名。</param>
     /// <returns>快照 + 丢弃计数 + 世代号（从没被清空过 ⇒ 世代号 0）。</returns>
     /// <remarks>
-    /// 显示缓冲是 <b>UI 侧的、模块只写的</b>一份状态：模块经 <c>IViewDisplayAccess</c> 入队，
-    /// <c>ModuleWindowsViewModel</c> 在刷新节拍里落地，这里只读。世代号在缓冲被清空时递增 ——
-    /// 界面据此知道"手里那份副本已经过期"。
+    /// 显示缓冲由**框架持有**、由模块的**实例线程直接写**；UI 在这里只读。
+    /// 世代号在缓冲被清空时递增 —— 界面据此知道"手里那份副本已经过期"。
     /// </remarks>
     internal BufferSnapshot ReadBuffer(string instanceId, string sourceName)
     {
@@ -206,39 +202,47 @@ internal sealed class SurfaceSourceReader
 
         var buffer = _viewState.Display(instanceId, sourceName);
         var key = (instanceId, sourceName);
-        var sequence = _bufferSequences.TryGetValue(key, out var value) ? value : 0L;
         var revision = buffer.Revision;
 
         // **未变就不复制**：每个显示面每帧都会来读；同一个变更号直接复用上一份快照。
         // 变更时才 `Snapshot()`（复制行表）；行字符串本身共享，复制的是引用。
-        if (_bufferCache.TryGetValue(key, out var cached)
-            && cached.Sequence == sequence
-            && cached.Revision == revision)
+        if (_bufferCache.TryGetValue(key, out var cached) && cached.Revision == revision)
         {
             return cached;
         }
 
         var snapshot = new BufferSnapshot(
-            buffer.Snapshot(), buffer.DroppedCount, buffer.Capacity, sequence, revision);
+            buffer.Snapshot(), buffer.DroppedCount, buffer.Capacity, revision);
 
         _bufferCache[key] = snapshot;
         return snapshot;
     }
 
     /// <summary>
-    /// 记下"某个显示缓冲刚被清空"（世代号递增 ⇒ 界面手里的副本作废）。
+    /// 读某显示缓冲的**尾部窗口**（呈现超预算时跳读用）。
     /// </summary>
     /// <param name="instanceId">实例 ID。</param>
     /// <param name="sourceName">显示源名。</param>
-    /// <remarks>
-    /// 由落地清空请求的那一方（<c>ModuleSurfaceHost</c>）在 <c>Display(...).Clear()</c> 之后调用 ——
-    /// <b>清空的落地仍然只有一处</b>，这里只维护"版本"这件事。
-    /// </remarks>
-    internal void ForgetBuffer(string instanceId, string sourceName)
+    /// <param name="maxLines">最多取多少行。</param>
+    /// <param name="cursor">尾部对应的游标（后续增量从这之后开始）。</param>
+    /// <returns>尾部快照（只含尾部行）。</returns>
+    internal BufferSnapshot ReadTail(
+        string instanceId,
+        string sourceName,
+        int maxLines,
+        int maxChars,
+        out TextCursor cursor)
     {
-        var key = (instanceId, sourceName);
+        if (sourceName is not { Length: > 0 } || _viewState is null)
+        {
+            cursor = TextCursor.Empty;
+            return BufferSnapshot.Empty;
+        }
 
-        _bufferSequences[key] = (_bufferSequences.TryGetValue(key, out var value) ? value : 0L) + 1;
+        var buffer = _viewState.Display(instanceId, sourceName);
+        var lines = buffer.ReadTail(maxLines, maxChars, out cursor);
+
+        return new BufferSnapshot(lines, buffer.DroppedCount, buffer.Capacity, buffer.Revision);
     }
 
     /// <summary>按名字取数据源（不在本帧快照里 ⇒ <see langword="false"/>）。</summary>
@@ -251,7 +255,7 @@ internal sealed class SurfaceSourceReader
             return true;
         }
 
-        source = null!;
+        source = default;
         return false;
     }
 

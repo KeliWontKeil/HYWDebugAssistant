@@ -5,7 +5,6 @@ using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Resources;
-using HYWDebugAssistant.Sdk.Timing;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Context;
@@ -152,8 +151,8 @@ public interface IPortAccess
     /// <summary>注册接收处理（接收口）——**被动接收模式**：框架在数据到达时于该实例线程上调用。</summary>
     /// <remarks>
     /// 被动模式适用于**不实现** <see cref="Lifecycle.IActivitySource"/> 的模块（由框架驱动投递循环）。
-    /// 实现了自发活动的模块（活动体可阻塞）应改用**主动接收**（<see cref="TryReceive"/>），
-    /// 在自己的活动体内取数据——否则框架无法在其阻塞期间插入投递。
+    /// step 模块若选择 <c>ReceiveMode.Pull</c>，应在 <c>OnStep</c> 中调用**主动接收**
+    /// （<see cref="TryReceive"/>）自取数据。
     /// </remarks>
     void SetReceiveHandler(string portName, ReceiveHandler handler);
 
@@ -231,37 +230,23 @@ public interface IConfigurationAccess
 }
 
 /// <summary>
-/// 停止信号：模块的长时间活动应周期性检查该信号并尽快退出。
-/// </summary>
-public interface IStopSignal
-{
-    /// <summary>是否已请求停止。</summary>
-    bool IsStopRequested { get; }
-
-    /// <summary>停止取消令牌（等待类操作可直接链接它）。</summary>
-    CancellationToken StoppingToken => CancellationToken.None;
-
-    /// <summary>阻塞等待停止信号（可在活动体的空闲等待中使用）。</summary>
-    /// <param name="timeout">最长等待时间。</param>
-    /// <returns>已请求停止时为 <see langword="true"/>。</returns>
-    bool Wait(TimeSpan timeout);
-}
-
-/// <summary>
 /// **人机操作收件箱**：
 /// 框架把「用户点按钮 / 填输入框 / 拨开关」投递到这里，**模块在自身线程上消费**
 /// （与数据投递同一线程纪律：框架不跨线程直接调模块）。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>谁消费</b>：实现 <see cref="Lifecycle.IActivitySource"/> 的模块在其活动体内轮询
-///     （典型写法：<c>while (!stop) { while (inbox.TryDequeueCommand(out var cmd)) ...; }</c>）；</item>
+///   <item><b>谁消费</b>：实现 <see cref="Lifecycle.IActivitySource"/> 的模块在 <c>OnStep</c> 中排空
+///     （典型写法：<c>while (inbox.TryDequeueCommand(out var cmd)) ...;</c>）；</item>
 ///   <item><b>有界</b>：容量有限，满时**丢最旧**并计数（不阻塞 UI、不无限增长）；</item>
 ///   <item><b>语义</b>：命令 = "做一次"，输入 = "一个值"；两者都**不保证执行完成**（模块自行决定一次性/连续行为）。</item>
 /// </list>
 /// </remarks>
 public interface IModuleInbox
 {
+    /// <summary>是否还有待处理命令/输入（step 模型据此决定是否唤醒模块）。</summary>
+    bool HasPending => false;
+
     /// <summary>取一个待执行命令（非阻塞；无命令时返回 <see langword="false"/>）。</summary>
     /// <param name="commandName">命令名（视图声明中登记）。</param>
     bool TryDequeueCommand([NotNullWhen(true)] out string? commandName);
@@ -446,14 +431,6 @@ public interface IModuleContext
     /// 全归模块的 C# 逻辑（<see cref="IViewAppearanceAccess"/>）。
     /// </remarks>
     IViewAppearanceAccess Appearance { get; }
-
-    /// <summary>停止信号（长期活动必须响应）。</summary>
-    IStopSignal StopSignal { get; }
-
-    /// <summary>
-    /// **全局计时面**：模块的等待/周期节拍一律走它，不得自建 Timer / Thread.Sleep / DispatcherTimer。
-    /// </summary>
-    IModuleTiming Timing { get; }
 
     /// <summary>**人机操作收件箱**（命令 / 输入；模块在自身线程消费）。</summary>
     IModuleInbox Inbox { get; }

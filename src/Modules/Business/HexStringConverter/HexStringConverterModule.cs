@@ -120,9 +120,6 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     /// </remarks>
     public const string AlertRole = ViewInkRoles.Danger;
 
-    /// <summary>活动周期（20 ms）——每拍轮询一次输入，用户打字与切页都及时跟上。</summary>
-    public static readonly TimeSpan ActivityInterval = TimeSpan.FromMilliseconds(20);
-
     // ---------------------------------------------------------------- ② 声明块
 
     /// <inheritdoc />
@@ -157,22 +154,15 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     // ---------------------------------------------------------------- ③ 钩子块
 
     /// <inheritdoc />
-    public Sdk.Lifecycle.ActivityKind Kind => Sdk.Lifecycle.ActivityKind.Periodic;
+    public ReceiveMode Receive => ReceiveMode.Push;
 
     /// <inheritdoc />
-    public TimeSpan Interval => ActivityInterval;
-
-    /// <inheritdoc />
-    public void RunActivity(IModuleContext context)
+    public void OnStep(IModuleContext context, StepReason reason)
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        // 本模块**没有端口**、也没有活动体自身的业务 —— 活动体的唯一职责是"看着输入变没变"。
-        while (!context.StopSignal.IsStopRequested)
-        {
-            Poll(context);
-            _ = context.Timing.WaitFor(ActivityInterval);
-        }
+        // 本模块**没有端口**、也没有自身业务 —— 每次收到输入/命令/激活就重算一次。
+        Poll(context);
     }
 
     // ---------------------------------------------------------------- ④ 业务
@@ -197,7 +187,7 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     private readonly Dictionary<bool, (string Source, string Text)> _published = new();
 
     /// <summary>
-    /// **看一眼两个方向、该转就转**（活动体的单步；模块测试可直接调用）。
+    /// **看一眼两个方向、该转就转**（step 的单步；模块测试可直接调用）。
     /// </summary>
     /// <param name="context">模块上下文。</param>
     /// <remarks>

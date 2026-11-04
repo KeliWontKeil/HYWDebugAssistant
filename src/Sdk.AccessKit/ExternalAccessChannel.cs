@@ -83,7 +83,7 @@ public sealed class ExternalAccessChannel
         PublishStatus();
     }
 
-    /// <summary>主动取一个原始数据块（有活动体的模块用；与回调互斥）。</summary>
+    /// <summary>主动取一个原始数据块（step Pull 模块用；与回调互斥）。</summary>
     /// <param name="destination">目标缓冲；小于单元长度 ⇒ 丢弃并计数。</param>
     /// <param name="length">实际字节数。</param>
     public bool TryRead(Span<byte> destination, out int length) =>
@@ -92,12 +92,6 @@ public sealed class ExternalAccessChannel
     /// <summary>写一个原始数据块（有界等待；<see langword="false"/> = 未发出并已计入丢弃）。</summary>
     /// <param name="payload">有效字节（不含任何组帧）。</param>
     public bool Write(ReadOnlySpan<byte> payload) => _context.Access.Write(_spec.AccessName, payload);
-
-    /// <summary>
-    /// 推进本实例的接入会话（执行打开/关闭请求、取数、探活）。
-    /// </summary>
-    /// <remarks>有活动体的模块每轮循环调用一次；无活动体的模块由框架代为推进。</remarks>
-    public bool Pump() => _context.Access.Pump();
 
     /// <summary>
     /// 处理一条模块命令：打开 / 关闭 / 清空计数。

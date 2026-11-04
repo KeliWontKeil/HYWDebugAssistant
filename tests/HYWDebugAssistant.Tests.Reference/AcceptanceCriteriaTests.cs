@@ -16,7 +16,6 @@ using HYWDebugAssistant.Sdk.Views;
 using HYWDebugAssistant.Tests.Reference.Stubs;
 using Shouldly;
 using Xunit;
-using ActivityKind = HYWDebugAssistant.Sdk.Lifecycle.ActivityKind;
 
 namespace HYWDebugAssistant.Tests.Reference;
 
@@ -147,10 +146,10 @@ public class AcceptanceCriteriaTests
         TestLink.Link(composition.Services, new PortRef("h1", "out"), new PortRef("sa", "in"), "healthy-link");
         TestLink.Link(composition.Services, new PortRef("f1", "out"), new PortRef("sb", "in"), "faulty-link");
 
-        // ① 故障模块的活动体抛异常 → 受控捕获 + 上报，**不影响**健康链路
+        // ① 故障模块的 step 抛异常 → 受控捕获 + 上报，**不影响**健康链路
         composition.WaitForCount("h1", "value", atLeast: 1).ShouldBeTrue("健康链路应照常产生数据");
 
-        IssuesWith(composition, "活动体异常").ShouldNotBeEmpty("故障模块的异常应被边界捕获并上报（不逸出）");
+        IssuesWith(composition, "模块执行异常").ShouldNotBeEmpty("故障模块的异常应被边界捕获并上报（不逸出）");
 
         var healthyWrites = composition.Written("h1", "value");
         BusinessChainTests.Composition.WaitUntil(
@@ -449,9 +448,11 @@ public class AcceptanceCriteriaTests
 
         public static readonly ContractShape Shape = ContractShape.OfPrimitive(ContractPrimitive.U32);
 
-        public ActivityKind Kind => ActivityKind.Periodic;
+        public ReceiveMode Receive => ReceiveMode.Push;
 
-        public TimeSpan Interval => TimeSpan.FromMilliseconds(5);
+        public TimeSpan? NextDelay => TimeSpan.FromMilliseconds(5);
+
+        private uint _value;
 
         public void OnRegistered(IModuleContext context)
         {
@@ -459,20 +460,19 @@ public class AcceptanceCriteriaTests
             context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration("value", ViewDataSourceKind.Value, ContractPrimitive.F32));
         }
 
-        public void RunActivity(IModuleContext context)
+        public void OnStep(IModuleContext context, StepReason reason)
         {
-            var payload = new byte[4];
-            Span<byte> sample = stackalloc byte[4];
-            var value = 0u;
-
-            while (!context.StopSignal.IsStopRequested)
+            if (!reason.HasFlag(StepReason.Start) && !reason.HasFlag(StepReason.Due))
             {
-                BinaryPrimitives.WriteUInt32LittleEndian(payload, value++);
-                BinaryPrimitives.WriteSingleLittleEndian(sample, value);
-                _ = context.Ports.TrySend(OutPort, payload);
-                context.Ports.Publish("value", sample);
-                _ = context.StopSignal.Wait(TimeSpan.FromMilliseconds(5));
+                return;
             }
+
+            Span<byte> payload = stackalloc byte[4];
+            Span<byte> sample = stackalloc byte[4];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload, _value++);
+            BinaryPrimitives.WriteSingleLittleEndian(sample, _value);
+            _ = context.Ports.TrySend(OutPort, payload);
+            context.Ports.Publish("value", sample);
         }
     }
 
@@ -480,9 +480,7 @@ public class AcceptanceCriteriaTests
     [ModuleDefinition("test", "faulty")]
     public sealed class FaultyGeneratorModule : IModule, IActivitySource
     {
-        public ActivityKind Kind => ActivityKind.EventDriven;
-
-        public TimeSpan Interval => TimeSpan.FromMilliseconds(5);
+        public ReceiveMode Receive => ReceiveMode.Push;
 
         public void OnRegistered(IModuleContext context) =>
             context.Declaration.DeclarePort(new PortDeclaration(
@@ -490,7 +488,7 @@ public class AcceptanceCriteriaTests
                 PortDirection.Send,
                 ContractShape.OfPrimitive(ContractPrimitive.U32)));
 
-        public void RunActivity(IModuleContext context) =>
+        public void OnStep(IModuleContext context, StepReason reason) =>
             throw new InvalidOperationException("模拟模块内部故障（测试注入）");
     }
 
@@ -530,9 +528,11 @@ public class AcceptanceCriteriaTests
 
         public static readonly ContractLayout Layout = ContractLayout.FromShape(Shape);
 
-        public ActivityKind Kind => ActivityKind.Periodic;
+        public ReceiveMode Receive => ReceiveMode.Push;
 
-        public TimeSpan Interval => TimeSpan.FromMilliseconds(5);
+        public TimeSpan? NextDelay => TimeSpan.FromMilliseconds(5);
+
+        private uint _id;
 
         public void OnRegistered(IModuleContext context)
         {
@@ -540,23 +540,22 @@ public class AcceptanceCriteriaTests
             context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(ValueSource, ViewDataSourceKind.Value, ContractPrimitive.U32));
         }
 
-        public void RunActivity(IModuleContext context)
+        public void OnStep(IModuleContext context, StepReason reason)
         {
+            if (!reason.HasFlag(StepReason.Start) && !reason.HasFlag(StepReason.Due))
+            {
+                return;
+            }
+
             Span<byte> unit = stackalloc byte[Layout.SizeInBytes];
             Span<byte> sample = stackalloc byte[4];
-            var id = 0u;
+            var writer = new PayloadWriter(unit, Layout);
+            writer.WriteU32("id", _id++);
+            writer.WriteBytes("block", "hyw-reference-16"u8);
+            _ = context.Ports.TrySend(OutPort, unit);
 
-            while (!context.StopSignal.IsStopRequested)
-            {
-                var writer = new PayloadWriter(unit, Layout);
-                writer.WriteU32("id", id++);
-                writer.WriteBytes("block", "hyw-reference-16"u8);
-                _ = context.Ports.TrySend(OutPort, unit);
-
-                BinaryPrimitives.WriteUInt32LittleEndian(sample, id);
-                context.Ports.Publish(ValueSource, sample);
-                _ = context.StopSignal.Wait(TimeSpan.FromMilliseconds(5));
-            }
+            BinaryPrimitives.WriteUInt32LittleEndian(sample, _id);
+            context.Ports.Publish(ValueSource, sample);
         }
     }
 

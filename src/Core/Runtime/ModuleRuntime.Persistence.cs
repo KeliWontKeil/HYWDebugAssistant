@@ -445,42 +445,10 @@ public sealed partial class ModuleRuntime
     /// <summary>加入现场 + 启动承载 + 生命周期激活 + 应用活动面（**加载与占位解析共用**）。</summary>
     private void ActivateInstance(ModuleInstance instance, bool enabled)
     {
-        var adapter = new ModuleCarrierAdapter(instance, instance.Context, Issues);
+        var adapter = CreateAdapter(instance);
         Content.AddInstance(instance);
         _dataTypeLedger.Reconcile(Content.Instances, Issues);
-        _adapters[instance.InstanceId] = adapter;
-        _subscriptions[instance.InstanceId] = new SubscriptionSet(
-            instance.InstanceId, instance.DisplaySources);
-        instance.Context.AttachDataPlane(new RuntimePortAccess(this, instance.InstanceId, instance.Context));
-
-        // 外部接入必须在承载启动前挂上（加载路径与"加入现场"同口径）。
-        var runtimeAccess = AttachExternalAccess(instance);
-        if (runtimeAccess is not null)
-        {
-            _accesses[instance.InstanceId] = runtimeAccess;
-        }
-
-        if (!Carriers.TryActivate(adapter, out _, out var failure))
-        {
-            Issues.Report($"module:{instance.InstanceId}", new IssueReport(
-                IssueCategory.RuntimeError,
-                IssueSeverity.Error,
-                CoreText.Get("core.runtime.carrierStartFailed", failure)));
-            return;
-        }
-
-        _lifecycle.Activate(instance);
-
-        // 活动面：文件记录"禁用"时，加入后立即置为 Disabled（保留实例/拓扑/配置，只停流）
-        if (!enabled)
-        {
-            _lifecycle.Disable(instance);
-
-            if (_accesses.TryGetValue(instance.InstanceId, out var access))
-            {
-                access.SetSuspended(true);
-            }
-        }
+        _ = AttachAndStart(instance, adapter, enabled);
     }
 
     private void RestoreConfiguration(ModuleInstance instance, CompositeInstanceRecord record, List<string> notices)

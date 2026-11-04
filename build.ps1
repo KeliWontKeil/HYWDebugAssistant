@@ -175,6 +175,7 @@ if (-not $SkipTests) {
     $regularProjects = @($testProjects | Where-Object { $_ -notmatch 'VisualSnapshots' })
 
     $failed = @()
+
     foreach ($proj in @($regularProjects) + @($snapshotProjects)) {
         $label = [System.IO.Path]::GetFileNameWithoutExtension($proj)
         $isSnapshot = $proj -match 'VisualSnapshots'

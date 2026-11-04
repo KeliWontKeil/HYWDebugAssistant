@@ -12,35 +12,30 @@ using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
-using ActivityKind = HYWDebugAssistant.Sdk.Lifecycle.ActivityKind;
 
 namespace HYWDebugAssistant.Benchmarks;
 
-/// <summary>接收模式的空闲策略（同一份契约、同一拓扑，只换"消费者怎么等数据"）。</summary>
+/// <summary>接收模式（同一份契约、同一拓扑，只换"消费者怎么取数据"）。</summary>
 public enum ReceiveIdleMode
 {
     /// <summary>**被动接收**：模块只注册接收处理，框架投递循环用事件（入队即唤醒）等待。</summary>
     PassiveFrameworkLoop = 0,
 
-    /// <summary>**主动接收 + 框架停止信号等待**（参考桩模块当前写法：`StopSignal.Wait(1ms)` 当轮询间隔）。</summary>
-    ActiveStopSignalWait = 1,
-
-    /// <summary>**主动接收 + 模块自旋轮询**（忙等；占一个核）。</summary>
-    ActiveSpinPoll = 2,
+    /// <summary>**step Pull**：框架 step 循环投工作信号，模块在 OnStep 中自取。</summary>
+    StepPull = 1,
 }
 
 /// <summary>
-/// 清单 3 的**对照实验**：三种"消费者等待数据"的方式，在同一两跳链 A→B 上测单单元端到端延迟。
+/// 清单 3 的**对照实验**：两种"消费者取数据"的方式，在同一两跳链 A→B 上测单单元端到端延迟。
 /// </summary>
 /// <remarks>
-/// 这组数值回答的是**机制选择问题**（而非实现细节）：低频链路 15.6 ms 的延迟，
-/// 究竟该由"改停止信号实现"还是"给模块一个真正的等数据原语"来解决。
+/// 这组数值回答的是**机制选择问题**（而非实现细节）：被动回调与 step 自取各自的端到端延迟。
 /// </remarks>
 [MemoryDiagnoser]
 public class ReceiveModeBenchmarks : IDisposable
 {
     /// <summary>被实测的接收模式。</summary>
-    [Params(ReceiveIdleMode.PassiveFrameworkLoop, ReceiveIdleMode.ActiveStopSignalWait, ReceiveIdleMode.ActiveSpinPoll)]
+    [Params(ReceiveIdleMode.PassiveFrameworkLoop, ReceiveIdleMode.StepPull)]
     public ReceiveIdleMode Mode { get; set; }
 
     private ModuleRuntime _runtime = null!;
@@ -61,11 +56,8 @@ public class ReceiveModeBenchmarks : IDisposable
             case ReceiveIdleMode.PassiveFrameworkLoop:
                 Register("passive-sink", typeof(PassiveSinkModule));
                 break;
-            case ReceiveIdleMode.ActiveStopSignalWait:
-                Register("wait-sink", typeof(StopSignalWaitSinkModule));
-                break;
             default:
-                Register("spin-sink", typeof(SpinPollSinkModule));
+                Register("pull-sink", typeof(StepPullSinkModule));
                 break;
         }
 
@@ -76,8 +68,7 @@ public class ReceiveModeBenchmarks : IDisposable
         var sinkLiteral = Mode switch
         {
             ReceiveIdleMode.PassiveFrameworkLoop => "bench/passive-sink",
-            ReceiveIdleMode.ActiveStopSignalWait => "bench/wait-sink",
-            _ => "bench/spin-sink",
+            _ => "bench/pull-sink",
         };
 
         Require(_services.AddModule("b", sinkLiteral).Succeeded, "加入宿实例");
@@ -259,83 +250,31 @@ public class ReceiveModeBenchmarks : IDisposable
         }
     }
 
-    /// <summary>模式二：**主动接收 + 框架停止信号等待**（用 <c>StopSignal.Wait</c> 当轮询间隔）。</summary>
-    [ModuleDefinition("bench", "wait-sink")]
-    public sealed class StopSignalWaitSinkModule : ReceiveProbe, IActivitySource
+    /// <summary>模式二：**step Pull**（框架投工作信号，模块在 OnStep 中自取）。</summary>
+    [ModuleDefinition("bench", "pull-sink")]
+    public sealed class StepPullSinkModule : ReceiveProbe, IActivitySource
     {
-        public ActivityKind Kind => ActivityKind.EventDriven;
-
-        public TimeSpan Interval => TimeSpan.FromMilliseconds(1);
+        public ReceiveMode Receive => ReceiveMode.Pull;
 
         public override void OnRegistered(IModuleContext context) =>
             context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, SourceModule.UnitShape));
 
-        public void RunActivity(IModuleContext context)
+        public void OnStep(IModuleContext context, StepReason reason)
         {
-            while (!context.StopSignal.IsStopRequested)
+            while (context.Ports.TryReceive(out var buffer, out _))
             {
-                var drained = false;
-
-                while (context.Ports.TryReceive(out var buffer, out _))
+                if (buffer is null)
                 {
-                    drained = true;
-                    if (buffer is null)
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        Record(buffer.Span, buffer.Layout);
-                    }
-                    finally
-                    {
-                        context.Ports.ReleaseBuffer(buffer);
-                    }
+                    continue;
                 }
 
-                if (!drained)
+                try
                 {
-                    _ = context.StopSignal.Wait(TimeSpan.FromMilliseconds(1));
+                    Record(buffer.Span, buffer.Layout);
                 }
-            }
-        }
-    }
-
-    /// <summary>模式三：**主动接收 + 自旋轮询**（忙等，占一个核）。</summary>
-    [ModuleDefinition("bench", "spin-sink")]
-    public sealed class SpinPollSinkModule : ReceiveProbe, IActivitySource
-    {
-        public ActivityKind Kind => ActivityKind.EventDriven;
-
-        public TimeSpan Interval => TimeSpan.FromMilliseconds(1);
-
-        public override void OnRegistered(IModuleContext context) =>
-            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, SourceModule.UnitShape));
-
-        public void RunActivity(IModuleContext context)
-        {
-            while (!context.StopSignal.IsStopRequested)
-            {
-                if (context.Ports.TryReceive(out var buffer, out _))
+                finally
                 {
-                    if (buffer is null)
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        Record(buffer.Span, buffer.Layout);
-                    }
-                    finally
-                    {
-                        context.Ports.ReleaseBuffer(buffer);
-                    }
-                }
-                else
-                {
-                    Thread.SpinWait(8);
+                    context.Ports.ReleaseBuffer(buffer);
                 }
             }
         }

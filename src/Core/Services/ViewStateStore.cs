@@ -11,14 +11,16 @@ namespace HYWDebugAssistant.Core.Services;
 ///   <item><b>为什么状态不放在元素视图模型里</b>：UI 的**元素表会在运行期重建**（切页 / 改设置 / 重新声明）
 ///     ⇒ 状态挂在元素实例上就会「重建即丢」（切页会把**未提交的编辑**丢掉）。取向是**符合 WinForms
 ///     的开发直觉** —— 而 WinForms 里「控件活着，数据就在」⇒ 状态必须**独立于元素表**；</item>
-///   <item><b>线程</b>：写方 = **UI 线程**（切页 / 文本变化 / 追加行）；读方 = **模块线程**（拉取快照）。
-///     字典本身用锁保护；<see cref="DisplayBuffer"/> 自带锁；</item>
+///   <item><b>线程</b>：写方 = **UI 线程**（切页 / 输入文本）与 **实例线程**（显示缓冲，经
+///     <c>IViewDisplayAccess</c> 直接写）；读方 = 模块（输入/保存快照）与 UI（显示窗口）。
+///     字典用锁保护；<see cref="DisplayBuffer"/> 自带锁；</item>
 ///   <item><b>不持久化</b>：既不入组合件，也不落盘 —— 重启即空（与"开关不落盘"同一取向）。</item>
 /// </list>
 /// </remarks>
 public sealed class ViewStateStore : IViewStateAccess
 {
     private readonly Dictionary<string, InstanceState> _instances = new(StringComparer.Ordinal);
+    private readonly DisplayRegistry _displays = new();
     private readonly Lock _gate = new();
 
     /// <inheritdoc />
@@ -27,6 +29,9 @@ public sealed class ViewStateStore : IViewStateAccess
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
         return new InstanceViewState(this, instanceId);
     }
+
+    /// <summary>输入文本/选中页变化时的通知（由运行期接到实例承载者；UI 线程调用）。</summary>
+    public Action<string>? InputChanged { get; set; }
 
     /// <inheritdoc />
     public void SetSelectedPage(string instanceId, string stateKey, int page)
@@ -38,6 +43,8 @@ public sealed class ViewStateStore : IViewStateAccess
         {
             Get(instanceId).SelectedPages[stateKey] = page;
         }
+
+        InputChanged?.Invoke(instanceId);
     }
 
     /// <inheritdoc />
@@ -105,6 +112,8 @@ public sealed class ViewStateStore : IViewStateAccess
                 state.InputTexts[sourceName] = text;
             }
         }
+
+        InputChanged?.Invoke(instanceId);
     }
 
     /// <inheritdoc />
@@ -125,24 +134,12 @@ public sealed class ViewStateStore : IViewStateAccess
     }
 
     /// <inheritdoc />
-    public DisplayBuffer Display(string instanceId, string sourceName)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+    public IDisplayBufferReader Display(string instanceId, string sourceName) =>
+        _displays.Display(instanceId, sourceName);
 
-        lock (_gate)
-        {
-            var state = Get(instanceId);
-
-            if (!state.Displays.TryGetValue(sourceName, out var buffer))
-            {
-                buffer = new DisplayBuffer();
-                state.Displays[sourceName] = buffer;
-            }
-
-            return buffer;
-        }
-    }
+    /// <summary>写面内部用：取可变缓冲（只给 <see cref="DisplayFor"/> 的实现，不外泄）。</summary>
+    internal DisplayBuffer DisplayBufferFor(string instanceId, string sourceName) =>
+        _displays.Display(instanceId, sourceName);
 
     /// <summary>
     /// 捕获一个实例的可持久化视图状态：只收声明为持久化的输入文本；
@@ -223,160 +220,21 @@ public sealed class ViewStateStore : IViewStateAccess
         {
             _ = _instances.Remove(instanceId);
         }
+
+        _displays.RemoveInstance(instanceId);
     }
 
-    /// <inheritdoc />
-    public void RequestClear(string instanceId, string sourceName)
-    {
-        if (string.IsNullOrWhiteSpace(instanceId) || string.IsNullOrWhiteSpace(sourceName))
-        {
-            return;
-        }
-
-        lock (_gate)
-        {
-            _ = Get(instanceId).PendingClears.Add(sourceName);
-        }
-    }
-
-    /// <inheritdoc />
-    public bool TryTakeClear(string instanceId, out string? sourceName)
-    {
-        sourceName = null;
-
-        if (string.IsNullOrWhiteSpace(instanceId))
-        {
-            return false;
-        }
-
-        lock (_gate)
-        {
-            if (!_instances.TryGetValue(instanceId, out var state) || state.PendingClears.Count == 0)
-            {
-                return false;
-            }
-
-            sourceName = state.PendingClears.First();
-            _ = state.PendingClears.Remove(sourceName);
-            return true;
-        }
-    }
-
-    /// <inheritdoc />
-    public void RequestAppend(string instanceId, string sourceName, string text, bool lineBreak)
-    {
-        if (string.IsNullOrWhiteSpace(instanceId)
-            || string.IsNullOrWhiteSpace(sourceName)
-            || string.IsNullOrEmpty(text))
-        {
-            return;     // 未声明/空的源与空文本一律忽略（**不抛** —— 与"未知一律安全"同一纪律）
-        }
-
-        lock (_gate)
-        {
-            Get(instanceId).PendingAppends.Add(new DisplayAppend(sourceName, text, lineBreak));
-        }
-    }
-
-    /// <inheritdoc />
-    public IReadOnlyList<DisplayAppend> DrainAppends(string instanceId)
-    {
-        if (string.IsNullOrWhiteSpace(instanceId))
-        {
-            return [];
-        }
-
-        lock (_gate)
-        {
-            if (!_instances.TryGetValue(instanceId, out var state) || state.PendingAppends.Count == 0)
-            {
-                return [];
-            }
-
-            var drained = state.PendingAppends.ToArray();
-            state.PendingAppends.Clear();
-            return drained;
-        }
-    }
-
-    /// <inheritdoc />
-    public IReadOnlyList<DisplayAppend> PeekAppends(string instanceId, string sourceName)
-    {
-        if (string.IsNullOrWhiteSpace(instanceId) || string.IsNullOrWhiteSpace(sourceName))
-        {
-            return [];
-        }
-
-        lock (_gate)
-        {
-            if (!_instances.TryGetValue(instanceId, out var state) || state.PendingAppends.Count == 0)
-            {
-                return [];
-            }
-
-            return [.. state.PendingAppends.Where(a => string.Equals(a.SourceName, sourceName, StringComparison.Ordinal))];
-        }
-    }
-
-    /// <inheritdoc />
-    public void RequestSetText(string instanceId, string sourceName, string text)
-    {
-        if (string.IsNullOrWhiteSpace(instanceId) || string.IsNullOrWhiteSpace(sourceName))
-        {
-            return;     // 未声明的源一律忽略（**不抛** —— 与"未知一律安全"同一纪律）
-        }
-
-        lock (_gate)
-        {
-            // **后写覆盖先写**：这是替换语义（消息只有"当前值"），不是队列 ——
-            // 连写两次该只看到后一句，而不是两句都排队落地。
-            Get(instanceId).PendingSets[sourceName] = text;
-        }
-    }
-
-    /// <inheritdoc />
-    public bool TryTakeSetText(string instanceId, out string? sourceName, out string? text)
-    {
-        sourceName = null;
-        text = null;
-
-        if (string.IsNullOrWhiteSpace(instanceId))
-        {
-            return false;
-        }
-
-        lock (_gate)
-        {
-            if (!_instances.TryGetValue(instanceId, out var state) || state.PendingSets.Count == 0)
-            {
-                return false;
-            }
-
-            sourceName = state.PendingSets.First().Key;
-            text = state.PendingSets[sourceName];
-            _ = state.PendingSets.Remove(sourceName);
-            return true;
-        }
-    }
-
-    /// <summary>某实例的**显示请求面**（交给模块的那一份；模块只能用"清空"这一类请求）。</summary>
+    /// <summary>某实例的**显示写面**（交给模块的那一份；写者是模块实例线程）。</summary>
     /// <param name="instanceId">实例 ID。</param>
-    /// <returns>请求面。</returns>
+    /// <returns>写面。</returns>
     public Sdk.Context.IViewDisplayAccess DisplayFor(string instanceId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
         return new InstanceDisplay(this, instanceId);
     }
 
-    private bool IsDisplayFull(string instanceId, string sourceName)
-    {
-        lock (_gate)
-        {
-            return _instances.TryGetValue(instanceId, out var state)
-                && state.Displays.TryGetValue(sourceName, out var buffer)
-                && buffer.HasTrimmed;
-        }
-    }
+    private bool IsDisplayFull(string instanceId, string sourceName) =>
+        _displays.TryGet(instanceId, sourceName, out var buffer) && buffer is not null && buffer.HasTrimmed;
 
     private InstanceState Get(string instanceId)
     {
@@ -398,29 +256,9 @@ public sealed class ViewStateStore : IViewStateAccess
         public Dictionary<string, bool> Collapsed { get; } = new(StringComparer.Ordinal);
 
         public Dictionary<string, string> InputTexts { get; } = new(StringComparer.Ordinal);
-
-        public Dictionary<string, DisplayBuffer> Displays { get; } = new(StringComparer.Ordinal);
-
-        /// <summary>待 UI 执行的"清空显示源"请求（模块 → 框架的请求，UI 在刷新节拍里取走）。</summary>
-        public HashSet<string> PendingClears { get; } = new(StringComparer.Ordinal);
-
-        /// <summary>
-        /// 待 UI 落地的"**替换**显示源文本"请求（模块 → 框架）：**每个源只留最后一次**
-        /// （替换语义 ⇒ 与顺序无关，留着中间值只会让界面闪几下）。
-        /// </summary>
-        public Dictionary<string, string> PendingSets { get; } = new(StringComparer.Ordinal);
-
-        /// <summary>
-        /// 模块给某元素设定的外观（按源名）——只存颜色，不含语义。
-        /// </summary>
-
-        /// <summary>
-        /// 待 UI 落地的"追加文本"请求（**有序** —— 追加与顺序有关，不能像清空那样用集合）。
-        /// </summary>
-        public List<DisplayAppend> PendingAppends { get; } = [];
     }
 
-    /// <summary>**模块侧**的显示请求适配器（按实例绑定；模块拿不到别的写能力）。</summary>
+    /// <summary>**模块侧**的显示写面（按实例绑定；写者是模块实例线程）。</summary>
     private sealed class InstanceDisplay : Sdk.Context.IViewDisplayAccess
     {
         private readonly ViewStateStore _owner;
@@ -433,19 +271,40 @@ public sealed class ViewStateStore : IViewStateAccess
         }
 
         /// <inheritdoc />
-        public void Clear(string dataSourceName) => _owner.RequestClear(_instanceId, dataSourceName);
+        public void Clear(string dataSourceName)
+        {
+            if (!string.IsNullOrWhiteSpace(dataSourceName))
+            {
+                _owner.DisplayBufferFor(_instanceId, dataSourceName).Clear();
+            }
+        }
 
         /// <inheritdoc />
-        public void SetText(string dataSourceName, string text) =>
-            _owner.RequestSetText(_instanceId, dataSourceName, text);
+        public void SetText(string dataSourceName, string text)
+        {
+            if (!string.IsNullOrWhiteSpace(dataSourceName))
+            {
+                _owner.DisplayBufferFor(_instanceId, dataSourceName).SetText(text);
+            }
+        }
 
         /// <inheritdoc />
-        public void AppendText(string dataSourceName, string text) =>
-            _owner.RequestAppend(_instanceId, dataSourceName, text, lineBreak: false);
+        public void AppendText(string dataSourceName, string text)
+        {
+            if (!string.IsNullOrWhiteSpace(dataSourceName))
+            {
+                _owner.DisplayBufferFor(_instanceId, dataSourceName).AppendText(text);
+            }
+        }
 
         /// <inheritdoc />
-        public void AppendLine(string dataSourceName, string text) =>
-            _owner.RequestAppend(_instanceId, dataSourceName, text, lineBreak: true);
+        public void AppendLine(string dataSourceName, string text)
+        {
+            if (!string.IsNullOrWhiteSpace(dataSourceName))
+            {
+                _owner.DisplayBufferFor(_instanceId, dataSourceName).AppendLine(text);
+            }
+        }
 
         /// <inheritdoc />
         public bool IsFull(string dataSourceName)
@@ -498,30 +357,9 @@ public sealed class ViewStateStore : IViewStateAccess
                 return [];
             }
 
-            lock (_owner._gate)
-            {
-                if (!_owner._instances.TryGetValue(_instanceId, out var state))
-                {
-                    return [];
-                }
-
-                var lines = state.Displays.TryGetValue(sourceName, out var buffer)
-                    ? new List<string>(buffer.Snapshot())
-                    : [];
-
-                // **把"还没被 UI 取走的追加"叠上来**（同一份拼装规则）：
-                // UI 一个节拍才落地一次，而模块可能**随时**回读（保存）⇒
-                // 不叠的话"刚收到就保存"会丢掉尾巴，就不是"所见即所存"了。
-                foreach (var append in state.PendingAppends)
-                {
-                    if (string.Equals(append.SourceName, sourceName, StringComparison.Ordinal))
-                    {
-                        DisplayCompose.Apply(lines, append.Text, append.LineBreak);
-                    }
-                }
-
-                return lines;
-            }
+            return _owner._displays.TryGet(_instanceId, sourceName, out var buffer) && buffer is not null
+                ? new List<string>(buffer.Snapshot())
+                : [];
         }
     }
 }

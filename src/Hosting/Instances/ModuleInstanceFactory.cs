@@ -28,7 +28,6 @@ public static class ModuleInstanceFactory
     /// **按实例绑定的文件选择请求面**；`null` ⇒ 模块的"弹一次系统选择器"请求被忽略
     /// （宿主没接线时用户看不到对话框，模块也收不到路径 —— 老调用点零改动）。
     /// </param>
-    /// <param name="timing">全局计时面；`null` ⇒ 用进程共享的全局计时服务。</param>
     /// <param name="catalog">
     /// **外部标准目录**：按模块声明的标准标识解析适配器与参数类型；
     /// `null` ⇒ 有外部接入声明的模块得到 Error 并以未接线状态继续（老调用点零改动）。
@@ -40,7 +39,6 @@ public static class ModuleInstanceFactory
         Sdk.Context.IViewStateReader? viewState = null,
         Sdk.Context.IViewDisplayAccess? display = null,
         Sdk.Context.IFileAccess? files = null,
-        Sdk.Timing.IModuleTiming? timing = null,
         IExternalAccessCatalog? catalog = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
@@ -48,7 +46,7 @@ public static class ModuleInstanceFactory
         ArgumentNullException.ThrowIfNull(issues);
 
         var module = (Sdk.Lifecycle.IModule)Activator.CreateInstance(definition.EntryType)!;
-        var context = new Context.ModuleContext(instanceId, definition.Id, issues, timing);
+        var context = new Context.ModuleContext(instanceId, definition.Id, issues);
         var objectPath = $"module:{instanceId}";
 
         // 模块自有资源包：只读、只读自己的 `resources/`（模块目录 = 入口程序集所在目录）。
@@ -108,14 +106,7 @@ public static class ModuleInstanceFactory
             State = ModuleInstanceState.Registered,
         };
 
-        // 两种消费方式不能同时生效：活动体优先，交互回调不会被投递（提醒模块作者，不阻断）。
-        if (module is Sdk.Lifecycle.IActivitySource && module is Sdk.Lifecycle.IModuleInteractionSink)
-        {
-            issues.Report(objectPath, new Sdk.Reporting.IssueReport(
-                Sdk.Reporting.IssueCategory.ModuleError,
-                Sdk.Reporting.IssueSeverity.Warning,
-                HostingText.Get("hosting.instance.dualConsumption")));
-        }
+        // 消费方式由 ReceiveMode 与 step 决定；不再有旧活动体与交互回调两套实现。
 
         return instance;
     }

@@ -236,7 +236,7 @@ public sealed class ExternalAccessHost : IDisposable
         return true;
     }
 
-    /// <summary>设接收回调（无活动体模块的回调投递）。</summary>
+    /// <summary>设接收回调（投递循环承载的模块的回调投递）。</summary>
     /// <param name="instanceId">实例 ID。</param>
     /// <param name="accessName">接入名。</param>
     /// <param name="handler">处理委托（与口的接收处理同一委托类型）。</param>

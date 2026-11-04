@@ -102,10 +102,7 @@ public sealed class FusionStubModule : IModule, IActivitySource
     private FusionStubConfig _config = new();
 
     /// <inheritdoc />
-    public Sdk.Lifecycle.ActivityKind Kind => Sdk.Lifecycle.ActivityKind.Periodic;
-
-    /// <inheritdoc />
-    public TimeSpan Interval => TimeSpan.FromMilliseconds(20);
+    public ReceiveMode Receive => ReceiveMode.Pull;
 
     /// <inheritdoc />
     public void OnRegistered(IModuleContext context)
@@ -148,27 +145,22 @@ public sealed class FusionStubModule : IModule, IActivitySource
     private bool _configDirty = true;
 
     /// <inheritdoc />
-    public void RunActivity(IModuleContext context)
+    public void OnStep(IModuleContext context, StepReason reason)
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        while (!context.StopSignal.IsStopRequested)
+        EnsureConfig(context);
+
+        while (context.Ports.TryReceive(out var buffer, out var sourcePort))
         {
-            EnsureConfig(context);
-
-            while (context.Ports.TryReceive(out var buffer, out var sourcePort))
+            try
             {
-                try
-                {
-                    Handle(context, sourcePort, buffer.Span);
-                }
-                finally
-                {
-                    context.Ports.ReleaseBuffer(buffer);
-                }
+                Handle(context, sourcePort, buffer.Span);
             }
-
-            _ = context.StopSignal.Wait(TimeSpan.FromMilliseconds(20));
+            finally
+            {
+                context.Ports.ReleaseBuffer(buffer);
+            }
         }
     }
 

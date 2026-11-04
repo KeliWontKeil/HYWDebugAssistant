@@ -24,14 +24,14 @@ public class DisplayTextBenchmarks
 
     private readonly string _packet = new('x', PacketChars);
     private DisplayBuffer _buffer = null!;
-    private DisplayCursor _cursor;
+    private TextCursor _cursor;
     private readonly List<string> _scratch = [];
 
     [GlobalSetup]
     public void Setup()
     {
         _buffer = new DisplayBuffer();
-        _cursor = DisplayCursor.Empty;
+        _cursor = TextCursor.Empty;
     }
 
     /// <summary>不换行：把 2 万个包追加到同一条逻辑行。</summary>
@@ -58,9 +58,9 @@ public class DisplayTextBenchmarks
         return _buffer.DroppedCount;
     }
 
-    /// <summary>视图侧：每帧读一次增量并把游标推到位。</summary>
+    /// <summary>视图侧：每帧读一次窗口并把游标推到位。</summary>
     [Benchmark(OperationsPerInvoke = Packets)]
-    public int ReadDeltaPerFrame()
+    public int ReadWindowPerFrame()
     {
         var appended = 0;
 
@@ -68,9 +68,10 @@ public class DisplayTextBenchmarks
         {
             _buffer.AppendText(_packet);
 
-            var delta = _buffer.ReadDelta(_cursor, _scratch);
-            _cursor = delta.Cursor;
-            appended += delta.OpenSuffix?.Length ?? 0;
+            var window = _buffer.ReadWindow(_cursor, _scratch);
+            _cursor = new TextCursor(
+                window.Version, window.Dropped, window.SealedCount, window.OpenLength, window.OpenVersion);
+            appended += window.OpenSuffix?.Length ?? 0;
         }
 
         return appended;

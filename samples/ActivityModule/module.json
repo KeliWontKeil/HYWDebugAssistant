@@ -1,0 +1,7 @@
+{
+  "id": "sample/activity-module",
+  "entryAssembly": "HYWDebugAssistant.Samples.ActivityModule.dll",
+  "entryType": "HYWDebugAssistant.Samples.ActivityModule.SampleActivityModule",
+  "dependsOn": [],
+  "resources": []
+}

@@ -117,9 +117,6 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     /// </remarks>
     public const string SaveCommand = "save";
 
-    /// <summary>活动周期（5 ms；数据由口信号送达，活动只负责取数/刷新）。</summary>
-    public static readonly TimeSpan ActivityInterval = TimeSpan.FromMilliseconds(5);
-
     /// <summary>数据类型标识（**与两个发送器逐字相同** ⇒ 开箱即连）。</summary>
     public const string RawBytesTypeId = "RawBytes";
 
@@ -202,53 +199,46 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     // ---------------------------------------------------------------- ③ 钩子块
 
     /// <inheritdoc />
-    public Sdk.Lifecycle.ActivityKind Kind => Sdk.Lifecycle.ActivityKind.Periodic;
+    public ReceiveMode Receive => ReceiveMode.Pull;
 
     /// <inheritdoc />
-    public TimeSpan Interval => ActivityInterval;
-
-    /// <inheritdoc />
-    public void RunActivity(IModuleContext context)
+    public void OnStep(IModuleContext context, StepReason reason)
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        RestorePersistedState(context);
-
-        while (!context.StopSignal.IsStopRequested)
+        if (reason.HasFlag(StepReason.Start))
         {
-            // ① 收件箱：命令（清空 / 保存）与输入（开关 / 保存路径）
-            PumpOnce(context);
+            RestorePersistedState(context);
+        }
 
-            // ② 接收：**主动取**（本模块有活动体 ⇒ 主动接收模式）；**暂停时收下即弃**（不缓存）
+        // ① 收件箱：命令（清空 / 保存）与输入（开关 / 保存路径）
+        PumpOnce(context);
+
+        // ② 接收：**主动取**（本模块是 Pull 模式）；**暂停时收下即弃**（不缓存）
+        _tickBuilder.Clear();
+
+        while (context.Ports.TryReceive(out var buffer, out _))
+        {
+            try
+            {
+                if (!_paused)
+                {
+                    _ = ConsumePacket(context, buffer.Span, _tickBuilder);
+                }
+
+                // 暂停：什么都不做 —— 但**必须继续排空**（否则队列积压到满）
+            }
+            finally
+            {
+                context.Ports.ReleaseBuffer(buffer);
+            }
+        }
+
+        // **"不换行"的包按 tick 合并成一次追加**（每包一次追加会让缓冲/视图按包数做复制）。
+        if (_tickBuilder.Length > 0)
+        {
+            context.Display.AppendText(LogSource, _tickBuilder.ToString());
             _tickBuilder.Clear();
-
-            while (context.Ports.TryReceive(out var buffer, out _))
-            {
-                try
-                {
-                    if (!_paused)
-                    {
-                        _ = ConsumePacket(context, buffer.Span, _tickBuilder);
-                    }
-
-                    // 暂停：什么都不做 —— 但**必须继续排空**（否则队列积压到满）
-                }
-                finally
-                {
-                    context.Ports.ReleaseBuffer(buffer);
-                }
-            }
-
-            // **"不换行"的包按 tick 合并成一次追加**（每包一次追加会让缓冲/视图按包数做复制）。
-            if (_tickBuilder.Length > 0)
-            {
-                context.Display.AppendText(LogSource, _tickBuilder.ToString());
-                _tickBuilder.Clear();
-            }
-
-            // 空闲断行在这里没有位置：它只是「按字节流填 96 字节定宽行」的补充（不这么办，短包在 OFF 模式下
-            // 永远看不到）。定宽行本身不存在 ⇒ 没有半行/pending tail，**收到即落地**。
-            _ = context.Timing.WaitFor(ActivityInterval);
         }
     }
 
@@ -261,10 +251,10 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     private bool _bufferFull;
     private string? _savePath;
 
-    /// <summary>单包渲染的复用缓冲（活动体线程独占）。</summary>
+    /// <summary>单包渲染的复用缓冲（实例线程独占）。</summary>
     private readonly StringBuilder _lineBuilder = new();
 
-    /// <summary>本 tick 内所有"不换行"包合并后的缓冲（活动体线程独占）。</summary>
+    /// <summary>本 tick 内所有"不换行"包合并后的缓冲（实例线程独占）。</summary>
     private readonly StringBuilder _tickBuilder = new();
 
     /// <summary>从持久化视图状态恢复四个显示开关（加载时先恢复 ViewState，再激活）。</summary>
@@ -338,7 +328,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
         context.Appearance.SetOutlineRole(SavePathSource, saved ? null : AlertRole);
     }
 
-    /// <summary>消费**一次**收件箱（活动体的单步；模块测试直接驱动）。</summary>
+    /// <summary>消费**一次**收件箱（step 的单步；模块测试直接驱动）。</summary>
     /// <param name="context">模块上下文。</param>
     public void PumpOnce(IModuleContext context)
     {
@@ -496,7 +486,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
         else
         {
             // **同一 tick 的"不换行"包合成一次追加**：每包一次 `AppendText` 会让显示缓冲每包
-            // 复制一份后缀、每包一个 `DisplayAppend`；合成之后这些次数按 tick 而不是按包增长。
+            // 复制一份后缀；合成之后这些次数按 tick 而不是按包增长。
             _ = batch.Append(_lineBuilder);
         }
 

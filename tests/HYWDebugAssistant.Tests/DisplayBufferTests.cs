@@ -63,30 +63,32 @@ public class DisplayBufferTests
     }
 
     [Fact]
-    public void 增量_应只给出新增部分()
+    public void 窗口_应只给出新增部分()
     {
         var buffer = new DisplayBuffer();
         var scratch = new List<string>();
 
-        var cursor = DisplayCursor.Empty;
+        var cursor = TextCursor.Empty;
 
         buffer.AppendText("AB");
-        var first = buffer.ReadDelta(cursor, scratch);
+        var first = buffer.ReadWindow(cursor, scratch);
         first.Reset.ShouldBeFalse();
         first.SealedCount.ShouldBe(0);
         first.OpenSuffix.ShouldBe("AB");
-        cursor = first.Cursor;
+        cursor = new TextCursor(
+            first.Version, first.Dropped, first.SealedCount, first.OpenLength, first.OpenVersion);
 
         buffer.AppendText("CD");
-        var second = buffer.ReadDelta(cursor, scratch);
+        var second = buffer.ReadWindow(cursor, scratch);
         second.OpenSuffix.ShouldBe("CD", "世代未变 ⇒ 只给新增后缀，不是整行全文");
-        cursor = second.Cursor;
+        cursor = new TextCursor(
+            second.Version, second.Dropped, second.SealedCount, second.OpenLength, second.OpenVersion);
 
         buffer.AppendLine("EF");
-        var third = buffer.ReadDelta(cursor, scratch);
+        var third = buffer.ReadWindow(cursor, scratch);
         scratch.ShouldBe(["ABCDEF"], "「追加一行」是把这一段接在当前行后并封口，不是另起一条");
         third.OpenText.ShouldBeEmpty();
-        third.OpenGeneration.ShouldNotBe(second.OpenGeneration);
+        third.OpenVersion.ShouldNotBe(second.OpenVersion);
     }
 
     [Fact]
@@ -96,16 +98,17 @@ public class DisplayBufferTests
         var scratch = new List<string>();
 
         buffer.AppendLine("a");
-        var cursor = buffer.ReadDelta(DisplayCursor.Empty, scratch).Cursor;
+        var cursor = buffer.ReadWindow(TextCursor.Empty, scratch);
+        var point = new TextCursor(
+            cursor.Version, cursor.Dropped, cursor.SealedCount, cursor.OpenLength, cursor.OpenVersion);
 
         buffer.AppendLine("b");
         buffer.AppendLine("c");
         buffer.AppendLine("d");
 
-        var stale = buffer.ReadDelta(cursor, scratch);
+        var stale = buffer.ReadWindow(point, scratch);
 
         stale.Reset.ShouldBeFalse("封口行虽然全被丢掉了，当前内容仍然可以整段给出，不必退回全量快照");
-        stale.SealedFromStart.ShouldBeTrue();
         scratch.ShouldBe(["c", "d"], "从头给的是**当前全部**封口行");
     }
 
@@ -132,8 +135,7 @@ public class DisplayBufferTests
 
         var sealedLines = new List<string>();
         var openText = string.Empty;
-        var droppedApplied = 0;
-        var cursor = DisplayCursor.Empty;
+        var cursor = TextCursor.Empty;
 
         for (var step = 0; step < 800; step++)
         {
@@ -146,66 +148,49 @@ public class DisplayBufferTests
                 buffer.AppendText(new string((char)('A' + random.Next(26)), random.Next(1, 90)));
             }
 
-            var delta = buffer.ReadDelta(cursor, scratch);
-            cursor = delta.Cursor;
+            var previous = cursor;
+            var window = buffer.ReadWindow(cursor, scratch);
+            cursor = new TextCursor(
+                window.Version, window.Dropped, window.SealedCount, window.OpenLength, window.OpenVersion);
 
-            if (delta.Reset)
-            {
-                var snapshot = buffer.Snapshot();
-                sealedLines.Clear();
-
-                if (delta.Cursor.OpenLength > 0 && snapshot.Count > 0)
-                {
-                    sealedLines.AddRange(snapshot.Take(snapshot.Count - 1));
-                    openText = snapshot[^1];
-                }
-                else
-                {
-                    sealedLines.AddRange(snapshot);
-                    openText = string.Empty;
-                }
-
-                droppedApplied = delta.Dropped;
-                continue;
-            }
-
-            if (delta.SealedFromStart)
+            if (window.Reset)
             {
                 sealedLines.Clear();
                 sealedLines.AddRange(scratch);
-                openText = delta.OpenText ?? openText + (delta.OpenSuffix ?? string.Empty);
-                droppedApplied = delta.Dropped;
+                openText = window.OpenText ?? string.Empty;
+                continue;
             }
-            else
+
+            var firstAbsolute = previous.SealedCount - sealedLines.Count;
+            var removed = Math.Max(0, window.Dropped - firstAbsolute);
+            removed = Math.Min(removed, sealedLines.Count);
+
+            if (removed > 0)
             {
-                var removed = delta.Dropped - droppedApplied;
-                if (removed > 0)
-                {
-                    sealedLines.RemoveRange(0, removed);
-                    droppedApplied = delta.Dropped;
-                }
+                sealedLines.RemoveRange(0, removed);
+            }
 
-                var index = 0;
-                if (openText.Length > 0 && scratch.Count > 0)
-                {
-                    sealedLines.Add(scratch[0]);
-                    openText = string.Empty;
-                    index = 1;
-                }
+            var index = 0;
 
-                for (; index < scratch.Count; index++)
-                {
-                    sealedLines.Add(scratch[index]);
-                }
+            if (openText.Length > 0 && scratch.Count > 0)
+            {
+                sealedLines.Add(scratch[0]);
+                openText = string.Empty;
+                index = 1;
+            }
 
-                if (delta.OpenText is not null)
-                {
-                    openText = delta.OpenText;
-                }
-                else if (!string.IsNullOrEmpty(delta.OpenSuffix))
-                {
-                    openText += delta.OpenSuffix;
-                }
+            for (; index < scratch.Count; index++)
+            {
+                sealedLines.Add(scratch[index]);
+            }
+
+            if (window.OpenText is not null)
+            {
+                openText = window.OpenText;
+            }
+            else if (!string.IsNullOrEmpty(window.OpenSuffix))
+            {
+                openText += window.OpenSuffix;
             }
 
             var expected = buffer.Snapshot();
@@ -216,7 +201,7 @@ public class DisplayBufferTests
                 actual.Add(openText);
             }
 
-            actual.ShouldBe(expected, $"第 {step} 步：增量拼出来的行必须与全量快照一致");
+            actual.ShouldBe(expected, $"第 {step} 步：窗口拼出来的行必须与全量快照一致");
         }
     }
 }

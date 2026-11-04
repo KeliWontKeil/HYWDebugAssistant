@@ -47,51 +47,41 @@ internal sealed class GlobalTimerService : IDisposable
     public TimeSpan Now =>
         TimeSpan.FromSeconds((Stopwatch.GetTimestamp() - _start) / (double)Stopwatch.Frequency);
 
-    /// <summary>
-    /// 当前线程的**可复用等待信号**。
-    /// </summary>
-    /// <remarks>
-    /// 每次等待都新建 <see cref="ManualResetEventSlim"/> 会在"真的阻塞"时创建一个内核事件；
-    /// 1 ms 周期的模块每秒上千次，句柄与终结器压力会持续累积。等待是同步的（同一线程一次只有一个），
-    /// 因此按线程复用一个信号即可；它只承载"该醒了"，偶发的迟到 Set 只会让下一轮提前醒一次（无害）。
-    /// </remarks>
-    [ThreadStatic]
-    private static ManualResetEventSlim? t_signal;
-
-    /// <summary>等待到单调截止时刻。</summary>
+    /// <summary>在单调截止时刻调用一次回调；返回取消句柄。</summary>
     /// <param name="deadline">截止时刻。</param>
-    /// <param name="cancellation">停止取消令牌。</param>
-    /// <returns>已取消为 <see langword="true"/>。</returns>
-    public bool WaitUntil(TimeSpan deadline, CancellationToken cancellation)
+    /// <param name="callback">到期回调（在计时线程调用，必须短小且不抛）。</param>
+    /// <returns>取消句柄。</returns>
+    public IDisposable Schedule(TimeSpan deadline, Action callback)
     {
-        if (cancellation.IsCancellationRequested)
-        {
-            return true;
-        }
+        ArgumentNullException.ThrowIfNull(callback);
 
         var deadlineTicks = _start + (long)(deadline.TotalSeconds * Stopwatch.Frequency);
+        var waiter = new Waiter(deadlineTicks, callback);
+
         if (deadlineTicks <= Stopwatch.GetTimestamp())
         {
-            return false;
+            _ = ThreadPool.QueueUserWorkItem(static state =>
+            {
+                var (target, action) = ((Waiter, Action))state!;
+
+                if (!target.IsCancelled)
+                {
+                    Invoke(action);
+                }
+            }, (waiter, callback));
+
+            return waiter;
         }
 
-        var signal = t_signal ??= new ManualResetEventSlim(initialState: false);
-        signal.Reset();
-
-        var waiter = new Waiter(deadlineTicks, signal);
-        using var registration = cancellation.Register(waiter.Cancel);
         lock (_gate)
         {
             _queue.Enqueue(waiter, waiter.Deadline);
         }
 
         _wake.Set();
-        signal.Wait(CancellationToken.None);
-
-        return waiter.IsCancelled || cancellation.IsCancellationRequested;
+        return waiter;
     }
 
-    /// <inheritdoc />
     public void Dispose()
     {
         lock (_gate)
@@ -162,19 +152,48 @@ internal sealed class GlobalTimerService : IDisposable
         }
     }
 
+    private readonly List<Action> _dueCallbacks = [];
+
     private void CompleteDue()
     {
         lock (_gate)
         {
+            _dueCallbacks.Clear();
+
             var now = Stopwatch.GetTimestamp();
             while (_queue.TryPeek(out var waiter, out var due) && due <= now)
             {
                 _ = _queue.Dequeue();
-                if (!waiter.IsCancelled)
+                if (waiter.IsCancelled)
                 {
-                    waiter.Signal.Set();
+                    continue;
+                }
+
+                if (waiter.Callback is { } callback)
+                {
+                    _dueCallbacks.Add(callback);
                 }
             }
+        }
+
+        for (var index = 0; index < _dueCallbacks.Count; index++)
+        {
+            Invoke(_dueCallbacks[index]);
+        }
+
+        _dueCallbacks.Clear();
+    }
+
+    private static void Invoke(Action callback)
+    {
+        try
+        {
+            callback();
+        }
+        catch (Exception exception)
+        {
+            // 计时线程不承载模块代码；回调只许投信号。异常必须可见，不能吞掉后让计时线程静默失步。
+            System.Diagnostics.Trace.TraceError("timer callback failed: {0}", exception);
         }
     }
 
@@ -186,26 +205,24 @@ internal sealed class GlobalTimerService : IDisposable
         }
     }
 
-    private sealed class Waiter
+    private sealed class Waiter : IDisposable
     {
         private int _cancelled;
 
-        public Waiter(long deadline, ManualResetEventSlim signal)
+        public Waiter(long deadline, Action? callback = null)
         {
             Deadline = deadline;
-            Signal = signal;
+            Callback = callback;
         }
 
         public long Deadline { get; }
 
-        public ManualResetEventSlim Signal { get; }
+        public Action? Callback { get; }
 
         public bool IsCancelled => Volatile.Read(ref _cancelled) != 0;
 
-        public void Cancel()
-        {
-            _ = Interlocked.Exchange(ref _cancelled, 1);
-            Signal.Set();
-        }
+        public void Cancel() => _ = Interlocked.Exchange(ref _cancelled, 1);
+
+        public void Dispose() => Cancel();
     }
 }

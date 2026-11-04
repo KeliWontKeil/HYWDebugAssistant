@@ -1,6 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
 using HYWDebugAssistant.Hosting.Diagnostics;
-using HYWDebugAssistant.Hosting.Timing;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Context;
@@ -8,7 +7,6 @@ using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Resources;
-using HYWDebugAssistant.Sdk.Timing;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Hosting.Context;
@@ -21,7 +19,6 @@ namespace HYWDebugAssistant.Hosting.Context;
 /// <list type="bullet">
 ///   <item><b>声明</b>（口/视图）：✅ 本步完整实现；</item>
 ///   <item><b>Issue 上报</b>：✅ 转发到 <see cref="IIssueSink"/> 并归属本实例；</item>
-///   <item><b>停止信号</b>：✅ 简单标志（M1-5 由数据面的停止协议驱动）；</item>
 ///   <item><b>投递面</b>（发送/接收/订阅写入）：⏳ 本步占位（接收处理会记录，供 M1-5 投递调用）；</item>
 ///   <item><b>日志 / 业务状态</b>：⏳ 本步丢弃（**M1-6 接入 Issue 中心与 L3 日志汇集**，二者语义不同、不混用）；</item>
 ///   <item><b>配置读写</b>：✅ 内存实现 + **组合件快照/恢复**（M1-8：保存时按类型快照、加载时在 <c>OnActivated</c> 前恢复）。</item>
@@ -47,12 +44,10 @@ public sealed class ModuleContext : IModuleContext
     /// <param name="instanceId">实例 ID（上报归属用）。</param>
     /// <param name="moduleId">模块标识。</param>
     /// <param name="issues">框架侧上报口。</param>
-    /// <param name="timing">全局计时面（缺省使用进程共享的全局计时服务）。</param>
     public ModuleContext(
         string instanceId,
         ModuleId moduleId,
-        IIssueSink issues,
-        IModuleTiming? timing = null)
+        IIssueSink issues)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
         ArgumentNullException.ThrowIfNull(issues);
@@ -67,10 +62,6 @@ public sealed class ModuleContext : IModuleContext
         Issues = new IssueReporter(issues, _objectPath);
         Log = new NullModuleLogger();
         State = new NullBusinessStateReporter();
-        StopSignal = new SimpleStopSignal();
-        Timing = timing ?? new ModuleTiming(
-            GlobalTimerService.Shared,
-            ((SimpleStopSignal)StopSignal).StoppingToken);
         Ports = new PlaceholderPortAccess(_receiveHandlers);
         Configuration = new InMemoryConfigurationAccess(_configuration, _configurationGate);
         Inbox = new BoundedInbox();
@@ -111,12 +102,6 @@ public sealed class ModuleContext : IModuleContext
 
     /// <inheritdoc />
     public IBusinessStateReporter State { get; }
-
-    /// <inheritdoc />
-    public IStopSignal StopSignal { get; }
-
-    /// <inheritdoc />
-    public IModuleTiming Timing { get; }
 
     /// <inheritdoc />
     public IModuleInbox Inbox { get; }
@@ -361,18 +346,6 @@ public sealed class ModuleContext : IModuleContext
         }
     }
 
-    /// <summary>
-    /// 请求停止本实例的模块活动（由数据面的停止协议调用，M1-5）。
-    /// </summary>
-    /// <remarks>模块侧通过 <see cref="StopSignal"/> 只读查询，不能自行置位。</remarks>
-    public void RequestStop()
-    {
-        if (StopSignal is SimpleStopSignal signal)
-        {
-            signal.Request();
-        }
-    }
-
     /// <inheritdoc />
     public override string ToString() => _objectPath;
 
@@ -503,7 +476,7 @@ public sealed class ModuleContext : IModuleContext
     /// **人机操作收件箱**实现：有界（<see cref="Capacity"/>），满时**丢最旧**并计数。
     /// </summary>
     /// <remarks>
-    /// 并发：投递方是**管理线程**（变更提交），消费方是**模块线程**（活动体）→ 用锁保护；
+    /// 并发：投递方是**管理线程**（变更提交），消费方是**模块线程**（step）→ 用锁保护；
     /// 容量有限保证"用户连点"不会把内存撑爆，也不会阻塞 UI。
     /// </remarks>
     private sealed class BoundedInbox : IModuleInbox
@@ -539,6 +512,17 @@ public sealed class ModuleContext : IModuleContext
                 }
 
                 _inputs.Enqueue((source, text));
+            }
+        }
+
+        public bool HasPending
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _commands.Count > 0 || _inputs.Count > 0;
+                }
             }
         }
 
@@ -587,37 +571,6 @@ public sealed class ModuleContext : IModuleContext
     /// <param name="source">输入元素绑定的数据源名。</param>
     /// <param name="text">用户输入文本。</param>
     public void EnqueueInput(string source, string text) => ((BoundedInbox)Inbox).EnqueueInput(source, text);
-
-    private sealed class SimpleStopSignal : IStopSignal, IDisposable
-    {
-        private readonly CancellationTokenSource _cancellation = new();
-        private volatile bool _stopRequested;
-
-        public bool IsStopRequested => _stopRequested;
-
-        public CancellationToken StoppingToken => _cancellation.Token;
-
-        /// <summary>等待停止信号；优先使用取消令牌，保证停止能及时打断等待。</summary>
-        public bool Wait(TimeSpan timeout)
-        {
-            if (_stopRequested)
-            {
-                return true;
-            }
-
-            return _cancellation.Token.WaitHandle.WaitOne(timeout) || _stopRequested;
-        }
-
-        /// <summary>请求停止（由数据面的停止协议调用——M1-5）。</summary>
-        public void Request()
-        {
-            _stopRequested = true;
-            _cancellation.Cancel();
-        }
-
-        /// <inheritdoc />
-        public void Dispose() => _cancellation.Dispose();
-    }
 
     /// <summary>投递面占位：M1-5 由数据面替换为真实队列与绑定投递。</summary>
     private sealed class PlaceholderPortAccess(Dictionary<string, ReceiveHandler> handlers) : IPortAccess

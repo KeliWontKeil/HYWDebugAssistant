@@ -603,7 +603,9 @@ public class ModuleViewContractTests
 
         public IReadOnlyList<double> ReadSeries(string source) => [42];
 
-        public TextBufferSnapshot ReadText(string source) => new(["就绪"], 0, 20000, 0);
+        public TextBufferSnapshot ReadText(string source) => new(["就绪"], 0, 20000);
+
+        public long ReadTextRevision(string source) => 0;
 
         public bool SubmitInput(string source, string text) => true;
 

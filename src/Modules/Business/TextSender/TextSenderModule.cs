@@ -36,7 +36,7 @@ namespace HYWDebugAssistant.Modules.TextSender;
     WindowWidth = 400,
     WindowHeight = 240,
     ViewFactory = typeof(Views.TextSenderViewFactory))]
-public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
+public sealed class TextSenderModule : IModule, IActivitySource
 {
     /// <summary>取一条本模块文本表里的文案（拥有者 = 本模块程序集；表随包走）。</summary>
     /// <param name="key">文本表键。</param>
@@ -134,12 +134,6 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
         context.Display.SetText(StatusSource, message ?? string.Empty);
         context.Appearance.SetOutlineRole(subject, alert ? AlertRole : null);
     }
-
-    /// <summary>活动节拍（1 ms；只用于处理收件箱与调度判定，真正等待走全局计时面）。</summary>
-    public static readonly TimeSpan ActivityInterval = TimeSpan.FromMilliseconds(1);
-
-    /// <summary>连续发送时最长空转间隔：到期前不再每毫秒醒一次（输入/命令最多延迟这么久）。</summary>
-    private static readonly TimeSpan MaxIdleWake = TimeSpan.FromMilliseconds(20);
 
     /// <summary>
     /// 数据类型标识 —— **PascalCase 短名**（新范式；`hyw/*` 形式的旧式标识已冻结）。
@@ -247,67 +241,52 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
     // ---------------------------------------------------------------- ③ 钩子块
 
     /// <inheritdoc />
-    public Sdk.Lifecycle.ActivityKind Kind => Sdk.Lifecycle.ActivityKind.Periodic;
+    public ReceiveMode Receive => ReceiveMode.Push;
+
+    /// <summary>
+    /// 下一次因时间需要被唤醒的**相对延迟**（连续发送时；否则没有周期需求）。
+    /// </summary>
+    public TimeSpan? NextDelay =>
+        _continuous && _intervalMs is { } interval
+            ? _fireImmediately
+                ? TimeSpan.Zero
+                : TimeSpan.FromMilliseconds(Math.Max(1, interval))
+            : null;
+
+    /// <summary>刚开启连续发送 ⇒ 下一拍立即到期；首条发出后回到正常间隔。</summary>
+    private bool _fireImmediately;
 
     /// <inheritdoc />
-    public TimeSpan Interval => ActivityInterval;
-
-    // 六个钩子里**只实现需要的**（其余有默认空实现）：
-    //   · `OnConfigurationChanged` —— 本模块**没有配置**（不追加行尾、间隔不做配置字段）；
-    //   · `OnRemoved` —— 能力 = `None`，没有需要释放的外部资源；
-    //   · `OnDisabled` / `OnEnabled` —— 框架停/启活动体即可（连续发送随之停/恢复，无需额外状态）。
-
-    /// <inheritdoc />
-    public void RunActivity(IModuleContext context)
+    public void OnStep(IModuleContext context, StepReason reason)
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        // 初始状态：把「已发送」置 0（`OnActivated()` 没有上下文 ⇒ 在这儿做这件"需要上下文"的事）
-        _sent = 0;
-        context.Ports.Publish(SentSource, CountPayload(0));
-
-        var nextDue = TimeSpan.Zero;
-
-        while (!context.StopSignal.IsStopRequested)
+        if (reason.HasFlag(StepReason.Start))
         {
-            // 活动体只管命令/输入/界面判定；连续发送由全局计时面驱动。
-            _ = Tick(context, shouldSend: false);
-
-            if (!_continuous || _intervalMs is not { } interval)
-            {
-                nextDue = TimeSpan.Zero;
-                _ = context.Timing.WaitFor(ActivityInterval);
-                continue;
-            }
-
-            var effective = Math.Max(1, interval);
-            var now = context.Timing.Now;
-
-            if (nextDue <= TimeSpan.Zero)
-            {
-                nextDue = now;
-            }
-
-            if (now >= nextDue)
-            {
-                _ = Tick(context, shouldSend: true);
-                nextDue = context.Timing.Now + TimeSpan.FromMilliseconds(effective);
-                continue;
-            }
-
-            // 低频间隔也要按活动节拍回来看收件箱，不能被 100 ms 间隔拖住界面输入。
-            var wakeAt = nextDue < now + MaxIdleWake ? nextDue : now + MaxIdleWake;
-            if (context.Timing.WaitUntil(wakeAt))
-            {
-                break;
-            }
+            // 初始状态：把「已发送」置 0（`OnActivated()` 没有上下文 ⇒ 在这里做这件"需要上下文"的事）
+            _sent = 0;
+            context.Ports.Publish(SentSource, CountPayload(0));
         }
-    }
 
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        // 定时器已迁到框架全局计时面；模块不再持有可释放的调度资源。
+        var wasContinuous = _continuous && _intervalMs is not null;
+
+        _ = Tick(context, shouldSend: reason.HasFlag(StepReason.Due));
+
+        if (reason.HasFlag(StepReason.Due))
+        {
+            _fireImmediately = false;
+        }
+
+        if (_continuous && !wasContinuous)
+        {
+            // 打开连续发送：下一拍立即发一条；发送完成后由 NextDelay 回到正常间隔。
+            _fireImmediately = true;
+        }
+
+        if (!_continuous)
+        {
+            _fireImmediately = false;
+        }
     }
 
     // ---------------------------------------------------------------- ④ 接线与业务
@@ -406,7 +385,7 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
 
 
     /// <summary>
-    /// **一拍一次判定**（活动体的单步；模块测试直接驱动它，无需起线程）。
+    /// **一拍一次判定**（step 的单步；模块测试直接驱动它，无需起线程）。
     /// </summary>
     /// <param name="context">模块上下文。</param>
     /// <returns>这一拍是否发生了一次"按发送"（供测试断言；发送本身在拍内完成）。</returns>
@@ -430,7 +409,7 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
 
     /// <summary>一拍一次判定：读状态 → 判定 → 落地 → 该发就发。</summary>
     /// <param name="context">模块上下文。</param>
-    /// <param name="shouldSend">调度上"到点了"（连续发送由活动体给；单次由用户命令给）。</param>
+    /// <param name="shouldSend">调度上"到点了"（连续发送由框架的 Due 给；单次由用户命令给）。</param>
     /// <returns>这一拍是否发生了一次"按发送"。</returns>
     /// <remarks>
     /// "到点了"与"发得出去"是**两件事**：前者是调度，后者是判据。两者都为真才真的发 ——
@@ -444,6 +423,7 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
         SyncInterval(context);
         SyncPageSwitch(context);
 
+        var wasContinuous = _continuous;
         var commandArrived = false;
         var pending = false;
 
@@ -559,22 +539,32 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
         // ④ 判定（纯函数）：只看"这一拍要发的那一份内容"与"刚被拒过没有"，红与话据此算出来
         var verdict = Evaluate(context, senderPage, outgoing, askedAndRefused);
 
-        // ⑤ **把开关那一格写成应然值**（唯一写者）。位置与应然一致时**不写**（幂等）。
-        // 界面每帧读这一格来画，所以**不需要**任何单独的复位信号
-        // （那个信号会漏、会重复、会与控件本地状态打架 —— 三种坏法都出现过）。
-        if (!string.Equals(
-            context.ViewState.GetInputText(ContinuousSource),
-            _continuous ? "true" : "false",
-            StringComparison.OrdinalIgnoreCase))
+        // ⑤ **只在"这次 toggle 被处理"或"被迫关掉"时写回开关那一格**。
+        // 每个普通 step 都把模块算出的值写回会覆盖并发到达的用户意图：
+        // 用户把那一格拨到 true、而这一拍读到的仍是旧值时，写回 false 会让勾选失效。
+        // 写回 true 只发生在刚接受了用户这次 toggle（提交只进收件箱、没写视图状态的路径）；
+        // 写回 false 只发生在拒绝或被迫关闭。
+        var acceptedToggle = toggleAsked == true && _continuous;
+        var forcedOff = !_continuous && wasContinuous;
+
+        if (acceptedToggle || askedAndRefused || forcedOff)
         {
-            context.ViewState.SetInputValue(ContinuousSource, _continuous ? "true" : "false");
+            var desired = acceptedToggle ? "true" : "false";
+
+            if (!string.Equals(
+                context.ViewState.GetInputText(ContinuousSource),
+                desired,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                context.ViewState.SetInputValue(ContinuousSource, desired);
+            }
         }
 
         // ⑥ 落地（唯一写界面的地方）
         ApplyVerdict(context, verdict);
 
         // ⑦ 该发就发（判定说不发就不发）
-        if ((pending || shouldSend) && verdict.CanSend && outgoing.Length > 0)
+        if ((pending || (shouldSend && _continuous)) && verdict.CanSend && outgoing.Length > 0)
         {
             _ = Send(context, outgoing, out _);
 

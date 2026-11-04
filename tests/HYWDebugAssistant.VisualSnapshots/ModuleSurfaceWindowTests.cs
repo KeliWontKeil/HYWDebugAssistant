@@ -194,6 +194,9 @@ public class ModuleSurfaceWindowTests
                     harness.AppendDisplayLine("dm", DataMonitorModule.LogSource, line);
                 }
 
+                // 显示缓冲由用例代写（不是模块自己写的）⇒ 投一步让模块在实例线程上检查"满过"。
+                harness.SignalStep("dm", HYWDebugAssistant.Sdk.Lifecycle.StepReason.Data);
+
                 harness.Windows.Refresh();
                 Pump();
 

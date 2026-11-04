@@ -1955,7 +1955,10 @@ public class ModuleViewSmokeTests
         public IReadOnlyList<double> ReadSeries(string source) => [42];
 
         /// <inheritdoc />
-        public TextBufferSnapshot ReadText(string source) => new(_textLines, 0, 20000, 0, _revision);
+        public TextBufferSnapshot ReadText(string source) => new(_textLines, 0, 20000, _revision);
+
+        /// <inheritdoc />
+        public long ReadTextRevision(string source) => _revision;
 
         /// <inheritdoc />
         public bool SubmitInput(string source, string text)

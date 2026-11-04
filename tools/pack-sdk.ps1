@@ -11,7 +11,7 @@
       · HYWDebugAssistant.Sdk.Testing（**作者包**：契约自检套件，只给测试项目）
       · HYWDebugAssistant.Module.Build（**作者包**：模块打包规则 props/targets）
     作者包不随宿主发布、也不进模块包；包组只是同一版本的产物子集，不引入第二个版本轴。
-    版本不在本脚本维护：`version.props` 是唯一事实源（见 docs/zh/reference/versioning.md）。
+    版本不在本脚本维护：`version.props` 是唯一事实源（见 docs/zh/project/versioning.md）。
     该目录是**构建产物**（每次清空重建），示例模块/独立验证脚本从这里还原。
 
 .EXAMPLE

@@ -1866,6 +1866,17 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     }
 
     /// <inheritdoc />
+    /// <inheritdoc />
+    public long GetAppearanceRevision(string instanceId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
+
+        return _runtime.Content.TryGetInstance(instanceId, out var instance) && instance is not null
+            ? instance.Context.AppearanceStore.Version
+            : 0;
+    }
+
+    /// <inheritdoc />
     public IReadOnlyList<AppearanceView> GetAppearance(string instanceId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);

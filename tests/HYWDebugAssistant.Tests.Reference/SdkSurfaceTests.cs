@@ -99,7 +99,10 @@ public class SdkSurfaceTests
         var module = new TextSenderModule();
         module.ShouldBeAssignableTo<IModule>();
         module.ShouldBeAssignableTo<IActivitySource>();
-        module.Kind.ShouldBe(ActivityKind.Periodic);
+
+        var activity = (IActivitySource)module;
+        activity.Receive.ShouldBe(ReceiveMode.Push);
+        activity.NextDelay.ShouldBeNull();
 
         var context = new TestModuleContext();
         module.OnRegistered(context);

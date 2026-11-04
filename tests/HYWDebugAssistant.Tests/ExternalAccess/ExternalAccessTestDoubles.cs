@@ -193,8 +193,28 @@ public sealed class FakeExternalAccessCatalog : IExternalAccessCatalog
 }
 
 /// <summary>无活动体的测试模块：声明一条接入，经交互回调接收命令/输入/工作提示。</summary>
-public sealed class FakeAccessModule : IModule, IModuleInteractionSink
+public sealed class FakeAccessModule : IModule, IActivitySource
 {
+    /// <inheritdoc />
+    public ReceiveMode Receive => ReceiveMode.Push;
+
+    /// <inheritdoc />
+    public void OnStep(IModuleContext context, StepReason reason)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        while (context.Inbox.TryDequeueCommand(out var command))
+        {
+            OnCommand(command);
+        }
+
+        while (context.Inbox.TryDequeueInput(out var source, out var text))
+        {
+            OnInput(source, text);
+        }
+
+        OnWork();
+    }
     /// <summary>接入名。</summary>
     public const string AccessName = "fake";
 

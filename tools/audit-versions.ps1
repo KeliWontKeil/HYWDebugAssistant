@@ -4,7 +4,7 @@
     版本纪律审计（只读）：唯一版本事实源、四段版本、无格式 / 模块 / 类型版本。
 
 .DESCRIPTION
-    判据（事实源与规则见 docs/zh/reference/versioning.md）：
+    判据（事实源与规则见 docs/zh/project/versioning.md）：
 
       1. `version.props` 存在、四段都是 0..65535 的整数、轮次 >= 1；
          `Directory.Build.props` 导入它，且**只**派生一个四段 `<Version>`。
@@ -341,7 +341,7 @@ foreach ($file in $releaseFiles) {
 # ---------------------------------------------------------------- 结果
 
 if ($problems.Count -gt 0) {
-    Write-Host "[FAIL] 版本纪律审计：$($problems.Count) 项违规（事实源与规则见 docs/zh/reference/versioning.md）" -ForegroundColor Red
+    Write-Host "[FAIL] 版本纪律审计：$($problems.Count) 项违规（事实源与规则见 docs/zh/project/versioning.md）" -ForegroundColor Red
     $problems | Select-Object -First 50 | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
     if ($problems.Count -gt 50) {
         Write-Host "  …（其余 $($problems.Count - 50) 项略）" -ForegroundColor Red

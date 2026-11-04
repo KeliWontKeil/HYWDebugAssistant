@@ -2,7 +2,7 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!--
-      视觉 token（docs/zh/concepts/shell-and-overlay.md）：
+      视觉 token（docs/zh/concepts/shell.md）：
       颜色一律以**角色 token** 引用，主题切换只替换 token 值（V2 的可切换与"允许更换背景/色系"由此实现）。
       · 默认主题 = 浅色（C9-2）；深色同样内置且可切换。
       · 色值取自 09 §2.2 草案（C9-3 已采用；Gate C 可微调）。

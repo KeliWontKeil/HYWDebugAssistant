@@ -224,21 +224,16 @@ public class PortFlowQueryTests
         }
     }
 
-    /// <summary>只提供一条接收口、不起投递循环的承载目标（队列内容完全由测试掌控）。</summary>
+    /// <summary>只提供一条接收口、step Pull 但不消费的承载目标（队列内容完全由测试掌控）。</summary>
     private sealed class LedgerTarget(string instanceId) : ICarrierTarget
     {
-        private readonly SimpleStopSignal _stop = new();
-
         public string InstanceId { get; } = instanceId;
 
         public IReadOnlyList<string> ReceivePortNames => ["in"];
 
-        /// <summary>有活动体 ⇒ 框架不跑投递循环 ⇒ 队列里的单元不会被悄悄消费。</summary>
-        public bool HasActivity => true;
+        public bool HasStepModel => true;
 
-        public IStopSignal StopSignal => _stop;
-
-        public void RequestStop() => _stop.Request();
+        public ReceiveMode ReceiveMode => ReceiveMode.Pull;
 
         public bool TryGetReceiveHandler(string portName, out ReceiveHandler handler)
         {
@@ -246,30 +241,18 @@ public class PortFlowQueryTests
             return false;
         }
 
-        public void RunActivity() => _stop.Wait(TimeSpan.FromSeconds(30));
-
-        public void ReportActivityFailure(Exception exception) => throw new NotSupportedException(exception.Message);
-    }
-
-    /// <summary>轮询实现的停止信号（避免持有可释放类型）。</summary>
-    private sealed class SimpleStopSignal : IStopSignal
-    {
-        private volatile bool _requested;
-
-        public bool IsStopRequested => _requested;
-
-        public bool Wait(TimeSpan timeout)
+        /// <summary>不取队列；短睡避免 step 循环在有数据时空转。</summary>
+        public void OnStep(StepReason reason)
         {
-            var deadline = DateTime.UtcNow + timeout;
-
-            while (!_requested && DateTime.UtcNow < deadline)
+            if (reason.HasFlag(StepReason.Data))
             {
-                Thread.Sleep(2);
+                Thread.Sleep(1);
             }
-
-            return _requested;
         }
 
-        public void Request() => _requested = true;
+        public void ReportFailure(Exception exception)
+        {
+            // 测试夹具：不产生承载异常
+        }
     }
 }

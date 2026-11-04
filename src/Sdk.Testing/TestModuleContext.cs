@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Context;
@@ -6,7 +5,6 @@ using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
-using HYWDebugAssistant.Sdk.Timing;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Testing;
@@ -21,7 +19,7 @@ namespace HYWDebugAssistant.Sdk.Testing;
 ///   <item>`Publish` 写入的记录可直接断言（<see cref="Published"/>）。</item>
 /// </list>
 /// </remarks>
-public sealed class TestModuleContext : IModuleContext, IDisposable
+public sealed class TestModuleContext : IModuleContext
 {
     private readonly List<PortDeclaration> _ports = [];
     private readonly List<DataTypeDeclaration> _dataTypes = [];
@@ -37,7 +35,6 @@ public sealed class TestModuleContext : IModuleContext, IDisposable
     private readonly Dictionary<string, List<byte[]>> _published = new(StringComparer.Ordinal);
     private readonly Queue<(byte[] Payload, string PortName, Contracts.ContractLayout Layout)> _inbound = new();
 
-    private readonly TestStopSignal _stopSignal = new();
     private TestPortAccess? _portAccess;
 
     /// <summary>创建测试上下文。</summary>
@@ -53,13 +50,8 @@ public sealed class TestModuleContext : IModuleContext, IDisposable
             _ports, _dataTypes, _flows, _roles, _displaySources, _inputs, _commands, _externalAccesses);
         Issues = new IssueCollector(ReportedIssues);
         Configuration = new InMemoryConfigurationAccess(_configuration);
-        StopSignal = _stopSignal;
-        Timing = new TestTiming(_stopSignal);
         Appearance = new AppearanceRecorder(_appearances);
     }
-
-    /// <inheritdoc />
-    public void Dispose() => _stopSignal.Dispose();
 
     /// <summary>
     /// 模块给元素设定的**外观**（颜色）——只记颜色，**不含语义**（框架不认识"红 = 失败"）。
@@ -186,12 +178,6 @@ public sealed class TestModuleContext : IModuleContext, IDisposable
 
     /// <inheritdoc />
     public IBusinessStateReporter State => new StateReporter(States);
-
-    /// <inheritdoc />
-    public IStopSignal StopSignal { get; }
-
-    /// <inheritdoc />
-    public IModuleTiming Timing { get; }
 
     /// <inheritdoc />
     public IModuleInbox Inbox { get; } = new TestInbox();
@@ -369,9 +355,6 @@ public sealed class TestModuleContext : IModuleContext, IDisposable
         _inbound.Enqueue((copy, portName, unitLayout));
     }
 
-    /// <summary>请求停止（模块的活动体应尽快返回）。</summary>
-    public void RequestStop() => _stopSignal.Request();
-
     private sealed class DeclarationCollector(
         List<PortDeclaration> ports,
         List<DataTypeDeclaration> types,
@@ -414,64 +397,6 @@ public sealed class TestModuleContext : IModuleContext, IDisposable
     private sealed class StateReporter(List<BusinessState> sink) : IBusinessStateReporter
     {
         public void Update(BusinessState state) => sink.Add(state);
-    }
-
-    private sealed class TestStopSignal : IStopSignal, IDisposable
-    {
-        private readonly CancellationTokenSource _cancellation = new();
-        private volatile bool _requested;
-
-        public bool IsStopRequested => _requested;
-
-        public CancellationToken StoppingToken => _cancellation.Token;
-
-        public bool Wait(TimeSpan timeout)
-        {
-            if (_requested)
-            {
-                return true;
-            }
-
-            return _cancellation.Token.WaitHandle.WaitOne(timeout) || _requested;
-        }
-
-        public void Request()
-        {
-            _requested = true;
-            _cancellation.Cancel();
-        }
-
-        /// <inheritdoc />
-        public void Dispose() => _cancellation.Dispose();
-    }
-
-    private sealed class TestTiming : IModuleTiming
-    {
-        private readonly IStopSignal _stopSignal;
-        private readonly Stopwatch _clock = Stopwatch.StartNew();
-
-        public TestTiming(IStopSignal stopSignal) => _stopSignal = stopSignal;
-
-        public TimeSpan Now => _clock.Elapsed;
-
-        public bool WaitUntil(TimeSpan deadline)
-        {
-            var remaining = deadline - _clock.Elapsed;
-            return remaining > TimeSpan.Zero
-                ? _stopSignal.Wait(remaining)
-                : _stopSignal.IsStopRequested;
-        }
-
-        public bool WaitFor(TimeSpan delay)
-        {
-            if (delay <= TimeSpan.Zero)
-            {
-                Thread.Yield();
-                return _stopSignal.IsStopRequested;
-            }
-
-            return _stopSignal.Wait(delay);
-        }
     }
 
     private sealed class InMemoryConfigurationAccess(Dictionary<string, object> store) : IConfigurationAccess
@@ -571,7 +496,7 @@ public sealed class TestModuleContext : IModuleContext, IDisposable
     /// 测试替身：把"显示请求"记下来，并**落到 <see cref="TestViewState"/>**（模块回读到的就是它）。
     /// </summary>
     /// <remarks>
-    /// 与框架侧同一模型：**只入队、由"UI"落地** —— 测试里"UI"就是用例本身（它读 <see cref="TestViewState"/>）。
+    /// 与框架侧同一模型：写入由**模块侧直接落到** <see cref="TestViewState"/>（测试里没有 UI 落地这一跳）。
     /// 追加的拼装规则与框架侧逐字一致（不换行 = 直接接在后面；通道换行 = 起一条新的）。
     /// </remarks>
     private sealed class DisplayRecorder(TestModuleContext owner) : IViewDisplayAccess

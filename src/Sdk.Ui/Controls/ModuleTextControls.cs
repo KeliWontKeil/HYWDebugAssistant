@@ -48,8 +48,6 @@ public sealed class ModuleLabel : ModuleElement
     private string _field = string.Empty;
     private string? _tip;
     private long _textRevision = -1;
-    private DisplayCursor _cursor;
-    private readonly List<string> _sealedScratch = [];
 
     /// <summary>造一块标签。</summary>
     public ModuleLabel()
@@ -151,15 +149,14 @@ public sealed class ModuleLabel : ModuleElement
         }
 
         // **变更号没变就不读**：全量行表在长缓冲上是一次整表复制，静止的标签不该每帧付这笔钱。
-        var delta = context.ReadTextDelta(Source, _cursor, _sealedScratch);
-        _cursor = delta.Cursor;
+        var revision = context.ReadTextRevision(Source);
 
-        if (!delta.Reset && delta.Revision == _textRevision)
+        if (revision == _textRevision)
         {
             return;
         }
 
-        _textRevision = delta.Revision;
+        _textRevision = revision;
 
         var lines = context.ReadText(Source).Lines;
         var text = lines.Count == 0 ? string.Empty : string.Join(Environment.NewLine, lines);

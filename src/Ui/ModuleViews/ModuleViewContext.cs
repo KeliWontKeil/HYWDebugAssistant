@@ -34,6 +34,7 @@ internal sealed class ModuleViewContext : IModuleViewContext
     private readonly Func<string>? _multilineSubmitKey;
     private readonly SurfaceSourceReader _reader;
     private readonly Dictionary<string, ViewAppearance> _appearances = new(StringComparer.Ordinal);
+    private long _appearanceRevision = -1;
 
     /// <summary>造一个视图上下文。</summary>
     /// <param name="instanceId">实例 ID。</param>
@@ -86,6 +87,14 @@ internal sealed class ModuleViewContext : IModuleViewContext
     /// <summary>把外观快照转成按源名的查表（每帧一次）。</summary>
     private void BuildAppearances()
     {
+        var revision = _query.GetAppearanceRevision(InstanceId);
+
+        if (revision == _appearanceRevision)
+        {
+            return;
+        }
+
+        _appearanceRevision = revision;
         _appearances.Clear();
 
         foreach (var appearance in _query.GetAppearance(InstanceId))
@@ -117,17 +126,49 @@ internal sealed class ModuleViewContext : IModuleViewContext
     {
         var buffer = _reader.ReadBuffer(InstanceId, source);
 
-        return new TextBufferSnapshot(buffer.Lines, buffer.Dropped, buffer.Capacity, buffer.Sequence, buffer.Revision);
+        return new TextBufferSnapshot(buffer.Lines, buffer.Dropped, buffer.Capacity, buffer.Revision);
     }
 
     /// <inheritdoc />
-    public DisplayDelta ReadTextDelta(string source, in DisplayCursor cursor, List<string> sealedLines)
+    public long ReadTextRevision(string source) =>
+        source.Length == 0 ? 0 : _reader.ReadRevision(InstanceId, source);
+
+    /// <inheritdoc />
+    public bool TryReadTextWindow(
+        string source,
+        in TextCursor cursor,
+        List<string> sealedLines,
+        int maxChars,
+        out TextWindow window)
     {
         ArgumentNullException.ThrowIfNull(sealedLines);
 
-        return source.Length == 0
-            ? DisplayDelta.ResetRequired(cursor, 0, 0)
-            : _reader.ReadDelta(InstanceId, source, cursor, sealedLines);
+        if (source.Length == 0)
+        {
+            window = default;
+            return false;
+        }
+
+        window = _reader.ReadWindow(InstanceId, source, cursor, sealedLines, maxChars);
+        return true;
+    }
+
+    /// <inheritdoc />
+    public bool TryReadTextTail(string source, int maxLines, int maxChars, out TextTailSnapshot tail)
+    {
+        if (source.Length == 0)
+        {
+            tail = default;
+            return false;
+        }
+
+        var buffer = _reader.ReadTail(InstanceId, source, maxLines, maxChars, out var cursor);
+
+        tail = new TextTailSnapshot(
+            new TextBufferSnapshot(buffer.Lines, buffer.Dropped, buffer.Capacity, buffer.Revision),
+            cursor);
+
+        return true;
     }
 
     /// <inheritdoc />

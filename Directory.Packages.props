@@ -21,7 +21,7 @@
       改用 `Avalonia.Headless.HeadlessUnitTestSession`（自带独立调度线程，不绑定测试框架）。
     -->
     <!--
-      注：Avalonia.Fonts.Inter 已移除——视觉基线采用**系统字体**（见 docs/zh/concepts/shell-and-overlay.md），
+      注：Avalonia.Fonts.Inter 已移除——视觉基线采用**系统字体**（见 docs/zh/concepts/shell.md），
       无需内置字体包；数据区等宽字体使用系统自带 Cascadia Mono / Consolas。
     -->
   </ItemGroup>

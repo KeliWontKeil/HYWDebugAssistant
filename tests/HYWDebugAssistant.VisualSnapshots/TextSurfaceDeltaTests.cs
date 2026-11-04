@@ -72,6 +72,60 @@ public class TextSurfaceDeltaTests
     }
 
     [Fact]
+    public async Task 超预算帧应跳读尾部而不排全量()
+    {
+        var session = SnapshotSession.Shared;
+
+        await session.Dispatch(
+            () =>
+            {
+                var context = new DeltaContext { EnableTail = true };
+                var surface = new ModuleTextSurface { Source = "log", Mode = TextSurfaceMode.Display, Width = 320 };
+                var host = new ModuleViewHost(context, surface);
+                var window = new Window
+                {
+                    Width = 420,
+                    Height = 220,
+                    Content = new Border { Child = host },
+                };
+
+                window.Show();
+                Pump();
+                host.Refresh();
+                Pump();
+
+                var view = surface.GetVisualDescendants().OfType<IncrementalTextView>().ShouldHaveSingleItem();
+
+                // 单帧新增 4 万字符：超出排版预算 ⇒ 只保留尾部窗口（数据与保存仍以缓冲为准）。
+                context.Buffer.AppendText(new string('x', 40_000));
+                host.Refresh();
+                Pump();
+
+                view.TextLength.ShouldBeLessThan(context.Buffer.TotalChars);
+                view.Text.ShouldEndWith(new string('x', 64));
+
+                // 封口这条长行，再追加新行与新后缀：跳读之后仍能继续跟随尾部。
+                context.Buffer.AppendLine(string.Empty);
+                host.Refresh();
+                Pump();
+
+                context.Buffer.AppendLine("after");
+                host.Refresh();
+                Pump();
+                view.Text.ShouldEndWith("after");
+
+                context.Buffer.AppendText("more");
+                host.Refresh();
+                Pump();
+                view.Text.ShouldEndWith("more");
+
+                window.Close();
+                Pump();
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
     public async Task 增量路径_长单行追加应只重排尾部且内容与缓冲一致()
     {
         var session = SnapshotSession.Shared;
@@ -257,6 +311,8 @@ public class TextSurfaceDeltaTests
     {
         public DisplayBuffer Buffer { get; } = maxChars > 0 ? new(capacity, maxChars) : new(capacity);
 
+        public bool EnableTail { get; init; }
+
         public string InstanceId => "delta";
 
         public string MultilineSubmitKey => "CtrlEnter";
@@ -266,10 +322,36 @@ public class TextSurfaceDeltaTests
         public IReadOnlyList<double> ReadSeries(string source) => [];
 
         public TextBufferSnapshot ReadText(string source) =>
-            new(Buffer.Snapshot(), Buffer.DroppedCount, Buffer.Capacity, 0, Buffer.Revision);
+            new(Buffer.Snapshot(), Buffer.DroppedCount, Buffer.Capacity, Buffer.Revision);
 
-        public DisplayDelta ReadTextDelta(string source, in DisplayCursor cursor, List<string> sealedLines) =>
-            Buffer.ReadDelta(cursor, sealedLines);
+        public long ReadTextRevision(string source) => Buffer.Revision;
+
+        public bool TryReadTextWindow(
+            string source,
+            in TextCursor cursor,
+            List<string> sealedLines,
+            int maxChars,
+            out TextWindow window)
+        {
+            window = Buffer.ReadWindow(cursor, sealedLines, maxChars);
+            return true;
+        }
+
+        public bool TryReadTextTail(string source, int maxLines, int maxChars, out TextTailSnapshot tail)
+        {
+            if (!EnableTail)
+            {
+                tail = default;
+                return false;
+            }
+
+            var lines = Buffer.ReadTail(maxLines, maxChars, out var cursor);
+            tail = new TextTailSnapshot(
+                new TextBufferSnapshot(lines, Buffer.DroppedCount, Buffer.Capacity, Buffer.Revision),
+                cursor);
+
+            return true;
+        }
 
         public bool SubmitInput(string source, string text) => true;
 

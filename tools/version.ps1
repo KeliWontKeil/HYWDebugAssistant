@@ -11,7 +11,7 @@
     · 主 / 小 / 修订**只由人显式指定**（`-Major` / `-Minor` / `-Patch` / `-Set`）；
       构建、测试、门禁从不改版本；
     · 提交是**推荐**不是强制：手工提交、跨轮次 / 跨版本提交、中间态临时保存都允许，
-      版本号只要求"交付构建那一刻"是正确的（见 docs/zh/reference/versioning.md）。
+      版本号只要求"交付构建那一刻"是正确的（见 docs/zh/project/versioning.md）。
 
 .EXAMPLE
     ./tools/version.ps1                     # 显示当前版本

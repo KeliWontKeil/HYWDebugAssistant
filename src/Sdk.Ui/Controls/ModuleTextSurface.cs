@@ -62,9 +62,15 @@ public sealed class ModuleTextSurface : ModuleElement
     private string _textValue = string.Empty;
     private string _unmarkedKey = string.Empty;
     private long _displayRevision = -1;
-    private DisplayCursor _cursor;
+    private TextCursor _cursor;
     private readonly List<string> _sealedScratch = [];
     private bool _appearanceApplied;
+
+    /// <summary>单帧最多为新增文本付出多少字符的排版代价；超过则跳读尾部窗口。</summary>
+    private const int MaxLayoutCharsPerFrame = 8_192;
+
+    /// <summary>跳读时保留的尾部行数（只用于显示；保存仍以显示缓冲为准）。</summary>
+    private const int TailLineLimit = 512;
     private TextAlignment _textAlignment = TextAlignment.Left;
     private double _minEditorHeight;
 
@@ -200,7 +206,7 @@ public sealed class ModuleTextSurface : ModuleElement
 
         // 模板重建 ⇒ 只读叶子是新的（里面没有内容）：游标必须退回起点，
         // 否则增量会"从内容末尾之后开始读"，新叶子永远是空的。
-        _cursor = DisplayCursor.Empty;
+        _cursor = TextCursor.Empty;
         _appearanceApplied = false;
         ApplyPresentation();
         ApplyAppearance(_appearance);
@@ -546,15 +552,13 @@ public sealed class ModuleTextSurface : ModuleElement
             return;
         }
 
-        // **增量路径**：只取游标之后新增的已封口行与当前行的后缀，
+        // **窗口路径**：只取游标之后新增的已封口行与当前行的后缀/整行，
         // 不复制行表、不拼全文 —— 长缓冲下每帧的代价与"这一拍来了多少数据"成正比。
-        var delta = context.ReadTextDelta(Source, _cursor, _sealedScratch);
-        _cursor = delta.Cursor;
-
-        if (delta.Reset)
+        if (!context.TryReadTextWindow(Source, _cursor, _sealedScratch, MaxLayoutCharsPerFrame, out var window))
         {
-            // 游标失效（清空 / 替换 / 游标跑到缓冲之前）⇒ 用全量快照重建。
+            // 未实现窗口的宿主/设计期替身：回退全量（语义不变，只是每帧多一次行表复制）。
             var snapshot = context.ReadText(Source);
+
             if (snapshot.Revision == _displayRevision)
             {
                 return;
@@ -563,26 +567,50 @@ public sealed class ModuleTextSurface : ModuleElement
             _displayRevision = snapshot.Revision;
             ApplyDisplayPreferences();
             _ = _readText.ApplySnapshot(snapshot.Lines, snapshot.Revision);
-            _readText.SetDeltaCursor(delta.Cursor);
             return;
         }
 
+        _cursor = new TextCursor(
+            window.Version, window.Dropped, window.SealedCount, window.OpenLength, window.OpenVersion);
+
         // **同一个变更号 ⇒ 内容没变**：不读行、不重排。
-        if (delta.Revision == _displayRevision)
+        if (window.Revision == _displayRevision)
         {
             return;
         }
 
-        _displayRevision = delta.Revision;
+        // **呈现预算**：缓冲在复制之前已判定本拍超出预算 ⇒ 只读尾部窗口。
+        if (window.Overflow)
+        {
+            if (context.TryReadTextTail(Source, TailLineLimit, MaxLayoutCharsPerFrame, out var tail))
+            {
+                _displayRevision = tail.Snapshot.Revision;
+                ApplyDisplayPreferences();
+                _ = _readText.ApplySnapshot(tail.Snapshot.Lines, tail.Snapshot.Revision);
+                _readText.SetCursor(tail.Cursor);
+                _cursor = tail.Cursor;
+                _sealedScratch.Clear();
+                return;
+            }
+
+            var full = context.ReadText(Source);
+            _displayRevision = full.Revision;
+            ApplyDisplayPreferences();
+            _ = _readText.ApplySnapshot(full.Lines, full.Revision);
+            _sealedScratch.Clear();
+            return;
+        }
+
+        _displayRevision = window.Revision;
         ApplyDisplayPreferences();
 
-        if (!_readText.ApplyDelta(delta, _sealedScratch))
+        if (!_readText.ApplyWindow(window, _sealedScratch))
         {
             var snapshot = context.ReadText(Source);
             _displayRevision = snapshot.Revision;
             _ = _readText.ApplySnapshot(snapshot.Lines, snapshot.Revision);
-            _readText.SetDeltaCursor(delta.Cursor);
-            return;
+            _readText.SetCursor(_cursor);
+            _sealedScratch.Clear();
         }
     }
 

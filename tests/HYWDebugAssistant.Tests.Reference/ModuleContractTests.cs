@@ -273,14 +273,15 @@ public class ModuleContractTests
 
         context.SetConfiguration(new RateSourceStubConfig { IntervalMs = 1, Value = 0.5 });
 
-        // 活动体在测试上下文里跑一小段后请求停止（不用框架线程）
-        var runner = new Thread(() => module.RunActivity(context));
+        // step 驱动在测试上下文里跑一小段后停止（不用框架线程）
+        using var cancellation = new CancellationTokenSource();
+        var runner = new Thread(() => TestActivityDriver.Run(module, context, cancellation.Token));
 
         runner.Start();
         WaitUntil(
             () => context.Published.TryGetValue(RateSourceStubModule.ValueSource, out var list) && list.Count > 3,
             TimeSpan.FromSeconds(2)).ShouldBeTrue("定值数据源应在测试上下文里写入订阅样本");
-        context.RequestStop();
+        cancellation.Cancel();
         runner.Join(TimeSpan.FromSeconds(2)).ShouldBeTrue();
 
         context.Sent.ShouldNotBeEmpty("应发出契约数据单元");

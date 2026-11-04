@@ -3,6 +3,7 @@ using HYWDebugAssistant.Modules.DataMonitor;
 using HYWDebugAssistant.Modules.HexSender;
 using HYWDebugAssistant.Modules.HexStringConverter;
 using HYWDebugAssistant.Modules.TextSender;
+using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Testing;
 using Shouldly;
@@ -42,7 +43,7 @@ public class BusinessModulesBehaviorTests
         context.EnqueueInput(TextSenderModule.ContinuousSource, "true");
         context.ViewState.SetInputText(TextSenderModule.IntervalSource, "100");
 
-        RunActivityFor(configured, context, TimeSpan.FromMilliseconds(600));
+        RunStepsFor(configured, context, TimeSpan.FromMilliseconds(600));
 
         var sent = OutPortSends(context);
         sent.ShouldBeInRange(
@@ -59,7 +60,7 @@ public class BusinessModulesBehaviorTests
         zeroContext.ViewState.SetInputText(TextSenderModule.IntervalSource, "0");
         zeroContext.EnqueueInput(TextSenderModule.ContinuousSource, "true");
 
-        RunActivityFor(zero, zeroContext, TimeSpan.FromMilliseconds(200));
+        RunStepsFor(zero, zeroContext, TimeSpan.FromMilliseconds(200));
 
         OutPortSends(zeroContext).ShouldBeGreaterThan(
             1, "间隔 0 = 每个活动周期都发（不是\"没设置\"）");
@@ -71,7 +72,7 @@ public class BusinessModulesBehaviorTests
         defaultContext.ViewState.SetInputText(TextSenderModule.TextSourceOf(0), "tick");
         defaultContext.EnqueueInput(TextSenderModule.ContinuousSource, "true");
 
-        RunActivityFor(byDefault, defaultContext, TimeSpan.FromMilliseconds(300));
+        RunStepsFor(byDefault, defaultContext, TimeSpan.FromMilliseconds(300));
 
         OutPortSends(defaultContext).ShouldBe(
             0, "**没设置间隔就绝不能硬发**（旧实现：每 20 ms 一条 ⇒ 约 15 条）");
@@ -92,7 +93,7 @@ public class BusinessModulesBehaviorTests
         blankInterval.OnRegistered(blankContext);
         blankContext.ViewState.SetInputText(TextSenderModule.IntervalSource, "   ");
 
-        RunActivityFor(blankInterval, blankContext, TimeSpan.FromMilliseconds(80));
+        RunStepsFor(blankInterval, blankContext, TimeSpan.FromMilliseconds(80));
 
         Alerted(blankContext, TextSenderModule.IntervalSource)
             .ShouldBeFalse("空 = 还没填，不是填错了（不该在这一格上标红）");
@@ -104,7 +105,7 @@ public class BusinessModulesBehaviorTests
         attemptContext.ViewState.SetInputText(TextSenderModule.TextSourceOf(0), "tick");
         attemptContext.EnqueueInput(TextSenderModule.ContinuousSource, "true");
 
-        RunActivityFor(attempt, attemptContext, TimeSpan.FromMilliseconds(120));
+        RunStepsFor(attempt, attemptContext, TimeSpan.FromMilliseconds(120));
 
         OutPortSends(attemptContext).ShouldBe(0, "缺间隔绝不硬发");
         Alerted(attemptContext, TextSenderModule.IntervalSource).ShouldBeTrue("红色落在缺的那一格（间隔）上");
@@ -131,7 +132,8 @@ public class BusinessModulesBehaviorTests
         context.ViewState.SetInputText(TextSenderModule.TextSourceOf(0), "tick");
         context.ViewState.SetInputText(TextSenderModule.IntervalSource, "50");
 
-        var runner = new Thread(() => module.RunActivity(context));
+        using var cancellation = new CancellationTokenSource();
+        var runner = new Thread(() => TestActivityDriver.Run(module, context, cancellation.Token));
         runner.Start();
 
         try
@@ -157,8 +159,8 @@ public class BusinessModulesBehaviorTests
         }
         finally
         {
-            context.RequestStop();
-            runner.Join(TimeSpan.FromSeconds(2)).ShouldBeTrue("活动体应能及时停止");
+            cancellation.Cancel();
+            runner.Join(TimeSpan.FromSeconds(2)).ShouldBeTrue("step 驱动应能及时停止");
         }
     }
 
@@ -483,7 +485,7 @@ public class BusinessModulesBehaviorTests
             .ShouldBeFalse("**间隔已经设过** ⇒ 不许再报\"还没有设置间隔\"");
 
         // ③ 跑一会儿：必须真的发出去了
-        RunActivityFor(module, context, TimeSpan.FromMilliseconds(300));
+        RunStepsFor(module, context, TimeSpan.FromMilliseconds(300));
 
         OutPortSends(context).ShouldBeGreaterThan(1, "设了 50 ms 就该按它发");
     }
@@ -567,14 +569,15 @@ public class BusinessModulesBehaviorTests
             .ShouldNotContain("↵", Case.Sensitive);
     }
 
-    /// <summary>跑一段**真实活动体**（独立线程；到点请求停止并等它返回）。</summary>
-    private static void RunActivityFor(TextSenderModule module, TestModuleContext context, TimeSpan duration)
+    /// <summary>跑一段**真实 step 驱动**（独立线程；到点取消并等它返回）。</summary>
+    private static void RunStepsFor(TextSenderModule module, TestModuleContext context, TimeSpan duration)
     {
-        var runner = new Thread(() => module.RunActivity(context));
+        using var cancellation = new CancellationTokenSource();
+        var runner = new Thread(() => TestActivityDriver.Run(module, context, cancellation.Token));
         runner.Start();
         Thread.Sleep(duration);
-        context.RequestStop();
-        runner.Join(TimeSpan.FromSeconds(2)).ShouldBeTrue("活动体应能及时停止");
+        cancellation.Cancel();
+        runner.Join(TimeSpan.FromSeconds(2)).ShouldBeTrue("step 驱动应能及时停止");
     }
 
     /// <summary>该上下文里从输出口发出的单元数。</summary>

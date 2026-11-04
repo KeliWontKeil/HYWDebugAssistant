@@ -79,10 +79,10 @@ public sealed class RateSourceStubModule : IModule, IActivitySource
     private ulong _tick;
 
     /// <inheritdoc />
-    public ActivityKind Kind => ActivityKind.Periodic;
+    public ReceiveMode Receive => ReceiveMode.Push;
 
     /// <inheritdoc />
-    public TimeSpan Interval => TimeSpan.FromMilliseconds(20);
+    public TimeSpan? NextDelay => TimeSpan.FromMilliseconds(Math.Max(1, _config.IntervalMs));
 
     /// <summary>把数值格式化成单元里的文本（不变量文化：与显示器、断言口径一致）。</summary>
     /// <param name="value">数值。</param>
@@ -132,27 +132,27 @@ public sealed class RateSourceStubModule : IModule, IActivitySource
     public void OnConfigurationChanged() => _configDirty = true;
 
     /// <inheritdoc />
-    public void RunActivity(IModuleContext context)
+    public void OnStep(IModuleContext context, StepReason reason)
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        while (!context.StopSignal.IsStopRequested)
+        if (_configDirty)
         {
-            if (_configDirty)
-            {
-                // **配置热生效**：与 UI 同一条命令写回 ⇒ 活动体下一轮就按新配置发数
-                _config = context.Configuration.Read<RateSourceStubConfig>();
-                _configDirty = false;
-            }
-
-            var value = _config.Value;
-
-            _ = context.Ports.TrySend(OutPort, EncodeUnit(value));
-            context.Ports.Publish(ValueSource, BitConverter.GetBytes((float)value));
-            context.Ports.Publish(TickSource, BitConverter.GetBytes(_tick));
-            _tick++;
-
-            _ = context.StopSignal.Wait(TimeSpan.FromMilliseconds(Math.Max(1, _config.IntervalMs)));
+            // **配置热生效**：与 UI 同一条命令写回 ⇒ 下一步就按新配置发数
+            _config = context.Configuration.Read<RateSourceStubConfig>();
+            _configDirty = false;
         }
+
+        if (!reason.HasFlag(StepReason.Start) && !reason.HasFlag(StepReason.Due))
+        {
+            return;
+        }
+
+        var value = _config.Value;
+
+        _ = context.Ports.TrySend(OutPort, EncodeUnit(value));
+        context.Ports.Publish(ValueSource, BitConverter.GetBytes((float)value));
+        context.Ports.Publish(TickSource, BitConverter.GetBytes(_tick));
+        _tick++;
     }
 }

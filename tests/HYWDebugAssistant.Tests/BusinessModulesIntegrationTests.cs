@@ -144,6 +144,58 @@ public class BusinessModulesIntegrationTests
         services.GetPortMetrics("t1", "out").Delivered.ShouldBe(stopped, "停止后不得再有幽灵发送");
     }
 
+    /// <summary>连续发送期间持续输入不得重置发送到期（绝对时间语义）。</summary>
+    [Fact]
+    public void 文本发送器_输入期间连续发送不得被拖慢()
+    {
+        var staged = StagedModules;
+        Directory.Exists(staged).ShouldBeTrue($"模块包未归拢：{staged}（请先运行 ./build.ps1）");
+
+        var viewState = new ViewStateStore();
+        using var runtime = new ModuleRuntime(viewState: viewState, catalog: new BuiltInExternalAccessCatalog());
+        var services = new RuntimeServices(runtime);
+        services.ScanModuleSources([staged]).ShouldBeGreaterThan(0);
+
+        services.AddModule("t2", TextSenderId).Succeeded.ShouldBeTrue();
+        services.AddModule("m2", MonitorId).Succeeded.ShouldBeTrue();
+        SetLabel(runtime, "t2", "out", "bus2");
+        SetLabel(runtime, "m2", "in", "bus2");
+
+        viewState.SetSelectedPage("t2", "text-pages", 0);
+        viewState.SetInputText("t2", "text1", "tick");
+        viewState.SetInputText("t2", "interval", "50");
+        viewState.SetInputText("t2", "continuous", "true");
+
+        Thread.Sleep(120);
+        var before = services.GetPortMetrics("t2", "out").Delivered;
+
+        // 每 10 ms 改一次内容（触发 Input step），持续 300 ms；到期仍应按 50 ms 前进。
+        for (var index = 0; index < 30; index++)
+        {
+            viewState.SetInputText("t2", "text1", $"tick-{index}");
+            Thread.Sleep(10);
+        }
+
+        var sent = services.GetPortMetrics("t2", "out").Delivered - before;
+        _ = runtime.Content.TryGetInstance("t2", out var senderInstance);
+        var senderModule = senderInstance?.Module;
+        _ = runtime.Carriers.TryGet("t2", out var senderCarrier);
+        var continuous = senderModule?.GetType().GetProperty("IsContinuous")?.GetValue(senderModule);
+        var interval = senderModule?.GetType().GetProperty("IntervalMilliseconds")?.GetValue(senderModule);
+        var sentCount = senderModule?.GetType().GetProperty("SentCount")?.GetValue(senderModule);
+        sent.ShouldBeGreaterThanOrEqualTo(
+            4,
+            $"输入期间 50 ms 连续发送在 300 ms 内应仍有约 6 条（实测 {sent}）；"
+            + $"continuous={continuous} interval={interval} "
+            + $"sentCount={sentCount} carrier={senderCarrier?.IsRunning}/{senderCarrier?.Wakeups} "
+            + $"viewContinuous={viewState.GetInputText("t2", "continuous")} "
+            + $"viewInterval={viewState.GetInputText("t2", "interval")} "
+            + $"viewText={viewState.GetInputText("t2", "text1")} "
+            + $"issues={string.Join(" | ", runtime.Issues.Snapshot().Select(entry => entry.Issue.Message))}");
+
+        viewState.SetInputText("t2", "continuous", "false");
+    }
+
 
     /// <summary>
     /// **串口模块（第二批样板）的参数应进配置表单**：读即登记 ⇒ Schema 有字段；枚举的显示名与写回名各司其职。
@@ -335,30 +387,22 @@ public class BusinessModulesIntegrationTests
         services.AddModule("m1", MonitorId).Succeeded.ShouldBeTrue();
 
         // 直接往显示缓冲里写两行（模拟"已经显示过内容"）
-        var buffer = viewState.Display("m1", "log");
-        buffer.Append("第一行");
-        buffer.Append("第二行");
-        buffer.Count.ShouldBe(2);
+        var display = viewState.DisplayFor("m1");
+        display.AppendLine("log", "第一行");
+        display.AppendLine("log", "第二行");
+        viewState.ReaderFor("m1").GetDisplayLines("log").Count.ShouldBe(2);
 
-        // 点「清空」⇒ 模块请求框架
+        // 点「清空」⇒ 模块在实例线程直接写显示缓冲（显示写者 = 实例线程）
         services.SendCommand("m1", "clear").Succeeded.ShouldBeTrue();
 
-        // **UI 侧**在刷新节拍里取走并执行（这里用与 UI 相同的调用：TryTakeClear + Clear）
         var deadline = DateTime.UtcNow.AddSeconds(3);
 
-        while (DateTime.UtcNow < deadline)
+        while (DateTime.UtcNow < deadline
+            && viewState.ReaderFor("m1").GetDisplayLines("log").Count != 0)
         {
-            if (viewState.TryTakeClear("m1", out var source))
-            {
-                buffer = viewState.Display("m1", source!);
-                buffer.Clear();
-                break;
-            }
-
             Thread.Sleep(20);
         }
 
-        buffer.Count.ShouldBe(0, "清空是唯一会丢显示内容的入口");
         viewState.ReaderFor("m1").GetDisplayLines("log").ShouldBeEmpty();
     }
 
@@ -426,7 +470,7 @@ public class BusinessModulesIntegrationTests
 
         // 先往显示区写点东西（保存读的是显示缓冲 ⇒ 落盘内容应当与屏幕一致）
         var firstLine = "第一行";
-        viewState.Display("m1", "log").AppendText(firstLine);
+        viewState.DisplayFor("m1").AppendText("log", firstLine);
         runtime.FileAccessFor!("m1").ShouldBeSameAs(recorder, "同一个实例问两次必须拿到同一个请求面");
 
         // 点「保存」：模块必须请求一次保存对话框，并说明它要哪条输出源、预填什么文件名

@@ -109,8 +109,6 @@ public static class ModuleContract
         CheckRoles(probeContext.DeclaredRoles, probeContext.DeclaredPorts, probeContext.DeclaredDataTypes, problems, advice);
         CheckFlows(probeContext.DeclaredFlows, probeContext.DeclaredRoles, problems);
         CheckExternalAccesses(probeContext.DeclaredExternalAccesses, catalog, problems);
-        CheckInteractionModes(entryType, advice);
-        CheckActivityWithAccess(entryType, probeContext.DeclaredExternalAccesses, advice);
         CheckConfiguration(entryType, problems);
 
         return new ContractProbeResult(
@@ -565,45 +563,6 @@ public static class ModuleContract
             {
                 problems.Add($"标准 '{access.StandardId}' 缺少适配件工厂");
             }
-        }
-    }
-
-    /// <summary>
-    /// 检查两种消费方式是否同时存在：活动体优先、交互回调不会投递。
-    /// </summary>
-    /// <remarks>
-    /// 这是**建议**不是问题：框架能跑（活动体赢），但模块作者应当知道另一半代码永远不会被调用。
-    /// </remarks>
-    private static void CheckInteractionModes(Type entryType, List<string> advice)
-    {
-        if (typeof(IActivitySource).IsAssignableFrom(entryType)
-            && typeof(IModuleInteractionSink).IsAssignableFrom(entryType))
-        {
-            advice.Add(
-                "模块同时实现 IActivitySource 与 IModuleInteractionSink：运行时活动体优先，交互回调不会投递；请只选一种消费方式");
-        }
-    }
-
-    /// <summary>
-    /// 提醒**有活动体又用了外部接入**的模块：会话推进要由活动体自己驱动。
-    /// </summary>
-    /// <remarks>
-    /// 无活动体的模块由框架的实例循环代为推进会话；有活动体时框架不泵，打开/关闭请求不会被执行 ——
-    /// 这是隐式契约，因此给一条建议（不是错误：模块可能在自己的循环里已经调用了）。
-    /// </remarks>
-    /// <param name="entryType">模块入口类型。</param>
-    /// <param name="accesses">已声明的外部接入。</param>
-    /// <param name="advice">建议通道。</param>
-    private static void CheckActivityWithAccess(
-        Type entryType,
-        IReadOnlyList<ExternalAccessDeclaration> accesses,
-        List<string> advice)
-    {
-        if (accesses.Count > 0 && typeof(IActivitySource).IsAssignableFrom(entryType))
-        {
-            advice.Add(
-                "模块有活动体又声明了外部接入：活动体每轮循环必须调用 context.Access.Pump()，"
-                + "否则打开/关闭请求不会执行（无活动体的模块由框架代为推进）");
         }
     }
 

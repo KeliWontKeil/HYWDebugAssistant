@@ -2606,88 +2606,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
     }
 
-    /// <summary>
-    /// **取完某实例的挂起"清空显示"请求**（模块 → 框架的请求方向；`null` = 本帧没有请求）。
-    /// </summary>
-    /// <param name="instanceId">实例 ID。</param>
-    /// <returns>被请求清空的**数据源名集合**；没有请求时为 <see langword="null"/>。</returns>
-    /// <remarks>
-    /// 一次性取完（而不是"每遇到一个显示元素取一个"）的理由见调用处的注释：**顺序不该影响语义**，
-    /// 而且按元素逐个取会在源名不匹配时把请求**丢掉**。
-    /// </remarks>
-    private HashSet<string>? DrainClears(string instanceId)
-    {
-        if (_viewState is null)
-        {
-            return null;
-        }
-
-        HashSet<string>? clears = null;
-
-        while (_viewState.TryTakeClear(instanceId, out var source) && source is { Length: > 0 })
-        {
-            clears ??= new HashSet<string>(StringComparer.Ordinal);
-            _ = clears.Add(source);
-        }
-
-        return clears;
-    }
-
-    /// <summary>
-    /// **落地某实例挂起的"替换显示源文本"请求**（消息 / 状态这类只有当前值的内容）。
-    /// </summary>
-    /// <param name="instanceId">实例 ID。</param>
-    /// <remarks>
-    /// 与追加同一模型（模块线程只入队、UI 线程落地），差别在语义：**替换**而不是追加。
-    /// 落地时顺带**丢掉该源还没落地的追加** —— 替换与追加混在一起没有确定含义，
-    /// 保留旧的追加会让"刚设的消息"被几行旧日志顶掉。
-    /// </remarks>
-    private void DrainSets(string instanceId)
-    {
-        if (_viewState is null)
-        {
-            return;
-        }
-
-        while (_viewState.TryTakeSetText(instanceId, out var source, out var text) && source is { Length: > 0 })
-        {
-            // 缓冲换了内容 ⇒ 视图下一帧读到新行（控件按内容比较决定要不要重排）。
-            _viewState.Display(instanceId, source).SetText(text ?? string.Empty);
-        }
-    }
-
-    /// <summary>
-    /// **落地某实例挂起的"追加文本"请求**（WinForms 模型）。
-    /// </summary>
-    /// <param name="instanceId">实例 ID。</param>
-    /// <remarks>
-    /// 模块线程只入队（<c>IViewDisplayAccess.AppendText/AppendLine</c>），**显示缓冲的唯一写者仍是 UI 线程**
-    /// —— 界面绑定的行集合绝不被跨线程改。本方法在**每帧刷新**里把队列取空并按入队顺序落地：
-    /// 「不换行」=`AppendText`（数据直接接在后面、什么都不加）、「通道换行」=`AppendLine`。
-    /// <para>清空请求先于追加落地（同一个节拍内的语义见 <c>ViewStateStore</c> 的说明）。</para>
-    /// </remarks>
-    private void DrainAppends(string instanceId)
-    {
-        if (_viewState is null)
-        {
-            return;
-        }
-
-        // 取空再落地：取的时候持存储锁、落地时持缓冲锁，两把锁不嵌套（避免锁序问题）
-        foreach (var append in _viewState.DrainAppends(instanceId))
-        {
-            var buffer = _viewState.Display(instanceId, append.SourceName);
-
-            if (append.LineBreak)
-            {
-                buffer.AppendLine(append.Text);
-            }
-            else
-            {
-                buffer.AppendText(append.Text);
-            }
-        }
-    }
     private void RefreshSubscriptions(IReadOnlyList<NetworkView> networks)
     {
         // 设置只在启动/应用设置时读取；没有做过 Load 的调用点（测试/设计时）在此补一次。
@@ -2743,29 +2661,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         foreach (var module in Modules)
         {
-            // **本帧先把该实例的挂起清空请求
-            // 一次取完**（若在"每遇到一个 A5 元素"时才 `TryTakeClear` 一次 ⇒ ① 顺序不对就**丢掉**
-            // 别的源的请求；② 语义上也不该被元素遍历顺序左右）。取到的是一个**集合**，供下面的元素循环按源名匹配。
-            var clears = DrainClears(module.InstanceId);
-
-            // **顺序纪律：清空先落地，追加后落地**（模块先 `Clear` 再 `Append` 的语义不能被倒过来）。
-            // 缓冲的写者只有这一处（UI 线程）⇒ 两边都安全。
-            if (clears is not null && _viewState is not null)
-            {
-                foreach (var name in clears)
-                {
-                    _viewState.Display(module.InstanceId, name).Clear();
-
-                    // 告诉**新表面**这个缓冲被清空了：不通知 ⇒ 控件手里的快照看起来还是"没变"
-                    // （行数与末行都没动），于是一直显示旧行 —— 表现为"清空按钮按了没反应"。
-                }
-            }
-
-            // 本帧把挂起的"替换显示源文本"落地（消息 / 状态这类**只有当前值**的内容）
-            DrainSets(module.InstanceId);
-
-            // 本帧把挂起的"追加文本"落地（数据到达即落地，不存在"半行/pending tail"）
-            DrainAppends(module.InstanceId);
+            // 显示写入已在模块实例线程直达显示缓冲（唯一写者 = 实例线程）；本帧只刷新视图。
 
             // 口标记的网络信息（连接状态 + **投递量与估算字节**）与**角色方块**：
             // ① **结构变化时**立即刷一次；② 否则按约 0.5 秒的节拍刷（指标会随数据流动持续变化）

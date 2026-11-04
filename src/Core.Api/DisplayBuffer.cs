@@ -19,9 +19,8 @@ namespace HYWDebugAssistant.Core.Api;
 ///     不设第二份副本（否则两份文本会不一致）；</item>
 ///   <item><b>容量与到顶策略</b>：行数与**总字符数**双重封顶，超出**丢弃最旧**并累计
 ///     <see cref="DroppedCount"/>（**不静默丢** —— 界面据此提示"已丢弃 N 行"）；</item>
-///   <item><b>线程</b>：写方是 **UI 线程**（唯一写者 —— 模块经 <c>IViewDisplayAccess</c> 入队、
-///     UI 在刷新节拍里落地）；读方是**模块线程**（<c>GetDisplayLines</c> 快照：缓冲 + 还没落地的那一段）
-///     ⇒ 用锁保护，读侧**复制快照**（不在读时持锁做重活）。</item>
+///   <item><b>线程</b>：写方是**实例线程**（模块经 <c>IViewDisplayAccess</c> **直接写**；唯一写者）；
+///     读方是 UI（增量窗口）与模块（<c>GetDisplayLines</c> 保存快照）⇒ 锁保护，读侧只取快照/引用。</item>
 /// </list>
 /// <para>
 /// <b>为什么当前行用 <see cref="StringBuilder"/> 而不是一条字符串</b>：不换行的那条路会把整场会话
@@ -30,7 +29,7 @@ namespace HYWDebugAssistant.Core.Api;
 /// 行数与字符数封顶保证内存有上界；视图经 <see cref="ReadDelta"/> 只取新增部分。
 /// </para>
 /// </remarks>
-public sealed class DisplayBuffer
+public sealed class DisplayBuffer : IDisplayBufferReader
 {
     /// <summary>
     /// 默认容量（行）：**20 000 行**（量级参考：2 万行 × 48 字符 ≈ 2 MB）。
@@ -47,8 +46,11 @@ public sealed class DisplayBuffer
     /// </remarks>
     public const int DefaultMaxChars = 1_048_576;
 
+    /// <summary>当前行封口后，超过这个容量就把大 <see cref="StringBuilder"/> 换掉（不保留同规模空缓冲）。</summary>
+    private const int OpenBuilderReleaseCapacity = 64 * 1024;
+
     private readonly List<string> _sealed = [];
-    private readonly StringBuilder _open = new();
+    private StringBuilder _open = new();
     private readonly Lock _gate = new();
 
     /// <summary>已封口行的有效起点（丢头是整体前移，避免每行一次 <c>RemoveAt(0)</c> 的整表搬运）。</summary>
@@ -61,10 +63,8 @@ public sealed class DisplayBuffer
     private long _droppedChars;
 
     private int _totalChars;
-    private long _openGeneration;
-
-    /// <summary>当前行被**头部裁剪**的世代号（只有真的截掉开头才变；封口不变）。</summary>
-    private long _openTrimGeneration;
+    private long _version;
+    private long _openVersion;
     private long _revision;
 
     /// <summary>创建缓冲。</summary>
@@ -96,18 +96,6 @@ public sealed class DisplayBuffer
     /// </summary>
     public long Revision => Interlocked.Read(ref _revision);
 
-    /// <summary>当前保留的**行**数（含尚未封口的当前行；0 = 空）。</summary>
-    public int Count
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return LiveSealedCount + (_open.Length > 0 ? 1 : 0);
-            }
-        }
-    }
-
     /// <summary>当前保留的字符数（已封口行 + 当前行）。</summary>
     public int TotalChars
     {
@@ -130,27 +118,6 @@ public sealed class DisplayBuffer
                 return _dropped;
             }
         }
-    }
-
-    /// <summary>因总字符预算被截掉的行内字符累计数（诊断用）。</summary>
-    public long DroppedChars => Interlocked.Read(ref _droppedChars);
-
-    /// <summary>**追加一行**（空/纯空白行忽略 —— 与既有 A5 行为一致）。</summary>
-    /// <param name="line">行文本。</param>
-    /// <remarks>
-    /// <b>历史成员（保持原样）</b>：这是"发布定长样本"那条老路径用的入口（老模块零改动）。
-    /// 新代码请用语义更清楚的 <see cref="AppendText"/>（不换行）/ <see cref="AppendLine"/>（通道换行）。
-    /// </remarks>
-    public void Append(string line)
-    {
-        ArgumentNullException.ThrowIfNull(line);
-
-        if (string.IsNullOrWhiteSpace(line))
-        {
-            return;
-        }
-
-        AppendLine(line);
     }
 
     /// <summary>
@@ -226,12 +193,15 @@ public sealed class DisplayBuffer
         lock (_gate)
         {
             _sealed.Clear();
+            _sealed.TrimExcess();
             _head = 0;
             _dropped = 0;
             _totalChars = 0;
             _ = Interlocked.Exchange(ref _droppedChars, 0);
             _open.Clear();
-            _openGeneration++;
+            _open.Capacity = 0;
+            _openVersion++;
+            _version++;
             _ = Interlocked.Increment(ref _revision);
         }
 
@@ -252,9 +222,11 @@ public sealed class DisplayBuffer
         lock (_gate)
         {
             _sealed.Clear();
+            _sealed.TrimExcess();
             _head = 0;
             _dropped = 0;
             _open.Clear();
+            _open.Capacity = 0;
             _totalChars = 0;
             _ = Interlocked.Exchange(ref _droppedChars, 0);
 
@@ -266,7 +238,8 @@ public sealed class DisplayBuffer
                 _totalChars = keep.Length;
             }
 
-            _openGeneration++;
+            _openVersion++;
+            _version++;
             _ = Interlocked.Increment(ref _revision);
         }
 
@@ -303,16 +276,16 @@ public sealed class DisplayBuffer
     }
 
     /// <summary>
-    /// **取增量**：从 <paramref name="cursor"/> 之后新增的已封口行 + 当前行的后缀/整行。
+    /// **取窗口**：从 <paramref name="cursor"/> 之后新增的已封口行 + 当前行的后缀/整行。
     /// </summary>
     /// <param name="cursor">视图上一拍读到的位置。</param>
     /// <param name="sealedLines">接收新增已封口行的缓冲（**调用方持有**，本方法先清空再填）。</param>
-    /// <returns>增量；游标失效时 <see cref="DisplayDelta.Reset"/> 为真（调用方改用 <see cref="Snapshot"/> 重建）。</returns>
+    /// <returns>窗口；游标失效时 <see cref="TextWindow.Reset"/> 为真（用随附行表与当前行重建）。</returns>
     /// <remarks>
     /// 返回的字符串**不可变且稳定**（已封口行一旦产生就不再变），可安全跨帧持有；
     /// 当前行的后缀是本次复制出来的新串，量级 = 这一拍新增的字符数。
     /// </remarks>
-    public DisplayDelta ReadDelta(DisplayCursor cursor, List<string> sealedLines)
+    public TextWindow ReadWindow(TextCursor cursor, List<string> sealedLines, int maxChars = 0)
     {
         ArgumentNullException.ThrowIfNull(sealedLines);
 
@@ -321,23 +294,49 @@ public sealed class DisplayBuffer
             sealedLines.Clear();
 
             var sealedCount = _dropped + LiveSealedCount;
-            var cursorSealed = cursor.SealedCount;
 
-            // 被整块换掉（世代回退 / 清空 / 替换）⇒ 只能全量重建。
-            if (cursorSealed > sealedCount
-                || cursor.Dropped > _dropped
-                || (cursor.OpenGeneration == _openGeneration && cursor.OpenLength > _open.Length))
+            // 被整块换掉（清空 / 替换）或游标越界 ⇒ 用当前全部内容重建。
+            if (cursor.Version != _version
+                || cursor.SealedCount > sealedCount
+                || cursor.Dropped > _dropped)
             {
-                return DisplayDelta.ResetRequired(
-                    new DisplayCursor(sealedCount, _openGeneration, _open.Length, _dropped, _openTrimGeneration),
-                    Capacity,
-                    Revision);
+                if (maxChars > 0 && _totalChars > maxChars)
+                {
+                    return new TextWindow(
+                        _version, _dropped, sealedCount, _open.Length, _openVersion,
+                        Reset: true, OpenSuffix: null, OpenText: null, Revision, Overflow: true);
+                }
+
+                for (var index = _head; index < _sealed.Count; index++)
+                {
+                    sealedLines.Add(_sealed[index]);
+                }
+
+                return new TextWindow(
+                    _version, _dropped, sealedCount, _open.Length, _openVersion,
+                    Reset: true, OpenSuffix: null, OpenText: _open.ToString(), Revision);
             }
 
-            // 游标落后于裁剪点：它手里的封口行已经全被丢掉 ⇒ 从当前第一条封口行重新给**全部**。
-            // 仍然走增量（视图整段替换封口行），不回退全量快照。
-            var rebased = cursorSealed < _dropped;
-            var from = rebased ? _head : _head + (cursorSealed - _dropped);
+            // 游标落后于裁剪点：从当前第一条封口行重新给全部；视图删掉它手里的旧行。
+            var from = cursor.SealedCount < _dropped
+                ? _head
+                : _head + (cursor.SealedCount - _dropped);
+
+            var incoming = cursor.OpenVersion == _openVersion
+                ? _open.Length - cursor.OpenLength
+                : _open.Length;
+
+            for (var index = from; index < _sealed.Count; index++)
+            {
+                incoming += _sealed[index].Length;
+            }
+
+            if (maxChars > 0 && incoming > maxChars)
+            {
+                return new TextWindow(
+                    _version, _dropped, sealedCount, _open.Length, _openVersion,
+                    Reset: false, OpenSuffix: null, OpenText: null, Revision, Overflow: true);
+            }
 
             for (var index = from; index < _sealed.Count; index++)
             {
@@ -347,7 +346,7 @@ public sealed class DisplayBuffer
             string? suffix = null;
             string? full = null;
 
-            if (cursor.OpenGeneration == _openGeneration)
+            if (cursor.OpenVersion == _openVersion)
             {
                 suffix = cursor.OpenLength < _open.Length
                     ? _open.ToString(cursor.OpenLength, _open.Length - cursor.OpenLength)
@@ -358,21 +357,76 @@ public sealed class DisplayBuffer
                 full = _open.ToString();
             }
 
-            var next = new DisplayCursor(sealedCount, _openGeneration, _open.Length, _dropped, _openTrimGeneration);
+            return new TextWindow(
+                _version, _dropped, sealedCount, _open.Length, _openVersion,
+                Reset: false, suffix, full, Revision);
+        }
+    }
 
-            return new DisplayDelta(
-                sealedCount,
-                _dropped,
-                _openGeneration,
-                _open.Length,
-                suffix,
-                full,
-                Capacity,
-                Revision,
-                Reset: false,
-                next,
-                _openTrimGeneration,
-                SealedFromStart: rebased);
+    /// <summary>
+    /// **读尾部窗口**：只取最近若干行、且总字符不超过 <paramref name="maxChars"/>（含当前行），
+    /// 并给出对应游标。
+    /// </summary>
+    /// <param name="maxLines">最多取多少行；&lt;= 0 ⇒ 只取当前行。</param>
+    /// <param name="maxChars">最多取多少字符；&lt;= 0 ⇒ 不按字符限制。</param>
+    /// <param name="cursor">尾部游标：已封口行按**全部已应用**记（视图只持有尾部，不重发旧行）。</param>
+    /// <returns>尾部行（当前行在最后，若它非空）；首行可能被截成后缀。</returns>
+    /// <remarks>
+    /// 用于**呈现超预算时跳读**：视图不必为这一拍的全部新增数据付出排版代价，
+    /// 只重建可见尾部；数据与保存仍以缓冲为准。它不改变缓冲内容。
+    /// </remarks>
+    public IReadOnlyList<string> ReadTail(int maxLines, int maxChars, out TextCursor cursor)
+    {
+        lock (_gate)
+        {
+            var open = _open.Length > 0 ? 1 : 0;
+            var live = LiveSealedCount;
+            var lineLimit = Math.Max(1, maxLines);
+            var charLimit = maxChars > 0 ? maxChars : int.MaxValue;
+            var remaining = charLimit;
+
+            var lines = new List<string>(Math.Min(lineLimit, live + open));
+            string? openText = null;
+
+            if (open > 0)
+            {
+                openText = _open.Length > remaining
+                    ? _open.ToString(_open.Length - remaining, remaining)
+                    : _open.ToString();
+
+                remaining -= openText.Length;
+            }
+
+            var sealedKeep = Math.Min(live, Math.Max(0, lineLimit - open));
+            var firstKept = _sealed.Count - sealedKeep;
+
+            for (var index = _sealed.Count - 1; index >= firstKept && remaining > 0; index--)
+            {
+                var line = _sealed[index];
+
+                if (line.Length <= remaining)
+                {
+                    lines.Add(line);
+                    remaining -= line.Length;
+                }
+                else
+                {
+                    lines.Add(line[^remaining..]);
+                    remaining = 0;
+                }
+            }
+
+            lines.Reverse();
+
+            if (openText is not null)
+            {
+                lines.Add(openText);
+            }
+
+            cursor = new TextCursor(
+                _version, _dropped, _dropped + live, _open.Length, _openVersion);
+
+            return lines;
         }
     }
 
@@ -385,21 +439,21 @@ public sealed class DisplayBuffer
     /// </remarks>
     public bool HasTrimmed => _dropped > 0 || Interlocked.Read(ref _droppedChars) > 0;
 
-    /// <summary>追加一行（UI 线程；供视图同步）。</summary>
+    /// <summary>追加一行（实例线程；供视图同步）。</summary>
     public event Action<string>? Appended;
 
     /// <summary>
-    /// **把内容接长**（不换行的那条路）：给出**本次接上去的那一段**（UI 线程；供视图同步）。
+    /// **把内容接长**（不换行的那条路）：给出**本次接上去的那一段**（实例线程；供视图同步）。
     /// </summary>
     /// <remarks>名字刻意与 <see cref="Appended"/> 分开：前者"多了一条"（集合要 Add），后者"最后一条变长了"
     /// （集合要 Replace）—— 两个动作在界面上是两件不同的事。只发新增段而不是整行全文：
     /// 当前行可以很长，每拍复制全文等于把已解决的问题又引回来。</remarks>
     public event Action<string>? TextAppended;
 
-    /// <summary>因容量丢掉了最旧的 N 行（UI 线程）。</summary>
+    /// <summary>因容量丢掉了最旧的 N 行（实例线程）。</summary>
     public event Action<int>? Trimmed;
 
-    /// <summary>已清空（UI 线程）。</summary>
+    /// <summary>已清空（实例线程）。</summary>
     public event Action? Cleared;
 
     private int LiveSealedCount => _sealed.Count - _head;
@@ -449,8 +503,18 @@ public sealed class DisplayBuffer
     private void SealOpenLocked()
     {
         _sealed.Add(_open.ToString());
-        _open.Clear();
-        _openGeneration++;
+
+        // 大当前行封口后不要留下同样大的空 StringBuilder：否则已封口字符串与旧容量会同时驻留。
+        if (_open.Capacity > OpenBuilderReleaseCapacity)
+        {
+            _open = new StringBuilder();
+        }
+        else
+        {
+            _open.Clear();
+        }
+
+        _openVersion++;
     }
 
     /// <summary>按行数与字符预算丢最旧的行；返回本次丢掉的行数。</summary>
@@ -483,8 +547,7 @@ public sealed class DisplayBuffer
             _open.Remove(0, excess);
             _totalChars -= excess;
             _ = Interlocked.Add(ref _droppedChars, excess);
-            _openGeneration++;
-            _openTrimGeneration++;
+            _openVersion++;
         }
 
         return trimmed;

@@ -12,8 +12,8 @@ namespace HYWDebugAssistant.Core.Adapters;
 /// <remarks>
 /// <list type="bullet">
 ///   <item>数据面只返回 <see cref="AccessFailure"/>，**不报 Issue**；本类把失败转成 Issue 并归属到模块；</item>
-///   <item>无活动体模块：承载者的投递循环调 <see cref="Pump"/>（控制 + 取数 + 回调投递）；</item>
-///   <item>有活动体模块：模块在自己的循环里调 <see cref="TryRead"/> / <see cref="Write"/>，本类先推进会话再取。</item>
+///   <item>投递循环承载的模块：承载者调 <see cref="Pump"/>（控制 + 取数 + 回调投递）；</item>
+///   <item>step 模块：在 <c>OnStep</c> 里调 <see cref="TryRead"/> / <see cref="Write"/>，本类先推进会话再取。</item>
 /// </list>
 /// </remarks>
 public sealed class RuntimeExternalAccess : IExternalAccess

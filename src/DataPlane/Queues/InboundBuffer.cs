@@ -45,7 +45,7 @@ public readonly record struct InboundUnit(PayloadBuffer Buffer, string TargetPor
 /// <remarks>
 /// <list type="bullet">
 ///   <item>**粒度 = 每 (实例, 口)**：容量按口计，跨口互不挤占（无跨口队头阻塞）；</item>
-///   <item>生产者：任意线程（投递方）；消费者：该实例的专属线程（投递循环或模块活动体，二者互斥）；</item>
+///   <item>生产者：任意线程（投递方）；消费者：该实例的专属线程（投递循环或 step，二者互斥）；</item>
 ///   <item>满队时**丢哪一种**由 <see cref="DropPolicy"/> 决定（丢旧挤队头 / 丢新拒本次）；
 ///     两种都记进原因账本，读 <see cref="DroppedByReason"/> 可分辨；</item>
 ///   <item>丢弃的缓冲**由调用方归还池**（本类不持有池，避免锁内调用外部代码）；</item>

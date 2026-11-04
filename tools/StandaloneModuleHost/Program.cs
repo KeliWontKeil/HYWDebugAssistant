@@ -12,8 +12,9 @@ namespace HYWDebugAssistant.StandaloneModuleHost;
 /// </summary>
 /// <remarks>
 /// <para>
-/// 判据与模块形态无关（数据变换模块没有外部接入，外部接入模块没有数据口）：
-/// 只要求"能被装入、声明面不报错、声明过的东西能解析"。
+/// 判据与模块形态无关（数据变换模块没有外部接入，外部接入模块没有数据口，
+/// step 样例可能两者都没有）：只要求"能被装入、声明面不报错、至少声明了一项可用面
+/// （端口 / 外部接入 / 显示源 / 命令）"。
 /// </para>
 /// <para>
 /// 退出码：0 成功；1 加载/断言失败；2 参数用法错误。
@@ -60,9 +61,12 @@ internal static class Program
             return 1;
         }
 
-        if (instance.Ports.Count == 0 && instance.ExternalAccesses.Count == 0)
+        if (instance.Ports.Count == 0
+            && instance.ExternalAccesses.Count == 0
+            && instance.DisplaySources.Count == 0
+            && instance.Commands.Count == 0)
         {
-            Console.Error.WriteLine("[host] 断言失败：既没有端口也没有外部接入（这不是一个可组合的模块）");
+            Console.Error.WriteLine("[host] 断言失败：没有端口、外部接入、显示源或命令（这不是一个可用的模块）");
             return 1;
         }
 

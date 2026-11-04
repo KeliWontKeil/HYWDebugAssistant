@@ -423,9 +423,18 @@ public class OverlaySnapshotTests
 
         public void AddSink(string instanceId, double x, double y) => Add(instanceId, "test/snapshot-sink", x, y);
 
-        /// <summary>往某实例的显示缓冲里追加一行（走模块侧同一条"请求 → 落地"通道）。</summary>
+        /// <summary>往某实例的显示缓冲里追加一行（显示写者 = 实例线程；测试里由用例线程代写）。</summary>
         public void AppendDisplayLine(string instanceId, string sourceName, string text) =>
-            ViewState.RequestAppend(instanceId, sourceName, text, lineBreak: true);
+            ViewState.DisplayFor(instanceId).AppendLine(sourceName, text);
+
+        /// <summary>给某实例投一步（测试里模拟"数据/交互到达"，让模块在实例线程上处理）。</summary>
+        public void SignalStep(string instanceId, HYWDebugAssistant.Sdk.Lifecycle.StepReason reason)
+        {
+            if (Runtime.Carriers.TryGet(instanceId, out var carrier) && carrier is not null)
+            {
+                carrier.SignalReasons(reason);
+            }
+        }
 
         public ModuleWindow OpenWindow(ModuleViewViewModel module)
         {

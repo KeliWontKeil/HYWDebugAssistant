@@ -117,10 +117,12 @@ def _module_rows() -> list[dict[str, str]]:
             if table.exists():
                 entries = json.loads(table.read_text(encoding="utf-8-sig")).get("entries", {})
                 break
+        module_id = str(data.get("id", ""))
         rows.append(
             {
                 "title": entries.get("module.title") or short_name,
-                "id": str(data.get("id", "")),
+                "id": module_id,
+                "slug": module_id.rsplit("/", 1)[-1],
                 "description": entries.get("module.description") or "",
             }
         )
@@ -132,10 +134,11 @@ def _modules() -> str:
     if not rows:
         return "> 未找到模块清单。\n"
 
+    # 每个模块一册：链接到使用指南下的同名页面（缺页会让 --strict 构建失败）。
     lines = ["| 模块 | 标识 | 说明 |", "|---|---|---|"]
     for row in rows:
         description = row["description"].replace("|", "\\|")
-        lines.append(f"| {row['title']} | `{row['id']}` | {description} |")
+        lines.append(f"| [{row['title']}]({row['slug']}.md) | `{row['id']}` | {description} |")
     return "\n".join(lines) + "\n"
 
 

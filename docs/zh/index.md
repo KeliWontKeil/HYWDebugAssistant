@@ -8,29 +8,41 @@
 
 <div class="grid cards" markdown>
 
-- **使用产品**
+- **开始使用**
 
-    安装、启动、认识界面，完成第一条数据流。
+    装好、打开、认识界面，跑通第一条数据流。
 
     [开始使用](start/index.md){ .md-button }
 
-- **编写模块**
+- **使用指南**
 
-    了解模块契约、SDK 与开发流程。
+    每个功能在哪、怎么点；每个模块一册。
 
-    [模块开发](develop/index.md){ .md-button }
+    [使用指南](guides/index.md){ .md-button }
 
-- **理解机制**
+- **深入理解**
 
-    分层、数据协议、运行期与网络模型。
+    数据怎么走、文件在哪、哪些能手工改。
 
     [深入理解](concepts/index.md){ .md-button }
+
+- **模块开发**
+
+    从样例到装进产品的完整流程。
+
+    [模块开发](module-dev/index.md){ .md-button }
+
+- **项目开发**
+
+    仓库结构、构建与门禁、版本与文档规则。
+
+    [项目开发](project/index.md){ .md-button }
 
 </div>
 
 ## 文档状态
 
-「开始使用」与「使用指南」的内容将在发布前完成；当前可先阅读系统概览、模块清单与模块开发指南。
+「开始使用」与「使用指南」的正文在发布前补齐；当前可先读[系统概览](concepts/overview.md)、[模块目录](guides/modules/index.md)与[模块开发](module-dev/index.md)。
 
 ## 最近更新
 

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    最小自发活动样例：只引用作者包（Sdk + Module.Build），不引用仓库源码。
+    演示 OnStep / NextDelay：每 100 ms 发布一次计数，不写循环、不建定时器。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <AssemblyName>HYWDebugAssistant.Samples.ActivityModule</AssemblyName>
+    <RootNamespace>HYWDebugAssistant.Samples.ActivityModule</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="HYWDebugAssistant.Sdk" Version="$(Version)" />
+    <PackageReference Include="HYWDebugAssistant.Module.Build" Version="$(Version)" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

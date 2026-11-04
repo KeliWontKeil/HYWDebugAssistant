@@ -50,6 +50,10 @@ public sealed class AppearanceStore : IViewAppearanceAccess
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<string, AppearanceEntry> _entries = new(StringComparer.Ordinal);
+    private long _version;
+
+    /// <summary>当前外观表的变更号（UI 据此跳过未变化的整表读取/角色解析）。</summary>
+    public long Version => Interlocked.Read(ref _version);
 
     /// <inheritdoc />
     public void SetOutlineColor(string sourceName, uint? argb) =>
@@ -103,6 +107,7 @@ public sealed class AppearanceStore : IViewAppearanceAccess
         lock (_gate)
         {
             _entries.Clear();
+            _ = Interlocked.Increment(ref _version);
         }
     }
 
@@ -135,6 +140,7 @@ public sealed class AppearanceStore : IViewAppearanceAccess
                 : new AppearanceEntry(sourceName, null, null, null);
 
             var updated = change(current);
+            _ = Interlocked.Increment(ref _version);
 
             // **只剩"没设过颜色/字号/只读"且没有复原信号时**才把条目摘掉
             // （复原信号本身也要留下：它就是"这一格刚被复原过"这条事实）。

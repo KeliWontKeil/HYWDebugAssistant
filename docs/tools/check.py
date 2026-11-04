@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-ALLOWED_DIRS = ("start", "guides", "concepts", "develop", "reference", "about")
+ALLOWED_DIRS = ("start", "guides", "concepts", "module-dev", "project", "about")
 VERSION_RE = re.compile(r"\d+\.\d+\.\d+\.\d+")
 
 
@@ -48,12 +48,20 @@ def resolve_docs_dir(config_path: Path, config: dict) -> Path:
     return (candidate if candidate.is_absolute() else config_path.parent / candidate).resolve()
 
 
-def check_structure(config_path: Path, errors: list[str]) -> tuple[Path, set[str], list[str]]:
+def check_structure(
+    config_path: Path,
+    errors: list[str],
+    expect_layers: bool = False,
+) -> tuple[Path, set[str], list[str]]:
     config = load_config(config_path)
     docs_dir = resolve_docs_dir(config_path, config)
 
+    nav = config.get("nav") or []
+    if expect_layers and len(nav) != 7:
+        errors.append(f"导航顶层必须是 7 项（首页 + 6 层），当前 {len(nav)} 项")
+
     nav_pages: list[str] = []
-    collect_nav(config.get("nav"), nav_pages)
+    collect_nav(nav, nav_pages)
 
     missing = [page for page in nav_pages if not (docs_dir / page).is_file()]
     for page in missing:
@@ -111,7 +119,7 @@ def main() -> int:
     args = parser.parse_args()
 
     errors: list[str] = []
-    docs_dir, pages, nav = check_structure(Path(args.config), errors)
+    docs_dir, pages, nav = check_structure(Path(args.config), errors, expect_layers=args.lang == "zh")
 
     if args.site:
         check_site(Path(args.site), args.lang, errors)

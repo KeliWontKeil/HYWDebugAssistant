@@ -12,7 +12,6 @@ using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using Shouldly;
 using Xunit;
-using ActivityKind = HYWDebugAssistant.Sdk.Lifecycle.ActivityKind;
 
 namespace HYWDebugAssistant.Tests;
 
@@ -21,7 +20,7 @@ namespace HYWDebugAssistant.Tests;
 /// </summary>
 /// <remarks>
 /// 为什么单独保留这组测试：`TryReceive` + `ReleaseBuffer` 是设计保留的主动接收路径 ——
-/// 模块允许用自己的循环取数据；在 `WaitForData` 原语补上之前，这条路径必须有组合级覆盖，避免它悄悄坏掉。
+/// step Pull 模块在 OnStep 中自取数据；这条路径必须有组合级覆盖，避免它悄悄坏掉。
 /// </remarks>
 public class ActiveReceiveTests
 {
@@ -87,36 +86,35 @@ public class ActiveReceiveTests
     {
         public static readonly ContractShape Shape = ContractShape.OfPrimitive(ContractPrimitive.U32);
 
-        public ActivityKind Kind => ActivityKind.Periodic;
-
-        public TimeSpan Interval => TimeSpan.FromMilliseconds(1);
+        public TimeSpan? NextDelay => TimeSpan.FromMilliseconds(1);
 
         public void OnRegistered(IModuleContext context) =>
             context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, Shape));
 
-        public void RunActivity(IModuleContext context)
-        {
-            Span<byte> unit = stackalloc byte[sizeof(uint)];
-            var value = 0u;
+        private uint _value;
 
-            while (!context.StopSignal.IsStopRequested)
+        public void OnStep(IModuleContext context, StepReason reason)
+        {
+            if (!reason.HasFlag(StepReason.Due))
             {
-                BinaryPrimitives.WriteUInt32LittleEndian(unit, value++);
-                _ = context.Ports.TrySend("out", unit);
-                _ = context.StopSignal.Wait(TimeSpan.FromMilliseconds(1));
+                return;
             }
+
+            Span<byte> unit = stackalloc byte[sizeof(uint)];
+            BinaryPrimitives.WriteUInt32LittleEndian(unit, _value++);
+            _ = context.Ports.TrySend("out", unit);
         }
     }
 
-    /// <summary>宿模块：**主动接收**——在自己的活动体里取数据、用完归还，并把计数写入订阅缓冲。</summary>
+    /// <summary>宿模块：**主动接收**——在 OnStep 里取数据、用完归还，并把计数写入订阅缓冲。</summary>
     [ModuleDefinition("test", "active-drain")]
     public sealed class ActiveDrainModule : IModule, IActivitySource
     {
         public const string ReceivedSource = "received";
 
-        public ActivityKind Kind => ActivityKind.EventDriven;
+        public ReceiveMode Receive => ReceiveMode.Pull;
 
-        public TimeSpan Interval => TimeSpan.FromMilliseconds(1);
+        private ulong _received;
 
         public void OnRegistered(IModuleContext context)
         {
@@ -133,19 +131,12 @@ public class ActiveReceiveTests
                 ContractPrimitive.U64));
         }
 
-        public void RunActivity(IModuleContext context)
+        public void OnStep(IModuleContext context, StepReason reason)
         {
-            ulong received = 0;
             Span<byte> sample = stackalloc byte[sizeof(ulong)];
 
-            while (!context.StopSignal.IsStopRequested)
+            while (context.Ports.TryReceive(out var buffer, out _))
             {
-                if (!context.Ports.TryReceive(out var buffer, out _))
-                {
-                    _ = context.StopSignal.Wait(TimeSpan.FromMilliseconds(1));
-                    continue;
-                }
-
                 if (buffer is null)
                 {
                     continue;
@@ -155,14 +146,14 @@ public class ActiveReceiveTests
                 {
                     var reader = new PayloadReader(buffer.Span, buffer.Layout);
                     _ = reader.ReadU32(string.Empty);
-                    received++;
+                    _received++;
                 }
                 finally
                 {
                     context.Ports.ReleaseBuffer(buffer);
                 }
 
-                BinaryPrimitives.WriteUInt64LittleEndian(sample, received);
+                BinaryPrimitives.WriteUInt64LittleEndian(sample, _received);
                 context.Ports.Publish(ReceivedSource, sample);
             }
         }

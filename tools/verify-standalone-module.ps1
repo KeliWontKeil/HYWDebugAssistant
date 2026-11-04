@@ -4,12 +4,13 @@
     独立编译 + 独立加载验证：打包作者包 → 用本地源构建示例模块 → 只复制模块自有文件 → 宿主加载。
 
 .DESCRIPTION
-    这条验证回答"外部作者只靠作者包能不能写出可被宿主装入的模块"，覆盖两种最典型的模块形态：
+    这条验证回答"外部作者只靠作者包能不能写出可被宿主装入的模块"，覆盖三种最典型的模块形态：
       · samples/ExternalModule（外部接入：声明标准标识，自己组帧）
       · samples/DataModule（纯数据变换：两端口 + 一类型 + 角色，无外部接入）
+      · samples/ActivityModule（step：OnStep + NextDelay，无端口）
     步骤：
       1. `tools/pack-sdk.ps1` 生成 artifacts/sdk-packages（五个包）；
-      2. 两个样例只经 PackageReference 还原并构建（不引用仓库工程）；
+      2. 三个样例只经 PackageReference 还原并构建（不引用仓库工程）；
       3. 只复制示例 DLL + module.json（可含 pdb）到临时包目录，模拟真实的薄模块包；
       4. `tools/StandaloneModuleHost` 用 ModulePackageLoader + ModuleInstanceFactory(catalog) 加载并断言。
     任一步失败即非零退出。
@@ -44,7 +45,7 @@ if ($LASTEXITCODE -ne 0) { throw "StandaloneModuleHost 构建失败" }
 $hostDll = Join-Path $hostOutput 'HYWDebugAssistant.StandaloneModuleHost.dll'
 if (-not (Test-Path $hostDll)) { throw "验证宿主 DLL 不存在：$hostDll" }
 
-$samples = @('ExternalModule', 'DataModule')
+$samples = @('ExternalModule', 'DataModule', 'ActivityModule')
 
 foreach ($sample in $samples) {
     $sampleProject = Join-Path $root "samples\$sample\HYWDebugAssistant.Samples.$sample.csproj"
@@ -78,4 +79,4 @@ foreach ($sample in $samples) {
     if ($LASTEXITCODE -ne 0) { throw "独立加载验证失败（$sample，exit=$LASTEXITCODE）" }
 }
 
-Write-Host "[standalone] 通过：两个样例都只靠作者包构建出薄包，并被宿主按真实路径装入" -ForegroundColor Green
+Write-Host "[standalone] 通过：三个样例都只靠作者包构建出薄包，并被宿主按真实路径装入" -ForegroundColor Green

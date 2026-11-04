@@ -2,6 +2,7 @@ using System.Diagnostics;
 using HYWDebugAssistant.DataPlane.Buffers;
 using HYWDebugAssistant.DataPlane.Queues;
 using HYWDebugAssistant.Sdk.Data;
+using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 
@@ -53,15 +54,15 @@ public enum CarrierEnqueueResult
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>承载模式</b>：模块实现自发活动（<see cref="ICarrierTarget.HasActivity"/>）时运行其活动体（可阻塞）；
-///         否则由框架运行投递循环（出队 → 调用接收处理）。</item>
+///   <item><b>承载模式</b>：目标实现 step 模型（<see cref="ICarrierTarget.HasStepModel"/>）时由框架运行 step 循环
+///         （合并工作原因后调用一次 <see cref="ICarrierTarget.OnStep"/>）；否则由框架运行投递循环（出队 → 接收回调）。</item>
 ///   <item><b>队列粒度 = 每 (实例, 口)</b>：每个接收口**各有一条**有界 FIFO 队列，
 ///         容量按**口**计（<see cref="CarrierOptions.QueueCapacity"/>）。⇒ 某个口满载/慢速**不会堵住同实例的其它口**
 ///         （消除跨口队头阻塞）；同口内仍是严格 FIFO（M4b"同 (源,宿) 对 FIFO 强保证"由此保证）。</item>
 ///   <item><b>公平调度</b>：投递循环按**轮转**在非空口之间取单元（每轮每口至多一个），保证任一口都不会被饿死。</item>
 ///   <item><b>不阻塞发送方</b>：队列满即丢弃（丢旧/丢新）并计数。</item>
-///   <item><b>异常边界</b>：活动体异常经 <see cref="ICarrierTarget.ReportActivityFailure"/> 上报，不逸出。</item>
-///   <item><b>停止协议</b>：置停止信号 → **先清尾**（计 <c>DiscardedOnStop</c> 并归还池）→ 有界等待 →
+///   <item><b>异常边界</b>：step/投递异常经 <see cref="ICarrierTarget.ReportFailure"/> 上报，不逸出。</item>
+///   <item><b>停止协议</b>：置停止标志 → **先清尾**（计 <c>DiscardedOnStop</c> 并归还池）→ 有界等待 →
 ///         超时则标记孤儿并**放弃队列缓冲（不归还池）**。框架**不假装能强杀线程**（.NET 无安全中止）。</item>
 /// </list>
 /// </remarks>
@@ -75,8 +76,7 @@ public sealed class ModuleCarrier : IDisposable
     private readonly CarrierOptions _options;
 
     /// <summary>
-    /// **二值"有活干"信号**：仅**无活动体**的实例使用（口入队 / 会话就绪 / 命令输入）。
-    /// 有活动体的实例自己轮询读取面，不等待这个信号。
+    /// **二值"有活干"信号**：step 循环与投递循环共用（口入队 / 会话就绪 / 命令输入 / 到期）。
     /// </summary>
     /// <remarks>
     /// 用"置标记 + Set"而不是计数信号量：计数信号量每次入队加一、消费端一次只减一，
@@ -111,6 +111,9 @@ public sealed class ModuleCarrier : IDisposable
 
     /// <summary>"还有活没干"标记（0/1；与 <see cref="_work"/> 配对，保证"先置标记再 Set / 先 Reset 再检查"不丢唤醒）。</summary>
     private int _workPending;
+
+    /// <summary>step 模型的待处理工作原因（多位 OR；与信号一起构成"一步"的输入）。</summary>
+    private long _pendingReasons;
 
     /// <summary>实际醒来的次数（诊断：空闲时它应当只随兜底间隔增长）。</summary>
     private long _wakeups;
@@ -197,12 +200,21 @@ public sealed class ModuleCarrier : IDisposable
     /// <remarks>
     /// 与口入队投的是**同一个**信号：实例循环醒来后自己判断该处理哪些工作源。
     /// 二值信号：重复投递不会累积；已有未消费信号时静默合并。
-    /// <para>
-    /// **活动体实例是 no-op**：它的专属线程跑活动体，没有人等待这个信号；投了只会让二值信号长期为满。
-    /// 命令/输入由活动体自己的循环从收件箱取。
-    /// </para>
     /// </remarks>
     public void SignalWork() => SignalDataAvailable();
+
+    /// <summary>给 step 模型投一个工作原因（命令/输入/会话等；非 step 目标忽略）。</summary>
+    /// <param name="reason">工作原因。</param>
+    public void SignalReasons(StepReason reason)
+    {
+        if (!_target.HasStepModel)
+        {
+            return;
+        }
+
+        _ = Interlocked.Or(ref _pendingReasons, (long)reason);
+        SignalDataAvailable();
+    }
 
     /// <summary>启动专属线程（进入 Active）。</summary>
     public void Start()
@@ -356,7 +368,7 @@ public sealed class ModuleCarrier : IDisposable
     /// </summary>
     /// <remarks>
     /// 主动接收路径（<c>IPortAccess.TryReceive</c>）与框架投递循环**共用**本方法：
-    /// 二者互斥（有活动体 ⇒ 不跑投递循环），故游标与提示位图无并发写。
+    /// 二者互斥（Pull 自取 ⇒ 不跑投递循环），故游标与提示位图无并发写。
     /// </remarks>
     /// <param name="unit">取到的单元（含目标口名）。</param>
     /// <returns>是否取到。</returns>
@@ -432,7 +444,6 @@ public sealed class ModuleCarrier : IDisposable
         }
 
         _stopRequested = true;
-        _target.RequestStop();          // 通知模块活动体（否则其可能永远无法感知停止）
         SignalDataAvailable();
 
         // 先清尾：这一步同时把"停止要等多久"从"排空整条积压"降成"等当前这一个单元处理完"
@@ -492,10 +503,9 @@ public sealed class ModuleCarrier : IDisposable
     {
         try
         {
-            if (_target.HasActivity)
+            if (_target.HasStepModel)
             {
-                // 模块自控活动（可阻塞、可循环）；必须响应 StopSignal
-                _target.RunActivity();
+                RunStepLoop();
             }
             else
             {
@@ -505,12 +515,82 @@ public sealed class ModuleCarrier : IDisposable
         catch (Exception ex)
         {
             // 异常边界：转 Issue（由宿主侧适配器上报），**不逸出**、不影响其他实例（AC-2）
-            _target.ReportActivityFailure(ex);
+            _target.ReportFailure(ex);
         }
         finally
         {
             _stopped = true;
         }
+    }
+
+    /// <summary>step 模型：框架拥有循环，按工作原因调用模块的一步。</summary>
+    private void RunStepLoop()
+    {
+        var first = true;
+
+        while (!_stopRequested)
+        {
+            _work.Reset();
+
+            var reasons = (StepReason)Interlocked.Exchange(ref _pendingReasons, 0L);
+
+            if (first)
+            {
+                reasons |= StepReason.Start;
+                first = false;
+            }
+
+            var didWork = false;
+
+            if (_target.HasAuxiliaryWork && _target.PumpAuxiliary())
+            {
+                didWork = true;
+                reasons |= StepReason.Session;
+            }
+
+            if (_target.HasPendingInbox)
+            {
+                reasons |= StepReason.Command | StepReason.Input;
+            }
+
+            if (_target.ReceiveMode == ReceiveMode.Pull && HasQueuedData())
+            {
+                reasons |= StepReason.Data;
+            }
+
+            // Push 模块的数据仍走接收回调；Pull 模块在 OnStep 里自取。
+            if (_target.ReceiveMode == ReceiveMode.Push && DrainQueues(_deliverySlice))
+            {
+                didWork = true;
+                reasons |= StepReason.Data;
+            }
+
+            if (reasons != 0)
+            {
+                _target.OnStep(reasons);
+                didWork = true;
+            }
+
+            if (didWork)
+            {
+                continue;
+            }
+
+            WaitForNextWork();
+        }
+    }
+
+    private bool HasQueuedData()
+    {
+        for (var index = 0; index < _queues.Length; index++)
+        {
+            if (_queues[index].Count > 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void RunDeliveryLoop()
@@ -522,7 +602,7 @@ public sealed class ModuleCarrier : IDisposable
 
             var didWork = false;
 
-            // 工作源 ②/③：外部接入会话 + 收件箱（没有活动体时由框架驱动）
+            // 工作源 ②/③：外部接入会话 + 收件箱（由框架驱动）
             if (_target.HasAuxiliaryWork)
             {
                 didWork |= _target.PumpAuxiliary();
@@ -530,56 +610,76 @@ public sealed class ModuleCarrier : IDisposable
 
             // 工作源 ①：口队列。**一次最多占一个时间片**——某个口长期有货时也必须回外层，
             // 否则辅助工作源（命令 / 输入 / 会话泵 / 状态发布）会被无限期排在后面。
-            var sliceStarted = Stopwatch.GetTimestamp();
-
-            while (!_stopRequested && TryDequeueAny(out var unit))
+            if (DrainQueues(_deliverySlice))
             {
-                if (IsExpired(unit))
-                {
-                    DropExpired(unit);
-                    didWork = true;
-                    continue;
-                }
-
-                Deliver(unit);
                 didWork = true;
-
-                if (Stopwatch.GetElapsedTime(sliceStarted) >= _deliverySlice)
-                {
-                    break;
-                }
             }
 
             if (didWork)
             {
-                // 只提示"这一拍有工作"；状态/计量的唯一事实源仍是快照。
-                _target.NotifyWorkCompleted();
                 continue;
             }
 
             // **没有活干**：还有未消费的信号就直接下一轮（不睡），否则等"下一个信号 / 到期 / 兜底"。
-            if (Interlocked.Exchange(ref _workPending, 0) != 0)
-            {
-                continue;
-            }
-
-            var wait = NextWait();
-            if (wait <= TimeSpan.Zero)
-            {
-                continue;
-            }
-
-            _work.Wait(wait);
-            _ = Interlocked.Increment(ref _wakeups);
+            WaitForNextWork();
         }
     }
 
     /// <summary>
-    /// 下一次最多等多久：兜底间隔与"下一条周期性需求（设备探活）"取小。
+    /// 没有工作可做时的统一等待：先消费"还有活"标记；仍有未消费信号就立即回外层，
+    /// 否则按兜底/探活到期等待一次唤醒。
+    /// </summary>
+    private void WaitForNextWork()
+    {
+        if (Interlocked.Exchange(ref _workPending, 0) != 0)
+        {
+            return;
+        }
+
+        var wait = NextWait();
+
+        if (wait <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        _work.Wait(wait);
+        _ = Interlocked.Increment(ref _wakeups);
+    }
+
+    /// <summary>在时间片内轮转取出并投递口队列；返回是否做了工作。</summary>
+    private bool DrainQueues(TimeSpan slice)
+    {
+        var didWork = false;
+        var sliceStarted = Stopwatch.GetTimestamp();
+
+        while (!_stopRequested && TryDequeueAny(out var unit))
+        {
+            if (IsExpired(unit))
+            {
+                DropExpired(unit);
+                didWork = true;
+                continue;
+            }
+
+            Deliver(unit);
+            didWork = true;
+
+            if (Stopwatch.GetElapsedTime(sliceStarted) >= slice)
+            {
+                break;
+            }
+        }
+
+        return didWork;
+    }
+
+    /// <summary>
+    /// 下一次最多等多久：兜底间隔与会话探活取小。
     /// </summary>
     /// <remarks>
     /// 等待本身**不是投递节拍**：数据 / 命令 / 会话事件由信号立即唤醒，这里只决定"完全没有事件时"的兜底。
-    /// 周期需求只有探活一种，它到期时才需要实例线程回去推进一次会话。
+    /// 模块周期到期由 <c>StepDueTimer</c> 投工作信号，不由本方法承担。
     /// </remarks>
     private TimeSpan NextWait()
     {
@@ -681,18 +781,12 @@ public sealed class ModuleCarrier : IDisposable
 
     private void SignalDataAvailable()
     {
-        // 活动体实例的专属线程在 runActivity 里，**从不 Wait 这个信号**。
-        if (_target.HasActivity)
-        {
-            return;
-        }
-
         // **二值信号**：先置"还有活"标记再 Set。标记与信号配对，
         // 消费端"先 Reset 再检查标记"⇒ 任何一次入队都至少换来一轮处理，不会因为合并而丢唤醒；
         // 反过来，连续 1 万个入队也只留一个"还有活"，峰值后不会积压出上万个空转额度。
-        if (Interlocked.Exchange(ref _workPending, 1) == 1)
+        if (Interlocked.Exchange(ref _workPending, 1) != 0)
         {
-            Diagnostics.RecordSignalOverflow();
+            return;
         }
 
         try

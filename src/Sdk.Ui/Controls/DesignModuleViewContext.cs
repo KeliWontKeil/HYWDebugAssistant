@@ -65,7 +65,10 @@ public sealed class DesignModuleViewContext : IModuleViewContext
     public IReadOnlyList<double> ReadSeries(string source) => [SampleNumber];
 
     /// <inheritdoc />
-    public TextBufferSnapshot ReadText(string source) => new([SampleText], 0, 20000, 0);
+    public TextBufferSnapshot ReadText(string source) => new([SampleText], 0, 20000);
+
+    /// <inheritdoc />
+    public long ReadTextRevision(string source) => 0;
 
     /// <inheritdoc />
     public bool SubmitInput(string source, string text) => true;

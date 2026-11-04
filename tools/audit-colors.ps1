@@ -3,7 +3,7 @@
   颜色口径审计：本项目只允许两种颜色写法 —— **相对色**（主题命名 token）与 **绝对色**（RGB 字面量）。
 
 .DESCRIPTION
-  规则（见文档站「界面外壳与叠加层」的配色纪律页 `docs/zh/concepts/shell-and-overlay.md`）：
+  规则（见文档站「界面外壳与叠加层」的配色纪律页 `docs/zh/concepts/shell.md`）：
 
     · 相对色：写 `{DynamicResource <token>}`（XAML）或 `SurfaceTheme.Xxx(target)` / `TryFindResource`（C#），
       颜色值只住在**唯一一份色板**（`src/Ui/Styles/Tokens.axaml`）里。

@@ -10,7 +10,7 @@ namespace HYWDebugAssistant.DataPlane.Carriers;
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>归属</b>：L3 数据面持有承载者；实例的存在性与状态由 L2/L4 决定（C1-2）。</item>
-///   <item><b>线程数前提</b>：按活跃实例计（数十量级）；`Disabled` 的实例不占线程。</item>
+///   <item><b>线程数前提</b>：按活跃实例计（数十量级）；`Disabled` 的实例保留线程与资源，只停流。</item>
 ///   <item><b>停止超时</b>：返回结果供调用方（L4）转 Issue——宿主自身不依赖上报口（保持 L3 只依赖 L1/L0）。</item>
 /// </list>
 /// </remarks>

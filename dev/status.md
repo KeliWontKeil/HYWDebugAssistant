@@ -3,7 +3,7 @@
 > **状态的唯一来源。** 这个项目当前在开发什么、进行到哪、还差什么。
 > 系统是什么样 → 文档站（`docs/zh/`，构建入口 `docs/build.ps1`）；怎么验证 → `dev/workflow.md`。
 
-**一句话现状**：顶层设计与技术架构已冻结；**M1 框架最小闭环已实现到 M1-17**，当前处于 **M1-16「UI 专项」的调整期**；M2 及以后未开始。版本纪律已定型：唯一版本事实源是仓库根 `version.props`，模块 / 数据类型 / 本地格式**没有版本**，规则见 `docs/zh/reference/versioning.md`。
+**一句话现状**：顶层设计与技术架构已冻结；**M1 框架最小闭环已实现到 M1-17**，当前处于 **M1-16「UI 专项」的调整期**；M2 及以后未开始。版本纪律已定型：唯一版本事实源是仓库根 `version.props`，模块 / 数据类型 / 本地格式**没有版本**，规则见 `docs/zh/project/versioning.md`。
 ---
 
 ## 1. 里程碑
@@ -31,7 +31,7 @@ M2 = Gate C UX 原型 + 完整 UI（控件目录全集 19 项）· M3 = 首批�
 
 按用户方案要点打磨：视觉体系 · 模块窗口 · 端口标记 · 弹窗信息层级 · 状态反馈 · 克制动效。
 
-**判定依据 = `docs/zh/concepts/shell-and-overlay.md`** —— 现行模块表面暴露的「控件错位 / 大段空白 / 意义不明」按归因处理（属 L1 缺定义、L2 声明错、还是 L3 外观值不对），**不逐条打补丁**。
+**判定依据 = `docs/zh/concepts/shell.md`** —— 现行模块表面暴露的「控件错位 / 大段空白 / 意义不明」按归因处理（属 L1 缺定义、L2 声明错、还是 L3 外观值不对），**不逐条打补丁**。
 
 **外部接入已完成所有权纠正** —— 框架托管、模块只声明标准标识的外部标准接入（串口 / TCP 客户端 / TCP 服务端 / UDP）。已落地：中性契约（声明 / 标准目录 / 模块存取面 / 状态与计量快照）、实例循环（一个“有活干”信号 + 口队列 / 会话 / 收件箱）、`src/Access`（四适配件 + 参数类型 + 内置 catalog，框架侧，只有组合根引用）、`Sdk.AccessKit`（模块共用骨架，宿主随附）、四模块接线与状态/计数发布；八模块包只含模块自有文件，宿主提供契约/UI/外部接入依赖。框架级、适配器级、模块级自动化用例已加入。**仍待**：真机 / 回环人工验收（acceptance.md 80j–80r）；本轮改动后需关闭应用重跑完整 T3（见 §6）。
 
@@ -47,7 +47,9 @@ M2 = Gate C UX 原型 + 完整 UI（控件目录全集 19 项）· M3 = 首批�
 
 **本轮（按钮面 / 显式 SVG / 模块自有资源包）**：① 按钮面：`ButtonChrome` 的 `.icon` 与普通按钮共用面/边/hover/pressed/focus/disabled；按钮簇去掉外框、5 钮各自有面；活动栏保留导航式 + pressed；锚点 hover 统一。② 图标显式化：每个图标 `.svg` + `icons.json` 清单；框架 17 个换回 **Fluent UI MDL2**（2048 画布、旧观感），模块 4 个 `refresh.svg` 保持 **Fluent UI System Icons**（20px、与小按钮适配），两套均 MIT；`IconCatalog` 只产数据（路径/viewBox），`Sdk.Ui.Icon` 合成几何；删除 `FontIcons`；`IconButton`/`Glyph`/`ModuleButton.Icon` 全部改用 `Icon`。③ 资源包分离：8 个模块的 `i18n/`/`icons/` 搬进模块包 `resources/`；`module.json` 的 `resources` 声明；`ResourceLayout` 双根（模块 owner 只读模块包、框架 owner 只读框架根，互不回退）；新增 `Sdk` 的 `IResourceAccess`（模块自定义 kind，只读/相对/不越界）+ `IModuleContext.Resources`；审计/打包：框架只审 `resources/`，模块 `resources/` 走 ③d/`verify-module-packages`；许可 `LICENSE` + `THIRD_PARTY_NOTICES`。人眼复核见 acceptance.md A46–A55；已知边界见 G68/G69/G70。
 
-**本轮（模块可独立开发：分层 · 对账 · 作者工具链 · 文档）**：① **分层**：外部接入面只搬原始字节（`Sdk.AccessKit` 移除类型声明与组帧，改为组合式 `ExternalAccessChannel`），数据类型与组帧由模块自己声明/实现；四个接入模块各自携带 `RawBytes`（不再由共享件代声明）。② **声明对账**：端口形状必须等于所引用类型形状；同标识两种形状报一条冲突；外部接入两种消费方式互斥；`IExternalAccess.Pump` 给活动体一个显式的会话推进入口。③ **作者工具链**：五个包（`Sdk` / `Sdk.Ui` / `Sdk.AccessKit` / `Sdk.Testing` / `Module.Build`），运行时包带 XML 文档；`Sdk.Testing` 与 `Module.Build` 属作者包（不随宿主、不进模块包，模块运行时引用即拒绝加载）；打包规则抽出 `build/module-package.targets`，仓库模块与外部作者共用。④ **样例**：`samples/DataModule`（纯数据变换）与 `samples/ExternalModule` 都只经作者包构建成薄包并能被宿主装入。⑤ **文档**：`docs/zh/develop/` 七页 + 外部接入 / 数据类型约定 / 被拒原因三页。⑥ **撤回**：`MaxUnitBytes` 的框架级校验（原始单元上限与端口形状的关系由模块自己的组帧决定，框架没有通用判据），结论登记在 `dev/constraints.md` 的例外说明。
+**本轮（模块可独立开发：分层 · 对账 · 作者工具链 · 文档）**：① **分层**：外部接入面只搬原始字节（`Sdk.AccessKit` 移除类型声明与组帧，改为组合式 `ExternalAccessChannel`），数据类型与组帧由模块自己声明/实现；四个接入模块各自携带 `RawBytes`（不再由共享件代声明）。② **声明对账**：端口形状必须等于所引用类型形状；同标识两种形状报一条冲突；外部接入两种消费方式互斥；`IExternalAccess.Pump` 给活动体一个显式的会话推进入口。③ **作者工具链**：五个包（`Sdk` / `Sdk.Ui` / `Sdk.AccessKit` / `Sdk.Testing` / `Module.Build`），运行时包带 XML 文档；`Sdk.Testing` 与 `Module.Build` 属作者包（不随宿主、不进模块包，模块运行时引用即拒绝加载）；打包规则抽出 `build/module-package.targets`，仓库模块与外部作者共用。④ **样例**：`samples/DataModule`（纯数据变换）与 `samples/ExternalModule` 都只经作者包构建成薄包并能被宿主装入。⑤ **文档**：`docs/zh/module-dev/` 七页；数据类型约定、被拒原因、外部接入机制已并入对应层。⑥ **撤回**：`MaxUnitBytes` 的框架级校验（原始单元上限与端口形状的关系由模块自己的组帧决定，框架没有通用判据），结论登记在 `dev/constraints.md` 的例外说明。
+
+**本轮（活动契约回退与收尾）**：`IActivitySource` 恢复 `OnStep` + 相对 `NextDelay`，删除 `NextDue`/`IModuleClock`/`IModuleContext.Clock`、`IStopSignal`/`IModuleContext.StopSignal` 与测试专用承载 API；承载统一 step/投递两模式，`GlobalTimerService.WaitUntil` 死路径删除，`StepDueTimer` 补回上一到期推进的节拍补偿；`FrameBudgetTests` 与 Release 帧预算门禁删除，性能数值只记录、不设阈值。新登记设计债：生命周期钩子实际在管理线程、`OnActivated` 与首个 `OnStep(Start)` 无严格次序保证；禁用只停 due/流，不保证完全不调用 `OnStep`。另修：两个发送器只在 toggle 被接受/拒绝时写回连续开关，避免用旧读数覆盖并发用户输入（不稳定用例的根因）。
 
 ---
 
@@ -67,14 +69,14 @@ M2 = Gate C UX 原型 + 完整 UI（控件目录全集 19 项）· M3 = 首批�
 | 10 | **模块标准与开发流程**：三层判据 / 两侧同型 / 命名与多角色 / `Capabilities` 检查项 / 角色归属建议 / 测试落点 / 大小数值 / 外部 IO 强制写法 / 快照并发 均已生效，并已写进文档站「模块开发」；仍待评估 = 模块族分类维度 · 空模板形态 | 不阻塞（标准可照做） |
 | 11 | **~~「怎么写一个模块」~~ 已收口**：模块界面 = **代码声明 + 模块 XAML**（键用 `{x:Static}`）+ `Sdk.Ui` 控件库；模块开发工作流已落地（作者包 + 打包规则 + 双样例 + 七页指南） | — |
 | 12 | **待裁：浅色 / 深色主题的可读性怎么保证** —— 每个主题各给一套色，还是由框架自动保证对比度（如强制最低对比度 / 自动取反） | 不阻塞（现行两套色板可用；开工改主题前需拍板） |
-| 13 | **文档站：开始使用层内容**（安装、界面速览、第一条数据流教程）—— 依赖安装形态与首次使用流程定稿 | 不阻塞（发布前完成） |
-| 14 | **文档站：使用指南与模块使用页**（连接串口 / TCP / UDP、收发、组网、外观、模块管理与排障）—— 依赖最终界面 | 不阻塞（发布前完成） |
-| 15 | **~~模块开发指南内容~~ 已完成**：`docs/zh/develop/` 七页 + 参考页（数据类型约定 / 被拒原因 / 外部接入） | — |
+| 13 | **文档站：开始使用层正文**（`start/install` · `tour` · `first-flow` 三个骨架页）—— 依赖安装形态与首次使用流程定稿 | 不阻塞（发布前完成） |
+| 14 | **文档站：使用指南正文**（9 个功能页 + 8 个模块册，均在 `guides/`）—— 依赖最终界面 | 不阻塞（发布前完成） |
+| 15 | **~~模块开发指南内容~~ 已完成**：`docs/zh/module-dev/` 七页；数据类型约定、被拒原因、外部接入机制已并入对应层 | — |
 | 16 | **英文文档翻译** | 不阻塞（框架与目录已就位，`docs/en/` 目前只有占位首页） |
 
 > 「模块标准与开发流程」已随「模块开发工作流」一并落地；后续只按需增补，不再整体评估。
 
-**文档集口径（现行）**：对外事实写进文档站（`docs/zh/`，由 `docs/build.ps1` 构建；英文在 `docs/en/`）；代码与仓库约束、开发工作流、状态与验收在 `dev/`（`constraints.md` / `workflow.md` / `status.md` / `acceptance.md`）；未定型设计在 `dev/design/`；历史材料在 `dev/archive/`，不进站。**仓库根只留 `README.md`**。架构例外的唯一登记处 = `dev/constraints.md`。
+**文档集口径（现行）**：站点按读者分六层 —— `start/`（开始使用）、`guides/`（使用指南，模块一册在 `guides/modules/`）、`concepts/`（深入理解：机制、文件与手工修改）、`module-dev/`（模块开发）、`project/`（项目开发）、`about/`（关于）；`docs/build.ps1` 构建，英文在 `docs/en/`。代码与仓库约束、开发工作流、状态与验收在 `dev/`（`constraints.md` / `workflow.md` / `status.md` / `acceptance.md`）；未定型设计在 `dev/design/`；历史材料在 `dev/archive/`，不进站。**仓库根只留 `README.md`**。架构例外的唯一登记处 = `dev/constraints.md`。
 
 ---
 
@@ -96,7 +98,7 @@ M2 = Gate C UX 原型 + 完整 UI（控件目录全集 19 项）· M3 = 首批�
 | G20 | **声明面表达不了单精度浮点数据源** | 声明面的值类型枚举**缺 `F32`**（契约原语里有）⇒ 读方只能按**比它宽的那种浮点**切片 | **⏸ 暂缓（用户已裁）**：当前无模块使用，提前声明没有好处。注意值类型枚举只暴露少数原语，而契约原语是**一整族** ⇒ 要补就得**同时**补那一族 |
 | G21 | **声明面缺「声明状态」键** | `commonProperties` 里**没有** `readonly` / `visible` / `enabled` | 补键，位置与缺省待裁决（= 未完成项第 3 项）；补键前不得在任何控件描述里假造这三个维度 |
 | G22 | **源码注释里的失效指针与死概念** | `主文档 §X` 死指针 **28 处** · `基线 §X` / `快速建网 R0–R6` / `三层判据` 死概念 **19 处**（其中 `PortDeclaration` 的「老模块行为」注释与 `IModuleContext` 的死 `cref` 同族）· `Tokens.axaml` 的 `GlyphRun` / `GlyphStop` 是**只有定义、无使用者**的死 token | 一次性清理（判据 = 现行 `dev/constraints.md` + 代码）。**已修 4 处误源注释**（把过期口径抄进正文的那几处）；注意 AR-19 只禁"写历史"，**不检查引用是否存在** |
-| G23 | **文件选择能力的其余形态未落地** | `IFileAccess` 已有 `Open` / `Save` / `Folder` 三种请求（见 `docs/zh/concepts/modules-and-contracts.md` 与 `Sdk/Context/IFileAccess.cs`），但**只有 `Save` 有实际使用方**（数据显示器的「保存」）。"无对话框的直接读 / 写"仍未提供任何框架面 ⇒ 模块拿到路径后自己用 `System.IO`，"限制在用户选择的路径内"只靠自觉 | 按需补：`Open` / `Folder` 的使用场景出现时再加，不提前造；"直接读写面"要不要提供待裁（它会把文件 IO 的异常与路径策略也变成框架的事） |
+| G23 | **文件选择能力的其余形态未落地** | `IFileAccess` 已有 `Open` / `Save` / `Folder` 三种请求（见 `docs/zh/concepts/modules.md` 与 `Sdk/Context/IFileAccess.cs`），但**只有 `Save` 有实际使用方**（数据显示器的「保存」）。"无对话框的直接读 / 写"仍未提供任何框架面 ⇒ 模块拿到路径后自己用 `System.IO`，"限制在用户选择的路径内"只靠自觉 | 按需补：`Open` / `Folder` 的使用场景出现时再加，不提前造；"直接读写面"要不要提供待裁（它会把文件 IO 的异常与路径策略也变成框架的事） |
 | G29 | **`ViewElementKind` 与声明面 kind 已漂移** | 枚举里仍有 `TextLog` / `TextInput` / `HexView` / `Gauge`，而声明面已是 `textBox` 一种文本面；枚举全仓无消费者 | 删除该枚举，或按声明面重列（它当前只是"另一个词汇表"） |
 | G30 | **"没有界面实体的输入源"曾被框架拒收**（**已修**，留档） | `ModuleRuntime.DeclaresInput` 只认"有元素用 `input` 绑定了这个名字"，而"选一个保存位置"这条源**设计上就没有界面元素** ⇒ 用户选完位置后框架把路径**拒收**，表现是"对话框选了文件却什么都没发生、也没有文件"。现在 `sources` 段里登记过的名字也算已声明 —— **登记处与绑定处是两件事，判定必须都算** | — |
 | G31 | **`textBox` 的纵向起始位（第二批）** | 现在文字与光标固定从**左上**开始；"居中"表达不出来。横向那一半其实已经有了（`textAlign`），缺的是纵向 | 加 `textOriginVertical`（`top`/`center`/`bottom`）并在 `SurfaceTextRow` 里按它排编辑器矩形；**先写测量探针**验证 Fluent `TextBox` 是否吃 `VerticalContentAlignment`，不吃就自排 |
@@ -109,10 +111,10 @@ M2 = Gate C UX 原型 + 完整 UI（控件目录全集 19 项）· M3 = 首批�
 | G47 | **主题的导入 / 导出与版本迁移** | 主题已是自包含文件夹（`settings/appearance/themes/<id>/theme.json` + 同目录壁纸），复制文件夹即可搬走；**导入/导出入口、跨设备合并、主题清单版本迁移尚未设计** | **后续专题**（格式已支持"复制即搬走"，只差 UI 入口） |
 | G53 | **`SettingsService.ReadDouble` 用当前文化解析 JSON 浮点** | 与 `ThemeStore` 同一隐患（非 `.` 小数分隔符的区域会把 `0.55` 读成 55）；新代码已用不变文化，这一处是既有代码 | 改成 `NumberStyles.Float + InvariantCulture`，并补一条文化切换用例 |
 | G54 | **旧 `framework/` 目录不迁移** | 目录改成按功能分根后，旧 `framework/` 整体忽略（不读、不删、不提示）；开发机上的残留需要手工清理 | 有意为之（与既有的旧 `data/` 口径一致）；发布包不含用户目录 |
-| G58 | **只有中文一份表** | 机制、键与回退链都已就位，但没有第二语言的真实样本 ⇒ 跨语言下的截断/换行/字号观感、以及模块缺该语言时的混排效果，尚未被人眼验证 | 首次翻译时按 `docs/zh/concepts/resources-and-text.md` 的口径加表并做一轮目视验收 |
+| G58 | **只有中文一份表** | 机制、键与回退链都已就位，但没有第二语言的真实样本 ⇒ 跨语言下的截断/换行/字号观感、以及模块缺该语言时的混排效果，尚未被人眼验证 | 首次翻译时按 `docs/zh/concepts/resources.md` 的口径加表并做一轮目视验收 |
 
 | G59 | **行内配置字段的错误提示会挤压编辑区** | `ModuleConfigField` 的模板把提示放在第二行（`Auto`）；字段高度是视图给的固定值，提示一出现，上面那行编辑器就被压矮（与标题无关，标题已经移出去了）。 | 单列 UI 专项：提示改为"红圈 + 悬停具名原因"或在字段矩形里预留固定提示槽；**不在本批顺手改**（提示机制本轮按用户要求保持原样）。 |
-| G62 | **视图的 `d:DesignWidth/Height` 在运行期读不到** | 这两个设计时属性被 XAML 编译器剥掉（运行期 `Design.GetWidth` 返回 0），所以"设计尺寸 = 内容区尺寸"无法在运行期用例里断言；规则写在 `docs/zh/concepts/shell-and-overlay.md`，靠预览器与实际渲染复核。 | 若要做成硬判据，需要一条**源码扫描**用例（在架构测试里读 `.axaml` 的 `d:` 与模块声明的窗口尺寸）；本轮不做。 |
+| G62 | **视图的 `d:DesignWidth/Height` 在运行期读不到** | 这两个设计时属性被 XAML 编译器剥掉（运行期 `Design.GetWidth` 返回 0），所以"设计尺寸 = 内容区尺寸"无法在运行期用例里断言；规则写在 `docs/zh/concepts/shell.md`，靠预览器与实际渲染复核。 | 若要做成硬判据，需要一条**源码扫描**用例（在架构测试里读 `.axaml` 的 `d:` 与模块声明的窗口尺寸）；本轮不做。 |
 | G63 | **计数类显示源仍是"数值 + 显示格式"** | 四个外部接入模块与发送器的计数发布的是 `Value`（U64），界面用 `ModuleNumeric Quantity=Bytes` 生成"42 B"这类值文本；**单位不是控件属性**，但"字节数量的缩放"仍由控件的显示格式调用唯一格式化实现。彻底贯彻"单位是文本逻辑"需要模块发布格式化文本，会牵动数据面用例与"计数是可计算值"的语义。 | 登记；真要改时单开一笔（模块发布文本 + 数据面用例改读文本）。 |
 | G64 | **动态状态文本只有省略号一档** | 状态行/错误句这类长度不受控的文本现在**显式**单行 + 省略号 + 悬停全文；没有"自动换行/缩字号"档（用户口径：先动字号、预留、隐藏，不动坐标）。 | 若将来某处必须完整显示长句，优先"弹窗/悬停"，不要就地换行改变布局。 |
 | G66 | **输入控件共享模板里保留同名隐藏环** | `chrome-bare` 只是把共享 `TextBox` 模板里的 `PART_FocusRing` / `PART_ErrorRing` 隐藏；在 `ModuleTextSurface` 下按名字取环的代码或新用例必须排除 `TextBox` 祖先，否则会取到隐藏件。 | 后续可给 `chrome-bare` 独立模板（或把环改名）彻底消除；当前用例已用 `SurfacePart` 排除。 |

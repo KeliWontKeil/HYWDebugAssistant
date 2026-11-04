@@ -14,39 +14,66 @@ extra:
 
 nav:
   - 首页: index.md
-  - 开始使用: start/index.md
-  - 使用指南: guides/index.md
+  - 开始使用:
+      - start/index.md
+      - 安装与首次启动: start/install.md
+      - 界面速览: start/tour.md
+      - 第一条数据流: start/first-flow.md
+  - 使用指南:
+      - guides/index.md
+      - 模块:
+          - guides/modules/index.md
+          - 文本发送器: guides/modules/text-sender.md
+          - HEX 发送器: guides/modules/hex-sender.md
+          - HEX / 文本转换器: guides/modules/hex-string-converter.md
+          - 数据监视器: guides/modules/data-monitor.md
+          - 串口接入: guides/modules/serial.md
+          - TCP 客户端: guides/modules/tcp-client.md
+          - TCP 服务端: guides/modules/tcp-server.md
+          - UDP 接入: guides/modules/udp.md
+      - 模块管理: guides/manage-modules.md
+      - 窗口操作: guides/windows.md
+      - 吸附与拼接: guides/puzzle.md
+      - 连接与组网: guides/connect.md
+      - 叠加层: guides/overlay.md
+      - 外观: guides/appearance.md
+      - 设置: guides/settings.md
+      - 诊断与排障: guides/diagnostics.md
+      - 组合件与工作区: guides/workspace.md
   - 深入理解:
       - concepts/index.md
       - 系统概览: concepts/overview.md
-      - 分层与依赖: concepts/layers.md
-      - 模块与契约: concepts/modules-and-contracts.md
-      - 外部接入: concepts/external-access.md
-      - 数据协议: concepts/data-protocol.md
+      - 数据面: concepts/data-plane.md
+      - 模块机制: concepts/modules.md
+      - 网络: concepts/network.md
       - 运行期: concepts/runtime.md
-      - 网络模型: concepts/network-model.md
-      - 界面外壳与叠加层: concepts/shell-and-overlay.md
-      - 设置与持久化: concepts/settings-and-data.md
-      - 资源与文本: concepts/resources-and-text.md
+      - 外部接入: concepts/access.md
+      - 界面外壳与叠加层: concepts/shell.md
+      - 资源与文本: concepts/resources.md
+      - 目录与发布包: concepts/layout.md
+      - 数据文件: concepts/files.md
       - 内存构成与释放: concepts/memory.md
+      - 术语: concepts/glossary.md
   - 模块开发:
-      - develop/index.md
-      - 项目与包布局: develop/project-layout.md
-      - 契约声明: develop/contracts.md
-      - SDK 版本与兼容: develop/sdk-version.md
-      - 界面: develop/ui.md
-      - 资源与文本: develop/resources.md
-      - 测试与验证: develop/testing.md
-      - 发布与独立编译: develop/publishing.md
-  - 参考:
-      - reference/index.md
-      - 模块清单: reference/modules.md
-      - 端口与数据类型: reference/ports-and-types.md
-      - 数据类型约定: reference/types.md
-      - 被拒原因: reference/rejections.md
-      - 版本与兼容: reference/versioning.md
-      - 更新日志: reference/changelog.md
-      - 术语表: reference/glossary.md
+      - module-dev/index.md
+      - 从零开始: module-dev/quickstart.md
+      - 项目与包布局: module-dev/project-layout.md
+      - 声明面: module-dev/contracts.md
+      - 实现: module-dev/implementation.md
+      - 自发活动: module-dev/activity.md
+      - 界面: module-dev/ui.md
+      - 资源与文本: module-dev/resources.md
+      - 测试与验证: module-dev/testing.md
+      - 发布与装载: module-dev/publishing.md
+      - SDK 与兼容: module-dev/sdk-version.md
+  - 项目开发:
+      - project/index.md
+      - 代码结构: project/code-structure.md
+      - 构建与门禁: project/build.md
+      - 测试体系: project/tests.md
+      - 版本与提交: project/versioning.md
+      - 文档体系: project/docs.md
   - 关于:
       - about/index.md
       - 许可与第三方: about/license.md
+      - 更新日志: about/changelog.md

@@ -103,12 +103,6 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// <remarks>用角色词而不是色值：设置里改那一支色 / 换深浅主题时，这一圈跟着变。</remarks>
     public const string AlertRole = ViewInkRoles.Danger;
 
-    /// <summary>活动节拍（1 ms；等待由全局计时面统一提供）。</summary>
-    public static readonly TimeSpan ActivityInterval = TimeSpan.FromMilliseconds(1);
-
-    /// <summary>连续发送时最长空转间隔：到期前不再每毫秒醒一次（输入/命令最多延迟这么久）。</summary>
-    private static readonly TimeSpan MaxIdleWake = TimeSpan.FromMilliseconds(20);
-
     /// <summary>数据类型标识（**与两个兄弟模块逐字相同**）。</summary>
     public const string RawBytesTypeId = "RawBytes";
 
@@ -177,55 +171,49 @@ public sealed class HexSenderModule : IModule, IActivitySource
     // ---------------------------------------------------------------- ③ 钩子块
 
     /// <inheritdoc />
-    public Sdk.Lifecycle.ActivityKind Kind => Sdk.Lifecycle.ActivityKind.Periodic;
+    public ReceiveMode Receive => ReceiveMode.Push;
+
+    /// <summary>
+    /// 下一次因时间需要被唤醒的**相对延迟**（连续发送时；否则没有周期需求）。
+    /// </summary>
+    public TimeSpan? NextDelay =>
+        _continuous && _intervalMs is { } interval
+            ? _fireImmediately
+                ? TimeSpan.Zero
+                : TimeSpan.FromMilliseconds(Math.Max(1, interval))
+            : null;
+
+    /// <summary>刚开启连续发送 ⇒ 下一拍立即到期；首条发出后回到正常间隔。</summary>
+    private bool _fireImmediately;
 
     /// <inheritdoc />
-    public TimeSpan Interval => ActivityInterval;
-
-    // 其余钩子：无配置（不实现 OnConfigurationChanged）· 能力 None（不实现 OnRemoved）·
-    // 停/启用由框架暂停活动体（不实现 OnDisabled/OnEnabled）。
-
-    /// <inheritdoc />
-    public void RunActivity(IModuleContext context)
+    public void OnStep(IModuleContext context, StepReason reason)
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        _sent = 0;
-        context.Ports.Publish(SentSource, CountPayload(0));
-
-        var nextDue = TimeSpan.Zero;
-
-        while (!context.StopSignal.IsStopRequested)
+        if (reason.HasFlag(StepReason.Start))
         {
-            _ = Tick(context, shouldSend: false);
+            _sent = 0;
+            context.Ports.Publish(SentSource, CountPayload(0));
+        }
 
-            if (!_continuous || _intervalMs is not { } interval)
-            {
-                nextDue = TimeSpan.Zero;
-                _ = context.Timing.WaitFor(ActivityInterval);
-                continue;
-            }
+        var wasContinuous = _continuous && _intervalMs is not null;
 
-            var effective = Math.Max(1, interval);
-            var now = context.Timing.Now;
+        _ = Tick(context, shouldSend: reason.HasFlag(StepReason.Due));
 
-            if (nextDue <= TimeSpan.Zero)
-            {
-                nextDue = now;
-            }
+        if (reason.HasFlag(StepReason.Due))
+        {
+            _fireImmediately = false;
+        }
 
-            if (now >= nextDue)
-            {
-                _ = Tick(context, shouldSend: true);
-                nextDue = context.Timing.Now + TimeSpan.FromMilliseconds(effective);
-                continue;
-            }
+        if (_continuous && !wasContinuous)
+        {
+            _fireImmediately = true;
+        }
 
-            var wakeAt = nextDue < now + MaxIdleWake ? nextDue : now + MaxIdleWake;
-            if (context.Timing.WaitUntil(wakeAt))
-            {
-                break;
-            }
+        if (!_continuous)
+        {
+            _fireImmediately = false;
         }
     }
 
@@ -299,7 +287,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
     public bool IsContinuous => _continuous;
 
     /// <summary>
-    /// **一拍一次判定**（活动体的单步；模块测试直接驱动它，无需起线程）。
+    /// **一拍一次判定**（step 的单步；模块测试直接驱动它，无需起线程）。
     /// </summary>
     /// <param name="context">模块上下文。</param>
     /// <returns>这一拍是否发生了一次"按发送"（发送本身在拍内完成）。</returns>
@@ -311,7 +299,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
 
     /// <summary>一拍一次判定。</summary>
     /// <param name="context">模块上下文。</param>
-    /// <param name="shouldSend">调度上"到点了"（连续发送由活动体给；单次由用户命令给）。</param>
+    /// <param name="shouldSend">调度上"到点了"（连续发送由框架的 Due 给；单次由用户命令给）。</param>
     /// <returns>这一拍是否发生了一次"按发送"。</returns>
     /// <remarks>"到点了"与"发得出去"是两件事：前者是调度，后者是判据；都为真才真的发。</remarks>
     private bool Tick(IModuleContext context, bool shouldSend)
@@ -322,6 +310,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
         SyncInterval(context);
         SyncPageSwitch(context);
 
+        var wasContinuous = _continuous;
         var commandArrived = false;
         var pending = false;
 
@@ -433,21 +422,30 @@ public sealed class HexSenderModule : IModule, IActivitySource
         // ④ 判定（纯函数）：只看"这一拍要发的那一份内容"与"刚被拒过没有"
         var verdict = Evaluate(context, senderPage, outgoing, askedAndRefused);
 
-        // ⑤ **把开关那一格写成应然值**（唯一写者）。位置与应然一致时**不写**（幂等）。
-        // 界面每帧读这一格来画，所以**不需要**任何单独的复位信号。
-        if (!string.Equals(
-            context.ViewState.GetInputText(ContinuousSource),
-            _continuous ? "true" : "false",
-            StringComparison.OrdinalIgnoreCase))
+        // ⑤ **只在"这次 toggle 被处理"或"被迫关掉"时写回开关那一格**。
+        // 每个普通 step 都把模块算出的值写回会覆盖并发到达的用户意图。
+        // 写回 true 只发生在刚接受了用户这次 toggle；写回 false 只发生在拒绝或被迫关闭。
+        var acceptedToggle = toggleAsked == true && _continuous;
+        var forcedOff = !_continuous && wasContinuous;
+
+        if (acceptedToggle || askedAndRefused || forcedOff)
         {
-            context.ViewState.SetInputValue(ContinuousSource, _continuous ? "true" : "false");
+            var desired = acceptedToggle ? "true" : "false";
+
+            if (!string.Equals(
+                context.ViewState.GetInputText(ContinuousSource),
+                desired,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                context.ViewState.SetInputValue(ContinuousSource, desired);
+            }
         }
 
         // ⑥ 落地（唯一写界面的地方）
         ApplyVerdict(context, verdict);
 
         // ⑦ 该发就发（判定说不发就不发）
-        if ((pending || shouldSend) && verdict.CanSend && outgoing.Length > 0)
+        if ((pending || (shouldSend && _continuous)) && verdict.CanSend && outgoing.Length > 0)
         {
             var source = HexSourceOf(senderPage);
             _ = Send(context, outgoing, source, out _);
