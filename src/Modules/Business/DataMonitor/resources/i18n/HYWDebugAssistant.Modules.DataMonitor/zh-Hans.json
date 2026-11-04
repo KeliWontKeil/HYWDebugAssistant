@@ -3,6 +3,7 @@
   "entries": {
     "module.description": "以特定格式(文本/十六进制)显示接收的字节流",
     "module.title": "数据显示器",
+    "status.bufferFull": "缓冲区已满，较早的内容已丢弃",
     "status.saveError": "保存失败：{0}",
     "status.saveFailed": "保存失败",
     "status.saveNoPath": "未选择保存位置",

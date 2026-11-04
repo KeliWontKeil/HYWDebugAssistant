@@ -28,6 +28,7 @@ nav:
       - 界面外壳与叠加层: concepts/shell-and-overlay.md
       - 设置与持久化: concepts/settings-and-data.md
       - 资源与文本: concepts/resources-and-text.md
+      - 内存构成与释放: concepts/memory.md
   - 模块开发:
       - develop/index.md
       - 项目与包布局: develop/project-layout.md

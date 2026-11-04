@@ -341,6 +341,39 @@ public sealed class ExternalAccessHost : IDisposable
             ? session.GetSnapshot()
             : ExternalAccessSnapshot.None;
 
+    /// <summary>
+    /// 取某实例"最晚多久必须回来推进一次"（离现在的时间；没有周期需求 ⇒ <see langword="null"/>）。
+    /// </summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <remarks>
+    /// 只有**没有事件也会变化**的会话需要它（设备探活）；其余会话的推进都由信号触发。
+    /// 返回的是最早到期的那一条，实例循环据此决定"兜底等待"的上限。
+    /// </remarks>
+    public TimeSpan? NextWakeup(string instanceId)
+    {
+        if (!_instances.TryGetValue(instanceId, out var instance))
+        {
+            return null;
+        }
+
+        TimeSpan? due = null;
+
+        foreach (var session in instance.Sessions.Values)
+        {
+            if (session.NextLivenessDue is not { } candidate)
+            {
+                continue;
+            }
+
+            if (due is null || candidate < due.Value)
+            {
+                due = candidate;
+            }
+        }
+
+        return due;
+    }
+
     /// <summary>取走一个实例的全部待上报失败。</summary>
     /// <param name="instanceId">实例 ID。</param>
     /// <returns>失败列表（无 ⇒ 空）。</returns>

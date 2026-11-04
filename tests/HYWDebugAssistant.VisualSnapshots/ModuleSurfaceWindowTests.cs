@@ -10,6 +10,7 @@ using HYWDebugAssistant.Modules.DataMonitor;
 using HYWDebugAssistant.Modules.DataMonitor.Views;
 using HYWDebugAssistant.Modules.TextSender;
 using HYWDebugAssistant.Modules.TextSender.Views;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Ui.Controls;
 using HYWDebugAssistant.Ui.Geometry;
 using Shouldly;
@@ -145,6 +146,83 @@ public class ModuleSurfaceWindowTests
             CancellationToken.None);
     }
 
+    /// <summary>
+    /// **缓冲已满提示**：一块固定高度的 label，排在文本框下面；出现/消失都不改变文本区高度。
+    /// </summary>
+    /// <remarks>
+    /// 提示不是"文本框自带的文本"：它在模块自己的视图里（串口模块那条状态行的同一种做法），
+    /// 因此不会被正文盖住，也不会把文本区挤高/挤矮。
+    /// </remarks>
+    [Fact]
+    public async Task 缓冲已满提示_固定高度且在文本框下方()
+    {
+        var session = SnapshotSession.Shared;
+
+        await session.Dispatch(
+            () =>
+            {
+                using var harness = new OverlaySnapshotTests.SnapshotHarness();
+                harness.Register(
+                    "data-monitor",
+                    typeof(DataMonitorModule),
+                    typeof(DataMonitorViewFactory),
+                    windowWidth: 400,
+                    windowHeight: 368);
+
+                harness.AddModule("dm", "test/data-monitor", 400, 368);
+
+                var module = harness.Windows.Modules.Single(item => item.InstanceId == "dm");
+                var window = harness.OpenWindow(module);
+                Pump();
+
+                var surface = window.GetVisualDescendants().OfType<ModuleTextSurface>().ShouldHaveSingleItem();
+                var hint = window.GetVisualDescendants().OfType<ModuleLabel>()
+                    .Single(label => string.Equals(
+                        label.Source, DataMonitorModule.BufferFullSource, StringComparison.Ordinal));
+
+                var surfaceHeight = surface.Bounds.Height;
+                var surfaceBottom = surface.TranslatePoint(new Point(0, surface.Bounds.Height), window)
+                    .ShouldNotBeNull().Y;
+                var hintTop = hint.TranslatePoint(new Point(0, 0), window).ShouldNotBeNull().Y;
+
+                hintTop.ShouldBeGreaterThanOrEqualTo(surfaceBottom - 1, "提示要排在文本框下面");
+                hint.Bounds.Height.ShouldBe(16, 0.1, "提示占固定高度的一行");
+
+                var line = new string('x', 80);
+                for (var i = 0; i < 20_000; i++)
+                {
+                    harness.AppendDisplayLine("dm", DataMonitorModule.LogSource, line);
+                }
+
+                harness.Windows.Refresh();
+                Pump();
+
+                // 模块活动体每 5 ms 一拍：等它把"满过"写进提示源。
+                var shown = false;
+                for (var wait = 0; wait < 100 && !shown; wait++)
+                {
+                    harness.Windows.Refresh();
+                    Pump();
+                    shown = !string.IsNullOrEmpty(
+                        hint.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault()?.Text);
+
+                    if (!shown)
+                    {
+                        Thread.Sleep(20);
+                    }
+                }
+
+                shown.ShouldBeTrue("缓冲满过之后模块应写出提示");
+                hint.GetVisualDescendants().OfType<TextBlock>().First().Text.ShouldBe(
+                    TextCatalog.Get(typeof(DataMonitorModule).Assembly, DataMonitorText.BufferFull));
+
+                surface.Bounds.Height.ShouldBe(surfaceHeight, 0.1, "提示出现不得改变文本区高度");
+
+                window.Close();
+                Pump();
+            },
+            CancellationToken.None);
+    }
     /// <summary>
     /// 隐藏后再「显示全部」：缓存的模块视图必须先脱离旧窗口，不能成为第二个父级的子控件。
     /// </summary>

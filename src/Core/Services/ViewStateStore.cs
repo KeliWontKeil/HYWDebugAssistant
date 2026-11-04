@@ -368,6 +368,16 @@ public sealed class ViewStateStore : IViewStateAccess
         return new InstanceDisplay(this, instanceId);
     }
 
+    private bool IsDisplayFull(string instanceId, string sourceName)
+    {
+        lock (_gate)
+        {
+            return _instances.TryGetValue(instanceId, out var state)
+                && state.Displays.TryGetValue(sourceName, out var buffer)
+                && buffer.HasTrimmed;
+        }
+    }
+
     private InstanceState Get(string instanceId)
     {
         if (!_instances.TryGetValue(instanceId, out var state))
@@ -436,6 +446,17 @@ public sealed class ViewStateStore : IViewStateAccess
         /// <inheritdoc />
         public void AppendLine(string dataSourceName, string text) =>
             _owner.RequestAppend(_instanceId, dataSourceName, text, lineBreak: true);
+
+        /// <inheritdoc />
+        public bool IsFull(string dataSourceName)
+        {
+            if (string.IsNullOrWhiteSpace(dataSourceName))
+            {
+                return false;
+            }
+
+            return _owner.IsDisplayFull(_instanceId, dataSourceName);
+        }
     }
 
     /// <summary>

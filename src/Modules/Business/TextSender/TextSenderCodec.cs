@@ -18,74 +18,61 @@ namespace HYWDebugAssistant.Modules.TextSender;
 /// </remarks>
 internal static class TextSenderCodec
 {
-    /// <summary>把文本按 UTF-8 编码并**按字符边界**切成若干 ≤ <paramref name="capacity"/> 字节的块。</summary>
-    /// <param name="text">要发送的文本（框架投递的原始文本，**不做任何规范化**）。</param>
+    /// <summary>
+    /// 从 <paramref name="start"/> 起，最多多少个**字符**（含代理对）的 UTF-8 编码不超过 <paramref name="capacity"/> 字节。
+    /// </summary>
+    /// <param name="text">要发送的文本（原样，不做规范化）。</param>
+    /// <param name="start">起始字符下标。</param>
     /// <param name="capacity">单块字节上限（= 契约里 `data` 的长度）。</param>
-    /// <returns>若干块（空文本 ⇒ 空序列 ⇒ 调用方静默不发）。</returns>
-    public static List<byte[]> SplitByCharacterBoundary(string text, int capacity)
+    /// <returns>本块可容纳的字符数；0 = 连一个字符都放不下（只可能出现在 capacity &lt; 4 的理论情形）。</returns>
+    /// <remarks>
+    /// **只量字节数、不编码**：这是每包都要走的热路径，逐字符 `ToString()` + `GetBytes()` 会给每个字符
+    /// 造一个短命字符串和一个 `byte[]`（1 KB 文本约 40 KB 垃圾/包）。这里只做长度累加，
+    /// 真正的编码在 <see cref="EncodeChunk"/> 里一次完成。
+    /// </remarks>
+    public static int CountCharsInChunk(string text, int start, int capacity)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
+        ArgumentOutOfRangeException.ThrowIfNegative(start);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(start, text.Length);
 
-        var chunks = new List<byte[]>();
+        var index = start;
+        var bytes = 0;
 
-        if (text.Length == 0)
+        while (index < text.Length)
         {
-            return chunks;
-        }
-
-        var builder = new List<byte>(Math.Min(capacity, 4096));
-
-        for (var i = 0; i < text.Length; i++)
-        {
-            var charLength = char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])
+            var charLength = char.IsHighSurrogate(text[index])
+                && index + 1 < text.Length
+                && char.IsLowSurrogate(text[index + 1])
                 ? 2
                 : 1;
 
-            // 一个"字符"（含代理对）的 UTF-8 字节数：1–4
-            var charBytes = Encoding.UTF8.GetByteCount(text.AsSpan(i, charLength));
+            var charBytes = Encoding.UTF8.GetByteCount(text.AsSpan(index, charLength));
 
-            if (builder.Count + charBytes > capacity)
+            if (bytes + charBytes > capacity)
             {
-                if (builder.Count == 0)
-                {
-                    // 单字符都放不下（capacity < 4 的理论情形）：放弃该字符而不是切碎它（"宁可不发也不发半个字符"）
-                    continue;
-                }
-
-                chunks.Add([.. builder]);
-                builder.Clear();
+                break;
             }
 
-            // 逐字符编码：代理对按 2 个 char 一起转，保证不会切在多字节序列中间
-            builder.AddRange(Encoding.UTF8.GetBytes(text.AsSpan(i, charLength).ToString()));
-            i += charLength - 1;
+            bytes += charBytes;
+            index += charLength;
         }
 
-        if (builder.Count > 0)
-        {
-            chunks.Add([.. builder]);
-        }
-
-        return chunks;
+        return index - start;
     }
 
     /// <summary>
-    /// 把一块字节写进 `{ len, data }` 形状的定长载荷（`data` 尾部**补零**）。
+    /// 把一段字符按 UTF-8 编码进目标缓冲区（**不分配**）。
     /// </summary>
-    /// <param name="chunk">本块的有效字节（长度 ≤ <paramref name="capacity"/>）。</param>
-    /// <param name="capacity">`data` 字节区长度。</param>
-    /// <returns>载荷：`2 + capacity` 字节。</returns>
-    public static byte[] BuildPayload(ReadOnlySpan<byte> chunk, int capacity)
-    {
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(chunk.Length, capacity);
+    /// <param name="text">要发送的文本。</param>
+    /// <param name="start">起始字符下标。</param>
+    /// <param name="charCount">字符数（必须来自 <see cref="CountCharsInChunk"/>）。</param>
+    /// <param name="destination">目标缓冲区（至少能容纳该块的 UTF-8 字节）。</param>
+    /// <returns>实际写入的字节数。</returns>
+    public static int EncodeChunk(string text, int start, int charCount, Span<byte> destination) =>
+        Encoding.UTF8.GetBytes(text.AsSpan(start, charCount), destination);
 
-        // 布局：u16 len(+0) ｜ data(+2 … +2+capacity)
-        var payload = new byte[sizeof(ushort) + capacity];
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(payload, (ushort)chunk.Length);
-        chunk.CopyTo(payload.AsSpan(sizeof(ushort)));
-        return payload;
-    }
 
     /// <summary>
     /// 解析「间隔」输入（毫秒）。范围 <c>0 … MaxIntervalMs</c>。

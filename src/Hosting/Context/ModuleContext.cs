@@ -714,6 +714,8 @@ public sealed class ModuleContext : IModuleContext
         {
             // 同上
         }
+
+        public bool IsFull(string dataSourceName) => false;
     }
 
     /// <summary>**"请求被忽略"的文件选择面**（未注入真实面时的回落 —— 不抛异常）。</summary>

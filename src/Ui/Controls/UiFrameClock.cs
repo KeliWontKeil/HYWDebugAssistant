@@ -18,6 +18,37 @@ public static class UiFrameClock
 
     static UiFrameClock() => Timer.Tick += OnTick;
 
+    /// <summary>当前节拍间隔（与用户的"界面刷新率"设置一致）。</summary>
+    public static TimeSpan Interval => Timer.Interval;
+
+    /// <summary>
+    /// 把帧节拍对齐到界面的刷新率设置（用户可见的刷新行为只该由这一个口径决定）。
+    /// </summary>
+    /// <param name="herz">刷新率（Hz；夹到 1–240）。</param>
+    /// <remarks>
+    /// 帧时钟同时服务模块数据呈现、窗口几何与叠加层动画；它们都按"界面刷新率"这一件事发生，
+    /// 因此只在这里改一处。计时器运行中改间隔会停一次再启动，让新节拍立刻生效。
+    /// </remarks>
+    public static void SetRate(int herz)
+    {
+        var rate = Math.Clamp(herz, 1, 240);
+        var interval = TimeSpan.FromSeconds(1.0 / rate);
+
+        if (Timer.Interval == interval)
+        {
+            return;
+        }
+
+        var running = Timer.IsEnabled;
+        Timer.Interval = interval;
+
+        if (running)
+        {
+            Timer.Stop();
+            Timer.Start();
+        }
+    }
+
     /// <summary>订阅每个 UI 帧。</summary>
     /// <param name="action">订阅动作。</param>
     public static void Subscribe(Action action)

@@ -285,7 +285,7 @@ public sealed class SerialDeliveryResponsivenessTests
             {
                 QueueCapacity = queueCapacity,
                 StopTimeout = TimeSpan.FromSeconds(stopTimeoutSeconds),
-                IdleWait = TimeSpan.FromMilliseconds(1),
+                WatchdogInterval = TimeSpan.FromMilliseconds(20),
                 MaxBacklogAge = TimeSpan.FromMilliseconds(maxBacklogAgeMs),
             },
             viewState: viewState,

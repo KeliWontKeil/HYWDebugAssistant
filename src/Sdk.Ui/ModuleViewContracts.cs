@@ -83,7 +83,7 @@ public sealed record ConfigFieldView(
 
 /// <summary>一块显示缓冲的快照（文本日志）。</summary>
 /// <param name="Lines">当前保留的全部行（只读快照，可安全跨帧持有）。</param>
-/// <param name="Dropped">因超出容量被丢弃的旧行累计数。</param>
+/// <param name="Dropped">因超出容量被丢弃的旧行累计数（诊断用；界面只提示"满过"，不显示数量）。</param>
 /// <param name="Capacity">这块缓冲的行容量。</param>
 /// <param name="Sequence">世代号（每次清空递增；变了说明手里的副本过期）。</param>
 /// <param name="Revision">缓冲变更号（追加/替换/清空都会递增；同一个号 ⇒ 内容没变，可以跳过重排）。</param>
@@ -158,6 +158,19 @@ public interface IModuleViewContext
     /// <summary>取某显示缓冲的全量行（文本日志 / 十六进制视图共用）。</summary>
     /// <param name="source">显示源名。</param>
     TextBufferSnapshot ReadText(string source);
+
+    /// <summary>
+    /// 取某显示缓冲**自游标以来**的增量（每帧热路径：只取新增的已封口行与当前行的新增后缀）。
+    /// </summary>
+    /// <param name="source">显示源名。</param>
+    /// <param name="cursor">上一拍读到的位置。</param>
+    /// <param name="sealedLines">接收新增已封口行的缓冲（调用方持有，方法先清空再填）。</param>
+    /// <returns>
+    /// 增量；默认实现返回"需要全量重建" —— 旧宿主与设计期假实现不必实现本方法，
+    /// 由 <see cref="ReadText"/> 走全量路径（语义不变，只是每帧多一次行表复制）。
+    /// </returns>
+    DisplayDelta ReadTextDelta(string source, in DisplayCursor cursor, List<string> sealedLines) =>
+        DisplayDelta.ResetRequired(cursor, 0, 0);
 
     /// <summary>把一个输入值提交给模块（名字未声明 ⇒ 被拒并报 Issue）。</summary>
     /// <param name="source">输入源名。</param>

@@ -65,6 +65,12 @@ public sealed class ModuleCarrierAdapter : ICarrierTarget
         && (_instance.Context.Access is RuntimeExternalAccess || Sink is not null);
 
     /// <inheritdoc />
+    public TimeSpan? NextWakeupDue =>
+        !HasActivity && _instance.Context.Access is RuntimeExternalAccess access
+            ? access.NextWakeup
+            : null;
+
+    /// <inheritdoc />
     public bool PumpAuxiliary()
     {
         var didWork = false;

@@ -49,6 +49,19 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     /// <summary>每 (实例, 口) 队列的速率计（键 = `实例.口名`）。</summary>
     private readonly Dictionary<string, BindingRateMeters> _portRateMeters = new(StringComparer.Ordinal);
 
+    /// <summary>实例视图的缓存（键 = 现场/布局/壁纸修订号；命中即复用同一份对象）。</summary>
+    private readonly Lock _viewCacheGate = new();
+    private IReadOnlyList<Api.ModuleInstanceView>? _instancesCache;
+    private (long Content, long Layout, long Wallpaper) _instancesKey;
+
+    /// <summary>网络视图的缓存（键 = 现场修订号 + 绑定快照引用）。</summary>
+    private IReadOnlyList<Api.NetworkView>? _networksCache;
+    private (long Content, object? Bindings) _networksKey;
+
+    /// <summary>布局视图的缓存（键 = 布局修订号）。</summary>
+    private IReadOnlyList<Api.ModuleLayoutView>? _layoutCache;
+    private long _layoutKey = -1;
+
     /// <summary>一条连接 / 一个口用的四个速率计（单元 · 搬运字节 · 有效载荷字节；样本档由单元档乘系数）。</summary>
     private sealed class BindingRateMeters
     {
@@ -1327,10 +1340,24 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     /// <inheritdoc />
     public IReadOnlyList<ModuleInstanceView> GetInstances()
     {
-        var views = new List<ModuleInstanceView>(_runtime.Content.InstanceCount + _runtime.Content.PlaceholderCount);
-        views.AddRange(_runtime.Content.Instances.Select(ToView));
-        views.AddRange(_runtime.Content.Placeholders.Select(ToView));
-        return views;
+        var content = _runtime.Content;
+        var key = (content.Revision, content.Layout.Revision, _runtime.WallpaperVersion);
+
+        lock (_viewCacheGate)
+        {
+            if (_instancesCache is { } cached && _instancesKey == key)
+            {
+                return cached;
+            }
+
+            var views = new List<ModuleInstanceView>(content.InstanceCount + content.PlaceholderCount);
+            views.AddRange(content.Instances.Select(ToView));
+            views.AddRange(content.Placeholders.Select(ToView));
+
+            _instancesKey = key;
+            _instancesCache = views;
+            return views;
+        }
     }
 
     /// <inheritdoc />
@@ -1353,32 +1380,68 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<NetworkView> GetNetworks() =>
-        [.. _runtime.Content.Networks.Select(n =>
-        {
-            // 多源是一等组合：**全部声明的源**（在场的在前 + 悬空的声明在后，各组内字典序稳定）。
-            // `Source` 只是兼容访问器，必须与 `Sources[0]` 一致（旧实现取 n.Source，与排序后的
-            // 视图列表可能不是同一个；多源成员判定一律用 `Sources`）。
-            var presentSources = n.Sources.Select(s => s.ToString()).OrderBy(s => s, StringComparer.Ordinal).ToList();
-            var unresolvedSources = n.UnresolvedSources.Select(s => s.ToString()).OrderBy(s => s, StringComparer.Ordinal).ToList();
-            var sources = new List<string>(presentSources.Count + unresolvedSources.Count);
-            sources.AddRange(presentSources);
-            sources.AddRange(unresolvedSources);
+    public IReadOnlyList<NetworkView> GetNetworks()
+    {
+        var content = _runtime.Content;
+        var bindings = _runtime.Bindings;
+        var key = (content.Revision, (object?)bindings);
 
-            return new NetworkView(
-                n.Name,
-                IsAnonymous: !n.IsNamed,
-                n.IsStalled,
-                sources.Count > 0 ? sources[0] : string.Empty,
-                [.. n.Targets.Select(t => t.ToString())],
-                [.. n.UnresolvedMembers.Select(m => m.ToString())])
+        lock (_viewCacheGate)
+        {
+            if (_networksCache is { } cached && _networksKey == key)
             {
-                // 【P40】**网络身份键**：视图层靠它配对（网络名不唯一：匿名网络名为空串）
-                Key = ModuleRuntime.DescribeKey(n),
-                Sources = sources,
-                UnresolvedSources = unresolvedSources,
-            };
-        })];
+                return cached;
+            }
+
+            var views = content.Networks.Select(n =>
+            {
+                // 多源是一等组合：**全部声明的源**（在场的在前 + 悬空的声明在后，各组内字典序稳定）。
+                // `Source` 只是兼容访问器，必须与 `Sources[0]` 一致（旧实现取 n.Source，与排序后的
+                // 视图列表可能不是同一个；多源成员判定一律用 `Sources`）。
+                var presentSources = n.Sources.Select(s => s.ToString()).OrderBy(s => s, StringComparer.Ordinal).ToList();
+                var unresolvedSources = n.UnresolvedSources.Select(s => s.ToString()).OrderBy(s => s, StringComparer.Ordinal).ToList();
+                var sources = new List<string>(presentSources.Count + unresolvedSources.Count);
+                sources.AddRange(presentSources);
+                sources.AddRange(unresolvedSources);
+
+                return new NetworkView(
+                    n.Name,
+                    IsAnonymous: !n.IsNamed,
+                    n.IsStalled,
+                    sources.Count > 0 ? sources[0] : string.Empty,
+                    [.. n.Targets.Select(t => t.ToString())],
+                    [.. n.UnresolvedMembers.Select(m => m.ToString())])
+                {
+                    // 【P40】**网络身份键**：视图层靠它配对（网络名不唯一：匿名网络名为空串）
+                    Key = ModuleRuntime.DescribeKey(n),
+                    Sources = sources,
+                    UnresolvedSources = unresolvedSources,
+                };
+            }).ToList();
+
+            _networksKey = key;
+            _networksCache = views;
+            return views;
+        }
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<ModuleLayoutView> GetLayout()
+    {
+        var layout = _runtime.Content.Layout;
+
+        lock (_viewCacheGate)
+        {
+            if (_layoutCache is { } cached && _layoutKey == layout.Revision)
+            {
+                return cached;
+            }
+
+            _layoutKey = layout.Revision;
+            _layoutCache = layout.Modules;
+            return _layoutCache;
+        }
+    }
 
     /// <inheritdoc />
     public IReadOnlyList<BindingDiagnosticView> GetDiagnostics()
@@ -1771,9 +1834,6 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 return file with { ReadError = CoreText.Get("core.services.composite.readFailed", ex.Message) };
             }
         })];
-
-    /// <inheritdoc />
-    public IReadOnlyList<ModuleLayoutView> GetLayout() => _runtime.Content.Layout.Modules;
 
     /// <inheritdoc />
     public IReadOnlyList<SubscriptionSourceView> GetSubscriptionSources()

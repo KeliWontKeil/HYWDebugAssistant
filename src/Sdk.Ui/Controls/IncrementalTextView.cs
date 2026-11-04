@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -10,6 +11,7 @@ using Avalonia.Media.TextFormatting;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
@@ -51,7 +53,15 @@ public sealed class IncrementalTextView : TemplatedControl
     public static readonly StyledProperty<TextAlignment> TextAlignmentProperty =
         AvaloniaProperty.Register<IncrementalTextView, TextAlignment>(nameof(TextAlignment));
 
-    private const int MaxAppendChunk = 512;
+    /// <summary>
+    /// 一次折行布局最多吃多少字符。
+    /// </summary>
+    /// <remarks>
+    /// 折行布局按块做（每块一个 `TextLayout`，块尾的最后一行留给下一块避免硬断）。块越大，
+    /// 同样多的字符产生的布局对象越少（对象头/缓存/字形数组的固定开销被摊薄）；
+    /// 块过大会让单次布局的延迟变差。8K 是"分配速率"与"单帧延迟"之间的折中。
+    /// </remarks>
+    private const int MaxAppendChunk = 8192;
 
     private readonly List<RawLine> _raw = [];
     private readonly List<DisplayLine> _display = [];
@@ -68,6 +78,40 @@ public sealed class IncrementalTextView : TemplatedControl
     private FormattedText? _markText;
     private double _markFontSize;
     private int _layoutBuildCount;
+
+    /// <summary>
+    /// 有"字体/字号变了，需要按新度量重排"这件待办。
+    /// </summary>
+    /// <remarks>
+    /// 重排是 O(缓冲内容) 的；主题在控件离开可视树时会把样式值退回默认，
+    /// 若每个属性变化都当场重排，关闭一个满缓冲的显示区会让界面卡住。
+    /// 因此这里只记待办，真正重排推到下一次测量（离开树之后就不会再测）。
+    /// </remarks>
+    private bool _relayoutPending;
+
+    /// <summary>单行高度（同一字体下恒定；用来给"没有布局的视觉行"定位，避免为每一行都建布局）。</summary>
+    private double _lineHeight;
+
+    /// <summary>当前真正持有 <see cref="TextLayout"/> 的视觉行（只有可见窗口附近的行；其余行只留文本切片）。</summary>
+    private readonly List<VisualLine> _laidOut = [];
+
+    /// <summary>已应用的"已丢弃行数"（增量应用用它把头部裁掉多少条）。</summary>
+    private int _droppedApplied;
+
+    /// <summary>已应用的"已封口行总数"（绝对计数；只用于一致性检查）。</summary>
+    private int _sealedApplied;
+
+    /// <summary>已应用的当前行世代号（变了 ⇒ 当前行整行换掉，而不是接后缀）。</summary>
+    private long _openGeneration;
+
+    /// <summary>已应用的当前行字符数（只用于一致性检查）。</summary>
+    private int _openLength;
+
+    /// <summary>已应用的"当前行被头部裁剪"世代号（变了 ⇒ 视图手里那份文本被截过，要整行换）。</summary>
+    private long _openTrimGeneration;
+
+    /// <summary>当前行对应的那条 raw（没有内容时为 <see langword="null"/>）。</summary>
+    private RawLine? _openRaw;
 
     /// <summary>创建增量文本视图。</summary>
     public IncrementalTextView()
@@ -174,10 +218,19 @@ public sealed class IncrementalTextView : TemplatedControl
     public int VisualLineCount => _visuals.Count;
 
     /// <summary>每个视觉行的字符数（测试/诊断用；用于断言折行连续、没有块边界硬断）。</summary>
-    public IReadOnlyList<int> VisualLineLengths => _visuals.Select(visual => visual.Text.Length).ToArray();
+    public IReadOnlyList<int> VisualLineLengths => _visuals.Select(visual => visual.Length).ToArray();
 
     /// <summary>已创建的 <see cref="TextLayout"/> 数（增量性探针用）。</summary>
     public int LayoutBuildCount => _layoutBuildCount;
+
+    /// <summary>
+    /// **当前仍持有布局的视觉行数**（诊断/测试用）。
+    /// </summary>
+    /// <remarks>
+    /// 它应当只与"可见窗口附近"有关，而不是与缓冲里有多少行有关 ——
+    /// 这是"长缓冲不按行数爆内存"的直接判据。
+    /// </remarks>
+    public int LiveLayoutCount => _laidOut.Count;
 
     /// <summary>当前扁平文本长度。</summary>
     public int TextLength
@@ -259,6 +312,156 @@ public sealed class IncrementalTextView : TemplatedControl
         return true;
     }
 
+    /// <summary>
+    /// **应用一次增量**（每帧热路径）：只处理新增的已封口行、当前行的新增后缀与头部裁剪。
+    /// </summary>
+    /// <param name="delta">缓冲给出的增量（游标失效时为 <see cref="DisplayDelta.Reset"/>）。</param>
+    /// <param name="sealedLines">与增量配套的新增已封口行。</param>
+    /// <returns>是否应用成功；<see langword="false"/> = 控件内部状态与增量对不上，调用方应改用全量快照。</returns>
+    /// <remarks>
+    /// 它替代"每帧取全量快照再比对"：追加只碰最后一条，头部裁剪只删最旧的若干条，
+    /// 代价与**这一拍新增的数据量**成正比，与缓冲里已有多少内容无关。
+    /// </remarks>
+    public bool ApplyDelta(DisplayDelta delta, IReadOnlyList<string> sealedLines)
+    {
+        ArgumentNullException.ThrowIfNull(sealedLines);
+
+        if (delta.Reset)
+        {
+            return false;
+        }
+
+        if (delta.SealedFromStart)
+        {
+            ResetFromDelta(delta, sealedLines);
+            return true;
+        }
+
+        var removed = delta.Dropped - _droppedApplied;
+        if (removed < 0 || removed > _raw.Count)
+        {
+            return false;
+        }
+
+        if (delta.SealedCount < _sealedApplied)
+        {
+            return false;
+        }
+
+        if (delta.OpenGeneration == _openGeneration
+            && delta.OpenLength != _openLength + (delta.OpenSuffix?.Length ?? 0))
+        {
+            return false;
+        }
+
+        if (removed > 0)
+        {
+            RemoveFrontRaw(removed);
+        }
+
+        _droppedApplied = delta.Dropped;
+
+        var index = 0;
+
+        if (_openRaw is not null && sealedLines.Count > 0)
+        {
+            // 刚才那条"当前行"已经封口：它已经是视图里的最后一条 raw，不重复追加。
+            // 只有缓冲真的截过它的开头时才整行重排；单纯封口时视图手里的文本就是对的。
+            if (delta.OpenTrimGeneration != _openTrimGeneration)
+            {
+                ReplaceRawText(_openRaw, sealedLines[0]);
+            }
+
+            _openRaw = null;
+            index = 1;
+        }
+
+        for (; index < sealedLines.Count; index++)
+        {
+            AppendRawLine(sealedLines[index]);
+        }
+
+        if (delta.OpenGeneration != _openGeneration)
+        {
+            ReplaceOpenLine(delta.OpenText ?? string.Empty);
+        }
+        else if (!string.IsNullOrEmpty(delta.OpenSuffix))
+        {
+            AppendOpenText(delta.OpenSuffix!);
+        }
+
+        _openGeneration = delta.OpenGeneration;
+        _openLength = delta.OpenLength;
+        _openTrimGeneration = delta.OpenTrimGeneration;
+        _sealedApplied = delta.SealedCount;
+
+        RecomputeLayout();
+        InvalidateMeasure();
+        InvalidateVisual();
+        ScrollToEndIfNeeded(appended: true);
+        return true;
+    }
+
+    /// <summary>
+    /// 记下"全量快照已经应用到哪个游标"（<see cref="ApplySnapshot"/> 之后调用）。
+    /// </summary>
+    /// <param name="cursor">快照对应的游标。</param>
+    public void SetDeltaCursor(DisplayCursor cursor)
+    {
+        _droppedApplied = cursor.Dropped;
+        _sealedApplied = cursor.SealedCount;
+        _openGeneration = cursor.OpenGeneration;
+        _openLength = cursor.OpenLength;
+        _openTrimGeneration = cursor.OpenTrimGeneration;
+
+        // 快照里最后一条就是"当前行"（它非空时才会被写进快照）。
+        _openRaw = cursor.OpenLength > 0 && _raw.Count > 0 ? _raw[^1] : null;
+    }
+
+    /// <summary>
+    /// **封口行从头重来**时的视图重建（数据全部来自增量，不取全量快照）。
+    /// </summary>
+    /// <remarks>
+    /// 触发条件是"视图游标落后于裁剪点"：它手里的封口行都没了，但当前行仍在。
+    /// 这里只重排"当前封口行 + 当前行"，不会为了拿一行文本去造整块快照 ——
+    /// 那会在 LOH 上周期性地分配大字符串，表现为"关闭显示器也不回落"的缓慢增长。
+    /// </remarks>
+    private void ResetFromDelta(DisplayDelta delta, IReadOnlyList<string> sealedLines)
+    {
+        var previousOpen = _openRaw?.Text.ToString() ?? string.Empty;
+        var openText = delta.OpenText ?? previousOpen + (delta.OpenSuffix ?? string.Empty);
+
+        foreach (var line in _display)
+        {
+            DisposeVisuals(line);
+        }
+
+        _raw.Clear();
+        _display.Clear();
+        _visuals.Clear();
+        _laidOut.Clear();
+        _openRaw = null;
+
+        foreach (var text in sealedLines)
+        {
+            AppendRawLine(text);
+        }
+
+        ReplaceOpenLine(openText);
+
+        _sealedApplied = delta.SealedCount;
+        _droppedApplied = delta.Dropped;
+        _openGeneration = delta.OpenGeneration;
+        _openLength = delta.OpenLength;
+        _openTrimGeneration = delta.OpenTrimGeneration;
+        _revision = delta.Revision;
+
+        RecomputeLayout();
+        InvalidateMeasure();
+        InvalidateVisual();
+        ScrollToEndIfNeeded(appended: true);
+    }
+
     /// <summary>清除选择。</summary>
     public void ClearSelection()
     {
@@ -301,9 +504,13 @@ public sealed class IncrementalTextView : TemplatedControl
 
         width = Math.Max(0, width - Padding.Left - Padding.Right);
 
-        if (width > 0 && Math.Abs(width - _layoutWidth) > 0.01)
+
+        var widthChanged = width > 0 && Math.Abs(width - _layoutWidth) > 0.01;
+
+        if (width > 0 && (widthChanged || _relayoutPending))
         {
             _layoutWidth = width;
+            _relayoutPending = false;
             RelayoutAll();
         }
 
@@ -314,20 +521,32 @@ public sealed class IncrementalTextView : TemplatedControl
     /// <inheritdoc />
     protected override Size ArrangeOverride(Size finalSize) => finalSize;
 
+
+
     /// <inheritdoc />
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
 
-        if (change.Property == ForegroundProperty
-            || change.Property == FontFamilyProperty
+
+        if (change.Property == FontFamilyProperty
             || change.Property == FontSizeProperty
             || change.Property == FontWeightProperty
             || change.Property == FontStyleProperty)
         {
             _markText = null;
-            RelayoutAll();
+            _lineHeight = 0;
+            _relayoutPending = true;
             InvalidateMeasure();
+            InvalidateVisual();
+            return;
+        }
+
+        if (change.Property == ForegroundProperty)
+        {
+            // 换色只影响"画出来的颜色"：布局对象里烤着画笔，所以要丢缓存，但折行位置没变。
+            _markText = null;
+            ReleaseAllLayouts();
             InvalidateVisual();
             return;
         }
@@ -369,27 +588,85 @@ public sealed class IncrementalTextView : TemplatedControl
 
         using (context.PushClip(new Rect(Bounds.Size)))
         {
-            foreach (var visual in _visuals)
+            // **只画可见行**：`_visuals` 的 Top 单调递增，二分定位第一个可见行；
+            // 行高恒定，所以"可见窗口"不需要任何布局就能算出来。
+            var first = FindFirstVisible(offset);
+            var last = first;
+
+            for (; last < _visuals.Count; last++)
             {
-                var top = Padding.Top + visual.Top;
-                var height = visual.Line.Height;
+                var top = Padding.Top + _visuals[last].Top;
 
-                if (top + height < offset || top > offset + viewport)
+                if (top > offset + viewport)
                 {
-                    continue;
+                    break;
                 }
+            }
 
-                var y = top;
-                var x = Padding.Left + AlignmentOffset(contentWidth, visual.Line.Width);
-                DrawSelection(context, visual, x, y, selection, selStart, selEnd);
-                visual.Line.Draw(context, new Point(x, y));
+            for (var index = first; index < last; index++)
+            {
+                var visual = _visuals[index];
+                var line = EnsureLine(visual);
+                var y = Padding.Top + visual.Top;
+                var x = Padding.Left + AlignmentOffset(contentWidth, line.Width);
+
+                DrawSelection(context, visual, line, x, y, selection, selStart, selEnd);
+                line.Draw(context, new Point(x, y));
 
                 if (ShowNewlineMarks && visual.Owner.RealBreak && ReferenceEquals(visual, visual.Owner.Visuals[^1]))
                 {
-                    DrawMark(context, x + visual.Line.Width + 2, y + ((height - MarkFormatted(brush).Height) / 2), brush);
+                    DrawMark(
+                        context,
+                        x + line.Width + 2,
+                        y + ((line.Height - MarkFormatted(brush).Height) / 2),
+                        brush);
                 }
             }
+
+            // 窗口外的布局随手下手：不给"滚过去看过一眼"的行永久留一份整形结果。
+            ReleaseLayoutsOutside(first - 32, last + 32);
         }
+    }
+
+    /// <summary>释放可见窗口之外（含较大余量）的视觉行布局。</summary>
+    private void ReleaseLayoutsOutside(int from, int to)
+    {
+        for (var index = _laidOut.Count - 1; index >= 0; index--)
+        {
+            var visual = _laidOut[index];
+
+            if (visual.Index >= from && visual.Index <= to)
+            {
+                continue;
+            }
+
+            ReleaseLayout(visual);
+        }
+    }
+
+    /// <summary>二分找到第一条"与可见窗口相交"的视觉行（Top 单调递增、行高恒定）。</summary>
+    private int FindFirstVisible(double offset)
+    {
+        var lineHeight = LineHeight;
+        var low = 0;
+        var high = _visuals.Count;
+
+        while (low < high)
+        {
+            var middle = low + ((high - low) / 2);
+            var visual = _visuals[middle];
+
+            if (Padding.Top + visual.Top + lineHeight < offset)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        return low;
     }
 
     /// <inheritdoc />
@@ -514,6 +791,12 @@ public sealed class IncrementalTextView : TemplatedControl
             _scroll.ScrollChanged -= OnScrollChanged;
             _scroll = null;
         }
+
+        // 正在离开可视树：样式退回默认会连着触发几次"字体变了"，
+        // 这时候重排看不见的内容既没意义又会让关闭卡顿。
+        _relayoutPending = false;
+        ReleaseAllLayouts();
+        _markText = null;
     }
 
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e) => InvalidateVisual();
@@ -572,14 +855,21 @@ public sealed class IncrementalTextView : TemplatedControl
 
     private void Rebuild(IReadOnlyList<string> lines)
     {
+        foreach (var line in _display)
+        {
+            DisposeVisuals(line);
+        }
+
         _raw.Clear();
         _display.Clear();
         _visuals.Clear();
+        _laidOut.Clear();
 
         for (var i = 0; i < lines.Count; i++)
         {
-            var raw = new RawLine { Text = lines[i] ?? string.Empty, Index = i };
-            AddSegments(raw);
+            var text = lines[i] ?? string.Empty;
+            var raw = new RawLine { Text = new StringBuilder(text), Index = i };
+            AddSegments(raw, text);
             _raw.Add(raw);
         }
 
@@ -591,9 +881,8 @@ public sealed class IncrementalTextView : TemplatedControl
         RecomputeLayout();
     }
 
-    private void AddSegments(RawLine raw)
+    private void AddSegments(RawLine raw, string text)
     {
-        var text = raw.Text;
         var start = 0;
 
         for (var i = 0; i < text.Length; i++)
@@ -626,7 +915,7 @@ public sealed class IncrementalTextView : TemplatedControl
     {
         var line = new DisplayLine
         {
-            Text = text,
+            Text = new StringBuilder(text),
             RealBreak = realBreak,
             Owner = raw,
         };
@@ -667,13 +956,15 @@ public sealed class IncrementalTextView : TemplatedControl
         // 前面的原始行必须一一相同；只允许“最后一行变长 / 尾部新增行”。
         for (var i = 0; i < oldCount - 1; i++)
         {
-            if (!string.Equals(_raw[i].Text, lines[i], StringComparison.Ordinal))
+            if (!string.Equals(_raw[i].Text.ToString(), lines[i], StringComparison.Ordinal))
             {
                 return false;
             }
         }
 
-        if (string.Equals(_raw[^1].Text, lines[oldCount - 1], StringComparison.Ordinal))
+        var lastText = _raw[^1].Text.ToString();
+
+        if (string.Equals(lastText, lines[oldCount - 1], StringComparison.Ordinal))
         {
             if (newCount == oldCount)
             {
@@ -689,14 +980,13 @@ public sealed class IncrementalTextView : TemplatedControl
             return true;
         }
 
-        if (!lines[oldCount - 1].StartsWith(_raw[^1].Text, StringComparison.Ordinal))
+        if (!lines[oldCount - 1].StartsWith(lastText, StringComparison.Ordinal))
         {
             return false;
         }
 
-        var suffix = lines[oldCount - 1][_raw[^1].Text.Length..];
+        var suffix = lines[oldCount - 1][lastText.Length..];
         AppendToRaw(_raw[^1], suffix);
-        _raw[^1].Text = lines[oldCount - 1];
 
         for (var i = oldCount; i < newCount; i++)
         {
@@ -717,7 +1007,7 @@ public sealed class IncrementalTextView : TemplatedControl
             return false;
         }
 
-        if (newCount == oldCount && string.Equals(_raw[0].Text, lines[0], StringComparison.Ordinal))
+        if (newCount == oldCount && string.Equals(_raw[0].Text.ToString(), lines[0], StringComparison.Ordinal))
         {
             return false; // 等长且头部没变：这是“最后一行变化”，不是删头+追尾
         }
@@ -735,7 +1025,7 @@ public sealed class IncrementalTextView : TemplatedControl
 
             for (var i = 0; i < compare; i++)
             {
-                if (!string.Equals(_raw[remove + i].Text, lines[i], StringComparison.Ordinal))
+                if (!string.Equals(_raw[remove + i].Text.ToString(), lines[i], StringComparison.Ordinal))
                 {
                     match = false;
                     break;
@@ -757,13 +1047,37 @@ public sealed class IncrementalTextView : TemplatedControl
     private void RemoveFrontRaw(int count)
     {
         var removedChars = 0;
+        var removedSegments = 0;
 
         for (var i = 0; i < count; i++)
         {
             foreach (var segment in _raw[i].Segments)
             {
                 removedChars += segment.Text.Length + (segment.HasBreak ? 1 : 0);
-                _ = _display.Remove(segment);
+                removedSegments++;
+                DisposeVisuals(segment);
+            }
+        }
+
+        // 头部删除对应 `_display` 最前面的一段连续元素：一次 RemoveRange 顶掉 N 次 O(n) 查找。
+        // 用首尾引用核对"这段确实连续"，异常形态（不该出现）退回逐条删除，保证正确性优先。
+        if (removedSegments > 0
+            && removedSegments <= _display.Count
+            && _raw[0].Segments.Count > 0
+            && _raw[count - 1].Segments.Count > 0
+            && ReferenceEquals(_display[0], _raw[0].Segments[0])
+            && ReferenceEquals(_display[removedSegments - 1], _raw[count - 1].Segments[^1]))
+        {
+            _display.RemoveRange(0, removedSegments);
+        }
+        else
+        {
+            for (var i = 0; i < count; i++)
+            {
+                foreach (var segment in _raw[i].Segments)
+                {
+                    _ = _display.Remove(segment);
+                }
             }
         }
 
@@ -782,8 +1096,9 @@ public sealed class IncrementalTextView : TemplatedControl
             SetChannelBreak(_raw[^1], true);
         }
 
-        var raw = new RawLine { Text = text ?? string.Empty, Index = _raw.Count };
-        AddSegments(raw);
+        var value = text ?? string.Empty;
+        var raw = new RawLine { Text = new StringBuilder(value), Index = _raw.Count };
+        AddSegments(raw, value);
         _raw.Add(raw);
     }
 
@@ -793,6 +1108,8 @@ public sealed class IncrementalTextView : TemplatedControl
         {
             return;
         }
+
+        raw.Text.Append(suffix);
 
         var last = raw.Segments.Count > 0 ? raw.Segments[^1] : null;
 
@@ -820,7 +1137,7 @@ public sealed class IncrementalTextView : TemplatedControl
             last.RealBreak = true;
             last.ChannelBreak = false;
 
-            last = new DisplayLine { Text = string.Empty, Owner = raw };
+            last = new DisplayLine { Text = new StringBuilder(), Owner = raw };
             raw.Segments.Add(last);
             _display.Add(last);
             LayoutLine(last, append: false);
@@ -843,30 +1160,127 @@ public sealed class IncrementalTextView : TemplatedControl
             return;
         }
 
-        line.Text += suffix;
+        line.Text.Append(suffix);
         line.RealBreak = false;
         line.ChannelBreak = false;
         LayoutLine(line, append: true);
+    }
+
+    /// <summary>把"当前行"整行换成 <paramref name="text"/>（封口、替换、头部裁剪后都走这里）。</summary>
+    private void ReplaceOpenLine(string text)
+    {
+        if (_openRaw is not null)
+        {
+            RemoveLastRaw();
+            _openRaw = null;
+        }
+
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        AppendRawLine(text);
+        _openRaw = _raw[^1];
+    }
+
+    /// <summary>把一段文本接到"当前行"后面（没有当前行时它就是当前行）。</summary>
+    private void AppendOpenText(string suffix)
+    {
+        if (_openRaw is null)
+        {
+            AppendRawLine(suffix);
+            _openRaw = _raw[^1];
+            return;
+        }
+
+        AppendToRaw(_openRaw, suffix);
+    }
+
+    /// <summary>用缓冲里的文本整体替换一条 raw（已封口的"当前行"以缓冲为准）。</summary>
+    private void ReplaceRawText(RawLine raw, string text)
+    {
+        var value = text ?? string.Empty;
+
+        RemoveRawSegments(raw);
+        raw.Segments.Clear();
+        raw.Text.Clear();
+        raw.Text.Append(value);
+        AddSegments(raw, value);
+    }
+
+    /// <summary>移除最后一条 raw（当前行被整行换掉时用）。</summary>
+    private void RemoveLastRaw()
+    {
+        if (_raw.Count == 0)
+        {
+            return;
+        }
+
+        RemoveRawSegments(_raw[^1]);
+        _raw.RemoveAt(_raw.Count - 1);
+
+        if (_raw.Count > 0)
+        {
+            // 上一条现在是最后一条：它后面不再有换行。
+            SetChannelBreak(_raw[^1], false);
+        }
+    }
+
+    /// <summary>
+    /// 把一条 raw 的显示行从 `_display` 里摘掉（**尾部整段删除**，一次搬移）。
+    /// </summary>
+    /// <param name="raw">要清掉显示行的 raw。</param>
+    /// <remarks>
+    /// 这条 raw 的显示行总是 `_display` 的末尾连续一段（raw 按顺序尾插、替换/移除也只发生在最后一条）：
+    /// 逐条 `Remove` 会把"删一行"变成 O(总行数 × 本行行数)。
+    /// </remarks>
+    private void RemoveRawSegments(RawLine raw)
+    {
+        var count = raw.Segments.Count;
+        if (count == 0)
+        {
+            return;
+        }
+
+        foreach (var segment in raw.Segments)
+        {
+            DisposeVisuals(segment);
+        }
+
+        if (count <= _display.Count
+            && ReferenceEquals(_display[^1], raw.Segments[^1])
+            && ReferenceEquals(_display[_display.Count - count], raw.Segments[0]))
+        {
+            _display.RemoveRange(_display.Count - count, count);
+            return;
+        }
+
+        foreach (var segment in raw.Segments)
+        {
+            _ = _display.Remove(segment);
+        }
     }
 
     private void LayoutLine(DisplayLine line, bool append)
     {
         if (_layoutWidth <= 0)
         {
-            line.Visuals.Clear();
+            DisposeVisuals(line);
             return;
         }
 
         if (!append || line.Visuals.Count == 0)
         {
-            line.Visuals.Clear();
-            AppendChunk(line, line.Text, startInLine: 0);
+            DisposeVisuals(line);
+            AppendChunk(line, line.Text.ToString(), startInLine: 0);
             return;
         }
 
         // 只重建最后一个视觉行：前面的视觉行已经固定。
         var last = line.Visuals[^1];
-        var pendingText = line.Text[last.StartInLine..];
+        var pendingText = line.Text.ToString(last.StartInLine, line.Text.Length - last.StartInLine);
+        ReleaseLayout(last);
         line.Visuals.RemoveAt(line.Visuals.Count - 1);
         AppendChunk(line, pendingText, last.StartInLine);
     }
@@ -875,7 +1289,7 @@ public sealed class IncrementalTextView : TemplatedControl
     {
         if (text.Length == 0)
         {
-            AddVisualLine(line, string.Empty, startInLine);
+            AddVisualLine(line, startInLine, 0);
             return;
         }
 
@@ -900,40 +1314,40 @@ public sealed class IncrementalTextView : TemplatedControl
                 var textLine = layoutLines[i];
                 var sourceStart = Math.Clamp(textLine.FirstTextSourceIndex, 0, combined.Length);
                 var textLength = Math.Clamp(textLine.Length, 0, combined.Length - sourceStart);
-                var slice = combined.Substring(sourceStart, textLength);
 
                 if (i == layoutLines.Count - 1)
                 {
                     // 最后一行还可能继续增长，留到下一块或追加时再布局。
-                    pendingText = slice;
+                    pendingText = combined.Substring(sourceStart, textLength);
                     pendingStart += sourceStart;
                     break;
                 }
 
-                AddVisualLine(line, slice, pendingStart + sourceStart);
+                // **只记区间，不复制字符串**：可见窗口要画时才物化（见 `EnsureLine`）。
+                // 每帧几百个 `Substring` 既产生垃圾，又把同一段文本在视图里复制一份。
+                AddVisualLine(line, pendingStart + sourceStart, textLength);
             }
         }
 
-        AddVisualLine(line, pendingText, pendingStart);
+        AddVisualLine(line, pendingStart, pendingText.Length);
     }
 
-    private void AddVisualLine(DisplayLine line, string text, int startInLine)
+    private static void AddVisualLine(DisplayLine line, int startInLine, int length)
     {
-        // **每个视觉行一个独立的 NoWrap 布局**：命中位置/选择矩形都以“本行起点”为 0，
-        // 不从多行 TextLayout 的全局偏移推算（那条路径在折行后会算错选择偏移）。
-        var visualLayout = CreateLayout(text, wrap: false);
+        // **只留区间，不建布局**：布局对象（TextLayout + TextLine，含整形后的字形位置）
+        // 是这里最贵的东西；长缓冲下"每一行都缓存一份"会把内存推到与显示字符数成正比。
+        // 真正要画/要命中的那几行才建（见 `EnsureLine`），窗口外的旧布局随手释放。
         line.Visuals.Add(new VisualLine
         {
-            Layout = visualLayout,
-            Line = visualLayout.TextLines[0],
-            Text = text,
             StartInLine = startInLine,
+            Length = length,
             Owner = line,
         });
     }
 
     private void RelayoutAll()
     {
+
         if (_layoutWidth <= 0)
         {
             return;
@@ -941,7 +1355,7 @@ public sealed class IncrementalTextView : TemplatedControl
 
         foreach (var line in _display)
         {
-            line.Visuals.Clear();
+            DisposeVisuals(line);
             LayoutLine(line, append: false);
         }
 
@@ -955,6 +1369,7 @@ public sealed class IncrementalTextView : TemplatedControl
         _visuals.Clear();
         var flat = 0;
         var top = 0.0;
+        var lineHeight = LineHeight;
 
         foreach (var line in _display)
         {
@@ -964,7 +1379,8 @@ public sealed class IncrementalTextView : TemplatedControl
             foreach (var visual in line.Visuals)
             {
                 visual.Top = top;
-                top += visual.Line.Height;
+                visual.Index = _visuals.Count;
+                top += lineHeight;
                 _visuals.Add(visual);
             }
         }
@@ -972,6 +1388,84 @@ public sealed class IncrementalTextView : TemplatedControl
         _contentHeight = top;
         _selectionStart = Math.Clamp(_selectionStart, 0, flat);
         _selectionEnd = Math.Clamp(_selectionEnd, 0, flat);
+    }
+
+    /// <summary>单行高度（同字体下恒定）：只量一次，用来给没有布局的视觉行定位。</summary>
+    private double LineHeight
+    {
+        get
+        {
+            if (_lineHeight > 0)
+            {
+                return _lineHeight;
+            }
+
+            if (_layoutWidth <= 0)
+            {
+                return FontSize * 1.4;
+            }
+
+            using var probe = CreateLayout("Ag", wrap: false);
+            _lineHeight = probe.TextLines.Count > 0 ? probe.TextLines[0].Height : FontSize * 1.4;
+            return _lineHeight;
+        }
+    }
+
+    /// <summary>取得（必要时创建）某个视觉行的布局。</summary>
+    private TextLine EnsureLine(VisualLine visual)
+    {
+        if (visual.Line is not null)
+        {
+            return visual.Line;
+        }
+
+        visual.Materialized ??= visual.Length == 0
+            ? string.Empty
+            : visual.Owner.Text.ToString(visual.StartInLine, visual.Length);
+
+        var layout = CreateLayout(visual.Materialized, wrap: false);
+        visual.Layout = layout;
+        visual.Line = layout.TextLines[0];
+        _laidOut.Add(visual);
+        return visual.Line;
+    }
+
+    /// <summary>释放某个视觉行的布局（区间保留，下次要画再建）。</summary>
+    private void ReleaseLayout(VisualLine visual)
+    {
+        if (visual.Layout is not IDisposable disposable)
+        {
+            visual.Layout = null;
+            visual.Line = null;
+            visual.Materialized = null;
+            return;
+        }
+
+        disposable.Dispose();
+        visual.Layout = null;
+        visual.Line = null;
+        visual.Materialized = null;
+        _ = _laidOut.Remove(visual);
+    }
+
+    /// <summary>释放全部视觉行当前持有的布局（文本切片保留，下次要画再建）。</summary>
+    private void ReleaseAllLayouts()
+    {
+        for (var index = _laidOut.Count - 1; index >= 0; index--)
+        {
+            ReleaseLayout(_laidOut[index]);
+        }
+    }
+
+    /// <summary>释放一条显示行下所有视觉行的布局。</summary>
+    private void DisposeVisuals(DisplayLine line)
+    {
+        foreach (var visual in line.Visuals)
+        {
+            ReleaseLayout(visual);
+        }
+
+        line.Visuals.Clear();
     }
 
     private TextLayout CreateLayout(string text, bool wrap)
@@ -999,19 +1493,20 @@ public sealed class IncrementalTextView : TemplatedControl
     private static void DrawSelection(
         DrawingContext context,
         VisualLine visual,
+        TextLine line,
         double x,
         double y,
         IBrush brush,
         int selStart,
         int selEnd)
     {
-        if (selEnd <= selStart || visual.Text.Length == 0)
+        if (selEnd <= selStart || visual.Length == 0)
         {
             return;
         }
 
         var flatStart = visual.Owner.FlatStart + visual.StartInLine;
-        var flatEnd = flatStart + visual.Text.Length;
+        var flatEnd = flatStart + visual.Length;
         var start = Math.Max(selStart, flatStart);
         var end = Math.Min(selEnd, flatEnd);
 
@@ -1025,7 +1520,7 @@ public sealed class IncrementalTextView : TemplatedControl
 
         try
         {
-            foreach (var bounds in visual.Line.GetTextBounds(localStart, localEnd - localStart))
+            foreach (var bounds in line.GetTextBounds(localStart, localEnd - localStart))
             {
                 var rect = bounds.Rectangle.Translate(new Vector(x, y));
                 context.FillRectangle(brush, rect);
@@ -1080,20 +1575,22 @@ public sealed class IncrementalTextView : TemplatedControl
 
         var contentWidth = Math.Max(0, Bounds.Width - Padding.Left - Padding.Right);
         var y = point.Y - Padding.Top;
+        var lineHeight = LineHeight;
 
         foreach (var visual in _visuals)
         {
             var top = visual.Top;
-            var bottom = top + visual.Line.Height;
+            var bottom = top + lineHeight;
 
             if (y < top || y > bottom)
             {
                 continue;
             }
 
-            var x = point.X - Padding.Left - AlignmentOffset(contentWidth, visual.Line.Width);
-            var hit = visual.Line.GetCharacterHitFromDistance(Math.Max(0, x));
-            var local = Math.Clamp(hit.FirstCharacterIndex, 0, visual.Text.Length);
+            var line = EnsureLine(visual);
+            var x = point.X - Padding.Left - AlignmentOffset(contentWidth, line.Width);
+            var hit = line.GetCharacterHitFromDistance(Math.Max(0, x));
+            var local = Math.Clamp(hit.FirstCharacterIndex, 0, visual.Length);
             return visual.Owner.FlatStart + visual.StartInLine + local;
         }
 
@@ -1134,7 +1631,7 @@ public sealed class IncrementalTextView : TemplatedControl
 
     private sealed class RawLine
     {
-        public string Text = string.Empty;
+        public StringBuilder Text = new();
 
         public int Index;
 
@@ -1143,7 +1640,7 @@ public sealed class IncrementalTextView : TemplatedControl
 
     private sealed class DisplayLine
     {
-        public string Text = string.Empty;
+        public StringBuilder Text = new();
 
         public bool RealBreak;
 
@@ -1160,13 +1657,23 @@ public sealed class IncrementalTextView : TemplatedControl
 
     private sealed class VisualLine
     {
-        public TextLayout Layout = null!;
+        /// <summary>布局（**懒建**：只有可见/命中用到的行才有；其余为 <see langword="null"/>）。</summary>
+        public TextLayout? Layout;
 
-        public TextLine Line = null!;
+        /// <summary>本行的排版结果（与 <see cref="Layout"/> 同生同灭）。</summary>
+        public TextLine? Line;
 
-        public string Text = string.Empty;
-
+        /// <summary>本行在显示行文本里的起点。</summary>
         public int StartInLine;
+
+        /// <summary>本行的字符数（区间长度）。</summary>
+        public int Length;
+
+        /// <summary>可见窗口内才物化的字符串（与布局同生命周期；滚出即释放）。</summary>
+        public string? Materialized;
+
+        /// <summary>在 `_visuals` 里的下标（每次 `RecomputeLayout` 重写；释放窗口外布局时用）。</summary>
+        public int Index;
 
         public double Top;
 

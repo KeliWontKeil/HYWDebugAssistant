@@ -261,6 +261,31 @@ public class CoreRuntimeTests
     }
 
     [Fact]
+    public void 实例视图_未变化时应复用同一份快照_状态切换后应失效()
+    {
+        using var runtime = new ModuleRuntime();
+        AddModule(runtime, "s1", "sender", typeof(SenderModule));
+        AddModule(runtime, "r1", "receiver", typeof(ReceiverModule));
+
+        var services = new RuntimeServices(runtime);
+
+        var first = services.GetInstances();
+        var again = services.GetInstances();
+
+        ReferenceEquals(first, again).ShouldBeTrue(
+            "现场没有修订变化 ⇒ 每帧不该为了发现“没变”而把实例、端口与字符串全部重造一遍");
+
+        services.GetNetworks().ShouldBeSameAs(services.GetNetworks(), "网络视图同理");
+        services.GetLayout().ShouldBeSameAs(services.GetLayout(), "布局视图同理");
+
+        runtime.Apply(ChangeSet.OfOne(new SetModuleEnabledOperation("r1", false))).Applied.ShouldBeTrue();
+
+        var disabled = services.GetInstances();
+        ReferenceEquals(first, disabled).ShouldBeFalse("状态切换必须让实例视图作废");
+        disabled.Single(view => view.InstanceId == "r1").State.ShouldBe(ModuleInstanceState.Disabled.ToString());
+    }
+
+    [Fact]
     public void 禁用_应暂停数据流并保留拓扑_启用后恢复()
     {
         using var runtime = new ModuleRuntime();

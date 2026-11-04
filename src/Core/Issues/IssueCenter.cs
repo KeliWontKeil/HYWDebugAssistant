@@ -27,9 +27,21 @@ public readonly record struct IssueEntry(long Sequence, string ObjectPath, Issue
 /// </remarks>
 public sealed class IssueCenter : IIssueSink
 {
+    /// <summary>
+    /// 条目上限：超出后丢最旧的一条（并同步扣减分档计数）。
+    /// </summary>
+    /// <remarks>
+    /// 常规运行远到不了这个量级；它是"某条通路意外地按数据频率报问题"时的止损线 ——
+    /// 没有上限时，既占内存，又让每拍的全量汇总与列表重建越来越慢。
+    /// </remarks>
+    private const int MaxEntries = 4096;
+
     private readonly object _gate = new();
     private readonly List<IssueEntry> _entries = [];
     private long _sequence;
+    private int _error;
+    private int _warning;
+    private int _info;
 
     /// <summary>当前条目数（已删除/已清空的不计）。</summary>
     public int Count
@@ -55,6 +67,20 @@ public sealed class IssueCenter : IIssueSink
                 objectPath ?? string.Empty,
                 issue,
                 DateTimeOffset.UtcNow));
+
+            CountLocked(issue.Severity, +1);
+
+            if (_entries.Count > MaxEntries)
+            {
+                var excess = _entries.Count - MaxEntries;
+
+                for (var index = 0; index < excess; index++)
+                {
+                    CountLocked(_entries[index].Issue.Severity, -1);
+                }
+
+                _entries.RemoveRange(0, excess);
+            }
         }
     }
 
@@ -87,31 +113,12 @@ public sealed class IssueCenter : IIssueSink
     }
 
     /// <summary>全量汇总（总数 + 按严重度计数）。</summary>
+    /// <remarks>分档计数随上报 / 删除 / 清空增量维护 ⇒ 汇总不再每拍全表扫描。</remarks>
     public IssueSummaryView Summary()
     {
         lock (_gate)
         {
-            var error = 0;
-            var warning = 0;
-            var info = 0;
-
-            foreach (var entry in _entries)
-            {
-                switch (entry.Issue.Severity)
-                {
-                    case IssueSeverity.Error:
-                        error++;
-                        break;
-                    case IssueSeverity.Warning:
-                        warning++;
-                        break;
-                    default:
-                        info++;
-                        break;
-                }
-            }
-
-            return new IssueSummaryView(_entries.Count, error, warning, info);
+            return new IssueSummaryView(_entries.Count, _error, _warning, _info);
         }
     }
 
@@ -131,7 +138,21 @@ public sealed class IssueCenter : IIssueSink
 
         lock (_gate)
         {
-            return _entries.RemoveAll(entry => targets.Contains(entry.Sequence));
+            var removed = 0;
+
+            _ = _entries.RemoveAll(entry =>
+            {
+                if (!targets.Contains(entry.Sequence))
+                {
+                    return false;
+                }
+
+                CountLocked(entry.Issue.Severity, -1);
+                removed++;
+                return true;
+            });
+
+            return removed;
         }
     }
 
@@ -141,6 +162,28 @@ public sealed class IssueCenter : IIssueSink
         lock (_gate)
         {
             _entries.Clear();
+            _error = 0;
+            _warning = 0;
+            _info = 0;
+        }
+    }
+
+    /// <summary>维护分档计数（**调用方必须持有 <see cref="_gate"/>**，与条目表同拍落地）。</summary>
+    private void CountLocked(IssueSeverity severity, int delta)
+    {
+        switch (severity)
+        {
+            case IssueSeverity.Error:
+                _error += delta;
+                break;
+
+            case IssueSeverity.Warning:
+                _warning += delta;
+                break;
+
+            default:
+                _info += delta;
+                break;
         }
     }
 }

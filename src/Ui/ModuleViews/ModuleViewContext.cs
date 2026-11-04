@@ -33,6 +33,7 @@ internal sealed class ModuleViewContext : IModuleViewContext
     private readonly IViewStateAccess? _viewState;
     private readonly Func<string>? _multilineSubmitKey;
     private readonly SurfaceSourceReader _reader;
+    private readonly Dictionary<string, ViewAppearance> _appearances = new(StringComparer.Ordinal);
 
     /// <summary>造一个视图上下文。</summary>
     /// <param name="instanceId">实例 ID。</param>
@@ -65,8 +66,16 @@ internal sealed class ModuleViewContext : IModuleViewContext
     /// <inheritdoc />
     public string MultilineSubmitKey => _multilineSubmitKey?.Invoke() ?? "CtrlEnter";
 
-    /// <summary>每帧开头刷新一次数据源快照（数据源视图对象是每帧重建的，不能跨帧持有）。</summary>
-    internal void BeginFrame() => _reader.RefreshSources();
+    /// <summary>
+    /// 每帧开头刷新一次数据源快照（数据源视图对象是每帧重建的，不能跨帧持有），
+    /// 并把本实例的**外观**取一次（元素逐个查表，而不是逐个元素各取一次全量快照）。
+    /// </summary>
+    /// <param name="sources">本帧的订阅源快照（由窗口集统一取一次；<see langword="null"/> = 自己取）。</param>
+    internal void BeginFrame(IReadOnlyCollection<SubscriptionSourceView>? sources = null)
+    {
+        _reader.RefreshSources(sources);
+        BuildAppearances();
+    }
 
     /// <inheritdoc />
     public double? ReadLatest(string source) => _reader.ReadLatest(InstanceId, source);
@@ -74,12 +83,51 @@ internal sealed class ModuleViewContext : IModuleViewContext
     /// <inheritdoc />
     public IReadOnlyList<double> ReadSeries(string source) => _reader.ReadSeries(InstanceId, source);
 
+    /// <summary>把外观快照转成按源名的查表（每帧一次）。</summary>
+    private void BuildAppearances()
+    {
+        _appearances.Clear();
+
+        foreach (var appearance in _query.GetAppearance(InstanceId))
+        {
+            if (appearance.SourceName is not { Length: > 0 } source)
+            {
+                continue;
+            }
+
+            // **角色词 → token 的解析只在宿主这一处**：控件库只认 token，不维护第二张映射表。
+            _ = HYWDebugAssistant.Ui.Theming.PaletteManifest.TryRoleKey(appearance.OutlineRole, out var outlineToken);
+            _ = HYWDebugAssistant.Ui.Theming.PaletteManifest.TryRoleKey(appearance.TextRole, out var textToken);
+
+            _appearances[source] = new ViewAppearance
+            {
+                Outline = appearance.Outline,
+                OutlineToken = outlineToken.Length > 0 ? outlineToken : null,
+                Text = appearance.Text,
+                TextToken = textToken.Length > 0 ? textToken : null,
+                TextSize = appearance.TextSize,
+                ReadOnly = appearance.ReadOnly,
+                Enabled = appearance.Enabled,
+            };
+        }
+    }
+
     /// <inheritdoc />
     public TextBufferSnapshot ReadText(string source)
     {
         var buffer = _reader.ReadBuffer(InstanceId, source);
 
         return new TextBufferSnapshot(buffer.Lines, buffer.Dropped, buffer.Capacity, buffer.Sequence, buffer.Revision);
+    }
+
+    /// <inheritdoc />
+    public DisplayDelta ReadTextDelta(string source, in DisplayCursor cursor, List<string> sealedLines)
+    {
+        ArgumentNullException.ThrowIfNull(sealedLines);
+
+        return source.Length == 0
+            ? DisplayDelta.ResetRequired(cursor, 0, 0)
+            : _reader.ReadDelta(InstanceId, source, cursor, sealedLines);
     }
 
     /// <inheritdoc />
@@ -161,30 +209,7 @@ internal sealed class ModuleViewContext : IModuleViewContext
             return ViewAppearance.None;
         }
 
-        foreach (var appearance in _query.GetAppearance(InstanceId))
-        {
-            if (!string.Equals(appearance.SourceName, source, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            // **角色词 → token 的解析只在宿主这一处**：控件库只认 token，不维护第二张映射表。
-            _ = HYWDebugAssistant.Ui.Theming.PaletteManifest.TryRoleKey(appearance.OutlineRole, out var outlineToken);
-            _ = HYWDebugAssistant.Ui.Theming.PaletteManifest.TryRoleKey(appearance.TextRole, out var textToken);
-
-            return new ViewAppearance
-            {
-                Outline = appearance.Outline,
-                OutlineToken = outlineToken.Length > 0 ? outlineToken : null,
-                Text = appearance.Text,
-                TextToken = textToken.Length > 0 ? textToken : null,
-                TextSize = appearance.TextSize,
-                ReadOnly = appearance.ReadOnly,
-                Enabled = appearance.Enabled,
-            };
-        }
-
-        return ViewAppearance.None;
+        return _appearances.TryGetValue(source, out var appearance) ? appearance : ViewAppearance.None;
     }
 
     /// <inheritdoc />

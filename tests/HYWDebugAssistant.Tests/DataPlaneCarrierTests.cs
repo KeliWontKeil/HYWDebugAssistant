@@ -699,6 +699,151 @@ public class DataPlaneCarrierTests
         }
     }
 
+    // ------------------------------------------------------------ 唤醒机制
+
+    [Fact]
+    public void 空闲承载_不应按固定节拍轮询()
+    {
+        // 兜底间隔远大于观察窗口：这段时间内没有任何数据 / 命令 / 会话事件，
+        // 投递循环就不该“到点醒来看看”。这正是空闲实例 CPU 的主要来源。
+        using var host = new CarrierHost(options: new CarrierOptions
+        {
+            WatchdogInterval = TimeSpan.FromSeconds(30),
+        });
+
+        var target = new TestTarget("idle");
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+
+        try
+        {
+            Thread.Sleep(400);
+            carrier!.Wakeups.ShouldBe(0, "没有事件时不应醒来；退回定时轮询会让每个空闲实例持续烧 CPU");
+        }
+        finally
+        {
+            host.TryDeactivate("idle", out _);
+        }
+    }
+
+    [Fact]
+    public void 入队应立即唤醒消费者_不等兜底间隔()
+    {
+        using var host = new CarrierHost(options: new CarrierOptions
+        {
+            WatchdogInterval = TimeSpan.FromSeconds(30),
+        });
+
+        var target = new TestTarget("wake");
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+
+        try
+        {
+            Thread.Sleep(100);   // 让投递循环进入“完全没活干”的等待
+
+            var watch = Stopwatch.StartNew();
+            carrier!.TryEnqueue("in", BuildUnit(host.Buffers, 1, 1f)).ShouldBe(CarrierEnqueueResult.Accepted);
+            target.WaitForFirstDelivery(TimeSpan.FromSeconds(2)).ShouldBeTrue("入队必须唤醒投递循环");
+            watch.Stop();
+
+            watch.Elapsed.ShouldBeLessThan(
+                TimeSpan.FromMilliseconds(200),
+                "唤醒延迟必须远小于兜底间隔：数据面不允许被节拍化");
+        }
+        finally
+        {
+            host.TryDeactivate("wake", out _);
+        }
+    }
+
+    [Fact]
+    public void 辅助工作信号_应唤醒阻塞中的承载者()
+    {
+        using var host = new CarrierHost(options: new CarrierOptions
+        {
+            WatchdogInterval = TimeSpan.FromSeconds(30),
+        });
+
+        var target = new TestTarget("aux") { HasAuxiliaryWork = true };
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+
+        try
+        {
+            Thread.Sleep(100);
+            var before = target.PumpCount;
+
+            carrier!.SignalWork();
+
+            WaitUntil(() => target.PumpCount > before, TimeSpan.FromSeconds(2))
+                .ShouldBeTrue("命令 / 输入 / 会话就绪走同一个信号，必须能叫醒等待中的循环");
+        }
+        finally
+        {
+            host.TryDeactivate("aux", out _);
+        }
+    }
+
+    [Fact]
+    public void 连续入队_不应丢掉任何一次唤醒()
+    {
+        using var host = new CarrierHost(options: new CarrierOptions
+        {
+            QueueCapacity = 4096,
+            WatchdogInterval = TimeSpan.FromSeconds(30),
+        });
+
+        var target = new TestTarget("burst");
+        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
+
+        try
+        {
+            const int count = 2000;
+
+            for (var i = 0; i < count; i++)
+            {
+                carrier!.TryEnqueue("in", BuildUnit(host.Buffers, (ulong)i, i))
+                    .ShouldBe(CarrierEnqueueResult.Accepted);
+            }
+
+            WaitUntil(() => target.DeliveredCount == count, TimeSpan.FromSeconds(5))
+                .ShouldBeTrue($"入队必须全部送达（实际 {target.DeliveredCount}/{count}）：合并信号不得丢唤醒");
+
+            target.Received.Count.ShouldBe(count);
+        }
+        finally
+        {
+            host.TryDeactivate("burst", out _);
+        }
+    }
+
+    [Fact]
+    public void 停止全部_总等待应是单项最大值而不是实例数之和()
+    {
+        using var host = new CarrierHost(options: new CarrierOptions
+        {
+            StopTimeout = TimeSpan.FromMilliseconds(600),
+        });
+
+        var stuck = new TestTarget("stuck")
+        {
+            HasActivity = true,
+            ActivityBody = _ => Thread.Sleep(TimeSpan.FromSeconds(30)),   // 故意不响应停止
+        };
+
+        host.TryActivate(stuck, out _, out _).ShouldBeTrue();
+        host.TryActivate(new TestTarget("h1"), out _, out _).ShouldBeTrue();
+        host.TryActivate(new TestTarget("h2"), out _, out _).ShouldBeTrue();
+
+        var watch = Stopwatch.StartNew();
+        var orphans = host.StopAll();
+        watch.Stop();
+
+        orphans.Count.ShouldBe(1);
+        orphans[0].ShouldBe("stuck");
+        watch.Elapsed.ShouldBeLessThan(
+            TimeSpan.FromMilliseconds(1800),
+            "一个卡死 + 两个正常时，总等待应≈单项超时，而不是逐实例串行等待");
+    }
+
     // ------------------------------------------------------------ 测试辅助
 
     private static ulong ReadSeq(InboundBuffer queue)

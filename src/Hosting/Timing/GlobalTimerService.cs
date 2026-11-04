@@ -47,6 +47,17 @@ internal sealed class GlobalTimerService : IDisposable
     public TimeSpan Now =>
         TimeSpan.FromSeconds((Stopwatch.GetTimestamp() - _start) / (double)Stopwatch.Frequency);
 
+    /// <summary>
+    /// 当前线程的**可复用等待信号**。
+    /// </summary>
+    /// <remarks>
+    /// 每次等待都新建 <see cref="ManualResetEventSlim"/> 会在"真的阻塞"时创建一个内核事件；
+    /// 1 ms 周期的模块每秒上千次，句柄与终结器压力会持续累积。等待是同步的（同一线程一次只有一个），
+    /// 因此按线程复用一个信号即可；它只承载"该醒了"，偶发的迟到 Set 只会让下一轮提前醒一次（无害）。
+    /// </remarks>
+    [ThreadStatic]
+    private static ManualResetEventSlim? t_signal;
+
     /// <summary>等待到单调截止时刻。</summary>
     /// <param name="deadline">截止时刻。</param>
     /// <param name="cancellation">停止取消令牌。</param>
@@ -64,7 +75,10 @@ internal sealed class GlobalTimerService : IDisposable
             return false;
         }
 
-        var waiter = new Waiter(deadlineTicks);
+        var signal = t_signal ??= new ManualResetEventSlim(initialState: false);
+        signal.Reset();
+
+        var waiter = new Waiter(deadlineTicks, signal);
         using var registration = cancellation.Register(waiter.Cancel);
         lock (_gate)
         {
@@ -72,7 +86,7 @@ internal sealed class GlobalTimerService : IDisposable
         }
 
         _wake.Set();
-        waiter.Event.Wait(CancellationToken.None);
+        signal.Wait(CancellationToken.None);
 
         return waiter.IsCancelled || cancellation.IsCancellationRequested;
     }
@@ -158,7 +172,7 @@ internal sealed class GlobalTimerService : IDisposable
                 _ = _queue.Dequeue();
                 if (!waiter.IsCancelled)
                 {
-                    waiter.Event.Set();
+                    waiter.Signal.Set();
                 }
             }
         }
@@ -176,18 +190,22 @@ internal sealed class GlobalTimerService : IDisposable
     {
         private int _cancelled;
 
-        public Waiter(long deadline) => Deadline = deadline;
+        public Waiter(long deadline, ManualResetEventSlim signal)
+        {
+            Deadline = deadline;
+            Signal = signal;
+        }
 
         public long Deadline { get; }
 
-        public ManualResetEventSlim Event { get; } = new(false);
+        public ManualResetEventSlim Signal { get; }
 
         public bool IsCancelled => Volatile.Read(ref _cancelled) != 0;
 
         public void Cancel()
         {
             _ = Interlocked.Exchange(ref _cancelled, 1);
-            Event.Set();
+            Signal.Set();
         }
     }
 }

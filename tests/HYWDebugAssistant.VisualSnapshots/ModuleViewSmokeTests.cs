@@ -962,9 +962,12 @@ public class ModuleViewSmokeTests
     }
 
     /// <summary>
-    /// **增量性判据**：已有 1000 行时追加 1 行，只允许为新增行建布局，不得重排旧行。
+    /// **增量性判据**：已有 1000 行时追加 1 行，不得把"可见窗口之外"的行也建上布局。
     /// </summary>
-    /// <remarks>用 `LayoutBuildCount` 这个可计数的内部量，不做时序敏感的性能断言。</remarks>
+    /// <remarks>
+    /// 布局是懒建的（只有要画/要命中的行才有），因此判据是**同时存在的布局数**而不是"建过多少次"：
+    /// 后者会把渲染窗口里正常新建的行也数进去。
+    /// </remarks>
     [Fact]
     public async Task 显示面_追加只布局新增行()
     {
@@ -994,29 +997,24 @@ public class ModuleViewSmokeTests
 
                 var view = log.GetVisualDescendants().OfType<IncrementalTextView>().ShouldHaveSingleItem();
                 view.VisualLineCount.ShouldBeGreaterThan(1000, "1000 行应产生至少 1000 个视觉行");
-                var before = view.LayoutBuildCount;
+                view.LiveLayoutCount.ShouldBeLessThan(200, "只有可见窗口附近的行才该持有布局");
 
                 lines.Add("1000 appended line");
                 context.TextLines = lines;
                 host.Refresh();
                 Pump();
 
-                (view.LayoutBuildCount - before).ShouldBeLessThanOrEqualTo(
-                    3,
-                    "追加一行只允许为新增行建布局，不能重排已有 1000 行");
+                view.LiveLayoutCount.ShouldBeLessThan(200, "追加一行不得把 1000 行全部重建布局");
                 view.Text.ShouldContain("1000 appended line");
 
                 // 容量到顶的“删头 + 追尾”不能退回全文重建。
-                var beforeRoll = view.LayoutBuildCount;
                 lines.RemoveAt(0);
                 lines.Add("rolled line");
                 context.TextLines = lines;
                 host.Refresh();
                 Pump();
 
-                (view.LayoutBuildCount - beforeRoll).ShouldBeLessThanOrEqualTo(
-                    3,
-                    "删头+追尾只允许为新增行建布局，不能重排其余 1000 行");
+                view.LiveLayoutCount.ShouldBeLessThan(200, "删头+追尾只允许动到可见窗口附近的行");
                 view.Text.ShouldNotContain("000000");
                 view.Text.ShouldContain("rolled line");
 

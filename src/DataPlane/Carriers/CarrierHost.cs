@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using HYWDebugAssistant.DataPlane.Buffers;
 
 namespace HYWDebugAssistant.DataPlane.Carriers;
@@ -117,18 +118,47 @@ public sealed class CarrierHost : IDisposable
     public bool TryGet(string instanceId, out ModuleCarrier? carrier) =>
         _carriers.TryGetValue(instanceId, out carrier) && carrier is not null;
 
-    /// <summary>停止全部承载（应用退出时调用）。</summary>
+    /// <summary>
+    /// 停止全部承载（应用退出时调用）：**先全部叫停，再在一个共享总时限里逐个等**。
+    /// </summary>
     /// <returns>超时（成为孤儿）的实例 ID 列表，供调用方转 Issue。</returns>
+    /// <remarks>
+    /// 逐个 <c>Stop</c> 会让总等待变成"实例数 × 单项超时"——界面在退出时被拖住的时间与实例数成正比。
+    /// 两阶段后总等待只取决于最慢的那一个（且不超过总时限），线程数与停止语义不变。
+    /// </remarks>
     public IReadOnlyList<string> StopAll()
     {
+        var entries = _carriers.ToArray();
         var orphans = new List<string>();
 
-        foreach (var instanceId in _carriers.Keys.ToArray())
+        foreach (var entry in entries)
         {
-            if (TryDeactivate(instanceId, out var result) && result == CarrierStopResult.TimedOut)
+            entry.Value?.BeginStop();
+        }
+
+        var deadline = Stopwatch.GetTimestamp()
+            + (long)(Options.StopTimeout.TotalSeconds * Stopwatch.Frequency);
+
+        foreach (var entry in entries)
+        {
+            if (entry.Value is not { } carrier)
             {
-                orphans.Add(instanceId);
+                _ = _carriers.TryRemove(entry.Key, out _);
+                continue;
             }
+
+            var remainingTicks = deadline - Stopwatch.GetTimestamp();
+            var remaining = remainingTicks > 0
+                ? TimeSpan.FromSeconds(remainingTicks / (double)Stopwatch.Frequency)
+                : TimeSpan.Zero;
+
+            if (carrier.CompleteStop(remaining) == CarrierStopResult.TimedOut)
+            {
+                orphans.Add(entry.Key);
+            }
+
+            _ = _carriers.TryRemove(entry.Key, out _);
+            carrier.Dispose();
         }
 
         return orphans;

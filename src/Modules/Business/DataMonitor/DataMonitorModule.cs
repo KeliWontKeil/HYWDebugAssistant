@@ -89,6 +89,15 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     public const string StatusSource = "status";
 
     /// <summary>
+    /// 显示源：**缓冲已满**提示（空串 = 没满过）。
+    /// </summary>
+    /// <remarks>
+    /// 它由模块按缓冲状态写入，界面上一块**固定高度**的 `label` 吃它 ——
+    /// 提示不改变文本区的高度，也不会压在正文上。
+    /// </remarks>
+    public const string BufferFullSource = "bufferFull";
+
+    /// <summary>
     /// 模块自己挑的**提示角色**（**相对色**）—— 框架只提供"设边框色"这个能力，不认识"红 = 失败"。
     /// </summary>
     /// <remarks>
@@ -176,6 +185,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(TimestampSource, ViewDataSourceKind.Value, ContractPrimitive.Bool));
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(SavePathSource, ViewDataSourceKind.Text));
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(StatusSource, ViewDataSourceKind.Text));
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(BufferFullSource, ViewDataSourceKind.Text));
 
         // 四个显示开关是用户偏好，恢复；保存路径是一次动作的结果，不恢复。
         foreach (var source in new[] { PausedSource, HexViewSource, LineBreakSource, TimestampSource })
@@ -210,13 +220,15 @@ public sealed class DataMonitorModule : IModule, IActivitySource
             PumpOnce(context);
 
             // ② 接收：**主动取**（本模块有活动体 ⇒ 主动接收模式）；**暂停时收下即弃**（不缓存）
+            _tickBuilder.Clear();
+
             while (context.Ports.TryReceive(out var buffer, out _))
             {
                 try
                 {
                     if (!_paused)
                     {
-                        _ = HandlePacket(context, buffer.Span);
+                        _ = ConsumePacket(context, buffer.Span, _tickBuilder);
                     }
 
                     // 暂停：什么都不做 —— 但**必须继续排空**（否则队列积压到满）
@@ -225,6 +237,13 @@ public sealed class DataMonitorModule : IModule, IActivitySource
                 {
                     context.Ports.ReleaseBuffer(buffer);
                 }
+            }
+
+            // **"不换行"的包按 tick 合并成一次追加**（每包一次追加会让缓冲/视图按包数做复制）。
+            if (_tickBuilder.Length > 0)
+            {
+                context.Display.AppendText(LogSource, _tickBuilder.ToString());
+                _tickBuilder.Clear();
             }
 
             // 空闲断行在这里没有位置：它只是「按字节流填 96 字节定宽行」的补充（不这么办，短包在 OFF 模式下
@@ -239,7 +258,14 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     private bool _lineBreakPerPacket;
     private bool _hexView;
     private bool _timestamp;
+    private bool _bufferFull;
     private string? _savePath;
+
+    /// <summary>单包渲染的复用缓冲（活动体线程独占）。</summary>
+    private readonly StringBuilder _lineBuilder = new();
+
+    /// <summary>本 tick 内所有"不换行"包合并后的缓冲（活动体线程独占）。</summary>
+    private readonly StringBuilder _tickBuilder = new();
 
     /// <summary>从持久化视图状态恢复四个显示开关（加载时先恢复 ViewState，再激活）。</summary>
     /// <param name="context">模块上下文。</param>
@@ -394,6 +420,15 @@ public sealed class DataMonitorModule : IModule, IActivitySource
                 continue;
             }
         }
+
+        // **缓冲满过 ⇒ 在自己那块固定高度的 label 上提示**（只回答"有没有丢过"，不计数）：
+        // 它写在模块自己的显示源里，长在文本框下面，绝不改变文本区布局。
+        var full = context.Display.IsFull(LogSource);
+        if (full != _bufferFull)
+        {
+            _bufferFull = full;
+            context.Display.SetText(BufferFullSource, full ? Tr(DataMonitorText.BufferFull) : string.Empty);
+        }
     }
 
     /// <summary>
@@ -412,6 +447,27 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        _tickBuilder.Clear();
+        var appended = ConsumePacket(context, payload, _tickBuilder);
+
+        if (_tickBuilder.Length > 0)
+        {
+            context.Display.AppendText(LogSource, _tickBuilder.ToString());
+            _tickBuilder.Clear();
+        }
+
+        return appended;
+    }
+
+    /// <summary>
+    /// **消费一个包**：切片 → 渲染 → 落地（换行包直接追加一行；不换行包并入本 tick 的合并缓冲）。
+    /// </summary>
+    /// <param name="context">模块上下文。</param>
+    /// <param name="payload">到达的定长载荷。</param>
+    /// <param name="batch">本 tick 的合并缓冲（只有"不换行"路径会写它）。</param>
+    /// <returns>实际产出内容的条数（0 或 1）。</returns>
+    private int ConsumePacket(IModuleContext context, ReadOnlySpan<byte> payload, StringBuilder batch)
+    {
         if (_paused)
         {
             return 0;   // 暂停 = 收下即弃（调用方仍会排空队列）
@@ -431,15 +487,17 @@ public sealed class DataMonitorModule : IModule, IActivitySource
         }
 
         var formatter = new MonitorLineFormatter(CurrentFormat());
-        var text = formatter.Render(content, DateTimeOffset.Now);
+        formatter.Render(content, DateTimeOffset.Now, _lineBuilder);
 
         if (formatter.BreakAfterPacket)
         {
-            context.Display.AppendLine(LogSource, text);
+            context.Display.AppendLine(LogSource, _lineBuilder.ToString());
         }
         else
         {
-            context.Display.AppendText(LogSource, text);
+            // **同一 tick 的"不换行"包合成一次追加**：每包一次 `AppendText` 会让显示缓冲每包
+            // 复制一份后缀、每包一个 `DisplayAppend`；合成之后这些次数按 tick 而不是按包增长。
+            _ = batch.Append(_lineBuilder);
         }
 
         return 1;

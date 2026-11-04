@@ -6,6 +6,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
@@ -48,7 +49,6 @@ public sealed class ModuleTextSurface : ModuleElement
     private Border? _focusRing;
     private Border? _errorRing;
     private NewlineMarkOverlay? _marks;
-    private TextBlock? _dropped;
     private IModuleViewContext? _context;
     private ViewAppearance _appearance = ViewAppearance.None;
     private TextSurfaceMode _mode = TextSurfaceMode.Input;
@@ -62,6 +62,8 @@ public sealed class ModuleTextSurface : ModuleElement
     private string _textValue = string.Empty;
     private string _unmarkedKey = string.Empty;
     private long _displayRevision = -1;
+    private DisplayCursor _cursor;
+    private readonly List<string> _sealedScratch = [];
     private bool _appearanceApplied;
     private TextAlignment _textAlignment = TextAlignment.Left;
     private double _minEditorHeight;
@@ -192,11 +194,13 @@ public sealed class ModuleTextSurface : ModuleElement
         _focusRing = e.NameScope.Find<Border>("PART_FocusRing");
         _errorRing = e.NameScope.Find<Border>("PART_ErrorRing");
         _marks = e.NameScope.Find<NewlineMarkOverlay>("PART_Marks");
-        _dropped = e.NameScope.Find<TextBlock>("PART_Dropped");
-
         HookInput();
 
         _displayRevision = -1;
+
+        // 模板重建 ⇒ 只读叶子是新的（里面没有内容）：游标必须退回起点，
+        // 否则增量会"从内容末尾之后开始读"，新叶子永远是空的。
+        _cursor = DisplayCursor.Empty;
         _appearanceApplied = false;
         ApplyPresentation();
         ApplyAppearance(_appearance);
@@ -326,6 +330,9 @@ public sealed class ModuleTextSurface : ModuleElement
         _input.IsReadOnly = effectiveReadOnly;
         _input.Focusable = !declaredReadOnly;
         _input.IsTabStop = !declaredReadOnly;
+
+        // 只读面没有"改"这回事 ⇒ 不需要撤销栈（它按整段文本记状态，长的只读文本没有必要为它留内存）。
+        _input.IsUndoEnabled = !effectiveReadOnly;
 
         if (declaredReadOnly)
         {
@@ -534,35 +541,64 @@ public sealed class ModuleTextSurface : ModuleElement
 
     private void RefreshDisplay(IModuleViewContext context)
     {
-        var snapshot = context.ReadText(Source);
-
-        // **同一个变更号 ⇒ 内容没变**：不复制行、不拼全文、不比较、不触发重排。
-        // 显示刷新仍按全局节拍来（每帧都读一次号），只是没新内容时零工作。
-        if (snapshot.Revision == _displayRevision || _readText is null)
+        if (_readText is null)
         {
             return;
         }
 
-        _displayRevision = snapshot.Revision;
+        // **增量路径**：只取游标之后新增的已封口行与当前行的后缀，
+        // 不复制行表、不拼全文 —— 长缓冲下每帧的代价与"这一拍来了多少数据"成正比。
+        var delta = context.ReadTextDelta(Source, _cursor, _sealedScratch);
+        _cursor = delta.Cursor;
+
+        if (delta.Reset)
+        {
+            // 游标失效（清空 / 替换 / 游标跑到缓冲之前）⇒ 用全量快照重建。
+            var snapshot = context.ReadText(Source);
+            if (snapshot.Revision == _displayRevision)
+            {
+                return;
+            }
+
+            _displayRevision = snapshot.Revision;
+            ApplyDisplayPreferences();
+            _ = _readText.ApplySnapshot(snapshot.Lines, snapshot.Revision);
+            _readText.SetDeltaCursor(delta.Cursor);
+            return;
+        }
+
+        // **同一个变更号 ⇒ 内容没变**：不读行、不重排。
+        if (delta.Revision == _displayRevision)
+        {
+            return;
+        }
+
+        _displayRevision = delta.Revision;
+        ApplyDisplayPreferences();
+
+        if (!_readText.ApplyDelta(delta, _sealedScratch))
+        {
+            var snapshot = context.ReadText(Source);
+            _displayRevision = snapshot.Revision;
+            _ = _readText.ApplySnapshot(snapshot.Lines, snapshot.Revision);
+            _readText.SetDeltaCursor(delta.Cursor);
+            return;
+        }
+    }
+
+    /// <summary>把"是否画 ↵ / 是否跟随尾部 / 对齐"下发到只读叶子（同值写入无副作用）。</summary>
+    private void ApplyDisplayPreferences()
+    {
+        if (_readText is null)
+        {
+            return;
+        }
+
         _readText.ShowNewlineMarks = _showNewlineMarks;
         _readText.AutoScroll = _followTail;
         _readText.TextAlignment = _textAlignment;
-        _ = _readText.ApplySnapshot(snapshot.Lines, snapshot.Revision);
-
-        var dropped = snapshot.Dropped > 0
-            ? TextCatalog.Get(
-                typeof(ModuleTextSurface).Assembly,
-                "moduleTextSurface.dropped",
-                snapshot.Dropped,
-                snapshot.Capacity)
-            : string.Empty;
-
-        if (_dropped is not null && !string.Equals(_dropped.Text, dropped, StringComparison.Ordinal))
-        {
-            _dropped.Text = dropped;
-            _dropped.IsVisible = dropped.Length > 0;
-        }
     }
+
 
     private void ApplyMultiline()
     {

@@ -486,6 +486,14 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(view);
 
+        // 视图对象由查询面按修订号缓存：引用没变 ⇒ 这份现场快照一个字都没变，整段同步都可以跳过。
+        if (ReferenceEquals(_lastAppliedView, view))
+        {
+            return;
+        }
+
+        _lastAppliedView = view;
+
         Title = view.DisplayName;
         IsPlaceholder = view.IsPlaceholder;
         ApplyState(view.State);
@@ -503,6 +511,9 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(IsPlaceholder));
     }
+
+    /// <summary>上一份已同步的实例视图（引用比较用；查询面保证"没变化 ⇒ 同一个对象"）。</summary>
+    private ModuleInstanceView? _lastAppliedView;
 
     /// <summary>接受外部几何（来自布局数据；拖动/缩放中不调用）。四数一律 **DIP**。</summary>
     public void ApplyLayout(ModuleLayoutView layout)
@@ -640,12 +651,13 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     public ModuleViewHost? ModuleView => _view;
 
     /// <summary>驱动一次模块视图刷新（没有自带视图 ⇒ 什么都不做）。</summary>
-    public void RefreshView()
+    /// <param name="sources">本帧的订阅源快照（窗口集统一取一次；<see langword="null"/> = 每个视图自己取）。</param>
+    public void RefreshView(IReadOnlyCollection<SubscriptionSourceView>? sources = null)
     {
         if (_view is { } view)
         {
             // 每帧先刷新数据源快照，再让视图读它（数据源视图对象是每帧重建的）。
-            _viewContext?.BeginFrame();
+            _viewContext?.BeginFrame(sources);
             view.Refresh();
         }
     }
@@ -660,7 +672,8 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     };
 
     /// <summary>驱动一次表面刷新（取数 + 就地更新）。框架每帧调一次。</summary>
-    public void RefreshSurface() => RefreshView();
+    /// <param name="sources">本帧的订阅源快照。</param>
+    public void RefreshSurface(IReadOnlyCollection<SubscriptionSourceView>? sources = null) => RefreshView(sources);
 
 
     /// <summary>

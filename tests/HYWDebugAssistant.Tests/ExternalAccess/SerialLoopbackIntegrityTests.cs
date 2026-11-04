@@ -119,7 +119,7 @@ public sealed class SerialLoopbackIntegrityTests
             {
                 QueueCapacity = 64,
                 StopTimeout = TimeSpan.FromSeconds(2),
-                IdleWait = TimeSpan.FromMilliseconds(1),
+                WatchdogInterval = TimeSpan.FromMilliseconds(20),
             },
             viewState: viewState,
             catalog: catalog);
@@ -212,7 +212,7 @@ public sealed class SerialLoopbackIntegrityTests
                 QueueCapacity = 16,
                 SendBacklogBytes = 24 * 1024,
                 StopTimeout = TimeSpan.FromSeconds(2),
-                IdleWait = TimeSpan.FromMilliseconds(1),
+                WatchdogInterval = TimeSpan.FromMilliseconds(20),
             },
             viewState: viewState,
             catalog: catalog);

@@ -28,6 +28,9 @@ public sealed class ExternalAccessSession : IExternalAccessReady
     /// <summary>单次 <c>Pump</c> 最多排空的暂存单元数（只防坏适配件永不返回空）。</summary>
     private const int MaxUnitsPerPump = 4096;
 
+    /// <summary>写泵等待的兜底毫秒数（不是发送节拍：入队在返回前就 Pulse 过）。</summary>
+    private const int WritePumpWatchdogMs = 1000;
+
     private readonly ExternalAccessDeclaration _declaration;
     private readonly IExternalAccessAdapter _adapter;
     private readonly Type _parametersType;
@@ -569,7 +572,9 @@ public sealed class ExternalAccessSession : IExternalAccessReady
     {
         while (Volatile.Read(ref _txStopping) == 0)
         {
-            if (!_backlog.TryTake(out var buffer, out var length, 20, out var expiredBytes))
+            // 等待由入队 / 停止的 Pulse 立即叫醒；这里的毫秒数只是"漏了 Pulse"时的兜底，
+            // 不是发送节拍（写路径在入队返回前就已经 Pulse 过）。
+            if (!_backlog.TryTake(out var buffer, out var length, WritePumpWatchdogMs, out var expiredBytes))
             {
                 continue;
             }
@@ -1009,6 +1014,43 @@ public sealed class ExternalAccessSession : IExternalAccessReady
         JoinWritePump(TimeSpan.FromMilliseconds(200), report: false);
         _backlog.Purge();
         return true;
+    }
+
+    /// <summary>
+    /// **离下一次探活还有多久**（没有探活能力 / 会话未打开 ⇒ <see langword="null"/>）。
+    /// </summary>
+    /// <remarks>
+    /// 实例循环是事件驱动的：数据 / 开关 / 故障都会把它叫醒，只有"设备被拔掉"这件事
+    /// 没有任何事件 ⇒ 由本属性给出周期上限，让它按探活节拍回来推进一次。
+    /// 未探过活时返回零（下一次循环立刻查一次，与既有"刚打开就查"的行为一致）。
+    /// </remarks>
+    public TimeSpan? NextLivenessDue
+    {
+        get
+        {
+            if (_adapter is not IExternalAccessLiveness)
+            {
+                return null;
+            }
+
+            lock (_gate)
+            {
+                if (_state != ExternalAccessState.Open)
+                {
+                    return null;
+                }
+            }
+
+            var interval = Volatile.Read(ref _livenessIntervalMs);
+
+            if (_lastLivenessCheck == NoLivenessCheck)
+            {
+                return TimeSpan.Zero;
+            }
+
+            var remaining = interval - (Environment.TickCount64 - _lastLivenessCheck);
+            return TimeSpan.FromMilliseconds(Math.Max(0, remaining));
+        }
     }
 
     /// <summary>

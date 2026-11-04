@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
 using Avalonia;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -87,10 +88,19 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     private readonly IRuntimeCommand _command;
     private readonly Dictionary<(string InstanceId, string Source), SubscriptionSourceView> _sources = [];
 
-    private int _frameCounter;
+    /// <summary>本帧的订阅源快照（一次取、所有模块视图共用 —— 每模块各取一次等于重复建同样的视图对象）。</summary>
+    private readonly List<SubscriptionSourceView> _frameSources = [];
 
-    /// <summary>上一次看到的**拓扑结构签名**（网络成员 + 口标签）——变了就立刻刷新连接状态与角色投影。</summary>
-    private string _structureSignature = string.Empty;
+    /// <summary>指标刷新间隔（队列水位 / 速率 / 角色方块；按时间而不是帧数）。</summary>
+    private static readonly TimeSpan MetricsInterval = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>上一帧取到的网络视图与实例视图（引用比较：同一个对象 ⇒ 这一帧什么都没变）。</summary>
+    private IReadOnlyList<NetworkView>? _lastNetworks;
+    private IReadOnlyList<ModuleInstanceView>? _lastInstances;
+    private IReadOnlyList<ModuleInstanceView>? _instancesForSignature;
+
+    /// <summary>上一次刷指标的时刻（<see cref="Stopwatch"/> 计时刻度；0 = 还没刷过）。</summary>
+    private long _lastMetricsTimestamp;
 
     /// <summary>当前生效设置的本地快照；只在启动/应用设置时重读，避免每帧深拷贝。</summary>
     private ApplicationSettings? _settings;
@@ -2428,6 +2438,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         var instances = _query.GetInstances();
         var modulesChanged = false;
 
+        // 本帧的实例视图（结构签名与"要不要重跑同步"都以它的引用为准）。
+        _lastInstances = instances;
+
         // **加载组合时布局必须先于窗口创建**：新窗口若先按 NextPlacement 建、再应用布局，
         // ModuleWindowManager 会在 Opened 时用初摆位置写回布局，覆盖刚恢复的位置。
         _layoutById.Clear();
@@ -2594,48 +2607,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// **拓扑结构签名**（网络成员 + 每条网络是否停流 + 各口标签）——**只含结构、不含计数**。
-    /// </summary>
-    /// <remarks>
-    /// 用途：判断"结构是否变了"。计数（投递/丢弃/速率）会随数据流动一直变，**不能进签名**
-    /// （否则每帧都会触发整套刷新）；它们仍走约 0.5 秒的节拍。
-    /// </remarks>
-    private string BuildStructureSignature(IReadOnlyList<NetworkView> networks)
-    {
-        var builder = new System.Text.StringBuilder(256);
-
-        foreach (var network in networks)
-        {
-            builder.Append(network.Key).Append(network.IsStalled ? '!' : '+');
-            foreach (var source in network.Sources)
-            {
-                builder.Append(source).Append(',');
-            }
-
-            builder.Append('>');
-            foreach (var target in network.Targets)
-            {
-                builder.Append(target).Append(',');
-            }
-
-            builder.Append(';');
-        }
-
-        foreach (var module in Modules)
-        {
-            builder.Append(module.InstanceId).Append('#');
-            foreach (var port in module.Ports)
-            {
-                builder.Append(port.PortName).Append('=').Append(port.Label).Append(',');
-            }
-
-            builder.Append(';');
-        }
-
-        return builder.ToString();
-    }
-
-    /// <summary>
     /// **取完某实例的挂起"清空显示"请求**（模块 → 框架的请求方向；`null` = 本帧没有请求）。
     /// </summary>
     /// <param name="instanceId">实例 ID。</param>
@@ -2719,8 +2690,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
     private void RefreshSubscriptions(IReadOnlyList<NetworkView> networks)
     {
-        _frameCounter++;
-
         // 设置只在启动/应用设置时读取；没有做过 Load 的调用点（测试/设计时）在此补一次。
         if (_settings is null)
         {
@@ -2728,26 +2697,49 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         _sources.Clear();
+        _frameSources.Clear();
+
         foreach (var source in _query.GetSubscriptionSources())
         {
             _sources[(source.InstanceId, source.DataSourceName)] = source;
+            _frameSources.Add(source);
         }
 
         // 【结构变了就立刻刷新】**连接状态/停流/角色投影**都以**网络成员关系**为唯一来源（"指标来源唯一"）：
         // 它们不是"每 0.5 秒才追上"的滞后态 —— 建网/断网/改标签/增删模块的**当帧**就刷新，
         // 否则用户刚连上却看不到连接灯与连线（"看得见"是功能的一部分）。
-        var structure = BuildStructureSignature(networks);
-        _structureChanged = !string.Equals(structure, _structureSignature, StringComparison.Ordinal);
-        if (_structureChanged)
+        // 网络与实例视图都按修订号缓存：**引用没变 ⇒ 结构必然没变**，不必每帧重新拼一遍签名。
+        // 计数（投递/丢弃/速率）会随数据流动一直变，不参与这里的判据；它们走下面的指标节拍。
+        var topologyChanged = !ReferenceEquals(networks, _lastNetworks)
+            || !ReferenceEquals(_lastInstances, _instancesForSignature);
+
+        if (topologyChanged)
         {
+            _structureChanged = true;
             _peersDirty = true;
+            _instancesForSignature = _lastInstances;
+        }
+        else
+        {
+            _structureChanged = false;
         }
 
-        _structureSignature = structure;
+        _lastNetworks = networks;
 
         // 队列水位与网络一样每拍只取一次；只有真正刷指标的那一拍才取。
         Dictionary<string, PortQueueDepthView>? queues = null;
-        var refreshMetrics = _structureChanged || _frameCounter % 30 == 0;
+
+        // 指标节拍按**时间**而不是帧数：刷新率调低时指标仍按约 0.5 秒更新，不被帧率拖慢。
+        var now = Stopwatch.GetTimestamp();
+        var metricsDue = _lastMetricsTimestamp == 0
+            || Stopwatch.GetElapsedTime(_lastMetricsTimestamp, now) >= MetricsInterval;
+
+        if (metricsDue)
+        {
+            _lastMetricsTimestamp = now;
+        }
+
+        var refreshMetrics = _structureChanged || metricsDue;
 
         foreach (var module in Modules)
         {
@@ -2785,7 +2777,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             }
 
             // **表面每帧刷一次**：取数、就地更新、输入反馈回填都在这一条路里。
-            module.RefreshSurface();
+            module.RefreshSurface(_frameSources);
         }
 
         // **角色投影第二遍**：连线的对端锚点要用**对端方块的位置** ⇒ 必须等所有模块的方块都摆好

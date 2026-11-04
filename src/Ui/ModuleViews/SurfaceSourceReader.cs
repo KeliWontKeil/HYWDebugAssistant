@@ -1,5 +1,6 @@
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Contracts;
+using HYWDebugAssistant.Sdk.Views;
 
 
 namespace HYWDebugAssistant.Ui.ModuleViews;
@@ -61,12 +62,15 @@ internal sealed class SurfaceSourceReader
         _viewState = viewState;
     }
 
-    /// <summary>重建数据源快照（每帧一次；数据源视图对象是每帧重建的，不能跨帧持有）。</summary>
-    internal void RefreshSources()
+    /// <summary>
+    /// 重建数据源快照（每帧一次；数据源视图对象是每帧重建的，不能跨帧持有）。
+    /// </summary>
+    /// <param name="sources">本帧的订阅源快照（由窗口集统一取一次；<see langword="null"/> = 自己取）。</param>
+    internal void RefreshSources(IReadOnlyCollection<SubscriptionSourceView>? sources = null)
     {
         _sources.Clear();
 
-        foreach (var source in _query.GetSubscriptionSources())
+        foreach (var source in sources ?? _query.GetSubscriptionSources())
         {
             _sources[(source.InstanceId, source.DataSourceName)] = source;
         }
@@ -148,6 +152,38 @@ internal sealed class SurfaceSourceReader
         }
 
         return _seriesValues.ToArray();
+    }
+
+    /// <summary>
+    /// 取某个**显示缓冲**自游标以来的增量（每帧热路径）。
+    /// </summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="sourceName">显示源名。</param>
+    /// <param name="cursor">上一拍读到的位置。</param>
+    /// <param name="sealedLines">接收新增已封口行的缓冲（调用方持有）。</param>
+    /// <returns>增量；没有视图状态（设计期/未接线）或游标失效时为"需要全量重建"。</returns>
+    internal DisplayDelta ReadDelta(
+        string instanceId,
+        string sourceName,
+        in DisplayCursor cursor,
+        List<string> sealedLines)
+    {
+        if (sourceName is not { Length: > 0 } || _viewState is null)
+        {
+            return DisplayDelta.ResetRequired(cursor, 0, 0);
+        }
+
+        var buffer = _viewState.Display(instanceId, sourceName);
+
+        // 缓冲换了（重建 / 清空请求）⇒ 让缓存与游标一起作废，避免把旧快照当新内容。
+        var sequence = _bufferSequences.TryGetValue((instanceId, sourceName), out var value) ? value : 0L;
+        if (_bufferCache.TryGetValue((instanceId, sourceName), out var cached) && cached.Sequence != sequence)
+        {
+            _ = _bufferCache.Remove((instanceId, sourceName));
+            return DisplayDelta.ResetRequired(cursor, buffer.Capacity, buffer.Revision);
+        }
+
+        return buffer.ReadDelta(cursor, sealedLines);
     }
 
     /// <summary>

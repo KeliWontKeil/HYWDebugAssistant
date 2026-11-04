@@ -227,7 +227,7 @@ public class SettingsServiceTests
         options.AdapterBufferBytes.ShouldBe(131072);
         options.AccessCloseTimeout.ShouldBe(TimeSpan.FromMilliseconds(800));
         options.DeviceLostMisses.ShouldBe(3);
-        options.IdleWait.ShouldBe(new CarrierOptions().IdleWait, "设置里没暴露的项仍用默认值");
+        options.WatchdogInterval.ShouldBe(new CarrierOptions().WatchdogInterval, "设置里没暴露的项仍用默认值");
 
         // 外部接入宿主拿到同一份参数（它只用容量 / 策略 / 停止超时 / 饱和判据）
         runtime.ExternalAccessHost.Options.ShouldBe(options);

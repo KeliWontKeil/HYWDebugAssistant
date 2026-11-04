@@ -22,12 +22,15 @@ public sealed record CarrierOptions
     /// <summary>停止协议的有界等待时限。v1 默认 5 s。</summary>
     public TimeSpan StopTimeout { get; init; } = TimeSpan.FromSeconds(5);
 
-    /// <summary>投递循环的等待粒度（无数据时的等待上限；数据 / 命令由信号立即唤醒）。</summary>
+    /// <summary>
+    /// **兜底唤醒间隔**：数据 / 命令 / 会话事件都由信号**立即**唤醒，这个间隔只是"万一漏了一个信号"的保险。
+    /// </summary>
     /// <remarks>
-    /// 它只决定"完全没有信号时多久醒一次"（辅助工作源 / 状态发布），不再承担数据延迟；
-    /// 1 ms 会让每个实例每秒醒 1000 次（高频小数据下的额外 CPU/状态发布），默认放宽到 10 ms。
+    /// 它不是投递节拍，**不承担数据延迟**：入队在返回前就已经唤醒投递循环。
+    /// 取值放得很宽是因为它的唯一作用是把"漏唤醒导致实例停摆"换成"一秒后自愈"；
+    /// 真正的周期需求（设备探活）由 <c>NextWakeupDue</c> 单独给出，比它短就按短的等。
     /// </remarks>
-    public TimeSpan IdleWait { get; init; } = TimeSpan.FromMilliseconds(10);
+    public TimeSpan WatchdogInterval { get; init; } = TimeSpan.FromSeconds(1);
 
     /// <summary>
     /// **饱和提示的深度阈值**（单元数，按口计）：队列深度到达它就开始计"堵了多久"。

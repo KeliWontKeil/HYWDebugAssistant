@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Ui.Controls;
 using HYWDebugAssistant.Ui.Hotkeys;
 using HYWDebugAssistant.Ui.Images;
 using HYWDebugAssistant.Ui.Theming;
@@ -130,6 +131,9 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
         Windows.RefreshSettings();
         Performance.IsEnabled = Settings.ShowPerformanceMonitor;
+
+        // 界面刷新率是用户可见的行为设置：帧时钟是唯一节拍源，改在这一处即全场生效。
+        UiFrameClock.SetRate(Settings.UiRefreshRateHz);
     }
 
     /// <summary>设置应用/启动回读期间抑制即时开关的再次落盘。</summary>
@@ -711,6 +715,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         Settings.Load();
         Windows.RefreshSettings();
         Performance.IsEnabled = Settings.ShowPerformanceMonitor;
+        UiFrameClock.SetRate(Settings.UiRefreshRateHz);
 
         _syncingSettings = true;
         try
@@ -863,6 +868,17 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
     private void UpdateStatus()
     {
+        // 状态栏只在"它显示的东西变了"时重组：本地化 + 格式化每帧跑一遍是白烧的。
+        var key = (Windows.ModuleCount, ShowInfoOverlay, SnapEnabled, Windows.RefreshRateHz, AllLocked, IssueCount, ErrorIssueCount);
+
+        if (_hasStatusKey && _lastStatusKey == key)
+        {
+            return;
+        }
+
+        _lastStatusKey = key;
+        _hasStatusKey = true;
+
         var links = Loc(ShowInfoOverlay ? "shell.status.overlay.on" : "shell.status.overlay.off");
         var snap = Loc(SnapEnabled ? "shell.status.snap.on" : "shell.status.snap.off");
         var locked = AllLocked ? " · " + Loc("shell.status.locked") : string.Empty;
@@ -874,4 +890,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         // Issue 计数留在摘要里（信息），**入口**只剩活动栏那个图标（状态栏右侧那个按钮不保留）。
         StatusText = Loc("shell.status.summary", Windows.ModuleCount, links, snap, Windows.RefreshRateHz, locked, issues);
     }
+
+    private (int Modules, bool Overlay, bool Snap, int Rate, bool Locked, int Issues, int Errors) _lastStatusKey;
+    private bool _hasStatusKey;
 }

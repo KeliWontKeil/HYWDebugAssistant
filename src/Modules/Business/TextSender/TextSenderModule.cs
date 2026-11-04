@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Buffers.Binary;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Context;
@@ -383,6 +385,9 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
     /// </remarks>
     private string? _shownAlertSource;
 
+    /// <summary>**上一次写进状态源的那句话**（值没变就不重复写 —— 状态缓冲的版本号不该每拍变一次）。</summary>
+    private string? _shownStatus;
+
 
 
     /// <summary>**当前页的输入源名**（换页判据）。</summary>
@@ -757,7 +762,15 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
             }
         }
 
-        context.Display.SetText(StatusSource, verdict.Message ?? string.Empty);
+        var message = verdict.Message ?? string.Empty;
+
+        // **同一句话不重复写**：连续发送时每拍都会走这里，值没变还写会把状态缓冲的版本号
+        // 每拍推一次（界面因此每帧重读一遍）；只在真正换话时才写。
+        if (!string.Equals(_shownStatus, message, StringComparison.Ordinal))
+        {
+            _shownStatus = message;
+            context.Display.SetText(StatusSource, message);
+        }
     }
 
     /// <summary>
@@ -914,14 +927,48 @@ public sealed class TextSenderModule : IModule, IActivitySource, IDisposable
             return false;
         }
 
-        foreach (var chunk in TextSenderCodec.SplitByCharacterBoundary(text, TextCapacity))
-        {
-            var payload = TextSenderCodec.BuildPayload(chunk, TextCapacity);
+        // **按字符边界拆包**：先把"这一块最多能放多少字符"量出来（只量长度、不分配），
+        // 再一次性编码进**池化**的定长载荷。旧写法逐字符 `ToString()+GetBytes()`，
+        // 1 KB 文本每包要造约 40 KB 垃圾 —— 高频发送时这是 GC 的主要来源。
+        var payload = ArrayPool<byte>.Shared.Rent(sizeof(ushort) + TextCapacity);
 
-            if (context.Ports.TrySend(OutPort, payload))
+        try
+        {
+            var start = 0;
+
+            while (start < text.Length)
             {
-                packets++;
+                var charCount = TextSenderCodec.CountCharsInChunk(text, start, TextCapacity);
+                if (charCount == 0)
+                {
+                    // 单字符都放不下（capacity < 4 的理论情形）：放弃该字符而不是切碎它
+                    start += char.IsHighSurrogate(text[start]) && start + 1 < text.Length
+                        && char.IsLowSurrogate(text[start + 1])
+                        ? 2
+                        : 1;
+                    continue;
+                }
+
+                var bytes = TextSenderCodec.EncodeChunk(
+                    text, start, charCount, payload.AsSpan(sizeof(ushort), TextCapacity));
+
+                BinaryPrimitives.WriteUInt16LittleEndian(payload, (ushort)bytes);
+
+                // `data` 尾部补零：保持"定长载荷、零填充"的原有形状（接收方仍按 len 切片）。
+                var used = sizeof(ushort) + bytes;
+                Array.Clear(payload, used, sizeof(ushort) + TextCapacity - used);
+
+                if (context.Ports.TrySend(OutPort, payload.AsSpan(0, sizeof(ushort) + TextCapacity)))
+                {
+                    packets++;
+                }
+
+                start += charCount;
             }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(payload);
         }
 
         if (packets > 0)

@@ -57,5 +57,31 @@ public class IssueCenterTests
         center.Count.ShouldBe(0);
         center.Snapshot().ShouldBeEmpty();
         center.Summary().Total.ShouldBe(0);
+        center.Summary().Error.ShouldBe(0);
+        center.Summary().Warning.ShouldBe(0);
+    }
+
+    [Fact]
+    public void 条目数应有上限_且分档计数同步扣减()
+    {
+        var center = new IssueCenter();
+
+        // 上限是"意外地按数据频率报问题"的止损线：超出后丢最旧的，计数必须跟着减。
+        const int overflow = 200;
+
+        for (var i = 0; i < 4096 + overflow; i++)
+        {
+            var severity = i % 3 == 0 ? IssueSeverity.Error : IssueSeverity.Info;
+            center.Report("module:a", new IssueReport(IssueCategory.ModuleError, severity, $"问题 {i}"));
+        }
+
+        center.Count.ShouldBe(4096);
+        center.Summary().Total.ShouldBe(4096);
+        center.Snapshot()[^1].Sequence.ShouldBe(4096L + overflow, "丢最旧、留最新");
+
+        var snapshot = center.Snapshot();
+        snapshot.Count(entry => entry.Issue.Severity == IssueSeverity.Error).ShouldBe(center.Summary().Error);
+        snapshot.Count(entry => entry.Issue.Severity == IssueSeverity.Warning).ShouldBe(center.Summary().Warning);
+        snapshot.Count(entry => entry.Issue.Severity == IssueSeverity.Info).ShouldBe(center.Summary().Info);
     }
 }

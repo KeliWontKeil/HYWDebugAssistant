@@ -400,9 +400,9 @@ public class OverlaySnapshotTests
     {
         public SnapshotHarness()
         {
-            Runtime = new HYWDebugAssistant.Core.Runtime.ModuleRuntime();
-            Services = new HYWDebugAssistant.Core.Services.RuntimeServices(Runtime);
             ViewState = new HYWDebugAssistant.Core.Services.ViewStateStore();
+            Runtime = new HYWDebugAssistant.Core.Runtime.ModuleRuntime(viewState: ViewState);
+            Services = new HYWDebugAssistant.Core.Services.RuntimeServices(Runtime);
             Windows = new ModuleWindowsViewModel(Services, Services, ViewState);
 
             // 视图由模块自己的 XAML 提供；这里的快照夹具只需要端口与角色（叠加层几何）。

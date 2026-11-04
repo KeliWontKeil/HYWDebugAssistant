@@ -215,6 +215,11 @@ public sealed class TestModuleContext : IModuleContext, IDisposable
     public List<string> ClearedDisplays { get; } = [];
 
     /// <summary>
+    /// **哪些显示源"满过"**（测试可预置）：模块调 <c>Display.IsFull</c> 时按这个集合回答。
+    /// </summary>
+    public HashSet<string> FullDisplays { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// **整段替换过哪些显示源**（测试可断言）：模块调 <c>Display.SetText</c> 时记在这个名字下。
     /// </summary>
     /// <remarks>
@@ -613,6 +618,9 @@ public sealed class TestModuleContext : IModuleContext, IDisposable
 
             owner.ViewState.AppendDisplay(dataSourceName, text, lineBreak: true);
         }
+
+        public bool IsFull(string dataSourceName) =>
+            !string.IsNullOrWhiteSpace(dataSourceName) && owner.FullDisplays.Contains(dataSourceName);
     }
 
     /// <summary>

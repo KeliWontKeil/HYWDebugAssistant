@@ -9,6 +9,7 @@ public static class DataMonitorViewKeys
     public const string HexView = DataMonitorModule.HexViewSource;
     public const string Timestamp = DataMonitorModule.TimestampSource;
     public const string Status = DataMonitorModule.StatusSource;
+    public const string BufferFull = DataMonitorModule.BufferFullSource;
     public const string Clear = DataMonitorModule.ClearCommand;
     public const string Save = DataMonitorModule.SaveCommand;
 }

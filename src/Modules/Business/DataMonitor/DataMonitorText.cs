@@ -20,4 +20,5 @@ public static class DataMonitorText
     public const string StatusUnknownCommand = "status.unknownCommand";
     public const string StatusShortDatagram = "status.shortDatagram";
     public const string StatusSavedLog = "status.savedLog";
+    public const string BufferFull = "status.bufferFull";
 }

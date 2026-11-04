@@ -5,6 +5,7 @@ using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Sdk.Ui.Formatting;
+using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
@@ -46,6 +47,9 @@ public sealed class ModuleLabel : ModuleElement
     private string _textValue = string.Empty;
     private string _field = string.Empty;
     private string? _tip;
+    private long _textRevision = -1;
+    private DisplayCursor _cursor;
+    private readonly List<string> _sealedScratch = [];
 
     /// <summary>造一块标签。</summary>
     public ModuleLabel()
@@ -146,6 +150,17 @@ public sealed class ModuleLabel : ModuleElement
             return;
         }
 
+        // **变更号没变就不读**：全量行表在长缓冲上是一次整表复制，静止的标签不该每帧付这笔钱。
+        var delta = context.ReadTextDelta(Source, _cursor, _sealedScratch);
+        _cursor = delta.Cursor;
+
+        if (!delta.Reset && delta.Revision == _textRevision)
+        {
+            return;
+        }
+
+        _textRevision = delta.Revision;
+
         var lines = context.ReadText(Source).Lines;
         var text = lines.Count == 0 ? string.Empty : string.Join(Environment.NewLine, lines);
 
@@ -156,7 +171,6 @@ public sealed class ModuleLabel : ModuleElement
             Apply(text);
         }
     }
-
     /// <summary>运行期文字外观落到真正显示文字的 <see cref="TextBlock"/> 上。</summary>
     /// <param name="appearance">外观。</param>
     protected internal override void ApplyAppearance(ViewAppearance appearance)

@@ -104,8 +104,6 @@
             <Border Name="PART_ErrorRing" BorderThickness="2" CornerRadius="2"
                     BorderBrush="{DynamicResource SemanticError}"
                     IsVisible="False" IsHitTestVisible="False" />
-            <TextBlock Name="PART_Dropped" Classes="module-notice"
-                       VerticalAlignment="Bottom" IsVisible="False" />
           </Grid>
         </ControlTemplate>
       </Setter>

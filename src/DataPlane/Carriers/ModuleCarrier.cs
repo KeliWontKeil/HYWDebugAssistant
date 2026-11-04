@@ -73,11 +73,21 @@ public sealed class ModuleCarrier : IDisposable
     private readonly ICarrierTarget _target;
     private readonly PooledPayloadBufferPool _pool;
     private readonly CarrierOptions _options;
+
     /// <summary>
-    /// 二值“有活干”信号：仅**无活动体**的实例使用（口入队 / 会话就绪 / 命令输入）。
+    /// **二值"有活干"信号**：仅**无活动体**的实例使用（口入队 / 会话就绪 / 命令输入）。
     /// 有活动体的实例自己轮询读取面，不等待这个信号。
     /// </summary>
-    private readonly SemaphoreSlim _dataAvailable = new(0);
+    /// <remarks>
+    /// 用"置标记 + Set"而不是计数信号量：计数信号量每次入队加一、消费端一次只减一，
+    /// 流量峰值后会有大量"多余唤醒额度"逐次空转，表现为线程数不变而 CPU 下不来。
+    /// 二值信号把同一件事合并成"还有活没干"，唤醒次数与工作量不再挂钩。
+    /// </remarks>
+    private readonly ManualResetEventSlim _work = new(initialState: false);
+
+    /// <summary>兜底唤醒间隔（只防漏唤醒，不承担数据延迟）。</summary>
+    private readonly TimeSpan _watchdog;
+
     private readonly Thread _thread;
 
     /// <summary>接收口名 → 队列下标（构造后**不变**：口集合在实例激活时已定）。</summary>
@@ -86,7 +96,7 @@ public sealed class ModuleCarrier : IDisposable
     /// <summary>**每口一条**队列（下标与 <see cref="PortNames"/> 一致）。</summary>
     private readonly InboundBuffer[] _queues;
 
-    /// <summary>"该口有数据"的**提示位图**（仅优化：跳过空口探测；正确性由信号量保证，见 <see cref="TryDequeueAny"/>）。</summary>
+    /// <summary>"该口有数据"的**提示位图**（仅优化：跳过空口探测；正确性由信号保证，见 <see cref="TryDequeueAny"/>）。</summary>
     private readonly bool _useReadyMask;
     private long _readyMask;
 
@@ -98,6 +108,12 @@ public sealed class ModuleCarrier : IDisposable
 
     /// <summary>最大积压年龄（<see cref="Stopwatch"/> 计时刻度；0 = 不限）。</summary>
     private long _maxBacklogAgeTicks;
+
+    /// <summary>"还有活没干"标记（0/1；与 <see cref="_work"/> 配对，保证"先置标记再 Set / 先 Reset 再检查"不丢唤醒）。</summary>
+    private int _workPending;
+
+    /// <summary>实际醒来的次数（诊断：空闲时它应当只随兜底间隔增长）。</summary>
+    private long _wakeups;
 
     private volatile bool _stopRequested;
     private volatile bool _stopped;
@@ -135,6 +151,9 @@ public sealed class ModuleCarrier : IDisposable
         _deliverySlice = _options.DeliverySlice > TimeSpan.Zero
             ? _options.DeliverySlice
             : TimeSpan.FromMilliseconds(1);
+        _watchdog = _options.WatchdogInterval > TimeSpan.Zero
+            ? _options.WatchdogInterval
+            : TimeSpan.FromSeconds(1);
         _maxBacklogAgeTicks = InboundBuffer.ToTicks(_options.MaxBacklogAge);
 
         Diagnostics = new CarrierDiagnostics();
@@ -162,6 +181,15 @@ public sealed class ModuleCarrier : IDisposable
 
     /// <summary>专属线程是否仍在运行。</summary>
     public bool IsRunning => _thread.IsAlive;
+
+    /// <summary>
+    /// 投递循环**实际醒来的次数**（诊断用）。
+    /// </summary>
+    /// <remarks>
+    /// 空闲实例应当只在兜底间隔（或设备探活到期）时醒来；这个数与"数据量"无关，
+    /// 用来验证"没有数据就不空转"这条不变量。
+    /// </remarks>
+    public long Wakeups => Interlocked.Read(ref _wakeups);
 
     /// <summary>
     /// 投一个"有活干"信号（命令/输入/会话就绪等辅助工作源使用）。
@@ -385,13 +413,51 @@ public sealed class ModuleCarrier : IDisposable
             return CarrierStopResult.AlreadyStopped;
         }
 
+        BeginStop();
+        return CompleteStop(timeout);
+    }
+
+    /// <summary>
+    /// 停止协议的**第一阶段**：置停止信号并清尾（**不等待线程退出**）。
+    /// </summary>
+    /// <remarks>
+    /// 拆成两阶段是为了让"停止多个承载"的调用方先把所有线程都叫停，再逐个有界等待 ——
+    /// 总等待取最大值而不是求和，界面不会被"实例数 × 单项超时"拖住。
+    /// </remarks>
+    public void BeginStop()
+    {
+        if (_stopRequested)
+        {
+            return;
+        }
+
         _stopRequested = true;
         _target.RequestStop();          // 通知模块活动体（否则其可能永远无法感知停止）
         SignalDataAvailable();
 
         // 先清尾：这一步同时把"停止要等多久"从"排空整条积压"降成"等当前这一个单元处理完"
         PurgeQueues();
+    }
 
+    /// <summary>
+    /// 停止协议的**第二阶段**：有界等待线程退出；超时则标记孤儿并放弃队列缓冲。
+    /// </summary>
+    /// <param name="timeout">这次等待最多花多久（调用方通常在共享总时限里传剩余时间）。</param>
+    /// <returns>停止结果。</returns>
+    public CarrierStopResult CompleteStop(TimeSpan timeout)
+    {
+        // 只有"调用之前就已经停过"才算 AlreadyStopped；本次已经叫停、线程恰好已退出时仍算 Stopped。
+        if (_stopped && !_stopRequested)
+        {
+            return CarrierStopResult.AlreadyStopped;
+        }
+
+        if (!_stopRequested)
+        {
+            BeginStop();
+        }
+
+        // 线程可能已经自己退出了（看见停止标志就返回）：Join 立即成功，仍按"已按期停止"回答。
         if (_thread.Join(timeout))
         {
             _stopped = true;
@@ -414,12 +480,12 @@ public sealed class ModuleCarrier : IDisposable
 
         _disposed = true;
 
-        if (!_stopped)
+        if (!_stopped && !_stopRequested)
         {
             _ = Stop(_options.StopTimeout);
         }
 
-        _dataAvailable.Dispose();
+        _work.Dispose();
     }
 
     private void Run()
@@ -451,6 +517,9 @@ public sealed class ModuleCarrier : IDisposable
     {
         while (!_stopRequested)
         {
+            // **先清标记再干活**：标记在"入队之后"才被清，期间到来的信号不会被这一次清掉。
+            _work.Reset();
+
             var didWork = false;
 
             // 工作源 ②/③：外部接入会话 + 收件箱（没有活动体时由框架驱动）
@@ -488,9 +557,42 @@ public sealed class ModuleCarrier : IDisposable
                 continue;
             }
 
-            // 混合等待：短等待（稳态下近乎立即返回）+ 信号唤醒，兼顾延迟与 CPU
-            _dataAvailable.Wait(_options.IdleWait);
+            // **没有活干**：还有未消费的信号就直接下一轮（不睡），否则等"下一个信号 / 到期 / 兜底"。
+            if (Interlocked.Exchange(ref _workPending, 0) != 0)
+            {
+                continue;
+            }
+
+            var wait = NextWait();
+            if (wait <= TimeSpan.Zero)
+            {
+                continue;
+            }
+
+            _work.Wait(wait);
+            _ = Interlocked.Increment(ref _wakeups);
         }
+    }
+
+    /// <summary>
+    /// 下一次最多等多久：兜底间隔与"下一条周期性需求（设备探活）"取小。
+    /// </summary>
+    /// <remarks>
+    /// 等待本身**不是投递节拍**：数据 / 命令 / 会话事件由信号立即唤醒，这里只决定"完全没有事件时"的兜底。
+    /// 周期需求只有探活一种，它到期时才需要实例线程回去推进一次会话。
+    /// </remarks>
+    private TimeSpan NextWait()
+    {
+        var wait = _watchdog;
+        var due = _target.NextWakeupDue;
+
+        if (due is { } value && value < wait)
+        {
+            wait = value;
+        }
+
+        var minimum = TimeSpan.FromMilliseconds(1);
+        return wait < minimum ? minimum : wait;
     }
 
     /// <summary>该单元在队列里待的时间是否已超过允许的积压上限（0 = 不限 ⇒ 恒为 false）。</summary>
@@ -585,16 +687,17 @@ public sealed class ModuleCarrier : IDisposable
             return;
         }
 
-        // **计数信号**：每个入队/会话信号各对应一次唤醒，计数由载体逐次消费；
-        // 不再用二值信号 + SemaphoreFullException 的抛出/捕获来"合并"——高频小数据下
-        // 那条路径每个单元抛一次异常，是应用卡顿的一个根因。
-        try
-        {
-            _dataAvailable.Release();
-        }
-        catch (SemaphoreFullException)
+        // **二值信号**：先置"还有活"标记再 Set。标记与信号配对，
+        // 消费端"先 Reset 再检查标记"⇒ 任何一次入队都至少换来一轮处理，不会因为合并而丢唤醒；
+        // 反过来，连续 1 万个入队也只留一个"还有活"，峰值后不会积压出上万个空转额度。
+        if (Interlocked.Exchange(ref _workPending, 1) == 1)
         {
             Diagnostics.RecordSignalOverflow();
+        }
+
+        try
+        {
+            _work.Set();
         }
         catch (ObjectDisposedException)
         {

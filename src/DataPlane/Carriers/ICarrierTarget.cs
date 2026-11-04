@@ -46,6 +46,16 @@ public interface ICarrierTarget
     {
     }
 
+    /// <summary>
+    /// **下一条周期性需求的到期时间**（离现在多久；<see langword="null"/> = 没有周期需求）。
+    /// </summary>
+    /// <remarks>
+    /// 承载者的等待是**事件驱动**的（入队 / 会话就绪 / 命令都会立即唤醒），本属性只回答
+    /// "完全没有事件时，最晚多久必须回来推进一次" —— 目前的唯一来源是设备探活。
+    /// 它**不承担数据延迟**：数据到达不依赖它。
+    /// </remarks>
+    TimeSpan? NextWakeupDue => null;
+
     /// <summary>运行模块活动体（由承载者在**该实例的专属线程**上调用；实现内部可阻塞）。</summary>
     void RunActivity();
 

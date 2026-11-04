@@ -17,6 +17,9 @@ public partial class App : Application
 {
     private ServiceProvider? _provider;
 
+    /// <summary>退出收尾等待服务容器释放的总时限（超时即放行退出：承载线程都是后台线程）。</summary>
+    private static readonly TimeSpan ShutdownTeardownTimeout = TimeSpan.FromSeconds(3);
+
     /// <inheritdoc />
     public override void Initialize()
     {
@@ -67,8 +70,19 @@ public partial class App : Application
             // 在那里拆窗口会让"取消关闭"之后留下半拆状态。`Exit` 是收尾决定之后的终局事件。
             var shutdown = new AppShutdown(() =>
             {
-                windowManager.Dispose();   // 合并整体平移的落盘必须先于服务容器释放
-                _provider?.Dispose();
+                // 窗口与订阅必须在 UI 线程拆。
+                windowManager.Dispose();
+
+                var provider = _provider;
+                if (provider is null)
+                {
+                    return;
+                }
+
+                // 承载 / 会话的停止是**有界阻塞等待**：放到后台并给一个总时限，
+                // 不让"实例数 × 单项超时"直接落在 UI 线程的收尾路径上。
+                var teardown = Task.Run(provider.Dispose);
+                _ = teardown.Wait(ShutdownTeardownTimeout);
             });
 
             // **退出唯一出口**：询问 → 保存 → 关模块窗 → 放行外壳；平台各条关闭路径都汇到这里。

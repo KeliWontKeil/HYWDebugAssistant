@@ -313,7 +313,7 @@ public sealed class ExternalAccessRuntimeTests
             {
                 QueueCapacity = 16,
                 StopTimeout = TimeSpan.FromSeconds(2),
-                IdleWait = TimeSpan.FromMilliseconds(1),
+                WatchdogInterval = TimeSpan.FromMilliseconds(20),
             },
             catalog: catalog);
     }

@@ -76,7 +76,25 @@ public sealed partial class ModuleRuntime
     {
         lock (_wallpaperGate)
         {
-            _ = _wallpapers.Remove(instanceId);
+            if (_wallpapers.Remove(instanceId))
+            {
+                _ = ++_wallpaperRevision;
+            }
+        }
+    }
+
+    /// <summary>壁纸的**全局版本**：任何实例的壁纸被设置 / 恢复 / 移除都会递增。</summary>
+    /// <remarks>
+    /// 呈现层"实例视图"里带着壁纸版本；用一个全局数做缓存键，比按实例逐个加锁读版本更省。
+    /// </remarks>
+    public long WallpaperVersion
+    {
+        get
+        {
+            lock (_wallpaperGate)
+            {
+                return _wallpaperRevision;
+            }
         }
     }
 

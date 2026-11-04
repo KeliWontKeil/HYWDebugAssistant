@@ -903,6 +903,9 @@ public sealed partial class ModuleRuntime : IDisposable
             _lifecycle.Disable(instance);
         }
 
+        // 状态进"实例视图"：修订号不变时呈现层会复用上一份快照，状态切换必须让它作废。
+        Content.Touch();
+
         // Disabled = 保留实例/拓扑/配置、**暂停数据流**（绑定保留，只停流；会话关闭但保留意图）
         SetSuspended(instanceId, suspended: !enabled);
 

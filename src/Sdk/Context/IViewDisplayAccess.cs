@@ -75,4 +75,16 @@ public interface IViewDisplayAccess
     /// <param name="dataSourceName">显示元素的 <c>DataSource</c> 名（在视图声明里登记过）。</param>
     /// <remarks>未声明的源名 ⇒ 请求被忽略（**不抛异常** —— 与"未知一律安全"同一纪律）。</remarks>
     void Clear(string dataSourceName);
+
+    /// <summary>
+    /// 某个显示源的缓冲**是否满过**（自上次清空/替换以来丢弃过旧内容）。
+    /// </summary>
+    /// <param name="dataSourceName">显示元素的 <c>DataSource</c> 名。</param>
+    /// <returns>满过 ⇒ <see langword="true"/>；源不存在或从未丢过 ⇒ <see langword="false"/>。</returns>
+    /// <remarks>
+    /// 只回答"有没有丢过"，不给数量：不同丢弃形态（整行丢 / 当前行被截）口径不同，
+    /// 数字只会误导。模块拿它决定**是否在自己那块固定高度的 label 上提示**，
+    /// 提示不能改变文本区的布局。
+    /// </remarks>
+    bool IsFull(string dataSourceName);
 }

@@ -22,6 +22,20 @@ public sealed class WorkspaceContent
     private readonly List<Network> _networks = [];
     private readonly Dictionary<string, int> _addOrder = new(StringComparer.Ordinal);
     private int _addCounter;
+    private long _revision;
+
+    /// <summary>
+    /// **内容修订号**：实例 / 网络 / 占位有任何增删或状态变化就递增。
+    /// </summary>
+    /// <remarks>
+    /// 呈现层每帧都要读"当前现场"，而把一个实例/网络变成视图对象的代价与端口数、成员数成正比。
+    /// 修订号让"没变"的帧直接复用上一份视图，不必为了发现"没变"而重新构造一遍。
+    /// 读取在 UI 线程、写入在管理线程 ⇒ 只做 <see cref="Interlocked"/> 读写，不引入锁。
+    /// </remarks>
+    public long Revision => Interlocked.Read(ref _revision);
+
+    /// <summary>标记"内容有变化"（实例状态切换这类不改集合、但会改变视图的变化）。</summary>
+    internal void Touch() => Interlocked.Increment(ref _revision);
 
     /// <summary>当前全部实例（**不含占位实例**）。</summary>
     public IReadOnlyCollection<ModuleInstance> Instances => _instances.Values;
@@ -74,27 +88,55 @@ public sealed class WorkspaceContent
         }
 
         _addOrder[instance.InstanceId] = ++_addCounter;
+        Touch();
         return true;
     }
 
     /// <summary>移除实例（由 ChangeSet 提交阶段调用；网络的级联在应用器里完成）。</summary>
-    internal bool RemoveInstance(string instanceId) => _instances.Remove(instanceId) && RemoveAddOrder(instanceId);
+    internal bool RemoveInstance(string instanceId)
+    {
+        if (!_instances.Remove(instanceId))
+        {
+            return false;
+        }
+
+        _ = RemoveAddOrder(instanceId);
+        Touch();
+        return true;
+    }
 
     /// <summary>加入占位实例（加载组合件时定义缺失/版本不兼容）。</summary>
     internal bool AddPlaceholder(PlaceholderInstance placeholder)
     {
         ArgumentNullException.ThrowIfNull(placeholder);
-        return _placeholders.TryAdd(placeholder.InstanceId, placeholder);
+
+        if (!_placeholders.TryAdd(placeholder.InstanceId, placeholder))
+        {
+            return false;
+        }
+
+        Touch();
+        return true;
     }
 
     /// <summary>移除占位实例。</summary>
-    internal bool RemovePlaceholder(string instanceId) => _placeholders.Remove(instanceId);
+    internal bool RemovePlaceholder(string instanceId)
+    {
+        if (!_placeholders.Remove(instanceId))
+        {
+            return false;
+        }
+
+        Touch();
+        return true;
+    }
 
     /// <summary>加入网络。</summary>
     internal void AddNetwork(Network network)
     {
         ArgumentNullException.ThrowIfNull(network);
         _networks.Add(network);
+        Touch();
     }
 
     /// <summary>按网络名移除网络。</summary>
@@ -109,11 +151,21 @@ public sealed class WorkspaceContent
         }
 
         _networks.RemoveAt(index);
+        Touch();
         return true;
     }
 
     /// <summary>按对象引用移除网络（匿名网络无名字，用引用标识）。</summary>
-    internal bool RemoveNetwork(Network network) => _networks.Remove(network);
+    internal bool RemoveNetwork(Network network)
+    {
+        if (!_networks.Remove(network))
+        {
+            return false;
+        }
+
+        Touch();
+        return true;
+    }
 
     /// <summary>按对象引用替换网络（成员重锚用；**绑定快照要求网络不可变**，故换新对象）。</summary>
     internal bool ReplaceNetwork(Network existing, Network replacement)
@@ -128,6 +180,7 @@ public sealed class WorkspaceContent
         }
 
         _networks[index] = replacement;
+        Touch();
         return true;
     }
 

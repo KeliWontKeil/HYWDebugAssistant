@@ -187,74 +187,54 @@ public sealed class ModuleViewHost : ContentControl
     /// <summary>驱动一帧（框架每帧调一次）。</summary>
     public void Refresh()
     {
-        ApplyAppearance(Content as Control);
-        RefreshElements(Content as Control);
+        if (Content is not Control root)
+        {
+            return;
+        }
+
+        ApplyAppearance(root);
+        RefreshElements(root);
     }
 
     /// <summary>
     /// 把外观落到整棵子树上（**先于**刷新：外观是"框架说的话"，不该被元件自己的刷新覆盖）。
     /// </summary>
-    /// <param name="root">视图根。</param>
-    private void ApplyAppearance(Control? root)
+    /// <param name="control">当前节点。</param>
+    /// <remarks>
+    /// 手写遍历而不是 <c>GetVisualDescendants().OfType&lt;&gt;()</c>：后者每帧对整棵树各建一次枚举器，
+    /// 而这里每个元件只做"按源名查一次表、把值写下去"。
+    /// </remarks>
+    private void ApplyAppearance(Control control)
     {
-        foreach (var element in ModuleElements(root))
+        if (control is ModuleElement element && element.Source.Length > 0)
         {
-            if (element.Source.Length == 0)
-            {
-                continue;
-            }
-
             element.ApplyAppearance(_context.Appearance(element.Source));
+        }
+
+        foreach (var child in control.GetVisualChildren())
+        {
+            if (child is Control childControl)
+            {
+                ApplyAppearance(childControl);
+            }
         }
     }
 
     /// <summary>让每个元件按自己的值刷新一次。</summary>
-    /// <param name="root">视图根。</param>
-    private void RefreshElements(Control? root)
+    /// <param name="control">当前节点。</param>
+    private void RefreshElements(Control control)
     {
-        foreach (var element in Elements(root))
+        if (control is IModuleViewElement element)
         {
             element.Refresh(_context);
         }
-    }
 
-    /// <summary>视图里的全部模块界面元件（含根自身）。</summary>
-    /// <param name="root">视图根。</param>
-    private static IEnumerable<IModuleViewElement> Elements(Control? root)
-    {
-        if (root is null)
+        foreach (var child in control.GetVisualChildren())
         {
-            yield break;
-        }
-
-        if (root is IModuleViewElement self)
-        {
-            yield return self;
-        }
-
-        foreach (var descendant in root.GetVisualDescendants().OfType<IModuleViewElement>())
-        {
-            yield return descendant;
-        }
-    }
-
-    /// <summary>视图里**承接运行期外观**的元件（含根自身）。</summary>
-    /// <param name="root">视图根。</param>
-    private static IEnumerable<ModuleElement> ModuleElements(Control? root)
-    {
-        if (root is null)
-        {
-            yield break;
-        }
-
-        if (root is ModuleElement self)
-        {
-            yield return self;
-        }
-
-        foreach (var descendant in root.GetVisualDescendants().OfType<ModuleElement>())
-        {
-            yield return descendant;
+            if (child is Control childControl)
+            {
+                RefreshElements(childControl);
+            }
         }
     }
 }

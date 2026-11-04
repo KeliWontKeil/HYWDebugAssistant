@@ -116,7 +116,7 @@ public class HostingPackageTests
         {
             QueueCapacity = 16,
             StopTimeout = TimeSpan.FromSeconds(2),
-            IdleWait = TimeSpan.FromMilliseconds(1),
+            WatchdogInterval = TimeSpan.FromMilliseconds(20),
         }, catalog: new BuiltInExternalAccessCatalog());
 
         var added = runtime.Apply(ChangeSet.OfOne(new AddModuleOperation(
@@ -161,7 +161,7 @@ public class HostingPackageTests
         {
             QueueCapacity = 16,
             StopTimeout = TimeSpan.FromSeconds(2),
-            IdleWait = TimeSpan.FromMilliseconds(1),
+            WatchdogInterval = TimeSpan.FromMilliseconds(20),
         }, catalog: new BuiltInExternalAccessCatalog());
 
         var added = runtime.Apply(ChangeSet.OfOne(new AddModuleOperation(
@@ -214,7 +214,7 @@ public class HostingPackageTests
         {
             QueueCapacity = 16,
             StopTimeout = TimeSpan.FromSeconds(2),
-            IdleWait = TimeSpan.FromMilliseconds(1),
+            WatchdogInterval = TimeSpan.FromMilliseconds(20),
         }, catalog: new BuiltInExternalAccessCatalog());
 
         var added = runtime.Apply(ChangeSet.OfOne(new AddModuleOperation(

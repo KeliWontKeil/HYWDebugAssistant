@@ -84,4 +84,13 @@ public interface IExternalAccess
     /// </remarks>
     /// <param name="accessName">接入名。</param>
     Type? GetParametersType(string accessName) => null;
+
+    /// <summary>
+    /// **下一条周期性需求**：本实例的接入会话里最晚多久必须回来推进一次（无 ⇒ <see langword="null"/>）。
+    /// </summary>
+    /// <remarks>
+    /// 只为"没有事件也会变化"的会话准备（设备探活）；数据 / 开关 / 故障都有信号，不靠它。
+    /// 默认实现返回 <see langword="null"/>（未接线的替身不必关心）。
+    /// </remarks>
+    TimeSpan? NextWakeup => null;
 }

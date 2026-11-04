@@ -3,6 +3,7 @@ using HYWDebugAssistant.Modules.DataMonitor;
 using HYWDebugAssistant.Modules.HexSender;
 using HYWDebugAssistant.Modules.HexStringConverter;
 using HYWDebugAssistant.Modules.TextSender;
+using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Testing;
 using Shouldly;
 using Xunit;
@@ -1390,6 +1391,41 @@ public class BusinessModulesBehaviorTests
     /// 判据是**角色词**（`danger`）而不是"某个色值非空"：模块说的是"这一格要配色表里的失败色"，
     /// 具体是哪个红归用户设置管（这样改主题色 / 改 `SemanticError` 时模块侧零改动）。
     /// </remarks>
+    /// <summary>
+    /// **缓冲已满提示走模块自己的显示源**：只回答"有没有丢过"、不计数；
+    /// 界面上一块**固定高度**的 label 吃它（提示不改变文本区布局）。
+    /// </summary>
+    /// <remarks>
+    /// 模块问框架"这块缓冲满过吗"（<c>Display.IsFull</c>），只在状态翻转时写一次提示源 ——
+    /// 因此它不是控件自己弹的一块角，也不会每拍重复刷新。
+    /// </remarks>
+    [Fact]
+    public void 数据显示器_缓冲满过时_应在自己的提示源上给出固定文案_清空后收回()
+    {
+        var monitor = new DataMonitorModule();
+        var context = new TestModuleContext();
+        monitor.OnRegistered(context);
+
+        monitor.PumpOnce(context);
+        context.SetTexts
+            .Where(set => string.Equals(set.SourceName, DataMonitorModule.BufferFullSource, StringComparison.Ordinal))
+            .ShouldBeEmpty("没满过就不该出现提示");
+
+        context.FullDisplays.Add(DataMonitorModule.LogSource);
+        monitor.PumpOnce(context);
+
+        var hint = context.SetTexts
+            .Last(set => string.Equals(set.SourceName, DataMonitorModule.BufferFullSource, StringComparison.Ordinal));
+        hint.Text.ShouldBe(TextCatalog.Get(typeof(DataMonitorModule).Assembly, DataMonitorText.BufferFull));
+
+        context.FullDisplays.Remove(DataMonitorModule.LogSource);
+        monitor.PumpOnce(context);
+
+        context.SetTexts
+            .Last(set => string.Equals(set.SourceName, DataMonitorModule.BufferFullSource, StringComparison.Ordinal))
+            .Text.ShouldBeEmpty("清空之后这块缓冲不再满过");
+    }
+
     private static bool Alerted(TestModuleContext context, string sourceName)
     {
         var last = context.AppearanceReports

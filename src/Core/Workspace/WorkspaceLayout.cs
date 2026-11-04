@@ -19,6 +19,14 @@ public sealed class WorkspaceLayout
 {
     private readonly Dictionary<string, ModuleLayoutView> _modules = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, PortGeometryView>> _ports = new(StringComparer.Ordinal);
+    private long _revision;
+
+    /// <summary>布局修订号（位置 / 尺寸 / 端口几何的任何变化都会递增）。</summary>
+    /// <remarks>
+    /// 呈现层每帧读布局；把每个实例的位置与端口几何重新物化成视图对象没有意义 ——
+    /// 修订号让"没动过"的帧复用上一份。
+    /// </remarks>
+    public long Revision => Interlocked.Read(ref _revision);
 
     /// <summary>已摆放的模块视图（未摆放的实例不在其中）。</summary>
     public IReadOnlyList<ModuleLayoutView> Modules => [.. _modules.Values];
@@ -35,6 +43,7 @@ public sealed class WorkspaceLayout
     {
         ArgumentNullException.ThrowIfNull(layout);
         _modules[layout.InstanceId] = layout;
+        _ = Interlocked.Increment(ref _revision);
     }
 
     /// <summary>取某实例的全部端口几何（未调整过的端口不在其中）。</summary>
@@ -81,6 +90,7 @@ public sealed class WorkspaceLayout
         }
 
         ports[geometry.PortName] = geometry;
+        _ = Interlocked.Increment(ref _revision);
     }
 
     /// <summary>移除实例的布局与端口几何（实例移除时级联清理）。</summary>
@@ -88,8 +98,15 @@ public sealed class WorkspaceLayout
     {
         ArgumentNullException.ThrowIfNull(instanceId);
 
-        _ports.Remove(instanceId);
-        return _modules.Remove(instanceId);
+        _ = _ports.Remove(instanceId);
+
+        if (!_modules.Remove(instanceId))
+        {
+            return false;
+        }
+
+        _ = Interlocked.Increment(ref _revision);
+        return true;
     }
 
     /// <summary>清空（测试与"新现场"用）。</summary>
@@ -97,5 +114,6 @@ public sealed class WorkspaceLayout
     {
         _modules.Clear();
         _ports.Clear();
+        _ = Interlocked.Increment(ref _revision);
     }
 }

@@ -59,6 +59,9 @@ public sealed class RuntimeExternalAccess : IExternalAccess
         return didWork;
     }
 
+    /// <inheritdoc />
+    public TimeSpan? NextWakeup => _host.NextWakeup(_instanceId);
+
     /// <summary>参数变更：标记重启（下一拍关闭并用新参数重开）。</summary>
     public void NotifyConfigurationChanged() => _host.NotifyConfigurationChanged(_instanceId);
 
