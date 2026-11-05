@@ -9,7 +9,7 @@
 | 纯数据变换 | `samples/DataModule` | 类型 + 入口/出口 + 角色 | 转换、解析、聚合 |
 | 设备接入 | `samples/ExternalModule` | 上面再加一条外部接入（标准标识） | 串口 / TCP / UDP 接入 |
 | 带界面 | 任一 + `Sdk.Ui` | 再加显示源 / 输入 / 命令与视图工厂 | 发送器、监视器 |
-| 自发活动 | `samples/ActivityModule` | 实现 `IActivitySource`：`OnStep` + 相对 `NextDelay` | 周期采样、定时发送 |
+| 自发活动 | `samples/ActivityModule` | `IActivitySource` 的 `OnStep` + `IModuleContext.Timers` 周期定时器 | 周期采样、定时发送 |
 
 ## 七步
 
@@ -31,7 +31,7 @@
 | [项目与包布局](project-layout.md) | 最小文件集、`module.json` 字段、包内该有什么、不该有什么 |
 | [声明面](contracts.md) | 类型、端口、角色、显示源、命令、外部接入怎么声明，哪些会被拒 |
 | [实现](implementation.md) | 生命周期钩子、线程纪律、收发数据、发布状态 |
-| [自发活动](activity.md) | `OnStep` / `NextDelay` / `ReceiveMode`：周期、数据、会话、输入与停止 |
+| [自发活动与定时器](activity.md) | `OnStep` / `IModuleTimer` / `ReceiveMode`：周期、数据、会话、输入与停止 |
 | [界面](ui.md) | 视图工厂、控件库、绑定键与预览器限制 |
 | [资源与文本](resources.md) | 文本表、图标与模块自有资源如何随包分发 |
 | [测试与验证](testing.md) | 契约自检与行为测试怎么写，包怎么校验 |

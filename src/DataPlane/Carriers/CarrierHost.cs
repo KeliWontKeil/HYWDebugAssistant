@@ -10,7 +10,7 @@ namespace HYWDebugAssistant.DataPlane.Carriers;
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>归属</b>：L3 数据面持有承载者；实例的存在性与状态由 L2/L4 决定（C1-2）。</item>
-///   <item><b>线程数前提</b>：按活跃实例计（数十量级）；`Disabled` 的实例保留线程与资源，只停流。</item>
+///   <item><b>线程数前提</b>：按活跃实例计（数十量级）；`Disabled` 的实例保留线程与资源，线程暂停、不调用 `OnStep`。</item>
 ///   <item><b>停止超时</b>：返回结果供调用方（L4）转 Issue——宿主自身不依赖上报口（保持 L3 只依赖 L1/L0）。</item>
 /// </list>
 /// </remarks>
@@ -63,7 +63,12 @@ public sealed class CarrierHost : IDisposable
     /// <param name="target">承载目标。</param>
     /// <param name="carrier">成功时返回承载者。</param>
     /// <param name="failure">失败原因。</param>
-    public bool TryActivate(ICarrierTarget target, out ModuleCarrier? carrier, out string? failure)
+    /// <param name="startPaused">是否先停在暂停门（等生命周期钩子跑完再恢复）。</param>
+    public bool TryActivate(
+        ICarrierTarget target,
+        out ModuleCarrier? carrier,
+        out string? failure,
+        bool startPaused = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(target);
@@ -82,7 +87,7 @@ public sealed class CarrierHost : IDisposable
 
         try
         {
-            created.Start();
+            created.Start(startPaused);
         }
         catch (ThreadStateException ex)
         {

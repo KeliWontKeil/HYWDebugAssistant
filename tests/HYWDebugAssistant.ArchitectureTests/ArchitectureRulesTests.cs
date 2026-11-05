@@ -869,8 +869,8 @@ public class ArchitectureRulesTests
     /// **AR-23：模块包不得自行调度或调用平台专有 API**。
     /// </summary>
     /// <remarks>
-    /// 模块的周期用 <c>IActivitySource.NextDelay</c> 相对延迟声明，框架计时服务负责到期；定时器、Sleep、DispatcherTimer、P/Invoke
-    /// 都会让"全局唯一计时机制"失效，并让模块包无法跨平台。
+    /// 模块的周期用 <c>IModuleContext.Timers</c> 创建 <c>IModuleTimer</c>，框架计时服务负责调度并把 Tick
+    /// 投回实例线程；自建 Timer、Sleep、DispatcherTimer、P/Invoke 仍会破坏"全局唯一计时机制"并让模块包无法跨平台。
     /// </remarks>
     [Fact]
     public void AR23_模块包不得使用定时器或平台专有调度()
@@ -905,7 +905,7 @@ public class ArchitectureRulesTests
         }
 
         offenders.ShouldBeEmpty(
-            "模块必须用 IActivitySource.NextDelay 声明到期；不得自建定时器、Sleep、DispatcherTimer 或平台 API（AR-23）："
+            "模块必须用 IModuleContext.Timers 创建定时器；不得自建 Timer、Sleep、DispatcherTimer 或平台 API（AR-23）："
             + Environment.NewLine + string.Join(Environment.NewLine, offenders));
     }
 

@@ -49,7 +49,7 @@ M2 = Gate C UX 原型 + 完整 UI（控件目录全集 19 项）· M3 = 首批�
 
 **本轮（模块可独立开发：分层 · 对账 · 作者工具链 · 文档）**：① **分层**：外部接入面只搬原始字节（`Sdk.AccessKit` 移除类型声明与组帧，改为组合式 `ExternalAccessChannel`），数据类型与组帧由模块自己声明/实现；四个接入模块各自携带 `RawBytes`（不再由共享件代声明）。② **声明对账**：端口形状必须等于所引用类型形状；同标识两种形状报一条冲突；外部接入两种消费方式互斥；`IExternalAccess.Pump` 给活动体一个显式的会话推进入口。③ **作者工具链**：五个包（`Sdk` / `Sdk.Ui` / `Sdk.AccessKit` / `Sdk.Testing` / `Module.Build`），运行时包带 XML 文档；`Sdk.Testing` 与 `Module.Build` 属作者包（不随宿主、不进模块包，模块运行时引用即拒绝加载）；打包规则抽出 `build/module-package.targets`，仓库模块与外部作者共用。④ **样例**：`samples/DataModule`（纯数据变换）与 `samples/ExternalModule` 都只经作者包构建成薄包并能被宿主装入。⑤ **文档**：`docs/zh/module-dev/` 七页；数据类型约定、被拒原因、外部接入机制已并入对应层。⑥ **撤回**：`MaxUnitBytes` 的框架级校验（原始单元上限与端口形状的关系由模块自己的组帧决定，框架没有通用判据），结论登记在 `dev/constraints.md` 的例外说明。
 
-**本轮（活动契约回退与收尾）**：`IActivitySource` 恢复 `OnStep` + 相对 `NextDelay`，删除 `NextDue`/`IModuleClock`/`IModuleContext.Clock`、`IStopSignal`/`IModuleContext.StopSignal` 与测试专用承载 API；承载统一 step/投递两模式，`GlobalTimerService.WaitUntil` 死路径删除，`StepDueTimer` 补回上一到期推进的节拍补偿；`FrameBudgetTests` 与 Release 帧预算门禁删除，性能数值只记录、不设阈值。新登记设计债：生命周期钩子实际在管理线程、`OnActivated` 与首个 `OnStep(Start)` 无严格次序保证；禁用只停 due/流，不保证完全不调用 `OnStep`。另修：两个发送器只在 toggle 被接受/拒绝时写回连续开关，避免用旧读数覆盖并发用户输入（不稳定用例的根因）。
+**本轮（计时机制替换与 UI 热路径）**：`IActivitySource` 删除 `NextDelay`，`StepReason` 删除 `Due`；新增 `IModuleContext.Timers` / `IModuleTimer`（模块自持、框架调度、Tick 在实例线程），删除 `StepDueTimer` 与首条特殊分支；连续发送改由定时器驱动，4 ms 经验阈值与提示删除。承载增加非阻塞 posted-work 队列，定时器 Tick 与生命周期/OnStep 串行；实例禁用暂停定时器、移除统一释放。另修 UI 每帧热路径：配置 Schema 按变更号缓存、模块目录缓存、订阅最新值/曲线按 `Written` 缓存、隐藏窗口跳过表面刷新。版本升到 `0.0.0.10`，全部模块与测试桩已迁移。
 
 ---
 
@@ -89,7 +89,6 @@ M2 = Gate C UX 原型 + 完整 UI（控件目录全集 19 项）· M3 = 首批�
 | G2 | **日志能力未落地** | 只有 `logLevel`；**无「日志文件位置」键**，全仓无日志依赖、无文件 sink、无 `logs\` | 键清单**不含**该条；日志能力（sink + 文件位置 + 滚动 + 未处理异常兜底）随 M2 落地 |
 | G4 | **设置变更未走 ChangeSet 同一入口** | 设置更新**直连**设置服务，与「状态修改只有一条串行路径」不符 | 接入统一入口，或明确「设置走独立入口」及其并发保证 |
 | G5 | 设置文件 `schemaVersion` **未来版本门禁已补**；映射仍为手工读写（非源生成） | 当前版本 = **6**；v4 / v5 载入时折叠外观块与数据面 `flow` 块并写回新形状（旧根键删除）；更高版本 ⇒ 默认值 + Warning + **禁止写回**；映射仍是手写，但有设置往返与迁移用例 | 源生成是否补做待定（不阻塞） |
-| G6 | **承载参数类的注释与现行行为不符** | 注释写「`Disabled` 的实例不占线程」，实际 = **禁用保留线程与资源**（只 `Removed` 回收） | 改注释（以代码行为为准） |
 | G8 | **交付与运维整体未落地** | 便携包打包未做 · 无 RID / self-contained 配置 · 无日志 sink · 无未处理异常兜底 · 无 `THIRD_PARTY_NOTICES.md` | 打包与日志随 M2 落地；两种发布形态在发布阶段处理；NOTICE 由许可审计同一数据源导出 |
 | G9 | **波形 / FFT 依赖无条目** | CPM 中无 ScottPlot / FftSharp | 引入波形能力时一并加入并过许可门禁 |
 | G10 | **「命令合并」在实现侧未落地** | 有界收件箱容量 **64**、满则丢最旧并计数、入队**不去重** ⇒ 重复点击 = 重复入队 | 实现待补齐（设计语义「同命令已在待执行队列则不追加」不改写） |

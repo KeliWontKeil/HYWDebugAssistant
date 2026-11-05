@@ -64,6 +64,7 @@
     "hosting.package.manifestIdInvalid": "清单中的模块标识不合法：'{0}'（应为 作者/模块名，如 hyw/my-module）",
     "hosting.package.resourceInvalid": "清单声明的资源路径必须相对、且不得越界：'{0}'",
     "hosting.package.resourceMissing": "清单声明的资源目录不存在：'{0}'（模块包内容不完整）",
+    "hosting.timer.intervalPositive": "定时器间隔必须大于零",
     "hosting.registry.alreadyRegistered": "模块已注册（同 ID）：{0}"
   }
 }

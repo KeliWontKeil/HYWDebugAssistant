@@ -5,6 +5,7 @@ using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Timing;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Testing;
@@ -34,6 +35,7 @@ public sealed class TestModuleContext : IModuleContext
     private readonly Dictionary<string, object> _configuration = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<byte[]>> _published = new(StringComparer.Ordinal);
     private readonly Queue<(byte[] Payload, string PortName, Contracts.ContractLayout Layout)> _inbound = new();
+    private readonly TestModuleTimers _timers = new();
 
     private TestPortAccess? _portAccess;
 
@@ -181,6 +183,11 @@ public sealed class TestModuleContext : IModuleContext
 
     /// <inheritdoc />
     public IModuleInbox Inbox { get; } = new TestInbox();
+
+    /// <summary>测试用定时器集合。</summary>
+    public TestModuleTimers Timers => _timers;
+
+    IModuleTimers IModuleContext.Timers => _timers;
 
     /// <summary>
     /// **视图状态回读**（测试可预置）：模块读到的就是这里预置的值

@@ -37,6 +37,9 @@ public class ModuleSourceDiscoveryTests
 
         fixture.Services.GetModuleCatalog().Select(c => c.ModuleId)
             .ShouldBe(["hyw/alpha", "hyw/beta"], ignoreOrder: true);
+        fixture.Services.GetModuleCatalog().ShouldBeSameAs(
+            fixture.Services.GetModuleCatalog(),
+            "目录未重扫时应复用同一份快照，避免 UI 每帧重建");
     }
 
     [Fact]

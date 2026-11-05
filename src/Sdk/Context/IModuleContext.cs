@@ -5,6 +5,7 @@ using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Resources;
+using HYWDebugAssistant.Sdk.Timing;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Context;
@@ -434,6 +435,15 @@ public interface IModuleContext
 
     /// <summary>**人机操作收件箱**（命令 / 输入；模块在自身线程消费）。</summary>
     IModuleInbox Inbox { get; }
+
+    /// <summary>
+    /// **本实例的定时器工厂**：模块自行创建 / 启停 / 释放定时器，框架负责调度并把 Tick 投回实例线程。
+    /// </summary>
+    /// <remarks>
+    /// 未接线时回落到 <see cref="EmptyModuleTimers.Instance"/>：能创建但永不触发，
+    /// 与 <see cref="Access"/> 的"未接线不抛异常"取向一致。
+    /// </remarks>
+    IModuleTimers Timers => EmptyModuleTimers.Instance;
 
     /// <summary>
     /// **显示内容的请求面**（模块 → 框架的「请求」方向）：目前只有「**清空某个显示源**」。

@@ -233,6 +233,72 @@ public class DataPlaneCarrierTests
     }
 
     [Fact]
+    public void 暂停启动_恢复前不调用OnStep_恢复后才Start()
+    {
+        using var host = new CarrierHost();
+        using var started = new ManualResetEventSlim();
+        var target = new TestTarget("paused-start")
+        {
+            HasStepModel = true,
+            StepBody = _ => started.Set(),
+        };
+
+        host.TryActivate(target, out var carrier, out _, startPaused: true).ShouldBeTrue();
+        try
+        {
+            started.Wait(TimeSpan.FromMilliseconds(200)).ShouldBeFalse("暂停启动时不得调用 OnStep(Start)");
+
+            carrier!.Resume();
+            started.Wait(TimeSpan.FromSeconds(2)).ShouldBeTrue("恢复后应执行首个 OnStep(Start)");
+        }
+        finally
+        {
+            host.TryDeactivate("paused-start", out _);
+        }
+    }
+
+    [Fact]
+    public void 暂停中控制动作仍在实例线程执行()
+    {
+        using var host = new CarrierHost();
+        var stepThread = 0;
+        var target = new TestTarget("control-thread")
+        {
+            HasStepModel = true,
+            StepBody = _ => stepThread = Environment.CurrentManagedThreadId,
+        };
+
+        host.TryActivate(target, out var carrier, out _, startPaused: true).ShouldBeTrue();
+        try
+        {
+            var controlThread = 0;
+            carrier!.RunOnInstanceThread(() => controlThread = Environment.CurrentManagedThreadId).ShouldBeTrue();
+            controlThread.ShouldNotBe(Environment.CurrentManagedThreadId, "控制动作不得在调用方线程执行");
+
+            carrier.Resume();
+            WaitUntil(() => stepThread != 0, TimeSpan.FromSeconds(2)).ShouldBeTrue("恢复后应执行 OnStep");
+            stepThread.ShouldBe(controlThread, "控制动作与 OnStep 必须在同一实例线程");
+        }
+        finally
+        {
+            host.TryDeactivate("control-thread", out _);
+        }
+    }
+
+    [Fact]
+    public void 暂停中的承载可正常停止()
+    {
+        using var host = new CarrierHost();
+        var target = new TestTarget("paused-stop") { HasStepModel = true };
+
+        host.TryActivate(target, out var carrier, out _, startPaused: true).ShouldBeTrue();
+        host.TryDeactivate("paused-stop", out var result).ShouldBeTrue();
+
+        result.ShouldBe(CarrierStopResult.Stopped);
+        carrier!.IsRunning.ShouldBeFalse();
+    }
+
+    [Fact]
     public void 无承载的口_入队应被拒绝并立即计入丢弃()
     {
         // **每口一条队列** ⇒ 口不存在就**没有队列可入**：「无承载」是**入队即失败**，

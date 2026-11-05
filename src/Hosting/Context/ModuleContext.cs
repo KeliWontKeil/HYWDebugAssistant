@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using HYWDebugAssistant.Hosting.Diagnostics;
+using HYWDebugAssistant.Hosting.Timing;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Context;
@@ -7,6 +8,7 @@ using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Resources;
+using HYWDebugAssistant.Sdk.Timing;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Hosting.Context;
@@ -24,7 +26,7 @@ namespace HYWDebugAssistant.Hosting.Context;
 ///   <item><b>配置读写</b>：✅ 内存实现 + **组合件快照/恢复**（M1-8：保存时按类型快照、加载时在 <c>OnActivated</c> 前恢复）。</item>
 /// </list>
 /// </remarks>
-public sealed class ModuleContext : IModuleContext
+public sealed class ModuleContext : IModuleContext, IDisposable
 {
     private readonly List<PortDeclaration> _ports = [];
     private readonly List<DataTypeDeclaration> _dataTypes = [];
@@ -38,6 +40,8 @@ public sealed class ModuleContext : IModuleContext
     private readonly Dictionary<string, ReceiveHandler> _receiveHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, object> _configuration = new(StringComparer.Ordinal);
     private readonly Lock _configurationGate = new();
+    private long _configurationVersion;
+    private readonly ModuleTimerSet _timers = new();
     private readonly string _objectPath;
 
     /// <summary>创建上下文。</summary>
@@ -63,7 +67,10 @@ public sealed class ModuleContext : IModuleContext
         Log = new NullModuleLogger();
         State = new NullBusinessStateReporter();
         Ports = new PlaceholderPortAccess(_receiveHandlers);
-        Configuration = new InMemoryConfigurationAccess(_configuration, _configurationGate);
+        Configuration = new InMemoryConfigurationAccess(
+            _configuration,
+            _configurationGate,
+            () => Interlocked.Increment(ref _configurationVersion));
         Inbox = new BoundedInbox();
         Appearance = AppearanceStore;
     }
@@ -105,6 +112,17 @@ public sealed class ModuleContext : IModuleContext
 
     /// <inheritdoc />
     public IModuleInbox Inbox { get; }
+
+    /// <inheritdoc />
+    public IModuleTimers Timers => _timers;
+
+    /// <summary>
+    /// **定时器集合的框架侧句柄**（承载者挂接、暂停/恢复与移除清理用；模块作者只使用 <see cref="Timers"/>）。
+    /// </summary>
+    public ModuleTimerSet TimerSet => _timers;
+
+    /// <summary>释放本上下文持有的定时器集合（实例移除时由运行时调用；幂等）。</summary>
+    public void Dispose() => _timers.Dispose();
 
     /// <summary>
     /// **视图状态回读**（只读快照）——由 L4 在创建实例时注入
@@ -252,6 +270,12 @@ public sealed class ModuleContext : IModuleContext
     }
 
     /// <summary>
+    /// **配置变更号**（框架内部：Schema / 表单缓存的失效依据；每次配置对象被替换时递增）。
+    /// </summary>
+    /// <remarks>不序列化、不进入组合件；模块作者不使用。</remarks>
+    public long ConfigurationVersion => Interlocked.Read(ref _configurationVersion);
+
+    /// <summary>
     /// **按类型登记一份配置**（框架内部：外部接入的参数类型由标准目录的 descriptor 给出，
     /// 框架据此让配置表单与持久化自动复用该类型）。
     /// </summary>
@@ -285,6 +309,7 @@ public sealed class ModuleContext : IModuleContext
                 }
 
                 _configuration[key] = created;
+                _ = Interlocked.Increment(ref _configurationVersion);
                 return created;
             }
             catch (Exception ex) when (ex is MissingMethodException
@@ -312,6 +337,7 @@ public sealed class ModuleContext : IModuleContext
         lock (_configurationGate)
         {
             _configuration[typeFullName] = configuration;
+            _ = Interlocked.Increment(ref _configurationVersion);
         }
     }
 
@@ -342,6 +368,7 @@ public sealed class ModuleContext : IModuleContext
                 }
             }
 
+            _ = Interlocked.Increment(ref _configurationVersion);
             return true;
         }
     }
@@ -611,7 +638,10 @@ public sealed class ModuleContext : IModuleContext
     /// "读即登记"是必要的：模块通常只读不改，若不登记，保存组合件时该实例的配置会**整块丢失**、
     /// 配置表单也无字段可编辑（配置是"随组合件保存的实例参数"——主文档 §9.2）。
     /// </remarks>
-    private sealed class InMemoryConfigurationAccess(Dictionary<string, object> store, Lock gate) : IConfigurationAccess
+    private sealed class InMemoryConfigurationAccess(
+        Dictionary<string, object> store,
+        Lock gate,
+        Action onChanged) : IConfigurationAccess
     {
         public T Read<T>()
             where T : class, new()
@@ -627,6 +657,7 @@ public sealed class ModuleContext : IModuleContext
 
                 var created = new T();
                 store[key] = created;
+                onChanged();
                 return created;
             }
         }
@@ -639,6 +670,7 @@ public sealed class ModuleContext : IModuleContext
             lock (gate)
             {
                 store[typeof(T).FullName!] = configuration;
+                onChanged();
             }
         }
     }

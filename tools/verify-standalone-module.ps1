@@ -7,7 +7,7 @@
     这条验证回答"外部作者只靠作者包能不能写出可被宿主装入的模块"，覆盖三种最典型的模块形态：
       · samples/ExternalModule（外部接入：声明标准标识，自己组帧）
       · samples/DataModule（纯数据变换：两端口 + 一类型 + 角色，无外部接入）
-      · samples/ActivityModule（step：OnStep + NextDelay，无端口）
+      · samples/ActivityModule（定时器：IModuleTimer，无端口）
     步骤：
       1. `tools/pack-sdk.ps1` 生成 artifacts/sdk-packages（五个包）；
       2. 三个样例只经 PackageReference 还原并构建（不引用仓库工程）；

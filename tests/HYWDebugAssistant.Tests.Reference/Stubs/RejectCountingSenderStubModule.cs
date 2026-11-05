@@ -5,6 +5,7 @@ using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Timing;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Tests.Reference.Stubs;
@@ -62,12 +63,11 @@ public sealed class RejectCountingSenderStubModule : IModule, IActivitySource
 
     private ulong _sent;
     private ulong _rejected;
+    private IModuleTimer? _timer;
+    private IModuleContext? _context;
 
     /// <inheritdoc />
     public ReceiveMode Receive => ReceiveMode.Push;
-
-    /// <inheritdoc />
-    public TimeSpan? NextDelay => TimeSpan.FromMilliseconds(IntervalMs);
 
     /// <summary>构造一个 `{ len, data }` 定长单元（与正式发送器同一口径：`data` 尾部补零）。</summary>
     /// <param name="text">要承载的文本。</param>
@@ -102,25 +102,39 @@ public sealed class RejectCountingSenderStubModule : IModule, IActivitySource
         // 测试按名字读这两个计数 ⇒ 必须在代码里声明显示源（声明是缓冲的唯一来源）。
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(SentSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(RejectedSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
+
+        _context = context;
+        _timer = context.Timers.Create();
+        _timer.Interval = TimeSpan.FromMilliseconds(IntervalMs);
+        _timer.Tick += OnTimerTick;
     }
 
     /// <inheritdoc />
     public void OnStep(IModuleContext context, StepReason reason)
     {
         ArgumentNullException.ThrowIfNull(context);
+        _context = context;
 
         if (reason.HasFlag(StepReason.Start))
         {
             // 先落一次样本（`Latest` 读 0 也能读：样本尺寸在首写之前是 0，先写入者定槽）
             context.Ports.Publish(SentSource, BitConverter.GetBytes(0UL));
             context.Ports.Publish(RejectedSource, BitConverter.GetBytes(0UL));
+            _timer?.Start();
+            _ = Send(context);
         }
+    }
 
-        if (!reason.HasFlag(StepReason.Start) && !reason.HasFlag(StepReason.Due))
+    private void OnTimerTick(object? sender, EventArgs e)
+    {
+        if (_context is { } context)
         {
-            return;
+            _ = Send(context);
         }
+    }
 
+    private bool Send(IModuleContext context)
+    {
         if (context.Ports.TrySend(OutPort, EncodeUnit("tick")))
         {
             _sent++;
@@ -132,5 +146,7 @@ public sealed class RejectCountingSenderStubModule : IModule, IActivitySource
             _rejected++;
             context.Ports.Publish(RejectedSource, BitConverter.GetBytes(_rejected));
         }
+
+        return true;
     }
 }

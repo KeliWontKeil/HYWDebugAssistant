@@ -17,8 +17,8 @@ namespace HYWDebugAssistant.Sdk.Lifecycle;
 /// </list>
 /// <para>
 /// <b>异常纪律</b>：钩子中的异常不得逸出边界——框架受控捕获并转 Issue（AC-2）。
-/// <b>线程</b>：生命周期钩子由框架在**管理线程**上调用；<c>OnStep</c> 与接收回调才在实例专属线程上调用。
-/// 模块不得自建线程。
+/// <b>线程</b>：<c>OnRegistered</c> 在实例线程创建前由创建方（管理线程）调用；其余五个钩子由框架在
+/// **该实例的专属线程**上调用，与 <c>OnStep</c>、接收回调同线程。模块不得自建线程。
 /// </para>
 /// </remarks>
 public interface IModule
@@ -48,7 +48,7 @@ public interface IModule
     {
     }
 
-    /// <summary>移除前调用：释放模块**内部**资源（句柄、文件、缓冲等）。</summary>
+    /// <summary>移除前、实例线程停止前调用：释放模块**内部**资源（句柄、文件、缓冲等）。</summary>
     void OnRemoved()
     {
     }
@@ -72,9 +72,6 @@ public enum StepReason
 
     /// <summary>收件箱里有输入值。</summary>
     Input = 16,
-
-    /// <summary>模块声明的周期到期（<see cref="IActivitySource.NextDelay"/>）。</summary>
-    Due = 32,
 }
 
 /// <summary>端口/外部接入的数据消费方式（每个模块统一一种，避免两个消费者）。</summary>
@@ -93,28 +90,21 @@ public enum ReceiveMode
 /// <remarks>
 /// <para>
 /// 框架为该实例分配专属线程，并在**工作出现时**调用一次 <see cref="OnStep"/>；
-/// 模块只描述"我这一步要做什么"与"下次最早什么时候需要因时间被唤醒"，**不拥有循环**。
+/// 模块只描述"我这一步要做什么"，**不拥有循环**。
 /// </para>
 /// <para>
 /// <b>外部 IO 不在这里</b>：串口 / TCP / UDP 等外部标准由外部接入的适配件实现，框架驱动会话；
 /// 模块不因外部 IO 建循环。step 模块在外部接入上走**读取面**，没有 step 的模块由框架回调投递。
 /// </para>
-/// <para>模块**不得自建线程或定时器**（框架承担线程分配与等待）。</para>
+/// <para>
+/// 模块**不得自建线程或系统定时器**；需要周期时使用
+/// <see cref="HYWDebugAssistant.Sdk.Context.IModuleContext.Timers"/> 创建的 <c>IModuleTimer</c>。
+/// </para>
 /// </remarks>
 public interface IActivitySource
 {
     /// <summary>端口/外部接入的数据消费方式（默认由框架回调投递）。</summary>
     ReceiveMode Receive => ReceiveMode.Push;
-
-    /// <summary>
-    /// 距离下一次因时间被唤醒的**相对延迟**（从框架排定这一刻起算；
-    /// <see langword="null"/> = 没有周期需求）。
-    /// </summary>
-    /// <remarks>
-    /// 普通输入/命令/会话事件不改变已排好的到期；只有延迟值变化、Start/ Due 或模块自己改变它
-    /// 时才重排。框架计时服务负责到期，模块不等待、也不需要知道绝对时间基准。
-    /// </remarks>
-    TimeSpan? NextDelay => null;
 
     /// <summary>一步：处理本拍合并后的工作原因（由框架在实例线程调用）。</summary>
     /// <param name="context">模块上下文。</param>

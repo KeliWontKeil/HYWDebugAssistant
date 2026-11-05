@@ -31,5 +31,4 @@ public static class TextSenderText
     public const string StatusPageEmptyContinuous = "status.pageEmptyContinuous";
     public const string StatusUnknownCommand = "status.unknownCommand";
     public const string StatusSplitPackets = "status.splitPackets";
-    public const string StatusIntervalTooSmall = "status.intervalTooSmall";
 }

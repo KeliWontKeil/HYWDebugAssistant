@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using HYWDebugAssistant.Core.Api;
@@ -61,6 +62,15 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     /// <summary>布局视图的缓存（键 = 布局修订号）。</summary>
     private IReadOnlyList<Api.ModuleLayoutView>? _layoutCache;
     private long _layoutKey = -1;
+
+    /// <summary>配置 Schema 缓存（键 = 实例；失效依据 = 配置变更号 + UI 语言）。</summary>
+    private readonly Lock _schemaCacheGate = new();
+    private readonly Dictionary<string, (long Version, string Language, ConfigurationSchemaView Schema)> _schemaCache =
+        new(StringComparer.Ordinal);
+
+    /// <summary>模块目录视图缓存（只随扫描/注册变化；UI 每帧刷新不再逐项建行）。</summary>
+    private readonly Lock _catalogGate = new();
+    private IReadOnlyList<ModuleCatalogEntryView>? _catalogCache;
 
     /// <summary>一条连接 / 一个口用的四个速率计（单元 · 搬运字节 · 有效载荷字节；样本档由单元档乘系数）。</summary>
     private sealed class BindingRateMeters
@@ -322,6 +332,12 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         }
 
         _moduleSources = results;
+
+        lock (_catalogGate)
+        {
+            _catalogCache = null;
+        }
+
         return installed;
     }
 
@@ -624,8 +640,17 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     }
 
     /// <inheritdoc />
-    public CommandResult RemoveModule(string instanceId) =>
-        Map(_runtime.Apply(ChangeSet.OfOne(new RemoveModuleOperation(instanceId))));
+    public CommandResult RemoveModule(string instanceId)
+    {
+        var result = Map(_runtime.Apply(ChangeSet.OfOne(new RemoveModuleOperation(instanceId))));
+
+        lock (_schemaCacheGate)
+        {
+            _ = _schemaCache.Remove(instanceId);
+        }
+
+        return result;
+    }
 
     /// <inheritdoc />
     public CommandResult SetModuleEnabled(string instanceId, bool enabled) =>
@@ -1772,30 +1797,42 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<ModuleCatalogEntryView> GetModuleCatalog() =>
-        [.. _registry.Definitions.Select(d =>
+    public IReadOnlyList<ModuleCatalogEntryView> GetModuleCatalog()
+    {
+        lock (_catalogGate)
         {
-            _ = _modulePackages.TryGetValue(d.Id.ToString(), out var package);
-            var preview = package?.PackageDirectory is { Length: > 0 } directory
-                ? Path.Combine(directory, "preview.png")
-                : null;
-            if (preview is not null && !File.Exists(preview))
+            if (_catalogCache is { } cached)
             {
-                preview = null;
+                return cached;
             }
 
-            return new ModuleCatalogEntryView(
-                d.Id.ToString(),
-                d.DisplayName,
-                d.Description,
-                d.Capabilities.ToString(),
-                package?.Root,
-                package?.NeedsRestart ?? false,
-                d.Tags,
-                package?.IsExternal ?? false,
-                preview);
-        })];
+            var catalog = _registry.Definitions.Select(d =>
+            {
+                _ = _modulePackages.TryGetValue(d.Id.ToString(), out var package);
+                var preview = package?.PackageDirectory is { Length: > 0 } directory
+                    ? Path.Combine(directory, "preview.png")
+                    : null;
+                if (preview is not null && !File.Exists(preview))
+                {
+                    preview = null;
+                }
 
+                return new ModuleCatalogEntryView(
+                    d.Id.ToString(),
+                    d.DisplayName,
+                    d.Description,
+                    d.Capabilities.ToString(),
+                    package?.Root,
+                    package?.NeedsRestart ?? false,
+                    d.Tags,
+                    package?.IsExternal ?? false,
+                    preview);
+            }).ToList();
+
+            _catalogCache = catalog;
+            return catalog;
+        }
+    }
     /// <summary>
     /// 模块包的来源信息（**NeedsRestart 在扫描时算一次并缓存**）：
     /// 该判定要访问文件系统，若每次查询都现算，界面每帧刷新就会变成每秒数百次目录枚举。
@@ -2083,11 +2120,27 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             return false;
         }
 
-        schema = ConfigurationSchemaBuilder.Build(
-            instanceId,
-            instance.Context.ConfigurationSnapshot,
-            instance.Module.GetType().Assembly);
-        return true;
+        var version = instance.Context.ConfigurationVersion;
+        var language = CultureInfo.CurrentUICulture.Name;
+
+        lock (_schemaCacheGate)
+        {
+            if (_schemaCache.TryGetValue(instanceId, out var cached)
+                && cached.Version == version
+                && string.Equals(cached.Language, language, StringComparison.Ordinal))
+            {
+                schema = cached.Schema;
+                return true;
+            }
+
+            schema = ConfigurationSchemaBuilder.Build(
+                instanceId,
+                instance.Context.ConfigurationSnapshot,
+                instance.Module.GetType().Assembly);
+
+            _schemaCache[instanceId] = (version, language, schema);
+            return true;
+        }
     }
 
     /// <inheritdoc />

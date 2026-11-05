@@ -13,7 +13,8 @@ namespace HYWDebugAssistant.Hosting.Lifecycle;
 ///   <item><b>权威</b>：状态由框架维护（模块不得自定状态）；</item>
 ///   <item><b>异常边界</b>：钩子异常一律捕获 → Issue，**不中断框架流程**、不影响其他模块（AC-2）；</item>
 ///   <item><b>非法转换</b>：按状态机拒绝并报 Issue（例如对已移除的实例再激活）；</item>
-///   <item><b>线程</b>：由调用方（L4 变更流程）在管理线程上调用；step 与接收回调才在实例专属线程上运行。</item>
+///   <item><b>线程</b>：本类不负责线程调度；L4 必须把钩子经承载控制队列送到实例线程执行。
+///     直接调用本类只用于状态机单测，不能作为运行时路径。</item>
 /// </list>
 /// </remarks>
 public sealed class ModuleLifecycleController

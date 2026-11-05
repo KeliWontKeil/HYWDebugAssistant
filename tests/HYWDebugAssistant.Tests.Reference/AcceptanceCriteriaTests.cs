@@ -12,6 +12,7 @@ using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Timing;
 using HYWDebugAssistant.Sdk.Views;
 using HYWDebugAssistant.Tests.Reference.Stubs;
 using Shouldly;
@@ -450,23 +451,42 @@ public class AcceptanceCriteriaTests
 
         public ReceiveMode Receive => ReceiveMode.Push;
 
-        public TimeSpan? NextDelay => TimeSpan.FromMilliseconds(5);
-
         private uint _value;
+        private IModuleTimer? _timer;
+        private IModuleContext? _context;
 
         public void OnRegistered(IModuleContext context)
         {
             context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape));
             context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration("value", ViewDataSourceKind.Value, ContractPrimitive.F32));
+
+            _context = context;
+            _timer = context.Timers.Create();
+            _timer.Interval = TimeSpan.FromMilliseconds(5);
+            _timer.Tick += OnTimerTick;
+        }
+
+        private void OnTimerTick(object? sender, EventArgs e)
+        {
+            if (_context is { } context)
+            {
+                Send(context);
+            }
         }
 
         public void OnStep(IModuleContext context, StepReason reason)
         {
-            if (!reason.HasFlag(StepReason.Start) && !reason.HasFlag(StepReason.Due))
-            {
-                return;
-            }
+            _context = context;
 
+            if (reason.HasFlag(StepReason.Start))
+            {
+                _timer?.Start();
+                Send(context);
+            }
+        }
+
+        private void Send(IModuleContext context)
+        {
             Span<byte> payload = stackalloc byte[4];
             Span<byte> sample = stackalloc byte[4];
             BinaryPrimitives.WriteUInt32LittleEndian(payload, _value++);
@@ -530,23 +550,42 @@ public class AcceptanceCriteriaTests
 
         public ReceiveMode Receive => ReceiveMode.Push;
 
-        public TimeSpan? NextDelay => TimeSpan.FromMilliseconds(5);
-
         private uint _id;
+        private IModuleTimer? _timer;
+        private IModuleContext? _context;
 
         public void OnRegistered(IModuleContext context)
         {
             context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape));
             context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(ValueSource, ViewDataSourceKind.Value, ContractPrimitive.U32));
+
+            _context = context;
+            _timer = context.Timers.Create();
+            _timer.Interval = TimeSpan.FromMilliseconds(5);
+            _timer.Tick += OnTimerTick;
+        }
+
+        private void OnTimerTick(object? sender, EventArgs e)
+        {
+            if (_context is { } context)
+            {
+                Send(context);
+            }
         }
 
         public void OnStep(IModuleContext context, StepReason reason)
         {
-            if (!reason.HasFlag(StepReason.Start) && !reason.HasFlag(StepReason.Due))
-            {
-                return;
-            }
+            _context = context;
 
+            if (reason.HasFlag(StepReason.Start))
+            {
+                _timer?.Start();
+                Send(context);
+            }
+        }
+
+        private void Send(IModuleContext context)
+        {
             Span<byte> unit = stackalloc byte[Layout.SizeInBytes];
             Span<byte> sample = stackalloc byte[4];
             var writer = new PayloadWriter(unit, Layout);

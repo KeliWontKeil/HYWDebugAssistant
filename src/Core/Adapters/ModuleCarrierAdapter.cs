@@ -23,18 +23,15 @@ public sealed class ModuleCarrierAdapter : ICarrierTarget
     private readonly IIssueSink _issues;
     private readonly string _objectPath;
     private readonly IReadOnlyList<string> _receivePorts;
-    private readonly StepDueTimer? _dueTimer;
 
     /// <summary>创建适配器。</summary>
     /// <param name="instance">模块实例。</param>
     /// <param name="context">该实例的模块上下文（Hosting 的最小实现）。</param>
     /// <param name="issues">框架侧上报口（通常是 Issue 中心）。</param>
-    /// <param name="dueTimer">相对到期调度（可选；无 step 能力的模块不需要）。</param>
     internal ModuleCarrierAdapter(
         ModuleInstance instance,
         ModuleContext context,
-        IIssueSink issues,
-        StepDueTimer? dueTimer = null)
+        IIssueSink issues)
     {
         ArgumentNullException.ThrowIfNull(instance);
         ArgumentNullException.ThrowIfNull(context);
@@ -44,7 +41,6 @@ public sealed class ModuleCarrierAdapter : ICarrierTarget
         _context = context;
         _issues = issues;
         _objectPath = $"module:{instance.InstanceId}";
-        _dueTimer = dueTimer;
         _receivePorts = [.. instance.Ports
             .Where(p => p.Direction == PortDirection.Receive)
             .Select(p => p.Name)];
@@ -83,17 +79,7 @@ public sealed class ModuleCarrierAdapter : ICarrierTarget
         }
 
         source.OnStep(_context, reason);
-        _dueTimer?.Arm(source.NextDelay);
     }
-
-    /// <summary>暂停到期调度（实例禁用时；到期回调不应再唤醒承载者）。</summary>
-    internal void PauseDue() => _dueTimer?.Pause();
-
-    /// <summary>恢复到期调度（实例重新启用时，按最近一次声明的延迟从现在重排）。</summary>
-    internal void ResumeDue() => _dueTimer?.Resume();
-
-    /// <summary>移除实例时取消到期调度。</summary>
-    internal void DisposeDue() => _dueTimer?.Dispose();
 
     /// <inheritdoc />
     public bool HasAuxiliaryWork => _instance.Context.Access is RuntimeExternalAccess;

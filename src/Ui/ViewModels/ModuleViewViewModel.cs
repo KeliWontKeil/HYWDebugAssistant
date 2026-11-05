@@ -654,6 +654,11 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <param name="sources">本帧的订阅源快照（窗口集统一取一次；<see langword="null"/> = 每个视图自己取）。</param>
     public void RefreshView(IReadOnlyCollection<SubscriptionSourceView>? sources = null)
     {
+        if (!IsViewVisible)
+        {
+            return;
+        }
+
         if (_view is { } view)
         {
             // 每帧先刷新数据源快照，再让视图读它（数据源视图对象是每帧重建的）。

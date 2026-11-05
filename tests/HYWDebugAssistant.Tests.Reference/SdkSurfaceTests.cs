@@ -102,7 +102,6 @@ public class SdkSurfaceTests
 
         var activity = (IActivitySource)module;
         activity.Receive.ShouldBe(ReceiveMode.Push);
-        activity.NextDelay.ShouldBeNull();
 
         var context = new TestModuleContext();
         module.OnRegistered(context);

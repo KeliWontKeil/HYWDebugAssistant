@@ -10,6 +10,7 @@ using HYWDebugAssistant.Sdk.Views;
 using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Timing;
 using Shouldly;
 using Xunit;
 
@@ -86,20 +87,39 @@ public class ActiveReceiveTests
     {
         public static readonly ContractShape Shape = ContractShape.OfPrimitive(ContractPrimitive.U32);
 
-        public TimeSpan? NextDelay => TimeSpan.FromMilliseconds(1);
-
-        public void OnRegistered(IModuleContext context) =>
-            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, Shape));
-
         private uint _value;
+        private IModuleTimer? _timer;
+        private IModuleContext? _context;
+
+        public void OnRegistered(IModuleContext context)
+        {
+            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, Shape));
+            _context = context;
+            _timer = context.Timers.Create();
+            _timer.Interval = TimeSpan.FromMilliseconds(1);
+            _timer.Tick += OnTimerTick;
+        }
+
+        private void OnTimerTick(object? sender, EventArgs e)
+        {
+            if (_context is { } context)
+            {
+                Send(context);
+            }
+        }
 
         public void OnStep(IModuleContext context, StepReason reason)
         {
-            if (!reason.HasFlag(StepReason.Due))
-            {
-                return;
-            }
+            _context = context;
 
+            if (reason.HasFlag(StepReason.Start))
+            {
+                _timer?.Start();
+            }
+        }
+
+        private void Send(IModuleContext context)
+        {
             Span<byte> unit = stackalloc byte[sizeof(uint)];
             BinaryPrimitives.WriteUInt32LittleEndian(unit, _value++);
             _ = context.Ports.TrySend("out", unit);

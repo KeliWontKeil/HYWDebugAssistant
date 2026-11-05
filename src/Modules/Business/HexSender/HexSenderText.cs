@@ -21,5 +21,4 @@ public static class HexSenderText
     public const string StatusHexNonHex = "status.hex.nonHex";
     public const string StatusUnknownCommand = "status.unknownCommand";
     public const string StatusSplitPackets = "status.splitPackets";
-    public const string StatusIntervalTooSmall = "status.intervalTooSmall";
 }

@@ -221,6 +221,9 @@ public class BusinessModulesIntegrationTests
         services.TryGetConfigurationSchema("s1", out var schema).ShouldBeTrue();
         schema.ShouldNotBeNull();
 
+        services.TryGetConfigurationSchema("s1", out var schemaAgain).ShouldBeTrue();
+        schemaAgain.ShouldBeSameAs(schema, "配置未变时应复用同一份 Schema，而不是每帧反射重建");
+
         // ① 五个串口参数都在 —— 判据是"读一次配置就登记"，不是"表单里恰好有这几行"
         schema!.Fields.Select(field => field.Name).ShouldBe(
             ["PortName", "BaudRate", "DataBits", "StopBits", "Parity"],
@@ -249,6 +252,7 @@ public class BusinessModulesIntegrationTests
         services.UpdateConfigurationField("s1", "BaudRate", "Baud9600").Succeeded.ShouldBeTrue();
         services.TryGetConfigurationSchema("s1", out var updated).ShouldBeTrue();
         updated!.Fields.Single(field => field.Name == "BaudRate").Value.ShouldBe("Baud9600");
+        updated.ShouldNotBeSameAs(schema, "配置变更后必须换一份 Schema");
     }
 
     /// <summary>

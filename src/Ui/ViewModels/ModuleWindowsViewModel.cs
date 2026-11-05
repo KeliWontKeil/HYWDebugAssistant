@@ -2661,6 +2661,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         foreach (var module in Modules)
         {
+            if (!module.IsViewVisible)
+            {
+                continue;
+            }
+
             // 显示写入已在模块实例线程直达显示缓冲（唯一写者 = 实例线程）；本帧只刷新视图。
 
             // 口标记的网络信息（连接状态 + **投递量与估算字节**）与**角色方块**：
@@ -2681,7 +2686,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         {
             foreach (var module in Modules)
             {
-                RefreshRoleLinks(module);
+                if (module.IsViewVisible)
+                {
+                    RefreshRoleLinks(module);
+                }
             }
         }
 

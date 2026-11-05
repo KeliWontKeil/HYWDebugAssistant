@@ -44,6 +44,12 @@ internal sealed class SurfaceSourceReader
     private readonly double[] _seriesValues = new double[MaxSeriesPoints];
     private readonly Dictionary<(string InstanceId, string Source), SubscriptionSourceView> _sources = [];
 
+    /// <summary>最新值缓存（同一个 <c>Written</c> ⇒ 样本没有变化，直接复用解码结果）。</summary>
+    private readonly Dictionary<(string InstanceId, string Source), (long Written, double? Value)> _latestCache = [];
+
+    /// <summary>曲线缓存（同一个 <c>Written</c> + 取样上限 ⇒ 结果没有变化）。</summary>
+    private readonly Dictionary<(string InstanceId, string Source, int MaxSamples), (long Written, IReadOnlyList<double> Values)> _seriesCache = [];
+
     /// <summary>显示缓冲的最近一次快照（同一个变更号 ⇒ 直接复用，不再复制行表）。</summary>
     private readonly Dictionary<(string InstanceId, string Source), BufferSnapshot> _bufferCache = [];
 
@@ -86,18 +92,29 @@ internal sealed class SurfaceSourceReader
             return null;
         }
 
+        var key = (instanceId, sourceName);
+
+        if (_latestCache.TryGetValue(key, out var cached) && cached.Written == source.Written)
+        {
+            return cached.Value;
+        }
+
         var sampleSize = SampleSizeOf(source);
 
         if (sampleSize <= 0 || sampleSize > _sampleScratch.Length)
         {
+            _latestCache[key] = (source.Written, null);
             return null;
         }
 
-        return _query.TryReadLatest(source.InstanceId, source.DataSourceName, _sampleScratch, out var length)
+        var value = _query.TryReadLatest(source.InstanceId, source.DataSourceName, _sampleScratch, out var length)
             && length == sampleSize
             && Decode(source, _sampleScratch.AsSpan(0, length), out var decoded)
                 ? decoded
-                : null;
+                : (double?)null;
+
+        _latestCache[key] = (source.Written, value);
+        return value;
     }
 
     /// <summary>读某个源的**滚动窗口**（时间升序；超出上限即等间隔降采样，不插值）。</summary>
@@ -111,18 +128,28 @@ internal sealed class SurfaceSourceReader
             return [];
         }
 
+        var maxSamples = MaxSeriesPoints;
+        var key = (instanceId, sourceName, maxSamples);
+
+        if (_seriesCache.TryGetValue(key, out var cached) && cached.Written == source.Written)
+        {
+            return cached.Values;
+        }
+
         var sampleSize = SampleSizeOf(source);
 
         if (sampleSize <= 0 || sampleSize > MaxSampleSize)
         {
+            _seriesCache[key] = (source.Written, []);
             return [];
         }
 
-        var maxSamples = Math.Min(MaxSeriesPoints, _seriesScratch.Length / sampleSize);
-        var count = _query.ReadSeries(source.InstanceId, source.DataSourceName, _seriesScratch, maxSamples);
+        var sampleCapacity = Math.Min(MaxSeriesPoints, _seriesScratch.Length / sampleSize);
+        var count = _query.ReadSeries(source.InstanceId, source.DataSourceName, _seriesScratch, sampleCapacity);
 
         if (count <= 0)
         {
+            _seriesCache[key] = (source.Written, []);
             return [];
         }
 
@@ -138,19 +165,26 @@ internal sealed class SurfaceSourceReader
             points.Add(value);
         }
 
+        IReadOnlyList<double> result;
+
         if (points.Count <= MaxSeriesPoints)
         {
-            return points;
+            result = points;
         }
-
-        var step = (double)points.Count / MaxSeriesPoints;
-
-        for (var i = 0; i < MaxSeriesPoints; i++)
+        else
         {
-            _seriesValues[i] = points[(int)(i * step)];
+            var step = (double)points.Count / MaxSeriesPoints;
+
+            for (var i = 0; i < MaxSeriesPoints; i++)
+            {
+                _seriesValues[i] = points[(int)(i * step)];
+            }
+
+            result = _seriesValues.ToArray();
         }
 
-        return _seriesValues.ToArray();
+        _seriesCache[key] = (source.Written, result);
+        return result;
     }
 
     /// <summary>

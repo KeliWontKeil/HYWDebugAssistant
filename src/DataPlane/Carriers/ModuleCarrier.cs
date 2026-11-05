@@ -118,9 +118,19 @@ public sealed class ModuleCarrier : IDisposable
     /// <summary>实际醒来的次数（诊断：空闲时它应当只随兜底间隔增长）。</summary>
     private long _wakeups;
 
+    /// <summary>生命周期控制动作（只在实例线程执行；与数据/step 共用同一条线程）。</summary>
+    private readonly Lock _controlGate = new();
+    private readonly Queue<ControlRequest> _controls = [];
+
+    /// <summary>定时器 Tick 等待派发的动作（计时线程入队、实例线程执行；不阻塞、不跑模块代码在计时线程）。</summary>
+    private readonly Lock _postGate = new();
+    private readonly Queue<Action> _posts = [];
+
     private volatile bool _stopRequested;
     private volatile bool _stopped;
     private volatile bool _orphaned;
+    private volatile bool _paused;
+    private bool _accepting;
     private bool _disposed;
 
     /// <summary>创建承载者（构造后需调用 <see cref="Start"/>）。</summary>
@@ -203,6 +213,33 @@ public sealed class ModuleCarrier : IDisposable
     /// </remarks>
     public void SignalWork() => SignalDataAvailable();
 
+    /// <summary>
+    /// 把一个动作排到实例线程执行（**不等待**；定时器 Tick 派发使用）。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="RunOnInstanceThread"/> 的区别：本方法不阻塞调用方，也不保证动作一定执行
+    /// （暂停、停止、释放时排队项会被丢弃）——定时器 Tick 是"可合并的唤醒"，不是必须兑现的请求。
+    /// </remarks>
+    /// <param name="action">要执行的动作（必须短小，不得阻塞）。</param>
+    /// <returns>是否已排入；暂停/停止/释放时为 <see langword="false"/>。</returns>
+    public bool Post(Action action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+
+        lock (_postGate)
+        {
+            if (_stopRequested || _disposed || _paused)
+            {
+                return false;
+            }
+
+            _posts.Enqueue(action);
+        }
+
+        SignalDataAvailable();
+        return true;
+    }
+
     /// <summary>给 step 模型投一个工作原因（命令/输入/会话等；非 step 目标忽略）。</summary>
     /// <param name="reason">工作原因。</param>
     public void SignalReasons(StepReason reason)
@@ -216,8 +253,12 @@ public sealed class ModuleCarrier : IDisposable
         SignalDataAvailable();
     }
 
-    /// <summary>启动专属线程（进入 Active）。</summary>
-    public void Start()
+    /// <summary>是否处于暂停（禁用）状态。</summary>
+    public bool IsPaused => _paused;
+
+    /// <summary>启动专属线程；<paramref name="paused"/> = 先停在暂停门，等生命周期钩子跑完再恢复。</summary>
+    /// <param name="paused">是否以暂停状态启动。</param>
+    public void Start(bool paused = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -226,7 +267,98 @@ public sealed class ModuleCarrier : IDisposable
             throw new InvalidOperationException(DataPlaneText.Get("dataplane.carrier.alreadyStarted", InstanceId));
         }
 
-        _thread.Start();
+        lock (_controlGate)
+        {
+            _paused = paused;
+            _accepting = true;
+        }
+
+        try
+        {
+            _thread.Start();
+        }
+        catch
+        {
+            lock (_controlGate)
+            {
+                _accepting = false;
+                _controls.Clear();
+            }
+
+            throw;
+        }
+    }
+
+    /// <summary>暂停承载：当前 step 跑完后不再进入下一拍；控制动作仍可执行。</summary>
+    public void Pause()
+    {
+        if (_stopRequested || _disposed)
+        {
+            return;
+        }
+
+        lock (_postGate)
+        {
+            _paused = true;
+            _posts.Clear();
+        }
+
+        SignalDataAvailable();
+    }
+
+    /// <summary>恢复承载：从暂停门后继续；首个 <c>OnStep(Start)</c> 在恢复后才发生。</summary>
+    public void Resume()
+    {
+        if (_stopRequested || _disposed)
+        {
+            return;
+        }
+
+        lock (_postGate)
+        {
+            _paused = false;
+            _posts.Clear();
+        }
+
+        SignalDataAvailable();
+    }
+
+    /// <summary>
+    /// 在实例线程上执行一个控制动作（生命周期钩子用），并等待完成。
+    /// </summary>
+    /// <remarks>
+    /// 承载已停止/不再接收时返回 <see langword="false"/>；**不回退到调用方线程**。
+    /// 动作异常经 <see cref="ICarrierTarget.ReportFailure"/> 上报后同样返回 false。
+    /// </remarks>
+    /// <param name="action">要执行的动作（必须是短小的生命周期钩子调用）。</param>
+    /// <returns>动作是否成功执行。</returns>
+    public bool RunOnInstanceThread(Action action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+
+        if (Environment.CurrentManagedThreadId == _thread.ManagedThreadId)
+        {
+            action();
+            return true;
+        }
+
+        ControlRequest request;
+
+        lock (_controlGate)
+        {
+            if (!_accepting || _stopRequested || _disposed)
+            {
+                return false;
+            }
+
+            request = new ControlRequest(action);
+            _controls.Enqueue(request);
+        }
+
+        SignalDataAvailable();
+        var success = request.Wait();
+        request.Dispose();
+        return success;
     }
 
     /// <summary>取某个接收口的队列（口不存在时返回 <see langword="false"/>）。</summary>
@@ -446,6 +578,11 @@ public sealed class ModuleCarrier : IDisposable
         _stopRequested = true;
         SignalDataAvailable();
 
+        lock (_postGate)
+        {
+            _posts.Clear();
+        }
+
         // 先清尾：这一步同时把"停止要等多久"从"排空整条积压"降成"等当前这一个单元处理完"
         PurgeQueues();
     }
@@ -491,6 +628,21 @@ public sealed class ModuleCarrier : IDisposable
 
         _disposed = true;
 
+        lock (_controlGate)
+        {
+            _accepting = false;
+
+            while (_controls.TryDequeue(out var request))
+            {
+                request.Complete(success: false);
+            }
+        }
+
+        lock (_postGate)
+        {
+            _posts.Clear();
+        }
+
         if (!_stopped && !_stopRequested)
         {
             _ = Stop(_options.StopTimeout);
@@ -519,6 +671,21 @@ public sealed class ModuleCarrier : IDisposable
         }
         finally
         {
+            lock (_controlGate)
+            {
+                _accepting = false;
+
+                while (_controls.TryDequeue(out var request))
+                {
+                    request.Complete(success: false);
+                }
+            }
+
+            lock (_postGate)
+            {
+                _posts.Clear();
+            }
+
             _stopped = true;
         }
     }
@@ -531,6 +698,22 @@ public sealed class ModuleCarrier : IDisposable
         while (!_stopRequested)
         {
             _work.Reset();
+
+            if (TryRunControl())
+            {
+                continue;
+            }
+
+            if (_paused)
+            {
+                WaitForNextWork();
+                continue;
+            }
+
+            if (TryRunPosted())
+            {
+                continue;
+            }
 
             var reasons = (StepReason)Interlocked.Exchange(ref _pendingReasons, 0L);
 
@@ -600,6 +783,22 @@ public sealed class ModuleCarrier : IDisposable
             // **先清标记再干活**：标记在"入队之后"才被清，期间到来的信号不会被这一次清掉。
             _work.Reset();
 
+            if (TryRunControl())
+            {
+                continue;
+            }
+
+            if (_paused)
+            {
+                WaitForNextWork();
+                continue;
+            }
+
+            if (TryRunPosted())
+            {
+                continue;
+            }
+
             var didWork = false;
 
             // 工作源 ②/③：外部接入会话 + 收件箱（由框架驱动）
@@ -623,6 +822,65 @@ public sealed class ModuleCarrier : IDisposable
             // **没有活干**：还有未消费的信号就直接下一轮（不睡），否则等"下一个信号 / 到期 / 兜底"。
             WaitForNextWork();
         }
+    }
+
+    /// <summary>执行一个已排到实例线程的动作（定时器 Tick 派发）。</summary>
+    private bool TryRunPosted()
+    {
+        Action? action;
+
+        lock (_postGate)
+        {
+            if (_paused || !_posts.TryDequeue(out action))
+            {
+                return false;
+            }
+        }
+
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            // 定时器 Tick 的异常由 Timer 自身捕获并停表；这里兜住派发边界，绝不让它逸出实例线程。
+            _target.ReportFailure(ex);
+        }
+
+        return true;
+    }
+
+    /// <summary>执行一个排队的生命周期控制动作（只在实例线程调用）。</summary>
+    private bool TryRunControl()
+    {
+        ControlRequest? request;
+
+        lock (_controlGate)
+        {
+            if (!_controls.TryDequeue(out request))
+            {
+                return false;
+            }
+        }
+
+        try
+        {
+            request.Action();
+            request.Complete(success: true);
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                _target.ReportFailure(ex);
+            }
+            finally
+            {
+                request.Complete(success: false);
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -678,8 +936,8 @@ public sealed class ModuleCarrier : IDisposable
     /// 下一次最多等多久：兜底间隔与会话探活取小。
     /// </summary>
     /// <remarks>
-    /// 等待本身**不是投递节拍**：数据 / 命令 / 会话事件由信号立即唤醒，这里只决定"完全没有事件时"的兜底。
-    /// 模块周期到期由 <c>StepDueTimer</c> 投工作信号，不由本方法承担。
+    /// 等待本身**不是投递节拍**：数据 / 命令 / 会话 / 定时器 Tick 都由 posted-work 立即排入并唤醒，
+    /// 这里只决定"完全没有事件时"的兜底。
     /// </remarks>
     private TimeSpan NextWait()
     {
@@ -777,6 +1035,29 @@ public sealed class ModuleCarrier : IDisposable
         {
             _ = Interlocked.And(ref _readyMask, ~(1L << index));
         }
+    }
+
+    /// <summary>在实例线程上执行的一次控制动作（生命周期钩子）。</summary>
+    private sealed class ControlRequest(Action action) : IDisposable
+    {
+        private readonly ManualResetEventSlim _done = new(initialState: false);
+        private bool _success;
+
+        public Action Action { get; } = action;
+
+        public void Complete(bool success)
+        {
+            _success = success;
+            _done.Set();
+        }
+
+        public bool Wait()
+        {
+            _done.Wait();
+            return _success;
+        }
+
+        public void Dispose() => _done.Dispose();
     }
 
     private void SignalDataAvailable()

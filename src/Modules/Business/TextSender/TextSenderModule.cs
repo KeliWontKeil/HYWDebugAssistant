@@ -7,6 +7,7 @@ using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Timing;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Modules.TextSender;
@@ -204,6 +205,10 @@ public sealed class TextSenderModule : IModule, IActivitySource
             Tr(TextSenderText.RoleSend)));
 
         DeclareUi(context);
+
+        _context = context;
+        _timer = context.Timers.Create();
+        _timer.Tick += OnTimerTick;
     }
 
     /// <summary>
@@ -243,23 +248,11 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// <inheritdoc />
     public ReceiveMode Receive => ReceiveMode.Push;
 
-    /// <summary>
-    /// 下一次因时间需要被唤醒的**相对延迟**（连续发送时；否则没有周期需求）。
-    /// </summary>
-    public TimeSpan? NextDelay =>
-        _continuous && _intervalMs is { } interval
-            ? _fireImmediately
-                ? TimeSpan.Zero
-                : TimeSpan.FromMilliseconds(Math.Max(1, interval))
-            : null;
-
-    /// <summary>刚开启连续发送 ⇒ 下一拍立即到期；首条发出后回到正常间隔。</summary>
-    private bool _fireImmediately;
-
     /// <inheritdoc />
     public void OnStep(IModuleContext context, StepReason reason)
     {
         ArgumentNullException.ThrowIfNull(context);
+        _context = context;
 
         if (reason.HasFlag(StepReason.Start))
         {
@@ -268,28 +261,66 @@ public sealed class TextSenderModule : IModule, IActivitySource
             context.Ports.Publish(SentSource, CountPayload(0));
         }
 
-        var wasContinuous = _continuous && _intervalMs is not null;
+        _ = Tick(context, shouldSend: false);
+        SyncTimer(context);
+    }
 
-        _ = Tick(context, shouldSend: reason.HasFlag(StepReason.Due));
-
-        if (reason.HasFlag(StepReason.Due))
+    /// <summary>定时器 Tick：只在实例线程触发，和 OnStep 串行。</summary>
+    private void OnTimerTick(object? sender, EventArgs e)
+    {
+        if (_context is not { } context)
         {
-            _fireImmediately = false;
+            return;
         }
 
-        if (_continuous && !wasContinuous)
+        _ = Tick(context, shouldSend: true);
+        SyncTimer(context);
+    }
+
+    /// <summary>把“连续发送 + 可用间隔”落到唯一一个定时器上。</summary>
+    private void SyncTimer(IModuleContext context)
+    {
+        _ = context;
+
+        if (_timer is null)
         {
-            // 打开连续发送：下一拍立即发一条；发送完成后由 NextDelay 回到正常间隔。
-            _fireImmediately = true;
+            return;
         }
 
-        if (!_continuous)
+        if (_continuous && _intervalMs is { } interval)
         {
-            _fireImmediately = false;
+            var desired = TimeSpan.FromMilliseconds(Math.Max(1, interval));
+
+            if (_timer.Interval != desired)
+            {
+                _timer.Interval = desired;
+            }
+
+            if (!_timer.IsEnabled)
+            {
+                _timer.Start();
+            }
+
+            return;
+        }
+
+        if (_timer.IsEnabled)
+        {
+            _timer.Stop();
         }
     }
 
     // ---------------------------------------------------------------- ④ 接线与业务
+
+    private IModuleTimer? _timer;
+    private IModuleContext? _context;
+
+    /// <summary>移除前释放定时器（框架也会兜底释放；这里保持模块自己的资源纪律）。</summary>
+    public void OnRemoved()
+    {
+        _timer?.Dispose();
+        _timer = null;
+    }
 
     private ulong _sent;
 
@@ -379,9 +410,6 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// </summary>
     /// <remarks>有上限是刻意的：**接受范围 = 存储范围 = 报错文案里的范围**，三者必须同一个值。</remarks>
     public const int MaxIntervalMs = 86_400_000;
-
-    /// <summary>**可靠的最小间隔（ms）**：Windows 计时器/线程调度粒度下，更小间隔不保证准确。</summary>
-    public const int MinAccurateIntervalMs = 4;
 
 
     /// <summary>
@@ -707,18 +735,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
             return new Verdict(false, message, pageSource);
         }
 
-        // ④ 间隔过小（可用但不保证准确）：只提示，**不阻止发送、不标红、不动开关**。
-        if (_intervalState == IntervalState.Usable
-            && _intervalMs is { } smallMs
-            && smallMs < MinAccurateIntervalMs)
-        {
-            return new Verdict(
-                !pageEmpty,
-                Tr(TextSenderText.StatusIntervalTooSmall, MinAccurateIntervalMs),
-                null);
-        }
-
-        // ⑤ 一切正常 ⇒ 发得出去、不说话、不标红
+        // ④ 一切正常 ⇒ 发得出去、不说话、不标红
         return new Verdict(!pageEmpty, null, null);
     }
 

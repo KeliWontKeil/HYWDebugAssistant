@@ -196,6 +196,10 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
     /// <summary>未过滤的全量模块（分类与搜索在内存里过滤，避免每帧扫状态）。</summary>
     private readonly List<ModuleCatalogRowViewModel> _allModules = [];
 
+    /// <summary>上一次消费的目录/实例快照：引用都没变 ⇒ 这一帧没有任何目录工作。</summary>
+    private IReadOnlyList<ModuleCatalogEntryView>? _lastCatalog;
+    private IReadOnlyList<ModuleInstanceView>? _lastInstances;
+
     /// <summary>搜索文本（按名称/描述/标签匹配；空 = 不过滤）。</summary>
     [ObservableProperty]
     public partial string? SearchText { get; set; }
@@ -423,9 +427,20 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
     /// </remarks>
     public void Refresh()
     {
+        var catalogEntries = _query.GetModuleCatalog();
+        var instances = _query.GetInstances();
+
+        if (ReferenceEquals(catalogEntries, _lastCatalog) && ReferenceEquals(instances, _lastInstances))
+        {
+            return;
+        }
+
+        _lastCatalog = catalogEntries;
+        _lastInstances = instances;
+
         var selectedModuleId = SelectedCatalogEntry?.ModuleId;
 
-        var catalog = _query.GetModuleCatalog()
+        var catalog = catalogEntries
             .Select(entry => new ModuleCatalogRowViewModel(
                 entry.ModuleId,
                 entry.DisplayName,
@@ -453,7 +468,7 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
 
         var selectedPlaceholderId = SelectedPlaceholder?.InstanceId;
 
-        var placeholders = _query.GetInstances()
+        var placeholders = instances
             .Where(instance => instance.IsPlaceholder)
             .Select(instance => new PlaceholderRowViewModel(instance.InstanceId, instance.ModuleId))
             .ToList();

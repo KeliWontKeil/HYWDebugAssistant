@@ -205,7 +205,7 @@ public class BusinessModulesBehaviorTests
     }
 
     [Fact]
-    public void 文本发送器_间隔小于四毫秒应提示但不拦发送不标红()
+    public void 文本发送器_小间隔不提示不拦发送不标红()
     {
         var module = new TextSenderModule();
         var context = new TestModuleContext();
@@ -216,13 +216,13 @@ public class BusinessModulesBehaviorTests
 
         module.PumpOnce(context);
 
-        Message(context).ShouldNotBeNullOrEmpty("间隔过小应给出非错误提示（内容由文案表决定）");
+        Message(context).ShouldBeNullOrEmpty("定时器 API 不再用经验毫秒阈值提示；间隔本身仍可用");
         Alerted(context, page).ShouldBeFalse("提示不标红");
         Alerted(context, TextSenderModule.IntervalSource).ShouldBeFalse("不标间隔那一格");
 
         context.ViewState.SetInputText(TextSenderModule.IntervalSource, "4");
         module.PumpOnce(context);
-        Message(context).ShouldBeNullOrEmpty("4ms 是可靠下限，不提示");
+        Message(context).ShouldBeNullOrEmpty("4ms 同样不提示（没有经验下限）");
     }
 
     [Fact]
@@ -247,7 +247,7 @@ public class BusinessModulesBehaviorTests
     }
 
     [Fact]
-    public void HEX发送器_间隔小于四毫秒应提示但不拦发送不标红()
+    public void HEX发送器_小间隔不提示不拦发送不标红()
     {
         var module = new HexSenderModule();
         var context = new TestModuleContext();
@@ -258,13 +258,13 @@ public class BusinessModulesBehaviorTests
 
         module.PumpOnce(context);
 
-        Message(context).ShouldNotBeNullOrEmpty("间隔过小应给出非错误提示（内容由文案表决定）");
+        Message(context).ShouldBeNullOrEmpty("定时器 API 不再用经验毫秒阈值提示；间隔本身仍可用");
         Alerted(context, page).ShouldBeFalse("提示不标红");
         Alerted(context, HexSenderModule.IntervalSource).ShouldBeFalse("不标间隔那一格");
 
         context.ViewState.SetInputText(HexSenderModule.IntervalSource, "4");
         module.PumpOnce(context);
-        Message(context).ShouldBeNullOrEmpty("4ms 是可靠下限，不提示");
+        Message(context).ShouldBeNullOrEmpty("4ms 同样不提示（没有经验下限）");
     }
 
 

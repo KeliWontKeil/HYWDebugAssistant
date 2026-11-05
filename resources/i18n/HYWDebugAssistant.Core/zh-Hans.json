@@ -66,6 +66,7 @@
     "core.runtime.accessDualConsumer": "外部接入「{0}」同时使用了回调投递与主动读取；两种消费方式只能选一种，后一次调用已拒绝",
     "core.runtime.activityFailure": "模块执行异常退出：{0} — {1}（该实例已停止活动，其余部分不受影响）",
     "core.runtime.carrierStartFailed": "传输通道启动失败：{0}；该实例已加入但没有活动，可移除后重试",
+    "core.runtime.lifecycleDispatchFailed": "生命周期钩子 {0} 未能在实例线程执行；该实例保持当前状态，未完成本次切换",
     "core.runtime.commandDelivered": "已投递命令「{0}」→ {1}",
     "core.runtime.commandUndeclared": "模块未声明命令：{0}.{1}",
     "core.runtime.configItemUnresolved": "配置项 '{0}' 无法解析（已跳过，原样保留）：{1}",

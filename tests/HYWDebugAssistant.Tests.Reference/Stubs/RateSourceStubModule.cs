@@ -8,6 +8,7 @@ using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Timing;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Tests.Reference.Stubs;
@@ -77,12 +78,11 @@ public sealed class RateSourceStubModule : IModule, IActivitySource
     private RateSourceStubConfig _config = new();
     private bool _configDirty = true;
     private ulong _tick;
+    private IModuleTimer? _timer;
+    private IModuleContext? _context;
 
     /// <inheritdoc />
     public ReceiveMode Receive => ReceiveMode.Push;
-
-    /// <inheritdoc />
-    public TimeSpan? NextDelay => TimeSpan.FromMilliseconds(Math.Max(1, _config.IntervalMs));
 
     /// <summary>把数值格式化成单元里的文本（不变量文化：与显示器、断言口径一致）。</summary>
     /// <param name="value">数值。</param>
@@ -126,6 +126,10 @@ public sealed class RateSourceStubModule : IModule, IActivitySource
         // 声明缺失时框架不建缓冲（写入被丢弃），现场表现是"订阅源列表里没有这一条"。
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(ValueSource, ViewDataSourceKind.Value, ContractPrimitive.F32));
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(TickSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
+
+        _context = context;
+        _timer = context.Timers.Create();
+        _timer.Tick += OnTimerTick;
     }
 
     /// <inheritdoc />
@@ -135,7 +139,27 @@ public sealed class RateSourceStubModule : IModule, IActivitySource
     public void OnStep(IModuleContext context, StepReason reason)
     {
         ArgumentNullException.ThrowIfNull(context);
+        _context = context;
+        RefreshConfig(context);
 
+        if (reason.HasFlag(StepReason.Start))
+        {
+            _timer?.Start();
+            _ = Send(context);
+        }
+    }
+
+    private void OnTimerTick(object? sender, EventArgs e)
+    {
+        if (_context is { } context)
+        {
+            RefreshConfig(context);
+            _ = Send(context);
+        }
+    }
+
+    private void RefreshConfig(IModuleContext context)
+    {
         if (_configDirty)
         {
             // **配置热生效**：与 UI 同一条命令写回 ⇒ 下一步就按新配置发数
@@ -143,16 +167,25 @@ public sealed class RateSourceStubModule : IModule, IActivitySource
             _configDirty = false;
         }
 
-        if (!reason.HasFlag(StepReason.Start) && !reason.HasFlag(StepReason.Due))
+        if (_timer is not null)
         {
-            return;
-        }
+            var interval = TimeSpan.FromMilliseconds(Math.Max(1, _config.IntervalMs));
 
+            if (_timer.Interval != interval)
+            {
+                _timer.Interval = interval;
+            }
+        }
+    }
+
+    private bool Send(IModuleContext context)
+    {
         var value = _config.Value;
 
         _ = context.Ports.TrySend(OutPort, EncodeUnit(value));
         context.Ports.Publish(ValueSource, BitConverter.GetBytes((float)value));
         context.Ports.Publish(TickSource, BitConverter.GetBytes(_tick));
         _tick++;
+        return true;
     }
 }

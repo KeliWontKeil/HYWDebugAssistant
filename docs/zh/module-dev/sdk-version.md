@@ -15,7 +15,7 @@
 ## 版本
 
 - 只有一个版本号：`主.小.修订.轮次`，产品、发布清单与全部作者包共用。
-- 引用时把版本写死（例如 `0.0.0.9`），一次构建的五个包版本必须相同。
+- 引用时把版本写死（例如 `0.0.0.10`），一次构建的五个包版本必须相同。
 - 没有"Sdk 版本"这种第二个版本轴：包是产品的派生，不单独编号。
 
 ## 兼容
@@ -25,6 +25,7 @@
 - 运行时按**简单名**绑定：按旧包编译的模块可能绑到新宿主，但 API 变化会在类型加载/第一次调用时失败。
 - 升级 SDK 后**重编模块**是唯一正确做法；`0.x` 期间不承诺旧包可加载。
 - 本次 `0.0.0.8 → 0.0.0.9` 包含：`IActivitySource` 用 `OnStep` + 相对 `NextDelay`，删除 `IModuleClock`/`IModuleContext.Clock`、`IStopSignal`/`IModuleContext.StopSignal`、`IModuleInteractionSink`、`DisplayDelta`/`DisplayCursor`；`Sdk.Ui` 的 `TextBufferSnapshot.Sequence` 与 `ReadTextRevision` 的默认实现一并删除。旧模块必须重编。
+- 本次 `0.0.0.9 → 0.0.0.10` 包含：删除 `IActivitySource.NextDelay` 与 `StepReason.Due`，新增 `IModuleContext.Timers` / `IModuleTimer`（模块自持定时器，Tick 在实例线程触发）；周期模块改用 `context.Timers.Create()`。旧模块必须重编。
 - 加载失败时，错误文案会带上"编译时引用的 SDK 版本"，用于判断是否该重编。
 
 ## 什么时候必须重编

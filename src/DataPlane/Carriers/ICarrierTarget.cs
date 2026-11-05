@@ -51,8 +51,8 @@ public interface ICarrierTarget
     /// **下一条外部探活需求的到期时间**（离现在多久；<see langword="null"/> = 没有）。
     /// </summary>
     /// <remarks>
-    /// 它**不承担数据延迟**：数据到达不依赖它。模块自己的周期到期由 <c>StepDueTimer</c>
-    /// 通过工作信号投递，不走本属性。
+    /// 它**不承担数据延迟**：数据到达不依赖它。模块自己的周期由 <c>IModuleTimer</c> 的
+    /// posted Tick 驱动，不走本属性。
     /// </remarks>
     TimeSpan? NextWakeupDue => null;
 

@@ -13,6 +13,7 @@ using HYWDebugAssistant.DataPlane.Queues;
 using HYWDebugAssistant.Hosting.Context;
 using HYWDebugAssistant.Hosting.Instances;
 using HYWDebugAssistant.Hosting.Lifecycle;
+using HYWDebugAssistant.Hosting.Timing;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Lifecycle;
@@ -88,17 +89,7 @@ public sealed partial class ModuleRuntime : IDisposable
 
     private ModuleCarrierAdapter CreateAdapter(ModuleInstance instance)
     {
-        var dueTimer = instance.ActivitySource is null
-            ? null
-            : new StepDueTimer(reason =>
-            {
-                if (Carriers.TryGet(instance.InstanceId, out var carrier) && carrier is not null)
-                {
-                    carrier.SignalReasons(reason);
-                }
-            });
-
-        return new ModuleCarrierAdapter(instance, instance.Context, Issues, dueTimer);
+        return new ModuleCarrierAdapter(instance, instance.Context, Issues);
     }
 
     /// <summary>
@@ -123,8 +114,10 @@ public sealed partial class ModuleRuntime : IDisposable
             _accesses[instance.InstanceId] = runtimeAccess;
         }
 
-        if (!Carriers.TryActivate(adapter, out _, out var failure))
+        if (!Carriers.TryActivate(adapter, out var carrier, out var failure, startPaused: true)
+            || carrier is null)
         {
+            instance.Context.TimerSet.Dispose();
             Issues.Report($"module:{instance.InstanceId}", new IssueReport(
                 IssueCategory.RuntimeError,
                 IssueSeverity.Error,
@@ -132,16 +125,48 @@ public sealed partial class ModuleRuntime : IDisposable
             return false;
         }
 
-        _lifecycle.Activate(instance);
+        // 定时器在生命周期钩子之前接上投递入口，但保持暂停；Resume/Suspend 由下面的状态决定。
+        instance.Context.TimerSet.Attach(
+            carrier.Post,
+            exception => Issues.Report($"module:{instance.InstanceId}", new IssueReport(
+                IssueCategory.ModuleError,
+                IssueSeverity.Error,
+                CoreText.Get("core.runtime.activityFailure", exception.GetType().Name, exception.Message))));
 
-        if (!enabled)
+        if (!carrier.RunOnInstanceThread(() => _ = _lifecycle.Activate(instance)))
         {
-            adapter.PauseDue();
-            _lifecycle.Disable(instance);
+            ReportLifecycleFailure(instance, nameof(IModule.OnActivated));
+            instance.Context.TimerSet.Dispose();
+            _ = Carriers.TryDeactivate(instance.InstanceId, out _);
+            return false;
+        }
+
+        if (enabled)
+        {
+            instance.Context.TimerSet.Resume();
+            carrier.Resume();
+        }
+        else
+        {
+            instance.Context.TimerSet.Suspend();
+
+            if (!carrier.RunOnInstanceThread(() => _ = _lifecycle.Disable(instance)))
+            {
+                ReportLifecycleFailure(instance, nameof(IModule.OnDisabled));
+            }
+
             runtimeAccess?.SetSuspended(true);
         }
 
         return true;
+    }
+
+    private void ReportLifecycleFailure(ModuleInstance instance, string hookName)
+    {
+        Issues.Report($"module:{instance.InstanceId}", new IssueReport(
+            IssueCategory.RuntimeError,
+            IssueSeverity.Error,
+            CoreText.Get("core.runtime.lifecycleDispatchFailed", hookName)));
     }
 
     private void SignalInputChanged(string instanceId)
@@ -946,41 +971,66 @@ public sealed partial class ModuleRuntime : IDisposable
             return;
         }
 
+        if (!Carriers.TryGet(instanceId, out var carrier) || carrier is null)
+        {
+            ReportLifecycleFailure(instance, enabled ? nameof(IModule.OnEnabled) : nameof(IModule.OnDisabled));
+            return;
+        }
+
+        // 钩子与 OnStep 不并发：先停在暂停门，钩子在实例线程执行完再决定是否恢复。
+        carrier.Pause();
+
         if (enabled)
         {
-            _lifecycle.Enable(instance);
-
-            if (_adapters.TryGetValue(instanceId, out var resumedAdapter) && resumedAdapter is not null)
+            if (!carrier.RunOnInstanceThread(() => _ = _lifecycle.Enable(instance)))
             {
-                resumedAdapter.ResumeDue();
+                ReportLifecycleFailure(instance, nameof(IModule.OnEnabled));
+                return;
             }
+
+            // 先恢复绑定/会话，再放行承载；启用期间不补发停用时的积压。
+            SetSuspended(instanceId, suspended: false);
+
+            if (_accesses.TryGetValue(instanceId, out var resumedAccess))
+            {
+                resumedAccess.SetSuspended(false);
+            }
+
+            instance.Context.TimerSet.Resume();
+            carrier.Resume();
         }
         else
         {
-            if (_adapters.TryGetValue(instanceId, out var pausedAdapter) && pausedAdapter is not null)
+            instance.Context.TimerSet.Suspend();
+
+            if (!carrier.RunOnInstanceThread(() => _ = _lifecycle.Disable(instance)))
             {
-                pausedAdapter.PauseDue();
+                ReportLifecycleFailure(instance, nameof(IModule.OnDisabled));
+                instance.Context.TimerSet.Resume();
+                carrier.Resume();
+                return;
             }
 
-            _lifecycle.Disable(instance);
+            // Disabled = 保留实例/拓扑/配置、**暂停数据流**（绑定保留，只停流；会话关闭但保留意图）
+            SetSuspended(instanceId, suspended: true);
+
+            if (_accesses.TryGetValue(instanceId, out var suspendedAccess))
+            {
+                suspendedAccess.SetSuspended(true);
+            }
+
+            // 承载已暂停，循环不会再泵会话；在实例线程补一次泵，让"暂停"立即落到关闭状态。
+            if (_adapters.TryGetValue(instanceId, out var pausedAdapter2) && pausedAdapter2 is not null)
+            {
+                _ = carrier.RunOnInstanceThread(() => _ = pausedAdapter2.PumpAuxiliary());
+            }
+
+            // 暂停也清尾：停流之后队列里剩下的单元没有消费方，留着只会让"已入队"变成假账
+            carrier.PurgeQueues();
         }
 
         // 状态进"实例视图"：修订号不变时呈现层会复用上一份快照，状态切换必须让它作废。
         Content.Touch();
-
-        // Disabled = 保留实例/拓扑/配置、**暂停数据流**（绑定保留，只停流；会话关闭但保留意图）
-        SetSuspended(instanceId, suspended: !enabled);
-
-        if (!enabled && Carriers.TryGet(instanceId, out var suspendedCarrier) && suspendedCarrier is not null)
-        {
-            // 暂停也清尾：停流之后队列里剩下的单元没有消费方，留着只会让"已入队"变成假账
-            suspendedCarrier.PurgeQueues();
-        }
-
-        if (_accesses.TryGetValue(instanceId, out var access))
-        {
-            access.SetSuspended(!enabled);
-        }
     }
 
     /// <summary>置某实例相关绑定为停流 / 恢复（禁用与加载降级态共用同一语义）。</summary>
@@ -1020,7 +1070,7 @@ public sealed partial class ModuleRuntime : IDisposable
 
         if (notify)
         {
-            _lifecycle.NotifyConfigurationChanged(instance);
+            NotifyLifecycleConfigurationChanged(instance);
             NotifyAccessConfigurationChanged(instanceId);
         }
     }
@@ -1030,8 +1080,22 @@ public sealed partial class ModuleRuntime : IDisposable
     {
         if (Content.TryGetInstance(instanceId, out var instance) && instance is not null)
         {
-            _lifecycle.NotifyConfigurationChanged(instance);
+            NotifyLifecycleConfigurationChanged(instance);
             NotifyAccessConfigurationChanged(instanceId);
+        }
+    }
+
+    private void NotifyLifecycleConfigurationChanged(ModuleInstance instance)
+    {
+        if (!Carriers.TryGet(instance.InstanceId, out var carrier) || carrier is null)
+        {
+            ReportLifecycleFailure(instance, nameof(IModule.OnConfigurationChanged));
+            return;
+        }
+
+        if (!carrier.RunOnInstanceThread(() => _lifecycle.NotifyConfigurationChanged(instance)))
+        {
+            ReportLifecycleFailure(instance, nameof(IModule.OnConfigurationChanged));
         }
     }
 
@@ -1059,7 +1123,7 @@ public sealed partial class ModuleRuntime : IDisposable
             return;
         }
 
-        // 级联：先拆绑定（快照），再停承载，最后钩子 + 移出现场
+        // 级联：先拆绑定（快照）→ 暂停承载并在实例线程执行 OnRemoved → 停承载 → 移出现场
         BindingSet current, updated;
         IReadOnlyList<string> removedNetworks;
         do
@@ -1074,10 +1138,23 @@ public sealed partial class ModuleRuntime : IDisposable
             Content.RemoveNetwork(networkName);
         }
 
-        if (_adapters.TryGetValue(instanceId, out var removedAdapter) && removedAdapter is not null)
+        // OnRemoved 必须在实例线程、线程停止前执行；先暂停，保证钩子不与 OnStep 并发。
+        if (Carriers.TryGet(instanceId, out var removalCarrier) && removalCarrier is not null)
         {
-            removedAdapter.DisposeDue();
+            removalCarrier.Pause();
+
+            if (!removalCarrier.RunOnInstanceThread(() => _ = _lifecycle.Remove(instance)))
+            {
+                ReportLifecycleFailure(instance, nameof(IModule.OnRemoved));
+            }
         }
+        else
+        {
+            ReportLifecycleFailure(instance, nameof(IModule.OnRemoved));
+        }
+
+        // 钩子之后统一释放定时器：模块漏掉 Dispose 也不会留下计时项；之后才停承载。
+        instance.Context.TimerSet.Dispose();
 
         if (Carriers.TryDeactivate(instanceId, out var result) && result == CarrierStopResult.TimedOut)
         {
@@ -1100,7 +1177,6 @@ public sealed partial class ModuleRuntime : IDisposable
         }
 
         _accesses.Remove(instanceId);
-        _lifecycle.Remove(instance);
         _adapters.Remove(instanceId);
         _ = _subscriptions.Remove(instanceId);
         _ = Content.RemoveInstance(instanceId);
@@ -1360,9 +1436,9 @@ public sealed partial class ModuleRuntime : IDisposable
             store.InputChanged = null;
         }
 
-        foreach (var adapter in _adapters.Values)
+        foreach (var instance in Content.Instances)
         {
-            adapter.DisposeDue();
+            instance.Context.TimerSet.Dispose();
         }
 
         ExternalAccessHost.Dispose();

@@ -13,7 +13,6 @@
     "view.intervalUnit": "ms",
     "view.roleSend": "发送",
     "status.splitPackets": "内容超过单包上限（{1} 字节），已拆成 {0} 个数据包发送（接收侧会表现为 {0} 条）",
-    "status.intervalTooSmall": "间隔小于 {0} ms：实际发送频率受线程调度影响，可能不准确",
     "status.unknownCommand": "未知命令：{0}",
     "view.send": "发送",
     "view.sentTitle": "已发送",

@@ -34,6 +34,8 @@ internal sealed class ModuleViewContext : IModuleViewContext
     private readonly Func<string>? _multilineSubmitKey;
     private readonly SurfaceSourceReader _reader;
     private readonly Dictionary<string, ViewAppearance> _appearances = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ConfigFieldView?> _fieldCache = new(StringComparer.Ordinal);
+    private ConfigurationSchemaView? _schemaCache;
     private long _appearanceRevision = -1;
 
     /// <summary>造一个视图上下文。</summary>
@@ -208,8 +210,23 @@ internal sealed class ModuleViewContext : IModuleViewContext
     {
         if (fieldName.Length == 0 || !_query.TryGetConfigurationSchema(InstanceId, out var schema) || schema is null)
         {
+            _schemaCache = null;
+            _fieldCache.Clear();
             return null;
         }
+
+        if (!ReferenceEquals(schema, _schemaCache))
+        {
+            _schemaCache = schema;
+            _fieldCache.Clear();
+        }
+
+        if (_fieldCache.TryGetValue(fieldName, out var cached))
+        {
+            return cached;
+        }
+
+        ConfigFieldView? result = null;
 
         foreach (var field in schema.Fields)
         {
@@ -218,7 +235,7 @@ internal sealed class ModuleViewContext : IModuleViewContext
                 continue;
             }
 
-            return new ConfigFieldView(
+            result = new ConfigFieldView(
                 field.Name,
                 field.Title,
                 Translate(field.Kind),
@@ -227,9 +244,11 @@ internal sealed class ModuleViewContext : IModuleViewContext
                 field.Unit,
                 field.Description,
                 field.Group);
+            break;
         }
 
-        return null;
+        _fieldCache[fieldName] = result;
+        return result;
     }
 
     /// <inheritdoc />
