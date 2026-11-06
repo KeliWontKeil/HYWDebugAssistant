@@ -9,4 +9,8 @@
     <ProjectReference Include="..\Infrastructure\HYWDebugAssistant.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="HYWDebugAssistant.Tests" />
+  </ItemGroup>
+
 </Project>

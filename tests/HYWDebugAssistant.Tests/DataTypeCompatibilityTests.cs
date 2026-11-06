@@ -17,109 +17,14 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// T1：**数据类型注册表 + 兼容三层判据 + 解码器注册**。
+/// T1：**数据类型注册表、解码器与计量口径**。
 /// </summary>
 /// <remarks>
-/// <list type="bullet">
-///   <item>同标识同版本 → 兼容（且要求两边机械镜像一致）；</item>
-///   <item>同标识不同版本 → **版本规则**（接收方 = 发送方的**尾部追加**则兼容）；</item>
-///   <item>**不同标识 → 框架无资格判定 ⇒ 默认不兼容**（结构相同也不认）+ 显式确认可强连；</item>
-///   <item>未声明类型 → **回退结构比较**（旧模块照常）；</item>
-///   <item>解码器随类型注册：**模块提供、框架只回调**（D1 ③）。</item>
-/// </list>
+/// 兼容判定的唯一入口（形状 / 语义 / 标识）由 <c>NetworkAndResourceRulesTests.契约兼容矩阵</c> 与
+/// <c>ConnectionAcceptanceTests</c> 覆盖；本文件只保留注册表镜像、解码器、四档速率与有效载荷口径。
 /// </remarks>
 public class DataTypeCompatibilityTests
 {
-    // ------------------------------------------------------------ 三层判据
-
-    [Fact]
-    public void 同标识同形状_应兼容并可投递()
-    {
-        using var runtime = new ModuleRuntime();
-
-        AddModule(runtime, "s1", "typed-sender-v1", typeof(TypedSenderV1Module));
-        AddModule(runtime, "r1", "typed-receiver-v1", typeof(TypedReceiverV1Module));
-
-        Connect(runtime, "s1", "out", "r1", "in", "bus").ShouldBeTrue("同标识同版本 ⇒ 兼容");
-
-        SendFrom(runtime, "s1", 42UL, 2.5f).ShouldBeTrue();
-
-        WaitUntil(() => TypedReceiverV1Module.Received.Count > 0, TimeSpan.FromSeconds(2))
-            .ShouldBeTrue("兼容连接应能投递");
-        TypedReceiverV1Module.Received[0].ShouldBe((2.5f));
-    }
-
-
-    [Fact]
-    public void 各自声明的同形状类型_应判兼容_形状比较必须是结构比较()
-    {
-        // **防隐形陷阱**：`ContractShape` 是 record，但结构形状的字段集合做的是**引用比较**
-        // ⇒ 若用 `==` 判形状，两个模块各自 new 出"字面完全一样"的形状会被判不相等，
-        // 表现为"只有引用同一个静态实例才连得上"。本用例钉住"结构比较"这一语义。
-        using var runtime = new ModuleRuntime();
-
-        AddModule(runtime, "sa", "typed-sender-independent", typeof(IndependentShapeSenderModule));
-        AddModule(runtime, "rb", "typed-receiver-independent", typeof(IndependentShapeReceiverModule));
-
-        Connect(runtime, "sa", "out", "rb", "in", "bus")
-            .ShouldBeTrue("两个模块**各自构造**的同一形状必须判兼容（结构比较，不是引用比较）");
-
-        SendFromIndependent(runtime, "sa", 3.25f);
-        WaitUntil(() => IndependentShapeReceiverModule.Received.Count > 0, TimeSpan.FromSeconds(2)).ShouldBeTrue();
-        IndependentShapeReceiverModule.Received[0].ShouldBe(3.25f);
-    }
-
-    [Fact]
-    public void 同标识_改已有字段类型应不兼容()
-    {
-        // v2' = 把 value 由 f32 改成 f64（不是尾部追加）⇒ 不兼容（否则接收方按错误类型解读）
-        using var runtime = new ModuleRuntime();
-
-        AddModule(runtime, "s1", "typed-sender-v1", typeof(TypedSenderV1Module));
-        AddModule(runtime, "rb", "typed-receiver-broken", typeof(TypedReceiverBrokenUpgradeModule));
-
-        var result = Connect(runtime, "s1", "out", "rb", "in", "bus");
-
-        result.ShouldBeFalse("改已有字段类型不属兼容升级");
-
-    }
-
-    [Fact]
-    public void 不同标识_结构相同也应默认不兼容()
-    {
-        // 【D6 第三层】**框架无资格判定"不同标识是否同一种量"** ⇒ 默认不兼容（即便结构完全相同）
-        using var runtime = new ModuleRuntime();
-
-        AddModule(runtime, "s1", "typed-sender-v1", typeof(TypedSenderV1Module));
-        AddModule(runtime, "ro", "typed-receiver-other-id", typeof(TypedReceiverOtherIdModule));
-
-        var rejected = Connect(runtime, "s1", "out", "ro", "in", "bus");
-        rejected.ShouldBeFalse("不同标识默认不兼容");
-
-
-    }
-
-    [Fact]
-    public void 未声明类型_应回退结构比较_旧模块照常()
-    {
-        // 向后兼容：不声明类型的端口仍按"传递语义 + 形状子集"判定
-        using var runtime = new ModuleRuntime();
-
-        AddModule(runtime, "s1", "sender", typeof(CoreRuntimeTests.SenderModule));
-        AddModule(runtime, "r1", "receiver", typeof(CoreRuntimeTests.ReceiverModule));
-
-        Connect(runtime, "s1", "out", "r1", "in", "bus").ShouldBeTrue("双方未声明类型 ⇒ 回退结构比较");
-
-        // 一边声明、一边未声明 ⇒ **同样回退结构比较**（不因"没声明"而拒绝）；
-        // 形状一致（{seq:u64, value:f32}）⇒ 兼容；形状不同则按结构规则拒绝（不猜类型）
-        AddModule(runtime, "r2", "typed-receiver-v1", typeof(TypedReceiverV1Module));
-        AddModule(runtime, "sl", "legacy-struct-sender", typeof(LegacyStructSenderModule));
-
-        Connect(runtime, "sl", "out", "r2", "in", "legacy").ShouldBeTrue("单边声明类型 ⇒ 回退结构比较");
-        Connect(runtime, "s1", "out", "r2", "in", "shape-mismatch").ShouldBeFalse(
-            "f32 无法覆盖 {seq:u64, value:f32}（结构规则照常生效，不因对方有类型而放宽）");
-    }
-
     // ------------------------------------------------------------ 声明的机械镜像
 
     [Fact]
@@ -398,47 +303,6 @@ public class DataTypeCompatibilityTests
             new HYWDebugAssistant.Core.Api.PortRef(targetInstance, targetPort),
             name);
 
-    private static string Diagnose(ModuleRuntime runtime, string instanceId)
-    {
-        var bindings = string.Join(
-            " | ",
-            runtime.Bindings.Bindings.Select(b =>
-                $"{b.Source}→{string.Join(",", b.Targets)}: suspended={b.IsSuspended} stalled={b.Network.IsStalled} published={b.Diagnostics.Published} delivered={b.Diagnostics.Delivered} dropped={b.Diagnostics.Dropped}"));
-
-        var carriers = string.Join(
-            " | ",
-            runtime.Carriers.Carriers.Select(c => $"{c.InstanceId}: [{string.Join(",", c.PortNames)}]"));
-
-        return $"bindings={runtime.Bindings.Bindings.Count} {bindings} ## carriers: {carriers} ## instance={instanceId}";
-    }
-
-    private static bool SendFrom(ModuleRuntime runtime, string instanceId, ulong seq, float value)
-    {
-        runtime.Content.TryGetInstance(instanceId, out var instance).ShouldBeTrue();
-
-        var layout = TypedSenderV1Module.Layout;
-        var payload = new byte[layout.SizeInBytes];
-        var writer = new PayloadWriter(payload, layout);
-        writer.WriteU64("seq", seq);
-        writer.WriteF32("value", value);
-
-        return instance!.Context.Ports.TrySend("out", payload);
-    }
-
-    /// <summary>发一个"独立形状"模块的数据报（<c>{seq:u64, value:f32}</c>）。</summary>
-    private static bool SendFromIndependent(ModuleRuntime runtime, string instanceId, float value)
-    {
-        runtime.Content.TryGetInstance(instanceId, out var instance).ShouldBeTrue();
-
-        var layout = IndependentShapeSenderModule.Layout;
-        var payload = new byte[layout.SizeInBytes];
-        var writer = new PayloadWriter(payload, layout);
-        writer.WriteU64("seq", 1);
-        writer.WriteF32("value", value);
-
-        return instance!.Context.Ports.TrySend("out", payload);
-    }
-
     /// <summary>发一个"计量用"数据报（16B：seq:u64 + value:f32 + tag:u32，声明载荷 4B）。</summary>
     private static bool SendMetered(ModuleRuntime runtime, string instanceId, ulong seq)
     {
@@ -539,64 +403,6 @@ public class DataTypeCompatibilityTests
         }
     }
 
-    /// <summary>未声明类型但形状相同的发送模块（验证"单边声明 ⇒ 回退结构比较"）。</summary>
-    [ModuleDefinition("test", "legacy-struct-sender")]
-    public sealed class LegacyStructSenderModule : IModule
-    {
-        public const string OutPort = "out";
-
-        public void OnRegistered(IModuleContext context) =>
-            context.Declaration.DeclarePort(new PortDeclaration(
-                OutPort, PortDirection.Send, TypedSenderV1Module.Shape));
-    }
-
-    /// <summary>**各自构造同一形状**的发送模块（<c>{seq:u64, value:f32}</c>；用于验证形状比较是结构比较）。</summary>
-    [ModuleDefinition("test", "typed-sender-independent")]
-    public sealed class IndependentShapeSenderModule : IModule
-    {
-        public const string OutPort = "out";
-
-        /// <summary>**刻意不与接收模块共享实例**：同一个字面量、各自构造（record 的 `==` 会判不相等）。</summary>
-        public static readonly ContractShape Shape = ContractShape.OfStruct(
-            ("seq", ContractShape.OfPrimitive(ContractPrimitive.U64)),
-            ("value", ContractShape.OfPrimitive(ContractPrimitive.F32)));
-
-        public static readonly ContractLayout Layout = ContractLayout.FromShape(Shape);
-
-        public void OnRegistered(IModuleContext context)
-        {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/independent", Shape));
-            context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape)
-            {
-                TypeId = "test/independent",
-            });
-        }
-    }
-
-    /// <summary>与之对应：**另外 new 一个相同结构**的接收模块。</summary>
-    [ModuleDefinition("test", "typed-receiver-independent")]
-    public sealed class IndependentShapeReceiverModule : IModule
-    {
-        /// <summary>**刻意独立构造**（与发送模块不共享实例）。</summary>
-        public static readonly ContractShape Shape = ContractShape.OfStruct(
-            ("seq", ContractShape.OfPrimitive(ContractPrimitive.U64)),
-            ("value", ContractShape.OfPrimitive(ContractPrimitive.F32)));
-
-        public static List<float> Received { get; } = [];
-
-        public void OnRegistered(IModuleContext context)
-        {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/independent", Shape));
-            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, Shape)
-            {
-                TypeId = "test/independent",
-            });
-
-            context.Ports.SetReceiveHandler("in", payload =>
-                Received.Add(new PayloadReader(payload, IndependentShapeSenderModule.Layout).ReadF32("value")));
-        }
-    }
-
     /// <summary>类型化接收模块：声明**同一个** <c>test/payload@v1</c>。</summary>
     [ModuleDefinition("test", "typed-receiver-v1")]
     public sealed class TypedReceiverV1Module : IModule
@@ -612,93 +418,6 @@ public class DataTypeCompatibilityTests
             context.Declaration.DeclarePort(new PortDeclaration(InPort, PortDirection.Receive, TypedSenderV1Module.Shape)
             {
                 TypeId = TypedSenderV1Module.TypeId,
-            });
-
-            context.Ports.SetReceiveHandler(InPort, payload =>
-                Received.Add(new PayloadReader(payload, TypedSenderV1Module.Layout).ReadF32("value")));
-        }
-    }
-
-    /// <summary>声明 <c>test/payload@v2</c> 但**形状与 v1 完全相同**的接收模块（单独验证"版本规则"）。</summary>
-    [ModuleDefinition("test", "typed-receiver-same-shape-v2")]
-    public sealed class TypedReceiverSameShapeV2Module : IModule
-    {
-        public void OnRegistered(IModuleContext context)
-        {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypedSenderV1Module.TypeId, TypedSenderV1Module.Shape));
-
-            context.Declaration.DeclarePort(new PortDeclaration(
-                "in", PortDirection.Receive, TypedSenderV1Module.Shape)
-            {
-                TypeId = TypedSenderV1Module.TypeId,
-            });
-        }
-    }
-
-    /// <summary>类型化接收模块：声明 <c>test/payload@v2</c> = v1 + 尾部 <c>tag:u8</c>（13B）。</summary>    [ModuleDefinition("test", "typed-receiver-v2")]
-    public sealed class TypedReceiverV2Module : IModule
-    {
-        public const string InPort = "in";
-
-        public static readonly ContractShape Shape = ContractShape.OfStruct(
-            ("seq", ContractShape.OfPrimitive(ContractPrimitive.U64)),
-            ("value", ContractShape.OfPrimitive(ContractPrimitive.F32)),
-            ("tag", ContractShape.OfPrimitive(ContractPrimitive.U8)));
-
-        public static List<float> Received { get; } = [];
-
-        public void OnRegistered(IModuleContext context)
-        {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypedSenderV1Module.TypeId, Shape));
-
-            context.Declaration.DeclarePort(new PortDeclaration(InPort, PortDirection.Receive, Shape)
-            {
-                TypeId = TypedSenderV1Module.TypeId,
-            });
-
-            // 收方按**自己的**布局读前缀字段（v1 数据报 ≤ v2 布局）
-            context.Ports.SetReceiveHandler(InPort, payload =>
-                Received.Add(new PayloadReader(payload, TypedSenderV1Module.Layout).ReadF32("value")));
-        }
-    }
-
-    /// <summary>坏升级：v2 把已有字段 <c>value</c> 由 f32 改成 f64（**不是尾部追加**）。</summary>
-    [ModuleDefinition("test", "typed-receiver-broken")]
-    public sealed class TypedReceiverBrokenUpgradeModule : IModule
-    {
-        public const string InPort = "in";
-
-        public static readonly ContractShape Shape = ContractShape.OfStruct(
-            ("seq", ContractShape.OfPrimitive(ContractPrimitive.U64)),
-            ("value", ContractShape.OfPrimitive(ContractPrimitive.F64)));
-
-        public void OnRegistered(IModuleContext context)
-        {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration(TypedSenderV1Module.TypeId, Shape));
-            context.Declaration.DeclarePort(new PortDeclaration(InPort, PortDirection.Receive, Shape)
-            {
-                TypeId = TypedSenderV1Module.TypeId,
-            });
-        }
-    }
-
-    /// <summary>不同标识但**结构完全相同**（用于验证"框架无资格判定 ⇒ 默认不兼容"）。</summary>
-    [ModuleDefinition("test", "typed-receiver-other-id")]
-    public sealed class TypedReceiverOtherIdModule : IModule
-    {
-        public const string InPort = "in";
-        public const string OtherTypeId = "other/payload";
-
-        public static List<float> Received { get; } = [];
-
-        public void OnRegistered(IModuleContext context)
-        {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration(OtherTypeId, TypedSenderV1Module.Shape));
-
-            context.Declaration.DeclarePort(new PortDeclaration(
-                InPort, PortDirection.Receive, TypedSenderV1Module.Shape)
-            {
-                TypeId = OtherTypeId,
             });
 
             context.Ports.SetReceiveHandler(InPort, payload =>

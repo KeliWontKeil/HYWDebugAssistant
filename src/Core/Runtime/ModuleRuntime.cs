@@ -182,6 +182,13 @@ public sealed partial class ModuleRuntime : IDisposable
     /// </summary>
     public Api.IViewStateAccess? ViewState { get; }
 
+    /// <summary>把应用级文本显示上限应用到视图状态存储。</summary>
+    internal void ApplyDisplaySettings(Api.DisplaySettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        _viewStateStore?.UpdateDisplaySettings(settings);
+    }
+
     /// <summary>
     /// **文件选择请求面的解析器**（按实例给一份；`null` = 未接线 ⇒ 模块的"弹选择器"请求被忽略）。
     /// </summary>

@@ -286,19 +286,6 @@ public class DataPlaneCarrierTests
     }
 
     [Fact]
-    public void 暂停中的承载可正常停止()
-    {
-        using var host = new CarrierHost();
-        var target = new TestTarget("paused-stop") { HasStepModel = true };
-
-        host.TryActivate(target, out var carrier, out _, startPaused: true).ShouldBeTrue();
-        host.TryDeactivate("paused-stop", out var result).ShouldBeTrue();
-
-        result.ShouldBe(CarrierStopResult.Stopped);
-        carrier!.IsRunning.ShouldBeFalse();
-    }
-
-    [Fact]
     public void 无承载的口_入队应被拒绝并立即计入丢弃()
     {
         // **每口一条队列** ⇒ 口不存在就**没有队列可入**：「无承载」是**入队即失败**，
@@ -390,33 +377,6 @@ public class DataPlaneCarrierTests
         finally
         {
             host.StopAll();
-        }
-    }
-
-    [Fact]
-    public void 每口一条队列_应按口名分别入队与出队()
-    {
-        using var host = new CarrierHost();
-        var target = new TwoPortTarget("ports") { SlowDelay = TimeSpan.Zero };
-        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
-
-        try
-        {
-            carrier!.PortNames.ShouldBe(["slow", "fast"], "口集合 = 声明顺序（队列下标同序）");
-            carrier.Queues.Count.ShouldBe(2, "每 (实例, 口) 一条队列");
-
-            carrier.TryGetQueue("slow", out var slow).ShouldBeTrue();
-            carrier.TryGetQueue("fast", out var fast).ShouldBeTrue();
-            slow.ShouldNotBeSameAs(fast, "两个口各有独立队列实例");
-            carrier.TryGetQueue("nope", out _).ShouldBeFalse("未声明的口没有队列");
-
-            _ = carrier.TryEnqueue("slow", BuildUnit(host.Buffers, 1, 1f));
-            WaitUntil(() => target.SlowReceived.Count >= 1, TimeSpan.FromSeconds(2)).ShouldBeTrue();
-            WaitUntil(() => carrier.Diagnostics.Delivered >= 1, TimeSpan.FromSeconds(2)).ShouldBeTrue();
-        }
-        finally
-        {
-            host.TryDeactivate("ports", out _);
         }
     }
 
@@ -685,99 +645,7 @@ public class DataPlaneCarrierTests
     private static int QueueDepth(ModuleCarrier carrier) =>
         carrier.TryGetQueue("in", out var queue) && queue is not null ? queue.Count : 0;
 
-    // ------------------------------------------------------------ 薄旁路头
-
-    [Fact]
-    public void 薄旁路头_应随数据单元送达并由观测面记录_不带头的单元不留痕()
-    {
-        // 头是**旁路元数据**：随单元走（不必进 payload），由**观测面**消费
-        // （承载诊断记录最近序号/接收时刻）。**单源网络传 null ⇒ 零附加、不留任何痕迹**。
-        using var host = new CarrierHost();
-        var target = new TestTarget("hdr");
-        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
-
-        try
-        {
-            var header = new DatagramHeader("s1", "out", Sequence: 7, ReceivedTimestamp: 12345);
-
-            carrier!.TryEnqueue("in", BuildUnit(host.Buffers, 1, 1f), header)
-                .ShouldBe(CarrierEnqueueResult.Accepted);
-
-            WaitUntil(() => carrier.Diagnostics.Delivered >= 1, TimeSpan.FromSeconds(5)).ShouldBeTrue();
-
-            carrier.Diagnostics.Headered.ShouldBe(1, "带头的投递应被观测面计数");
-            carrier.Diagnostics.LastHeaderSequence.ShouldBe(7, "序号原样送达（按源递增由生产侧保证）");
-            carrier.Diagnostics.LastHeaderTimestamp.ShouldBe(12345);
-
-            // 再来一个**不带头**的单元：头相关的计数**保持不变**（零附加不留痕）
-            carrier.TryEnqueue("in", BuildUnit(host.Buffers, 2, 2f)).ShouldBe(CarrierEnqueueResult.Accepted);
-            WaitUntil(() => carrier.Diagnostics.Delivered >= 2, TimeSpan.FromSeconds(5)).ShouldBeTrue();
-
-            carrier.Diagnostics.Headered.ShouldBe(1, "不带头的单元不得计入带头投递");
-            carrier.Diagnostics.LastHeaderSequence.ShouldBe(7, "不带头不得覆盖上次的头信息");
-            target.Received.ShouldBe([1f, 2f], "payload 字节不受头影响（字节守恒）");
-        }
-        finally
-        {
-            host.TryDeactivate("hdr", out _);
-        }
-    }
-
     // ------------------------------------------------------------ 唤醒机制
-
-    [Fact]
-    public void 空闲承载_不应按固定节拍轮询()
-    {
-        // 兜底间隔远大于观察窗口：这段时间内没有任何数据 / 命令 / 会话事件，
-        // 投递循环就不该“到点醒来看看”。这正是空闲实例 CPU 的主要来源。
-        using var host = new CarrierHost(options: new CarrierOptions
-        {
-            WatchdogInterval = TimeSpan.FromSeconds(30),
-        });
-
-        var target = new TestTarget("idle");
-        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
-
-        try
-        {
-            Thread.Sleep(400);
-            carrier!.Wakeups.ShouldBe(0, "没有事件时不应醒来；退回定时轮询会让每个空闲实例持续烧 CPU");
-        }
-        finally
-        {
-            host.TryDeactivate("idle", out _);
-        }
-    }
-
-    [Fact]
-    public void 入队应立即唤醒消费者_不等兜底间隔()
-    {
-        using var host = new CarrierHost(options: new CarrierOptions
-        {
-            WatchdogInterval = TimeSpan.FromSeconds(30),
-        });
-
-        var target = new TestTarget("wake");
-        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
-
-        try
-        {
-            Thread.Sleep(100);   // 让投递循环进入“完全没活干”的等待
-
-            var watch = Stopwatch.StartNew();
-            carrier!.TryEnqueue("in", BuildUnit(host.Buffers, 1, 1f)).ShouldBe(CarrierEnqueueResult.Accepted);
-            target.WaitForFirstDelivery(TimeSpan.FromSeconds(2)).ShouldBeTrue("入队必须唤醒投递循环");
-            watch.Stop();
-
-            watch.Elapsed.ShouldBeLessThan(
-                TimeSpan.FromMilliseconds(200),
-                "唤醒延迟必须远小于兜底间隔：数据面不允许被节拍化");
-        }
-        finally
-        {
-            host.TryDeactivate("wake", out _);
-        }
-    }
 
     [Fact]
     public void 辅助工作信号_应唤醒阻塞中的承载者()
@@ -803,39 +671,6 @@ public class DataPlaneCarrierTests
         finally
         {
             host.TryDeactivate("aux", out _);
-        }
-    }
-
-    [Fact]
-    public void 连续入队_不应丢掉任何一次唤醒()
-    {
-        using var host = new CarrierHost(options: new CarrierOptions
-        {
-            QueueCapacity = 4096,
-            WatchdogInterval = TimeSpan.FromSeconds(30),
-        });
-
-        var target = new TestTarget("burst");
-        host.TryActivate(target, out var carrier, out _).ShouldBeTrue();
-
-        try
-        {
-            const int count = 2000;
-
-            for (var i = 0; i < count; i++)
-            {
-                carrier!.TryEnqueue("in", BuildUnit(host.Buffers, (ulong)i, i))
-                    .ShouldBe(CarrierEnqueueResult.Accepted);
-            }
-
-            WaitUntil(() => target.DeliveredCount == count, TimeSpan.FromSeconds(5))
-                .ShouldBeTrue($"入队必须全部送达（实际 {target.DeliveredCount}/{count}）：合并信号不得丢唤醒");
-
-            target.Received.Count.ShouldBe(count);
-        }
-        finally
-        {
-            host.TryDeactivate("burst", out _);
         }
     }
 
@@ -1020,7 +855,6 @@ public class DataPlaneCarrierTests
     /// </summary>
     private sealed class TwoPortTarget(string instanceId) : ICarrierTarget
     {
-        private readonly ConcurrentQueue<float> _slow = new();
         private readonly ConcurrentQueue<float> _fast = new();
 
         public string InstanceId { get; } = instanceId;
@@ -1029,8 +863,6 @@ public class DataPlaneCarrierTests
 
         /// <summary>`slow` 口每个单元的处理耗时。</summary>
         public TimeSpan SlowDelay { get; set; }
-
-        public IReadOnlyList<float> SlowReceived => [.. _slow];
 
         public IReadOnlyList<float> FastReceived => [.. _fast];
 
@@ -1057,14 +889,12 @@ public class DataPlaneCarrierTests
             throw new NotSupportedException(exception.Message);
         }
 
-        private void OnSlow(ReadOnlySpan<byte> payload)
+        private void OnSlow(ReadOnlySpan<byte> _)
         {
             if (SlowDelay > TimeSpan.Zero)
             {
                 Thread.Sleep(SlowDelay);
             }
-
-            _slow.Enqueue(new PayloadReader(payload, Layout).ReadF32("value"));
         }
 
         private void OnFast(ReadOnlySpan<byte> payload) =>

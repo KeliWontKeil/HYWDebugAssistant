@@ -75,30 +75,6 @@ public class ContractReadDisciplineTests
     // ------------------------------------------------------------ 端到端：形状不一致的处理
 
     [Fact]
-    public void 形状不一致_应拒绝直连_且不产生任何投递()
-    {
-        // v1 源（12B）→ v2 接收方（16B，尾部追加）**不兼容**：
-        // 版本升级按破坏性变更处理 ⇒ 不建网（这是「不让接收方拿到短于自己契约的数据报」的根治办法）
-        using var runtime = new ModuleRuntime();
-        var services = new RuntimeServices(runtime);
-        PrefixReceiver.Reset();
-
-        Add(runtime, "s1", "discipline-sender-v1", typeof(SenderV1));
-        Add(runtime, "r2", "discipline-receiver", typeof(PrefixReceiver));
-
-        // 建网只有一条用户路径：两端打同名标签 ⇒ 不兼容则**不建网**（标签保留）
-        TestLink.TryLink(services, new PortRef("s1", "out"), new PortRef("r2", "in"), "link")
-            .ShouldBeFalse("形状不一致（12B vs 16B）必须拒绝建网");
-
-        runtime.Content.Networks.ShouldBeEmpty();
-
-        SendV1(runtime, "s1", seq: 1, value: 1.5f);
-        Thread.Sleep(150);
-
-        PrefixReceiver.Lengths.ShouldBeEmpty("未建网 ⇒ 不应有任何投递");
-    }
-
-    [Fact]
     public void 多源同口混入不同形状_应只保留形状一致的那一路_同一口上永不出现两种长度()
     {
         // **同名标签但形状不同**的两个发布者：

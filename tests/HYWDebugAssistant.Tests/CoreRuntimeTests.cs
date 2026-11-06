@@ -18,10 +18,11 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// T1–T3（M1-6）：变更原子性、建网与绑定投递、增量重建、级联清理与查询面。
+/// T1–T3（M1-6）：变更原子性、建网与绑定投递、增量重建、级联清理、诊断与多源指标口径。
 /// </summary>
 /// <remarks>
 /// 端到端路径：实例化 → 建网 → 模块经上下文发送 → **绑定直达目标队列** → 目标专属线程处理。
+/// 实例 / 网络 / 端口的只读视图装配由 <c>UiSelectionAndRateProjectionTests</c> 与视图层用例覆盖。
 /// </remarks>
 public class CoreRuntimeTests
 {
@@ -123,36 +124,6 @@ public class CoreRuntimeTests
         binding.Diagnostics.DroppedByReason(DropReason.NoCarrier).ShouldBe(0);
     }
 
-    [Fact]
-    public void 端口流动面_只读本实例接收口且只接受模块内部原因()
-    {
-        using var runtime = new ModuleRuntime();
-        AddModule(runtime, "s1", "sender", typeof(SenderModule));
-        AddModule(runtime, "r1", "receiver", typeof(ReceiverModule));
-        Connect(runtime, "s1", SenderModule.OutPort, "r1", ReceiverModule.InPort, "flow-link").ShouldBeTrue();
-
-        runtime.Content.TryGetInstance("r1", out var receiver).ShouldBeTrue();
-        var ports = receiver!.Context.Ports;
-
-        ports.TryGetFlowState(ReceiverModule.InPort, out var initial).ShouldBeTrue("本实例的接收口有队列");
-        initial.Capacity.ShouldBeGreaterThan(0);
-        ports.TryGetFlowState("ghost", out _).ShouldBeFalse("未声明的口没有队列");
-
-        runtime.Content.TryGetInstance("s1", out var sender).ShouldBeTrue();
-        sender!.Context.Ports.TryGetFlowState(SenderModule.OutPort, out _)
-            .ShouldBeFalse("发送口没有接收队列");
-
-        ports.ReportLoss(ReceiverModule.InPort, DropReason.ModuleInternal, 2, 2L * sizeof(float));
-        ports.ReportLoss(ReceiverModule.InPort, DropReason.QueueFullEvicted, 5, 20);   // 非模块内部 ⇒ 忽略
-
-        runtime.TryGetPortFlow("r1", ReceiverModule.InPort, out var after).ShouldBeTrue();
-        after.DroppedUnits.ShouldBe(2, "只接受模块内部那一次；伪造的传输原因被静默忽略");
-        after.DroppedBytes.ShouldBe(2L * sizeof(float));
-        after.LastDropReason.ShouldBe(DropReason.ModuleInternal);
-
-        runtime.TryGetPortFlow("nope", ReceiverModule.InPort, out _).ShouldBeFalse("没有该实例");
-    }
-
     private static bool WaitForHeadered(ModuleRuntime runtime, string instanceId, long expected)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
@@ -218,22 +189,6 @@ public class CoreRuntimeTests
 
         result.Applied.ShouldBeFalse();
         result.Failures.ShouldNotBeEmpty();
-    }
-
-    // ------------------------------------------------------------ 建网校验
-
-    [Fact]
-    public void 建网_契约不兼容应拒绝并说明差异()
-    {
-        using var runtime = new ModuleRuntime();
-        AddModule(runtime, "s1", "sender", typeof(SenderModule));
-        AddModule(runtime, "w1", "wide-receiver", typeof(WideReceiverModule));
-
-        // f32（4 字节）→ f64（8 字节）：不兼容 ⇒ 标签保留、网络不建
-        Connect(runtime, "s1", SenderModule.OutPort, "w1", WideReceiverModule.InPort, "link").ShouldBeFalse();
-
-        runtime.Content.Networks.ShouldBeEmpty();
-        runtime.Bindings.Bindings.ShouldBeEmpty();
     }
 
     // ------------------------------------------------------------ 增量重建与停流
@@ -484,40 +439,7 @@ public class CoreRuntimeTests
         runtime.Content.Networks.ShouldHaveSingleItem("标签是事实源：远离不影响命名网络");
     }
 
-    // ------------------------------------------------------------ 查询面
-
-    [Fact]
-    public void 查询面_应反映实例网络与诊断()
-    {
-        using var runtime = new ModuleRuntime();
-        AddModule(runtime, "s1", "sender", typeof(SenderModule));
-        AddModule(runtime, "r1", "receiver", typeof(ReceiverModule));
-
-        // 用**标签**建一条命名网络（新的建网方式）
-        SetLabel(runtime, "s1", "out", "bus");
-        SetLabel(runtime, "r1", "in", "bus");
-
-        var services = new RuntimeServices(runtime);
-
-        var instances = services.GetInstances();
-        instances.Count.ShouldBe(2);
-        var senderView = instances.Single(i => i.InstanceId == "s1");
-        senderView.ModuleId.ShouldBe("test/sender");
-        senderView.State.ShouldBe("Active");
-        senderView.Ports.Count.ShouldBe(1);
-        senderView.Ports[0].Direction.ShouldBe("Send");
-        senderView.Ports[0].NetworkLabel.ShouldBe("bus");
-        senderView.Ports[0].IsConnected.ShouldBeTrue("命名网络已建立");
-
-        var networks = services.GetNetworks();
-        networks.Count.ShouldBe(1);
-        networks[0].Name.ShouldBe("bus");
-        networks[0].Source.ShouldBe("s1.out");
-
-        var diagnostics = services.GetDiagnostics();
-        diagnostics.Count.ShouldBe(1);
-        diagnostics[0].Delivered.ShouldBe(0);
-    }
+    // ------------------------------------------------------------ 诊断
 
     [Fact]
     public void 诊断_丢弃应按原因分类且停流不计入传输丢弃()
@@ -707,56 +629,6 @@ public class CoreRuntimeTests
             "多源网络下网络身份键 ≠ 逐源键 —— 这正是「按网络键查逐源表」永远取不到数的原因");
         diagnosticKeys.ShouldContain("s1.out→r1.in1,r1.in2");
         diagnosticKeys.ShouldContain("s2.out→r1.in1,r1.in2");
-    }
-
-    [Fact]
-    public void 端口指标_单源单宿时源口与宿口必须读到同一个速率()
-    {
-        // **同一根线两侧不得显示不同的数**：
-        // 源口与宿口读的是**同一份**逐源诊断、**同一批**框架速率计（`_rateMeters` 按绑定身份键索引）。
-        // 接收侧走"每 (实例, 口) 队列"的速率计、发送侧走绑定速率计就会变成两套口径 ⇒ 两侧可能不同数。
-        using var runtime = new ModuleRuntime();
-        var services = new RuntimeServices(runtime);
-
-        AddModule(runtime, "s1", "sender", typeof(SenderModule));
-        AddModule(runtime, "r1", "receiver", typeof(ReceiverModule));
-        Connect(runtime, "s1", SenderModule.OutPort, "r1", ReceiverModule.InPort, "link-rate").ShouldBeTrue();
-
-        runtime.Content.TryGetInstance("s1", out var sender).ShouldBeTrue();
-        var payload = new byte[sizeof(float)];
-
-        // 先观察一次**建立基准**（RateMeter：首个观察只建基准、返回 0 —— 不猜历史速率）
-        services.GetPortMetrics("s1", SenderModule.OutPort).BytesPerSecond.ShouldBe(
-            0,
-            "首个观察没有「上一时刻」⇒ 不得猜历史速率");
-
-        // 基准之后才真正流过数据；窗口必须 > RateMeter.WindowSeconds(1s) 才会重算
-        Thread.Sleep((int)(HYWDebugAssistant.Core.Diagnostics.RateMeter.WindowSeconds * 1000) + 150);   // 整秒桶：窗口未满不会重算
-        for (var i = 0; i < 10; i++)
-        {
-            _ = sender!.Context.Ports.TrySend(SenderModule.OutPort, payload);
-        }
-
-        var source = services.GetPortMetrics("s1", SenderModule.OutPort);
-        var sink = services.GetPortMetrics("r1", ReceiverModule.InPort);
-
-        source.BytesPerSecond.ShouldBeGreaterThan(0, "有数据流过 ⇒ 速率必须是个正数");
-        sink.BytesPerSecond.ShouldBeGreaterThan(0, "宿口同样必须给出速率（占位符只应出现在真的没数据时）");
-
-        // **断言设计理由**：两侧读的是同一条绑定的同一个速率计 ⇒ 数值逐位相同；但它们是两次浮点求和，
-        // 故用**相对容差 1e-6** 吸收求和顺序差。这个容差**不足以掩盖"两套口径"**：口径一旦分叉，
-        // 差值要么是"0 vs 正数"、要么是量级差（两个速率计的**基准时刻**不同 ⇒ 一个刚建基准为 0、
-        // 另一个已算出正数），两种都会被这条断言逮住 —— 既不会 flaky，也不失红灯的力气。
-        ShouldShareRate(
-            sink.BytesPerSecond,
-            source.BytesPerSecond,
-            "同一根线两侧必须读**同一个**速率口径（旧实现：接收侧走队列口径、发送侧走绑定口径）");
-
-        // 与"逐源诊断"再对一次：宿口速率必须就是**该绑定**的搬运字节速率（同一批速率计的直接证据）
-        ShouldShareRate(
-            sink.BytesPerSecond,
-            services.GetDiagnostics().ShouldHaveSingleItem().BusByteRate,
-            "端口指标与逐源诊断必须同源（框架侧只有这一批速率计）");
     }
 
     /// <summary>

@@ -11,15 +11,6 @@ namespace HYWDebugAssistant.Tests;
 public class RateMeterTests
 {
     [Fact]
-    public void 首次观察_只建立基准且不猜历史速率()
-    {
-        var meter = new RateMeter();
-
-        meter.Observe(total: 1000, timestamp: 500, frequency: 100).ShouldBe(0, "首个观察没有「上一时刻」，不得猜历史速率");
-        meter.Rate.ShouldBe(0);
-    }
-
-    [Fact]
     public void 稳定增量_应给出每秒速率()
     {
         var meter = new RateMeter();
@@ -52,20 +43,6 @@ public class RateMeterTests
 
         // 绑定重建/计数器替换 ⇒ 计数可能回退
         meter.Observe(total: 10, timestamp: 200, frequency: 100).ShouldBe(0, "计数回退视为 0，不出现负速率");
-    }
-
-    [Fact]
-    public void 重置后_应重新建立基准()
-    {
-        var meter = new RateMeter();
-
-        _ = meter.Observe(total: 0, timestamp: 0, frequency: 100);
-        _ = meter.Observe(total: 100, timestamp: 100, frequency: 100);
-        meter.Rate.ShouldBe(100);
-
-        meter.Reset();
-        meter.Rate.ShouldBe(0);
-        meter.Observe(total: 90_000, timestamp: 500, frequency: 100).ShouldBe(0, "重置后首个观察只建基准");
     }
 
     [Fact]

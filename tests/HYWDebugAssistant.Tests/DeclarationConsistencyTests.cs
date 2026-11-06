@@ -17,10 +17,11 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// 声明面的一致性判据：端口形状与类型形状、同标识两种形状、外部接入的两种消费方式。
+/// 声明面的一致性判据：端口形状与类型形状、外部接入的两种消费方式。
 /// </summary>
 /// <remarks>
-/// 三条都属于"框架只对账、不解释语义"的机械判定：它比的是模块自己的声明，不是框架的类型系统。
+/// 两条都属于"框架只对账、不解释语义"的机械判定：它比的是模块自己的声明，不是框架的类型系统。
+/// 同标识多形状的冲突判定由 <c>DataTypeCompatibilityTests.重复声明同标识</c> 与 SDK 自检覆盖。
 /// </remarks>
 public sealed class DeclarationConsistencyTests
 {
@@ -38,26 +39,6 @@ public sealed class DeclarationConsistencyTests
 
         shapeIssues.ShouldContain(entry => entry.Issue.Message.Contains("out", StringComparison.Ordinal));
         shapeIssues.ShouldAllBe(entry => entry.Issue.Severity == IssueSeverity.Error);
-    }
-
-    [Fact]
-    public void 同标识两种形状_应报一条冲突且同形状不重复报()
-    {
-        using var runtime = new ModuleRuntime();
-        Add(runtime, "a", "ledger-a", typeof(LedgerModuleA));
-        Add(runtime, "b", "ledger-b", typeof(LedgerModuleB));
-        Add(runtime, "c", "ledger-c", typeof(LedgerModuleA));
-
-        var conflicts = runtime.Issues.Snapshot()
-            .Where(entry => entry.ObjectPath == "type:test/ledger")
-            .ToList();
-
-        conflicts.Count.ShouldBe(
-            1,
-            "同一条冲突只报一次；同形状的第三个实例不得再报。实际："
-            + string.Join(" | ", runtime.Issues.Snapshot().Select(entry => $"{entry.ObjectPath} => {entry.Issue.Message}")));
-        conflicts[0].Issue.Message.ShouldContain("test/ledger");
-        conflicts[0].Issue.Severity.ShouldBe(IssueSeverity.Error);
     }
 
     [Fact]
@@ -127,39 +108,4 @@ public sealed class DeclarationConsistencyTests
         }
     }
 
-    /// <summary>同标识 + 形状 A（16 字节区）。</summary>
-    public sealed class LedgerModuleA : IModule
-    {
-        private static readonly ContractShape Shape = ContractShape.OfStruct(
-            ("len", ContractShape.OfPrimitive(ContractPrimitive.U16)),
-            ("data", ContractShape.OfBytes(16)));
-
-        /// <inheritdoc />
-        public void OnRegistered(IModuleContext context)
-        {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/ledger", Shape));
-            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, Shape)
-            {
-                TypeId = "test/ledger",
-            });
-        }
-    }
-
-    /// <summary>同标识 + 形状 B（32 字节区）—— 同一标识的第二种形状。</summary>
-    public sealed class LedgerModuleB : IModule
-    {
-        private static readonly ContractShape Shape = ContractShape.OfStruct(
-            ("len", ContractShape.OfPrimitive(ContractPrimitive.U16)),
-            ("data", ContractShape.OfBytes(32)));
-
-        /// <inheritdoc />
-        public void OnRegistered(IModuleContext context)
-        {
-            context.Declaration.DeclareDataType(new DataTypeDeclaration("test/ledger", Shape));
-            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, Shape)
-            {
-                TypeId = "test/ledger",
-            });
-        }
-    }
 }

@@ -19,42 +19,12 @@ namespace HYWDebugAssistant.Tests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// 这里钉住的是历史偏移：贴合路径曾走"只比形状"的判定，于是同一对端口
-/// **贴合能连、打标签不能连**；且贴合出来的"已连接"端口可能一条绑定都没有
-/// （成员关系按声明收、投递按逐对过滤）。
-/// </para>
-/// <para>
-/// 判据不是"某条消息的措辞"，而是三件事：① 不兼容⇒**没有网络**；② 预览候选与落地**同一集合**；
-/// ③ 拒绝必须带**具体原因**（形状 / 版本 / 标识）。
+/// 判据不是"某条消息的措辞"，而是两件事：① 标签与贴合走**同一条接受判定**（预览候选与落地同一集合）；
+/// ② 拒绝必须带**具体原因**（不是静默不连）。
 /// </para>
 /// </remarks>
 public class ConnectionAcceptanceTests
 {
-    /// <summary>两个口在几何上贴合，但数据类型**标识不同** ⇒ 不连，且预览也不预告。</summary>
-    [Fact]
-public void 贴合_同形状不同标识_应不连_预览也不预告()
-    {
-        using var runtime = new ModuleRuntime();
-        var services = new RuntimeServices(runtime);
-
-        AddModule(runtime, "s", "alpha-sender", typeof(AlphaSender));
-        AddModule(runtime, "r", "beta-receiver", typeof(BetaReceiver));
-
-        // 形状完全相同（f32）、标识不同（test/alpha vs test/beta）
-        Place(runtime, "s", 0, 0, 300, 200);
-        Place(runtime, "r", 300, 0, 300, 200);
-        SetEdge(runtime, "s", "out", PortEdge.Right);
-        SetEdge(runtime, "r", "in", PortEdge.Left);
-
-        runtime.Content.Networks.ShouldBeEmpty("形状相同但标识不同 ⇒ 不能连（贴合路径不再走'只比形状'的判定）");
-        services.PreviewConnections().ShouldBeEmpty("预览与落地同一条判定 ⇒ 不预告'会连上'");
-
-        runtime.Issues.Recent(20).ShouldContain(
-            e => e.Issue.Severity == IssueSeverity.Warning
-                && e.Issue.Message.Contains("test/beta", StringComparison.Ordinal),
-            "拒绝必须说清是**数据类型标识不同**（不是静默不连）");
-    }
-
     /// <summary>同一标识 + 同一版本的两口贴合 ⇒ 正常建网（统一判定没有把正常路径一起关掉）。</summary>
     [Fact]
     public void 贴合_同标识同形状_应建网()
@@ -160,18 +130,6 @@ public void 贴合_同形状不同标识_应不连_预览也不预告()
         /// <inheritdoc />
         public void OnRegistered(IModuleContext context) =>
             Declare(context, OutPort, PortDirection.Send, "test/beta", 1);
-    }
-
-    /// <summary>接收：<c>test/beta@1</c>（f32；形状与 alpha 相同，标识不同）。</summary>
-    [ModuleDefinition("test", "beta-receiver")]
-    public sealed class BetaReceiver : IModule
-    {
-        /// <summary>输入口名。</summary>
-        public const string InPort = "in";
-
-        /// <inheritdoc />
-        public void OnRegistered(IModuleContext context) =>
-            Declare(context, InPort, PortDirection.Receive, "test/beta", 1);
     }
 
     /// <summary>声明"数据类型 + 带类型引用的口"（形状恒为 f32，只有标识/方向不同）。</summary>

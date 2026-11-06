@@ -31,6 +31,9 @@ namespace HYWDebugAssistant.Sdk.Ports;
 /// <param name="SaturatedFor">已持续饱和的时长（未饱和时为 <see cref="TimeSpan.Zero"/>）。</param>
 /// <param name="LastDropReason">最近一次丢弃的原因（从未丢弃时为 <see langword="null"/>）。</param>
 /// <param name="SinceLastDrop">距最近一次丢弃的时长（从未丢弃时为 <see langword="null"/>）。</param>
+/// <param name="DropActive">当前丢弃 episode 是否仍在进行；成功出队/清空后为 false。</param>
+/// <param name="BacklogStatusActive">状态行是否应显示积压（带小滞回，不等于“深度 &gt; 0”）。</param>
+/// <param name="DropStatusActive">状态行是否应显示丢弃（带恢复保持，不要求原始丢弃仍在进行）。</param>
 public readonly record struct PortFlowState(
     int Depth,
     int Capacity,
@@ -42,7 +45,10 @@ public readonly record struct PortFlowState(
     bool Saturated,
     TimeSpan SaturatedFor,
     DropReason? LastDropReason,
-    TimeSpan? SinceLastDrop)
+    TimeSpan? SinceLastDrop,
+    bool DropActive = false,
+    bool BacklogStatusActive = false,
+    bool DropStatusActive = false)
 {
     /// <summary>队列水位占比（0–1；容量为 0 时为 0）。</summary>
     public double Fill => Capacity > 0 ? Math.Clamp((double)Depth / Capacity, 0, 1) : 0;

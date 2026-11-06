@@ -1,4 +1,5 @@
 using HYWDebugAssistant.DataPlane.Queues;
+using HYWDebugAssistant.Sdk.Tuning;
 
 namespace HYWDebugAssistant.DataPlane.Carriers;
 
@@ -14,13 +15,13 @@ public sealed record CarrierOptions
     /// 每个接收口各有一条独立队列、各自享有本容量 ⇒ 一个口满载**不会**占用其它口的缓冲额度
     /// （这是"消除跨口队头阻塞"的关键）。v1 默认 1024（M1-13 实测后回写最终值）。
     /// </remarks>
-    public int QueueCapacity { get; init; } = 1024;
+    public int QueueCapacity { get; init; } = FlowDefaults.QueueCapacity;
 
     /// <summary>满时丢弃方式（默认丢最旧保最新）。</summary>
     public DropPolicy DropPolicy { get; init; } = DropPolicy.DropOldest;
 
     /// <summary>停止协议的有界等待时限。v1 默认 5 s。</summary>
-    public TimeSpan StopTimeout { get; init; } = TimeSpan.FromSeconds(5);
+    public TimeSpan StopTimeout { get; init; } = TimeSpan.FromSeconds(FlowDefaults.StopTimeoutSeconds);
 
     /// <summary>
     /// **兜底唤醒间隔**：数据 / 命令 / 会话事件都由信号**立即**唤醒，这个间隔只是"万一漏了一个信号"的保险。
@@ -39,7 +40,7 @@ public sealed record CarrierOptions
     /// 它只影响**饱和判据**，不影响丢弃（丢弃仍由容量与 <see cref="DropPolicy"/> 决定）。
     /// 默认 8：对毫秒级刷新的实时监视来说，积压到 8 个单元就已经值得在界面上说一句"这个口堵了"。
     /// </remarks>
-    public int HintDepth { get; init; } = 8;
+    public int HintDepth { get; init; } = FlowDefaults.HintDepth;
 
     /// <summary>
     /// **饱和保持时长**：深度到达阈值并持续这么久才算真的饱和。
@@ -48,7 +49,7 @@ public sealed record CarrierOptions
     /// 这是迟滞的时间维度：没有它，一次突发尖峰就会让界面闪一下告警（而链路其实瞬间就排空了）。
     /// 默认 500 ms。
     /// </remarks>
-    public TimeSpan HintHold { get; init; } = TimeSpan.FromMilliseconds(500);
+    public TimeSpan HintHold { get; init; } = TimeSpan.FromMilliseconds(FlowDefaults.HintHoldMs);
 
     /// <summary>
     /// **投递时间片**：一次唤醒最多连续投递多久，超过就让出线程去做别的工作（停止响应、辅助工作源）。
@@ -66,7 +67,7 @@ public sealed record CarrierOptions
     /// <see cref="TimeSpan.Zero"/> = **不限**（默认）：积压多久都照原样送达。
     /// 非零时，迟到的数据对实时监视没有价值——投给消费方只会让界面显示一个已经过期的值。
     /// </remarks>
-    public TimeSpan MaxBacklogAge { get; init; } = TimeSpan.Zero;
+    public TimeSpan MaxBacklogAge { get; init; } = TimeSpan.FromMilliseconds(FlowDefaults.MaxBacklogAgeMs);
 
     /// <summary>
     /// **外部接入的写超时**：一次写最多等多久，避免一个卡住的传输把实例线程拖死。
@@ -75,20 +76,31 @@ public sealed record CarrierOptions
     /// 由框架在会话打开/参数变更时下发给支持该能力的适配件；适配件自己决定落到哪个底层开关。
     /// 默认 1000 ms。
     /// </remarks>
-    public TimeSpan ExternalWriteTimeout { get; init; } = TimeSpan.FromMilliseconds(1000);
+    public TimeSpan ExternalWriteTimeout { get; init; } = TimeSpan.FromMilliseconds(FlowDefaults.ExternalWriteTimeoutMs);
 
     /// <summary>**探活节拍**（仅需要确认端口仍在的接入使用；默认 250 ms）。</summary>
-    public TimeSpan LivenessInterval { get; init; } = TimeSpan.FromMilliseconds(250);
+    public TimeSpan LivenessInterval { get; init; } = TimeSpan.FromMilliseconds(FlowDefaults.LivenessIntervalMs);
 
     /// <summary>**会话发送积压容量**（字节；设备写缓冲；默认 256 KB；对新建 / 重开的会话生效）。</summary>
-    public int SendBacklogBytes { get; init; } = 256 * 1024;
+    public int SendBacklogBytes { get; init; } = FlowDefaults.SendBacklogBytes;
 
     /// <summary>**适配件字节暂存容量**（按字节；默认 64 KB；对新建 / 重开的会话生效）。</summary>
-    public int AdapterBufferBytes { get; init; } = 64 * 1024;
+    public int AdapterBufferBytes { get; init; } = FlowDefaults.AdapterBufferBytes;
 
     /// <summary>**适配件关闭等待**（重开占着端口的会话时先等旧传输关闭；默认 1 s）。</summary>
-    public TimeSpan AccessCloseTimeout { get; init; } = TimeSpan.FromSeconds(1);
+    public TimeSpan AccessCloseTimeout { get; init; } = TimeSpan.FromMilliseconds(FlowDefaults.AccessCloseTimeoutMs);
 
     /// <summary>**设备丢失判定次数**（连续探活缺失多少次才判断开；默认 2）。</summary>
-    public int DeviceLostMisses { get; init; } = 2;
+    public int DeviceLostMisses { get; init; } = FlowDefaults.DeviceLostMisses;
+    /// <summary>**积压显示进入深度**（单元数；仅影响状态呈现）。</summary>
+    public int StatusBacklogEnterDepth { get; init; } = FlowDefaults.StatusBacklogEnterDepth;
+
+    /// <summary>**积压显示退出深度**（单元数；仅影响状态呈现；必须小于进入深度）。</summary>
+    public int StatusBacklogExitDepth { get; init; } = FlowDefaults.StatusBacklogExitDepth;
+
+    /// <summary>**状态滞回时间**（进入/退出积压需持续的时间）。</summary>
+    public TimeSpan StatusHold { get; init; } = TimeSpan.FromMilliseconds(FlowDefaults.StatusHoldMs);
+
+    /// <summary>**丢弃显示保持时间**（丢弃事实消失后仍保持显示的时间）。</summary>
+    public TimeSpan StatusDropHold { get; init; } = TimeSpan.FromMilliseconds(FlowDefaults.StatusDropHoldMs);
 }

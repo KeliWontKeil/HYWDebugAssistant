@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    开发内环入口（分层验证）：单项目编译 / 单类测试 / 单测试项目 / 完整门禁 / 启动应用。
+    开发内环入口（分层验证）：单项目编译 / 单类测试 / 单测试项目 / 完整门禁 / 生成截图 / 启动应用。
     工作流说明见 docs/implementation/07-dev-inner-loop.md（**唯一落点**）。
 
 .DESCRIPTION
@@ -9,7 +9,12 @@
       T0  Build -Project <名字片段>   只编译该项目（含其下游）        1–3 s
       T1  Test  -Filter <过滤词>      只跑匹配的测试                  3–6 s
       T2  Test                        跑主测试项目（一个增量收尾）    4–8 s
-      T3  Gate                       完整门禁（= build.ps1）         25–40 s
+      T3  Gate                       完整门禁（= build.ps1）         见 build.ps1 读数
+      --  Snapshots                  生成渲染截图（人眼验收用，不是判据）
+
+    默认不跑的两类（按需打开）：
+      · 压力/性能用例（`Category=Pressure` / `Perf`）：数据面 / 外部接入 / 串口改动时用 -Pressure 或 -IncludePressure；
+      · 截图工具（`VisualSnapshots`）：改 UI 时用 -Mode Snapshots（或 -IncludeSnapshots）。
 
     本脚本还会消除两个已知摩擦：
       · 构建前**自动停掉 VS 的 Avalonia 设计器宿主**（否则它锁住输出 DLL，构建会刷 MSB3026 重试）；
@@ -18,12 +23,14 @@
 .EXAMPLE
     .\tools\dev.ps1 -Mode Build -Project Core
     .\tools\dev.ps1 -Mode Test -Filter 端口标签
+    .\tools\dev.ps1 -Mode Test -Pressure
+    .\tools\dev.ps1 -Mode Snapshots
     .\tools\dev.ps1 -Mode Gate
     .\tools\dev.ps1 -Mode Run
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Build', 'Test', 'Gate', 'Tree', 'Stop', 'Run')]
+    [ValidateSet('Build', 'Test', 'Gate', 'Tree', 'Stop', 'Run', 'Snapshots')]
     [string]$Mode = 'Build',
 
     # Build：项目名片段（如 Core / Ui / FrameworkUi / Monitor）或 csproj 相对路径
@@ -35,8 +42,17 @@ param(
     # Test：测试项目名片段（默认主测试项目）
     [string]$TestProject = 'HYWDebugAssistant.Tests',
 
-    # Test：跑全部测试项目（不含许可审计）
+    # Test：跑全部测试项目（默认不含压力/性能/截图；用 -IncludePressure / -IncludeSnapshots 打开）
     [switch]$AllTests,
+
+    # Test：只跑压力类别（Category=Pressure；数据面 / 外部接入 / 串口改动时用）
+    [switch]$Pressure,
+
+    # Test：连压力/性能类别一起跑（默认排除）
+    [switch]$IncludePressure,
+
+    # Test / -AllTests：连截图工具一起跑（默认排除；单独生成截图请用 -Mode Snapshots）
+    [switch]$IncludeSnapshots,
 
     # 保持 Avalonia 设计器宿主不动（默认会先停掉它）
     [switch]$KeepDesignerHost,
@@ -248,59 +264,91 @@ switch ($Mode) {
     'Test' {
         Stop-DesignerHost
 
+        # 压力/性能用例默认不跑（Category=Pressure / Perf）；显式 -Filter 以请求为准，可能点到它们。
+        $categoryFilter = if ($Pressure) { 'Category=Pressure' }
+            elseif ($IncludePressure) { $null }
+            else { 'Category!=Pressure&Category!=Perf' }
+
+        $vstestFilter = if ($Filter) {
+            if ($Pressure) { "Category=Pressure&FullyQualifiedName~$Filter" }
+            else { "FullyQualifiedName~$Filter" }
+        }
+        else { $categoryFilter }
+
+        if ($Filter) {
+            if ($Pressure) {
+                Write-Host '[dev] -Pressure 与 -Filter 同时给出：只跑压力类别里匹配的用例' -ForegroundColor Yellow
+            }
+            else {
+                Write-Host '[dev] 已给 -Filter：以显式过滤词为准（可能包含压力/性能用例）' -ForegroundColor Yellow
+            }
+        }
+
         $output = $null
 
         if ($AllTests) {
-            Write-Host "===== T2 测试：全部测试项目（不含许可审计）=====" -ForegroundColor Cyan
+            Write-Host "===== T2 测试：全部测试项目（默认不含压力/性能/截图）=====" -ForegroundColor Cyan
 
-            # 【F 裁定 · 2026-09】`VisualSnapshots` **必须单独进程跑**：`AvaloniaHeadlessPlatform` 是**进程级**配置，
-            # 与其它测试项目并发时真实 Skia 渲染互相破坏 ⇒ **假失败**
-            # （实测：`ColorPickerDialogSnapshotTests` 在 -AllTests 下红、单独跑 4/4 全绿）。
-            # 故：先跑其余测试项目，**最后串行单独**跑它。
-            # 项目清单**按目录发现**（目录名 = 项目名），新增测试项目零改动；`Benchmarks` 不是 xUnit 用例 ⇒ 排除。
-            $testProjects = Get-ChildItem (Join-Path $root 'tests') -Directory |
+            # `VisualSnapshots` 是**截图工具**（渲染 PNG 给人眼看，不是判据）：默认不跑；
+            # 无头渲染平台是进程级配置，真要跑时**最后单独**跑（顺序即隔离）。
+            $discovered = Get-ChildItem (Join-Path $root 'tests') -Directory |
                 ForEach-Object { Join-Path $_.FullName "$($_.Name).csproj" } |
                 Where-Object { Test-Path -LiteralPath $_ } |
                 Where-Object { $_ -notmatch 'Benchmarks' }
 
-            $snapshotProjects = @($testProjects | Where-Object { $_ -match 'VisualSnapshots' })
-            $regularProjects = @($testProjects | Where-Object { $_ -notmatch 'VisualSnapshots' })
+            $regularProjects = @($discovered | Where-Object { $_ -notmatch 'VisualSnapshots' })
+            $snapshotProjects = if ($IncludeSnapshots) { @($discovered | Where-Object { $_ -match 'VisualSnapshots' }) } else { @() }
+
+            $projectFilter = if ($Filter) { "FullyQualifiedName~$Filter" } else { $categoryFilter }
 
             $failed = @()
-            # 逐个串行：常规项目先跑，快照项目**最后单独**跑（顺序即隔离，避免并发破坏渲染会话）
+            $clock = [System.Diagnostics.Stopwatch]::StartNew()
+
             foreach ($proj in @($regularProjects) + @($snapshotProjects)) {
                 $label = [System.IO.Path]::GetFileNameWithoutExtension($proj)
-                $isSnapshot = $proj -match 'VisualSnapshots'
-                Write-Host "----- $label$(if ($isSnapshot) { '（单独进程：渲染快照）' }) -----" -ForegroundColor DarkCyan
+                Write-Host "----- $label$(if ($proj -match 'VisualSnapshots') { '（单独进程：截图工具）' }) -----" -ForegroundColor DarkCyan
 
-                $projOut = dotnet test $proj -c $Configuration --nologo -v q 2>&1
+                $projectClock = [System.Diagnostics.Stopwatch]::StartNew()
+                $projOut = if ($projectFilter) {
+                    dotnet test $proj -c $Configuration --nologo -v q --filter $projectFilter 2>&1
+                }
+                else {
+                    dotnet test $proj -c $Configuration --nologo -v q 2>&1
+                }
+                $projectClock.Stop()
+
                 $projOut | Select-Object -Last 4 | ForEach-Object { Write-Host $_ }
+                Write-Host ("        {0}：{1:N1}s" -f $label, $projectClock.Elapsed.TotalSeconds) -ForegroundColor DarkGray
 
                 if ($LASTEXITCODE -ne 0) { $failed += $label }
             }
 
+            $clock.Stop()
+            Write-Host ("[dev] 测试小计：{0:N1}s" -f $clock.Elapsed.TotalSeconds) -ForegroundColor Cyan
             if ($failed.Count -gt 0) { throw "测试失败：$($failed -join '、')" }
-            Write-Host "[dev] 测试通过（含快照项目单独跑）" -ForegroundColor Green
+            Write-Host '[dev] 测试通过' -ForegroundColor Green
             break
         }
         else {
             $testTarget = Resolve-ProjectPath -Name $TestProject
             Assert-NoRunningApp -TargetProject $testTarget
-            Write-Host "===== $(if ($Filter) { 'T1' } else { 'T2' }) 测试：$([System.IO.Path]::GetFileName($testTarget))$(if ($Filter) { "（过滤：$Filter）" }) =====" -ForegroundColor Cyan
+            $level = if ($Filter) { 'T1' } else { 'T2' }
+            $scope = if ($Pressure) { '（压力类别）' } elseif ($vstestFilter -eq $categoryFilter -and $categoryFilter) { '（不含压力/性能）' } else { '（含压力/性能）' }
+            Write-Host "===== $level 测试：$([System.IO.Path]::GetFileName($testTarget))$scope$(if ($Filter) { "（过滤：$Filter）" }) =====" -ForegroundColor Cyan
 
             # 应用在跑时用 -SkipAppRebuild：不重编引用项目（否则会写 App 输出 → 撞文件锁）。
             # 注意：这里**逐个分支写全命令**，不用数组拼接——PowerShell 的数组在表达式里会被拆成字符（P14 同类坑）。
             $output = if ($SkipAppRebuild) {
-                if ($Filter) {
-                    dotnet test $testTarget -c $Configuration --nologo -v q -p:BuildProjectReferences=false --filter "FullyQualifiedName~$Filter" 2>&1
+                if ($vstestFilter) {
+                    dotnet test $testTarget -c $Configuration --nologo -v q -p:BuildProjectReferences=false --filter $vstestFilter 2>&1
                 }
                 else {
                     dotnet test $testTarget -c $Configuration --nologo -v q -p:BuildProjectReferences=false 2>&1
                 }
             }
             else {
-                if ($Filter) {
-                    dotnet test $testTarget -c $Configuration --nologo -v q --filter "FullyQualifiedName~$Filter" 2>&1
+                if ($vstestFilter) {
+                    dotnet test $testTarget -c $Configuration --nologo -v q --filter $vstestFilter 2>&1
                 }
                 else {
                     dotnet test $testTarget -c $Configuration --nologo -v q 2>&1
@@ -325,6 +373,27 @@ switch ($Mode) {
 
         if ($LASTEXITCODE -ne 0) { throw '测试失败' }
         Write-Host "[dev] 测试通过" -ForegroundColor Green
+        break
+    }
+
+    'Snapshots' {
+        Stop-DesignerHost
+        $snapshotProject = Join-Path $root 'tests\HYWDebugAssistant.VisualSnapshots\HYWDebugAssistant.VisualSnapshots.csproj'
+        if (-not (Test-Path -LiteralPath $snapshotProject)) { throw "未找到截图工具项目：$snapshotProject" }
+
+        Write-Host "===== 生成渲染截图（人眼验收用；不是判据）=====" -ForegroundColor Cyan
+        dotnet build $snapshotProject -c $Configuration --nologo -v q
+        if ($LASTEXITCODE -ne 0) { throw '编译失败' }
+
+        $output = dotnet test $snapshotProject -c $Configuration --no-build --nologo -v q --filter "FullyQualifiedName~生成快照" 2>&1
+        $output | Select-Object -Last 4 | ForEach-Object { Write-Host $_ }
+
+        # 过滤词失效 ⇒ 0 个入口被跑，别把“什么都没生成”当成成功。
+        $summary = $output | Where-Object { $_ -match '已通过!|失败!|Passed!|Failed!' }
+        if (-not $summary) { throw '截图入口未匹配到任何用例（检查 dev.ps1 的过滤词）' }
+        if ($LASTEXITCODE -ne 0) { throw '截图生成失败' }
+
+        Write-Host '[dev] 截图已生成：artifacts\snapshots\（打开看；这里没有"通过/失败"的判据）' -ForegroundColor Green
         break
     }
 

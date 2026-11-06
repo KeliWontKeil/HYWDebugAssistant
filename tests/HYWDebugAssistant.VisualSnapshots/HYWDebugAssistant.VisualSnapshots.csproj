@@ -1,13 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    **叠加层观感快照（独立测试项目 · 必须独立进程）**
-    · 用途：在**真实渲染栈（Skia）**下把带叠加层的模块窗口渲染成 PNG ⇒ ① 自绘层渲染冒烟；
-      ② 观感自检（PNG 落在 %TEMP%\hyw-overlay-snapshot\，调 UI 时直接打开看）。
+    **截图工具（不是判据）**：在**真实渲染栈（Skia）**下把窗口渲染成 PNG，交给人眼验收。
+    · 三个生成入口：叠加层 / 调色板 / 八个模块视图；输出 `artifacts\snapshots\`，**没有断言**。
+    · 不进任何自动化门禁：`dev.ps1 -Mode Snapshots` 按需运行（或 -IncludeSnapshots 临时进门禁）。
+    · 载体仍是 xUnit（`dotnet test` 跑 `[Fact]`），但它的成功只表示“画出来了”，不表示“画得对”。
     · **为什么必须单独一个项目**：`AvaloniaHeadlessPlatform` 的配置是**进程级**的
       （`UseHeadlessDrawing` 一旦初始化就不能换）。主测试项目用的是"空绘制"无头会话，
-      若在同一进程里再开"真实渲染"会话，会把主项目的无头会话一起弄坏
-      （实测：混合后 `ModuleWindowVisualTests` 13 项集体失败）。进程隔离是最省心的边界。
+      若在同一进程里再开"真实渲染"会话，会把主项目的无头会话一起弄坏。进程隔离是最省心的边界。
   -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>
@@ -19,7 +19,6 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
-    <PackageReference Include="Shouldly" />
     <PackageReference Include="Avalonia.Headless" />
     <!--
       真实渲染栈：`RenderTargetBitmap` 需要 Skia（无头默认是"空绘制"，出不了像素）。

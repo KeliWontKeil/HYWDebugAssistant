@@ -53,6 +53,11 @@ public sealed class CarrierHost : IDisposable
         {
             // 激活过程中会短暂占位（见 TryActivate），占位项没有队列可下发
             carrier?.UpdateFlowPolicy(options.HintDepth, options.HintHold, options.MaxBacklogAge);
+            carrier?.UpdateStatusPolicy(
+                options.StatusBacklogEnterDepth,
+                options.StatusBacklogExitDepth,
+                options.StatusHold,
+                options.StatusDropHold);
         }
     }
 

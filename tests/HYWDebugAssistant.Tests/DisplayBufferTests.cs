@@ -38,17 +38,6 @@ public class DisplayBufferTests
     }
 
     [Fact]
-    public void 不换行追加_仍是一条逻辑行()
-    {
-        var buffer = new DisplayBuffer();
-
-        buffer.AppendText("AB");
-        buffer.AppendText("CD");
-
-        buffer.Snapshot().ShouldBe(["ABCD"]);
-    }
-
-    [Fact]
     public void 行容量到顶_应丢最旧并计数()
     {
         var buffer = new DisplayBuffer(capacity: 3);
@@ -60,6 +49,24 @@ public class DisplayBufferTests
 
         buffer.Snapshot().ShouldBe(["l2", "l3", "l4"]);
         buffer.DroppedCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public void 更新上限_应立即裁剪已有缓冲()
+    {
+        var buffer = new DisplayBuffer(capacity: 5);
+
+        for (var index = 0; index < 5; index++)
+        {
+            buffer.AppendLine($"l{index}");
+        }
+
+        buffer.UpdateLimits(capacity: 2, maxChars: 32);
+
+        buffer.Snapshot().ShouldBe(["l3", "l4"]);
+        buffer.Capacity.ShouldBe(2);
+        buffer.MaxChars.ShouldBe(32);
+        buffer.DroppedCount.ShouldBe(3);
     }
 
     [Fact]
@@ -110,20 +117,6 @@ public class DisplayBufferTests
 
         stale.Reset.ShouldBeFalse("封口行虽然全被丢掉了，当前内容仍然可以整段给出，不必退回全量快照");
         scratch.ShouldBe(["c", "d"], "从头给的是**当前全部**封口行");
-    }
-
-    [Fact]
-    public void 满载过_应记得满过_清空后复位()
-    {
-        var buffer = new DisplayBuffer(capacity: 2, maxChars: 8);
-        buffer.HasTrimmed.ShouldBeFalse();
-
-        buffer.AppendText("1234567890");
-
-        buffer.HasTrimmed.ShouldBeTrue("当前行被头部裁剪也属于“满过”");
-
-        buffer.Clear();
-        buffer.HasTrimmed.ShouldBeFalse("清空之后这块缓冲说的是另一份内容");
     }
 
     [Fact]

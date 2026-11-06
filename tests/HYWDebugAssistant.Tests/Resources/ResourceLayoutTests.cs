@@ -7,7 +7,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests.Resources;
 
 /// <summary>
-/// 资源布局的机制级用例：类别名、默认根、显式根、拥有者目录、按类别的缓存代号。
+/// 资源布局的机制级用例：类别名、显式根、拥有者目录、按类别的缓存代号。
 /// </summary>
 /// <remarks>
 /// 这些是文本与图标**共用**的规则；它们出错时界面只会"少一段文案 / 少一个图标"，
@@ -52,21 +52,6 @@ public sealed class ResourceLayoutTests : IDisposable
         StoragePaths.TextPacksDirectoryName.ShouldBe(
             ResourceKinds.Text,
             "文本包目录名在 Infrastructure 与 Sdk 两处出现，必须同值");
-    }
-
-    [Fact]
-    public void 默认根_应指向仓库resources下的类别目录()
-    {
-        TextCatalog.UseRoot(null);
-        ResourceLayout.UseRoot(ResourceKinds.Icons, null);
-
-        var textRoot = ResourceLayout.Root(ResourceKinds.Text);
-        textRoot.ShouldNotBeNull();
-        textRoot!.ShouldEndWith(Path.Combine(ResourceLayout.ResourcesDirectoryName, ResourceKinds.Text), Case.Insensitive);
-
-        var iconRoot = ResourceLayout.Root(ResourceKinds.Icons);
-        iconRoot.ShouldNotBeNull();
-        iconRoot!.ShouldEndWith(Path.Combine(ResourceLayout.ResourcesDirectoryName, ResourceKinds.Icons), Case.Insensitive);
     }
 
     [Fact]

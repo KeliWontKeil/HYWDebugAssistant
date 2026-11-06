@@ -351,6 +351,9 @@ public sealed class ModuleConfigField : ModuleElement
                     }
 
                     combo.SelectedIndex = IndexOf(choices, value);
+                    combo.PlaceholderText = combo.SelectedIndex < 0 && value.Length > 0
+                        ? TextCatalog.Get(typeof(ModuleConfigField).Assembly, "moduleField.currentChoiceUnavailable")
+                        : null;
                     break;
 
                 case TextBox text:

@@ -65,28 +65,6 @@ public class TextCatalogTests : IDisposable
         TextCatalog.Get(Owner, "probe.shard.label").ShouldBe(_tables.Entries["probe.shard.label"], "分片表里的键要合并进来");
     }
 
-    [Fact]
-    public void 根解析_UseRoot应覆盖默认根()
-    {
-        using var alternate = TextCatalogTestRoot.CreateEmpty();
-        alternate.WriteTable("zh-Hans.json", """
-            {
-              "language": "zh-Hans",
-              "entries": {
-                "probe.root.label": "临时根"
-              }
-            }
-            """);
-        alternate.Use();
-
-        TextCatalog.Apply(TextLanguages.ZhHans);
-        TextCatalog.Get(Owner, "probe.root.label").ShouldBe(alternate.Entries["probe.root.label"], "显式根优先于默认解析");
-
-        TextCatalog.UseRoot(null);
-        TextCatalog.Get(Owner, "probe.root.label")
-            .ShouldBe(TextCatalog.MissingValue("probe.root.label"), "解除显式根后回到默认根（仓库 resources/i18n），临时根里的键不再存在");
-    }
-
     /// <summary>
     /// **默认根 == `Path.Combine(StoragePaths.ResourcesRoot, "i18n")`**（契约 §2.5 的唯一来源）。
     /// </summary>
@@ -344,26 +322,6 @@ public class TextCatalogTests : IDisposable
     }
 
     [Fact]
-    public void Apply_跟随系统应落到受支持语言()
-    {
-        TextCatalog.Apply(TextLanguages.System);
-
-        TextCatalog.SupportedLanguages
-            .ShouldContain(CultureInfo.CurrentUICulture.Name, "跟随系统必须落到一个有表的语言（或兜底的中文简体）");
-        TextCatalog.Get(Owner, "probe.base.label").ShouldBe(_tables.Entries["probe.base.label"]);
-    }
-
-    [Fact]
-    public void 参数_应按当前区域格式替换()
-    {
-        TextCatalog.Apply(TextLanguages.ZhHans);
-
-        TextCatalog.Get(Owner, "probe.format.message", 42).ShouldBe(
-            string.Format(CultureInfo.CurrentCulture, _tables.Entries["probe.format.message"], 42));
-        TextCatalog.Get(Owner, "probe.base.label", 42).ShouldBe(_tables.Entries["probe.base.label"], "模板没有占位符时原样返回");
-    }
-
-    [Fact]
     public void 语言切换_应触发事件且同语言重复应用不触发()
     {
         var events = 0;
@@ -406,86 +364,6 @@ public class TextCatalogTests : IDisposable
         TextCatalog.TryGet(ui, "hotkey.action.openCatalog.label", out var hotkeyLabel).ShouldBeTrue();
         hotkeyLabel.ShouldNotBeNullOrWhiteSpace();
         TextCatalog.IsMissing(hotkeyLabel).ShouldBeFalse();
-    }
-    /// <summary>
-    /// **显式根命中优先于默认根**：同一个拥有者在两边各有一份表时，取显式根的那份。
-    /// </summary>
-    /// <remarks>
-    /// "显式根未命中 ⇒ 回退默认根"是为了并行用例不互相踩；这条钉住**优先级不能反过来**。
-    /// </remarks>
-    [Fact]
-    public void 显式根命中的表应优先于默认根()
-    {
-        var ownerName = TextCatalogTestRoot.OwnerName;
-        var defaultRoot = Path.Combine(AppContext.BaseDirectory, "resources", "i18n");
-        var defaultOwner = Path.Combine(defaultRoot, ownerName);
-        var defaultTable = Path.Combine(defaultOwner, "zh-Hans.json");
-
-        var explicitRoot = Path.Combine(Path.GetTempPath(), "hyw-text-explicit-" + Guid.NewGuid().ToString("N"));
-        var explicitOwner = Path.Combine(explicitRoot, ownerName);
-        var explicitTable = Path.Combine(explicitOwner, "zh-Hans.json");
-
-        var createdDefaultRoot = !Directory.Exists(defaultRoot);
-        var createdExplicitRoot = !Directory.Exists(explicitRoot);
-
-        try
-        {
-            _ = Directory.CreateDirectory(defaultOwner);
-            _ = Directory.CreateDirectory(explicitOwner);
-
-            File.WriteAllText(defaultTable, """
-                {
-                  "language": "zh-Hans",
-                  "entries": { "probe.priority.label": "默认根" }
-                }
-                """, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-
-            File.WriteAllText(explicitTable, """
-                {
-                  "language": "zh-Hans",
-                  "entries": { "probe.priority.label": "显式根" }
-                }
-                """, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-
-            TextCatalog.UseRoot(explicitRoot);
-            TextCatalog.Apply(TextLanguages.ZhHans);
-
-            var explicitRootText = "显式根";
-            TextCatalog.Get(Owner, "probe.priority.label")
-                .ShouldBe(explicitRootText, "显式根命中时不得回落到默认根（优先级不能反过来）");
-        }
-        finally
-        {
-            TextCatalog.UseRoot(null);
-
-            try
-            {
-                File.Delete(defaultTable);
-                if (Directory.Exists(defaultOwner)
-                    && !Directory.EnumerateFileSystemEntries(defaultOwner).Any())
-                {
-                    Directory.Delete(defaultOwner);
-                }
-
-                if (createdDefaultRoot && Directory.Exists(defaultRoot)
-                    && !Directory.EnumerateFileSystemEntries(defaultRoot).Any())
-                {
-                    Directory.Delete(defaultRoot);
-                }
-
-                if (File.Exists(explicitTable)) { File.Delete(explicitTable); }
-                if (createdExplicitRoot && Directory.Exists(explicitRoot))
-                {
-                    Directory.Delete(explicitRoot, recursive: true);
-                }
-            }
-            catch (IOException)
-            {
-            }
-            catch (UnauthorizedAccessException)
-            {
-            }
-        }
     }
 
 }

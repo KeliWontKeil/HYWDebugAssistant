@@ -18,6 +18,7 @@ using HYWDebugAssistant.Hosting.Packages;
 using HYWDebugAssistant.Hosting.Registry;
 using HYWDebugAssistant.Infrastructure.Storage;
 using HYWDebugAssistant.Sdk;
+using HYWDebugAssistant.Sdk.Configuration;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 
@@ -65,7 +66,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
     /// <summary>配置 Schema 缓存（键 = 实例；失效依据 = 配置变更号 + UI 语言）。</summary>
     private readonly Lock _schemaCacheGate = new();
-    private readonly Dictionary<string, (long Version, string Language, ConfigurationSchemaView Schema)> _schemaCache =
+    private readonly Dictionary<string, (long Version, string Language, long ChoicesRevision, ConfigurationSchemaView Schema)> _schemaCache =
         new(StringComparer.Ordinal);
 
     /// <summary>模块目录视图缓存（只随扫描/注册变化；UI 每帧刷新不再逐项建行）。</summary>
@@ -2122,12 +2123,15 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
         var version = instance.Context.ConfigurationVersion;
         var language = CultureInfo.CurrentUICulture.Name;
+        var snapshot = instance.Context.ConfigurationSnapshot;
+        var choicesRevision = ChoicesRevisionOf(snapshot);
 
         lock (_schemaCacheGate)
         {
             if (_schemaCache.TryGetValue(instanceId, out var cached)
                 && cached.Version == version
-                && string.Equals(cached.Language, language, StringComparison.Ordinal))
+                && string.Equals(cached.Language, language, StringComparison.Ordinal)
+                && cached.ChoicesRevision == choicesRevision)
             {
                 schema = cached.Schema;
                 return true;
@@ -2135,12 +2139,37 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
             schema = ConfigurationSchemaBuilder.Build(
                 instanceId,
-                instance.Context.ConfigurationSnapshot,
+                snapshot,
                 instance.Module.GetType().Assembly);
 
-            _schemaCache[instanceId] = (version, language, schema);
+            _schemaCache[instanceId] = (version, language, choicesRevision, schema);
             return true;
         }
+    }
+
+    /// <summary>动态可选项的版本号（无动态字段时为 0）。</summary>
+    private static long ChoicesRevisionOf(IReadOnlyDictionary<string, object> snapshot)
+    {
+        long revision = 0;
+
+        foreach (var configuration in snapshot.Values)
+        {
+            if (configuration is not IConfigurationChoices choices)
+            {
+                continue;
+            }
+
+            try
+            {
+                revision = unchecked((revision * 31) + choices.GetChoicesRevision());
+            }
+            catch (Exception)
+            {
+                // 动态提供者不得打断 Schema 读取；拿不到版本就按不变处理。
+            }
+        }
+
+        return revision;
     }
 
     /// <inheritdoc />

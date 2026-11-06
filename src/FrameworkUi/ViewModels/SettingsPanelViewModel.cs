@@ -9,6 +9,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Tuning;
 using HYWDebugAssistant.Ui.Hotkeys;
 using HYWDebugAssistant.Ui.Images;
 using HYWDebugAssistant.Ui.Theming;
@@ -209,7 +210,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
 
     /// <summary>每个接收口一条队列的容量上限（单元数；对**新建**队列生效）。</summary>
     [ObservableProperty]
-    public partial int QueueCapacity { get; set; } = 1024;
+    public partial int QueueCapacity { get; set; } = FlowDefaults.QueueCapacity;
 
     /// <summary>缓冲满时的取舍（下拉用；持久化值取自 <see cref="DropPolicyChoice.Value"/>）。</summary>
     public IReadOnlyList<DropPolicyChoice> DropPolicyChoices { get; } =
@@ -224,43 +225,67 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
 
     /// <summary>停止协议的有界等待时限（秒）。</summary>
     [ObservableProperty]
-    public partial double StopTimeoutSeconds { get; set; } = 5;
+    public partial double StopTimeoutSeconds { get; set; } = FlowDefaults.StopTimeoutSeconds;
 
     /// <summary>饱和判定深度（单元数；立即生效；大于队列容量时按容量算）。</summary>
     [ObservableProperty]
-    public partial int HintDepth { get; set; } = 8;
+    public partial int HintDepth { get; set; } = FlowDefaults.HintDepth;
 
     /// <summary>饱和判定持续时长（毫秒；立即生效）。</summary>
     [ObservableProperty]
-    public partial int HintHoldMs { get; set; } = 500;
+    public partial int HintHoldMs { get; set; } = FlowDefaults.HintHoldMs;
 
     /// <summary>最大滞留时间（毫秒；0 = 不限，立即生效）。</summary>
     [ObservableProperty]
-    public partial int MaxBacklogAgeMs { get; set; }
+    public partial int MaxBacklogAgeMs { get; set; } = FlowDefaults.MaxBacklogAgeMs;
 
     /// <summary>外部写超时（毫秒；对新建 / 重新打开的会话生效）。</summary>
     [ObservableProperty]
-    public partial int ExternalWriteTimeoutMs { get; set; } = 1000;
+    public partial int ExternalWriteTimeoutMs { get; set; } = FlowDefaults.ExternalWriteTimeoutMs;
 
     /// <summary>探活节拍（毫秒；立即生效）。</summary>
     [ObservableProperty]
-    public partial int LivenessIntervalMs { get; set; } = 250;
+    public partial int LivenessIntervalMs { get; set; } = FlowDefaults.LivenessIntervalMs;
 
     /// <summary>会话发送积压容量（字节；对新建 / 重新打开的会话生效）。</summary>
     [ObservableProperty]
-    public partial int SendBacklogBytes { get; set; } = 256 * 1024;
+    public partial int SendBacklogBytes { get; set; } = FlowDefaults.SendBacklogBytes;
 
     /// <summary>适配件暂存容量（字节；对新建 / 重新打开的会话生效）。</summary>
     [ObservableProperty]
-    public partial int AdapterBufferBytes { get; set; } = 65536;
+    public partial int AdapterBufferBytes { get; set; } = FlowDefaults.AdapterBufferBytes;
 
     /// <summary>适配件关闭等待（毫秒；立即生效 / 下次关闭时使用）。</summary>
     [ObservableProperty]
-    public partial int AccessCloseTimeoutMs { get; set; } = 1000;
+    public partial int AccessCloseTimeoutMs { get; set; } = FlowDefaults.AccessCloseTimeoutMs;
 
     /// <summary>设备丢失判定次数（立即生效）。</summary>
     [ObservableProperty]
-    public partial int DeviceLostMisses { get; set; } = 2;
+    public partial int DeviceLostMisses { get; set; } = FlowDefaults.DeviceLostMisses;
+
+    /// <summary>积压显示进入深度（单元数；仅影响状态呈现）。</summary>
+    [ObservableProperty]
+    public partial int StatusBacklogEnterDepth { get; set; } = FlowDefaults.StatusBacklogEnterDepth;
+
+    /// <summary>积压显示退出深度（单元数；仅影响状态呈现）。</summary>
+    [ObservableProperty]
+    public partial int StatusBacklogExitDepth { get; set; } = FlowDefaults.StatusBacklogExitDepth;
+
+    /// <summary>状态滞回时间（毫秒）。</summary>
+    [ObservableProperty]
+    public partial int StatusHoldMs { get; set; } = FlowDefaults.StatusHoldMs;
+
+    /// <summary>丢弃显示保持时间（毫秒）。</summary>
+    [ObservableProperty]
+    public partial int StatusDropHoldMs { get; set; } = FlowDefaults.StatusDropHoldMs;
+
+    /// <summary>文本显示行上限。</summary>
+    [ObservableProperty]
+    public partial int TextLineCapacity { get; set; } = DisplayDefaults.TextLineCapacity;
+
+    /// <summary>文本显示总字符预算。</summary>
+    [ObservableProperty]
+    public partial int TextCharBudget { get; set; } = DisplayDefaults.TextCharBudget;
 
     // ---- UI 偏好 ----
 
@@ -1320,6 +1345,12 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         AdapterBufferBytes = settings.Flow.AdapterBufferBytes;
         AccessCloseTimeoutMs = settings.Flow.AccessCloseTimeoutMs;
         DeviceLostMisses = settings.Flow.DeviceLostMisses;
+        StatusBacklogEnterDepth = settings.Flow.StatusBacklogEnterDepth;
+        StatusBacklogExitDepth = settings.Flow.StatusBacklogExitDepth;
+        StatusHoldMs = settings.Flow.StatusHoldMs;
+        StatusDropHoldMs = settings.Flow.StatusDropHoldMs;
+        TextLineCapacity = settings.Display.TextLineCapacity;
+        TextCharBudget = settings.Display.TextCharBudget;
         AlignAutoNetworkEnabled = settings.AlignAutoNetworkEnabled;
         UiRefreshRateHz = settings.UiRefreshRateHz;
         ShowPerformanceMonitor = settings.ShowPerformanceMonitor;
@@ -1503,6 +1534,12 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         AdapterBufferBytes = defaults.Flow.AdapterBufferBytes;
         AccessCloseTimeoutMs = defaults.Flow.AccessCloseTimeoutMs;
         DeviceLostMisses = defaults.Flow.DeviceLostMisses;
+        StatusBacklogEnterDepth = defaults.Flow.StatusBacklogEnterDepth;
+        StatusBacklogExitDepth = defaults.Flow.StatusBacklogExitDepth;
+        StatusHoldMs = defaults.Flow.StatusHoldMs;
+        StatusDropHoldMs = defaults.Flow.StatusDropHoldMs;
+        TextLineCapacity = defaults.Display.TextLineCapacity;
+        TextCharBudget = defaults.Display.TextCharBudget;
         AlignAutoNetworkEnabled = defaults.AlignAutoNetworkEnabled;
         UiRefreshRateHz = defaults.UiRefreshRateHz;
         ShowPerformanceMonitor = defaults.ShowPerformanceMonitor;
@@ -1604,6 +1641,16 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
             AdapterBufferBytes = AdapterBufferBytes,
             AccessCloseTimeoutMs = AccessCloseTimeoutMs,
             DeviceLostMisses = DeviceLostMisses,
+            StatusBacklogEnterDepth = StatusBacklogEnterDepth,
+            StatusBacklogExitDepth = StatusBacklogExitDepth,
+            StatusHoldMs = StatusHoldMs,
+            StatusDropHoldMs = StatusDropHoldMs,
+        };
+
+        settings.Display = new DisplaySettings
+        {
+            TextLineCapacity = TextLineCapacity,
+            TextCharBudget = TextCharBudget,
         };
 
         settings.AlignAutoNetworkEnabled = AlignAutoNetworkEnabled;

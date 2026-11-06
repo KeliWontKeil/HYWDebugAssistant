@@ -226,59 +226,68 @@ public sealed class ExternalAccessChannel
     /// </summary>
     /// <param name="snapshot">该接入的当前快照。</param>
     /// <remarks>
-    /// 顺序固定：非打开态（故障 / 开合 / 连接句）→ 本次打开以来的接收丢失 → 发送丢失 →
-    /// 发送积压饱和 → 接收饱和 → 模块的连接句。口侧压力不在这里：模块的连接句自己表达。
+    /// 顺序固定：非打开态（故障 / 开合 / 连接句）→ 本次打开以来的接收丢失 → **模块口侧当前丢弃**
+    /// → 发送丢失 → 发送积压饱和 → 接收饱和 → **模块口侧当前饱和** → 模块连接句。
+    /// 会话侧的“丢失”与“饱和”按最后一次事件谁更新来决定谁说话：丢弃比饱和新就显示丢弃，
+    /// 饱和比丢弃新就显示饱和；否则最近丢弃会在窗口内一直压住已经恢复的积压。
     /// </remarks>
     private StatusPresentation BuildPresentation(ExternalAccessSnapshot snapshot)
     {
         var dropRole = snapshot.LastDropAtSinceOpen is not null ? ViewInkRoles.Danger : null;
+        var module = _describe(snapshot);
 
         if (snapshot.State != ExternalAccessState.Open)
         {
-            var described = _describe(snapshot);
-            var closedSeverity = described.Severity ?? snapshot.State switch
+            var closedSeverity = module.Severity ?? snapshot.State switch
             {
                 ExternalAccessState.Faulted => ViewInkRoles.Danger,
                 ExternalAccessState.Opening or ExternalAccessState.Closing => ViewInkRoles.Warning,
                 _ => snapshot.RejectedSinceOpen > 0 ? ViewInkRoles.Danger : null,
             };
 
-            return new StatusPresentation(described.Text, closedSeverity, dropRole);
+            return new StatusPresentation(module.Text, closedSeverity, dropRole);
         }
 
-        var recent = snapshot.LastDropAtSinceOpen is { } since
-            && DateTimeOffset.UtcNow - since <= LossHintWindow;
-
-        if (snapshot.ReceiveDroppedSinceOpen > 0
-            && recent
+        if (snapshot.ReceiveDropStatusActive
             && Pressure(ExternalAccessPressure.ReceiveLost, snapshot) is { } lostReceive)
         {
             return new StatusPresentation(lostReceive, ViewInkRoles.Danger, dropRole);
         }
 
-        if ((snapshot.SendFailedSinceOpen > 0
-                || snapshot.SendBacklogEvictedSinceOpen > 0
-                || snapshot.SendBacklogExpiredSinceOpen > 0)
-            && recent
+        // 口侧丢失是模块状态句里的 Danger；它必须先于会话的积压警告，
+        // 否则串口 tx 队列已经开始丢了，状态行仍停留在“发送队列积压”。
+        if (module.Severity == ViewInkRoles.Danger)
+        {
+            return new StatusPresentation(module.Text, module.Severity, dropRole);
+        }
+
+        // 当前发送丢弃 episode（写失败 / 积压挤旧 / 过期）优先于积压；
+        // 下一次成功写会清掉 SendDropActive 并唤醒实例线程刷新状态。
+        if (snapshot.SendDropStatusActive
             && Pressure(ExternalAccessPressure.SendLost, snapshot) is { } lostSend)
         {
             return new StatusPresentation(lostSend, ViewInkRoles.Danger, dropRole);
         }
 
-        if (snapshot.SendBacklogSaturated
+        // 只要当前还有积压就报积压；深度归零立即回落，不再等历史窗口。
+        if (snapshot.SendBacklogStatusActive
             && Pressure(ExternalAccessPressure.SendBacklogged, snapshot) is { } backlogged)
         {
             return new StatusPresentation(backlogged, ViewInkRoles.Warning, dropRole);
         }
 
-        if (snapshot.ReceiveSaturated
+        if (snapshot.ReceiveBacklogStatusActive
             && Pressure(ExternalAccessPressure.ReceiveSaturated, snapshot) is { } receive)
         {
             return new StatusPresentation(receive, ViewInkRoles.Warning, dropRole);
         }
 
-        var fallback = _describe(snapshot);
-        return new StatusPresentation(fallback.Text, fallback.Severity, dropRole);
+        if (module.Severity == ViewInkRoles.Warning)
+        {
+            return new StatusPresentation(module.Text, module.Severity, dropRole);
+        }
+
+        return new StatusPresentation(module.Text, module.Severity, dropRole);
     }
 
     private string? Pressure(ExternalAccessPressure kind, ExternalAccessSnapshot snapshot) =>

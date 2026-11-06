@@ -34,8 +34,8 @@ public sealed class DisplayBuffer : IDisplayBufferReader
     /// <summary>
     /// 默认容量（行）：**20 000 行**（量级参考：2 万行 × 48 字符 ≈ 2 MB）。
     /// </summary>
-    /// <remarks>阶段 3 落地时按**实测**（只读文本框的布局耗时与内存）再调；**先不做应用级设置项**。</remarks>
-    public const int DefaultCapacity = 20_000;
+    /// <remarks>默认值来自应用级设置；行数与字符预算可在“高级 → 文本与内存”中调整。</remarks>
+    public const int DefaultCapacity = DisplayDefaults.TextLineCapacity;
 
     /// <summary>
     /// 默认**总字符预算**（1 048 576 字符 ≈ 2 MB）。
@@ -44,7 +44,7 @@ public sealed class DisplayBuffer : IDisplayBufferReader
     /// 只按"行"封顶挡不住"整场会话只有一行"的形态（不换行显示就是那种形态）⇒ 另设字符预算，
     /// 超出时从最旧的已封口行开始丢。它与 <see cref="DefaultCapacity"/> 是**两个独立上限**，取先到者。
     /// </remarks>
-    public const int DefaultMaxChars = 1_048_576;
+    public const int DefaultMaxChars = DisplayDefaults.TextCharBudget;
 
     /// <summary>当前行封口后，超过这个容量就把大 <see cref="StringBuilder"/> 换掉（不保留同规模空缓冲）。</summary>
     private const int OpenBuilderReleaseCapacity = 64 * 1024;
@@ -55,6 +55,31 @@ public sealed class DisplayBuffer : IDisplayBufferReader
 
     /// <summary>已封口行的有效起点（丢头是整体前移，避免每行一次 <c>RemoveAt(0)</c> 的整表搬运）。</summary>
     private int _head;
+
+    /// <summary>更新行数与字符预算，并立即按新上限裁剪已有内容。</summary>
+    /// <param name="capacity">行容量（&gt; 0）。</param>
+    /// <param name="maxChars">总字符预算（&gt; 0）。</param>
+    public void UpdateLimits(int capacity, int maxChars)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxChars, 1);
+
+        int trimmed;
+
+        lock (_gate)
+        {
+            Capacity = capacity;
+            MaxChars = maxChars;
+            MaxOpenChars = maxChars;
+            trimmed = TrimLocked();
+            _ = Interlocked.Increment(ref _revision);
+        }
+
+        if (trimmed > 0)
+        {
+            Trimmed?.Invoke(trimmed);
+        }
+    }
 
     /// <summary>被丢弃的旧**行**累计数（绝对计数：视图用它判断"该删几行头"）。</summary>
     private int _dropped;
@@ -83,13 +108,13 @@ public sealed class DisplayBuffer : IDisplayBufferReader
     }
 
     /// <summary>容量（行）。</summary>
-    public int Capacity { get; }
+    public int Capacity { get; private set; }
 
     /// <summary>总字符预算。</summary>
-    public int MaxChars { get; }
+    public int MaxChars { get; private set; }
 
     /// <summary>单行字符上限（超过即强制封口 ⇒ 通道换行）。</summary>
-    public int MaxOpenChars { get; }
+    public int MaxOpenChars { get; private set; }
 
     /// <summary>
     /// **变更号**：追加/替换/清空/裁剪都会递增。读方用同一个号判断“内容没变” ⇒ 可跳过重排。

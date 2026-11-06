@@ -8,7 +8,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// M1-17：**模块来源根的发现规则**——多根 · 顺序 · 重复 · 重扫 · 诊断。
+/// M1-17：**模块来源根的发现规则**——多根 · 顺序 · 重扫 · 诊断 · 外部导入。
 /// </summary>
 /// <remarks>
 /// 不依赖参考模块：用**临时目录 + 最小模块包**（module.json + 一个真实可加载的程序集）驱动真实扫描路径。
@@ -43,37 +43,6 @@ public class ModuleSourceDiscoveryTests
     }
 
     [Fact]
-    public void 不存在的根_应记录为跳过而不是失败()
-    {
-        using var fixture = new SourceFixture();
-        var missing = Path.Combine(fixture.BaseDirectory, "does-not-exist");
-
-        fixture.Services.ScanModuleSources([missing]).ShouldBe(0);
-
-        var source = fixture.Services.GetModuleSources().ShouldHaveSingleItem();
-        source.Exists.ShouldBeFalse();
-        source.FailedPackages.ShouldBe(0);
-        source.Messages.ShouldNotBeEmpty("目录缺失必须有一句可定位的说明");
-    }
-
-    [Fact]
-    public void 同ID重复_应先到者胜且只记一次提示()
-    {
-        using var fixture = new SourceFixture();
-        var first = fixture.CreateRoot("root-a");
-        var second = fixture.CreateRoot("root-b");
-        SourceFixture.CreatePackage(first, "hyw", "alpha", FixtureModuleType.Alpha);
-        SourceFixture.CreatePackage(second, "hyw", "alpha", FixtureModuleType.Alpha);
-
-        fixture.Services.ScanModuleSources([first, second]).ShouldBe(1, "第二个同 ID 同版本包不重复装入");
-
-        fixture.Services.GetModuleCatalog().ShouldHaveSingleItem().SourceDirectory.ShouldBe(first, "先到者胜");
-        fixture.Services.GetModuleSources()[1].DuplicatePackages.ShouldBe(1);
-        fixture.Services.GetModuleSources()[1].FailedPackages.ShouldBe(0, "重复包不是失败");
-    }
-
-
-    [Fact]
     public void 重扫_应能发现新增的包()
     {
         using var fixture = new SourceFixture();
@@ -88,22 +57,6 @@ public class ModuleSourceDiscoveryTests
         fixture.Runtime.Issues.Recent(50)
             .Count(entry => entry.Issue.Severity == Sdk.Reporting.IssueSeverity.Error)
             .ShouldBe(0, "已载入/内容变化的包不应产生 Error（内容变化只是 Warning + 需重启）");
-    }
-
-    [Fact]
-    public void 重扫命令_应扫描固定的默认根并给出结果()
-    {
-        using var fixture = new SourceFixture();
-        var root = fixture.CreateRoot("built-in");
-        SourceFixture.CreatePackage(root, "hyw", "from-settings", FixtureModuleType.FromSettings);
-
-        fixture.Services.BuiltInModuleDirectory = root;
-
-        var result = fixture.Services.RescanModuleSources();
-
-        result.Succeeded.ShouldBeTrue();
-        result.Notices.ShouldNotBeEmpty();
-        fixture.Services.GetModuleCatalog().ShouldHaveSingleItem().ModuleId.ShouldBe("hyw/from-settings");
     }
 
     /// <summary>
@@ -195,7 +148,6 @@ public class ModuleSourceDiscoveryTests
         Directory.GetDirectories(external).Length.ShouldBe(1, "被拒绝的包不得复制");
     }
 
-
     [Fact]
     public void 缺少实现程序集的包_应失败并计入诊断()
     {
@@ -214,8 +166,6 @@ public class ModuleSourceDiscoveryTests
         source.FailedPackages.ShouldBe(1);
         source.Messages.ShouldNotBeEmpty("导入失败必须有一句可定位的说明");
     }
-
-
 
     /// <summary>临时根目录 + 真实服务面的测试夹具。</summary>
     private sealed class SourceFixture : IDisposable

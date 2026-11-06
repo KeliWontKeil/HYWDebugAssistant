@@ -7,47 +7,19 @@ namespace HYWDebugAssistant.Tests;
 /// <summary>模块定时器：到期的相位推进与生命周期。</summary>
 public class ModuleTimerTests
 {
-    [Fact]
-    public void 相位推进_未来到期不动()
+    /// <summary>相位推进：未到不动；正好 / 落后半拍推进到一个间隔；落后多拍跳整拍（不补发）。</summary>
+    [Theory]
+    [InlineData(30d, 20d, 30d)]
+    [InlineData(20d, 20d, 30d)]
+    [InlineData(20d, 25d, 30d)]
+    [InlineData(20d, 45d, 50d)]
+    public void 相位推进_未到不动_到期推进到下一同相位(double dueMs, double nowMs, double expectedMs)
     {
-        var due = TimeSpan.FromMilliseconds(30);
-        var now = TimeSpan.FromMilliseconds(20);
+        var due = TimeSpan.FromMilliseconds(dueMs);
+        var now = TimeSpan.FromMilliseconds(nowMs);
         var interval = TimeSpan.FromMilliseconds(10);
 
-        ModuleTimer.SkipToFuture(due, interval, now).ShouldBe(due);
-    }
-
-    [Fact]
-    public void 相位推进_正好到期应推进一个间隔()
-    {
-        var due = TimeSpan.FromMilliseconds(20);
-        var now = due;
-        var interval = TimeSpan.FromMilliseconds(10);
-
-        ModuleTimer.SkipToFuture(due, interval, now)
-            .ShouldBe(TimeSpan.FromMilliseconds(30));
-    }
-
-    [Fact]
-    public void 相位推进_落后半拍应推进到下一同相位()
-    {
-        var due = TimeSpan.FromMilliseconds(20);
-        var now = TimeSpan.FromMilliseconds(25);
-        var interval = TimeSpan.FromMilliseconds(10);
-
-        ModuleTimer.SkipToFuture(due, interval, now)
-            .ShouldBe(TimeSpan.FromMilliseconds(30));
-    }
-
-    [Fact]
-    public void 相位推进_落后多拍应跳整拍而不补发()
-    {
-        var due = TimeSpan.FromMilliseconds(20);
-        var now = TimeSpan.FromMilliseconds(45);
-        var interval = TimeSpan.FromMilliseconds(10);
-
-        ModuleTimer.SkipToFuture(due, interval, now)
-            .ShouldBe(TimeSpan.FromMilliseconds(50));
+        ModuleTimer.SkipToFuture(due, interval, now).ShouldBe(TimeSpan.FromMilliseconds(expectedMs));
     }
 
     [Fact]

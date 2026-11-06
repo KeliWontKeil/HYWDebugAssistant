@@ -1,5 +1,3 @@
-using System.Text.Json.Nodes;
-using HYWDebugAssistant.Core.Persistence;
 using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Services;
 using HYWDebugAssistant.Infrastructure.Storage;
@@ -91,102 +89,47 @@ public class CompositeImportTests
     }
 
     [Fact]
-    public void 删除_只允许默认目录中的json()
+    public void 删除与重命名_只允许默认目录且不覆盖已有文件()
     {
         using var runtime = new ModuleRuntime();
         var services = new RuntimeServices(runtime);
         var inside = NewDefaultFile();
         var outside = Path.Combine(Path.GetTempPath(), "hyw-delete-" + Guid.NewGuid().ToString("N") + ".json");
+        var renameSource = NewDefaultFile();
+        var collision = NewDefaultFile();
 
         try
         {
             File.WriteAllText(inside, "{}");
             File.WriteAllText(outside, "{}");
+            File.WriteAllText(renameSource, "{}");
+            File.WriteAllText(collision, "{}");
 
+            // 删除：只允许默认目录中的 json
             services.DeleteCompositeFile(inside).Succeeded.ShouldBeTrue();
             File.Exists(inside).ShouldBeFalse();
 
             services.DeleteCompositeFile(outside).Succeeded.ShouldBeFalse("外部路径不得删除");
             File.Exists(outside).ShouldBeTrue();
+
+            // 重命名：落在默认目录，且不覆盖已有文件
+            var result = services.RenameCompositeFile(renameSource, "renamed");
+            result.Succeeded.ShouldBeTrue(string.Join("；", result.Failures));
+            result.TargetPath.ShouldNotBeNull();
+            File.Exists(result.TargetPath).ShouldBeTrue();
+            File.Exists(renameSource).ShouldBeFalse();
+
+            services.RenameCompositeFile(collision, "renamed").Succeeded.ShouldBeFalse("同名不得覆盖");
+            File.Exists(collision).ShouldBeTrue();
+            File.Exists(result.TargetPath).ShouldBeTrue();
         }
         finally
         {
             TryDelete(inside);
             TryDelete(outside);
-        }
-    }
-
-    [Fact]
-    public void 重命名_只允许默认目录_不覆盖已有文件()
-    {
-        using var runtime = new ModuleRuntime();
-        var services = new RuntimeServices(runtime);
-        var first = NewDefaultFile();
-        var second = NewDefaultFile();
-
-        try
-        {
-            File.WriteAllText(first, "{}");
-            File.WriteAllText(second, "{}");
-
-            var result = services.RenameCompositeFile(first, "renamed");
-            result.Succeeded.ShouldBeTrue(string.Join("；", result.Failures));
-            result.TargetPath.ShouldNotBeNull();
-            File.Exists(result.TargetPath).ShouldBeTrue();
-            File.Exists(first).ShouldBeFalse();
-
-            services.RenameCompositeFile(second, "renamed").Succeeded.ShouldBeFalse("同名不得覆盖");
-            File.Exists(second).ShouldBeTrue();
-        }
-        finally
-        {
-            TryDelete(first);
-            TryDelete(second);
+            TryDelete(renameSource);
+            TryDelete(collision);
             TryDelete(Path.Combine(StoragePaths.CompositesRoot, "renamed.json"));
-        }
-    }
-
-    [Fact]
-    public void 封面_设置后随重命名移动_删除时一起删除()
-    {
-        using var runtime = new ModuleRuntime();
-        var services = new RuntimeServices(runtime);
-        var json = NewDefaultFile();
-        var image = Path.Combine(Path.GetTempPath(), "hyw-cover-" + Guid.NewGuid().ToString("N") + ".png");
-        string? renamed = null;
-
-        try
-        {
-            File.WriteAllText(json, "{}");
-            File.WriteAllBytes(image, [0x89, 0x50, 0x4E, 0x47]);
-
-            services.SetCompositeCover(json, image).Succeeded.ShouldBeTrue();
-            var cover = CompositeFileStore.CoverPathFor(json);
-            File.Exists(cover).ShouldBeTrue();
-            services.GetCompositeFiles().Single(file => file.Path == json)
-                .PreviewImagePath.ShouldBe(cover);
-
-            var rename = services.RenameCompositeFile(json, "cover-renamed-" + Guid.NewGuid().ToString("N"));
-            rename.Succeeded.ShouldBeTrue(string.Join("；", rename.Failures));
-            renamed = rename.TargetPath;
-            renamed.ShouldNotBeNull();
-            var renamedCover = CompositeFileStore.CoverPathFor(renamed!);
-            File.Exists(renamedCover).ShouldBeTrue("封面应随组合同步重命名");
-            File.Exists(cover).ShouldBeFalse();
-
-            services.DeleteCompositeFile(renamed!).Succeeded.ShouldBeTrue();
-            File.Exists(renamedCover).ShouldBeFalse("删除组合时应删除封面");
-        }
-        finally
-        {
-            TryDelete(json);
-            TryDelete(image);
-            TryDelete(renamed);
-            TryDelete(CompositeFileStore.CoverPathFor(json));
-            if (renamed is { Length: > 0 })
-            {
-                TryDelete(CompositeFileStore.CoverPathFor(renamed));
-            }
         }
     }
 

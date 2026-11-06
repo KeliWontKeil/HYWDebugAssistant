@@ -53,7 +53,7 @@ public sealed class MyModule : IModule { /* ... */ }
 
 ## 验证
 
-- 出像素：起应用看模块窗口（快照用例覆盖仓库内模块）；
+- 出像素：起应用看模块窗口；本仓库模块也可用 `.\tools\dev.ps1 -Mode Snapshots` 生成截图（`artifacts\snapshots\`），由人眼判断；
 - 可点击：按钮触发命令、开关提交输入；
 - 不遮挡：窗口最小尺寸要容得下端口标记。
 

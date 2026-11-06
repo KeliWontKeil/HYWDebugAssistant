@@ -178,11 +178,13 @@
 
             <!-- ============================ 外观 ============================ -->
             <!-- ============================ 通信 ============================ -->
-            <TabItem Header="{loc:Tr settings.comm.tab.title}">
+            <TabItem Header="{loc:Tr settings.advanced.tab.title}">
                 <ScrollViewer>
                     <StackPanel Margin="10" Spacing="6">
-                        <TextBlock Classes="sec" Text="{loc:Tr settings.flow.title}" />
+                        <TextBlock Classes="note" Text="{loc:Tr settings.advanced.note}" />
 
+                        <Rectangle Classes="settingsRule" />
+                        <TextBlock Classes="sec" Text="{loc:Tr settings.advanced.queues.title}" />
                         <Grid ColumnDefinitions="170,190,*">
                             <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                        ToolTip.Tip="{loc:Tr settings.flow.queueCapacity.tip}"
@@ -198,14 +200,6 @@
                                        Text="{loc:Tr settings.flow.dropPolicy.label}" />
                             <ComboBox Grid.Column="1" ItemsSource="{Binding DropPolicyChoices}"
                                       SelectedItem="{Binding SelectedDropPolicy, Mode=TwoWay}" />
-                        </Grid>
-                        <Grid ColumnDefinitions="170,190,*">
-                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                       ToolTip.Tip="{loc:Tr settings.flow.stopTimeout.tip}"
-                                       Foreground="{DynamicResource TextSecondary}"
-                                       Text="{loc:Tr settings.flow.stopTimeout.label}" />
-                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
-                                     Text="{Binding StopTimeoutSeconds, Mode=TwoWay}" />
                         </Grid>
                         <Grid ColumnDefinitions="170,190,*">
                             <TextBlock Grid.Column="0" VerticalAlignment="Center"
@@ -231,6 +225,9 @@
                             <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
                                      Text="{Binding MaxBacklogAgeMs, Mode=TwoWay}" />
                         </Grid>
+
+                        <Rectangle Classes="settingsRule" />
+                        <TextBlock Classes="sec" Text="{loc:Tr settings.advanced.access.title}" />
                         <Grid ColumnDefinitions="170,190,*">
                             <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                        ToolTip.Tip="{loc:Tr settings.flow.writeTimeout.tip}"
@@ -239,7 +236,7 @@
                             <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
                                      Text="{Binding ExternalWriteTimeoutMs, Mode=TwoWay}" />
                         </Grid>
-                                                <Grid ColumnDefinitions="170,190,*">
+                        <Grid ColumnDefinitions="170,190,*">
                             <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                        ToolTip.Tip="{loc:Tr settings.flow.liveness.tip}"
                                        Foreground="{DynamicResource TextSecondary}"
@@ -254,7 +251,8 @@
                                        Text="{loc:Tr settings.flow.sendBacklog.label}" />
                             <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
                                      Text="{Binding SendBacklogBytes, Mode=TwoWay}" />
-                        </Grid>                        <Grid ColumnDefinitions="170,190,*">
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
                             <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                        ToolTip.Tip="{loc:Tr settings.flow.adapterBuffer.tip}"
                                        Foreground="{DynamicResource TextSecondary}"
@@ -277,7 +275,74 @@
                                        Text="{loc:Tr settings.flow.deviceLost.label}" />
                             <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
                                      Text="{Binding DeviceLostMisses, Mode=TwoWay}" />
-                        </Grid>                        <TextBlock Classes="note" Text="{loc:Tr settings.flow.note}" />
+                        </Grid>
+
+                        <Rectangle Classes="settingsRule" />
+                        <TextBlock Classes="sec" Text="{loc:Tr settings.advanced.status.title}" />
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.statusEnter.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.statusEnter.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding StatusBacklogEnterDepth, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.statusExit.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.statusExit.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding StatusBacklogExitDepth, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.statusHold.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.statusHold.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding StatusHoldMs, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.dropHold.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.dropHold.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding StatusDropHoldMs, Mode=TwoWay}" />
+                        </Grid>
+
+                        <Rectangle Classes="settingsRule" />
+                        <TextBlock Classes="sec" Text="{loc:Tr settings.advanced.text.title}" />
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.display.lines.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.display.lines.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding TextLineCapacity, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.display.chars.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.display.chars.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding TextCharBudget, Mode=TwoWay}" />
+                        </Grid>
+                        <TextBlock Classes="note" Text="{loc:Tr settings.display.note}" />
+
+                        <Rectangle Classes="settingsRule" />
+                        <TextBlock Classes="sec" Text="{loc:Tr settings.advanced.lifecycle.title}" />
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.flow.stopTimeout.tip}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Text="{loc:Tr settings.flow.stopTimeout.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding StopTimeoutSeconds, Mode=TwoWay}" />
+                        </Grid>
+                        <TextBlock Classes="note" Text="{loc:Tr settings.flow.note}" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

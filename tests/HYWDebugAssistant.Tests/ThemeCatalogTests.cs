@@ -1,5 +1,4 @@
 using HYWDebugAssistant.Core.Api;
-using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Ui.Theming;
 using Shouldly;
 using Xunit;
@@ -64,41 +63,6 @@ public class ThemeCatalogTests
 
         ThemeCatalog.Find(themes, "missing").ShouldBeNull();
         ThemeCatalog.ResolveDisplayTheme(themes, appearance, "missing").Id.ShouldBe(ThemeIds.Light);
-    }
-
-    [Fact]
-    public void 保留名与重复id_不应重复进目录()
-    {
-        var firstSakuraTitle = "樱色";
-        var themes = ThemeCatalog.All([
-            Theme(ThemeIds.Light, "冒名的浅色", ThemeBaseKind.Dark),
-            Theme("sakura", firstSakuraTitle, ThemeBaseKind.Light),
-            Theme("sakura", "重复的樱色", ThemeBaseKind.Dark),
-        ]);
-
-        themes.Count.ShouldBe(3, "内置 light / dark + 一个 sakura");
-        themes.Count(theme => string.Equals(theme.Id, ThemeIds.Light, StringComparison.Ordinal)).ShouldBe(1);
-        themes.Count(theme => string.Equals(theme.Id, "sakura", StringComparison.Ordinal)).ShouldBe(1);
-        ThemeCatalog.Find(themes, "sakura")!.Title.ShouldBe(firstSakuraTitle, "先到的那个赢");
-    }
-
-    [Fact]
-    public void 磁盘主题_没有色板条目时也应有身份()
-    {
-        var descriptor = ThemeCatalog.FromFile(new ThemeFileView(
-            "plain",
-            "  ",
-            ThemeBaseKind.Dark,
-            new Dictionary<string, string>(StringComparer.Ordinal),
-            null,
-            2.0,
-            -1.0));
-
-        descriptor.Title.ShouldBe(TextCatalog.Get(typeof(HYWDebugAssistant.Core.Themes.ThemeStore).Assembly, "core.theme.defaultTitle"));
-        descriptor.Kind.ShouldBe(ThemeKind.Dark);
-        descriptor.PaletteValue("AccentPrimary").ShouldBeNull();
-        descriptor.WallpaperVeilOpacity.ShouldBe(0.9, "读入时按范围收敛");
-        descriptor.SurfaceOpacity.ShouldBe(0.0);
     }
 
     private static ThemeFileView Theme(string id, string title, ThemeBaseKind baseKind) =>

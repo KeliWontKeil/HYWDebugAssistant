@@ -34,6 +34,7 @@ public sealed class SerialLoopbackTestGroup
 }
 
 [Collection("SerialLoopback")]
+[Trait("Category", "Pressure")]   // 压力测试：默认不进门禁；改数据面 / 外部接入 / 串口时用 dev.ps1 -Mode Test -Pressure
 public sealed class SerialLoopbackIntegrityTests
 {
     private const string TextSenderId = "hyw/text-sender";

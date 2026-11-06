@@ -68,6 +68,11 @@ public sealed class ExternalAccessHost : IDisposable
             foreach (var session in instance.Sessions.Values)
             {
                 session.UpdateFlowPolicy(options.HintDepth, options.HintHold, options.MaxBacklogAge);
+                session.UpdateStatusPolicy(
+                    options.StatusBacklogEnterDepth,
+                    options.StatusBacklogExitDepth,
+                    options.StatusHold,
+                    options.StatusDropHold);
                 session.UpdateWriteTimeout(options.ExternalWriteTimeout);
                 session.UpdateTuning(TuningOf(options));
             }
@@ -173,7 +178,11 @@ public sealed class ExternalAccessHost : IDisposable
                         _options.DropPolicy,
                         _options.HintDepth,
                         _options.HintHold,
-                        _options.MaxBacklogAge),
+                        _options.MaxBacklogAge,
+                        _options.StatusBacklogEnterDepth,
+                        _options.StatusBacklogExitDepth,
+                        _options.StatusHold,
+                        _options.StatusDropHold),
                     closeTimeout,
                     () => SignalResolver?.Invoke(instanceId)?.Invoke(),
                     _options.ExternalWriteTimeout,

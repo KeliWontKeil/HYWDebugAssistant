@@ -1,6 +1,9 @@
+using System.Diagnostics;
+using HYWDebugAssistant.DataPlane.Queues;
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Tuning;
 
 namespace HYWDebugAssistant.DataPlane.Access;
 
@@ -80,8 +83,12 @@ public sealed class ExternalAccessSession : IExternalAccessReady
     private long _sendFailedUnits;
     private long _sendFailedBytes;
 
+    /// <summary>当前发送丢弃 episode：写失败、积压挤旧/过期后置位，下一次成功写清除。</summary>
+    private bool _sendDropActive;
+
     /// <summary>发送积压（设备写缓冲；由写泵线程消费，实例线程只入队）。</summary>
     private readonly SendBacklog _backlog;
+    private readonly StatusHysteresis _sendStatus;
 
     /// <summary>写泵线程（每打开会话一个）。</summary>
     private Thread? _writeThread;
@@ -184,7 +191,16 @@ public sealed class ExternalAccessSession : IExternalAccessReady
         _livenessIntervalMs = (long)_tuning.LivenessInterval.TotalMilliseconds;
         _readBuffer = new byte[Math.Max(1, declaration.MaxUnitBytes)];
         _deliveryBuffer = new byte[Math.Max(1, declaration.MaxUnitBytes)];
-        _backlog = backlog ?? new SendBacklog(64 * 1024, TimeSpan.Zero, 8, TimeSpan.FromMilliseconds(500));
+        _backlog = backlog ?? new SendBacklog(
+            FlowDefaults.SendBacklogBytes,
+            TimeSpan.FromMilliseconds(FlowDefaults.MaxBacklogAgeMs),
+            FlowDefaults.HintDepth,
+            TimeSpan.FromMilliseconds(FlowDefaults.HintHoldMs));
+        _sendStatus = new StatusHysteresis(
+            FlowDefaults.StatusBacklogEnterDepth,
+            FlowDefaults.StatusBacklogExitDepth,
+            TimeSpan.FromMilliseconds(FlowDefaults.StatusHoldMs),
+            TimeSpan.FromMilliseconds(FlowDefaults.StatusDropHoldMs));
     }
 
     /// <summary>接入名。</summary>
@@ -428,6 +444,17 @@ public sealed class ExternalAccessSession : IExternalAccessReady
         _backlog.UpdatePolicy(maxBacklogAge, hintDepth, hintHold);
     }
 
+    /// <summary>更新状态行滞回策略（只影响呈现；不改队列、丢弃与计数）。</summary>
+    public void UpdateStatusPolicy(int enterDepth, int exitDepth, TimeSpan hold, TimeSpan dropHold)
+    {
+        lock (_gate)
+        {
+            _sendStatus.UpdatePolicy(enterDepth, exitDepth, hold, dropHold);
+        }
+
+        _queue.UpdateStatusPolicy(enterDepth, exitDepth, hold, dropHold);
+    }
+
     /// <summary>
     /// 改本会话的**写超时**（运行期设置变更）——只对支持该能力的适配件生效。
     /// </summary>
@@ -560,8 +587,16 @@ public sealed class ExternalAccessSession : IExternalAccessReady
             lock (_gate)
             {
                 MarkDroppedLocked(DropReason.SendBacklogEvicted);
+                _sendDropActive = true;
                 _pendingNotification = true;
             }
+        }
+
+        lock (_gate)
+        {
+            var now = Stopwatch.GetTimestamp();
+            _sendStatus.ObserveDepth(_backlog.Depth, now);
+            _sendStatus.ObserveDrop(_sendDropActive, now);
         }
 
         return true;
@@ -584,9 +619,11 @@ public sealed class ExternalAccessSession : IExternalAccessReady
                 lock (_gate)
                 {
                     MarkDroppedLocked(DropReason.Expired);
+                    _sendDropActive = true;
                     _pendingNotification = true;
                 }
 
+                Signal();
             }
 
             try
@@ -626,22 +663,39 @@ public sealed class ExternalAccessSession : IExternalAccessReady
         try
         {
             var sent = _adapter.Write(buffer.AsSpan(0, length));
+            var signal = false;
 
             lock (_gate)
             {
+                var wasDropActive = _sendDropActive;
+
                 if (sent)
                 {
                     _sentUnits++;
                     _sentBytes += length;
+                    _sendDropActive = false;
+
+                    // 写成功且积压已排空、或刚清掉一次丢弃 episode ⇒ 让实例线程重新发布状态。
+                    signal = wasDropActive || _backlog.Depth == 0;
                 }
                 else
                 {
                     _sendFailedUnits++;
                     _sendFailedBytes += length;
+                    _sendDropActive = true;
                     MarkDroppedLocked(DropReason.SessionWriteFailed);
+                    signal = true;
                 }
 
+                var now = Stopwatch.GetTimestamp();
+                _sendStatus.ObserveDepth(_backlog.Depth, now);
+                _sendStatus.ObserveDrop(_sendDropActive, now);
                 _pendingNotification = true;
+            }
+
+            if (signal)
+            {
+                Signal();
             }
         }
         catch (Exception ex)
@@ -650,6 +704,7 @@ public sealed class ExternalAccessSession : IExternalAccessReady
             {
                 _sendFailedUnits++;
                 _sendFailedBytes += length;
+                _sendDropActive = true;
                 MarkDroppedLocked(DropReason.SessionWriteFailed);
                 _pendingWriteFailure = new ExternalAccessFailure(
                     ExternalAccessFailureKind.WriteFailed,
@@ -774,6 +829,7 @@ public sealed class ExternalAccessSession : IExternalAccessReady
         var backlogPeak = _backlog.PeakBytes;
         var backlogSaturated = _backlog.Saturated;
         var backlogSaturatedFor = _backlog.SaturatedFor;
+        var nowTicks = Stopwatch.GetTimestamp();
 
         lock (_gate)
         {
@@ -786,6 +842,10 @@ public sealed class ExternalAccessSession : IExternalAccessReady
 
             var sendBacklogDroppedUnits = backlogEvictedUnits + backlogExpiredUnits + backlogDiscardedUnits;
             var sendBacklogDroppedBytes = backlogEvictedBytes + backlogExpiredBytes + backlogDiscardedBytes;
+            _sendStatus.ObserveDepth(backlogDepth, nowTicks);
+            _sendStatus.ObserveDrop(_sendDropActive, nowTicks);
+            var sendBacklogStatusActive = _sendStatus.IsBacklogActive(nowTicks);
+            var sendDropStatusActive = _sendStatus.IsDropActive(nowTicks);
 
             var receiveDroppedSinceOpen = Math.Max(0, receiveDroppedUnits - _receiveDroppedAtOpen);
             var sendFailedSinceOpen = Math.Max(0, _sendFailedUnits - _sendFailedAtOpen);
@@ -832,6 +892,11 @@ public sealed class ExternalAccessSession : IExternalAccessReady
                 RejectedBytes = _rejectedBytes,
                 SendFailedUnits = _sendFailedUnits,
                 SendFailedBytes = _sendFailedBytes,
+                SendDropActive = _sendDropActive,
+                SendDropStatusActive = sendDropStatusActive,
+                SendBacklogStatusActive = sendBacklogStatusActive,
+                ReceiveDropStatusActive = _queue.DropStatusActive,
+                ReceiveBacklogStatusActive = _queue.BacklogStatusActive,
                 ReceiveDroppedUnits = receiveDroppedUnits,
                 ReceiveDroppedBytes = receiveDroppedBytes,
                 ReceiveQueueDroppedUnits = queueEvicted + queueRejected,
@@ -1183,6 +1248,8 @@ public sealed class ExternalAccessSession : IExternalAccessReady
             _lastFailure = null;
             _connections = 0;
             _releasePending = false;
+            _sendDropActive = false;
+            _sendStatus.Reset();
             _pendingNotification = true;
         }
 
@@ -1250,6 +1317,7 @@ public sealed class ExternalAccessSession : IExternalAccessReady
                 RecordFailureOnce(
                     AccessFailureKind.Queue,
                     DataPlaneText.Get("dataplane.access.unitTooLong", length, _declaration.MaxUnitBytes));
+                _queue.NoteExternalDrop();
                 break;
             }
 
@@ -1438,6 +1506,8 @@ public sealed class ExternalAccessSession : IExternalAccessReady
             _lastFailure = null;
             _keepFault = false;   // 打开成功 ⇒ 没有需要保留的故障
             _releasePending = false;
+            _sendDropActive = false;
+            _sendStatus.Reset();
             _pendingNotification = true;
         }
 
@@ -1504,6 +1574,7 @@ public sealed class ExternalAccessSession : IExternalAccessReady
             _pendingNotification = true;
         }
 
+        _queue.NoteExternalDrop();
         Signal();
     }
 
@@ -1515,3 +1586,5 @@ public sealed class ExternalAccessSession : IExternalAccessReady
         _lastDropAt = DateTimeOffset.UtcNow;
     }
 }
+
+

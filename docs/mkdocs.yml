@@ -72,6 +72,7 @@ nav:
       - 构建与门禁: project/build.md
       - 测试体系: project/tests.md
       - 版本与提交: project/versioning.md
+      - 已知问题与极端工况: project/known-issues.md
       - 文档体系: project/docs.md
   - 关于:
       - about/index.md

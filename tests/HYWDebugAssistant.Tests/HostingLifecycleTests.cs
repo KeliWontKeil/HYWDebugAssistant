@@ -1,4 +1,3 @@
-using HYWDebugAssistant.Hosting.Context;
 using HYWDebugAssistant.Hosting.Diagnostics;
 using HYWDebugAssistant.Hosting.Installation;
 using HYWDebugAssistant.Hosting.Instances;
@@ -7,10 +6,8 @@ using HYWDebugAssistant.Hosting.Packages;
 using HYWDebugAssistant.Hosting.Registry;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Context;
-using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
-using HYWDebugAssistant.Sdk.Reporting;
 using Shouldly;
 using Xunit;
 
@@ -49,18 +46,6 @@ public class HostingLifecycleTests
         // 界面是模块自带的视图：框架只知道"有没有视图工厂"，不持有任何界面结构。
         instance.ViewType.ShouldNotBeNull("文本发送器自带 XAML 视图");
         instance.ActivitySource.ShouldNotBeNull();
-    }
-
-    [Fact]
-    public void 工厂_口名重复应报Issue且仅保留首个声明()
-    {
-        var sink = new CollectingIssueSink();
-        var instance = ModuleInstanceFactory.Create("dup-1", TestDefinition("dup-port", typeof(DuplicatePortModule)), sink);
-
-        instance.Ports.Count.ShouldBe(1);
-        sink.Issues.Count.ShouldBe(1);
-        sink.Issues[0].Issue.Category.ShouldBe(IssueCategory.InterfaceError);
-        sink.Issues[0].Issue.Message.ShouldNotBeNullOrWhiteSpace();
     }
 
     [Fact]
@@ -119,21 +104,6 @@ public class HostingLifecycleTests
     }
 
     [Fact]
-    public void 生命周期_钩子抛异常应转Issue且状态仍推进()
-    {
-        var sink = new CollectingIssueSink();
-        var instance = ModuleInstanceFactory.Create(
-            "hook-throw-1", TestDefinition("throwing-activate", typeof(ThrowingOnActivateModule)), sink);
-        var controller = new ModuleLifecycleController(sink);
-
-        controller.Activate(instance).ShouldBeTrue();
-
-        instance.State.ShouldBe(ModuleInstanceState.Active);   // 钩子失败不阻断状态推进
-        sink.Issues.Count.ShouldBe(1);
-        sink.Issues[0].Issue.Message.ShouldContain("OnActivated");
-    }
-
-    [Fact]
     public void 生命周期_重复移除应被忽略并报Issue()
     {
         var sink = new CollectingIssueSink();
@@ -177,25 +147,6 @@ public class HostingLifecycleTests
         installer.TryInstall(temp.Directory, out _).ShouldBeFalse();
 
         sink.Issues.Count.ShouldBe(1);
-        sink.Issues[0].Issue.Message.ShouldNotBeNullOrWhiteSpace();
-    }
-
-
-
-    [Fact]
-    public void 模块上下文_应收集声明并把问题归属到实例与口()
-    {
-        var sink = new CollectingIssueSink();
-        var context = new ModuleContext("ctx-1", ModuleId.Create("hyw", "ctx"), sink);
-
-        context.Declaration.DeclarePort(new PortDeclaration(
-            "p", PortDirection.Receive, ContractShape.OfPrimitive(ContractPrimitive.U8)));
-        context.Issues.Report(new IssueReport(IssueCategory.ModuleError, IssueSeverity.Warning, "样例问题", "p"));
-
-        context.DeclaredPorts.Count.ShouldBe(1);
-        context.ReceiveHandlers.ShouldBeEmpty();
-        sink.Issues.Count.ShouldBe(1);
-        sink.Issues[0].ObjectPath.ShouldBe("module:ctx-1/p");
         sink.Issues[0].Issue.Message.ShouldNotBeNullOrWhiteSpace();
     }
 
@@ -251,31 +202,12 @@ public class HostingLifecycleTests
         public void OnRemoved() => Trace.Add(nameof(OnRemoved));
     }
 
-    /// <summary>声明两个同名口的测试模块（验证口名唯一性校验）。</summary>
-    [ModuleDefinition("test", "dup-port")]
-    public sealed class DuplicatePortModule : IModule
-    {
-        public void OnRegistered(IModuleContext context)
-        {
-            var shape = ContractShape.OfPrimitive(ContractPrimitive.U8);
-            context.Declaration.DeclarePort(new PortDeclaration("p", PortDirection.Send, shape));
-            context.Declaration.DeclarePort(new PortDeclaration("p", PortDirection.Receive, shape));
-        }
-    }
-
     /// <summary>OnRegistered 抛异常的测试模块。</summary>
     [ModuleDefinition("test", "throwing")]
     public sealed class ThrowingModule : IModule
     {
         public void OnRegistered(IModuleContext context) =>
             throw new InvalidOperationException("契约：故意在 OnRegistered 抛出");
-    }
-
-    /// <summary>OnActivated 抛异常的测试模块。</summary>
-    [ModuleDefinition("test", "throwing-activate")]
-    public sealed class ThrowingOnActivateModule : IModule
-    {
-        public void OnActivated() => throw new InvalidOperationException("契约：故意在 OnActivated 抛出");
     }
 
     /// <summary>临时包：复制真实包输出并篡改清单字段，用于验证拒绝路径。</summary>

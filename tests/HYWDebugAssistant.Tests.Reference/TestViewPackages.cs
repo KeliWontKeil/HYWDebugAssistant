@@ -16,13 +16,7 @@ internal static class TestViewPackages
     {
         [typeof(RateSourceStubModule)] = Make("ref-rate-source"),
         [typeof(RejectCountingSenderStubModule)] = Make("ref-reject-sender"),
-        [typeof(JudgementSinkStubModule)] = Make("ref-judgement-sink"),
         [typeof(FusionStubModule)] = Make("ref-fusion"),
-        [typeof(AcceptanceCriteriaTests.HealthyGeneratorModule)] = Make("ref-healthy"),
-        [typeof(AcceptanceCriteriaTests.FaultyGeneratorModule)] = Make("ref-faulty"),
-        [typeof(AcceptanceCriteriaTests.CountingSinkModule)] = Make("ref-counting-sink"),
-        [typeof(AcceptanceCriteriaTests.NewShapeSourceModule)] = Make("ref-new-shape"),
-        [typeof(AcceptanceCriteriaTests.NewShapeSinkModule)] = Make("ref-new-shape-sink"),
     };
 
     /// <summary>取某入口类型的夹具包目录。</summary>

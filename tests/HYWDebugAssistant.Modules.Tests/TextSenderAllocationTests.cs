@@ -10,6 +10,7 @@ namespace HYWDebugAssistant.Modules.Tests;
 /// 判据用 <see cref="GC.GetAllocatedBytesForCurrentThread"/>，阈值给到 4 KB：
 /// 测试替身会把载荷抄一份（约 1.5 KB）；旧实现逐字符 `ToString()+GetBytes()` 约 40 KB。
 /// </remarks>
+[Trait("Category", "Perf")]   // 分配测量：默认不进门禁；重做拆包 / 传输路径时按需跑
 public class TextSenderAllocationTests
 {
     [Fact]

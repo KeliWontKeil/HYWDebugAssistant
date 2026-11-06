@@ -13,6 +13,7 @@ using HYWDebugAssistant.Hosting.Diagnostics;
 using HYWDebugAssistant.Infrastructure.Json;
 using HYWDebugAssistant.Infrastructure.Storage;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Tuning;
 using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Core.Settings;
@@ -410,10 +411,15 @@ public sealed class SettingsService
             AdapterBufferBytes = flow.AdapterBufferBytes,
             AccessCloseTimeout = TimeSpan.FromMilliseconds(flow.AccessCloseTimeoutMs),
             DeviceLostMisses = flow.DeviceLostMisses,
+            StatusBacklogEnterDepth = flow.StatusBacklogEnterDepth,
+            StatusBacklogExitDepth = flow.StatusBacklogExitDepth,
+            StatusHold = TimeSpan.FromMilliseconds(flow.StatusHoldMs),
+            StatusDropHold = TimeSpan.FromMilliseconds(flow.StatusDropHoldMs),
         };
 
         _runtime.Carriers.UpdateOptions(carrierOptions);
         _runtime.ExternalAccessHost.UpdateOptions(carrierOptions);
+        _runtime.ApplyDisplaySettings(settings.Display);
 
         // 快速建网开关即时生效
         _runtime.UpdateAlignAutoNetwork(settings.AlignAutoNetworkEnabled);
@@ -427,7 +433,7 @@ public sealed class SettingsService
 
         var flow = settings.Flow;
 
-        if (flow.QueueCapacity is < 1 or > 65536)
+        if (flow.QueueCapacity is < FlowDefaults.QueueCapacityMin or > FlowDefaults.QueueCapacityMax)
         {
             failures.Add(CoreText.Get("core.settings.flowQueueCapacity", flow.QueueCapacity));
         }
@@ -437,52 +443,52 @@ public sealed class SettingsService
             failures.Add(CoreText.Get("core.settings.flowDropPolicy", flow.DropPolicy));
         }
 
-        if (flow.StopTimeoutSeconds is < 0.1 or > 300)
+        if (flow.StopTimeoutSeconds is < FlowDefaults.StopTimeoutSecondsMin or > FlowDefaults.StopTimeoutSecondsMax)
         {
             failures.Add(CoreText.Get("core.settings.stopTimeout", flow.StopTimeoutSeconds));
         }
 
-        if (flow.HintDepth is < 1 or > 65536)
+        if (flow.HintDepth is < FlowDefaults.HintDepthMin or > FlowDefaults.HintDepthMax)
         {
             failures.Add(CoreText.Get("core.settings.flowHintDepth", flow.HintDepth));
         }
 
-        if (flow.HintHoldMs is < 50 or > 10000)
+        if (flow.HintHoldMs is < FlowDefaults.HintHoldMsMin or > FlowDefaults.HintHoldMsMax)
         {
             failures.Add(CoreText.Get("core.settings.flowHintHold", flow.HintHoldMs));
         }
 
-        if (flow.MaxBacklogAgeMs is < 0 or > 60000)
+        if (flow.MaxBacklogAgeMs is < FlowDefaults.MaxBacklogAgeMsMin or > FlowDefaults.MaxBacklogAgeMsMax)
         {
             failures.Add(CoreText.Get("core.settings.flowMaxAge", flow.MaxBacklogAgeMs));
         }
 
-        if (flow.ExternalWriteTimeoutMs is < 50 or > 60000)
+        if (flow.ExternalWriteTimeoutMs is < FlowDefaults.ExternalWriteTimeoutMsMin or > FlowDefaults.ExternalWriteTimeoutMsMax)
         {
             failures.Add(CoreText.Get("core.settings.flowWriteTimeout", flow.ExternalWriteTimeoutMs));
         }
 
-        if (flow.SendBacklogBytes is < 8192 or > 4194304)
+        if (flow.SendBacklogBytes is < FlowDefaults.SendBacklogBytesMin or > FlowDefaults.SendBacklogBytesMax)
         {
             failures.Add(CoreText.Get("core.settings.flowSendBacklog", flow.SendBacklogBytes));
         }
 
-        if (flow.LivenessIntervalMs is < 50 or > 5000)
+        if (flow.LivenessIntervalMs is < FlowDefaults.LivenessIntervalMsMin or > FlowDefaults.LivenessIntervalMsMax)
         {
             failures.Add(CoreText.Get("core.settings.flowLiveness", flow.LivenessIntervalMs));
         }
 
-        if (flow.AdapterBufferBytes is < 4096 or > 1048576)
+        if (flow.AdapterBufferBytes is < FlowDefaults.AdapterBufferBytesMin or > FlowDefaults.AdapterBufferBytesMax)
         {
             failures.Add(CoreText.Get("core.settings.flowAdapterBuffer", flow.AdapterBufferBytes));
         }
 
-        if (flow.AccessCloseTimeoutMs is < 100 or > 10000)
+        if (flow.AccessCloseTimeoutMs is < FlowDefaults.AccessCloseTimeoutMsMin or > FlowDefaults.AccessCloseTimeoutMsMax)
         {
             failures.Add(CoreText.Get("core.settings.flowAccessClose", flow.AccessCloseTimeoutMs));
         }
 
-        if (flow.DeviceLostMisses is < 1 or > 10)
+        if (flow.DeviceLostMisses is < FlowDefaults.DeviceLostMissesMin or > FlowDefaults.DeviceLostMissesMax)
         {
             failures.Add(CoreText.Get("core.settings.flowDeviceLost", flow.DeviceLostMisses));
         }
@@ -496,6 +502,38 @@ public sealed class SettingsService
         if (settings.SnapDistance is < 2 or > 8)
         {
             failures.Add(CoreText.Get("core.settings.snapDistance", settings.SnapDistance));
+        }
+
+        if (flow.StatusBacklogEnterDepth is < FlowDefaults.StatusBacklogEnterDepthMin or > FlowDefaults.StatusBacklogEnterDepthMax)
+        {
+            failures.Add(CoreText.Get("core.settings.flowStatusEnter", flow.StatusBacklogEnterDepth));
+        }
+
+        if (flow.StatusBacklogExitDepth is < FlowDefaults.StatusBacklogExitDepthMin or > FlowDefaults.StatusBacklogExitDepthMax
+            || (flow.StatusBacklogEnterDepth is >= 1 and <= 65536
+                && flow.StatusBacklogExitDepth >= flow.StatusBacklogEnterDepth))
+        {
+            failures.Add(CoreText.Get("core.settings.flowStatusExit", flow.StatusBacklogExitDepth));
+        }
+
+        if (flow.StatusHoldMs is < FlowDefaults.StatusHoldMsMin or > FlowDefaults.StatusHoldMsMax)
+        {
+            failures.Add(CoreText.Get("core.settings.flowStatusHold", flow.StatusHoldMs));
+        }
+
+        if (flow.StatusDropHoldMs is < FlowDefaults.StatusDropHoldMsMin or > FlowDefaults.StatusDropHoldMsMax)
+        {
+            failures.Add(CoreText.Get("core.settings.flowDropHold", flow.StatusDropHoldMs));
+        }
+
+        if (settings.Display.TextLineCapacity is < DisplayDefaults.TextLineCapacityMin or > DisplayDefaults.TextLineCapacityMax)
+        {
+            failures.Add(CoreText.Get("core.settings.displayLines", settings.Display.TextLineCapacity));
+        }
+
+        if (settings.Display.TextCharBudget is < DisplayDefaults.TextCharBudgetMin or > DisplayDefaults.TextCharBudgetMax)
+        {
+            failures.Add(CoreText.Get("core.settings.displayChars", settings.Display.TextCharBudget));
         }
 
         // 主题的遮罩 / 表面透明度属于**主题文件夹**（`theme.json`），由 `ThemeStore.Save` 校验并收敛范围。
@@ -515,6 +553,7 @@ public sealed class SettingsService
         var settings = new ApplicationSettings();
 
         settings.Flow = ReadFlow(root);
+        settings.Display = ReadDisplay(root);
         settings.UiRefreshRateHz = ReadInt(root, "uiRefreshRateHz", settings.UiRefreshRateHz);
         settings.ShowPerformanceMonitor = ReadBool(root, "showPerformanceMonitor", settings.ShowPerformanceMonitor);
         settings.AlignAutoNetworkEnabled = ReadBool(root, "alignAutoNetwork", settings.AlignAutoNetworkEnabled);
@@ -583,10 +622,14 @@ public sealed class SettingsService
             AdapterBufferBytes = ReadInt(block, "adapterBufferBytes", defaults.AdapterBufferBytes),
             AccessCloseTimeoutMs = ReadInt(block, "accessCloseTimeoutMs", defaults.AccessCloseTimeoutMs),
             DeviceLostMisses = ReadInt(block, "deviceLostMisses", defaults.DeviceLostMisses),
+            StatusBacklogEnterDepth = ReadInt(block, "statusBacklogEnterDepth", defaults.StatusBacklogEnterDepth),
+            StatusBacklogExitDepth = ReadInt(block, "statusBacklogExitDepth", defaults.StatusBacklogExitDepth),
+            StatusHoldMs = ReadInt(block, "statusHoldMs", defaults.StatusHoldMs),
+            StatusDropHoldMs = ReadInt(block, "statusDropHoldMs", defaults.StatusDropHoldMs),
         };
     }
 
-    /// <summary>写**数据面块**（`flow` 的十二个键；语义与值域见 <see cref="FlowSettings"/>）。</summary>
+    /// <summary>写**数据面块**（`flow` 的十六个键；语义与值域见 <see cref="FlowSettings"/>）。</summary>
     /// <param name="flow">数据面参数。</param>
     private static JsonObject WriteFlow(FlowSettings flow) => new()
     {
@@ -602,6 +645,32 @@ public sealed class SettingsService
         ["adapterBufferBytes"] = flow.AdapterBufferBytes,
         ["accessCloseTimeoutMs"] = flow.AccessCloseTimeoutMs,
         ["deviceLostMisses"] = flow.DeviceLostMisses,
+        ["statusBacklogEnterDepth"] = flow.StatusBacklogEnterDepth,
+        ["statusBacklogExitDepth"] = flow.StatusBacklogExitDepth,
+        ["statusHoldMs"] = flow.StatusHoldMs,
+        ["statusDropHoldMs"] = flow.StatusDropHoldMs,
+    };
+
+    /// <summary>读文本显示内存上限块；缺失即默认值。</summary>
+    private static DisplaySettings ReadDisplay(JsonObject root)
+    {
+        var defaults = new DisplaySettings();
+        var block = root.TryGetPropertyValue("display", out var node) && node is JsonObject nested
+            ? nested
+            : new JsonObject();
+
+        return defaults with
+        {
+            TextLineCapacity = ReadInt(block, "textLineCapacity", defaults.TextLineCapacity),
+            TextCharBudget = ReadInt(block, "textCharBudget", defaults.TextCharBudget),
+        };
+    }
+
+    /// <summary>写文本显示内存上限块。</summary>
+    private static JsonObject WriteDisplay(DisplaySettings display) => new()
+    {
+        ["textLineCapacity"] = display.TextLineCapacity,
+        ["textCharBudget"] = display.TextCharBudget,
     };
 
     private static void MergeInto(JsonObject root, ApplicationSettings settings)
@@ -610,6 +679,7 @@ public sealed class SettingsService
 
         // **数据面块**：写新形状，再把三个旧根键删掉 —— 留着就会出现"两个来源"，下次读到时又得判谁优先
         root["flow"] = WriteFlow(settings.Flow);
+        root["display"] = WriteDisplay(settings.Display);
 
 
         root["uiRefreshRateHz"] = settings.UiRefreshRateHz;

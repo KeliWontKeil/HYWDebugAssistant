@@ -129,6 +129,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <summary>本次拖动**起点**的各成员几何（拖动中按 Ctrl 拆分时用来"放回原位"）。</summary>
     private readonly Dictionary<string, CanvasRect> _dragStartRects = new(StringComparer.Ordinal);
 
+    /// <summary>本次拖动**起点**的完整布局（连接在拖动中丢失时会提前提交中间布局，取消时要还原）。</summary>
+    private readonly Dictionary<string, ModuleLayoutView> _dragStartLayouts = new(StringComparer.Ordinal);
+
+    /// <summary>本次拖动中是否已经为了断开直连提交过中间布局。</summary>
+    private bool _dragCommittedLive;
+
     private string? _draggingId;
     private IReadOnlyList<string> _dragGroup = [];
     private double _dragPointerOffsetX;
@@ -1070,11 +1076,14 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         // 拖动**起点**的几何（拖动中按 Ctrl 拆分时，把已经被带走的其他成员**放回原位** —— 见 DetachDrag）
         _dragStartRects.Clear();
+        _dragStartLayouts.Clear();
+        _dragCommittedLive = false;
         foreach (var memberId in _dragGroup)
         {
             if (Find(memberId) is { } member)
             {
                 _dragStartRects[memberId] = member.Rect;
+                _dragStartLayouts[memberId] = member.ToLayout();
             }
         }
 
@@ -1151,6 +1160,20 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 member.Y = start.Y;
                 RaiseGeometry(member);
             }
+        }
+
+        if (_dragCommittedLive)
+        {
+            // 断线判定已经提交过中间布局：把“被拖成员当前位置 + 被放回成员原位置”再同步一次，
+            // 否则拆分后的成员会停在中间布局上。
+            var layouts = _dragGroup
+                .Select(Find)
+                .Where(m => m is not null)
+                .Select(m => m!.ToLayout())
+                .ToList();
+
+            _ = _command.UpdateModuleLayouts(layouts);
+            _dragCommittedLive = false;
         }
 
         // ③ 组收缩为"只有被拖的那个"
@@ -1409,12 +1432,17 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
     /// <summary>把"将会连上"的端口标记高亮（拖动中实时；松手后由网络行为落地）。</summary>
     /// <summary>当前已建网的 `源 → 宿` 字面量对（预览不能把已有连接再标成“即将建网”）。</summary>
-    private HashSet<(string Source, string Target)> BuildExistingBindings()
+    /// <param name="anonymousOnly">是否只取匿名/直连网络（拖动断线判定只需要这一种）。</param>
+    private HashSet<(string Source, string Target)> BuildExistingBindings(bool anonymousOnly = false)
     {
         var existing = new HashSet<(string Source, string Target)>();
 
         foreach (var network in _query.GetNetworks())
         {
+            if (anonymousOnly && !network.IsAnonymous)
+            {
+                continue;
+            }
             IReadOnlyList<string> sources = network.Sources.Count > 0 ? network.Sources : [network.Source];
             foreach (var source in sources)
             {
@@ -1450,15 +1478,32 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             .Select(m => m!.ToLayout())
             .ToList();
 
+        var directBefore = BuildExistingBindings(anonymousOnly: true);
+        var candidates = _query.PreviewConnections(provisional);
+        var candidatePairs = candidates
+            .Select(candidate => (Source: candidate.SourceLiteral, Target: candidate.TargetLiteral))
+            .ToHashSet();
+
+        // 已有直连在当前临时几何下不再成立 ⇒ 立即走现有布局提交，让 ReconcileNetworks 拆网。
+        // 这里不保存任何“预览网络”：布局仍是唯一事实源，PreviewConnections 只负责触发。
+        var lost = directBefore.Any(pair =>
+            PairTouchesDragGroup(pair)
+            && !candidatePairs.Contains(pair));
+
+        if (lost && _command.UpdateModuleLayouts(provisional).Succeeded)
+        {
+            _dragCommittedLive = true;
+        }
+
         var existing = BuildExistingBindings();
-        var candidates = DockPreviewPolicy.Filter(
-            _query.PreviewConnections(provisional),
+        var filtered = DockPreviewPolicy.Filter(
+            candidates,
             existing,
             _dragGroup);
 
         var marked = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var candidate in candidates)
+        foreach (var candidate in filtered)
         {
             _ = marked.Add(candidate.SourceLiteral);
             _ = marked.Add(candidate.TargetLiteral);
@@ -1472,16 +1517,22 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             }
         }
 
-        if (candidates.Count > 0 && candidates.Count != _lastDockPreviewCount)
+        if (filtered.Count > 0 && filtered.Count != _lastDockPreviewCount)
         {
-            _lastDockPreviewCount = candidates.Count;
-            RaiseNotice(TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.notice.autoNetwork", candidates.Count));
+            _lastDockPreviewCount = filtered.Count;
+            RaiseNotice(TextCatalog.Get(typeof(ModuleWindowsViewModel).Assembly, "windows.notice.autoNetwork", filtered.Count));
         }
-        else if (candidates.Count == 0)
+        else if (filtered.Count == 0)
         {
             _lastDockPreviewCount = -1;
         }
     }
+
+    /// <summary>这个直连端口对是否涉及本次拖动组。</summary>
+    private bool PairTouchesDragGroup((string Source, string Target) pair) =>
+        _dragGroup.Any(instanceId =>
+            pair.Source.StartsWith(instanceId + ".", StringComparison.Ordinal)
+            || pair.Target.StartsWith(instanceId + ".", StringComparison.Ordinal));
 
     /// <summary>清掉"即将建网"高亮（拖动结束/取消时）。</summary>
     private void ClearDockPreview()
@@ -1651,6 +1702,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         _draggingId = null;
         _dragGroup = [];
+        _dragStartLayouts.Clear();
+        _dragCommittedLive = false;
         ClearDockPreview();
 
         if (layouts.Count > 0)
@@ -1699,7 +1752,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         // 组内含外壳时，外壳窗口也被拖走了 → 还原到本次拖动的绝对物理起点
         RestoreShellOrigin();
 
-        var layoutById = _query.GetLayout().ToDictionary(l => l.InstanceId, StringComparer.Ordinal);
         foreach (var memberId in group)
         {
             if (Find(memberId) is not { } member)
@@ -1709,13 +1761,31 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
             member.IsInteracting = false;
 
-            if (layoutById.TryGetValue(memberId, out var layout))
+            if (_dragStartLayouts.TryGetValue(memberId, out var layout))
             {
                 member.ApplyLayout(layout);
             }
 
             RaiseGeometry(member);
         }
+
+        if (_dragCommittedLive)
+        {
+            // 断线判定已经提交过中间布局：取消要把布局和网络一起还原到拖动前。
+            var layouts = group
+                .Where(_dragStartLayouts.ContainsKey)
+                .Select(id => _dragStartLayouts[id])
+                .ToList();
+
+            if (layouts.Count > 0)
+            {
+                _ = _command.UpdateModuleLayouts(layouts);
+            }
+
+            _dragCommittedLive = false;
+        }
+
+        _dragStartLayouts.Clear();
     }
 
     // ---------------------------------------------------------------- 缩放

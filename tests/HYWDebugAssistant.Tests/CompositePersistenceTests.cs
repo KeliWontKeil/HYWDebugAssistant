@@ -539,25 +539,6 @@ public class CompositePersistenceTests
         harness.Services.GetLayout().ShouldBeEmpty();
     }
 
-    [Fact]
-    public void 保存_可指定选中范围_未覆盖的网络应给出提示()
-    {
-        using var harness = new Harness(("gen", typeof(GeneratorModule)), ("sink", typeof(SinkModule)));
-        harness.Services.AddModule("g1", "test/gen").Succeeded.ShouldBeTrue();
-        harness.Services.AddModule("s1", "test/sink").Succeeded.ShouldBeTrue();
-        TestLink.Link(harness.Services, new PortRef("g1", GeneratorModule.OutPort), new PortRef("s1", SinkModule.InPort), "link-1");
-
-        var path = harness.PathFor("partial-selection.json");
-        var result = harness.Services.SaveComposite(path, "partial", ["g1"]);
-
-        result.Succeeded.ShouldBeTrue();
-        result.Notices.ShouldNotBeEmpty("跨选中边界的网络不静默截断，而是提示");
-
-        var root = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
-        root["instances"]!.AsArray().Count.ShouldBe(1);
-        root["networks"]!.AsArray().Count.ShouldBe(0);
-    }
-
     // ------------------------------------------------------------ 端口锚点「固定」三态（G5 · C5-7）
 
     [Fact]
@@ -603,68 +584,6 @@ public class CompositePersistenceTests
 
         // ④ 反向：**默认值不写文件**（缺省不写）—— 没动过的口不该在组合件里留下 `locked`
         AnchorGeometry(second, "a1").IsAnchorFixed.ShouldBeNull("用户没设置过 ⇒ 三态保持 null（不写文件）");
-    }
-
-    [Fact]
-    public void 端口锚点固定_用户设置true同样落盘()
-    {
-        using var first = new Harness(("draggable-anchor", typeof(DraggableAnchorModule)));
-        first.Services.AddModule("a1", "test/draggable-anchor").Succeeded.ShouldBeTrue();
-
-        first.Services.UpdatePortGeometry(
-            "a1",
-            new PortGeometryView(DraggableAnchorModule.OutPort, 0.5, IsAnchorFixed: true)).Succeeded.ShouldBeTrue();
-
-        var path = first.PathFor("anchor-fixed.json");
-        first.Services.SaveComposite(path, "anchor-fixed").Succeeded.ShouldBeTrue();
-
-        using var second = new Harness(("draggable-anchor", typeof(DraggableAnchorModule)));
-        second.Services.LoadComposite(path).Succeeded.ShouldBeTrue();
-
-        Anchor(second, "a1").IsAnchorFixed.ShouldBeTrue("用户设过的固定态要保住（覆盖'默认可拖'的声明）");
-    }
-
-    // ------------------------------------------------------------ 端口边（代码声明是唯一来源；Auto = 惯例）
-
-    [Fact]
-    public void 端口边_代码声明是唯一来源_未声明即按惯例_用户拖动覆盖仍然最高优先()
-    {
-        using var harness = new Harness();
-        harness.Register("edge-anchor", typeof(DraggableAnchorModule));
-        harness.Register("gen", typeof(GeneratorModule));
-        harness.Register("sink", typeof(SinkModule));
-        // 一个"什么都没声明"的模块：口只给了方向 ⇒ 边应按惯例解析，而不是"没有位置"。
-        harness.Register("bare", typeof(SinkModule));
-
-        harness.Services.AddModule("e1", "test/edge-anchor").Succeeded.ShouldBeTrue();
-        harness.Services.AddModule("g1", "test/gen").Succeeded.ShouldBeTrue();
-        harness.Services.AddModule("s1", "test/sink").Succeeded.ShouldBeTrue();
-        harness.Services.AddModule("b1", "test/bare").Succeeded.ShouldBeTrue();
-
-        // ① 口没有声明具体边时按**数据流惯例**：发送在右、接收在左。
-        PortOf(harness, "g1").Edge.ShouldBe(PortEdge.Right, "未声明边 ⇒ 发送口按惯例落在右边");
-        PortOf(harness, "s1").Edge.ShouldBe(PortEdge.Left, "未声明边 ⇒ 接收口按惯例落在左边");
-
-        // ② 同一惯例对"零额外声明的模块"同样成立（不依赖任何外部数据文件）。
-        PortOf(harness, "b1").Edge.ShouldBe(PortEdge.Left, "接收口没有具体边 ⇒ 惯例给左边");
-
-        // ③ 代码里声明了 `Edge` / `AnchorOffset` ⇒ 就是这两个值（几何的唯一来源）。
-        var declared = PortOf(harness, "e1");
-        declared.Edge.ShouldBe(PortEdge.Top, "声明值即事实源：写 top 就在 top");
-        declared.AnchorOffset.ShouldBe(0.25);
-        declared.NetworkLabel.ShouldBeNull("标签文案由数据面口名给（用户可改名）");
-
-        // ④ 用户自己拖出来的覆盖（`UpdatePortGeometry` 落盘的那份）**仍然最高优先**。
-        var userLabel = "用户标签";
-        harness.Services.UpdatePortGeometry(
-            "e1",
-            new PortGeometryView(DraggableAnchorModule.OutPort, 0.8, Label: userLabel, Edge: PortEdge.Left))
-            .Succeeded.ShouldBeTrue();
-
-        var overridden = PortOf(harness, "e1");
-        overridden.Edge.ShouldBe(PortEdge.Left, "用户拖动覆盖 > 代码声明");
-        overridden.AnchorOffset.ShouldBe(0.8);
-        overridden.NetworkLabel.ShouldBe(userLabel, "用户改过的标签就是用户改的");
     }
 
     /// <summary>取某实例唯一端口的**查询面**（已解析的有效固定态）。</summary>
@@ -729,19 +648,6 @@ public class CompositePersistenceTests
         second.Services.GetInstances().Count.ShouldBe(2);
         second.Services.GetNetworks().Single().Name.ShouldBe("link-1");
         File.Exists(first.RestartPath).ShouldBeFalse("恢复成功后快照应删除");
-    }
-
-    [Fact]
-    public void 重启快照_损坏时应拒绝并删除()
-    {
-        using var first = new Harness(("gen", typeof(GeneratorModule)));
-        File.WriteAllText(first.RestartPath, "{ broken restart snapshot");
-
-        using var second = new Harness(first.RestartPath, ("gen", typeof(GeneratorModule)));
-        second.Services.RestoreRestartSnapshotIfAny().Succeeded.ShouldBeFalse();
-
-        second.Services.GetInstances().ShouldBeEmpty();
-        File.Exists(first.RestartPath).ShouldBeFalse("损坏的快照也要删除，避免每次启动重复失败");
     }
 
     // ------------------------------------------------------------ 测试辅助

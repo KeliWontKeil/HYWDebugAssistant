@@ -21,6 +21,25 @@ public class DataPlaneQueueLedgerTests
         ContractShape.OfPrimitive(ContractPrimitive.U64));
 
     [Fact]
+    public void 丢弃episode_应在成功出队后结束()
+    {
+        var pool = new PooledPayloadBufferPool();
+        var queue = new InboundBuffer(capacity: 1, DropPolicy.DropNewest);
+
+        queue.TryEnqueue(new InboundUnit(pool.Rent(Layout), "in"), out _).ShouldBeTrue();
+        queue.TryEnqueue(new InboundUnit(pool.Rent(Layout), "in"), out _).ShouldBeFalse();
+
+        queue.TryGetFlowState(out var dropped).ShouldBeTrue();
+        dropped.DropActive.ShouldBeTrue("当前丢弃 episode 尚未被消费恢复");
+
+        queue.TryDequeue(out var consumed).ShouldBeTrue();
+        queue.TryGetFlowState(out var recovered).ShouldBeTrue();
+        recovered.DropActive.ShouldBeFalse("成功消费一次后，丢弃 episode 结束");
+        recovered.Depth.ShouldBe(0);
+        consumed.Buffer.ShouldNotBeNull();
+    }
+
+    [Fact]
     public void 丢旧满队_应把挤掉的旧单元记成队列满挤旧()
     {
         var pool = new PooledPayloadBufferPool();

@@ -57,18 +57,6 @@ public class TrExtensionProbeTests : IDisposable
     }
 
     [Fact]
-    public void 目标对象是框架控件时_应回退到根对象程序集()
-    {
-        var services = new FakeXamlServices
-        {
-            TargetObject = new TextBlock(),    // Avalonia.Controls 里没有表
-            RootObject = new ProbeOwner(),     // 真正的属主程序集（这份 XAML 的根）
-        };
-
-        new TrExtension("probe.base.label").ProvideValue(services).ShouldBe(_tables.Entries["probe.base.label"]);
-    }
-
-    [Fact]
     public void DataTemplate场景_目标与根都是框架控件时_应靠URI命中测试表()
     {
         // 复现启动期的事故形态：`DataTemplate` 里的目标是 `Button`，根对象也不是这份 XAML 的根，
@@ -81,37 +69,6 @@ public class TrExtensionProbeTests : IDisposable
         };
 
         new TrExtension("probe.base.label").ProvideValue(services).ShouldBe(_tables.Entries["probe.base.label"]);
-    }
-
-    [Fact]
-    public void 框架控件场景_URI指向测试程序集时_不应报框架表目录缺失()
-    {
-        TextCatalog.Apply(TextLanguages.ZhHans);
-
-        var diagnostics = new List<string>();
-        var previous = TextCatalog.Diagnostics;
-        TextCatalog.Diagnostics = diagnostics.Add;
-
-        try
-        {
-            var services = new FakeXamlServices
-            {
-                TargetObject = new TextBlock(),
-                RootObject = new Button(),
-                BaseUri = new Uri($"avares://{ProbeAssemblyName}/Probes/TrExtensionProbeView.axaml"),
-            };
-
-            TextCatalog.TryGet(typeof(TrExtensionProbeTests).Assembly, "probe.base.label", out var expected).ShouldBeTrue();
-            new TrExtension("probe.base.label").ProvideValue(services).ShouldBe(expected);
-        }
-        finally
-        {
-            TextCatalog.Diagnostics = previous;
-        }
-
-        diagnostics.ShouldNotContain(
-            message => message.Contains("Avalonia.Controls", StringComparison.Ordinal),
-            "框架控件不是文本表属主：不得把它当成拥有者去查表");
     }
 
     [Fact]

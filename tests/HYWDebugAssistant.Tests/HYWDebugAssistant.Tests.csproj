@@ -1,9 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    T2–T5 承载：契约兼容矩阵 / 建网规则 R0–R6 / ChangeSet 原子性 / 增量重建 / 资源释放 /
-    持久化 round-trip / 故障注入（见 dev/workflow.md）
-    测试项目可跨层引用（AR 规则只约束 src/ 下的产品程序集）
+    **看不见的问题**的补充面（见 dev/workflow.md）：数据面与队列账本 / 运行时变更原子性与级联 /
+    持久化 round-trip 与格式边界 / 设置与路径 / 文本表与图标清单降级 / 模块包与来源发现 /
+    能看见处的**行为**链路（装入→连上→投递、标签→建网、发送→显示、退出协调、快捷键分发）。
+    呈现类（布局/尺寸/颜色/文案/控件树形状）不在这里判：改由 `artifacts\snapshots\` 截图 + 人眼。
+    压力/性能用例带 `Category=Pressure` / `Perf`，默认不进门禁。
+    测试项目可跨层引用（AR 规则只约束 src/ 下的产品程序集）。
   -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>

@@ -188,10 +188,12 @@ internal static class ConfigurationSchemaBuilder
         {
             var list = new List<ConfigurationFieldChoice>();
 
-            if (current.Length > 0 && !dynamic.Contains(current, StringComparer.Ordinal))
-            {
-                list.Add(new ConfigurationFieldChoice(current, current));
-            }
+        if (current.Length > 0
+            && !dynamic.Contains(current, StringComparer.Ordinal)
+            && provider.KeepCurrentChoiceWhenUnavailable)
+        {
+            list.Add(new ConfigurationFieldChoice(current, current));
+        }
 
             foreach (var value in dynamic)
             {

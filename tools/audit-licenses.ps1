@@ -13,6 +13,10 @@
       3) <licenseUrl> 中的 licenses.nuget.org/<SPDX>
       4) tools/license-allowlist.json 中的显式豁免（人工核对并注明理由）
 
+    包清单来源：优先读 restore 产物 `obj/project.assets.json`（与你 `dotnet list` 看到的是同一份数据，
+    34 个项目读文件 <2 s）；assets 缺失或不可解析时回退到逐项目 `dotnet list package --include-transitive`。
+    **回退不是静默通过**：两条路径都会把“读不到任何包”当成空集合并照常继续校验。
+
 .NOTES
     数据来源：~/.nuget/packages/<id>/<version>/（离线，无需网络）。
 #>
@@ -31,6 +35,24 @@ $ErrorActionPreference = 'Stop'
 # 会让"找不到 nuspec"退化成静默通过）。见 tools/dotnet-env.ps1 头注释。
 . (Join-Path $PSScriptRoot 'dotnet-env.ps1')
 $globalPackages = Get-NuGetGlobalPackagesDirectory
+
+# 同一个包会被多个项目/框架列出：许可解析（读 nuspec + 许可文件）只做一次。
+$script:licenseCache = @{}
+
+<#
+.SYNOPSIS
+    取某包版本的许可（带缓存）。
+#>
+function Get-PackageLicense {
+    param([string]$Id, [string]$Version)
+
+    $key = "$Id/$Version"
+    if ($script:licenseCache.ContainsKey($key)) { return $script:licenseCache[$key] }
+
+    $resolved = Resolve-PackageLicense -Id $Id -Version $Version
+    $script:licenseCache[$key] = $resolved
+    return $resolved
+}
 
 # ---------------- 许可文本识别（用于 type="file" 的包） ----------------
 
@@ -67,7 +89,43 @@ function Get-Allowlist {
 
 # ---------------- 包与许可解析 ----------------
 
-function Get-PackageList {
+<#
+.SYNOPSIS
+    从 restore 产物 `obj/project.assets.json` 读包清单（含传递依赖）。
+.OUTPUTS
+    失败返回 $null（调用方回退到 `dotnet list`）；成功返回包清单（可能为空数组）。
+#>
+function Get-PackageListFromAssets {
+    param([string]$Path)
+
+    try {
+        $data = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    }
+    catch {
+        return $null
+    }
+
+    # 没有 targets = 该项目没有任何依赖（合法）；只有“读不出来”才回退（见 catch）。
+    if (-not $data.targets) { return , @() }
+
+    $result = @()
+    foreach ($tfm in $data.targets.PSObject.Properties) {
+        foreach ($library in $tfm.Value.PSObject.Properties) {
+            # 只收真实 NuGet 包；项目引用（type=project）不是依赖项，许可审计不覆盖它们。
+            if ($library.Value.type -ne 'package') { continue }
+
+            $parts = $library.Name -split '/', 2
+            if ($parts.Count -eq 2) {
+                $result += [pscustomobject]@{ Id = $parts[0]; Version = $parts[1] }
+            }
+        }
+    }
+
+    # 用 `,$result` 返回数组：空数组也是“成功且没有依赖”，不能塌缩成 $null（那会被误判为读取失败）。
+    return , $result
+}
+
+function Get-PackageListFromDotnet {
     param([string]$ProjectPath)
 
     $json = & dotnet list $ProjectPath package --include-transitive --format json 2>$null
@@ -88,7 +146,20 @@ function Get-PackageList {
     return $result
 }
 
-function Get-PackageLicense {
+function Get-PackageList {
+    param([string]$ProjectPath)
+
+    # 优先读 restore 产物：与 `dotnet list` 同源，但不必为 34 个项目各起一次 MSBuild（约 50 s）。
+    $assets = Join-Path (Split-Path -Parent $ProjectPath) (Join-Path 'obj' 'project.assets.json')
+    if (Test-Path -LiteralPath $assets) {
+        $fromAssets = Get-PackageListFromAssets -Path $assets
+        if ($null -ne $fromAssets) { return $fromAssets }
+    }
+
+    return Get-PackageListFromDotnet -ProjectPath $ProjectPath
+}
+
+function Resolve-PackageLicense {
     param([string]$Id, [string]$Version)
 
     $idLower = $Id.ToLowerInvariant()
@@ -162,7 +233,11 @@ $allowlist = Get-Allowlist -Root $Root
 $rows = @()
 foreach ($proj in $projects) {
     foreach ($pkg in (Get-PackageList -ProjectPath $proj.FullName)) {
-        $info = Get-PackageLicense -Id $pkg.Id -Version $pkg.Version
+        # 自家发布的包（宿主 / 作者包）按仓库许可（LICENSE.txt = MIT）判定，不查 NuGet 缓存：
+        # pack-sdk.ps1 每次打包前会清掉它们的缓存目录，而许可审计在打包之前跑 ⇒ 查缓存会误报“缺 nuspec”。
+        $firstParty = $pkg.Id.StartsWith('HYWDebugAssistant.', [System.StringComparison]::Ordinal)
+        $info = if ($firstParty) { @{ License = 'MIT'; Source = 'first-party（仓库 LICENSE.txt）' } }
+            else { Get-PackageLicense -Id $pkg.Id -Version $pkg.Version }
         $ok = Test-LicenseAllowed -Expression $info.License -AllowList $Allow
         $note = $info.Source
 

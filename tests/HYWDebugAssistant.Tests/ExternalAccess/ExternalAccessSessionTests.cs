@@ -358,6 +358,22 @@ public sealed class ExternalAccessSessionTests
     }
 
     [Fact]
+    public void 写泵排空后应唤醒实例循环()
+    {
+        var signals = 0;
+        var session = NewSession(out _, signal: () => Interlocked.Increment(ref signals));
+
+        session.RequestOpen();
+        _ = session.Pump();
+        signals = 0;
+
+        session.Write([1, 2, 3]).ShouldBeTrue();
+        SpinWait.SpinUntil(() => session.GetSnapshot().SentUnits == 1, 2000).ShouldBeTrue("写泵应完成写入");
+
+        signals.ShouldBeGreaterThan(0, "写成功且积压排空必须叫醒实例线程刷新状态");
+    }
+
+    [Fact]
     public void 一次Pump应把适配器暂存排空()
     {
         var session = NewSession(out var adapter);
@@ -442,7 +458,8 @@ public sealed class ExternalAccessSessionTests
 
     private static ExternalAccessSession NewSession(
         out FakeExternalAccessAdapter adapter,
-        TimeSpan? writeTimeout = null)
+        TimeSpan? writeTimeout = null,
+        Action? signal = null)
     {
         adapter = new FakeExternalAccessAdapter();
 
@@ -453,7 +470,7 @@ public sealed class ExternalAccessSessionTests
             _ => new FakeAccessParameters(),
             new AccessInboundBuffer(4),
             TimeSpan.FromSeconds(1),
-            signal: null,
+            signal,
             writeTimeout);
     }
 }

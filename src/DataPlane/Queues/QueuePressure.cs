@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using HYWDebugAssistant.Sdk.Tuning;
 
 namespace HYWDebugAssistant.DataPlane.Queues;
 
@@ -25,10 +26,10 @@ internal sealed class QueuePressure
     private long _droppedWhileSaturated;
 
     /// <summary>深度提示的缺省阈值（单元数）。</summary>
-    internal const int DefaultHintDepth = 8;
+    internal const int DefaultHintDepth = FlowDefaults.HintDepth;
 
     /// <summary>深度提示的缺省保持时长。</summary>
-    internal static readonly TimeSpan DefaultHintHold = TimeSpan.FromMilliseconds(500);
+    internal static readonly TimeSpan DefaultHintHold = TimeSpan.FromMilliseconds(FlowDefaults.HintHoldMs);
 
     /// <summary>创建压力计（阈值与保持时长立即生效，压力段为空）。</summary>
     /// <param name="hintDepth">深度提示阈值（单元数；小于 1 按 1 处理）。</param>

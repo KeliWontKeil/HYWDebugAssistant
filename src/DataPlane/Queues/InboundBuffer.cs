@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Tuning;
 using HYWDebugAssistant.Sdk.Reporting;
 
 namespace HYWDebugAssistant.DataPlane.Queues;
@@ -61,6 +62,7 @@ public sealed class InboundBuffer
     private readonly Queue<InboundUnit> _queue;
     private readonly Lock _gate = new();
     private readonly QueuePressure _pressure;
+    private readonly StatusHysteresis _status;
     private readonly long[] _droppedUnitsByReason = new long[ReasonCount];
     private readonly long[] _droppedBytesByReason = new long[ReasonCount];
     private long _enqueued;
@@ -70,6 +72,7 @@ public sealed class InboundBuffer
     private long _droppedBytesTotal;
     private long _lastDropTicks = -1;
     private int _lastDropReason = -1;
+    private bool _dropActive;
 
     /// <summary>创建有界队列。</summary>
     /// <param name="capacity">容量（单元数）。</param>
@@ -84,7 +87,11 @@ public sealed class InboundBuffer
         int capacity,
         DropPolicy policy = DropPolicy.DropOldest,
         int hintDepth = QueuePressure.DefaultHintDepth,
-        TimeSpan? hintHold = null)
+        TimeSpan? hintHold = null,
+        int statusEnterDepth = FlowDefaults.StatusBacklogEnterDepth,
+        int statusExitDepth = FlowDefaults.StatusBacklogExitDepth,
+        TimeSpan? statusHold = null,
+        TimeSpan? statusDropHold = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
 
@@ -96,6 +103,11 @@ public sealed class InboundBuffer
         _pressure = new QueuePressure(
             Math.Clamp(hintDepth, 1, capacity),
             hintHold ?? QueuePressure.DefaultHintHold);
+        _status = new StatusHysteresis(
+            Math.Clamp(statusEnterDepth, 1, capacity),
+            Math.Clamp(statusExitDepth, 0, capacity - 1),
+            statusHold ?? TimeSpan.FromMilliseconds(FlowDefaults.StatusHoldMs),
+            statusDropHold ?? TimeSpan.FromMilliseconds(FlowDefaults.StatusDropHoldMs));
     }
 
     /// <summary>把"最大积压年龄"折成 <see cref="Stopwatch"/> 计时刻度（0 / 负值 ⇒ 0 = 不限）。</summary>
@@ -168,6 +180,7 @@ public sealed class InboundBuffer
                 _queue.Enqueue(unit);
                 Interlocked.Increment(ref _enqueued);
                 _pressure.OnEnqueued(_queue.Count);
+                _status.ObserveDepth(_queue.Count, unit.EnqueuedTicks);
                 return true;
             }
 
@@ -176,6 +189,7 @@ public sealed class InboundBuffer
                 dropped = unit.Buffer;      // 丢弃新来的
                 RecordDropLocked(DropReason.QueueFullRejected, 1, unit.Buffer.Length, countAsFullDrop: true);
                 _pressure.OnDropped();
+                _status.ObserveDepth(_queue.Count, unit.EnqueuedTicks);
                 return false;
             }
 
@@ -186,6 +200,7 @@ public sealed class InboundBuffer
             RecordDropLocked(DropReason.QueueFullEvicted, 1, evicted.Length, countAsFullDrop: true);
             _pressure.OnEnqueued(_queue.Count);
             _pressure.OnDropped();
+            _status.ObserveDepth(_queue.Count, unit.EnqueuedTicks);
             return true;
         }
     }
@@ -199,6 +214,10 @@ public sealed class InboundBuffer
             {
                 unit = _queue.Dequeue();
                 _pressure.OnDequeued(_queue.Count);
+                _dropActive = false;   // 成功消费一次 ⇒ 当前丢弃 episode 结束；剩余深度归入积压
+                var now = Stopwatch.GetTimestamp();
+                _status.ObserveDepth(_queue.Count, now);
+                _status.ObserveDrop(false, now);
                 return true;
             }
         }
@@ -223,6 +242,9 @@ public sealed class InboundBuffer
             }
 
             _pressure.OnDequeued(0);
+            _dropActive = false;
+            _status.ObserveDepth(0, Stopwatch.GetTimestamp());
+            _status.ObserveDrop(false, Stopwatch.GetTimestamp());
         }
 
         foreach (var buffer in buffers)
@@ -253,6 +275,9 @@ public sealed class InboundBuffer
 
             // 队列空了就没有压力：不把"已经堵了多久"留给下一个使用者
             _pressure.OnDequeued(0);
+            _dropActive = false;
+            _status.ObserveDepth(0, Stopwatch.GetTimestamp());
+            _status.ObserveDrop(false, Stopwatch.GetTimestamp());
         }
 
         foreach (var buffer in buffers)
@@ -286,7 +311,10 @@ public sealed class InboundBuffer
                 saturated,
                 saturated ? _pressure.SaturatedFor(now) : TimeSpan.Zero,
                 LastDropReason,
-                lastDropTicks < 0 ? null : Stopwatch.GetElapsedTime(lastDropTicks, now));
+                lastDropTicks < 0 ? null : Stopwatch.GetElapsedTime(lastDropTicks, now),
+                _dropActive,
+                _status.IsBacklogActive(now),
+                _status.IsDropActive(now));
         }
 
         return true;
@@ -313,6 +341,19 @@ public sealed class InboundBuffer
         lock (_gate)
         {
             _pressure.UpdateHint(Math.Clamp(hintDepth, 1, Capacity), hintHold);
+        }
+    }
+
+    /// <summary>更新状态行的滞回策略（不影响队列内容与原始计数）。</summary>
+    public void UpdateStatusPolicy(int enterDepth, int exitDepth, TimeSpan hold, TimeSpan dropHold)
+    {
+        lock (_gate)
+        {
+            _status.UpdatePolicy(
+                Math.Clamp(enterDepth, 1, Capacity),
+                Math.Clamp(exitDepth, 0, Capacity - 1),
+                hold,
+                dropHold);
         }
     }
 
@@ -366,5 +407,11 @@ public sealed class InboundBuffer
 
         Volatile.Write(ref _lastDropReason, (int)reason);
         Interlocked.Exchange(ref _lastDropTicks, Stopwatch.GetTimestamp());
+
+        if (reason != DropReason.DiscardedOnStop && _queue.Count > 0)
+        {
+            _dropActive = true;
+            _status.ObserveDrop(true, Stopwatch.GetTimestamp());
+        }
     }
 }

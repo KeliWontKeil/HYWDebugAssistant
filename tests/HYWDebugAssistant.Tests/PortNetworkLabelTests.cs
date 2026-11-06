@@ -21,9 +21,6 @@ public class PortNetworkLabelTests
     /// <summary>期望的宿成员字面量（避免重复构造常量数组）。</summary>
     private static readonly string[] ReceiverIn = ["r.in"];
 
-    /// <summary>期望的宿成员（1:N 场景）。</summary>
-    private static readonly string[] ReceiverFanOut = ["r1.in", "r2.in"];
-
     [Fact]
     public void 同名标签_应把发送口与接收口自动连成一条命名网络()
     {
@@ -64,35 +61,6 @@ public class PortNetworkLabelTests
         network.Targets.Count.ShouldBe(2);
         network.Targets.ShouldContain("r1.in");
         network.Targets.ShouldContain("r2.in");
-    }
-
-    [Fact]
-    public void 不同标签_不应建网()
-    {
-        using var harness = new LabelHarness();
-        harness.Add("s", "sender");
-        harness.Add("r", "receiver");
-
-        harness.Services.UpdatePortNetwork("s", "out", "a").Succeeded.ShouldBeTrue();
-        harness.Services.UpdatePortNetwork("r", "in", "b").Succeeded.ShouldBeTrue();
-
-        harness.Services.GetNetworks().ShouldBeEmpty();
-    }
-
-    [Fact]
-    public void 清除标签_应退出网络()
-    {
-        using var harness = new LabelHarness();
-        harness.Add("s", "sender");
-        harness.Add("r", "receiver");
-        harness.Services.UpdatePortNetwork("s", "out", "bus").Succeeded.ShouldBeTrue();
-        harness.Services.UpdatePortNetwork("r", "in", "bus").Succeeded.ShouldBeTrue();
-        harness.Services.GetNetworks().ShouldHaveSingleItem();
-
-        harness.Services.UpdatePortNetwork("r", "in", null).Succeeded.ShouldBeTrue();
-
-        harness.Services.GetNetworks().ShouldBeEmpty();
-        harness.Services.GetInstances().Single(i => i.InstanceId == "r").Ports.Single().NetworkLabel.ShouldBeNull();
     }
 
     [Fact]

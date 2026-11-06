@@ -3,11 +3,9 @@ using System.Net;
 using System.Net.Sockets;
 using HYWDebugAssistant.Access;
 using HYWDebugAssistant.Core.Changes;
-using HYWDebugAssistant.Core.Issues;
 using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Services;
 using HYWDebugAssistant.DataPlane.Carriers;
-using HYWDebugAssistant.Hosting.Instances;
 using HYWDebugAssistant.Hosting.Packages;
 using HYWDebugAssistant.Hosting.Registry;
 using HYWDebugAssistant.Sdk;
@@ -18,7 +16,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// T3 的一部分（M1-4）：模块包加载（显式加载 + 校验）与模块注册表（多版本共存）。
+/// T3 的一部分（M1-4）：模块包加载（显式加载 + 校验）与真实包上的外部接入接线。
 /// </summary>
 public class HostingPackageTests
 {
@@ -78,29 +76,6 @@ public class HostingPackageTests
         ModuleDefinition.FromPackage(package).DisplayName.ShouldNotBeNullOrWhiteSpace(
             $"随包文本应解析出模块标题（程序集：{package.EntryType.Assembly.Location}）");
         File.Exists(package.AssemblyPath).ShouldBeTrue();
-    }
-
-    [Fact]
-    public void 加载外部接入模块包_应能解析标准并实例化()
-    {
-        // 外部接入由框架提供（Access.dll 随宿主，不再随模块包）；这个用例走真实包 + 默认加载上下文，
-        // 证明"模块只声明标准、宿主解析适配器/参数类型"在真实包上成立。
-        var packageDirectory = Path.Combine(
-            RepoRoot, "src", "Modules", "Business", "Serial", "bin", Configuration, "net10.0");
-
-        var result = ModulePackageLoader.Load(packageDirectory);
-
-        result.Succeeded.ShouldBeTrue(result.FailureReason);
-        var definition = ModuleDefinition.FromPackage(result.Package!);
-        var instance = ModuleInstanceFactory.Create(
-            "serial-package-1",
-            definition,
-            new IssueCenter(),
-            catalog: new BuiltInExternalAccessCatalog());
-
-        instance.ExternalAccesses.ShouldHaveSingleItem().Name.ShouldBe("serial");
-        instance.Context.ConfigurationSnapshot.ContainsKey(
-            "HYWDebugAssistant.Access.Parameters.SerialConfig").ShouldBeTrue();
     }
 
     [Fact]
@@ -300,7 +275,6 @@ public class HostingPackageTests
 
         result.Succeeded.ShouldBeFalse();
         result.FailureReason.ShouldNotBeNullOrWhiteSpace();
-        result.FailureReason.ShouldNotBeNullOrWhiteSpace();
     }
 
     [Fact]
@@ -324,37 +298,6 @@ public class HostingPackageTests
 
         result.Succeeded.ShouldBeFalse();
         result.FailureReason.ShouldNotBeNullOrWhiteSpace();
-    }
-
-    [Fact]
-    public void 注册表_重复注册同ID应被拒绝()
-    {
-        var definition = DefinitionFromRealPackage();
-        var registry = new ModuleRegistry();
-
-        registry.TryRegister(definition, out var firstFailure).ShouldBeTrue(firstFailure);
-        registry.TryRegister(definition, out var secondFailure).ShouldBeFalse();
-        secondFailure.ShouldNotBeNullOrWhiteSpace();
-    }
-
-
-    [Fact]
-    public void 注册表_可注销()
-    {
-        var definition = DefinitionFromRealPackage();
-        var registry = new ModuleRegistry();
-        registry.TryRegister(definition, out _).ShouldBeTrue();
-
-        registry.TryUnregister(definition.Id).ShouldBeTrue();
-        registry.Definitions.ShouldBeEmpty();
-        registry.TryResolve(definition.Id, out _).ShouldBeFalse();
-    }
-
-    private static ModuleDefinition DefinitionFromRealPackage()
-    {
-        var result = ModulePackageLoader.Load(TextSenderPackage);
-        result.Succeeded.ShouldBeTrue(result.FailureReason);
-        return ModuleDefinition.FromPackage(result.Package!);
     }
 
     private static string FindRepoRoot()

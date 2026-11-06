@@ -154,7 +154,11 @@ public sealed class ModuleCarrier : IDisposable
                 _options.QueueCapacity,
                 _options.DropPolicy,
                 _options.HintDepth,
-                _options.HintHold);
+                _options.HintHold,
+                _options.StatusBacklogEnterDepth,
+                _options.StatusBacklogExitDepth,
+                _options.StatusHold,
+                _options.StatusDropHold);
         }
 
         // 口数 ≤ 64 才用位图提示；更多口退化为逐口探测（正确性不变，只是多几次空探测）
@@ -419,6 +423,15 @@ public sealed class ModuleCarrier : IDisposable
         foreach (var queue in _queues)
         {
             queue.UpdateFlowPolicy(hintDepth, hintHold);
+        }
+    }
+
+    /// <summary>把状态显示滞回策略下发到本实例每个口（只影响呈现）。</summary>
+    public void UpdateStatusPolicy(int enterDepth, int exitDepth, TimeSpan hold, TimeSpan dropHold)
+    {
+        foreach (var queue in _queues)
+        {
+            queue.UpdateStatusPolicy(enterDepth, exitDepth, hold, dropHold);
         }
     }
 

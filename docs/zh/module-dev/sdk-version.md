@@ -26,6 +26,8 @@
 - 升级 SDK 后**重编模块**是唯一正确做法；`0.x` 期间不承诺旧包可加载。
 - 本次 `0.0.0.8 → 0.0.0.9` 包含：`IActivitySource` 用 `OnStep` + 相对 `NextDelay`，删除 `IModuleClock`/`IModuleContext.Clock`、`IStopSignal`/`IModuleContext.StopSignal`、`IModuleInteractionSink`、`DisplayDelta`/`DisplayCursor`；`Sdk.Ui` 的 `TextBufferSnapshot.Sequence` 与 `ReadTextRevision` 的默认实现一并删除。旧模块必须重编。
 - 本次 `0.0.0.9 → 0.0.0.10` 包含：删除 `IActivitySource.NextDelay` 与 `StepReason.Due`，新增 `IModuleContext.Timers` / `IModuleTimer`（模块自持定时器，Tick 在实例线程触发）；周期模块改用 `context.Timers.Create()`。旧模块必须重编。
+- 本次 `0.0.0.10 → 0.0.0.11` 包含：发送器间隔 0 仍可输入但不再是连续发送周期；间隔填写错误不再阻断手动单次发送；UDP 忽略对端未绑定产生的异步 ICMP 接收错误；串口写泵不再在写路径上无界 Flush，串口端口目录支持按硬件变化刷新且失效的当前端口不再保留为可选项；外部接入状态按当前丢弃 episode / 当前积压呈现。`IConfigurationChoices` 新增带默认实现的 `GetChoicesRevision()` 与 `KeepCurrentChoiceWhenUnavailable`，`PortFlowState` 新增 `DropActive`，`ExternalAccessSnapshot` 新增 `SendDropActive`。旧模块必须重编。
+- 本次 `0.0.0.11 → 0.0.0.12` 包含：状态行增加可配置的积压/丢弃滞回，`PortFlowState` 增加 `BacklogStatusActive`/`DropStatusActive`，`ExternalAccessSnapshot` 增加发送/接收状态字段；`FlowSettings` 增加 `StatusBacklogEnterDepth`/`StatusBacklogExitDepth`/`StatusHoldMs`/`StatusDropHoldMs`；文本显示上限改为设置项。旧模块必须重编。
 - 加载失败时，错误文案会带上"编译时引用的 SDK 版本"，用于判断是否该重编。
 
 ## 什么时候必须重编

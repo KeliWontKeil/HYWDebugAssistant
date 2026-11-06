@@ -29,4 +29,21 @@ public interface IConfigurationChoices
     /// <see langword="null"/> = 该字段不是动态字段。
     /// </returns>
     IReadOnlyList<string>? GetChoices(string fieldName);
+
+    /// <summary>
+    /// 动态选项集合的版本号；用于让 Schema 缓存在"设备插拔"后重建。
+    /// </summary>
+    /// <remarks>
+    /// 默认 0 = 不参与版本失效（旧实现行为不变）。实现应保持廉价；只有选项集合变化时才递增。
+    /// </remarks>
+    long GetChoicesRevision() => 0;
+
+    /// <summary>
+    /// 当前值不在动态集合里时，是否仍把当前值留在选项表中。
+    /// </summary>
+    /// <remarks>
+    /// 默认 true：值随环境变化但已保存的当前值仍有意义（例如手打地址）。
+    /// 串口这类“当前端口已经不存在”的字段返回 false，避免消失的设备继续出现在下拉里。
+    /// </remarks>
+    bool KeepCurrentChoiceWhenUnavailable => true;
 }

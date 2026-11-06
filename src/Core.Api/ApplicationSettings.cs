@@ -24,6 +24,11 @@ public sealed class ApplicationSettings
     /// </remarks>
     public FlowSettings Flow { get; set; } = new();
 
+    /// <summary>
+    /// **文本显示缓冲的内存上限**（行数 / 字符预算）；与 Flow 分开，但同属“高级”设置域。
+    /// </summary>
+    public DisplaySettings Display { get; set; } = new();
+
     /// <summary>UI 刷新率（Hz）。默认 60（UI 按此节拍从订阅缓冲抽样读取）。</summary>
     public int UiRefreshRateHz { get; set; } = 60;
 
@@ -166,6 +171,7 @@ public sealed class ApplicationSettings
         // **数据面块是 record**：`with { }` 复制出一个新实例（标量全拷）。
         // 不能直接赋引用，否则"读出来改一份"会改到生效值。
         Flow = Flow with { },
+        Display = Display with { },
         UiRefreshRateHz = UiRefreshRateHz,
         ShowPerformanceMonitor = ShowPerformanceMonitor,
         AlignAutoNetworkEnabled = AlignAutoNetworkEnabled,

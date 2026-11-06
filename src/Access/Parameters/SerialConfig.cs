@@ -1,4 +1,4 @@
-using System.IO.Ports;
+using HYWDebugAssistant.Access;
 using HYWDebugAssistant.Sdk.Configuration;
 
 namespace HYWDebugAssistant.Access.Parameters;
@@ -47,23 +47,16 @@ public sealed class SerialConfig : IConfigurationChoices
     /// 只对<b>端口号</b>给动态选项；其余字段是固定枚举，走各自的成员表（返回 <see langword="null"/>）。
     /// 查询廉价、不抛（取不到就当作"现在一个都没有"）—— 它跑在界面线程上。
     /// </remarks>
-    public IReadOnlyList<string>? GetChoices(string fieldName)
-    {
-        if (!string.Equals(fieldName, nameof(PortName), StringComparison.Ordinal))
-        {
-            return null;
-        }
+    public IReadOnlyList<string>? GetChoices(string fieldName) =>
+        string.Equals(fieldName, nameof(PortName), StringComparison.Ordinal)
+            ? SerialPortCatalog.Ports
+            : null;
 
-        try
-        {
-            return SerialPort.GetPortNames();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
-        {
-            // 环境取不到就报"现在一个都没有"：**空表**（而不是 null）—— 端口号仍然是动态下拉。
-            return [];
-        }
-    }
+    /// <inheritdoc />
+    public long GetChoicesRevision() => SerialPortCatalog.Revision;
+
+    /// <inheritdoc />
+    public bool KeepCurrentChoiceWhenUnavailable => false;
 }
 
 /// <summary>波特率（值即实际速率）。</summary>

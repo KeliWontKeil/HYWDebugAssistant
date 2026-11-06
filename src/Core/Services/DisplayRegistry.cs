@@ -20,6 +20,7 @@ internal sealed class DisplayRegistry
         new(StringComparer.Ordinal);
 
     private readonly Lock _gate = new();
+    private DisplaySettings _limits = new();
 
     /// <summary>取某实例/源名的缓冲（首次调用即创建）。</summary>
     /// <param name="instanceId">实例 ID。</param>
@@ -40,11 +41,32 @@ internal sealed class DisplayRegistry
 
             if (!displays.TryGetValue(sourceName, out var buffer))
             {
-                buffer = new DisplayBuffer();
+                buffer = new DisplayBuffer(_limits.TextLineCapacity, _limits.TextCharBudget);
                 displays[sourceName] = buffer;
             }
 
             return buffer;
+        }
+    }
+
+    /// <summary>更新新缓冲的默认上限，并裁剪已有缓冲。</summary>
+    public void UpdateLimits(DisplaySettings limits)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+
+        List<DisplayBuffer> buffers = [];
+        lock (_gate)
+        {
+            _limits = limits;
+            foreach (var displays in _instances.Values)
+            {
+                buffers.AddRange(displays.Values);
+            }
+        }
+
+        foreach (var buffer in buffers)
+        {
+            buffer.UpdateLimits(limits.TextLineCapacity, limits.TextCharBudget);
         }
     }
 

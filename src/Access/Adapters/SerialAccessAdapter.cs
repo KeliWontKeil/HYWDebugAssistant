@@ -1,5 +1,7 @@
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.IO.Ports;
+using HYWDebugAssistant.Sdk.Tuning;
 using HYWDebugAssistant.Access.Parameters;
 using HYWDebugAssistant.Sdk.Access;
 
@@ -503,7 +505,7 @@ internal interface ISerialTransport : IDisposable
 internal sealed class SerialPortTransport : ISerialTransport
 {
     /// <summary>写超时的缺省值（毫秒）：与 <see cref="SerialAccessAdapter"/> 的缺省同值。</summary>
-    private const int DefaultWriteTimeoutMs = 1000;
+    private const int DefaultWriteTimeoutMs = FlowDefaults.ExternalWriteTimeoutMs;
 
     private SerialPort? _port;
     private volatile string _portName = string.Empty;
@@ -551,28 +553,30 @@ internal sealed class SerialPortTransport : ISerialTransport
     /// <inheritdoc />
     public bool IsPresent()
     {
-        try
-        {
-            var name = _portName;
+        var name = _portName;
 
-            return _port is { IsOpen: true }
-                && name.Length > 0
-                && Array.Exists(
-                    SerialPort.GetPortNames(),
-                    candidate => string.Equals(candidate, name, StringComparison.OrdinalIgnoreCase));
-        }
-        catch (Exception)
-        {
-            // 热插拔瞬间枚举端口会抛：按"不在系统中"处理，由会话进入故障态。
-            return false;
-        }
+        return _port is { IsOpen: true }
+            && name.Length > 0
+            && SerialPortCatalog.Contains(name);
     }
 
     public void Write(ReadOnlySpan<byte> payload)
     {
-        var stream = Port().BaseStream;
-        stream.Write(payload);
-        stream.Flush();
+        var port = Port();
+        var rented = ArrayPool<byte>.Shared.Rent(payload.Length);
+
+        try
+        {
+            payload.CopyTo(rented);
+            port.Write(rented, 0, payload.Length);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
+
+        // **不要 Flush**：SerialPort.WriteTimeout 约束 Write；FlushFileBuffers 没有同等超时，
+        // 压力下会无限等驱动排空，把写泵卡死。写返回即已交给驱动。
     }
 
     public void SetWriteTimeout(TimeSpan timeout)
@@ -668,3 +672,4 @@ internal sealed class SerialPortTransport : ISerialTransport
     private SerialPort Port() =>
         _port ?? throw new InvalidOperationException(AccessText.Get("access.diag.serialNotOpen"));
 }
+

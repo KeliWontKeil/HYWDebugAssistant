@@ -22,10 +22,10 @@
 看真实渲染结果（可选）：
 
 ```powershell
-dotnet test tests\HYWDebugAssistant.VisualSnapshots\HYWDebugAssistant.VisualSnapshots.csproj
+.\tools\dev.ps1 -Mode Snapshots
 ```
 
-打开 `%TEMP%\hyw-overlay-snapshot\*.png`（叠加层与调色板窗口快照）。
+打开 `artifacts\snapshots\`（叠加层三窗、调色板、八个模块视图；每个页签各一张）。截图**没有自动化判据**，只看“能不能看、挤不挤、字有没有被裁”。
 
 **前置**：① 基础功能可用（外壳与多窗口 · 建网与拓扑 · 配置 · 人机操作三通道 · 持久化与设置）；② 正式模块包可装入可用；③ 先跑一次完整门禁。
 

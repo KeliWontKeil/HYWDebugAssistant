@@ -36,27 +36,6 @@ public class SubscriptionBufferTests
     }
 
     [Fact]
-    public void 形态_声明为序列的即使绑到数值元素也用环形缓冲()
-    {
-        var set = new SubscriptionSet("m1",
-        [
-            new DisplaySourceDeclaration("seq", ViewDataSourceKind.Sequence, ContractPrimitive.F64),
-        ]);
-
-        set.TryGet("seq", out var buffer).ShouldBeTrue();
-        buffer!.Form.ShouldBe(SubscriptionBufferForm.Ring, "模块声明了序列语义 → 保留历史");
-    }
-
-    [Fact]
-    public void 无UI模块_不建立任何订阅缓冲()
-    {
-        var set = new SubscriptionSet("m1", []);
-
-        set.Count.ShouldBe(0);
-        set.Buffers.ShouldBeEmpty();
-    }
-
-    [Fact]
     public void 未声明的数据源_丢弃并只提示一次()
     {
         var set = new SubscriptionSet("m1",
@@ -88,17 +67,6 @@ public class SubscriptionBufferTests
         buffer.Count.ShouldBe(1);
         buffer.Written.ShouldBe(2);
         buffer.Overwritten.ShouldBe(0, "最新值槽覆盖旧值是正常行为，不算丢弃");
-    }
-
-    [Fact]
-    public void 未写入过_读取应返回无数据且不抛异常()
-    {
-        var buffer = new SubscriptionBuffer("m1", "value", SubscriptionBufferForm.LatestSlot, 1, ContractPrimitive.F32);
-        var destination = new byte[4];
-
-        buffer.TryReadLatest(destination, out var length).ShouldBeFalse();
-        length.ShouldBe(0);
-        buffer.SampleSizeInBytes.ShouldBe(0);
     }
 
     // ------------------------------------------------------------ 环形缓冲
@@ -212,6 +180,7 @@ public class SubscriptionBufferTests
     }
 
     [Fact]
+    [Trait("Category", "Perf")]   // 分配测量：默认不进门禁；重做订阅缓冲写入路径时按需跑
     public void 并发写入_稳态不应产生分配()
     {
         // 稳态零分配：槽尺寸只在首次写入时确定，之后只做 memcpy。

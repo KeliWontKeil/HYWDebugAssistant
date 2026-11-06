@@ -287,9 +287,9 @@ public sealed class TextSenderModule : IModule, IActivitySource
             return;
         }
 
-        if (_continuous && _intervalMs is { } interval)
+        if (_continuous && _intervalMs is { } interval && interval > 0)
         {
-            var desired = TimeSpan.FromMilliseconds(Math.Max(1, interval));
+            var desired = TimeSpan.FromMilliseconds(interval);
 
             if (_timer.Interval != desired)
             {
@@ -339,8 +339,8 @@ public sealed class TextSenderModule : IModule, IActivitySource
 
 
     /// <summary>
-    /// **连续发送的间隔**（毫秒）。<see langword="null"/> = 用户**还没设过** —— 与"设成 0"是两件事：
-    /// 前者要**显式报错、绝不硬发**，后者是"每个活动周期都发"这条明确的选择。
+    /// **连续发送的间隔**（毫秒）。<see langword="null"/> = 用户**还没设过**；
+    /// 0 可以被输入并保留，但**不能作为连续发送周期**——连续发送要求大于 0。
     /// </summary>
     /// <remarks>
     /// 越界/非法值时**保留上一次的合法值**（"接受范围 = 存储范围 = 文案里的范围"：
@@ -631,7 +631,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
         /// <summary>填了但不可用（越界 / 非数字 / 有杂质）：要说清楚，且**开关因此开不起来**。</summary>
         Invalid,
 
-        /// <summary>可用：收下这个值（<c>_intervalMs</c> 随之更新）。</summary>
+        /// <summary>语法可用：收下这个值（0 也收下，但连续发送要求大于 0）。</summary>
         Usable,
     }
 
@@ -639,7 +639,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// **「连续发送」这个开关现在成不成立** —— 只看 `interval` 那一格。
     /// </summary>
     /// <param name="context">模块上下文。</param>
-    /// <returns>间隔可用（能解析成 0–<see cref="MaxIntervalMs"/>）为 <see langword="true"/>。</returns>
+    /// <returns>间隔可用于连续发送（大于 0 且不超过 <see cref="MaxIntervalMs"/>）为 <see langword="true"/>。</returns>
     /// <remarks>
     /// <para>
     /// <b>它与"这一页有没有内容"无关</b>：间隔是这个开关的**配置**，内容是它的**输入**。
@@ -657,9 +657,8 @@ public sealed class TextSenderModule : IModule, IActivitySource
     {
         _ = context;
 
-        // **只看"这一格现在填的这份可用吗"**（不看 `_intervalMs`：那是可能更旧的生效值）。
-        // 这就是"时间框是红的且没有东西时，按钮绝不能再被打开"的落点。
-        return _intervalState == IntervalState.Usable;
+        // **这一格现在填的这份可用吗**；0 是合法输入值，但不是合法的连续发送周期。
+        return _intervalState == IntervalState.Usable && _intervalMs is > 0;
     }
 
     /// <summary>
@@ -676,8 +675,9 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// 界面是它的输出，而不是各自维护的第二份事实。
     /// </para>
     /// <para>
-    /// <b>优先级（同一拍只说一句）</b>：① 间隔填错 → ② 间隔没设且用户要连续发 → ③ 这一页空着被拦下 →
-    /// ④ 间隔过小（只提示）→ ⑤ 一切正常（不说话）。<b>红按格独立</b>：间隔错标间隔格、这一页空着被拦下标这一页。
+    /// <b>优先级（同一拍只说一句）</b>：① 间隔填错 → ② 间隔为 0 且用户要连续发 →
+    /// ③ 间隔没设且用户要连续发 → ④ 这一页空着被拦下 → ⑤ 一切正常（不说话）。
+    /// <b>红按格独立</b>：间隔错标间隔格、这一页空着被拦下标这一页。
     /// </para>
     /// <para>
     /// <b>四个"要不要说"的判据各自独立</b>：间隔错（现在填的这份不合法）、间隔缺（用户要连续发但没有可用值）、
@@ -712,14 +712,25 @@ public sealed class TextSenderModule : IModule, IActivitySource
 
             // **填错了只挡"连续发送"**：用户没想连续发时，那一格填了什么与"这一页发一次"无关 ——
             // 无条件挡下来会把单次发送（回车提交也算）一起挡死。
-            return new Verdict(!wantsContinuous, message, IntervalSource);
+            return new Verdict(!pageEmpty, message, IntervalSource);
         }
 
-        // ② 想连续发送，而那一格是空的 ⇒ 红粘在那一格上（原因还在就一直挂着）
+        // ② 0 可以被输入，但不能作为连续发送周期；只有用户想要连续发送时才报出来。
+        if (_intervalState == IntervalState.Usable
+            && _intervalMs is <= 0
+            && wantsContinuous)
+        {
+            return new Verdict(
+                !pageEmpty,
+                Tr(TextSenderText.StatusIntervalInvalidContinuous, MaxIntervalMs),
+                IntervalSource);
+        }
+
+        // ③ 想连续发送，而那一格是空的 ⇒ 红粘在那一格上（原因还在就一直挂着）
         if (_intervalState == IntervalState.Empty && wantsContinuous)
         {
             return new Verdict(
-                false,
+                !pageEmpty,
                 Tr(TextSenderText.StatusIntervalEmptyContinuous),
                 IntervalSource);
         }
@@ -794,7 +805,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
         // **只跟"真的在按这个间隔发"绑定**：开关开着且间隔可用时才锁 ——
         // 那时改值会让发送节奏变形。判据不成立时**不锁**（用户正需要改那一格）。
         // 锁与值同源：不需要另记一份"我锁了哪一格"，每拍算一次、幂等地写下去即可。
-        var want = _continuous && _intervalMs is not null;
+        var want = _continuous && _intervalMs is > 0;
 
         if (want == _intervalLocked)
         {

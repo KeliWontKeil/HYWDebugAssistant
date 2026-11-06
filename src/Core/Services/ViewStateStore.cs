@@ -30,6 +30,13 @@ public sealed class ViewStateStore : IViewStateAccess
         return new InstanceViewState(this, instanceId);
     }
 
+    /// <summary>更新文本显示缓冲的内存上限（立即裁剪已有缓冲）。</summary>
+    public void UpdateDisplaySettings(DisplaySettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        _displays.UpdateLimits(settings);
+    }
+
     /// <summary>输入文本/选中页变化时的通知（由运行期接到实例承载者；UI 线程调用）。</summary>
     public Action<string>? InputChanged { get; set; }
 

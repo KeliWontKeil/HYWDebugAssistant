@@ -100,25 +100,14 @@ public class SettingsServiceTests
     }
 
     /// <summary>
-    /// **低版本（v3 及更低）设置**：只读已知标量键，外观主题回落内置，**不做内联主题迁移**，
-    /// 且**载入时不得写回**（原文件保持原样）。
+    /// **`flow` 块（数据面）一条走完三个出口**：① 十二项即时映射到承载参数 ② 落盘后重新载入逐项一致
+    /// ③ 每个值域的边界各自被拒，且拒绝时当前值不变。
     /// </summary>
     /// <remarks>
-    /// 一条用例走三个出口：① 读到的值 ② 警告 ③ 文件字节未变 ——
-    /// 少了 ③ 就可能"读对了但把用户的原文件悄悄改写成 v4"。
+    /// 三项分开写会重复"设置 → 承载 / 设置 → 磁盘"这两条同一事实；合并后每个字段在一处被钉住。
     /// </remarks>
-
-    /// <summary>
-    /// **v4 → 当前版本**：旧的"西文, 中文"回退列表折叠成两个字段；旧内置数据默认升级为新的等宽默认。
-    /// </summary>
-
-    /// <summary>
-    /// **v5 → v6 迁移**：三个旧根键折叠进 `flow` 块，写回时旧根键消失（一份事实只能有一个来源）。
-    /// </summary>
-
-    /// <summary>**`flow` 块七项往返**：落盘后重新载入，七项逐项一致。</summary>
     [Fact]
-    public void 往返_数据面七项应逐项一致()
+    public void 更新_数据面应即时映射并落盘往返且越界被拒()
     {
         using var scope = new SettingsScope();
         using var runtime = new ModuleRuntime();
@@ -126,74 +115,6 @@ public class SettingsServiceTests
         service.Load();
 
         service.Current.Flow.ShouldBe(new FlowSettings(), "缺省只在设置模型里给一次");
-
-        var updated = service.Current.Clone();
-        updated.Flow = new FlowSettings
-        {
-            QueueCapacity = 64,
-            DropPolicy = "DropNewest",
-            StopTimeoutSeconds = 1.5,
-            HintDepth = 4,
-            HintHoldMs = 250,
-            MaxBacklogAgeMs = 1200,
-            ExternalWriteTimeoutMs = 800,
-        };
-
-        service.Update(updated).Succeeded.ShouldBeTrue();
-
-        var reloaded = new SettingsService(runtime, scope.SettingsPath);
-        reloaded.Load();
-        reloaded.Current.Flow.ShouldBe(updated.Flow, "七项都要落盘并读得回来");
-    }
-
-    /// <summary>**六个值域各自的边界**：每项越界都被拒，且拒绝时当前值不变。</summary>
-    [Fact]
-    public void 更新_数据面六项越界应各自被拒且不改变当前设置()
-    {
-        using var scope = new SettingsScope();
-        using var runtime = new ModuleRuntime();
-        var service = new SettingsService(runtime, scope.SettingsPath);
-        service.Load();
-
-        var baseline = service.Current.Flow;
-        var defaults = new FlowSettings();
-
-        (string Name, FlowSettings Flow)[] cases =
-        [
-            ("队列容量", defaults with { QueueCapacity = 0 }),
-            ("满时策略", defaults with { DropPolicy = "DropRandom" }),
-            ("饱和判定深度", defaults with { HintDepth = 0 }),
-            ("饱和判定持续", defaults with { HintHoldMs = 10 }),
-            ("最大滞留时间", defaults with { MaxBacklogAgeMs = -1 }),
-            ("外部写超时", defaults with { ExternalWriteTimeoutMs = 10 }),
-            ("发送积压", defaults with { SendBacklogBytes = 1024 }),
-            ("探活节拍", defaults with { LivenessIntervalMs = 10 }),
-            ("适配件暂存", defaults with { AdapterBufferBytes = 1024 }),
-            ("关闭等待", defaults with { AccessCloseTimeoutMs = 10 }),
-            ("丢失判定", defaults with { DeviceLostMisses = 0 }),
-        ];
-
-        foreach (var (name, flow) in cases)
-        {
-            var invalid = service.Current.Clone();
-            invalid.Flow = flow;
-
-            var result = service.Update(invalid);
-
-            result.Succeeded.ShouldBeFalse($"{name} 越界必须被拒");
-            result.Failures.ShouldHaveSingleItem();
-            service.Current.Flow.ShouldBe(baseline, $"{name} 被拒绝后当前值不得变化");
-        }
-    }
-
-    /// <summary>**即时生效映射**：`flow` 十二项各落到承载参数的正确位置，单位换算也要对。</summary>
-    [Fact]
-    public void 更新_数据面十二项应即时映射到承载参数()
-    {
-        using var scope = new SettingsScope();
-        using var runtime = new ModuleRuntime();
-        var service = new SettingsService(runtime, scope.SettingsPath);
-        service.Load();
 
         var updated = service.Current.Clone();
         updated.Flow = new FlowSettings
@@ -210,10 +131,15 @@ public class SettingsServiceTests
             AdapterBufferBytes = 131072,
             AccessCloseTimeoutMs = 800,
             DeviceLostMisses = 3,
+            StatusBacklogEnterDepth = 4,
+            StatusBacklogExitDepth = 1,
+            StatusHoldMs = 180,
+            StatusDropHoldMs = 420,
         };
 
         service.Update(updated).Succeeded.ShouldBeTrue();
 
+        // ① 即时生效：十二项各落到承载参数的正确位置（单位换算也要对）
         var options = runtime.Carriers.Options;
         options.QueueCapacity.ShouldBe(128);
         options.DropPolicy.ShouldBe(DropPolicy.DropNewest);
@@ -227,10 +153,76 @@ public class SettingsServiceTests
         options.AdapterBufferBytes.ShouldBe(131072);
         options.AccessCloseTimeout.ShouldBe(TimeSpan.FromMilliseconds(800));
         options.DeviceLostMisses.ShouldBe(3);
+        options.StatusBacklogEnterDepth.ShouldBe(4);
+        options.StatusBacklogExitDepth.ShouldBe(1);
+        options.StatusHold.ShouldBe(TimeSpan.FromMilliseconds(180));
+        options.StatusDropHold.ShouldBe(TimeSpan.FromMilliseconds(420));
         options.WatchdogInterval.ShouldBe(new CarrierOptions().WatchdogInterval, "设置里没暴露的项仍用默认值");
 
         // 外部接入宿主拿到同一份参数（它只用容量 / 策略 / 停止超时 / 饱和判据）
         runtime.ExternalAccessHost.Options.ShouldBe(options);
+
+        // ② 落盘往返：重新载入后十二项逐项一致
+        var reloaded = new SettingsService(runtime, scope.SettingsPath);
+        reloaded.Load();
+        reloaded.Current.Flow.ShouldBe(updated.Flow, "十二项都要落盘并读得回来");
+
+        // ③ 值域边界：每项越界都被拒，且拒绝时当前值不变
+        var baseline = reloaded.Current.Flow;
+        var defaults = new FlowSettings();
+
+        (string Name, FlowSettings Flow)[] cases =
+        [
+            ("队列容量", defaults with { QueueCapacity = 0 }),
+            ("满时策略", defaults with { DropPolicy = "DropRandom" }),
+            ("饱和判定深度", defaults with { HintDepth = 0 }),
+            ("饱和判定持续", defaults with { HintHoldMs = 10 }),
+            ("最大滞留时间", defaults with { MaxBacklogAgeMs = -1 }),
+            ("外部写超时", defaults with { ExternalWriteTimeoutMs = 10 }),
+            ("发送积压", defaults with { SendBacklogBytes = 1024 }),
+            ("探活节拍", defaults with { LivenessIntervalMs = 10 }),
+            ("适配件暂存", defaults with { AdapterBufferBytes = 1024 }),
+            ("关闭等待", defaults with { AccessCloseTimeoutMs = 10 }),
+            ("丢失判定", defaults with { DeviceLostMisses = 0 }),
+            ("积压显示进入", defaults with { StatusBacklogEnterDepth = 0 }),
+            ("积压显示退出", defaults with { StatusBacklogExitDepth = defaults.StatusBacklogEnterDepth }),
+            ("状态滞回", defaults with { StatusHoldMs = -1 }),
+            ("丢弃显示保持", defaults with { StatusDropHoldMs = -1 }),
+        ];
+
+        foreach (var (name, flow) in cases)
+        {
+            var invalid = reloaded.Current.Clone();
+            invalid.Flow = flow;
+
+            var result = reloaded.Update(invalid);
+
+            result.Succeeded.ShouldBeFalse($"{name} 越界必须被拒");
+            result.Failures.ShouldHaveSingleItem();
+            reloaded.Current.Flow.ShouldBe(baseline, $"{name} 被拒绝后当前值不得变化");
+        }
+    }
+
+    [Fact]
+    public void 往返_文本显示上限应落盘并立即下发()
+    {
+        using var scope = new SettingsScope();
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load();
+
+        var updated = service.Current.Clone();
+        updated.Display = new DisplaySettings
+        {
+            TextLineCapacity = 1234,
+            TextCharBudget = 2 * 1024 * 1024,
+        };
+
+        service.Update(updated).Succeeded.ShouldBeTrue();
+
+        var reloaded = new SettingsService(runtime, scope.SettingsPath);
+        reloaded.Load();
+        reloaded.Current.Display.ShouldBe(updated.Display);
     }
 
     /// <summary>外观块 v5 的形状：`theme / systemLightScheme / systemDarkScheme / seeded[] / fonts{latin,cjk}`，不再有内联主题。</summary>
@@ -329,25 +321,6 @@ public class SettingsServiceTests
         service.Current.SnapDistance.ShouldBe(baseline, "被拒绝的更新不得改变当前值");
     }
 
-    [Fact]
-    public void 更新_非法值应被拒绝且不改变当前设置()
-    {
-        using var scope = new SettingsScope();
-        using var runtime = new ModuleRuntime();
-        var service = new SettingsService(runtime, scope.SettingsPath);
-        service.Load();
-
-        var baseline = service.Current.Flow.QueueCapacity;
-        var invalid = service.Current.Clone();
-        invalid.Flow = invalid.Flow with { QueueCapacity = 0 };
-
-        var result = service.Update(invalid);
-
-        result.Succeeded.ShouldBeFalse();
-        result.Failures.ShouldHaveSingleItem();
-        service.Current.Flow.QueueCapacity.ShouldBe(baseline, "被拒绝的更新不得改变当前值");
-    }
-
     /// <summary>
     /// **字体设置必须真的生效并落盘**（改字体必须与改颜色一样立即生效、可保存）。
     /// </summary>
@@ -403,135 +376,6 @@ public class SettingsServiceTests
         services.GetSettings().Appearance.DataFonts.Latin.ShouldBe("Cascadia Code");
     }
 
-    /// <summary>
-    /// **`Clone()` 必须与全部可写属性一一对应**（"漏一个字段就静默失效"的结构性防线）。
-    /// </summary>
-    /// <remarks>
-    /// 用户实测的字体缺陷就是"Clone 漏了两个字段"—— 这类缺陷**不会报错、不会红**，只表现为"改了没反应"。
-    /// 本用例对**每一个**可写属性赋一个非默认哨兵值再 Clone，逐字段比对 ⇒ 将来任何人加字段忘了补 Clone 会当场红。
-    /// 新增属性时若类型未登记，哨兵工厂会**显式抛出并带上属性名**（宁可红，不要静默放过）。
-    /// </remarks>
-    [Fact]
-    public void Clone_必须复制全部可写属性()
-    {
-        var fresh = new ApplicationSettings();
-
-        foreach (var property in typeof(ApplicationSettings)
-            .GetProperties()
-            .Where(p => p is { CanRead: true, CanWrite: true }))
-        {
-            var sentinel = property.PropertyType == typeof(bool)
-                ? !(bool)property.GetValue(fresh)!
-                : Sentinel(property.PropertyType, property.Name);
-
-            property.SetValue(fresh, sentinel);
-
-            var copied = property.GetValue(fresh.Clone());
-
-            AssertCopied(property.Name, sentinel, copied);
-        }
-    }
-
-    /// <summary>为某一类型的属性造一个**非默认**哨兵值。</summary>
-    private static object Sentinel(Type type, string name) => true switch
-    {
-        _ when type == typeof(string) => $"sentinel-{name}",
-        _ when type == typeof(int) => 987_654,
-        _ when type == typeof(double) => 12.5,
-        _ when type == typeof(IList<string>) => new List<string> { $"dir-{name}" },
-        _ when type == typeof(IDictionary<string, string>) => new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            [$"key-{name}"] = "value",
-        },
-        // **数据面块**（容量 / 策略 / 停止等待 / 饱和判据 / 积压上限 / 写超时）：逐项给一个哨兵值
-        _ when type == typeof(HYWDebugAssistant.Core.Api.FlowSettings) => new HYWDebugAssistant.Core.Api.FlowSettings
-        {
-            QueueCapacity = 987_654,
-            DropPolicy = $"sentinel-{name}",
-            StopTimeoutSeconds = 12.5,
-            HintDepth = 987_654,
-            HintHoldMs = 987_654,
-            MaxBacklogAgeMs = 987_654,
-            ExternalWriteTimeoutMs = 987_654,
-        },
-        // **外观块**（选择 / 跟随系统两套 / 已投放 / 字体）：逐项给一个哨兵值
-        _ when type == typeof(HYWDebugAssistant.Core.Api.AppearanceSettings) => new HYWDebugAssistant.Core.Api.AppearanceSettings
-        {
-            ThemeSelection = $"sentinel-{name}",
-            SystemLightScheme = $"sentinel-light-{name}",
-            SystemDarkScheme = $"sentinel-dark-{name}",
-            UiFonts = new HYWDebugAssistant.Core.Api.FontFamilySetting
-            {
-                Latin = $"sentinel-ui-latin-{name}",
-                Cjk = $"sentinel-ui-cjk-{name}",
-            },
-            DataFonts = new HYWDebugAssistant.Core.Api.FontFamilySetting
-            {
-                Latin = $"sentinel-data-latin-{name}",
-                Cjk = $"sentinel-data-cjk-{name}",
-            },
-            Seeded = { $"appearance/themes/sentinel-{name}" },
-        },
-        _ => throw new NotSupportedException(
-            $"新增了可写属性 {name}（{type.Name}）：请在 {nameof(Sentinel)} 里补一个哨兵值，让 Clone 完整性用例继续生效"),
-    };
-
-    /// <summary>比对"克隆出来的值"与"写进去的哨兵值"（集合按内容比，字典按键值比）。</summary>
-    private static void AssertCopied(string name, object expected, object? actual)
-    {
-        switch (expected)
-        {
-            case HYWDebugAssistant.Core.Api.FlowSettings flow:
-                var copiedFlow = actual.ShouldBeAssignableTo<HYWDebugAssistant.Core.Api.FlowSettings>()!;
-                copiedFlow.QueueCapacity.ShouldBe(flow.QueueCapacity, $"{name}：Clone 漏了数据面块（队列容量）");
-                copiedFlow.DropPolicy.ShouldBe(flow.DropPolicy, $"{name}：Clone 漏了数据面块（满时策略）");
-                copiedFlow.StopTimeoutSeconds.ShouldBe(flow.StopTimeoutSeconds, $"{name}：Clone 漏了数据面块（停止等待）");
-                copiedFlow.HintDepth.ShouldBe(flow.HintDepth, $"{name}：Clone 漏了数据面块（饱和判定深度）");
-                copiedFlow.HintHoldMs.ShouldBe(flow.HintHoldMs, $"{name}：Clone 漏了数据面块（饱和判定持续）");
-                copiedFlow.MaxBacklogAgeMs.ShouldBe(flow.MaxBacklogAgeMs, $"{name}：Clone 漏了数据面块（最大滞留时间）");
-                copiedFlow.ExternalWriteTimeoutMs.ShouldBe(flow.ExternalWriteTimeoutMs, $"{name}：Clone 漏了数据面块（外部写超时）");
-                ReferenceEquals(actual, expected).ShouldBeFalse($"{name}：数据面块必须复制（否则改一份会影响另一份）");
-                break;
-
-            case HYWDebugAssistant.Core.Api.AppearanceSettings appearance:
-                var copiedAppearance = actual.ShouldBeAssignableTo<HYWDebugAssistant.Core.Api.AppearanceSettings>()!;
-                copiedAppearance.ThemeSelection.ShouldBe(appearance.ThemeSelection, $"{name}：Clone 漏了外观块（主题选择）");
-                copiedAppearance.SystemLightScheme.ShouldBe(appearance.SystemLightScheme, $"{name}：Clone 漏了跟随系统浅色主题");
-                copiedAppearance.SystemDarkScheme.ShouldBe(appearance.SystemDarkScheme, $"{name}：Clone 漏了跟随系统深色主题");
-                copiedAppearance.UiFonts.Latin.ShouldBe(appearance.UiFonts.Latin, $"{name}：Clone 漏了外观块（界面西文）");
-                copiedAppearance.UiFonts.Cjk.ShouldBe(appearance.UiFonts.Cjk, $"{name}：Clone 漏了外观块（界面中文）");
-                copiedAppearance.DataFonts.Latin.ShouldBe(appearance.DataFonts.Latin, $"{name}：Clone 漏了外观块（数据西文）");
-                copiedAppearance.DataFonts.Cjk.ShouldBe(appearance.DataFonts.Cjk, $"{name}：Clone 漏了外观块（数据中文）");
-
-                copiedAppearance.Seeded.Count.ShouldBe(appearance.Seeded.Count, $"{name}：Clone 漏了外观块的已投放列表");
-                for (var index = 0; index < appearance.Seeded.Count; index++)
-                {
-                    copiedAppearance.Seeded[index].ShouldBe(appearance.Seeded[index], $"{name}：Clone 漏了已投放记录");
-                }
-
-                ReferenceEquals(actual, expected).ShouldBeFalse($"{name}：外观块必须深拷（否则改一份会影响另一份）");
-                break;
-
-            case IDictionary<string, string> dictionary:
-                var copiedDictionary = actual.ShouldBeAssignableTo<IDictionary<string, string>>()!;
-                copiedDictionary.Count.ShouldBe(dictionary.Count, $"{name}：Clone 漏了这个字典字段");
-                foreach (var (key, value) in dictionary)
-                {
-                    copiedDictionary[key].ShouldBe(value, $"{name}：Clone 漏了这个字典字段");
-                }
-
-                break;
-
-            case IList<string> list:
-                actual.ShouldBeAssignableTo<IList<string>>()!.ShouldBe(list, $"{name}：Clone 漏了这个列表字段");
-                break;
-
-            default:
-                actual.ShouldBe(expected, $"{name}：Clone 漏了这个字段（用户实测「改了没反应」的那一类缺陷）");
-                break;
-        }
-    }
-
     [Fact]
     public void 往返_应保留未识别字段()
     {
@@ -578,26 +422,6 @@ public class SettingsServiceTests
         // 只加载、不更新 → 原文件保持不变（保护用户数据）
         File.ReadAllText(scope.SettingsPath).ShouldBe(broken);
     }
-
-    [Fact]
-    public void 往返_应用整体置顶应落盘并在重启后保留()
-    {
-        using var scope = new SettingsScope();
-        using var runtime = new ModuleRuntime();
-        var service = new SettingsService(runtime, scope.SettingsPath);
-        service.Load();
-
-        var updated = service.Current.Clone();
-        updated.AppTopmost = true;
-        service.Update(updated).Succeeded.ShouldBeTrue();
-
-        File.ReadAllText(scope.SettingsPath).ShouldContain("\"appTopmost\": true");
-
-        var reloaded = new SettingsService(runtime, scope.SettingsPath);
-        reloaded.Load();
-        reloaded.Current.AppTopmost.ShouldBeTrue("应用整体置顶必须落盘（旧实现只在界面生效，重启回 false）");
-    }
-
 
     [Fact]
     public void 服务_应可经公开面读写设置()

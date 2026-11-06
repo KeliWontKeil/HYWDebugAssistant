@@ -10,29 +10,38 @@ namespace HYWDebugAssistant.Tests;
 /// </summary>
 public class HotkeyTests
 {
+    /// <summary>解析：合法文本给出键与修饰键；空文本、缺主键、无法识别的键名都必须是"未绑定"。</summary>
     [Theory]
     [InlineData("M", Key.M, false, false, false)]
     [InlineData("Ctrl+L", Key.L, true, false, false)]
     [InlineData("ctrl+shift+t", Key.T, true, true, false)]
     [InlineData("Alt+F1", Key.F1, false, false, true)]
     [InlineData("Ctrl+Alt+Shift+Q", Key.Q, true, true, true)]
-    public void 绑定_应能解析修饰键与主键(string text, Key key, bool control, bool shift, bool alt)
+    [InlineData("", null, false, false, false)]
+    [InlineData("   ", null, false, false, false)]
+    [InlineData("Ctrl+", null, true, false, false)]
+    [InlineData("Ctrl+Nope", null, true, false, false)]
+    public void 绑定_解析_合法文本应给出键与修饰键_非法或空文本应为未绑定(
+        string? text,
+        Key? key,
+        bool control,
+        bool shift,
+        bool alt)
     {
         var binding = HotkeyBinding.Parse(text);
 
+        if (key is null)
+        {
+            binding.IsEmpty.ShouldBeTrue($"{text} 不是有效绑定");
+            return;
+        }
+
         binding.IsEmpty.ShouldBeFalse();
-        binding.Key.ShouldBe(key);
+        binding.Key.ShouldBe(key.Value);
         binding.Control.ShouldBe(control);
         binding.Shift.ShouldBe(shift);
         binding.Alt.ShouldBe(alt);
     }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("   ")]
-    [InlineData("Ctrl+")]
-    [InlineData("Ctrl+Nope")]
-    public void 绑定_非法或空文本应为未绑定(string? text) => HotkeyBinding.Parse(text).IsEmpty.ShouldBeTrue();
 
     [Fact]
     public void 绑定_格式化与解析应可往返()
@@ -99,18 +108,6 @@ public class HotkeyTests
         HotkeyCatalog.Actions.Select(a => a.Id).Distinct(StringComparer.Ordinal).Count().ShouldBe(defaults.Count);
     }
 
-    /// <summary>动作名来自文本表：每个键都必须解析得到（缺键会在设置页露出 <c>⟦key⟧</c>）。</summary>
-    [Fact]
-    public void 服务_每个动作名都应能解析到文本表()
-    {
-        foreach (var action in HotkeyCatalog.Actions)
-        {
-            action.Label.ShouldNotBeNullOrWhiteSpace($"动作 {action.Id} 的文案键是 {action.LabelKey}");
-            action.Label.Contains('⟦')
-                .ShouldBeFalse($"动作 {action.Id} 的文案键 {action.LabelKey} 不在文本表里");
-        }
-    }
-
     [Fact]
     public void 服务_应有固定与解锁端口锚点的动作且默认键可用()
     {
@@ -143,18 +140,6 @@ public class HotkeyTests
         reloaded.Hotkeys[HotkeyCatalog.OpenIssues].ShouldBe("Ctrl+J");
         reloaded.Hotkeys[HotkeyCatalog.ToggleSnap].ShouldBeEmpty();
         reloaded.AppTopmost.ShouldBeTrue();
-    }
-
-    [Fact]
-    public void 设置_旧的来源根键应被忽略且不再写出()
-    {
-        using var harness = new SettingsHarness();
-
-        var settings = harness.Services.GetSettings();
-        settings.LogLevel = "Debug";
-
-        harness.Services.UpdateSettings(settings).Succeeded.ShouldBeTrue();
-        harness.Services.GetSettings().LogLevel.ShouldBe("Debug");
     }
 
     private sealed class Recorder : IHotkeyActions

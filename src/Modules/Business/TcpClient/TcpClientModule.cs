@@ -238,14 +238,14 @@ public sealed class TcpClientModule : IModule, IActivitySource
             && _context is not null
             && _context.Ports.TryGetFlowState(TxPort, out var flow))
         {
-            if (flow.DroppedUnits > 0
-                && flow.SinceLastDrop is { } since
-                && since <= ExternalAccessChannel.LossHintWindow)
+            // 当前丢弃 episode 由队列维护：发生丢弃置位，成功出队清除。
+            // 因此“丢弃 → 积压 → 正常”由当前事实自然给出，不再靠 10 秒历史窗口。
+            if (flow.DropStatusActive)
             {
                 return new ExternalAccessStatus(Tr(TcpClientText.StatusSendLost), ViewInkRoles.Danger);
             }
 
-            if (flow.Saturated)
+            if (flow.BacklogStatusActive)
             {
                 return new ExternalAccessStatus(
                     Tr(TcpClientText.StatusTxSaturated, flow.Depth, flow.DroppedWhileSaturatedUnits),

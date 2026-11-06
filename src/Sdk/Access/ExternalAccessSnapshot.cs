@@ -85,6 +85,21 @@ public sealed record ExternalAccessSnapshot(
     /// <summary>**写失败**的字节数。</summary>
     public long SendFailedBytes { get; init; }
 
+    /// <summary>当前发送丢弃 episode 是否仍在进行；下一次成功写后清除。</summary>
+    public bool SendDropActive { get; init; }
+
+    /// <summary>状态行是否应显示发送丢弃（带恢复保持；只影响呈现）。</summary>
+    public bool SendDropStatusActive { get; init; }
+
+    /// <summary>状态行是否应显示发送积压（带进入/退出滞回；只影响呈现）。</summary>
+    public bool SendBacklogStatusActive { get; init; }
+
+    /// <summary>状态行是否应显示接收丢弃（带恢复保持；只影响呈现）。</summary>
+    public bool ReceiveDropStatusActive { get; init; }
+
+    /// <summary>状态行是否应显示接收积压（带进入/退出滞回；只影响呈现）。</summary>
+    public bool ReceiveBacklogStatusActive { get; init; }
+
     /// <summary>
     /// **收侧丢弃合计**（= 接入队列满 + 适配件溢出 + 超长 + 过期；见类型说明的不变量）。
     /// </summary>

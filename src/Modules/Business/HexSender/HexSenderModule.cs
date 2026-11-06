@@ -216,9 +216,9 @@ public sealed class HexSenderModule : IModule, IActivitySource
             return;
         }
 
-        if (_continuous && _intervalMs is { } interval)
+        if (_continuous && _intervalMs is { } interval && interval > 0)
         {
-            var desired = TimeSpan.FromMilliseconds(Math.Max(1, interval));
+            var desired = TimeSpan.FromMilliseconds(interval);
 
             if (_timer.Interval != desired)
             {
@@ -255,8 +255,8 @@ public sealed class HexSenderModule : IModule, IActivitySource
     private bool _continuous;
 
     /// <summary>
-    /// **连续发送的间隔**（毫秒）。<see langword="null"/> = 用户**还没设过** —— 与"设成 0"是两件事：
-    /// 前者要**显式报错、绝不硬发**，后者是"每个活动周期都发"这条明确的选择。
+    /// **连续发送的间隔**（毫秒）。<see langword="null"/> = 用户**还没设过**；
+    /// 0 可以被输入并保留，但**不能作为连续发送周期**——连续发送要求大于 0。
     /// </summary>
     /// <remarks>
     /// 越界/非法值时**保留上一次的合法值**（"接受范围 = 存储范围 = 文案里的范围"），
@@ -529,7 +529,9 @@ public sealed class HexSenderModule : IModule, IActivitySource
     private bool ToggleStands(IModuleContext context)
     {
         _ = context;
-        return _intervalState == IntervalState.Usable;
+
+        // 0 是合法输入值，但不是合法的连续发送周期。
+        return _intervalState == IntervalState.Usable && _intervalMs is > 0;
     }
 
     /// <summary>
@@ -566,21 +568,32 @@ public sealed class HexSenderModule : IModule, IActivitySource
                 ? Tr(HexSenderText.StatusIntervalInvalidContinuous, MaxIntervalMs)
                 : Tr(HexSenderText.StatusIntervalInvalid, MaxIntervalMs);
 
-            return new Verdict(!wantsContinuous, message, IntervalSource);
+            return new Verdict(!pageEmpty, message, IntervalSource);
         }
 
-        // ② **HEX 写法不合法** ⇒ 说它、标它（判据自己校验，不等 `Send` 失败才记：
+        // ② 0 可以被输入，但不能作为连续发送周期；只有用户想要连续发送时才报出来。
+        if (_intervalState == IntervalState.Usable
+            && _intervalMs is <= 0
+            && wantsContinuous)
+        {
+            return new Verdict(
+                !pageEmpty,
+                Tr(HexSenderText.StatusIntervalInvalidContinuous, MaxIntervalMs),
+                IntervalSource);
+        }
+
+        // ③ **HEX 写法不合法** ⇒ 说它、标它（判据自己校验，不等 `Send` 失败才记：
         //    "这格写法不对"应在用户填着的时候就说出来，与间隔那一格同一条取向）
         if (!pageEmpty && !HexTextCodec.TryParse(outgoing, out _, out var parseFailure))
         {
             return new Verdict(false, Tr(HexSenderText.StatusConvertError, parseFailure), pageSource);
         }
 
-        // ③ 想连续发送，而那一格是空的 ⇒ 红粘在那一格上（原因还在就一直挂着）
+        // ④ 想连续发送，而那一格是空的 ⇒ 红粘在那一格上（原因还在就一直挂着）
         if (_intervalState == IntervalState.Empty && wantsContinuous)
         {
             return new Verdict(
-                false,
+                !pageEmpty,
                 Tr(HexSenderText.StatusIntervalEmptyContinuous),
                 IntervalSource);
         }
@@ -644,7 +657,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// </remarks>
     private void SyncIntervalReadOnly(IModuleContext context)
     {
-        var want = _continuous && _intervalMs is not null;
+        var want = _continuous && _intervalMs is > 0;
 
         if (want == _intervalLocked)
         {
@@ -822,7 +835,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
         return payload;
     }
 
-    /// <summary>解析「间隔」（0 – <see cref="MaxIntervalMs"/>；与兄弟模块同口径）。</summary>
+    /// <summary>解析「间隔」（0 – <see cref="MaxIntervalMs"/>；0 可输入但不是连续发送周期）。</summary>
     /// <param name="text">输入文本。</param>
     /// <param name="milliseconds">解析结果。</param>
     /// <returns>成功为 <see langword="true"/>。</returns>

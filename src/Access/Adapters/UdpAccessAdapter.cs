@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using HYWDebugAssistant.Access.Parameters;
 using HYWDebugAssistant.Sdk.Access;
+using HYWDebugAssistant.Sdk.Tuning;
 
 namespace HYWDebugAssistant.Access.Adapters;
 
@@ -25,7 +26,7 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter, IExternalAccessWr
     private TimeSpan _closeTimeout = DefaultCloseTimeout;
 
     /// <summary>写（发送）超时的缺省值（毫秒）。</summary>
-    private const int DefaultWriteTimeoutMs = 1000;
+    private const int DefaultWriteTimeoutMs = FlowDefaults.ExternalWriteTimeoutMs;
 
     /// <summary>UDP 报文的理论上限（接收缓冲必须能容纳整个报文，否则平台会抛异常而不是截断）。</summary>
     private const int UdpMaxDatagram = 65507;
@@ -227,6 +228,11 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter, IExternalAccessWr
             _ = socket.SendTo(payload, SocketFlags.None, target);
             return true;
         }
+        catch (SocketException ex) when (IsTransientDatagramError(ex))
+        {
+            // UDP 的 ICMP 错误是异步的，下一次发送/接收仍可继续；不能因此把整个会话判为故障。
+            return false;
+        }
         catch (Exception ex)
         {
             ready?.SetFaulted(new ExternalAccessFailure(
@@ -312,6 +318,17 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter, IExternalAccessWr
             {
                 return;
             }
+            catch (SocketException ex) when (IsTransientDatagramError(ex))
+            {
+                // Windows 在向未绑定 UDP 端口发送后会以 ConnectionReset 形式把 ICMP 错误
+                // 送给下一次接收；这是无连接协议的正常异步错误，接收泵继续等下一个数据报。
+                if (token.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                continue;
+            }
             catch (Exception ex)
             {
                 if (!token.IsCancellationRequested)
@@ -358,6 +375,14 @@ public sealed class UdpAccessAdapter : IExternalAccessAdapter, IExternalAccessWr
 
     private static string DetailOf(Exception exception) =>
         exception.GetType().Name + ": " + exception.Message;
+
+    /// <summary>UDP 的无连接异步错误（通常是 ICMP 端口不可达），不应把会话判为故障。</summary>
+    private static bool IsTransientDatagramError(SocketException exception) =>
+        exception.SocketErrorCode is SocketError.ConnectionReset
+            or SocketError.ConnectionRefused
+            or SocketError.NetworkReset
+            or SocketError.NetworkUnreachable
+            or SocketError.HostUnreachable;
 
     private static bool TryResolveAddress(string text, out IPAddress address)
     {

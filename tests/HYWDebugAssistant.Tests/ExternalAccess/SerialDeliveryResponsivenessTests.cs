@@ -31,6 +31,7 @@ namespace HYWDebugAssistant.Tests.ExternalAccess;
 /// </para>
 /// </remarks>
 [Collection("SerialLoopback")]
+[Trait("Category", "Pressure")]   // 压力测试：默认不进门禁；改数据面 / 外部接入 / 串口时用 dev.ps1 -Mode Test -Pressure
 public sealed class SerialDeliveryResponsivenessTests
 {
     private const string TextSenderId = "hyw/text-sender";

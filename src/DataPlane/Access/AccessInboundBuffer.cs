@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Diagnostics;
 using HYWDebugAssistant.DataPlane.Queues;
 using HYWDebugAssistant.Sdk.Reporting;
+using HYWDebugAssistant.Sdk.Tuning;
 
 namespace HYWDebugAssistant.DataPlane.Access;
 
@@ -24,6 +25,7 @@ public sealed class AccessInboundBuffer
     private readonly Queue<(byte[] Buffer, int Length, long EnqueuedTicks)> _queue;
     private readonly Lock _gate = new();
     private readonly QueuePressure _pressure;
+    private readonly StatusHysteresis _status;
     private readonly int _capacity;
     private readonly DropPolicy _policy;
     private long _maxBacklogAgeTicks;
@@ -43,6 +45,7 @@ public sealed class AccessInboundBuffer
     private long _lastDropAtTicks = -1;
     private int _lastDropReason = -1;
 
+
     /// <summary>创建有界队列。</summary>
     /// <param name="capacity">容量（单元数）。</param>
     /// <param name="policy">满时丢弃方式。</param>
@@ -54,7 +57,11 @@ public sealed class AccessInboundBuffer
         DropPolicy policy = DropPolicy.DropOldest,
         int hintDepth = QueuePressure.DefaultHintDepth,
         TimeSpan? hintHold = null,
-        TimeSpan? maxBacklogAge = null)
+        TimeSpan? maxBacklogAge = null,
+        int statusEnterDepth = FlowDefaults.StatusBacklogEnterDepth,
+        int statusExitDepth = FlowDefaults.StatusBacklogExitDepth,
+        TimeSpan? statusHold = null,
+        TimeSpan? statusDropHold = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
 
@@ -67,6 +74,11 @@ public sealed class AccessInboundBuffer
         _pressure = new QueuePressure(
             Math.Clamp(hintDepth, 1, capacity),
             hintHold ?? QueuePressure.DefaultHintHold);
+        _status = new StatusHysteresis(
+            Math.Clamp(statusEnterDepth, 1, capacity),
+            Math.Clamp(statusExitDepth, 0, capacity - 1),
+            statusHold ?? TimeSpan.FromMilliseconds(FlowDefaults.StatusHoldMs),
+            statusDropHold ?? TimeSpan.FromMilliseconds(FlowDefaults.StatusDropHoldMs));
     }
 
     /// <summary>容量（单元数）。</summary>
@@ -237,6 +249,7 @@ public sealed class AccessInboundBuffer
 
             if (dropped is { } evict)
             {
+                _status.ObserveDrop(true, enqueuedTicks);
                 if (accepted)
                 {
                     RecordDropLocked(DropReason.SessionQueueFullEvicted, 1, evict.Length, ref _evicted, ref _evictedBytes);
@@ -248,6 +261,8 @@ public sealed class AccessInboundBuffer
 
                 _pressure.OnDropped();
             }
+
+            _status.ObserveDepth(_queue.Count, enqueuedTicks);
         }
 
         if (dropped is { } returned)
@@ -310,6 +325,8 @@ public sealed class AccessInboundBuffer
             }
 
             _pressure.OnDequeued(_queue.Count);
+            _status.ObserveDepth(_queue.Count, now);
+            _status.ObserveDrop(false, now);
         }
 
         // 丢弃的数组一律**锁外**归还池：ArrayPool.Return 可能触发清理，不该在锁里做
@@ -361,6 +378,8 @@ public sealed class AccessInboundBuffer
 
             // 队列空了就没有压力：不把"已经堵了多久"留给下一次打开
             _pressure.OnDequeued(0);
+            _status.ObserveDepth(0, Stopwatch.GetTimestamp());
+            _status.ObserveDrop(false, Stopwatch.GetTimestamp());
         }
 
         foreach (var payload in drained)
@@ -452,5 +471,55 @@ public sealed class AccessInboundBuffer
 
         Volatile.Write(ref _lastDropReason, (int)reason);
         Interlocked.Exchange(ref _lastDropAtTicks, DateTimeOffset.UtcNow.UtcTicks);
+
+        if (reason != DropReason.DiscardedOnStop && _queue.Count > 0)
+        {
+            _status.ObserveDrop(true, Stopwatch.GetTimestamp());
+        }
+    }
+    /// <summary>记一笔**队列外**的接收丢弃（适配件溢出/超长单元），用于状态行保持。</summary>
+    public void NoteExternalDrop()
+    {
+        lock (_gate)
+        {
+            _status.ObserveDrop(true, Stopwatch.GetTimestamp());
+        }
+    }
+
+    /// <summary>状态行是否应显示接收积压（带滞回）。</summary>
+    public bool BacklogStatusActive
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _status.IsBacklogActive(Stopwatch.GetTimestamp());
+            }
+        }
+    }
+
+    /// <summary>状态行是否应显示接收丢弃（带恢复保持）。</summary>
+    public bool DropStatusActive
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _status.IsDropActive(Stopwatch.GetTimestamp());
+            }
+        }
+    }
+
+    /// <summary>更新状态行滞回策略。</summary>
+    public void UpdateStatusPolicy(int enterDepth, int exitDepth, TimeSpan hold, TimeSpan dropHold)
+    {
+        lock (_gate)
+        {
+            _status.UpdatePolicy(
+                Math.Clamp(enterDepth, 1, _capacity),
+                Math.Clamp(exitDepth, 0, _capacity - 1),
+                hold,
+                dropHold);
+        }
     }
 }

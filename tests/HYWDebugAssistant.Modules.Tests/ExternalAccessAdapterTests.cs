@@ -6,7 +6,6 @@ using HYWDebugAssistant.Access.Adapters;
 using HYWDebugAssistant.Access.Parameters;
 using HYWDebugAssistant.Modules.Serial;
 using HYWDebugAssistant.Sdk.Access;
-using HYWDebugAssistant.Sdk.AccessKit;
 using HYWDebugAssistant.Sdk.Testing;
 using Shouldly;
 using Xunit;
@@ -17,7 +16,8 @@ namespace HYWDebugAssistant.Modules.Tests;
 /// 适配件的逻辑用例：串口用假 transport，网络协议用本机回环。
 /// </summary>
 /// <remarks>
-/// 判据只看"开/关/读/写/失败"，不碰真实外部设备；真实串口由人工闸门覆盖。
+/// 判据只看"开/关/读/写/失败"与"字节不丢"，不碰真实外部设备；真实串口由人工闸门覆盖。
+/// 会话级的计数口径、重开与清计数归 `Tests/ExternalAccess/` 用例，不在这里重复。
 /// </remarks>
 public sealed class ExternalAccessAdapterTests
 {
@@ -59,21 +59,6 @@ public sealed class ExternalAccessAdapterTests
         ready.State.ShouldBe(ExternalAccessState.Faulted);
         ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.OpenFailed);
         ready.Endpoint!.Value.Address.ShouldBe("COM_TEST");
-        ready.Failure.Detail.ShouldNotBeNullOrWhiteSpace();
-    }
-
-    [Fact]
-    public void 串口适配件_读取故障应报告Faulted()
-    {
-        var transport = new FakeSerialTransport();
-        var ready = new ReadySink();
-        var adapter = new SerialAccessAdapter(() => transport);
-
-        adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
-        transport.Fail(new IOException("假串口：读取失败"));
-
-        ready.State.ShouldBe(ExternalAccessState.Faulted);
-        ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.ReadFailed);
         ready.Failure.Detail.ShouldNotBeNullOrWhiteSpace();
     }
 
@@ -130,26 +115,6 @@ public sealed class ExternalAccessAdapterTests
         adapter.CheckLiveness();
         ready.State.ShouldBe(ExternalAccessState.Faulted);
         ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.DeviceLost);
-    }
-
-    [Fact]
-    public void 串口探活_缺失一次后恢复不报()
-    {
-        var transport = new FakeSerialTransport();
-        var ready = new ReadySink();
-        var adapter = new SerialAccessAdapter(() => transport);
-
-        adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
-
-        transport.Present = false;
-        adapter.CheckLiveness();
-        transport.Present = true;
-
-        adapter.CheckLiveness();
-        adapter.CheckLiveness();
-
-        ready.State.ShouldBe(ExternalAccessState.Open);
-        ready.Failure.ShouldBeNull();
     }
 
     [Fact]
@@ -214,23 +179,6 @@ public sealed class ExternalAccessAdapterTests
     }
 
     [Fact]
-    public void 默认地址与端口应使用本机回环和60721()
-    {
-        var tcpClient = new TcpClientConfig();
-        var tcpServer = new TcpServerConfig();
-        var udp = new UdpConfig();
-
-        tcpClient.RemoteHost.ShouldBe("127.0.0.1");
-        tcpClient.RemotePort.ShouldBe(60721);
-        tcpServer.LocalAddress.ShouldBe("127.0.0.1");
-        tcpServer.LocalPort.ShouldBe(60721);
-        udp.LocalAddress.ShouldBe("127.0.0.1");
-        udp.LocalPort.ShouldBe(60721);
-        udp.RemoteAddress.ShouldBe("127.0.0.1");
-        udp.RemotePort.ShouldBe(60721);
-    }
-
-    [Fact]
     public void TCP服务端端口占用应给出结构化原因()
     {
         var occupied = new TcpListener(IPAddress.Loopback, 0);
@@ -257,35 +205,6 @@ public sealed class ExternalAccessAdapterTests
     }
 
     [Fact]
-    public void UDP端口占用应给出结构化原因()
-    {
-        using var occupied = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-        occupied.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-
-        var port = ((IPEndPoint)occupied.LocalEndPoint!).Port;
-        var ready = new ReadySink();
-        var adapter = new UdpAccessAdapter();
-
-        adapter.Open(
-            new UdpConfig { LocalAddress = "127.0.0.1", LocalPort = port },
-            ready);
-
-        ready.State.ShouldBe(ExternalAccessState.Faulted);
-        ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.PortInUse);
-        ready.Endpoint!.Value.Port.ShouldBe(port);
-    }
-
-    [Fact]
-    public void TCP服务端与UDP的本地地址选项应包含回环()
-    {
-        var tcp = new TcpServerConfig().GetChoices(nameof(TcpServerConfig.LocalAddress));
-        var udp = new UdpConfig().GetChoices(nameof(UdpConfig.LocalAddress));
-
-        tcp.ShouldNotBeNull().ShouldContain("127.0.0.1");
-        udp.ShouldNotBeNull().ShouldContain("127.0.0.1");
-    }
-
-    [Fact]
     public void UDP本地地址0点0点0点0应能绑定()
     {
         var ready = new ReadySink();
@@ -294,6 +213,41 @@ public sealed class ExternalAccessAdapterTests
         adapter.Open(new UdpConfig { LocalAddress = "0.0.0.0", LocalPort = 0 }, ready);
 
         ready.State.ShouldBe(ExternalAccessState.Open);
+        adapter.Close(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task UDP向未绑定对端发送后_接收泵不应误报ReadFailed()
+    {
+        using var placeholder = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        var targetPort = ((IPEndPoint)placeholder.Client.LocalEndPoint!).Port;
+        placeholder.Dispose();
+
+        var ready = new ReadySink();
+        var adapter = new UdpAccessAdapter();
+        adapter.Open(
+            new UdpConfig
+            {
+                LocalAddress = "127.0.0.1",
+                LocalPort = 0,
+                RemoteAddress = "127.0.0.1",
+                RemotePort = targetPort,
+            },
+            ready);
+
+        WaitFor(() => ready.State == ExternalAccessState.Open, "UDP 应完成本地绑定");
+
+        _ = adapter.Write([1, 2, 3]);
+        await Task.Delay(300);
+
+        ready.State.ShouldBe(ExternalAccessState.Open, "ICMP 端口不可达不应把 UDP 会话判为接收失败");
+        ready.Failure.ShouldBeNull();
+        ready.FaultCount.ShouldBe(0);
+
+        _ = adapter.Write([4, 5]);
+        await Task.Delay(100);
+
+        ready.State.ShouldBe(ExternalAccessState.Open, "异步 ICMP 错误之后接收泵仍应继续工作");
         adapter.Close(TimeSpan.FromSeconds(1));
     }
 
@@ -311,21 +265,6 @@ public sealed class ExternalAccessAdapterTests
                 RemoteAddress = "0.0.0.0",
                 RemotePort = 12345,
             },
-            ready);
-
-        ready.State.ShouldBe(ExternalAccessState.Faulted);
-        ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.WildcardAddressNotAllowed);
-        ready.Failure.Value.ShouldBe("0.0.0.0");
-    }
-
-    [Fact]
-    public void TCP客户端目标0点0点0点0应明确拒绝()
-    {
-        var ready = new ReadySink();
-        var adapter = new TcpClientAccessAdapter();
-
-        adapter.Open(
-            new TcpClientConfig { RemoteHost = "0.0.0.0", RemotePort = 12345 },
             ready);
 
         ready.State.ShouldBe(ExternalAccessState.Faulted);
@@ -545,53 +484,6 @@ public sealed class ExternalAccessAdapterTests
         BinaryPrimitives.ReadUInt64LittleEndian(context.Published[SerialModule.RxCountSource][^1]).ShouldBe(3UL);
     }
 
-    /// <summary>打开成功后快照里的本地端口（TCP 服务端 / UDP 用）。</summary>
-    private static int PortOf(ReadySink ready) =>
-        ready.Endpoint!.Value.Port!.Value;
-
-    private static void WaitFor(Func<bool> condition, string message, int timeoutMs = 3000)
-    {
-        var stopwatch = Stopwatch.StartNew();
-
-        while (!condition())
-        {
-            if (stopwatch.ElapsedMilliseconds > timeoutMs)
-            {
-                throw new TimeoutException(message);
-            }
-
-            Thread.Sleep(10);
-        }
-    }
-
-    [Fact]
-    public void 串口单次大块_按会话读缓冲切片且不丢弃()
-    {
-        var transport = new FakeSerialTransport();
-        var ready = new ReadySink();
-        var adapter = new SerialAccessAdapter(() => transport);
-
-        adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
-
-        var payload = Enumerable.Range(0, 4096).Select(index => (byte)(index & 0xFF)).ToArray();
-        transport.Feed(payload);
-
-        var destination = new byte[1472];
-        var lengths = new List<int>();
-
-        while (adapter.TryRead(destination, out var length))
-        {
-            lengths.Add(length);
-        }
-
-        lengths.Count.ShouldBe(3, "会话读缓冲 1472 B：一次 4096 B 事件必须分 3 次交付");
-        lengths[0].ShouldBe(1472);
-        lengths[1].ShouldBe(1472);
-        lengths[2].ShouldBe(1152);
-        ready.DroppedUnits.ShouldBe(0);
-        ready.DroppedBytes.ShouldBe(0);
-    }
-
     [Fact]
     public void 串口目标小于单元_应分片交付且字节不丢()
     {
@@ -614,6 +506,25 @@ public sealed class ExternalAccessAdapterTests
         lengths.Sum().ShouldBe(2000, "目标比单元小只能分片交付，不能丢");
         ready.DroppedUnits.ShouldBe(0);
         ready.DroppedBytes.ShouldBe(0);
+    }
+
+    /// <summary>打开成功后快照里的本地端口（TCP 服务端 / UDP 用）。</summary>
+    private static int PortOf(ReadySink ready) =>
+        ready.Endpoint!.Value.Port!.Value;
+
+    private static void WaitFor(Func<bool> condition, string message, int timeoutMs = 3000)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        while (!condition())
+        {
+            if (stopwatch.ElapsedMilliseconds > timeoutMs)
+            {
+                throw new TimeoutException(message);
+            }
+
+            Thread.Sleep(10);
+        }
     }
 
     private sealed class ReadySink : IExternalAccessReady

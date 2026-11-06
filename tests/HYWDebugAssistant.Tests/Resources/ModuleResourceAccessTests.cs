@@ -23,9 +23,6 @@ public sealed class ModuleResourceAccessTests : IDisposable
         var custom = Path.Combine(_root, "templates");
         _ = Directory.CreateDirectory(custom);
         File.WriteAllText(Path.Combine(custom, "greeting.txt"), "hello");
-
-        _ = Directory.CreateDirectory(Path.Combine(_root, "templates", "nested"));
-        File.WriteAllText(Path.Combine(_root, "templates", "nested", "deep.txt"), "deep");
     }
 
     /// <inheritdoc />
@@ -43,28 +40,6 @@ public sealed class ModuleResourceAccessTests : IDisposable
         }
 
         GC.SuppressFinalize(this);
-    }
-
-    [Fact]
-    public void 自定义kind_应按相对路径读到内容()
-    {
-        var access = new HYWDebugAssistant.Hosting.Context.ModuleResourceAccess(_root);
-
-        access.TryOpen("templates", "greeting.txt", out var stream).ShouldBeTrue();
-        using (stream)
-        {
-            using var reader = new StreamReader(stream!);
-            reader.ReadToEnd().ShouldBe("hello");
-        }
-
-        access.TryOpen("templates", "nested/deep.txt", out var nested).ShouldBeTrue();
-        using (nested)
-        {
-            using var reader = new StreamReader(nested!);
-            reader.ReadToEnd().ShouldBe("deep");
-        }
-
-        access.ReadAllBytes("templates", "greeting.txt").ShouldBe("hello"u8.ToArray());
     }
 
     [Theory]

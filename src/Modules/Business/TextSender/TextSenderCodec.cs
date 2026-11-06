@@ -83,6 +83,7 @@ internal static class TextSenderCodec
     /// <remarks>
     /// **上下界与文案同源**：范围取 <see cref="TextSenderModule.MaxIntervalMs"/>，报错文案也用它 ——
     /// 三者（接受 / 存储 / 文案）是同一个数，不会出现"说合法却按别的值走"。
+    /// <para>0 是合法输入值，但不是连续发送的有效周期；是否可用由模块在拨动开关时判定。</para>
     /// </remarks>
     public static bool TryParseInterval(string? text, out uint milliseconds)
     {

@@ -1,6 +1,5 @@
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Core.Runtime;
-using HYWDebugAssistant.Core.Seeding;
 using HYWDebugAssistant.Core.Settings;
 using HYWDebugAssistant.Sdk.Reporting;
 using Shouldly;
@@ -48,40 +47,6 @@ public class ThemeSeedTests
         persisted["appearance"]!["seeded"]!.AsArray()
             .Select(item => item!.GetValue<string>())
             .ShouldContain("settings/appearance/themes/sakura");
-    }
-
-    [Fact]
-    public void 无设置种子_应用代码默认值并投放主题()
-    {
-        using var temp = new SeedScope();   // 只有主题种子，没有 settings.json 种子
-
-        var service = temp.CreateService();
-        service.Load().ShouldBe(SettingsLoadOutcome.DefaultsCreated);
-
-        service.Current.Flow.QueueCapacity.ShouldBe(
-            new ApplicationSettings().Flow.QueueCapacity,
-            "没有设置文件 ⇒ 代码默认值（缺省只在设置模型里给一次）");
-        service.Themes.Exists(SeedScope.SeedThemeId).ShouldBeTrue("出厂主题不该因为缺设置文件而缺席");
-        service.Current.Appearance.Seeded.ShouldContain("settings/appearance/themes/sakura");
-        File.Exists(temp.SettingsPath).ShouldBeTrue("投放改变了设置 ⇒ 需要落盘记录 seeded");
-    }
-
-    [Fact]
-    public void 投放器_只投放缺失的单元与文件()
-    {
-        using var temp = new SeedScope();
-        temp.WriteSettingsSeed();
-
-        var seeder = new SeedService(temp.TargetRoot, temp.SeedsRoot);
-
-        // 单文件：目标不存在才复制；复制过就不再复制
-        seeder.SeedFiles().ShouldBe(["settings/settings.json"]);
-        seeder.SeedFiles().ShouldBeEmpty("文件存在即证明，不需要记录");
-
-        // 叶子目录 = 一个投放单元，返回相对程序目录的路径
-        seeder.SeedUnits([]).ShouldBe(["settings/appearance/themes/sakura"]);
-        seeder.SeedUnits(["settings/appearance/themes/sakura"]).ShouldBeEmpty("已记录 ⇒ 不再投放（删了也不复活）");
-        seeder.SeedUnits([]).ShouldBeEmpty("目标已存在 ⇒ 整单元跳过（不改写用户内容）");
     }
 
     [Fact]

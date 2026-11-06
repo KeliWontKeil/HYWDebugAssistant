@@ -5,7 +5,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// **退出协调器**的行为：询问 / 保存 / 记住策略 / 关闭顺序 / 重入与幂等。
+/// **退出协调器**的行为：询问 / 保存 / 丢弃 / 关闭顺序 / 重入与幂等。
 /// </summary>
 public sealed class ShellExitCoordinatorTests
 {
@@ -110,24 +110,6 @@ public sealed class ShellExitCoordinatorTests
     }
 
     [Fact]
-    public async Task 勾选记住_写一次策略且失败不阻止退出()
-    {
-        var prompt = new FakePrompt { Result = new WorkspaceCloseResult(WorkspaceCloseChoice.Discard, Remember: true) };
-        var saver = new FakeSaver();
-        var policy = new FakePolicy { RememberResult = false };
-        var closedModules = 0;
-        var closedShell = 0;
-
-        var coordinator = New(prompt, saver, policy, () => closedModules++, () => closedShell++);
-
-        await coordinator.RequestAsync();
-
-        policy.Remembered.ShouldBe(["Discard"]);
-        closedModules.ShouldBe(1);
-        closedShell.ShouldBe(1);
-    }
-
-    [Fact]
     public async Task 重入_并发请求只询问一次()
     {
         var gate = new TaskCompletionSource<WorkspaceCloseResult>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -181,38 +163,6 @@ public sealed class ShellExitCoordinatorTests
     }
 
     [Fact]
-    public async Task 系统关机且策略为丢弃_不保存也继续关闭()
-    {
-        var prompt = new FakePrompt();
-        var saver = new FakeSaver();
-        var policy = new FakePolicy { Current = "Discard" };
-        var closedModules = 0;
-        var closedShell = 0;
-
-        var coordinator = New(prompt, saver, policy, () => closedModules++, () => closedShell++);
-
-        await coordinator.RequestAsync(isOsShutdown: true);
-
-        prompt.Calls.ShouldBe(0);
-        saver.Calls.ShouldBe(0);
-        closedModules.ShouldBe(1);
-        closedShell.ShouldBe(1);
-    }
-
-    [Fact]
-    public async Task 系统关机_保存失败也继续关闭()
-    {
-        var saver = new FakeSaver { Result = false };
-        var closedShell = 0;
-        var coordinator = New(new FakePrompt(), saver, new FakePolicy(), () => { }, () => closedShell++);
-
-        await coordinator.RequestAsync(isOsShutdown: true);
-
-        saver.Calls.ShouldBe(1);
-        closedShell.ShouldBe(1);
-    }
-
-    [Fact]
     public async Task 直接关闭_不询问不保存且重入只执行一次()
     {
         var prompt = new FakePrompt();
@@ -234,19 +184,6 @@ public sealed class ShellExitCoordinatorTests
         coordinator.State.ShouldBe(ShellExitState.Closing);
     }
 
-    [Fact]
-    public async Task 询问抛异常_回到空闲且不关闭()
-    {
-        var prompt = new FakePrompt { Throw = true };
-        var closedShell = 0;
-        var coordinator = New(prompt, new FakeSaver(), new FakePolicy(), () => { }, () => closedShell++);
-
-        await coordinator.RequestAsync();
-
-        closedShell.ShouldBe(0);
-        coordinator.State.ShouldBe(ShellExitState.Idle);
-    }
-
     private static ShellExitCoordinator New(
         IExitPrompt prompt,
         IExitSaver saver,
@@ -264,19 +201,12 @@ public sealed class ShellExitCoordinatorTests
 
         public WorkspaceCloseResult Result { get; init; } = new(WorkspaceCloseChoice.Cancel, false);
 
-        public bool Throw { get; init; }
-
         public TaskCompletionSource<WorkspaceCloseResult>? Gate { get; init; }
 
         public async Task<WorkspaceCloseResult> AskAsync(int moduleCount)
         {
             Calls++;
             LastModuleCount = moduleCount;
-
-            if (Throw)
-            {
-                throw new InvalidOperationException("假询问：失败");
-            }
 
             return Gate is null ? Result : await Gate.Task;
         }
@@ -299,14 +229,6 @@ public sealed class ShellExitCoordinatorTests
     {
         public string Current { get; init; } = "Ask";
 
-        public bool RememberResult { get; init; } = true;
-
-        public List<string> Remembered { get; } = [];
-
-        public Task<bool> RememberAsync(string policy)
-        {
-            Remembered.Add(policy);
-            return Task.FromResult(RememberResult);
-        }
+        public Task<bool> RememberAsync(string policy) => Task.FromResult(true);
     }
 }

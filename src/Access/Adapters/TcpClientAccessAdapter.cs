@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using HYWDebugAssistant.Access.Parameters;
 using HYWDebugAssistant.Sdk.Access;
+using HYWDebugAssistant.Sdk.Tuning;
 
 namespace HYWDebugAssistant.Access.Adapters;
 
@@ -21,7 +22,7 @@ public sealed class TcpClientAccessAdapter : IExternalAccessAdapter, IExternalAc
     private static readonly TimeSpan DefaultCloseTimeout = TimeSpan.FromSeconds(1);
 
     /// <summary>写（发送）超时的缺省值（毫秒）。</summary>
-    private const int DefaultWriteTimeoutMs = 1000;
+    private const int DefaultWriteTimeoutMs = FlowDefaults.ExternalWriteTimeoutMs;
 
     private StreamAdapterBuffer _buffer = new();
 

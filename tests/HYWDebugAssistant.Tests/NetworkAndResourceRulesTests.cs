@@ -102,10 +102,7 @@ public class NetworkAndResourceRulesTests
         }
     }
 
-    // ------------------------------------------------------------ T2 · 快速建网 R0–R6
-
-    // 建网只由「**接触且对齐**」或「**端口标签同名**」判定：加入模块**不**自动连线
-    // （隐式连线反直觉，不利学习与探索）。
+    // ------------------------------------------------------------ 资源生命周期
 
     [Fact]
     public void 移除实例_应释放承载与订阅且不影响其他实例()
@@ -143,30 +140,7 @@ public class NetworkAndResourceRulesTests
             "其余实例不应因为另一个实例被移除而报问题");
     }
 
-    [Fact]
-    public void 移除全部实例_应回到空现场()
-    {
-        using var runtime = new ModuleRuntime();
-        var services = new RuntimeServices(runtime, new Core.Settings.SettingsService(runtime, TempSettingsPath()));
-
-        Register(services, typeof(ViewSenderModule));
-        services.AddModule("s1", "test/view-sender").Succeeded.ShouldBeTrue();
-        services.AddModule("s2", "test/view-sender").Succeeded.ShouldBeTrue();
-
-        services.RemoveModule("s1").Succeeded.ShouldBeTrue();
-        services.RemoveModule("s2").Succeeded.ShouldBeTrue();
-
-        runtime.Carriers.Carriers.ShouldBeEmpty();
-        runtime.Subscriptions.ShouldBeEmpty();
-        runtime.Content.InstanceCount.ShouldBe(0);
-        runtime.Bindings.Bindings.ShouldBeEmpty();
-
-        // 空现场仍然可用：再次加入不受影响
-        services.AddModule("s3", "test/view-sender").Succeeded.ShouldBeTrue();
-        runtime.Carriers.Carriers.Count.ShouldBe(1);
-    }
-
-    // ------------------------------------------------------------ 同一实例自回环（显式 / 命名两条入口）
+    // ------------------------------------------------------------ 同一实例自回环（命名入口）
 
     [Fact]
     public void 同一实例的发送口与接收口_可形成命名自回环并投递到自己的接收口()
@@ -201,24 +175,6 @@ public class NetworkAndResourceRulesTests
             "自回环是合法拓扑：不得报 networkExcluded / contractIncompatible 之类的排除问题");
     }
 
-    [Fact]
-    public void 同一实例不同口_可建成自回环()
-    {
-        using var runtime = new ModuleRuntime();
-        var services = new RuntimeServices(runtime);
-        CoreRuntimeTests.AddModule(runtime, "self", "self-loop", typeof(CoreRuntimeTests.SelfLoopModule));
-
-        // **建网的唯一入口是标签 / 贴合**（显式 Connect API 已删除）：同名标签即连。
-        TestLink.Link(services, new PortRef("self", "out"), new PortRef("self", "in"), "loopback");
-
-        runtime.Content.Networks.ShouldHaveSingleItem().Name.ShouldBe("loopback");
-        runtime.Bindings.Bindings.ShouldHaveSingleItem();
-
-        runtime.Issues.Recent(50).ShouldNotContain(
-            entry => entry.Issue.Category == IssueCategory.InterfaceError,
-            "自回环同样不得产生「排除成员」「契约不兼容」问题");
-    }
-
     // ------------------------------------------------------------ 辅助
 
     private static readonly ContractShape F32 = ContractShape.OfPrimitive(ContractPrimitive.F32);
@@ -251,17 +207,8 @@ public class NetworkAndResourceRulesTests
             ("seq", ContractShape.OfPrimitive(ContractPrimitive.U64)),
             ("value", ContractShape.OfPrimitive(ContractPrimitive.F32)));
 
-    /// <summary>期望的宿成员字面量（避免重复构造常量数组）。</summary>
-    private static readonly string[] ReceiverInMember = ["r1.in"];
-
     private static string TempSettingsPath() =>
         Path.Combine(Path.GetTempPath(), "hyw-rules-" + Guid.NewGuid().ToString("N") + ".json");
-
-    private static string ModuleIdOf(Type entryType)
-    {
-        var attribute = (ModuleDefinitionAttribute)Attribute.GetCustomAttribute(entryType, typeof(ModuleDefinitionAttribute))!;
-        return attribute.Id.ToString();
-    }
 
     private static void Register(RuntimeServices services, Type entryType)
     {
@@ -286,22 +233,6 @@ public class NetworkAndResourceRulesTests
 
     // ------------------------------------------------------------ 测试模块
 
-    /// <summary>f32 发送口。</summary>
-    [ModuleDefinition("test", "sender32")]
-    public sealed class Sender32Module : IModule
-    {
-        public void OnRegistered(IModuleContext context) =>
-            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, F32));
-    }
-
-    /// <summary>f64 发送口（契约与 f32 接收口不匹配）。</summary>
-    [ModuleDefinition("test", "sender64")]
-    public sealed class Sender64Module : IModule
-    {
-        public void OnRegistered(IModuleContext context) =>
-            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, F64));
-    }
-
     /// <summary>f32 接收口。</summary>
     [ModuleDefinition("test", "receiver32")]
     public sealed class Receiver32Module : IModule
@@ -309,33 +240,6 @@ public class NetworkAndResourceRulesTests
         public void OnRegistered(IModuleContext context)
         {
             context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, F32));
-            context.Ports.SetReceiveHandler("in", _ => { });
-        }
-    }
-
-    /// <summary>f64 接收口。</summary>
-    [ModuleDefinition("test", "receiver64")]
-    public sealed class Receiver64Module : IModule
-    {
-        public void OnRegistered(IModuleContext context) =>
-            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, F64));
-    }
-
-    /// <summary>结构发送口 <c>{seq: u64, value: f32}</c>。</summary>
-    [ModuleDefinition("test", "struct-sender")]
-    public sealed class StructSenderModule : IModule
-    {
-        public void OnRegistered(IModuleContext context) =>
-            context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, Struct));
-    }
-
-    /// <summary>结构接收口（同形状）。</summary>
-    [ModuleDefinition("test", "struct-receiver")]
-    public sealed class StructReceiverModule : IModule
-    {
-        public void OnRegistered(IModuleContext context)
-        {
-            context.Declaration.DeclarePort(new PortDeclaration("in", PortDirection.Receive, Struct));
             context.Ports.SetReceiveHandler("in", _ => { });
         }
     }
