@@ -137,14 +137,14 @@ T3 必须触发的三种情况：
 
 ## 打包与发布
 
-发布目录只包含程序层：应用程序文件、`modules/`（内置模块包）、`resources/`（出厂种子、文本表与图标）。
+发布目录包含程序层、`sdk/`（作者包与样例源码）与 `resources/`。
 
 - 用户数据目录（`settings/`、`workspace/`、`logs/`、`composites/`、`framework/`）与外部模块目录（`modules/external/`）不进入发布。
 - 不引入 RID 与自包含发布形态；宿主程序集由应用输出提供，模块包不携带。
 - 模块项目构建时自动归拢到 `artifacts/modules/<配置>/<包名>/`，应用构建后镜像到应用输出的 `modules/`。
 - 模块包只含模块自有文件：模块清单、模块程序集与自有资源；宿主提供的程序集不进入包。
 - `tools/pack-sdk.ps1` 生成三个契约包到 `artifacts/sdk-packages/`；`tools/verify-standalone-module.ps1` 让示例模块只依赖这些包完成构建并由独立宿主加载。
-- `tools/package-release.ps1 -OutputDirectory <仓库外的空目录>`：构建 Release、校验模块包、复制程序层、生成出厂设置基线、断言发布边界、写入 `release.json`（版本、配置、资源哈希、模块文件哈希）。
+- `tools/package-release.ps1 -OutputDirectory <仓库外的空目录>`：构建 Release、校验模块包、复制程序层、生成出厂设置基线、断言发布边界、生成 `sdk/`（五个作者包 + 四个样例，版本与本地源已改写）、写入 `release.json`（版本、配置、资源哈希、模块文件哈希、`sdk/` 文件哈希）。
 - 文档站构建产物在 `artifacts/docs-site/`，与产品发布包相互独立。
 
 ## 文档写作

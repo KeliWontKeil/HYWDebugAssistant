@@ -13,6 +13,8 @@
     <IsPackable>false</IsPackable>
     <!-- 样例独立于仓库的中央包管理（作者包版本由 PackageReference 显式给出，值来自根 version.props）。 -->
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <!-- 固定输出平台名：机器上被别的软件设置的 Platform 环境变量不应把产物目录带歪。 -->
+    <PlatformName>AnyCPU</PlatformName>
     <AssemblyName>HYWDebugAssistant.Samples.DataModule</AssemblyName>
     <RootNamespace>HYWDebugAssistant.Samples.DataModule</RootNamespace>
   </PropertyGroup>

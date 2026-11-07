@@ -3,7 +3,8 @@
   <!--
     dev-only 独立模块宿主：从模块包目录加载，验证"只靠 SDK NuGet 包编译的外部模块"能被宿主装入。
     不加入主解决方案；由 tools/verify-standalone-module.ps1 按需构建/运行。
-    必须随宿主提供 Sdk.AccessKit（示例模块的骨架基类），因此额外引用它。
+    必须随宿主提供 Sdk.AccessKit（示例模块的骨架基类）与 Sdk.Ui（带界面样例的程序集引用），
+    因此额外引用它们；宿主只加载与实例化模块，不构造视图。
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -17,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\..\src\Sdk.Ui\HYWDebugAssistant.Sdk.Ui.csproj" />
     <ProjectReference Include="..\..\src\Sdk.AccessKit\HYWDebugAssistant.Sdk.AccessKit.csproj" />
     <ProjectReference Include="..\..\src\Access\HYWDebugAssistant.Access.csproj" />
     <ProjectReference Include="..\..\src\Hosting\HYWDebugAssistant.Hosting.csproj" />

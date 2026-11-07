@@ -1,5 +1,9 @@
 # 发布与装载
 
+## 包从哪来
+
+作者包与样例随产品发布在 `sdk/` 目录：五个 `.nupkg` 与四个样例源码。把样例复制到任意位置即可构建，`NuGet.config` 已指向 `sdk/`。获取方式与版本规则见[SDK 与版本](sdk-version.md)。
+
 ## 构建模块包
 
 引用 `HYWDebugAssistant.Module.Build` 后，`dotnet build -c Release` 会直接把模块包归拢到：

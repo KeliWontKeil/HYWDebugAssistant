@@ -16,7 +16,8 @@ resources/
 - 位置：`resources/i18n/<程序集简名>/<culture>.json`，内容是"键 → 文案"的 JSON 对象；
 - 可选分片：`<culture>.<area>.json`，同一目录里基础表排在最前，其余按文件名序合并；
 - 回退链：精确 culture → `zh` → `zh-Hans` → 可见缺失标记 `⟦key⟧`；
-- 缺表与缺键都**不返回空白**：界面会露出缺的是哪个键。
+- 缺表与缺键都**不返回空白**：界面会露出缺的是哪个键；
+- 工程里的 `Content` 项（让 `resources/` 随构建输出）见[项目与包布局](project-layout.md)：预览器与行为测试按"程序集旁"的 `resources/` 读取，只打包不复制会让它们读不到表。
 
 代码里取文案：
 
@@ -25,6 +26,8 @@ private static string Tr(string key) => TextCatalog.Get(typeof(MyModule).Assembl
 ```
 
 XAML 里用 `{loc:Tr key}`；模块视图的键与显示源名一样，只写一次（常量 + `{x:Static}`）。
+
+配置字段的标题、说明、分组与枚举选项也走同一张表：在配置类型上用 `TitleKey` / `DescriptionKey` / `GroupKey` / `[ConfigurationChoice(TitleKey = …)]` 指向键。没有给键时回退为字段名，中文界面会显得生硬，建议补齐。
 
 ## 图标
 

@@ -6,6 +6,7 @@ using HYWDebugAssistant.Modules.TcpClient.Views;
 using HYWDebugAssistant.Modules.TcpServer.Views;
 using HYWDebugAssistant.Modules.TextSender.Views;
 using HYWDebugAssistant.Modules.Udp.Views;
+using HYWDebugAssistant.Samples.UiModule.Views;
 
 namespace HYWDebugAssistant.PreviewHost;
 
@@ -31,6 +32,7 @@ internal static class ModuleViewAnchors
         typeof(TcpServerView),
         typeof(TextSenderView),
         typeof(UdpView),
+        typeof(UiSampleView),
     ];
 
     /// <summary>触发静态字段初始化（从而加载全部模块程序集）。</summary>

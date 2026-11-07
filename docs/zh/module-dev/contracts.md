@@ -2,6 +2,21 @@
 
 声明写在模块的 `OnRegistered` 里，**只写一次**：框架在实例化时读一次，运行期不重读。
 
+## 声明 API 一览
+
+| 方法 | 声明什么 | 必填 | 关键约束 |
+|---|---|---|---|
+| `DeclareDataType(DataTypeDeclaration)` | 数据类型：标识、形状、传递语义、计量块、解码器 | 用类型时必填 | 标识模块内唯一；口形状必须与类型形状一致 |
+| `DeclarePort(PortDeclaration)` | 端口：名称、方向、形状、语义、默认边 | 有数据流时必填 | 名称模块内唯一且稳定；默认边只影响初始位置 |
+| `DeclareRole(RoleDeclaration)` | 功能分块：一种类型 + 输入口/输出口集合 | 有数据口时建议 | 一个口最多属于一个角色；两侧同型 |
+| `DeclareFlow(FlowDeclaration)` | 角色之间的处理先后 | 可选 | 只呈现，不参与建网与投递 |
+| `DeclareDisplaySource(DisplaySourceDeclaration)` | 界面可读的数据通道：名称、类别、值类型 | 有界面时按需 | 名称模块内唯一；类别决定缓冲形态 |
+| `DeclareInput(InputDeclaration)` | 用户提交值的通道：名称、是否持久化 | 有输入时必填 | 名称模块内唯一；无界面元素的输入也要登记 |
+| `DeclareCommand(name, title)` | 按钮触发的动作名 | 有按钮时必填 | 名称模块内唯一；未登记的名字由框架拒收 |
+| `DeclareExternalAccess(ExternalAccessDeclaration)` | 设备接入：接入名 + 标准标识 | 设备接入时必填 | 标准标识必须是框架已提供的值 |
+
+每一层在整体结构中的位置见[模块结构](anatomy.md)。
+
 ## 顺序
 
 1. 数据类型
@@ -28,7 +43,7 @@
 
 ## 声明一个新类型
 
-类型是**模块自己的代码**，不是框架配置：
+类型是**模块自己的代码**，不是框架配置。字段怎么排、长度怎么定、怎么演进、指纹怎么留，见[数据面](../concepts/data-plane.md)的「设计一条约定」；本页只给写法。
 
 ```csharp
 public const string TypeId = "vendor/pulse";
@@ -101,6 +116,7 @@ context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, S
 
 ## 相关
 
+- [模块结构](anatomy.md)：声明在整体结构中的位置
 - [数据面](../concepts/data-plane.md)
 - [外部接入](../concepts/access.md)
 - [测试与验证](testing.md)

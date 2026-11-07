@@ -2,11 +2,12 @@
 <#
 .SYNOPSIS
     Release 导出：构建 Release → 校验模块包 → 复制 App 输出（只含程序层）→ 生成出厂设置基线 →
-    断言发布边界 → 写 release.json。
+    断言发布边界 → 生成作者工具链 `sdk/` → 写 release.json。
 
 .DESCRIPTION
     不引入 RID / self-contained 新形态，不做安装器：只把**现有 Release 构建产物**整理成可分发目录。
-    发布包只含**程序层**：程序文件 + `modules/`（内置包）+ `resources/`（出厂种子 + 文本表）。
+    发布包含**程序层**（程序文件 + `modules/` 内置包 + `resources/` 出厂种子与文本表）
+    与**作者工具链**（`sdk/`：五个作者包 + 四个样例源码）。
     步骤：
       1. 清理 PLATFORM，`dotnet build HYWDebugAssistant.slnx -c Release`；
       2. `tools/verify-module-packages.ps1 -Configuration Release`（门禁）；
@@ -16,7 +17,8 @@
       5. 用导出目录里的应用入口 `--emit-default-settings` 生成
          `resources/seeds/settings/settings.json`（默认值唯一来源是代码，发布时才落盘）；
       6. 断言发布边界：禁止项缺席、种子主题包在位、整个导出目录里 wallpaper.png 只有一份；
-      7. 写 `release.json`（产品四段版本、resources[] 全树哈希、8 个模块 ID/文件 hash）。
+      7. 生成 `sdk/`：`pack-sdk` 的五个包 + 四个样例（版本与本地源已改写，复制即可构建）；
+      8. 写 `release.json`（产品四段版本、resources[] 全树哈希、8 个模块 ID/文件 hash、sdk[] 文件 hash）。
     安全护栏：目标目录必须**在仓库外**且为空/不存在；脚本不会清理仓库内路径。
 
 .EXAMPLE
@@ -289,12 +291,94 @@ if ($wallpapers.Count -ne 1) {
 
 Write-Host "[release] 发布边界通过：用户目录缺席；种子主题包在位；壁纸唯一" -ForegroundColor Green
 
-# ---------------------------------------------------------------- release.json
+# ---------------------------------------------------------------- 作者工具链（sdk/）
 
+# 外部作者拿不到仓库源码：作者包与样例源码一起进发布包的 sdk/，这是他们唯一的获取途径。
 $productVersion = (& (Join-Path $PSScriptRoot 'version.ps1') -Value).Trim()
 if ($productVersion -notmatch '^\d+\.\d+\.\d+\.\d+$') {
     throw "无法从 version.props 取得四段版本：'$productVersion'"
 }
+
+Write-Host "[release] 生成作者包（pack-sdk）" -ForegroundColor Cyan
+& (Join-Path $PSScriptRoot 'pack-sdk.ps1') -Configuration $Configuration
+if ($LASTEXITCODE -ne 0) { throw '作者包打包失败' }
+
+$sdkSource = Join-Path $root 'artifacts\sdk-packages'
+$sdkTarget = Join-Path $target 'sdk'
+New-Item -ItemType Directory -Force -Path $sdkTarget | Out-Null
+
+$sdkPackages = @(Get-ChildItem -LiteralPath $sdkSource -Filter *.nupkg -File)
+if ($sdkPackages.Count -ne 5) {
+    throw "作者包数量应为 5（实际 $($sdkPackages.Count)）：$sdkSource"
+}
+
+foreach ($package in $sdkPackages) {
+    Copy-Item -LiteralPath $package.FullName -Destination $sdkTarget -Force
+}
+
+# 样例随包分发：版本写成发布版本、本地源指向 sdk/，复制到任意位置即可构建。
+$sampleNames = @('DataModule', 'ExternalModule', 'ActivityModule', 'UiModule')
+$samplesTarget = Join-Path $sdkTarget 'samples'
+foreach ($sampleName in $sampleNames) {
+    $sampleSource = Join-Path $root "samples\$sampleName"
+    if (-not (Test-Path -LiteralPath $sampleSource)) { throw "样例目录不存在：$sampleSource" }
+
+    $sampleOutput = Join-Path $samplesTarget $sampleName
+    $sourceFiles = @(Get-ChildItem -LiteralPath $sampleSource -Recurse -File -Force |
+        Where-Object { $_.FullName -notmatch '\\(bin|obj|module-package)\\' })
+
+    foreach ($file in $sourceFiles) {
+        $relative = [System.IO.Path]::GetRelativePath($sampleSource, $file.FullName)
+        $destination = Join-Path $sampleOutput $relative
+        $destinationDirectory = Split-Path -Parent $destination
+        if (-not (Test-Path -LiteralPath $destinationDirectory)) {
+            New-Item -ItemType Directory -Force -Path $destinationDirectory | Out-Null
+        }
+
+        if ($file.Extension -in @('.csproj', '.config')) {
+            $text = Get-Content -LiteralPath $file.FullName -Raw
+            $text = $text.Replace('Version="$(Version)"', ('Version="' + $productVersion + '"'))
+            $text = $text.Replace('../../artifacts/sdk-packages', '..\..')
+            Set-Content -LiteralPath $destination -Value $text -Encoding utf8 -NoNewline
+        }
+        else {
+            Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
+        }
+    }
+}
+
+$readme = @"
+作者工具链：模块开发需要的 NuGet 包与样例源码（产品版本 $productVersion）。
+
+包（同一版本，五个）：
+  HYWDebugAssistant.Sdk            契约层（必需）
+  HYWDebugAssistant.Sdk.Ui         界面契约与控件库（带界面时）
+  HYWDebugAssistant.Sdk.AccessKit  外部接入通道（设备接入时）
+  HYWDebugAssistant.Sdk.Testing    契约自检（只给测试项目）
+  HYWDebugAssistant.Module.Build   打包规则（只参与构建）
+
+样例（samples/）：
+  DataModule      纯数据变换
+  ExternalModule  设备接入（标准标识 + 自己组帧）
+  ActivityModule  定时器
+  UiModule        带界面（视图工厂 + 文本表 + 命令）
+
+用法：把 samples/<样例> 复制到任意位置，dotnet build -c Release；
+产物在 bin\module-package\Release\<包名>\，在产品「模块清单」里导入这一层目录。
+样例的 NuGet.config 已指向本目录，包版本已写成 $productVersion。
+"@
+Set-Content -LiteralPath (Join-Path $sdkTarget 'README.txt') -Value $readme -Encoding utf8 -NoNewline
+
+$sdkRecords = [System.Collections.Generic.List[object]]::new()
+foreach ($file in (Get-ChildItem -LiteralPath $sdkTarget -Recurse -File | Sort-Object FullName)) {
+    $sdkRecords.Add([pscustomobject]@{
+        path = [System.IO.Path]::GetRelativePath($sdkTarget, $file.FullName).Replace('\', '/')
+        sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    })
+}
+if ($sdkRecords.Count -eq 0) { throw 'sdk/ 为空（作者包没有复制进发布）' }
+
+# ---------------------------------------------------------------- release.json
 
 # 出厂资源清单：`resources/` **全树**（相对路径 + SHA256）。`seeds/` 是投放源、`i18n/` 是就地读的
 # 文本表，两者一起纳入同一张清单；发布校验按这份清单逐文件核对。
@@ -321,6 +405,7 @@ $release = [pscustomobject]@{
     configuration = $Configuration
     resources = $resourceRecords
     modules = $moduleRecords
+    sdk = $sdkRecords
 }
 
 $releaseJson = $release | ConvertTo-Json -Depth 8
@@ -340,5 +425,9 @@ if (@($written.resources).Count -ne $resourceRecords.Count) {
     throw "release.json 的 resources 数量不正确：$(@($written.resources).Count)"
 }
 
-Write-Host "[release] release.json：version=$($written.version) resources=$(@($written.resources).Count) modules=$($written.modules.Count)" -ForegroundColor Green
+if (@($written.sdk).Count -ne $sdkRecords.Count) {
+    throw "release.json 的 sdk 数量不正确：$(@($written.sdk).Count)"
+}
+
+Write-Host "[release] release.json：version=$($written.version) resources=$(@($written.resources).Count) modules=$($written.modules.Count) sdk=$(@($written.sdk).Count)" -ForegroundColor Green
 Write-Host "[release] 导出完成：$target" -ForegroundColor Green

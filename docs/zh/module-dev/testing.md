@@ -61,10 +61,53 @@ public void 收到一个单元应转发并计数()
 - 显示：值变化才写、丢弃时写计数；
 - 命令：未知命令不崩、重复命令的行为。
 
-## 包校验与独立编译
+## 独立测试工程
 
-- 本仓库：`./build.ps1` 会校验模块包（文件集合、清单、宿主程序集排除）；
-- 外部工程：`dotnet build -c Release` 产出薄包，再用产品装载验证；本仓库的 `tools/verify-standalone-module.ps1` 是同一路径的自动化版本（含"只复制模块自有文件"的断言）。
+外部作者在模块旁边加一个测试工程即可（框架不要求它进任何解决方案）：
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="HYWDebugAssistant.Sdk.Testing" Version="<产品四段版本>" />
+    <!-- 测试框架自选；断言目标是 Problems / 上下文记录，不依赖具体框架。 -->
+    <PackageReference Include="xunit" Version="<与你的测试框架一致>" />
+    <ProjectReference Include="..\MyModule\HYWDebugAssistant.Vendor.MyModule.csproj" />
+  </ItemGroup>
+</Project>
+```
+
+## 定时器与单步
+
+`TestActivityDriver.Run(module, context, cancellation)` 在测试线程上推进测试时钟并触发已启动的定时器：
+
+```csharp
+using var context = new TestModuleContext();
+var module = new MyModule();
+module.OnRegistered(context);
+module.OnActivated();
+
+using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(120));
+TestActivityDriver.Run(module, context, cancel.Token);
+
+context.Published["count"].ShouldNotBeEmpty();
+```
+
+它只用于模块级测试，不代表框架的实例线程与计时服务。
+
+## 包检查
+
+构建后列一遍包内文件，确认没有宿主程序集、`module.json` 与声明的资源目录都在：
+
+```powershell
+Get-ChildItem -Recurse bin\module-package\Release\MyModule | Select-Object FullName
+```
+
+本仓库的 `tools/verify-standalone-module.ps1` 是这条检查的自动化版本（只靠作者包构建 + 装入宿主），外部作者没有该脚本时按上面两步自查。
 
 ## 相关
 

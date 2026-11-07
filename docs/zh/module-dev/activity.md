@@ -7,6 +7,16 @@
 
 框架拥有实例线程与调度能力；模块拥有定时器实例（间隔、启停、Tick 处理），但**不拥有线程、不写循环**。
 
+## 怎么选
+
+| 需要什么 | 用什么 | 不要做什么 |
+|---|---|---|
+| 有数据就处理 | `ReceiveMode.Push` + 接收回调 | 不要开定时器轮询数据 |
+| 需要自己攒批、控节奏 | `ReceiveMode.Pull` + `OnStep(Data)` 里取 | 不要同时设回调（两个消费者） |
+| 固定节拍（发送、采样） | `IModuleTimer` | 不要 `Thread.Sleep` / 自建 `Timer` |
+| 用户点按钮、填输入 | `OnStep` 里从收件箱取 | 不要在回调线程外直接读界面 |
+| 设备状态变化 | `OnStep(Session)` 或接入回调 | 不要自己探测端口 |
+
 ## 契约
 
 ```csharp
@@ -97,14 +107,10 @@ public sealed class TickSender : IModule, IActivitySource
 
 ## 测试
 
-行为测试用 `Sdk.Testing` 的 `TestModuleContext` 与 `TestActivityDriver.Run(module, context, cancellationToken)` 直接驱动：
-
-- `TestActivityDriver` 推进测试时钟，触发 `context.Timers` 里已启动的定时器；
-- 定时器 Tick 在测试线程执行，便于断言发送结果；
-- 它只用于模块级测试，不代表框架的实例线程/计时服务实现。
+定时器与单步的测试用 `Sdk.Testing` 的 `TestActivityDriver` 推进测试时钟；写法与断言见[测试与验证](testing.md)。
 
 ## 相关
 
-- [实现](implementation.md)
-- [声明面](contracts.md)
+- [实现](implementation.md)：上下文各面的用法
+- [模块结构](anatomy.md)：活动层在整体结构中的位置
 - [SDK 与兼容](sdk-version.md)

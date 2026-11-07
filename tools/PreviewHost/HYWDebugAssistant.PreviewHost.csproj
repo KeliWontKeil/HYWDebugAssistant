@@ -22,6 +22,8 @@
       手写清单的代价是"新模块在预览器里永远没有目标"，而且没人会记得回来补。
     -->
     <ProjectReference Include="..\..\src\Modules\Business\*\*.csproj" />
+    <!-- 带界面的外部样例（只经作者包构建）：让预览器也能选中它的 Views/*.axaml。 -->
+    <ProjectReference Include="..\..\samples\UiModule\HYWDebugAssistant.Samples.UiModule.csproj" />
   </ItemGroup>
 
   <ItemGroup>
