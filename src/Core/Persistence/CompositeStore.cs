@@ -31,8 +31,9 @@ public enum CompositeReadOutcome
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>上限</b>（§14 资源耗尽护栏）：单文件 ≤ <see cref="MaxFileSizeBytes"/>（16 MB）、结构深度 ≤ <see cref="MaxStructureDepth"/>（8 层）；
-///     超限 = **拒绝**而非截断（"拒绝而非猜测"）；</item>
+///   <item><b>上限</b>（§14 资源耗尽护栏）：单文件 ≤ <see cref="MaxFileSizeBytes"/>（16 MB）、结构深度 ≤ <see cref="MaxStructureDepth"/>（64 层）；
+///     超限 = **拒绝**而非截断（"拒绝而非猜测"）。深度上限只是防递归爆栈的资源护栏，
+///     不是组合件的 schema 约束——组/通道等正常配置可以有多层嵌套。</item>
 ///   <item><b>原子写</b>：同目录临时文件 → <see cref="File.Replace(string, string, string?)"/>，防半写损坏（§9.2）；</item>
 ///   <item><b>保护原文件</b>：解析失败/版本过新时**不写任何内容**——加载绝不覆盖用户文件；</item>
 ///   <item>读写失败一律**返回原因不抛异常**（面向用户的失败路径）。</item>
@@ -43,13 +44,17 @@ public static class CompositeStore
     /// <summary>单文件大小上限（字节）。</summary>
     public const long MaxFileSizeBytes = 16L * 1024 * 1024;
 
-    /// <summary>结构深度上限（层）。</summary>
-    public const int MaxStructureDepth = 8;
+    /// <summary>结构深度上限（层；资源护栏，不是 schema 约束）。</summary>
+    public const int MaxStructureDepth = 64;
 
     private static readonly JsonDocumentOptions ReadDocumentOptions = new()
     {
         CommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
+
+        // 解析器的最大深度要高于本类自己的护栏：否则超限文件会先被解析器判成语法错误，
+        // 用户拿不到"深度超限"这个准确原因。
+        MaxDepth = MaxStructureDepth + 64,
     };
 
     /// <summary>

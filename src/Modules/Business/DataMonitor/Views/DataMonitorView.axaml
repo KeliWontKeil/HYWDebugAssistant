@@ -3,12 +3,12 @@
              xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
              xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
              xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
-             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:views="using:HYWDebugAssistant.Modules.DataMonitor.Views"
              x:Class="HYWDebugAssistant.Modules.DataMonitor.Views.DataMonitorView"
              x:CompileBindings="True"
              x:DataType="contracts:IModuleViewContext"
-             d:DesignWidth="360" d:DesignHeight="368" MinWidth="360" MinHeight="368">
+             InitialWidth="360" InitialHeight="368"
+             MinWidth="360" MinHeight="368">
 
   <!--
     数据显示器：日志区自适应；「缓冲已满」提示占**固定高度的一行**，只换文字不换布局；
@@ -40,6 +40,3 @@
     </Canvas>
   </Grid>
 </ui:ModuleView>
-
-
-

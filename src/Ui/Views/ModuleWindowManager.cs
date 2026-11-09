@@ -349,18 +349,18 @@ public sealed class ModuleWindowManager : IDisposable
             }
         };
 
-        // 模块视图根自己声明内容最小尺寸（.axaml 的 MinWidth/MinHeight）；窗口 chrome 由框架加。
-        // 视图是幂等懒加载的，先取到它才能在首次落位时用内容事实夹窗口下限。
+        // 模块视图根自己声明内容初始/最小尺寸（.axaml 的 InitialWidth/InitialHeight 与 MinWidth/MinHeight）；
+        // 窗口 chrome 由框架加。视图是幂等懒加载的，先取到它才能定首次落位。
         if (module.EnsureView()?.Content is Control content)
         {
-            module.SetContentMinimum(content.MinWidth, content.MinHeight);
+            module.SetContentSize(content);
         }
 
-        // 新模块的初始尺寸由模块视图声明决定；已有布局则是用户拖过的尺寸，优先保留。
-        if (!module.HasLayout && module.ContentMinWidth > 0 && module.ContentMinHeight > 0)
+        // 新模块的初始尺寸由视图声明决定；已有布局则是用户拖过的尺寸，优先保留。
+        if (!module.HasLayout)
         {
-            module.Width = module.EffectiveMinWidth;
-            module.Height = module.EffectiveMinHeight;
+            module.Width = module.StartupWindowWidth;
+            module.Height = module.StartupWindowHeight;
         }
 
         // **开窗前先定缩放**：`Show` 之前 `RenderScaling` 还不可信，而窗口落位与自绘几何

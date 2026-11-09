@@ -30,9 +30,6 @@ namespace HYWDebugAssistant.Samples.ExternalModule;
     Tags = ["sample", "serial"],
     Capabilities = ModuleCapability.SerialPort,
     ParticipatesInDataFlow = true,
-    WindowWidth = 400,
-    WindowHeight = 190,
-    MinWidth = 400,
     MinHeight = 190)]
 public sealed class SampleSerialModule : IModule, IActivitySource
 {

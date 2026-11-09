@@ -27,4 +27,13 @@ public enum ViewDataSourceKind
 
     /// <summary>帧（图像 / 位图）。</summary>
     Frame = 5,
+
+    /// <summary>
+    /// 序列窗口快照（不可变对象：一次提供某范围的完整序列）。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="Sequence"/> 的分工：<see cref="Sequence"/> 是有界环形缓冲（适合滚动窗口）；
+    /// 本类由模块直接发布一整个不可变窗口，适合“查看任意选定范围的全部点”，没有环形容量与 UI 降采样上限。
+    /// </remarks>
+    SeriesWindow = 6,
 }

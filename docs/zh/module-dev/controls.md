@@ -21,9 +21,36 @@
 | `ModuleToggle` | 开关，提交一个布尔输入 | `Source`、`Text`、`IsChecked`、`CheckedChanged` |
 | `ModuleConfigField` | 配置字段编辑器（标题另用 `ModuleLabel`） | `Field` |
 | `ModuleTabs` | 页签容器 | `StateKey`、`TabItem` 子项 |
+| `ModuleSelect` | 紧凑选项下拉 | `Options`、`SelectedKey`、`OptionSelected` |
+| `ModuleSegmentedControl` | 互斥分段选择（文字/图标，可禁用） | `Options`、`SelectedKey`、`ShowLabels`、`IconSize`、`OptionSelected` |
+| `ChartSurface` | 通用多序列绘图（全量点、X/Y 游标、参考线、PNG） | `Series`、`XStart`、`XEnd`、`XStep`、`XAxisKind`、`YMin/Max`、`XTickStep/YTickStep`、`ReferenceLines`、`ShowCursors`、`ShowYCursors`、`CapturePng()` |
+| `RangeSelector` | 通用线性范围可视化/拖动（单一范围、主题色轨道、细边界、主/次刻度、边缘/块内指针） | `Minimum`、`Maximum`、`RangeStart/End`、`MinimumRangeSpan`、`TickStep`、`ShowTicks`、`ShowTickLabels`、`MinorTickStep`、`XAxisKind`、`TickBrush`、`TickLabelBrush`、`HandleWidth`（仅边缘命中）、`RangeChanged`；轨道占满自身宽度，不接收图表 inset |
 | `Icon` | 模块自己的图标 | `IconKey`、`Owner` |
 | `ModuleView` | 视图根（推荐） | 继承 `UserControl`，自动带控件主题 |
 | `ModuleViewHost` | 普通 `UserControl` 的宿主（运行期由框架创建） | `Context`、`Refresh()` |
+
+## 序列窗口快照（`SeriesWindow`）
+
+波形图表不再使用有界环形缓冲或 UI 侧降采样。模块把选定 X 范围内的**全部点**构造成不可变
+`SeriesWindowSnapshot`，通过 `context.Display.SetSeriesWindow(source, snapshot)` 发布；视图通过
+`context.ReadSeriesWindow(source)` 读取。
+
+- 声明：`DeclareDisplaySource(new DisplaySourceDeclaration(name, ViewDataSourceKind.SeriesWindow))`。
+- 快照中的 `SeriesWindowChannel.Values` 长度就是范围宽度；没有 256/512 上限，也没有抽稀。
+- 快照发布后模块不得再改数组；更新时构造新对象整体替换。
+- `ChartSeries.Values` 是 `ReadOnlyMemory<float>`，可以直接引用快照数组；`Count` 为点数。
+- 旧 `Sequence` 环形缓冲仍可供其他模块使用；波形图表不再走它。
+- `ChartSurface` 的曲线颜色由调用方显式给出；缺省兜底是主题强调色，不再按索引取内置七色。
+
+## 颜色选择（`IModuleColorPicker`）
+
+模块视图不再自建色板。需要选色时通过 `IModuleViewContext.ColorPicker` 打开框架统一调色窗口：
+
+- `SuggestedColors`：框架推荐色（与调色窗口推荐色同源）；可用于**首次数据出现时**做一次自动分配。
+- `PickAsync(owner, initialArgb, title, resetText)`：返回 `Confirmed`、`ColorArgb`、`Reset`。
+- `Reset=true` 表示用户点了“恢复”；模块应清空自己的颜色覆盖，由视图重新分配自动色。
+- 自动分配只做一次并持久化；不要在每帧按索引重算。`ColorPicker` 为 `null`（设计期/未接线）时不要弹窗，使用主题兜底色。
+- 自建 `ChartPalette`/`ModuleColorPalette` 已移除。
 
 ## 用法示例
 
@@ -58,6 +85,7 @@
 
 - `Display`：只读、跟随尾部，适合日志与结果；`ShowNewlineMarks` 决定是否画出数据里的换行。
 - `Input`：可编辑并提交到输入源；`Multiline` 控制多行，提交键由设置里的「多行输入提交键」决定；`Commit()` 可主动提交。
+- 模块若希望“内容一变就处理”（如波形显示器/发生器），可在 `OnStep` 的 `StepReason.Input` 中回读 `ViewState.GetInputText`，与 HEX 转换器同一模型；这不需要给 `ModuleTextSurface` 增加提交属性，也不会影响文本发送等仍按 Enter 提交的模块。
 
 两个模式都需要在 `OnRegistered` 里声明对应的显示源 / 输入源，否则控件读写都被框架拒收。
 

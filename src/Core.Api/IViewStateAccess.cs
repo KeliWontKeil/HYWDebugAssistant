@@ -1,4 +1,5 @@
 using HYWDebugAssistant.Sdk.Context;
+using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Core.Api;
 
@@ -63,6 +64,14 @@ public interface IViewStateAccess
     /// <param name="sourceName">显示源名。</param>
     /// <returns>只读显示视图（首次调用即创建；随实例移除清理）。</returns>
     IDisplayBufferReader Display(string instanceId, string sourceName);
+
+    /// <summary>
+    /// 读取某个**序列窗口快照**（由模块通过 <c>IViewDisplayAccess.SetSeriesWindow</c> 发布）。
+    /// </summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="sourceName">显示源名。</param>
+    /// <returns>最新快照；没有发布过 ⇒ <see langword="null"/>。</returns>
+    SeriesWindowSnapshot? ReadSeriesWindow(string instanceId, string sourceName);
 
     /// <summary>移除某实例的全部视图状态（L4 移除实例时调用）。</summary>
     /// <param name="instanceId">实例 ID。</param>

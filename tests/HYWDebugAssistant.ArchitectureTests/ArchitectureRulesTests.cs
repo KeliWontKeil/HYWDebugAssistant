@@ -594,25 +594,21 @@ public class ArchitectureRulesTests
     }
 
     /// <summary>
-    /// **AR-18：模块的窗口尺寸与端口几何只有代码声明一个来源**。
+    /// **AR-18：模块的尺寸只来自视图 XAML 内容声明，端口几何只来自代码声明**。
     /// </summary>
     /// <remarks>
     /// <para>
-    /// 口径：默认/最小尺寸由 `[ModuleDefinition]` 声明，端口默认边与偏移由 <c>PortDeclaration</c> 声明
-    /// ⇒ **代码是唯一来源**，模块不再从任何外部数据文件里读这些事实。
+    /// 口径：视图根 `.axaml` 同时声明初始内容尺寸（`InitialWidth/InitialHeight`）与运行期最小内容尺寸
+    /// （`MinWidth/MinHeight`），两者语义独立；`[ModuleDefinition]` 不再声明 Window/Min 尺寸。
     /// </para>
     /// <para>
-    /// 本用例把这条纪律变成**可执行检查**：模块类缺窗口尺寸声明即红；
+    /// 本用例把纪律变成可执行检查：模块视图根缺 `MinWidth/MinHeight` 即红；
+    /// 模块 `[ModuleDefinition]` 再出现 Window/Min 尺寸也红；
     /// 模块源码里出现"从界面数据文件读几何"的通路（`ViewFrame` / `ViewWindowDeclaration` / `view.json`）也红。
-    /// </para>
-    /// <para>
-    /// <b>为什么是正向检查</b>：以前这条规则是反的（尺寸必须写在 `view.json`、代码里不许写）。
-    /// 现在的形态是"模块自带视图 + 契约在代码里"，于是必须要求**每一条**都出现在代码声明里 ——
-    /// 漏一条的后果是窗口用框架缺省尺寸（看起来"这个模块天生就小"），而不是一条错误。
     /// </para>
     /// </remarks>
     [Fact]
-    public void AR18_模块尺寸与端口几何必须只来自代码声明()
+    public void AR18_模块尺寸必须只来自视图XAML内容声明()
     {
         string[] forbidden = ["ViewFrame", "ViewWindowDeclaration", "view.json", "frame.ports"];
 
@@ -627,15 +623,17 @@ public class ArchitectureRulesTests
 
             var text = File.ReadAllText(file);
 
-            // 正向：每个模块类都声明窗口尺寸（`0` 是"未声明"的哨兵，等于没写）。
+            // 反例：模块 [ModuleDefinition] 再声明窗口尺寸 = 第二份尺寸事实。
             if (text.Contains("[ModuleDefinition(", StringComparison.Ordinal))
             {
-                if (!text.Contains("WindowWidth", StringComparison.Ordinal)
-                    || !text.Contains("WindowHeight", StringComparison.Ordinal))
+                foreach (var token in new[] { "WindowWidth", "WindowHeight", "MinWidth", "MinHeight" })
                 {
-                    offenders.Add(
-                        $"{Path.GetRelativePath(RepoRoot, file)} 的 [ModuleDefinition] 没有声明 WindowWidth / WindowHeight"
-                        + "（窗口尺寸是模块的形态事实，必须由代码声明给，否则只能用框架缺省）");
+                    if (text.Contains(token, StringComparison.Ordinal))
+                    {
+                        offenders.Add(
+                            $"{Path.GetRelativePath(RepoRoot, file)} 的 [ModuleDefinition] 出现 '{token}'"
+                            + "（窗口/内容尺寸唯一事实是视图根 XAML 的 MinWidth/MinHeight）");
+                    }
                 }
             }
 
@@ -647,14 +645,44 @@ public class ArchitectureRulesTests
                 {
                     if (line.Contains(token, StringComparison.Ordinal))
                     {
-                        offenders.Add($"{Path.GetRelativePath(RepoRoot, file)}:{lineNumber} 出现 '{token}'（几何只能来自代码声明）");
+                        offenders.Add($"{Path.GetRelativePath(RepoRoot, file)}:{lineNumber} 出现 '{token}'（几何只能来自视图声明）");
                     }
                 }
             }
         }
 
+        // 正向：每个模块视图根 XAML 必须同时声明初始尺寸与运行期最小尺寸（两个独立事实）。
+        var moduleRoot = Path.Combine(RepoRoot, "src", "Modules");
+        if (Directory.Exists(moduleRoot))
+        {
+            foreach (var file in Directory.EnumerateFiles(moduleRoot, "*.axaml", SearchOption.AllDirectories))
+            {
+                if (file.Contains($"{Separator}obj{Separator}") || file.Contains($"{Separator}bin{Separator}"))
+                {
+                    continue;
+                }
+
+                var text = File.ReadAllText(file);
+                if (!text.Contains("<ui:ModuleView", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (!text.Contains("MinWidth=", StringComparison.Ordinal)
+                    || !text.Contains("MinHeight=", StringComparison.Ordinal)
+                    || !text.Contains("InitialWidth=", StringComparison.Ordinal)
+                    || !text.Contains("InitialHeight=", StringComparison.Ordinal))
+                {
+                    offenders.Add(
+                        $"{Path.GetRelativePath(RepoRoot, file)} 的视图根没有同时声明 "
+                        + "InitialWidth/InitialHeight 与 MinWidth/MinHeight"
+                        + "（初始尺寸与运行期最小尺寸是两个独立事实）");
+                }
+            }
+        }
+
         offenders.ShouldBeEmpty(
-            "模块的尺寸 / 端口几何只能来自代码声明（AR-18）："
+            "模块的尺寸 / 端口几何只能来自视图 XAML 与代码声明的非尺寸契约（AR-18）："
             + Environment.NewLine + string.Join(Environment.NewLine, offenders));
     }
 

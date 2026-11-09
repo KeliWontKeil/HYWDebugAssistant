@@ -29,6 +29,8 @@
     <Project Path="src/Modules/Business/TcpServer/HYWDebugAssistant.Modules.TcpServer.csproj" />
     <Project Path="src/Modules/Business/TextSender/HYWDebugAssistant.Modules.TextSender.csproj" />
     <Project Path="src/Modules/Business/Udp/HYWDebugAssistant.Modules.Udp.csproj" />
+    <Project Path="src/Modules/Business/WaveformDisplay/HYWDebugAssistant.Modules.WaveformDisplay.csproj" />
+    <Project Path="src/Modules/Business/WaveformGenerator/HYWDebugAssistant.Modules.WaveformGenerator.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/HYWDebugAssistant.ArchitectureTests/HYWDebugAssistant.ArchitectureTests.csproj" />

@@ -1,5 +1,6 @@
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Context;
+using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Core.Services;
 
@@ -22,6 +23,15 @@ public sealed class ViewStateStore : IViewStateAccess
     private readonly Dictionary<string, InstanceState> _instances = new(StringComparer.Ordinal);
     private readonly DisplayRegistry _displays = new();
     private readonly Lock _gate = new();
+
+    /// <summary>
+    /// 序列窗口快照槽：按实例/源名持有模块发布的最新不可变快照。
+    /// 与文本缓冲分开加锁，避免大快照读取挡住输入编辑。
+    /// </summary>
+    private readonly Dictionary<string, Dictionary<string, SeriesWindowSnapshot>> _seriesWindows =
+        new(StringComparer.Ordinal);
+
+    private readonly Lock _seriesGate = new();
 
     /// <inheritdoc />
     public IViewStateReader ReaderFor(string instanceId)
@@ -144,6 +154,45 @@ public sealed class ViewStateStore : IViewStateAccess
     public IDisplayBufferReader Display(string instanceId, string sourceName) =>
         _displays.Display(instanceId, sourceName);
 
+    /// <inheritdoc />
+    public SeriesWindowSnapshot? ReadSeriesWindow(string instanceId, string sourceName)
+    {
+        if (string.IsNullOrWhiteSpace(instanceId) || string.IsNullOrWhiteSpace(sourceName))
+        {
+            return null;
+        }
+
+        lock (_seriesGate)
+        {
+            return _seriesWindows.TryGetValue(instanceId, out var windows)
+                && windows.TryGetValue(sourceName, out var snapshot)
+                    ? snapshot
+                    : null;
+        }
+    }
+
+    /// <summary>模块侧写入一个序列窗口快照（实例线程调用；整段替换引用）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="sourceName">显示源名。</param>
+    /// <param name="snapshot">不可变快照。</param>
+    internal void SetSeriesWindow(string instanceId, string sourceName, SeriesWindowSnapshot snapshot)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        lock (_seriesGate)
+        {
+            if (!_seriesWindows.TryGetValue(instanceId, out var windows))
+            {
+                windows = new Dictionary<string, SeriesWindowSnapshot>(StringComparer.Ordinal);
+                _seriesWindows[instanceId] = windows;
+            }
+
+            windows[sourceName] = snapshot;
+        }
+    }
+
     /// <summary>写面内部用：取可变缓冲（只给 <see cref="DisplayFor"/> 的实现，不外泄）。</summary>
     internal DisplayBuffer DisplayBufferFor(string instanceId, string sourceName) =>
         _displays.Display(instanceId, sourceName);
@@ -229,6 +278,11 @@ public sealed class ViewStateStore : IViewStateAccess
         }
 
         _displays.RemoveInstance(instanceId);
+
+        lock (_seriesGate)
+        {
+            _ = _seriesWindows.Remove(instanceId);
+        }
     }
 
     /// <summary>某实例的**显示写面**（交给模块的那一份；写者是模块实例线程）。</summary>
@@ -322,6 +376,17 @@ public sealed class ViewStateStore : IViewStateAccess
             }
 
             return _owner.IsDisplayFull(_instanceId, dataSourceName);
+        }
+
+        /// <inheritdoc />
+        public void SetSeriesWindow(string dataSourceName, SeriesWindowSnapshot snapshot)
+        {
+            if (string.IsNullOrWhiteSpace(dataSourceName))
+            {
+                return;
+            }
+
+            _owner.SetSeriesWindow(_instanceId, dataSourceName, snapshot);
         }
     }
 

@@ -1,0 +1,7 @@
+{
+  "id": "hyw/waveform-generator",
+  "entryAssembly": "HYWDebugAssistant.Modules.WaveformGenerator.dll",
+  "entryType": "HYWDebugAssistant.Modules.WaveformGenerator.WaveformGeneratorModule",
+  "dependsOn": [],
+  "resources": ["resources/i18n", "resources/icons"]
+}

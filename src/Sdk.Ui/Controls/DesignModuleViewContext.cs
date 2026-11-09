@@ -3,6 +3,7 @@ using System.Reflection;
 using Avalonia.Controls;
 using HYWDebugAssistant.Sdk.Configuration;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
@@ -56,13 +57,23 @@ public sealed class DesignModuleViewContext : IModuleViewContext
     public string InstanceId => "design";
 
     /// <inheritdoc />
+    public IModuleColorPicker? ColorPicker => null;
+
+    /// <inheritdoc />
     public string MultilineSubmitKey => "CtrlEnter";
 
     /// <inheritdoc />
-    public double? ReadLatest(string source) => SampleNumber;
+    public double? ReadLatest(string source) =>
+        source is "latestIndex" or "rate" or "historyUsed"
+            ? 0
+            : SampleNumber;
 
     /// <inheritdoc />
     public IReadOnlyList<double> ReadSeries(string source) => [SampleNumber];
+
+    /// <inheritdoc />
+    public SeriesWindowSnapshot? ReadSeriesWindow(string source) =>
+        new(0, 0, 255, 0, 0, -1, 1, true, []);
 
     /// <inheritdoc />
     public TextBufferSnapshot ReadText(string source) => new([SampleText], 0, 20000);

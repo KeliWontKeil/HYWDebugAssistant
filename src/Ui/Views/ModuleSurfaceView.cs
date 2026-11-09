@@ -136,8 +136,8 @@ public sealed class ModuleSurfaceView : UserControl
 
         if (view is Control content)
         {
-            // 模块视图根是内容最小尺寸的唯一声明处；框架只负责加窗口 chrome。
-            _module?.SetContentMinimum(content.MinWidth, content.MinHeight);
+            // 视图根同时声明运行期初始尺寸与最小尺寸；框架只负责加窗口 chrome。
+            _module?.SetContentSize(content);
         }
     }
 

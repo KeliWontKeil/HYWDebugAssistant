@@ -553,6 +553,16 @@ public sealed class TestModuleContext : IModuleContext
 
         public bool IsFull(string dataSourceName) =>
             !string.IsNullOrWhiteSpace(dataSourceName) && owner.FullDisplays.Contains(dataSourceName);
+
+        public void SetSeriesWindow(string dataSourceName, SeriesWindowSnapshot snapshot)
+        {
+            if (string.IsNullOrWhiteSpace(dataSourceName))
+            {
+                return;
+            }
+
+            owner.ViewState.SetSeriesWindow(dataSourceName, snapshot);
+        }
     }
 
     /// <summary>

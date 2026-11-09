@@ -31,6 +31,8 @@ nav:
           - TCP 客户端: guides/modules/tcp-client.md
           - TCP 服务端: guides/modules/tcp-server.md
           - UDP 接入: guides/modules/udp.md
+          - 波形显示器: guides/modules/waveform-display.md
+          - 波形发生器: guides/modules/waveform-generator.md
       - 模块管理: guides/manage-modules.md
       - 窗口操作: guides/windows.md
       - 吸附与拼接: guides/puzzle.md

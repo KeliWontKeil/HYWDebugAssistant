@@ -29,72 +29,135 @@ namespace HYWDebugAssistant.Ui.ViewModels;
 /// </remarks>
 public sealed partial class ModuleViewViewModel : ViewModelBase
 {
-    /// <summary>最小宽（DIP；缩放下限）—— **模块代码声明**；<c>0</c> = 未声明。</summary>
-    /// <remarks>
-    /// **地板为什么存在**：端口标记沿边长度 150（<see cref="PortMarkerMetrics.Length"/>），
-    /// 窗口比它短就会把标记**裁掉一截**（面板把起点夹到 0 并让它溢出）
-    /// ⇒ 地板由标记长度推出来（<see cref="PortMarkerMetrics.MinWindowExtent"/> = 160），不能是随手取的一个数。
-    /// </remarks>
-    public double MinWidth { get; }
-
-    /// <summary>最小高（DIP；缩放下限）—— **模块代码声明**，含义与 <see cref="MinWidth"/> 完全相同。</summary>
-    public double MinHeight { get; }
-
-    /// <summary>
-    /// 本模块**代码声明**的默认窗口尺寸（DIP）——新窗口按它开，「还原」也回到它。
-    /// </summary>
-    /// <remarks>
-    /// 尺寸的唯一来源是 <c>[ModuleDefinition(WindowWidth/WindowHeight = …)]</c>；
-    /// <c>0</c> = 未声明，由框架地板兜底。代码里**没有"按内容估算尺寸"的逻辑**（内容排不下由内容区滚动）。
-    /// </remarks>
-    public double PreferredWidth { get; }
-
-    /// <summary>默认窗口高度（DIP；同上来自 <c>[ModuleDefinition]</c>）。</summary>
-    public double PreferredHeight { get; }
-
     /// <summary>模块视图**自身声明**的内容最小宽（DIP；来自视图根 `MinWidth`）。</summary>
     public double ContentMinWidth { get; private set; }
 
     /// <summary>模块视图**自身声明**的内容最小高（DIP；来自视图根 `MinHeight`）。</summary>
     public double ContentMinHeight { get; private set; }
 
-    /// <summary>**有效最小宽**（DIP）= 内容/声明值 + 窗口 chrome，且不低于框架地板。</summary>
+    /// <summary>模块视图**自身声明**的内容初始宽（DIP；来自视图根 `InitialWidth`）。</summary>
+    public double ContentInitialWidth { get; private set; }
+
+    /// <summary>模块视图**自身声明**的内容初始高（DIP；来自视图根 `InitialHeight`）。</summary>
+    public double ContentInitialHeight { get; private set; }
+
+    /// <summary>**有效最小宽**（DIP）= XAML 内容最小宽 + 窗口 chrome，且不低于框架地板。</summary>
     /// <remarks>
-    /// 内容最小尺寸的**唯一来源是模块 `.axaml` 的视图根**（<see cref="ContentMinWidth"/>）；
-    /// 框架只加窗口 chrome（描边 + 端口预留带）并守住端口标记地板。
+    /// 尺寸唯一事实是模块 `.axaml` 的视图根（<see cref="ContentMinWidth"/>）；
+    /// 框架只加窗口 chrome（描边 + 端口预留带）并守住端口标记地板。ModuleDefinition 尺寸不参与。
     /// </remarks>
     public double EffectiveMinWidth => Math.Max(
         PortMarkerMetrics.MinWindowExtent,
-        Math.Max(MinWidth, ContentMinWidth + (2 * ModuleSurfaceMetrics.FrameBorder)
-            + ModuleSurfaceMetrics.InsetLeft + ModuleSurfaceMetrics.InsetRight));
+        ContentMinWidth + (2 * ModuleSurfaceMetrics.FrameBorder)
+            + ModuleSurfaceMetrics.InsetLeft + ModuleSurfaceMetrics.InsetRight);
 
-    /// <summary>**有效最小高**（DIP）= 内容/声明值 + 窗口 chrome，且不低于框架地板。</summary>
+    /// <summary>**有效最小高**（DIP）= XAML 内容最小高 + 窗口 chrome，且不低于框架地板。</summary>
     public double EffectiveMinHeight => Math.Max(
         PortMarkerMetrics.MinWindowExtent,
-        Math.Max(MinHeight, ContentMinHeight + (2 * ModuleSurfaceMetrics.FrameBorder)
-            + ModuleSurfaceMetrics.InsetTop + ModuleSurfaceMetrics.InsetBottom));
+        ContentMinHeight + (2 * ModuleSurfaceMetrics.FrameBorder)
+            + ModuleSurfaceMetrics.InsetTop + ModuleSurfaceMetrics.InsetBottom);
 
-    /// <summary>视图根声明内容最小尺寸后回写；窗口最小尺寸据此重算（内容才是外观事实）。</summary>
+    /// <summary>**初始窗口宽**（DIP）= XAML 内容初始宽 + chrome；不含最小尺寸修正。</summary>
+    public double InitialWindowWidth => Math.Max(
+        PortMarkerMetrics.MinWindowExtent,
+        ContentInitialWidth + (2 * ModuleSurfaceMetrics.FrameBorder)
+            + ModuleSurfaceMetrics.InsetLeft + ModuleSurfaceMetrics.InsetRight);
+
+    /// <summary>**初始窗口高**（DIP）= XAML 内容初始高 + chrome；不含最小尺寸修正。</summary>
+    public double InitialWindowHeight => Math.Max(
+        PortMarkerMetrics.MinWindowExtent,
+        ContentInitialHeight + (2 * ModuleSurfaceMetrics.FrameBorder)
+            + ModuleSurfaceMetrics.InsetTop + ModuleSurfaceMetrics.InsetBottom);
+
+    /// <summary>新建/还原时实际采用的窗口宽（初始尺寸不允许低于运行期下限）。</summary>
+    public double StartupWindowWidth => Math.Max(InitialWindowWidth, EffectiveMinWidth);
+
+    /// <summary>新建/还原时实际采用的窗口高（初始尺寸不允许低于运行期下限）。</summary>
+    public double StartupWindowHeight => Math.Max(InitialWindowHeight, EffectiveMinHeight);
+
+    /// <summary>视图根声明内容尺寸后回写；初始尺寸与最小尺寸独立保存。</summary>
     /// <param name="width">内容最小宽。</param>
     /// <param name="height">内容最小高。</param>
-    public void SetContentMinimum(double width, double height)
+    /// <param name="initialWidth">内容初始宽（0 = 回退最小宽）。</param>
+    /// <param name="initialHeight">内容初始高（0 = 回退最小高）。</param>
+    public void SetContentSize(double width, double height, double initialWidth, double initialHeight)
     {
-        if (!double.IsFinite(width) || !double.IsFinite(height) || (width <= 0 && height <= 0))
+        var minWidth = double.IsFinite(width) && width > 0 ? width : 0;
+        var minHeight = double.IsFinite(height) && height > 0 ? height : 0;
+        var initialW = double.IsFinite(initialWidth) && initialWidth > 0 ? initialWidth : minWidth;
+        var initialH = double.IsFinite(initialHeight) && initialHeight > 0 ? initialHeight : minHeight;
+
+        if (minWidth <= 0 && minHeight <= 0 && initialW <= 0 && initialH <= 0)
         {
             return;
         }
 
-        if (Math.Abs(ContentMinWidth - width) < 0.01 && Math.Abs(ContentMinHeight - height) < 0.01)
+        if (Math.Abs(ContentMinWidth - minWidth) < 0.01
+            && Math.Abs(ContentMinHeight - minHeight) < 0.01
+            && Math.Abs(ContentInitialWidth - initialW) < 0.01
+            && Math.Abs(ContentInitialHeight - initialH) < 0.01)
         {
             return;
         }
 
-        ContentMinWidth = Math.Max(0, width);
-        ContentMinHeight = Math.Max(0, height);
+        ContentMinWidth = Math.Max(0, minWidth);
+        ContentMinHeight = Math.Max(0, minHeight);
+        ContentInitialWidth = Math.Max(0, initialW);
+        ContentInitialHeight = Math.Max(0, initialH);
+
+        if (!HasLayout)
+        {
+            // 新实例：初始尺寸就是默认窗口尺寸；最小尺寸只负责兜底。
+            Width = StartupWindowWidth;
+            Height = StartupWindowHeight;
+        }
+        else
+        {
+            // 已有用户布局：只保证不低于新的运行期下限，不把初始尺寸套回去。
+            if (Width < EffectiveMinWidth)
+            {
+                Width = EffectiveMinWidth;
+            }
+
+            if (Height < EffectiveMinHeight)
+            {
+                Height = EffectiveMinHeight;
+            }
+        }
+
         OnPropertyChanged(nameof(ContentMinWidth));
         OnPropertyChanged(nameof(ContentMinHeight));
+        OnPropertyChanged(nameof(ContentInitialWidth));
+        OnPropertyChanged(nameof(ContentInitialHeight));
         OnPropertyChanged(nameof(EffectiveMinWidth));
         OnPropertyChanged(nameof(EffectiveMinHeight));
+        OnPropertyChanged(nameof(InitialWindowWidth));
+        OnPropertyChanged(nameof(InitialWindowHeight));
+        OnPropertyChanged(nameof(StartupWindowWidth));
+        OnPropertyChanged(nameof(StartupWindowHeight));
+    }
+
+    /// <summary>兼容入口：只声明最小尺寸时，初始尺寸回退到最小尺寸。</summary>
+    /// <param name="width">内容最小宽。</param>
+    /// <param name="height">内容最小高。</param>
+    public void SetContentMinimum(double width, double height) =>
+        SetContentSize(width, height, ContentInitialWidth > 0 ? ContentInitialWidth : width,
+            ContentInitialHeight > 0 ? ContentInitialHeight : height);
+
+    /// <summary>从视图控件读取最小/初始内容尺寸；只认 <see cref="ModuleView"/> 的运行时初始尺寸。</summary>
+    /// <param name="content">模块视图根。</param>
+    public void SetContentSize(Control content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+
+        var initialWidth = content is ModuleView moduleView && moduleView.InitialWidth > 0
+            ? moduleView.InitialWidth
+            : content.Width > 0 && double.IsFinite(content.Width) ? content.Width : content.MinWidth;
+        var initialHeight = content is ModuleView moduleViewHeight && moduleViewHeight.InitialHeight > 0
+            ? moduleViewHeight.InitialHeight
+            : content.Height > 0 && double.IsFinite(content.Height) ? content.Height : content.MinHeight;
+
+        SetContentSize(content.MinWidth, content.MinHeight, initialWidth, initialHeight);
     }
 
     /// <summary>**有效最大宽**（DIP；<see langword="null"/> = 无上限 = 声明面没给）。</summary>
@@ -108,6 +171,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
     /// <summary>视图状态存储（**可空**：设计期与未接线的调用点不传）。</summary>
     private readonly IViewStateAccess? _viewState;
+    private readonly IModuleColorPicker? _colorPicker;
 
     /// <summary>
     /// **多行文本输入的提交键**——由 <see cref="ModuleWindowsViewModel"/> 从应用级设置下发。
@@ -161,7 +225,8 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         IRuntimeCommand command,
         double fallbackX,
         double fallbackY,
-        IViewStateAccess? viewState = null)
+        IViewStateAccess? viewState = null,
+        IModuleColorPicker? colorPicker = null)
     {
         ArgumentNullException.ThrowIfNull(view);
         ArgumentNullException.ThrowIfNull(query);
@@ -170,14 +235,9 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         _query = query;
         _command = command;
         _viewState = viewState;
-        // 尺寸来源优先级：① 组合件里的布局（用户拖过）② 模块**代码声明**的窗口尺寸
-        // ③ 框架地板（0 = 未声明 ⇒ 由地板兜底）。
-        var window = view.Window;
-        MinWidth = window is { MinWidth: > 0 } declaredMin ? declaredMin.MinWidth : 0;
-        MinHeight = window is { MinHeight: > 0 } declaredMinHeight ? declaredMinHeight.MinHeight : 0;
-        PreferredWidth = window is { Width: > 0 } declaredWidth ? declaredWidth.Width : MinWidth;
-        PreferredHeight = window is { Height: > 0 } declaredHeight ? declaredHeight.Height : MinHeight;
-
+        _colorPicker = colorPicker;
+        // 尺寸来自视图根 .axaml：InitialWidth/InitialHeight（实例化默认）与
+        // MinWidth/MinHeight（运行期下限）是两个独立事实；ModuleDefinition 尺寸不再读取。
         EffectiveMaxWidth = null;
         EffectiveMaxHeight = null;
 
@@ -213,11 +273,11 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         }
 
         Width = ClampToBounds(
-            layout is { Width: > 0 } sized ? sized.Width : PreferredWidth,
+            layout is { Width: > 0 } sized ? sized.Width : StartupWindowWidth,
             EffectiveMinWidth,
             EffectiveMaxWidth);
         Height = ClampToBounds(
-            layout is { Height: > 0 } sizedHeight ? sizedHeight.Height : PreferredHeight,
+            layout is { Height: > 0 } sizedHeight ? sizedHeight.Height : StartupWindowHeight,
             EffectiveMinHeight,
             EffectiveMaxHeight);
         IsViewVisible = layout?.IsViewVisible ?? true;
@@ -515,6 +575,13 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <summary>上一份已同步的实例视图（引用比较用；查询面保证"没变化 ⇒ 同一个对象"）。</summary>
     private ModuleInstanceView? _lastAppliedView;
 
+    /// <summary>把尺寸夹进运行期区间；上下限本身是 DIP，与模型同单位。</summary>
+    private static double ClampToBounds(double dip, double minDip, double? maxDip)
+    {
+        var value = Math.Max(dip, minDip);
+        return maxDip is { } upper ? Math.Min(value, upper) : value;
+    }
+
     /// <summary>接受外部几何（来自布局数据；拖动/缩放中不调用）。四数一律 **DIP**。</summary>
     public void ApplyLayout(ModuleLayoutView layout)
     {
@@ -522,8 +589,14 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
         X = layout.X;
         Y = layout.Y;
-        Width = layout.Width > 0 ? layout.Width : PreferredWidth;
-        Height = layout.Height > 0 ? layout.Height : PreferredHeight;
+        Width = ClampToBounds(
+            layout.Width > 0 ? layout.Width : StartupWindowWidth,
+            EffectiveMinWidth,
+            EffectiveMaxWidth);
+        Height = ClampToBounds(
+            layout.Height > 0 ? layout.Height : StartupWindowHeight,
+            EffectiveMinHeight,
+            EffectiveMaxHeight);
         IsViewVisible = layout.IsViewVisible;
         HasLayout = true;
 
@@ -626,7 +699,8 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
             _query,
             _command,
             _viewState,
-            () => MultilineSubmitKey);
+            () => MultilineSubmitKey,
+            _colorPicker);
 
         try
         {

@@ -265,19 +265,65 @@ public class CompositePersistenceTests
 
 
     [Fact]
+    public void 加载_合法组通道配置的结构深度不应被误拒()
+    {
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "workspace-depth-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            // 根 → instances[] → 实例 → configuration → groups[] → 组 → channels[] → 通道 → 字段
+            const string document = """
+            {
+              "name": "workspace",
+              "instances": [
+                {
+                  "instanceId": "d1",
+                  "moduleId": "hyw/waveform-display",
+                  "configuration": {
+                    "Groups": [
+                      { "GroupId": 1, "Channels": [ { "Name": "CH1", "Visible": true } ] }
+                    ]
+                  }
+                }
+              ],
+              "networks": [],
+              "layout": {}
+            }
+            """;
+            File.WriteAllText(path, document);
+
+            CompositeStore.TryRead(path, out var root, out var outcome, out var error).ShouldBeTrue();
+            outcome.ShouldBe(CompositeReadOutcome.Success);
+            error.ShouldBeNull();
+            root.ShouldNotBeNull();
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
     public void 加载_超过结构深度上限应拒绝()
     {
         using var harness = new Harness(("gen", typeof(GeneratorModule)));
         var path = harness.PathFor("deep.json");
 
-        // 10 层嵌套（上限 8）
+        // 65 层嵌套（上限 64）
+        var deep = "1";
+        for (var index = 0; index < 65; index++)
+        {
+            deep = "{\"a\":" + deep + "}";
+        }
+
         File.WriteAllText(path, """
         {
           "instances": [],
           "networks": [],
-          "deep": { "a": { "b": { "c": { "d": { "e": { "f": { "g": 1 } } } } } } }
-        }
-        """);
+          "deep":
+        """ + deep + "}");
 
         var result = harness.Services.LoadComposite(path);
 

@@ -34,8 +34,6 @@ namespace HYWDebugAssistant.Modules.TextSender;
     DescriptionKey = TextSenderText.Description,
     Tags = ["text", "sender"],
     ParticipatesInDataFlow = true,
-    WindowWidth = 400,
-    WindowHeight = 240,
     ViewFactory = typeof(Views.TextSenderViewFactory))]
 public sealed class TextSenderModule : IModule, IActivitySource
 {

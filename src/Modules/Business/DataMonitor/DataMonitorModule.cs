@@ -37,8 +37,6 @@ namespace HYWDebugAssistant.Modules.DataMonitor;
     DescriptionKey = DataMonitorText.Description,
     Tags = ["monitor", "display"],
     ParticipatesInDataFlow = true,
-    WindowWidth = 400,
-    WindowHeight = 400,
     ViewFactory = typeof(Views.DataMonitorViewFactory))]
 public sealed class DataMonitorModule : IModule, IActivitySource
 {

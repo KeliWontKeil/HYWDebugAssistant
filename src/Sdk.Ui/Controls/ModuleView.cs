@@ -24,6 +24,41 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 public class ModuleView : UserControl
 {
     /// <summary>
+    /// **实例化默认内容宽**（DIP；0 = 未声明，回退到 <see cref="Avalonia.Layout.Layoutable.MinWidth"/>）。
+    /// </summary>
+    /// <remarks>
+    /// 它只用于“新建模块窗口/还原尺寸”的初始值，不参与运行期最小尺寸约束。
+    /// 唯一的运行期声明就是本属性；预览器所需的 Avalonia `Design.Width` 由本 setter 镜像，
+    /// 因此模块 XAML 不再重复写 `d:DesignWidth`。
+    /// </remarks>
+    public double InitialWidth
+    {
+        get => _initialWidth;
+        set
+        {
+            _initialWidth = value;
+            Design.SetWidth(this, value);
+        }
+    }
+
+    /// <summary>
+    /// **实例化默认内容高**（DIP；0 = 未声明，回退到 <see cref="Avalonia.Layout.Layoutable.MinHeight"/>）。
+    /// </summary>
+    /// <remarks>预览器所需的 `Design.Height` 由本 setter 镜像，避免第二个 XAML 尺寸事实。</remarks>
+    public double InitialHeight
+    {
+        get => _initialHeight;
+        set
+        {
+            _initialHeight = value;
+            Design.SetHeight(this, value);
+        }
+    }
+
+    private double _initialWidth;
+    private double _initialHeight;
+
+    /// <summary>
     /// 当前进程是否是 **XAML 预览宿主**（`tools/PreviewHost`）。
     /// </summary>
     /// <remarks>

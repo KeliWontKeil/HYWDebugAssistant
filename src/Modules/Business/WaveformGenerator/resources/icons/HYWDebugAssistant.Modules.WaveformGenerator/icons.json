@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "icon.edit.add": "edit.add.svg",
+    "icon.edit.remove": "edit.remove.svg",
+    "icon.edit.trash": "edit.trash.svg",
+    "icon.wave.sine": "wave.sine.svg",
+    "icon.wave.square": "wave.square.svg",
+    "icon.wave.triangle": "wave.triangle.svg",
+    "icon.wave.spwm": "wave.spwm.svg",
+    "icon.wave.svpwm": "wave.svpwm.svg",
+    "icon.wave.noise": "wave.noise.svg"
+  }
+}

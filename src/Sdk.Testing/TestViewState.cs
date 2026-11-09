@@ -1,4 +1,5 @@
 using HYWDebugAssistant.Sdk.Context;
+using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Testing;
 
@@ -14,6 +15,7 @@ public sealed class TestViewState : IViewStateReader
     private readonly Dictionary<string, int> _selectedPages = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _inputTexts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<string>> _displayLines = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, SeriesWindowSnapshot> _seriesWindows = new(StringComparer.Ordinal);
 
     /// <summary>预置"某容器当前选中页"。</summary>
     /// <param name="stateKey">容器的 <c>ViewElement.StateKey</c>。</param>
@@ -77,6 +79,22 @@ public sealed class TestViewState : IViewStateReader
 
         lines[^1] += text;
     }
+
+    /// <summary>写入一个序列窗口快照（模块 `Display.SetSeriesWindow` 在测试替身里的落点）。</summary>
+    /// <param name="sourceName">显示源名。</param>
+    /// <param name="snapshot">不可变快照。</param>
+    public void SetSeriesWindow(string sourceName, SeriesWindowSnapshot snapshot)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        _seriesWindows[sourceName] = snapshot;
+    }
+
+    /// <summary>读取某显示源的序列窗口快照（测试断言用）。</summary>
+    /// <param name="sourceName">显示源名。</param>
+    /// <returns>最新快照；没有发布过 ⇒ <see langword="null"/>。</returns>
+    public SeriesWindowSnapshot? ReadSeriesWindow(string sourceName) =>
+        sourceName is not null && _seriesWindows.TryGetValue(sourceName, out var snapshot) ? snapshot : null;
 
     /// <summary>清空某显示源（模块的「清空」在测试替身里的落点）。</summary>
     /// <param name="sourceName">显示源名。</param>

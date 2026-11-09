@@ -48,6 +48,8 @@
     <ProjectReference Include="..\..\src\Modules\Business\HexSender\HYWDebugAssistant.Modules.HexSender.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\DataMonitor\HYWDebugAssistant.Modules.DataMonitor.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\HexStringConverter\HYWDebugAssistant.Modules.HexStringConverter.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\WaveformDisplay\HYWDebugAssistant.Modules.WaveformDisplay.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\WaveformGenerator\HYWDebugAssistant.Modules.WaveformGenerator.csproj" />
   </ItemGroup>
 
 </Project>

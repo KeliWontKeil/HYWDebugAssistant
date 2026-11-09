@@ -1,0 +1,185 @@
+<ui:ModuleView xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+             xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+             xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
+             xmlns:views="using:HYWDebugAssistant.Modules.WaveformGenerator.Views"
+             x:Class="HYWDebugAssistant.Modules.WaveformGenerator.Views.WaveformGeneratorView"
+             x:CompileBindings="True"
+             x:DataType="contracts:IModuleViewContext"
+             InitialWidth="960" InitialHeight="360"
+             MinWidth="960" MinHeight="360">
+
+  <!--
+    三列：左侧图表吸收剩余宽度，中间参数表单固定宽度，右侧发送区固定宽度。
+    参数表单中的标签/输入框/按钮全部绝对定位；组段与通道段始终存在，无选中通道时只禁用通道段。
+    预览器不调用 Refresh，因此任何“只有运行时才会出现”的控件都不能靠 IsVisible 隐藏。
+  -->
+  <Grid RowDefinitions="*,14" Margin="2">
+    <Grid Grid.Row="0" ColumnDefinitions="*,560,150">
+      <Border Grid.Column="0" Background="{DynamicResource BgChrome}"
+              BorderBrush="{DynamicResource BorderDefault}" BorderThickness="1" CornerRadius="2"
+              Padding="2">
+        <ui:ChartSurface x:Name="Chart" ShowCursors="False" ShowYCursors="False" />
+      </Border>
+
+      <Border Grid.Column="1" Margin="4,0" Padding="2" Background="{DynamicResource BgChrome}"
+              BorderBrush="{DynamicResource BorderDefault}" BorderThickness="1" CornerRadius="2">
+        <Canvas Width="540" Height="320" ClipToBounds="True">
+          <!-- 1. 组选择。 -->
+          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.channelGroup}" />
+          <ScrollViewer Canvas.Left="46" Canvas.Top="0" Width="420" Height="22"
+                        HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+            <ui:ModuleSegmentedControl x:Name="GroupChips" Height="22" />
+          </ScrollViewer>
+          <ui:ModuleButton Canvas.Left="474" Canvas.Top="2" Width="18" Height="18" Classes="icon"
+                           CommandName="{x:Static views:WaveformGeneratorViewKeys.AddGroup}"
+                           Icon="{x:Static views:WaveformGeneratorViewKeys.IconAdd}"
+                           ToolTip.Tip="{loc:Tr view.addGroup}" />
+          <ui:ModuleButton Canvas.Left="496" Canvas.Top="2" Width="18" Height="18" Classes="icon"
+                           CommandName="{x:Static views:WaveformGeneratorViewKeys.RemoveGroup}"
+                           Icon="{x:Static views:WaveformGeneratorViewKeys.IconTrash}"
+                           ToolTip.Tip="{loc:Tr view.removeGroup}" />
+
+          <!-- 2. 组参数：频率/周期属于组，所有通道共享。 -->
+          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="26" Width="42" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.groupName}" />
+          <ui:ModuleTextSurface x:Name="GroupNameInput" Canvas.Left="46" Canvas.Top="26" Width="180" Height="22"
+                                Mode="Input" Source="{x:Static views:WaveformGeneratorViewKeys.GroupName}" />
+          <ui:ModuleLabel Canvas.Left="236" Canvas.Top="26" Width="42" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.groupId}" />
+          <ui:ModuleTextSurface x:Name="GroupIdInput" Canvas.Left="282" Canvas.Top="26" Width="72" Height="22"
+                                Mode="Input" Source="{x:Static views:WaveformGeneratorViewKeys.GroupId}" />
+          <ui:ModuleToggle Canvas.Left="360" Canvas.Top="26" Width="96" Height="22"
+                           Source="{x:Static views:WaveformGeneratorViewKeys.GroupEnabled}"
+                           Text="{loc:Tr view.enabled}" />
+
+          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="52" Width="42" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.frequency}" />
+          <ui:ModuleTextSurface x:Name="FrequencyInput" Canvas.Left="46" Canvas.Top="52" Width="50" Height="22"
+                                Mode="Input" Source="{x:Static views:WaveformGeneratorViewKeys.Frequency}" />
+          <ui:ModuleLabel Canvas.Left="100" Canvas.Top="52" Width="16" Height="22" Classes="caption"
+                          VerticalAlignment="Center" Text="{loc:Tr view.unitHz}" />
+          <ui:ModuleLabel Canvas.Left="122" Canvas.Top="52" Width="38" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.period}" />
+          <ui:ModuleTextSurface x:Name="PeriodInput" Canvas.Left="164" Canvas.Top="52" Width="50" Height="22"
+                                Mode="Input" Source="{x:Static views:WaveformGeneratorViewKeys.Period}" />
+          <ui:ModuleLabel Canvas.Left="218" Canvas.Top="52" Width="16" Height="22" Classes="caption"
+                          VerticalAlignment="Center" Text="{loc:Tr view.unitSecond}" />
+          <ui:ModuleLabel Canvas.Left="240" Canvas.Top="52" Width="42" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.groupRate}" />
+          <TextBlock x:Name="GroupRateLabel" Canvas.Left="286" Canvas.Top="52" Width="140" Height="22"
+                     FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                     Foreground="{DynamicResource TextSecondary}" />
+
+          <Border Canvas.Left="0" Canvas.Top="80" Width="540" Height="1"
+                  Background="{DynamicResource BorderDefault}" />
+
+          <!-- 3. 通道选择。 -->
+          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="88" Width="42" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.channel}" />
+          <ScrollViewer Canvas.Left="46" Canvas.Top="88" Width="420" Height="22"
+                        HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+            <ui:ModuleSegmentedControl x:Name="ChannelChips" Height="22" />
+          </ScrollViewer>
+          <ui:ModuleButton Canvas.Left="474" Canvas.Top="90" Width="18" Height="18" Classes="icon"
+                           CommandName="{x:Static views:WaveformGeneratorViewKeys.AddChannel}"
+                           Icon="{x:Static views:WaveformGeneratorViewKeys.IconAdd}"
+                           ToolTip.Tip="{loc:Tr view.addChannel}" />
+          <ui:ModuleButton Canvas.Left="496" Canvas.Top="90" Width="18" Height="18" Classes="icon"
+                           CommandName="{x:Static views:WaveformGeneratorViewKeys.RemoveChannel}"
+                           Icon="{x:Static views:WaveformGeneratorViewKeys.IconTrash}"
+                           ToolTip.Tip="{loc:Tr view.removeChannel}" />
+
+          <!-- 4. 通道名/启用 + 波形选择。 -->
+          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="114" Width="42" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.channelName}" />
+          <ui:ModuleTextSurface x:Name="ChannelNameInput" Canvas.Left="46" Canvas.Top="114" Width="180" Height="22"
+                                Mode="Input" Source="{x:Static views:WaveformGeneratorViewKeys.ChannelName}" />
+          <ui:ModuleToggle x:Name="ChannelEnabledToggle" Canvas.Left="236" Canvas.Top="114" Width="96" Height="22"
+                           Source="{x:Static views:WaveformGeneratorViewKeys.ChannelEnabled}"
+                           Text="{loc:Tr view.enabled}" />
+
+          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="142" Width="42" Height="26" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.waveform}" />
+          <ui:ModuleSegmentedControl x:Name="WaveformType" Canvas.Left="46" Canvas.Top="142" Width="440" Height="26"
+                                     ShowLabels="True" IconSize="14" />
+
+          <!-- 5. 波形参数：全部常显，按波形类型只切 IsEnabled。 -->
+          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="176" Width="42" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.phase}" />
+          <ui:ModuleTextSurface x:Name="PhaseInput" Canvas.Left="46" Canvas.Top="176" Width="50" Height="22"
+                                Mode="Input" Source="{x:Static views:WaveformGeneratorViewKeys.Phase}" />
+          <ui:ModuleLabel Canvas.Left="100" Canvas.Top="176" Width="16" Height="22" Classes="caption"
+                          VerticalAlignment="Center" Text="{loc:Tr view.unitDegree}" />
+          <ui:ModuleLabel Canvas.Left="122" Canvas.Top="176" Width="38" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.offset}" />
+          <ui:ModuleTextSurface x:Name="OffsetInput" Canvas.Left="164" Canvas.Top="176" Width="50" Height="22"
+                                Mode="Input" Source="{x:Static views:WaveformGeneratorViewKeys.Offset}" />
+
+          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="202" Width="42" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.amplitude}" />
+          <ui:ModuleTextSurface x:Name="AmplitudeInput" Canvas.Left="46" Canvas.Top="202" Width="50" Height="22"
+                                Mode="Input" Source="{x:Static views:WaveformGeneratorViewKeys.Amplitude}" />
+          <ui:ModuleLabel Canvas.Left="122" Canvas.Top="202" Width="58" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.resolution}" />
+          <ui:ModuleTextSurface x:Name="ResolutionInput" Canvas.Left="184" Canvas.Top="202" Width="50" Height="22"
+                                Mode="Input" Source="{x:Static views:WaveformGeneratorViewKeys.Resolution}" />
+
+          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="228" Width="42" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.duty}" />
+          <ui:ModuleTextSurface x:Name="DutyInput" Canvas.Left="46" Canvas.Top="228" Width="50" Height="22"
+                                Mode="Input" Source="{x:Static views:WaveformGeneratorViewKeys.Duty}" />
+
+          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="254" Width="48" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.carrierFrequency}" />
+          <ui:ModuleTextSurface x:Name="CarrierFrequencyInput" Canvas.Left="52" Canvas.Top="254" Width="50" Height="22"
+                                Mode="Input" Source="{x:Static views:WaveformGeneratorViewKeys.CarrierFrequency}" />
+          <ui:ModuleLabel Canvas.Left="106" Canvas.Top="254" Width="16" Height="22" Classes="caption"
+                          VerticalAlignment="Center" Text="{loc:Tr view.unitHz}" />
+          <ui:ModuleLabel Canvas.Left="126" Canvas.Top="254" Width="42" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.modulationIndex}" />
+          <ui:ModuleTextSurface x:Name="ModulationIndexInput" Canvas.Left="172" Canvas.Top="254" Width="36" Height="22"
+                                Mode="Input" Source="{x:Static views:WaveformGeneratorViewKeys.ModulationIndex}" />
+
+          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="280" Width="48" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.carrierPhase}" />
+          <ui:ModuleTextSurface x:Name="CarrierPhaseInput" Canvas.Left="52" Canvas.Top="280" Width="50" Height="22"
+                                Mode="Input" Source="{x:Static views:WaveformGeneratorViewKeys.CarrierPhase}" />
+          <ui:ModuleLabel Canvas.Left="106" Canvas.Top="280" Width="16" Height="22" Classes="caption"
+                          VerticalAlignment="Center" Text="{loc:Tr view.unitDegree}" />
+        </Canvas>
+      </Border>
+
+      <Border Grid.Column="2" Background="{DynamicResource BgChrome}"
+              BorderBrush="{DynamicResource BorderDefault}" BorderThickness="1" CornerRadius="2"
+              Padding="3">
+        <Canvas Width="144" Height="336" ClipToBounds="True">
+          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="58" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.periods}" />
+          <ui:ModuleTextSurface x:Name="PeriodsInput" Canvas.Left="60" Canvas.Top="0" Width="50" Height="22"
+                                Mode="Input" Source="{x:Static views:WaveformGeneratorViewKeys.OneShotPeriods}" />
+
+          <TextBlock x:Name="EstimateLabel" Canvas.Left="0" Canvas.Top="30" Width="140" FontSize="9"
+                     TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" />
+          <TextBlock x:Name="TotalEstimateLabel" Canvas.Left="0" Canvas.Top="48" Width="140" FontSize="9"
+                     TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" />
+
+          <ui:ModuleButton Canvas.Left="0" Canvas.Top="288" Width="126" Height="22"
+                           CommandName="{x:Static views:WaveformGeneratorViewKeys.StartContinuous}"
+                           Content="{loc:Tr view.startContinuous}" />
+          <ui:ModuleButton Canvas.Left="0" Canvas.Top="314" Width="60" Height="22"
+                           CommandName="{x:Static views:WaveformGeneratorViewKeys.SendOnce}"
+                           Content="{loc:Tr view.send}" />
+          <ui:ModuleButton Canvas.Left="64" Canvas.Top="314" Width="60" Height="22"
+                           CommandName="{x:Static views:WaveformGeneratorViewKeys.Stop}"
+                           Content="{loc:Tr view.stop}" />
+        </Canvas>
+      </Border>
+    </Grid>
+
+    <ui:ModuleLabel Grid.Row="1" Height="14" Margin="0,1,0,0"
+                    Source="{x:Static views:WaveformGeneratorViewKeys.Status}" />
+  </Grid>
+</ui:ModuleView>

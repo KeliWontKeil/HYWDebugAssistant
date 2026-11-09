@@ -26,10 +26,6 @@ namespace HYWDebugAssistant.Samples.UiModule;
     DescriptionKey = UiSampleText.Description,
     Tags = ["sample", "display"],
     ParticipatesInDataFlow = true,
-    WindowWidth = 340,
-    WindowHeight = 168,
-    MinWidth = 340,
-    MinHeight = 168,
     ViewFactory = typeof(Views.UiSampleViewFactory))]
 public sealed class UiSampleModule : IModule, IActivitySource
 {

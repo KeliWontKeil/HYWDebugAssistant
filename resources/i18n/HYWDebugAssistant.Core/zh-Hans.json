@@ -60,6 +60,8 @@
     "core.composite.wallpaperInvalidReference": "忽略非法壁纸引用：{0}",
     "core.composite.wallpaperReadFailed": "壁纸资产无法读取：{0}（{1}）",
     "core.composite.warningWithRemainder": "{0}（其余部分已照常加载）",
+    "core.workspace.backupFailed": "工作区未能载入，且无法备份原文件（{0}）：{1}；为避免覆盖，已跳过本次保存",
+    "core.workspace.unreadableBackedUp": "工作区未能载入；原文件已备份为：{0}",
     "core.network.name.containsWhitespace": "网络名不能包含空白字符",
     "core.network.name.empty": "网络名不能为空",
     "core.network.name.tooLong": "网络名过长（上限 {0} 字符）",

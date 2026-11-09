@@ -21,6 +21,9 @@
   <SolidColorBrush x:Key="BorderStrong" Color="#A1A1AA" />
   <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
   <SolidColorBrush x:Key="AccentPrimary" Color="#2563EB" />
+  <!-- 绝对色：范围选择器的视口/选择兜底（运行时来自宿主 token）。 -->
+  <SolidColorBrush x:Key="SurfaceTabSelectedBackgroundBrush" Color="#2563EB" Opacity="0.12" />
+  <SolidColorBrush x:Key="OverlaySelection" Color="#2563EB" Opacity="0.20" />
   <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
   <SolidColorBrush x:Key="SemanticOk" Color="#16A34A" />
   <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->

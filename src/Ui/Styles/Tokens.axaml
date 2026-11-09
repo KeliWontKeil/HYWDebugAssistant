@@ -23,6 +23,7 @@
             <SolidColorBrush x:Key="TextMuted" Color="#A1A1AA" />
             <SolidColorBrush x:Key="AccentPrimary" Color="#2563EB" />
             <SolidColorBrush x:Key="AccentSecondary" Color="#0891B2" />
+
             <!--
               **更重一档的主题色**：由主题色派生（向黑 18%，见 `PaletteDerivation`）。
               内置值 = **该公式在默认主题色上的结果**（不是另挑的一个色）——
@@ -109,6 +110,7 @@
             <SolidColorBrush x:Key="TextMuted" Color="#71717A" />
             <SolidColorBrush x:Key="AccentPrimary" Color="#3B82F6" />
             <SolidColorBrush x:Key="AccentSecondary" Color="#22D3EE" />
+
             <!-- 更重一档的主题色（派生色，说明见浅色分支）：内置值 = 公式在深色默认主题色上的结果。 -->
             <SolidColorBrush x:Key="AccentStrong" Color="#306AC9" />
 

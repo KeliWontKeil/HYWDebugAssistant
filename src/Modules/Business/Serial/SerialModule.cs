@@ -31,8 +31,6 @@ namespace HYWDebugAssistant.Modules.Serial;
     Tags = ["serial", "io"],
     Capabilities = ModuleCapability.SerialPort,
     ParticipatesInDataFlow = true,
-    WindowWidth = 400,
-    WindowHeight = 190,
     ViewFactory = typeof(Views.SerialViewFactory))]
 public sealed class SerialModule : IModule, IActivitySource
 {

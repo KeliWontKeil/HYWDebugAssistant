@@ -31,8 +31,6 @@ namespace HYWDebugAssistant.Modules.HexSender;
     DescriptionKey = HexSenderText.Description,
     Tags = ["hex", "sender"],
     ParticipatesInDataFlow = true,
-    WindowWidth = 400,
-    WindowHeight = 228,
     ViewFactory = typeof(Views.HexSenderViewFactory))]
 public sealed class HexSenderModule : IModule, IActivitySource
 {

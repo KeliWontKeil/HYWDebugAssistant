@@ -32,8 +32,6 @@ namespace HYWDebugAssistant.Modules.TcpServer;
     Tags = ["tcp", "server", "io"],
     Capabilities = ModuleCapability.Network,
     ParticipatesInDataFlow = true,
-    WindowWidth = 400,
-    WindowHeight = 166,
     ViewFactory = typeof(Views.TcpServerViewFactory))]
 public sealed class TcpServerModule : IModule, IActivitySource
 {

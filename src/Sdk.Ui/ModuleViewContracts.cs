@@ -150,6 +150,15 @@ public interface IModuleViewContext
     /// <summary>本视图所属实例 ID。</summary>
     string InstanceId { get; }
 
+    /// <summary>
+    /// 框架取色服务（可空：设计期或未接线时不可取色）。
+    /// </summary>
+    /// <remarks>
+    /// 视图应优先使用它打开框架统一调色窗口，而不是模块内自建色板；
+    /// 自动分配颜色也只从 <see cref="IModuleColorPicker.SuggestedColors"/> 取。
+    /// </remarks>
+    IModuleColorPicker? ColorPicker { get; }
+
     /// <summary>取某显示源的最新数值（无值 ⇒ <see langword="null"/>）。</summary>
     /// <param name="source">显示源名（模块声明过）。</param>
     double? ReadLatest(string source);
@@ -157,6 +166,16 @@ public interface IModuleViewContext
     /// <summary>取某显示源的序列（等间隔降采样后；无数据 ⇒ 空）。</summary>
     /// <param name="source">显示源名。</param>
     IReadOnlyList<double> ReadSeries(string source);
+
+    /// <summary>
+    /// 取某显示源的**全量序列窗口快照**（不可变；无数据 ⇒ <see langword="null"/>）。
+    /// </summary>
+    /// <param name="source">显示源名（声明为序列窗口）。</param>
+    /// <remarks>
+    /// 与 <see cref="ReadSeries"/> 的区别：本方法不做容量限制、不做降采样，
+    /// 快照里的点就是模块发布窗口的全部点。视图可以直接绘制全部点。
+    /// </remarks>
+    SeriesWindowSnapshot? ReadSeriesWindow(string source);
 
     /// <summary>取某显示缓冲的全量行（文本日志 / 十六进制视图共用）。</summary>
     /// <param name="source">显示源名。</param>

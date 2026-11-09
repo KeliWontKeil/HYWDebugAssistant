@@ -61,40 +61,21 @@ public sealed class ModuleDefinitionAttribute : Attribute
     public bool ParticipatesInDataFlow { get; init; } = true;
 
     /// <summary>
-    /// 模块窗口的**默认尺寸**（DIP）。<c>0</c> = 用框架缺省。
+    /// 旧窗口默认宽（DIP）。**已废弃**：尺寸唯一事实是视图根 `.axaml` 的 `MinWidth/MinHeight`（纯内容区）。
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// 窗口尺寸是**模块的形态事实**（这个模块天生多大），因此写在代码声明里，
-    /// 与口、类型、角色同处 —— 它是编译期可校验的常量，不是运行期读来的数据。
-    /// </para>
-    /// <para>
-    /// 内容排不下时由内容区滚动，框架**不按内容反过来算窗口尺寸**。
-    /// </para>
+    /// 保留属性只为二进制兼容；框架不再读取，内置模块不得声明。
+    /// 新模块请只在视图根声明内容尺寸，chrome 由框架加。
     /// </remarks>
     public double WindowWidth { get; init; }
 
-    /// <summary>窗口默认高（DIP）；<c>0</c> = 框架缺省。</summary>
-    /// <remarks>
-    /// <para>
-    /// 有视图的模块，实际初始高度由视图根 `.axaml` 的 `MinHeight` 加窗口 chrome 决定；
-    /// 这里的值只是无视图时的兜底（架构规则要求尺寸声明可被加载期读取）。
-    /// </para>
-    /// <para>兜底值应与视图内容一致，避免视图加载失败时把紧凑模块拉成统一高度。</para>
-    /// </remarks>
+    /// <summary>旧窗口默认高（DIP）。**已废弃**，语义同 <see cref="WindowWidth"/>。</summary>
     public double WindowHeight { get; init; }
 
-    /// <summary>窗口最小尺寸（DIP）；<c>0</c> = 用框架地板。</summary>
-    /// <remarks>
-    /// <para>地板存在的理由是端口标记的沿边几何：窗口比它窄会把标记裁掉一截。</para>
-    /// <para>
-    /// 用 <c>0</c> 当"未声明"：特性参数的有效类型里没有可空数（<c>double?</c> 不能做命名参数），
-    /// 而 0 宽高的窗口没有意义 —— 于是它天然是一个不可能被真正想要的哨兵值。
-    /// </para>
-    /// </remarks>
+    /// <summary>旧窗口最小宽（DIP）。**已废弃**，语义同 <see cref="WindowWidth"/>。</summary>
     public double MinWidth { get; init; }
 
-    /// <inheritdoc cref="MinWidth"/>
+    /// <summary>旧窗口最小高（DIP）。**已废弃**，语义同 <see cref="WindowWidth"/>。</summary>
     public double MinHeight { get; init; }
 
     /// <summary>

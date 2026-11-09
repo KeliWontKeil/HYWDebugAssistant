@@ -60,13 +60,15 @@ public sealed class SubscriptionSet
 
         foreach (var source in sources)
         {
-            var isSeries = source.Kind != ViewDataSourceKind.Value;
+            // SeriesWindow 的完整数据走不可变快照槽（ViewStateStore），不占环形容量；
+            // 这里保留一个 1 槽条目，让“源已声明”这一事实仍可被诊断面看到。
+            var isByteRing = source.Kind is not (ViewDataSourceKind.Value or ViewDataSourceKind.SeriesWindow);
 
             _buffers[source.Name] = new SubscriptionBuffer(
                 instanceId,
                 source.Name,
-                isSeries ? SubscriptionBufferForm.Ring : SubscriptionBufferForm.LatestSlot,
-                isSeries ? ringCapacity : 1,
+                isByteRing ? SubscriptionBufferForm.Ring : SubscriptionBufferForm.LatestSlot,
+                isByteRing ? ringCapacity : 1,
                 source.ValueType,
                 source.Kind);
         }

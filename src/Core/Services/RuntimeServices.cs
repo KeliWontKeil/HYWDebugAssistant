@@ -108,6 +108,11 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     /// <summary>本次启动从工作区恢复的外壳矩形。</summary>
     private WorkspacePlacementView? _workspacePlacement;
 
+    /// <summary>
+    /// 本次启动的工作区**没有成功载入**。退出保存前必须先备份原文件，避免用空现场覆盖它。
+    /// </summary>
+    private bool _workspaceLoadFailed;
+
     /// <summary>创建服务。</summary>
     /// <param name="runtime">运行时。</param>
     /// <param name="settings">设置服务（缺省：`StoragePaths.SettingsFile`；未加载时使用默认值）。</param>
@@ -1166,13 +1171,58 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     public CommandResult LoadComposite(string filePath) => _composites.Load(filePath);
 
     /// <inheritdoc />
-    public CommandResult SaveWorkspace(WorkspacePlacementView placement) =>
-        _composites.SavePackage(
+    public CommandResult SaveWorkspace(WorkspacePlacementView placement)
+    {
+        if (_workspaceLoadFailed && !TryBackupUnreadableWorkspace(out var backupFailure))
+        {
+            _runtime.Issues.Report("workspace:save", new IssueReport(
+                IssueCategory.ConfigurationError, IssueSeverity.Error, backupFailure));
+            return CommandResult.Fail([backupFailure]);
+        }
+
+        var result = _composites.SavePackage(
             StoragePaths.WorkspaceRoot,
             "workspace",
             instanceIds: null,
             workspacePlacement: placement,
             documentFileName: StoragePaths.WorkspaceFileName);
+
+        if (result.Succeeded)
+        {
+            _workspaceLoadFailed = false;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 工作区载入失败后，首次保存前把原文件另存一份；返回 <see langword="false"/> 时调用方**不得**写新文件。
+    /// </summary>
+    private bool TryBackupUnreadableWorkspace(out string failure)
+    {
+        failure = string.Empty;
+        var document = StoragePaths.WorkspaceFile;
+        if (!File.Exists(document))
+        {
+            return true;
+        }
+
+        var backup = document + ".unreadable-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".bak";
+        try
+        {
+            File.Copy(document, backup, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            failure = CoreText.Get("core.workspace.backupFailed", document, ex.Message);
+            return false;
+        }
+
+        _runtime.Issues.Report("workspace:load", new IssueReport(
+            IssueCategory.ConfigurationError, IssueSeverity.Warning,
+            CoreText.Get("core.workspace.unreadableBackedUp", backup)));
+        return true;
+    }
 
     /// <summary>启动时恢复工作区（存在才做；失败不阻断启动）。</summary>
     public CommandResult LoadWorkspaceIfAny()
@@ -1189,6 +1239,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         }
 
         var result = _composites.Load(document);
+        _workspaceLoadFailed = !result.Succeeded;
         _workspacePlacement = _composites.LastLoadedWorkspacePlacement;
         return result;
     }

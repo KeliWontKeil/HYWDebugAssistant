@@ -3,12 +3,12 @@
              xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
              xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
              xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
-             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:views="using:HYWDebugAssistant.Modules.TextSender.Views"
              x:Class="HYWDebugAssistant.Modules.TextSender.Views.TextSenderView"
              x:CompileBindings="True"
              x:DataType="contracts:IModuleViewContext"
-             d:DesignWidth="360" d:DesignHeight="192" MinWidth="360" MinHeight="192">
+             InitialWidth="360" InitialHeight="192"
+             MinWidth="360" MinHeight="192">
 
   <!--
     文本发送器：上方多页输入区自适应；下方动作/状态条的高度只由它自己的 Canvas 声明。
@@ -57,5 +57,3 @@
     </Canvas>
   </Grid>
 </ui:ModuleView>
-
-

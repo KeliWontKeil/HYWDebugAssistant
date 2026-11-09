@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Ui.Controls;
 using HYWDebugAssistant.Ui.Hotkeys;
 using HYWDebugAssistant.Ui.Images;
@@ -79,7 +80,8 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         IRuntimeQuery query,
         IRuntimeCommand command,
         IViewStateAccess? viewState = null,
-        TimeSpan? noticeLifetime = null)
+        TimeSpan? noticeLifetime = null,
+        IModuleColorPicker? colorPicker = null)
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(command);
@@ -89,7 +91,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         _noticeLifetime = noticeLifetime ?? DefaultNoticeLifetime;
 
         Hotkeys = new HotkeyService(this);
-        Windows = new ModuleWindowsViewModel(query, command, viewState);
+        Windows = new ModuleWindowsViewModel(query, command, viewState, colorPicker);
         Performance = new PerformanceMonitorViewModel();
         Composites = new CompositePageViewModel(query, command, Windows);
 

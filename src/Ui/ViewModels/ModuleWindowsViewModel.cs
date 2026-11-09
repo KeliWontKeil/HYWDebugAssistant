@@ -2,10 +2,12 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using Avalonia;
+using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Formatting;
 using HYWDebugAssistant.Ui.Controls;
 using HYWDebugAssistant.Ui.Geometry;
@@ -180,7 +182,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// **视图状态存取面**：切页选中态 / 输入框未提交文本 /
     /// 显示缓冲都存这里 ⇒ 元素表重建不丢内容、模块可回读。`null` ⇒ 不落存储（设计期 / 未接线的调用点）。
     /// </param>
-    public ModuleWindowsViewModel(IRuntimeQuery query, IRuntimeCommand command, IViewStateAccess? viewState = null)
+    public ModuleWindowsViewModel(
+        IRuntimeQuery query,
+        IRuntimeCommand command,
+        IViewStateAccess? viewState = null,
+        IModuleColorPicker? colorPicker = null)
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(command);
@@ -188,9 +194,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _query = query;
         _command = command;
         _viewState = viewState;
+        _colorPicker = colorPicker;
     }
 
     private readonly IViewStateAccess? _viewState;
+    private readonly IModuleColorPicker? _colorPicker;
 
     /// <summary>模块窗口（每个模块一项）。</summary>
     public ObservableCollection<ModuleViewViewModel> Modules { get; } = [];
@@ -2259,12 +2267,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// **还原模块**：回到默认尺寸，可选连配置一起还原。
+    /// **还原模块**：回到实例化默认尺寸，可选连配置一起还原。
     /// </summary>
     /// <remarks>
-    /// 默认尺寸 = **模块的 `[ModuleDefinition(WindowWidth/WindowHeight)]`**（未声明则框架地板），
-    /// **不是**按元素类型估算的结果；位置不变（只还原尺寸与配置，不动用户摆放的位置）。
-    /// 还原值同样夹进该模块的有效尺寸区间（模块声明的 min/max 是约束，还原也不能越过）。
+    /// 默认尺寸 = **视图根的 `InitialWidth/InitialHeight`（纯内容区）+ chrome**；
+    /// 位置不变（只还原尺寸与配置，不动用户摆放的位置）。
+    /// 还原值再夹进该模块的**运行期最小/最大**区间；初始尺寸与最小尺寸是两个独立事实。
     /// </remarks>
     /// <param name="module">模块视图。</param>
     /// <param name="scope">还原范围（只尺寸 / 尺寸与配置）。</param>
@@ -2272,9 +2280,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(module);
 
-        // ① 尺寸回到包内声明的默认尺寸（**声明就是 DIP** ⇒ 不乘缩放、不取整），并写回布局
-        module.Width = ClampToBounds(module.PreferredWidth, module.EffectiveMinWidth, module.EffectiveMaxWidth);
-        module.Height = ClampToBounds(module.PreferredHeight, module.EffectiveMinHeight, module.EffectiveMaxHeight);
+        // ① 尺寸回到视图声明的初始尺寸，并写回布局（**不是**回到最小尺寸）。
+        module.Width = ClampToBounds(module.StartupWindowWidth, module.EffectiveMinWidth, module.EffectiveMaxWidth);
+        module.Height = ClampToBounds(module.StartupWindowHeight, module.EffectiveMinHeight, module.EffectiveMaxHeight);
         module.HasLayout = true;
 
         _ = _command.UpdateModuleLayout(module.ToLayout());
@@ -2350,21 +2358,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     ///   <item>一列到底（超出工作区下沿）就**换到右面一列**（X 挪"模块宽 + 间距"，Y 回到起点）；
     ///     工作区不可用时不换列（无限向下，仍保证不堆叠）。</item>
     /// </list>
-    /// 尺寸用**模块声明的默认尺寸 × 缩放**估算（真实尺寸要等窗口打开才知道 —— 那时按
-    /// <c>[ModuleDefinition]</c> 的窗口尺寸开窗）。有循环上限兜底，极端情况下宁可重叠也不死循环。
+    /// 尺寸用**视图根 XAML 的内容 MinWidth/MinHeight + chrome**（由调用方先加载视图得到）。
+    /// 有循环上限兜底，极端情况下宁可重叠也不死循环。
     /// </remarks>
-    /// <param name="instance">即将摆放的实例（默认尺寸从它的声明面读）。</param>
-    /// <returns>摆放位置（**DIP**，与模型同一坐标系）。</returns>
-    private (double X, double Y) NextPlacement(ModuleInstanceView instance)
-    {
-        ArgumentNullException.ThrowIfNull(instance);
-
-        var window = instance.Window;
-        var width = Math.Max(1, window is { Width: > 0 } declaredWidth ? declaredWidth.Width : 1);
-        var height = Math.Max(1, window is { Height: > 0 } declaredHeight ? declaredHeight.Height : 1);
-        return NextPlacementForSize(width, height);
-    }
-
     /// <summary>
     /// 按给定尺寸找空闲摆放位置（DIP）：**按现有模块的真实下沿 + 间距**向下让位，
     /// 不再按“候选模块声明高度”整块跳过（旧实现会在矮模块之间留下过大的 Y 空隙）。
@@ -2425,7 +2421,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         foreach (var module in Modules)
         {
-            var moduleWidth = module.Width > 0 ? module.Width : module.PreferredWidth;
+            var moduleWidth = module.Width > 0 ? module.Width : module.StartupWindowWidth;
             if (moduleWidth <= 0)
             {
                 continue;
@@ -2452,8 +2448,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         foreach (var module in Modules)
         {
-            var moduleWidth = module.Width > 0 ? module.Width : module.PreferredWidth;
-            var moduleHeight = module.Height > 0 ? module.Height : module.PreferredHeight;
+            var moduleWidth = module.Width > 0 ? module.Width : module.StartupWindowWidth;
+            var moduleHeight = module.Height > 0 ? module.Height : module.StartupWindowHeight;
             if (moduleWidth <= 0 || moduleHeight <= 0)
             {
                 continue;
@@ -2481,9 +2477,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         {
             if (module.Width <= 0 || module.Height <= 0)
             {
-                // 尺寸还没读回来（窗口未打开）→ 用**声明面给出的默认尺寸**估（同为 DIP）
-                var w = module.PreferredWidth;
-                var h = module.PreferredHeight;
+                // 尺寸还没读回来（窗口未打开）→ 用视图声明的初始尺寸估（同为 DIP）
+                var w = module.StartupWindowWidth;
+                var h = module.StartupWindowHeight;
                 if (x < module.X + w + PlaceGap && right + PlaceGap > module.X
                     && y < module.Y + h + PlaceGap && bottom + PlaceGap > module.Y)
                 {
@@ -2578,19 +2574,36 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         {
             // 有已保存布局 ⇒ 直接消费；只有真正的新实例才使用错位摆放。
             _ = _layoutById.TryGetValue(instance.InstanceId, out var savedLayout);
-            var placement = savedLayout is null ? NextPlacement(instance) : (X: 0.0, Y: 0.0);
-
             var created = new ModuleViewViewModel(
                 instance,
                 layout: savedLayout,
                 _query,
                 _command,
-                placement.X,
-                placement.Y,
-                _viewState)
+                fallbackX: 0,
+                fallbackY: 0,
+                _viewState,
+                _colorPicker)
             {
                 WallpaperVeilOpacity = WallpaperVeilOpacity,
             };
+
+            // 新实例的尺寸来自视图根 XAML 的初始尺寸（InitialWidth/InitialHeight）；
+            // 先构造视图拿到尺寸，再决定摆放，最后才创建窗口。
+            if (savedLayout is null)
+            {
+                if (created.EnsureView()?.Content is Control content)
+                {
+                    created.SetContentSize(content);
+                }
+
+                created.Width = created.StartupWindowWidth;
+                created.Height = created.StartupWindowHeight;
+                var placement = NextPlacementForSize(
+                    created.StartupWindowWidth,
+                    created.StartupWindowHeight);
+                created.X = placement.X;
+                created.Y = placement.Y;
+            }
 
             Modules.Add(created);
             modulesChanged = true;

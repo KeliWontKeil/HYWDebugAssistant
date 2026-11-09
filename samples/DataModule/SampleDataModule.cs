@@ -26,9 +26,6 @@ namespace HYWDebugAssistant.Samples.DataModule;
     Description = "纯数据变换的最小样例：一进一出、自己声明数据契约、发布一个计数",
     Tags = ["sample"],
     ParticipatesInDataFlow = true,
-    WindowWidth = 320,
-    WindowHeight = 140,
-    MinWidth = 320,
     MinHeight = 140)]
 public sealed class SampleDataModule : IModule
 {

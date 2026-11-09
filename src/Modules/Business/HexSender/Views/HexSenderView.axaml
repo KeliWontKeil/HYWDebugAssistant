@@ -3,12 +3,12 @@
              xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
              xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
              xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
-             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:views="using:HYWDebugAssistant.Modules.HexSender.Views"
              x:Class="HYWDebugAssistant.Modules.HexSender.Views.HexSenderView"
              x:CompileBindings="True"
              x:DataType="contracts:IModuleViewContext"
-             d:DesignWidth="360" d:DesignHeight="180" MinWidth="360" MinHeight="180">
+             InitialWidth="360" InitialHeight="180"
+             MinWidth="360" MinHeight="180">
 
   <!--
     HEX 发送器：多页输入区自适应；动作/状态条的高度只由它自己的 Canvas 声明。
@@ -56,5 +56,3 @@
     </Canvas>
   </Grid>
 </ui:ModuleView>
-
-

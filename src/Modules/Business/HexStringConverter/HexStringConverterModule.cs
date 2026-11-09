@@ -32,8 +32,6 @@ namespace HYWDebugAssistant.Modules.HexStringConverter;
     DescriptionKey = HexStringConverterText.Description,
     Tags = ["hex", "tool"],
     ParticipatesInDataFlow = false,
-    WindowWidth = 400,
-    WindowHeight = 298,
     ViewFactory = typeof(Views.HexStringConverterViewFactory))]
 public sealed class HexStringConverterModule : IModule, IActivitySource
 {

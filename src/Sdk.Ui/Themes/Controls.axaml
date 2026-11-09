@@ -61,7 +61,9 @@
           <Panel>
             <Viewbox Name="PART_Svg" Stretch="Uniform" IsVisible="False">
               <Canvas Name="PART_Canvas" Width="20" Height="20">
-                <Path Name="PART_Path" Fill="{TemplateBinding Foreground}" IsHitTestVisible="False" />
+                <Path Name="PART_Path" Fill="{TemplateBinding Foreground}"
+                      Stroke="{TemplateBinding Foreground}" StrokeThickness="1"
+                      IsHitTestVisible="False" />
               </Canvas>
             </Viewbox>
             <TextBlock Name="PART_Fallback"
@@ -132,6 +134,24 @@
     </ControlTheme>
 
 
+
+    <ControlTheme x:Key="{x:Type ui:ModuleSegmentedControl}" TargetType="ui:ModuleSegmentedControl">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="2"
+                  Padding="1">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Disabled"
+                          HorizontalContentAlignment="Left">
+              <StackPanel Name="PART_Items" Orientation="Horizontal" Spacing="1" />
+            </ScrollViewer>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
 
     <ControlTheme x:Key="{x:Type ui:ModuleConfigField}" TargetType="ui:ModuleConfigField">
       <Setter Property="Template">
@@ -234,6 +254,105 @@
   </Style>
 
 
+
+  <Style Selector="ui|ModuleSegmentedControl">
+    <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleSegmentedControl}}" />
+    <Setter Property="Height" Value="24" />
+    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+
+  <Style Selector="Button.module-segment">
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Height" Value="22" />
+    <Setter Property="Padding" Value="6,1" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+  </Style>
+
+  <Style Selector="Button.module-segment:pointerover">
+    <Setter Property="Background" Value="{DynamicResource SurfaceTabHoverBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="Button.module-segment.selected">
+    <Setter Property="Background" Value="{DynamicResource SurfaceTabSelectedBackgroundBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentPrimary}" />
+  </Style>
+
+  <Style Selector="Button.module-segment.selected:pointerover">
+    <Setter Property="Background" Value="{DynamicResource SurfaceTabSelectedHoverBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentPrimary}" />
+  </Style>
+
+  <Style Selector="Button.module-segment:disabled">
+    <Setter Property="Opacity" Value="0.45" />
+  </Style>
+
+  <Style Selector="Button.module-color-swatch">
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="2" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.danger">
+    <Setter Property="Foreground" Value="{DynamicResource SemanticError}" />
+  </Style>
+
+  <Style Selector="Button.module-row-action">
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Width" Value="18" />
+    <Setter Property="Height" Value="18" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+  </Style>
+
+  <Style Selector="Button.module-row-action:pointerover">
+    <Setter Property="Background" Value="{DynamicResource SurfaceTabHoverBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <!-- 行内切换按钮：同一个控件既是按钮又显示选中态（隐藏曲线、适应 Y 等）。 -->
+  <Style Selector="ToggleButton.module-row-action">
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Width" Value="18" />
+    <Setter Property="Height" Value="18" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+  </Style>
+
+  <Style Selector="ToggleButton.module-row-action:pointerover">
+    <Setter Property="Background" Value="{DynamicResource SurfaceTabHoverBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <Style Selector="ToggleButton.module-row-action:checked">
+    <Setter Property="Background" Value="{DynamicResource OverlaySelection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentPrimary}" />
+  </Style>
+
+  <Style Selector="Button.module-color-swatch.selected">
+    <Setter Property="BorderBrush" Value="{DynamicResource TextPrimary}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
 
   <Style Selector="ui|ModuleConfigField">
     <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleConfigField}}" />
@@ -458,6 +577,47 @@
   <Style Selector="ui|ModuleConfigField ui|ModuleToggle">
     <Setter Property="VerticalAlignment" Value="Center" />
     <Setter Property="HorizontalAlignment" Value="Left" />
+  </Style>
+
+  <!-- 通用图表：只给默认观感；曲线色由调用方显式给出，缺省用主题强调色。 -->
+  <Style Selector="ui|ChartSurface">
+    <Setter Property="PlotBackground" Value="{DynamicResource BgModule}" />
+    <Setter Property="AxisBrush" Value="{DynamicResource BorderStrong}" />
+    <Setter Property="GridBrush" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="TextBrush" Value="{DynamicResource TextSecondary}" />
+    <Setter Property="CursorBrush" Value="{DynamicResource AccentPrimary}" />
+    <Setter Property="CursorLabelBackground" Value="{DynamicResource BgModule}" />
+    <Setter Property="CursorLabelBorder" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="CursorLabelText" Value="{DynamicResource TextPrimary}" />
+    <Setter Property="FontSize" Value="10" />
+  </Style>
+
+  <!-- 通用线性范围选择：轨道 / 范围带 / 手柄各一支 token。 -->
+  <Style Selector="ui|RangeSelector">
+    <Setter Property="TrackBrush" Value="{DynamicResource BgModule}" />
+    <Setter Property="RangeBrush" Value="{DynamicResource OverlaySelection}" />
+    <Setter Property="HandleBrush" Value="{DynamicResource AccentPrimary}" />
+    <Setter Property="FrameBrush" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="TickBrush" Value="{DynamicResource TextPrimary}" />
+    <Setter Property="TickLabelBrush" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <!-- 通用下拉：紧凑行高，与模块字段一致；不重造 ComboBox 模板。 -->
+  <Style Selector="ui|ModuleSelect">
+    <Setter Property="Height" Value="24" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Padding" Value="2,0" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+  </Style>
+
+  <Style Selector="ComboBox.module-select /template/ PathIcon#DropDownGlyph">
+    <Setter Property="Width" Value="10" />
+    <Setter Property="Height" Value="10" />
+    <Setter Property="Margin" Value="0,0,6,0" />
   </Style>
 </Styles>
 

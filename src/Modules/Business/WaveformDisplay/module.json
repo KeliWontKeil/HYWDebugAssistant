@@ -1,0 +1,7 @@
+{
+  "id": "hyw/waveform-display",
+  "entryAssembly": "HYWDebugAssistant.Modules.WaveformDisplay.dll",
+  "entryType": "HYWDebugAssistant.Modules.WaveformDisplay.WaveformDisplayModule",
+  "dependsOn": [],
+  "resources": ["resources/i18n", "resources/icons"]
+}

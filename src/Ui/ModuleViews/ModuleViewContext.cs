@@ -32,6 +32,7 @@ internal sealed class ModuleViewContext : IModuleViewContext
     private readonly IRuntimeCommand _command;
     private readonly IViewStateAccess? _viewState;
     private readonly Func<string>? _multilineSubmitKey;
+    private readonly IModuleColorPicker? _colorPicker;
     private readonly SurfaceSourceReader _reader;
     private readonly Dictionary<string, ViewAppearance> _appearances = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ConfigFieldView?> _fieldCache = new(StringComparer.Ordinal);
@@ -49,7 +50,8 @@ internal sealed class ModuleViewContext : IModuleViewContext
         IRuntimeQuery query,
         IRuntimeCommand command,
         IViewStateAccess? viewState,
-        Func<string>? multilineSubmitKey)
+        Func<string>? multilineSubmitKey,
+        IModuleColorPicker? colorPicker = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(instanceId);
         ArgumentNullException.ThrowIfNull(query);
@@ -60,11 +62,15 @@ internal sealed class ModuleViewContext : IModuleViewContext
         _command = command;
         _viewState = viewState;
         _multilineSubmitKey = multilineSubmitKey;
+        _colorPicker = colorPicker;
         _reader = new SurfaceSourceReader(query, viewState);
     }
 
     /// <inheritdoc />
     public string InstanceId { get; }
+
+    /// <inheritdoc />
+    public IModuleColorPicker? ColorPicker => _colorPicker;
 
     /// <inheritdoc />
     public string MultilineSubmitKey => _multilineSubmitKey?.Invoke() ?? "CtrlEnter";
@@ -85,6 +91,10 @@ internal sealed class ModuleViewContext : IModuleViewContext
 
     /// <inheritdoc />
     public IReadOnlyList<double> ReadSeries(string source) => _reader.ReadSeries(InstanceId, source);
+
+    /// <inheritdoc />
+    public SeriesWindowSnapshot? ReadSeriesWindow(string source) =>
+        _viewState?.ReadSeriesWindow(InstanceId, source);
 
     /// <summary>把外观快照转成按源名的查表（每帧一次）。</summary>
     private void BuildAppearances()

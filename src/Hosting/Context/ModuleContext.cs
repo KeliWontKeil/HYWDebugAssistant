@@ -701,6 +701,10 @@ public sealed class ModuleContext : IModuleContext, IDisposable
         }
 
         public bool IsFull(string dataSourceName) => false;
+
+        public void SetSeriesWindow(string dataSourceName, Sdk.Views.SeriesWindowSnapshot snapshot)
+        {
+        }
     }
 
     /// <summary>**"请求被忽略"的文件选择面**（未注入真实面时的回落 —— 不抛异常）。</summary>

@@ -23,9 +23,6 @@ namespace HYWDebugAssistant.Samples.ActivityModule;
     Description = "最小定时器样例：每 100 ms 发布一次计数，不拥有循环",
     Tags = ["sample"],
     ParticipatesInDataFlow = false,
-    WindowWidth = 320,
-    WindowHeight = 120,
-    MinWidth = 320,
     MinHeight = 120)]
 public sealed class SampleActivityModule : IModule
 {

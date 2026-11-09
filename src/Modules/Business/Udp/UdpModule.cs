@@ -32,8 +32,6 @@ namespace HYWDebugAssistant.Modules.Udp;
     Tags = ["udp", "io"],
     Capabilities = ModuleCapability.Network,
     ParticipatesInDataFlow = true,
-    WindowWidth = 400,
-    WindowHeight = 170,
     ViewFactory = typeof(Views.UdpViewFactory))]
 public sealed class UdpModule : IModule, IActivitySource
 {

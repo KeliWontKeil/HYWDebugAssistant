@@ -85,10 +85,17 @@ public class ModuleViewSnapshots
                 var view = factory.Create(context);
                 var host = new ModuleViewHost(context, view);
 
-                // 用模块声明的真实窗口尺寸 + 同一份内容区几何：截图必须代表真机。
-                var definition = moduleType.GetCustomAttribute<ModuleDefinitionAttribute>();
-                var width = definition is { WindowWidth: > 0 } ? definition.WindowWidth : 500;
-                var height = definition is { WindowHeight: > 0 } ? definition.WindowHeight : 400;
+                // 截图窗口 = 视图声明的初始内容尺寸 + 同一份 chrome；真实窗口也按这一份初始尺寸。
+                var contentWidth = view is ModuleView moduleView && moduleView.InitialWidth > 0
+                    ? moduleView.InitialWidth
+                    : view.MinWidth > 0 ? view.MinWidth : 500;
+                var contentHeight = view is ModuleView moduleViewHeight && moduleViewHeight.InitialHeight > 0
+                    ? moduleViewHeight.InitialHeight
+                    : view.MinHeight > 0 ? view.MinHeight : 400;
+                var width = contentWidth + (2 * ModuleSurfaceMetrics.FrameBorder)
+                    + ModuleSurfaceMetrics.InsetLeft + ModuleSurfaceMetrics.InsetRight;
+                var height = contentHeight + (2 * ModuleSurfaceMetrics.FrameBorder)
+                    + ModuleSurfaceMetrics.InsetTop + ModuleSurfaceMetrics.InsetBottom;
 
                 var window = new Window
                 {
@@ -205,11 +212,15 @@ public class ModuleViewSnapshots
 
         public string InstanceId => "snapshot";
 
+        public IModuleColorPicker? ColorPicker => null;
+
         public string MultilineSubmitKey => "CtrlEnter";
 
         public double? ReadLatest(string source) => 42;
 
         public IReadOnlyList<double> ReadSeries(string source) => [42];
+
+        public SeriesWindowSnapshot? ReadSeriesWindow(string source) => null;
 
         public TextBufferSnapshot ReadText(string source) => new(["就绪"], 0, 20000);
 

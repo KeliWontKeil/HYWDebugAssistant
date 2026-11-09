@@ -6,6 +6,7 @@ using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Services;
 using HYWDebugAssistant.Core.Settings;
 using HYWDebugAssistant.FrameworkUi.ViewModels;
+using HYWDebugAssistant.FrameworkUi.Views;
 using HYWDebugAssistant.Infrastructure.Storage;
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Reporting;
@@ -67,7 +68,8 @@ internal static class CompositionRoot
         _ = services.AddSingleton(static provider => new ShellViewModel(
             provider.GetRequiredService<IRuntimeQuery>(),
             provider.GetRequiredService<IRuntimeCommand>(),
-            provider.GetRequiredService<IViewStateAccess>()));
+            provider.GetRequiredService<IViewStateAccess>(),
+            colorPicker: new FrameworkModuleColorPicker()));
 
         var provider = services.BuildServiceProvider();
 

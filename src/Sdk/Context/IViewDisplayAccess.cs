@@ -1,3 +1,5 @@
+using HYWDebugAssistant.Sdk.Views;
+
 namespace HYWDebugAssistant.Sdk.Context;
 
 /// <summary>
@@ -87,4 +89,15 @@ public interface IViewDisplayAccess
     /// 提示不能改变文本区的布局。
     /// </remarks>
     bool IsFull(string dataSourceName);
+
+    /// <summary>
+    /// **发布一个不可变的序列窗口快照**（整段替换；只有当前值）。
+    /// </summary>
+    /// <param name="dataSourceName">声明为 <see cref="ViewDataSourceKind.SeriesWindow"/> 的显示源名。</param>
+    /// <param name="snapshot">完整快照；发布后模块不得再改其中的数组。</param>
+    /// <remarks>
+    /// 这条通道用于“查看任意选定范围的全部点”：没有环形容量、没有 UI 侧降采样，
+    /// 视图拿到多少点就画多少点。与文本缓冲一样，快照由框架持有引用，模块不保留第二份。
+    /// </remarks>
+    void SetSeriesWindow(string dataSourceName, SeriesWindowSnapshot snapshot);
 }
