@@ -7,6 +7,25 @@ using HYWDebugAssistant.Sdk.Ui.Controls.Charting;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
+/// <summary>最近一次范围拖动改变的是哪一端。</summary>
+public enum RangeChangeKind
+{
+    /// <summary>没有拖动。</summary>
+    None = 0,
+
+    /// <summary>左端（范围起点）。</summary>
+    Start = 1,
+
+    /// <summary>右端（范围终点）。</summary>
+    End = 2,
+
+    /// <summary>整体平移。</summary>
+    Body = 3,
+
+    /// <summary>空白处重新框选。</summary>
+    New = 4,
+}
+
 /// <summary>
 /// **线性范围选择控件**：域轨道 + 当前范围带（可拖动）。
 /// </summary>
@@ -104,6 +123,7 @@ public sealed class RangeSelector : Control
 
     private Rect _trackRect;
     private int _dragMode;
+    private bool _rangeChangedInGesture;
     private double _dragAnchor;
     private double _dragOffset;
 
@@ -255,6 +275,9 @@ public sealed class RangeSelector : Control
         get => GetValue(FrameBrushProperty);
         set => SetValue(FrameBrushProperty, value);
     }
+
+    /// <summary>最近一次**实际改变范围**的是左端/右端/整体/重新框选；只按下未移动或程序设置属性不改变。</summary>
+    public RangeChangeKind LastChangeKind { get; private set; }
 
     /// <summary>用户改变了范围（拖动产生；程序设置属性不触发）。</summary>
     public event EventHandler? RangeChanged;
@@ -412,6 +435,7 @@ public sealed class RangeSelector : Control
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
+        LastChangeKind = RangeChangeKind.None;
 
         var point = e.GetPosition(this);
         var track = CalculateTrackRect();
@@ -456,6 +480,9 @@ public sealed class RangeSelector : Control
             _dragAnchor = value;
         }
 
+        LastChangeKind = KindFor(_dragMode);
+        // 点中新范围会立即改变选择；左端/右端/整体只有实际移动才算一次操作。
+        _rangeChangedInGesture = _dragMode == DragNew;
         if (_dragMode == DragNew)
         {
             RangeStart = value;
@@ -465,6 +492,15 @@ public sealed class RangeSelector : Control
         e.Pointer.Capture(this);
         e.Handled = true;
     }
+
+    private static RangeChangeKind KindFor(int dragMode) => dragMode switch
+    {
+        DragStart => RangeChangeKind.Start,
+        DragEnd => RangeChangeKind.End,
+        DragBody => RangeChangeKind.Body,
+        DragNew => RangeChangeKind.New,
+        _ => RangeChangeKind.None,
+    };
 
     /// <inheritdoc />
     protected override void OnPointerMoved(PointerEventArgs e)
@@ -487,6 +523,8 @@ public sealed class RangeSelector : Control
         var value = Unmap(ChartScale.Clamp(point.X, track.Left, track.Right));
         var span = Math.Max(0, MinimumRangeSpan);
 
+        LastChangeKind = KindFor(_dragMode);
+        _rangeChangedInGesture = true;
         switch (_dragMode)
         {
             case DragStart:
@@ -530,7 +568,10 @@ public sealed class RangeSelector : Control
             return;
         }
 
+        LastChangeKind = KindFor(_dragMode);
+        var changed = _rangeChangedInGesture;
         _dragMode = DragNone;
+        _rangeChangedInGesture = false;
         e.Pointer.Capture(null);
 
         if (!TryNormalizeRange(out _, out _))
@@ -538,9 +579,19 @@ public sealed class RangeSelector : Control
             // **选择带常驻**：单击/短拖动不能把范围退回 NaN（那会让选择框凭空消失）。
             // 以操作位置为中心扩展成最小可操作跨度；没有锚点时用域中点。
             EnsureMinimumRange();
+            changed = true;
         }
 
-        RangeChanged?.Invoke(this, EventArgs.Empty);
+        if (changed)
+        {
+            RangeChanged?.Invoke(this, EventArgs.Empty);
+        }
+        else
+        {
+            // 按了但没移动：这不是一次范围变化，别把本次按下的"意图"留给下一次事件误读。
+            LastChangeKind = RangeChangeKind.None;
+        }
+
         UpdateCursor(e.GetPosition(this));
         e.Handled = true;
     }
@@ -567,6 +618,7 @@ public sealed class RangeSelector : Control
     {
         base.OnPointerCaptureLost(e);
         _dragMode = DragNone;
+        _rangeChangedInGesture = false;
         Cursor = null;
     }
 

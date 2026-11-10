@@ -1,7 +1,7 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
-using Avalonia.Controls.Shapes;
-using Avalonia.Markup.Xaml.MarkupExtensions;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Sdk.Ui.Formatting;
@@ -20,31 +20,132 @@ public enum ModuleQuantity
 }
 
 /// <summary>
+/// **模块文字元件的共同底座**：`TextBlock` 派生，统一 `Source`、运行期外观与**文字垂直对齐**。
+/// </summary>
+/// <remarks>
+/// <para>
+/// `TextBlock` 本身没有“文字在自己的矩形里垂直对齐”的属性：`VerticalAlignment` 只决定控件在父容器里的位置。
+/// 模块标签的矩形通常是固定高度（并放在 `Canvas` 里），所以旧模板里内层 `TextBlock` 的居中能力必须由本底座补回来。
+/// </para>
+/// <para>
+/// <see cref="TextVerticalAlignment"/> 默认 <see cref="VerticalAlignment.Center"/>，与旧模板行为一致；
+/// 需要贴顶或贴底时在视图里显式声明。`Padding` 仍会影响文字可用的内容盒，但不要用 `Padding` 代替本属性。
+/// </para>
+/// </remarks>
+public abstract class ModuleTextElement : TextBlock, IModuleViewElement, IModuleElementInternal
+{
+    /// <summary>文字在控件矩形内的垂直对齐（默认居中）。</summary>
+    public static readonly StyledProperty<VerticalAlignment> TextVerticalAlignmentProperty =
+        AvaloniaProperty.Register<ModuleTextElement, VerticalAlignment>(
+            nameof(TextVerticalAlignment),
+            defaultValue: VerticalAlignment.Center);
+
+    /// <summary>造一个文字元件。</summary>
+    protected ModuleTextElement()
+    {
+        // 透明底：整个矩形都能命中，悬停提示才不用"指到字上"才出来。
+        Background = Brushes.Transparent;
+    }
+
+    /// <summary>本元件绑定的名字（显示源名；空 = 不绑）。</summary>
+    /// <remarks>它同时是**运行期外观的寻址键**。</remarks>
+    public string Source { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 文字在控件矩形内的垂直对齐；`Top` / `Center` / `Bottom`。
+    /// </summary>
+    /// <remarks>
+    /// 与控件自身的 <see cref="Layoutable.VerticalAlignment"/> 是两个维度：后者决定控件在父容器里的位置。
+    /// </remarks>
+    public VerticalAlignment TextVerticalAlignment
+    {
+        get => GetValue(TextVerticalAlignmentProperty);
+        set => SetValue(TextVerticalAlignmentProperty, value);
+    }
+
+    /// <inheritdoc />
+    public abstract void Refresh(IModuleViewContext context);
+
+    /// <inheritdoc />
+    string IModuleElementInternal.Source => Source;
+
+    /// <inheritdoc />
+    void IModuleElementInternal.ApplyModuleAppearance(ViewAppearance appearance) =>
+        ModuleTextAppearance.Apply(this, appearance);
+
+    /// <inheritdoc />
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        if (change.Property == TextVerticalAlignmentProperty)
+        {
+            InvalidateVisual();
+        }
+    }
+
+    /// <summary>
+    /// 在 `TextBlock` 已算好的文字原点（含左/上内边距）上追加垂直偏移。
+    /// </summary>
+    protected override void RenderTextLayout(DrawingContext context, Point origin)
+    {
+        var offset = ComputeVerticalOffset();
+
+        base.RenderTextLayout(
+            context,
+            offset == 0 ? origin : new Point(origin.X, origin.Y + offset));
+    }
+
+    /// <summary>按当前对齐与内容盒计算文字需要下移多少。</summary>
+    private double ComputeVerticalOffset()
+    {
+        if (TextVerticalAlignment == VerticalAlignment.Top)
+        {
+            return 0;
+        }
+
+        var padding = Padding;
+        var available = Bounds.Height - padding.Top - padding.Bottom;
+        var free = available - TextLayout.Height;
+
+        // 文字比内容盒还高时交给 TextBlock 自己的默认行为，不再二次偏移。
+        if (free <= 0)
+        {
+            return 0;
+        }
+
+        return TextVerticalAlignment == VerticalAlignment.Bottom ? free : free / 2;
+    }
+}
+
+/// <summary>
 /// **一块会变的文字**：绑一条显示源，或者一句静态文字。
 /// </summary>
 /// <remarks>
+/// <para>
+/// 它是 <see cref="ModuleTextElement"/> 的派生控件（再往上仍是 <see cref="TextBlock"/>），不是模板化控件：
+/// 文字排版、换行、对齐、字号全部沿用 `TextBlock` 的既有属性，模块视图不必为了"多行 / 微型字 / 右对齐"退回到裸 `TextBlock`。
+/// </para>
 /// <para>
 /// 标签是**独立元素**，不寄生在别的控件里：它有自己的矩形、自己的对齐、自己的省略号。
 /// 视图要在哪儿显示标签，就在哪儿摆一个本控件 —— 字段标题、读数标题、区标题、状态、单位都是它。
 /// </para>
 /// <para>
-/// **文案来源优先级：<see cref="Field"/> &gt; <see cref="ModuleElement.Source"/> &gt; <see cref="Text"/>**，视图只用其中一条：
-/// 配置字段的标题不复制到视图里（<see cref="Field"/> 读配置元数据）；动态一句话走 <see cref="ModuleElement.Source"/>；
-/// 固定一句话走 <see cref="Text"/>。
+/// **文案来源优先级：<see cref="Field"/> &gt; <see cref="ModuleTextElement.Source"/> &gt; <see cref="Text"/>**，视图只用其中一条：
+/// 配置字段的标题不复制到视图里（<see cref="Field"/> 读配置元数据）；动态一句话走 <see cref="ModuleTextElement.Source"/>；
+/// 固定一句话或预览初值走 <see cref="Text"/>。带 <see cref="ModuleTextElement.Source"/> 时，<see cref="Text"/> 是预览/初值，
+/// 运行期第一次 <see cref="Refresh"/> 会用真实数据覆盖它。
 /// </para>
 /// <para>
 /// <b>单位不是特殊概念</b>：`ms` / `条` / `个` 就是一个标签，摆在该摆的地方。
 /// </para>
 /// <para>
-/// 视觉结构在 `Sdk.Ui/Themes/Controls.axaml`；排印档位由视图给的类决定（`caption` / `hint` / 默认）。
+/// 视觉结构就是控件本身：排印档位由视图给的类决定（`caption` / `hint` / `micro` / `right` / `wrap`）。
 /// </para>
 /// </remarks>
-public sealed class ModuleLabel : ModuleElement
+public sealed class ModuleLabel : ModuleTextElement
 {
-    private TextBlock? _text;
-    private Rectangle? _placeholder;
     private IModuleViewContext? _context;
-    private string _textValue = string.Empty;
     private string _field = string.Empty;
     private string? _tip;
     private long _textRevision = -1;
@@ -53,7 +154,7 @@ public sealed class ModuleLabel : ModuleElement
     public ModuleLabel()
     {
         // 预览器没有宿主：配置字段的标题从视图 DataContext（设计时上下文）取，
-        // 与运行时走同一个 <see cref="IModuleViewContext.ReadField"/>，文案仍只有一份。
+        // 与运行时走同一个 IModuleViewContext.ReadField，文案仍只有一份。
         DataContextChanged += (_, _) =>
         {
             if (_field.Length > 0)
@@ -71,22 +172,6 @@ public sealed class ModuleLabel : ModuleElement
                 ApplyFieldText();
             }
         };
-    }
-
-    /// <summary>不绑源时的静态文字（与 <see cref="ModuleElement.Source"/> / <see cref="Field"/> 互斥）。</summary>
-    public string Text
-    {
-        get => _textValue;
-        set
-        {
-            if (string.Equals(_textValue, value, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            _textValue = value;
-            Apply(value);
-        }
     }
 
     /// <summary>
@@ -113,24 +198,6 @@ public sealed class ModuleLabel : ModuleElement
     }
 
     /// <inheritdoc />
-    protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
-    {
-        base.OnApplyTemplate(e);
-
-        _text = e.NameScope.Find<TextBlock>("PART_Text");
-        _placeholder = e.NameScope.Find<Rectangle>("PART_Placeholder");
-
-        if (_field.Length > 0)
-        {
-            ApplyFieldText();
-        }
-        else
-        {
-            Apply(_textValue);
-        }
-    }
-
-    /// <inheritdoc />
     public override void Refresh(IModuleViewContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -143,7 +210,7 @@ public sealed class ModuleLabel : ModuleElement
             return;
         }
 
-        if (Source.Length == 0 || _text is null)
+        if (Source.Length == 0)
         {
             return;
         }
@@ -162,40 +229,12 @@ public sealed class ModuleLabel : ModuleElement
         var text = lines.Count == 0 ? string.Empty : string.Join(Environment.NewLine, lines);
 
         // **内容没变就一个字都不动**：赋 Text 会让布局失效，静止的文字每帧白排一次。
-        if (!string.Equals(_text.Text, text, StringComparison.Ordinal))
+        if (!string.Equals(Text, text, StringComparison.Ordinal))
         {
-            _textValue = text;
-            Apply(text);
-        }
-    }
-    /// <summary>运行期文字外观落到真正显示文字的 <see cref="TextBlock"/> 上。</summary>
-    /// <param name="appearance">外观。</param>
-    protected internal override void ApplyAppearance(ViewAppearance appearance)
-    {
-        ArgumentNullException.ThrowIfNull(appearance);
-
-        if (_text is null)
-        {
-            return;
+            Text = text;
         }
 
-        if (appearance.Text is { } text)
-        {
-            _text.Foreground = new SolidColorBrush(Color.FromUInt32(text));
-        }
-        else
-        {
-            SetTokenBrush(_text, TextBlock.ForegroundProperty, appearance.TextToken);
-        }
-
-        if (appearance.TextSize is { } size)
-        {
-            _text.FontSize = size;
-        }
-        else
-        {
-            _text.ClearValue(TextBlock.FontSizeProperty);
-        }
+        ApplyTip(NullIfEmpty(text));
     }
 
     /// <summary>字段标题（来自配置元数据）落到标签上。</summary>
@@ -210,39 +249,28 @@ public sealed class ModuleLabel : ModuleElement
         var title = field?.Title ?? string.Empty;
         var tip = string.IsNullOrWhiteSpace(field?.Description) ? NullIfEmpty(title) : field!.Description;
 
-        Apply(title, tip);
+        if (!string.Equals(Text, title, StringComparison.Ordinal))
+        {
+            Text = title;
+        }
+
+        ApplyTip(tip);
     }
 
-    /// <summary>把一段文字与提示落到视觉上（空文案 ⇒ 预览里给一个占位框）。</summary>
-    /// <param name="shown">要显示的文字。</param>
+    /// <summary>提示只在真的变了才写：字段标签每帧都会重新读一次元数据。</summary>
     /// <param name="tip">悬停提示（空 = 不挂）。</param>
-    private void Apply(string shown, string? tip = null)
+    private void ApplyTip(string? tip)
     {
-        tip ??= NullIfEmpty(shown);
-
-        if (_text is not null && !string.Equals(_text.Text, shown, StringComparison.Ordinal))
+        if (string.Equals(_tip, tip, StringComparison.Ordinal))
         {
-            _text.Text = shown;
+            return;
         }
 
-        if (_text is not null)
-        {
-            // 提示只在真的变了才写：字段标签每帧都会重新读一次元数据。
-            if (!string.Equals(_tip, tip, StringComparison.Ordinal))
-            {
-                _tip = tip;
-                ToolTip.SetTip(this, tip);
-            }
-        }
-
-        // 预览里"完全透明/没有东西"的标签也要有个框，否则没法排版。
-        if (_placeholder is not null)
-        {
-            _placeholder.IsVisible = ModuleView.IsDesignEnvironment && shown.Length == 0;
-        }
+        _tip = tip;
+        ToolTip.SetTip(this, tip);
     }
 
-    /// <summary>找上下文：运行时的宿主祖先优先；预览器/测试由 DataContext 直接提供。</summary>
+    /// <summary>找上下文：运行时的宿主祖先优先；预览器/测试按 DataContext 直接提供。</summary>
     private void ResolveContext()
     {
         if (_context is not null)
@@ -270,6 +298,10 @@ public sealed class ModuleLabel : ModuleElement
 /// </summary>
 /// <remarks>
 /// <para>
+/// 与 <see cref="ModuleLabel"/> 一样是 <see cref="ModuleTextElement"/> 派生控件：`Text` 既是**预览/初值**，
+/// 也是运行期显示值；运行期 <see cref="Refresh"/> 拿到真实数值后覆盖它。
+/// </para>
+/// <para>
 /// 读数**不自带标题**：标题是一个独立的 <see cref="ModuleLabel"/>，摆在哪由视图决定 ——
 /// 这样标题和值才能各自对齐，而不是被控件的内部 `*` 列挤出一个空洞。
 /// </para>
@@ -278,75 +310,27 @@ public sealed class ModuleLabel : ModuleElement
 /// 字节计数的 B/KB/MB 是"值文本"的一部分（<see cref="ByteQuantity"/> 唯一实现），不单独成块、不单独设色。
 /// </para>
 /// </remarks>
-public sealed class ModuleNumeric : ModuleElement
+public sealed class ModuleNumeric : ModuleTextElement
 {
-    private TextBlock? _value;
-    private Rectangle? _placeholder;
-
     /// <summary>数量种类（默认 <see cref="ModuleQuantity.None"/> = 原样显示）。</summary>
     public ModuleQuantity Quantity { get; set; }
-
-    /// <inheritdoc />
-    protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
-    {
-        base.OnApplyTemplate(e);
-
-        _value = e.NameScope.Find<TextBlock>("PART_Value");
-        _placeholder = e.NameScope.Find<Rectangle>("PART_Placeholder");
-        UpdatePlaceholder();
-    }
 
     /// <inheritdoc />
     public override void Refresh(IModuleViewContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        if (Source.Length == 0 || _value is null)
+        if (Source.Length == 0)
         {
             return;
         }
 
         var latest = context.ReadLatest(Source);
+        var text = latest is { } number ? Format(number) : "-";
 
-        var text = latest is { } number
-            ? Format(number)
-            : "-";
-
-        if (!string.Equals(_value.Text, text, StringComparison.Ordinal))
+        if (!string.Equals(Text, text, StringComparison.Ordinal))
         {
-            _value.Text = text;
-        }
-
-        UpdatePlaceholder();
-    }
-
-    /// <summary>运行期文字外观落到**值那一块**（读数是数据，跟着外观通道走）。</summary>
-    /// <param name="appearance">外观。</param>
-    protected internal override void ApplyAppearance(ViewAppearance appearance)
-    {
-        ArgumentNullException.ThrowIfNull(appearance);
-
-        if (_value is null)
-        {
-            return;
-        }
-
-        if (appearance.Text is { } text)
-        {
-            _value.Foreground = new SolidColorBrush(Color.FromUInt32(text));
-        }
-        else
-        {
-            SetTokenBrush(_value, TextBlock.ForegroundProperty, appearance.TextToken);
-        }
-
-        if (appearance.TextSize is { } size)
-        {
-            _value.FontSize = size;
-        }
-        else
-        {
-            _value.ClearValue(TextBlock.FontSizeProperty);
+            Text = text;
         }
     }
 
@@ -355,13 +339,45 @@ public sealed class ModuleNumeric : ModuleElement
     private string Format(double number) => Quantity == ModuleQuantity.Bytes
         ? ByteQuantity.Format(number)
         : number.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture);
+}
 
-    /// <summary>预览里没有值时给一个占位框（产品运行不显示）。</summary>
-    private void UpdatePlaceholder()
+/// <summary>模块文本元件共用的运行期外观落点（<see cref="ModuleLabel"/> / <see cref="ModuleNumeric"/>）。</summary>
+internal static class ModuleTextAppearance
+{
+    /// <summary>把文字色 / 字号 / 启用状态落到 TextBlock 自身。</summary>
+    /// <param name="target">文本控件。</param>
+    /// <param name="appearance">外观。</param>
+    public static void Apply(TextBlock target, ViewAppearance appearance)
     {
-        if (_placeholder is not null)
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(appearance);
+
+        if (appearance.Text is { } text)
         {
-            _placeholder.IsVisible = ModuleView.IsDesignEnvironment && string.IsNullOrEmpty(_value?.Text);
+            target.Foreground = new SolidColorBrush(Color.FromUInt32(text));
+        }
+        else if (appearance.TextToken is { Length: > 0 } token)
+        {
+            target[!TextBlock.ForegroundProperty] =
+                new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension(token);
+        }
+        else
+        {
+            target.ClearValue(TextBlock.ForegroundProperty);
+        }
+
+        if (appearance.TextSize is { } size)
+        {
+            target.FontSize = size;
+        }
+        else
+        {
+            target.ClearValue(TextBlock.FontSizeProperty);
+        }
+
+        if (appearance.Enabled is { } enabled)
+        {
+            target.IsEnabled = enabled;
         }
     }
 }
@@ -371,7 +387,7 @@ public sealed class ModuleNumeric : ModuleElement
 /// </summary>
 /// <remarks>
 /// 没设过角色 ⇒ 空闲档。角色词 → token 的解析在宿主（`PaletteManifest`），
-/// 控件只接收 token；用户改主题色时它跟着变（走 <c>DynamicResource</c> 绑定，不是写死的色值）。
+/// 控件只接收 token；用户改主题色时它跟着变（走 `DynamicResource` 绑定，不是写死的色值）。
 /// 圆点在 `ControlTheme` 的 `PART_Dot` 里。
 /// </remarks>
 public sealed class ModuleStatusLight : ModuleElement
@@ -410,6 +426,7 @@ public sealed class ModuleStatusLight : ModuleElement
 
         var effective = token is { Length: > 0 } ? token : "SemanticIdle";
 
-        _dot[!Avalonia.Controls.Shapes.Shape.FillProperty] = new DynamicResourceExtension(effective);
+        _dot[!Avalonia.Controls.Shapes.Shape.FillProperty] =
+            new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension(effective);
     }
 }

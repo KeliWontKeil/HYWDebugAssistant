@@ -5,7 +5,6 @@
     "moduleField.reject.unknownField": "配置里没有可编辑字段「{0}」",
     "moduleField.currentChoiceUnavailable": "当前值不可用",
     "moduleText.contextMenu.copy": "复制",
-    "moduleText.contextMenu.selectAll": "全选",
-    "design.sampleText": "示例文本"
+    "moduleText.contextMenu.selectAll": "全选"
   }
 }

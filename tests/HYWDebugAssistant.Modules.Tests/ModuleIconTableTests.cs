@@ -2,6 +2,7 @@ using HYWDebugAssistant.Modules.Serial;
 using HYWDebugAssistant.Modules.TcpClient;
 using HYWDebugAssistant.Modules.TcpServer;
 using HYWDebugAssistant.Modules.Udp;
+using HYWDebugAssistant.Modules.WaveformGenerator;
 using HYWDebugAssistant.Sdk.Resources;
 using Shouldly;
 using Xunit;
@@ -109,6 +110,30 @@ public sealed class ModuleIconTableTests
             catch (UnauthorizedAccessException)
             {
             }
+        }
+    }
+
+    [Fact]
+    public void 波形发生器图标_七种波形都应存在且按线条模式绘制()
+    {
+        var assembly = typeof(WaveformGeneratorModule).Assembly;
+        var keys = new[]
+        {
+            "icon.wave.sine",
+            "icon.wave.square",
+            "icon.wave.triangle",
+            "icon.wave.saddle",
+            "icon.wave.spwm",
+            "icon.wave.svpwm",
+            "icon.wave.noise",
+        };
+
+        foreach (var key in keys)
+        {
+            IconCatalog.TryGet(assembly, key, out var asset).ShouldBeTrue($"缺少图标 {key}");
+            asset.ShouldNotBeNull();
+            asset!.PathData.ShouldNotBeEmpty($"{key} 必须有路径");
+            asset.StrokeOnly.ShouldBeTrue($"{key} 必须是 fill=none 的线条图标");
         }
     }
 }

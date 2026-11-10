@@ -22,7 +22,6 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
 {
     private readonly List<ChartSeries> _series = [];
     private readonly ChartSurface? _chart;
-    private readonly Border? _chartLayoutFrame;
     private readonly RangeSelector? _range;
     private readonly ModuleSelect? _axisModeSelect;
     private readonly StackPanel? _groupCardsPanel;
@@ -31,11 +30,12 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
     private readonly ModuleTextSurface? _yMinInput;
     private readonly ModuleTextSurface? _yMaxInput;
     private readonly ModuleTextSurface? _followRangeInput;
+    private readonly ModuleTextSurface? _customRateInput;
     private readonly ModuleTextSurface? _xTickInput;
     private readonly ModuleTextSurface? _yTickInput;
     private readonly ModuleTextSurface? _historyLimitInput;
-    private readonly TextBlock? _rangeStatus;
-    private readonly TextBlock? _historyUsageLabel;
+    private readonly ModuleLabel? _rangeStatus;
+    private readonly ModuleLabel? _historyUsageLabel;
 
     private readonly List<GroupInfo> _groups = [];
     private readonly List<ChannelInfo> _channels = [];
@@ -78,12 +78,6 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
     {
         AvaloniaXamlLoader.Load(this);
         _chart = this.FindControl<ChartSurface>("Chart");
-        _chartLayoutFrame = this.FindControl<Border>("ChartLayoutFrame");
-        if (_chartLayoutFrame is not null && !Design.IsDesignMode && !ModuleView.IsPreviewHost)
-        {
-            _chartLayoutFrame.IsVisible = false;
-        }
-
         _range = this.FindControl<RangeSelector>("Range");
         _axisModeSelect = this.FindControl<ModuleSelect>("AxisModeSelect");
         _groupCardsPanel = this.FindControl<StackPanel>("GroupCardsPanel");
@@ -92,11 +86,12 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         _yMinInput = this.FindControl<ModuleTextSurface>("YMinInput");
         _yMaxInput = this.FindControl<ModuleTextSurface>("YMaxInput");
         _followRangeInput = this.FindControl<ModuleTextSurface>("FollowRangeInput");
+        _customRateInput = this.FindControl<ModuleTextSurface>("CustomRateInput");
         _xTickInput = this.FindControl<ModuleTextSurface>("XTickInput");
         _yTickInput = this.FindControl<ModuleTextSurface>("YTickInput");
         _historyLimitInput = this.FindControl<ModuleTextSurface>("HistoryLimitInput");
-        _rangeStatus = this.FindControl<TextBlock>("RangeStatus");
-        _historyUsageLabel = this.FindControl<TextBlock>("HistoryUsageLabel");
+        _rangeStatus = this.FindControl<ModuleLabel>("RangeStatus");
+        _historyUsageLabel = this.FindControl<ModuleLabel>("HistoryUsageLabel");
 
         if (_chart is not null)
         {
@@ -117,48 +112,6 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         {
             _range.RangeChanged += OnRangeChanged;
         }
-
-        ApplyPreviewDefaults();
-    }
-
-    /// <summary>
-    /// 设计预览/首次布局的初始值：与运行期“无数据”快照同形。
-    /// 运行期第一次 Refresh 会用真实快照覆盖，不形成第二套业务事实。
-    /// </summary>
-    private void ApplyPreviewDefaults()
-    {
-        if (_chart is not null)
-        {
-            _chart.XStart = 0;
-            _chart.XEnd = 255;
-            _chart.XStep = 1;
-            _chart.XAxisKind = ChartAxisKind.Index;
-            _chart.XTickStep = 0;
-            _chart.YTickStep = 0;
-            _chart.YMin = -1;
-            _chart.YMax = 1;
-        }
-
-        if (_range is not null)
-        {
-            _range.Minimum = 0;
-            _range.Maximum = 255;
-            _range.RangeStart = 0;
-            _range.RangeEnd = 255;
-            _range.TickStep = 0;
-            _range.XAxisKind = ChartAxisKind.Index;
-            _range.ShowTicks = true;
-            _range.ShowTickLabels = true;
-        }
-
-        SetInput(_xStartInput, "0");
-        SetInput(_xEndInput, "255");
-        SetInput(_yMinInput, "-1");
-        SetInput(_yMaxInput, "1");
-        SetInput(_followRangeInput, "256");
-        SetInput(_xTickInput, "0");
-        SetInput(_yTickInput, "0");
-        SetInput(_historyLimitInput, "0");
     }
 
     private static string Tr(string key) =>
@@ -170,6 +123,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         _context = context;
         ReadMeta(context);
         ReadSnapshot(context);
+        UpdateSettingInputs();
         HandleImageRequest(context);
     }
 
@@ -211,14 +165,10 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             {
                 UpdateGroupVisuals();
             }
-
-            UpdateSettingInputs();
         }
         catch (JsonException)
         {
-            // 坏快照/设计时样例不打断刷新；仍把可用的默认设置落到输入框，
-            // 让预览与运行期无数据状态使用同一套初始值。
-            UpdateSettingInputs();
+            // 坏快照/设计时样例不打断刷新；Refresh 末尾仍会把可用的默认设置落到输入框。
         }
     }
 
@@ -303,7 +253,9 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
     {
         SetInput(_xTickInput, _xTick.ToString("0.######", CultureInfo.InvariantCulture));
         SetInput(_yTickInput, _yTick.ToString("0.######", CultureInfo.InvariantCulture));
-        SetInput(_followRangeInput, _followRange.ToString(CultureInfo.InvariantCulture));
+        SetInput(
+            _followRangeInput,
+            DisplayAxisUnits.FormatFollowRange(_followRange, _xAxisMode, _rate));
         SetInput(_historyLimitInput, _historyLimit.ToString(CultureInfo.InvariantCulture));
         UpdateHistoryUsage();
     }
@@ -330,7 +282,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
                 ColumnDefinitions = new ColumnDefinitions("20,*,44,64,14"),
                 Background = Brushes.Transparent,
             };
-            var id = new TextBlock
+            var id = new ModuleLabel
             {
                 Text = group.Id.ToString(CultureInfo.InvariantCulture),
                 FontSize = 11,
@@ -359,7 +311,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             Grid.SetColumn(name, 1);
             headerGrid.Children.Add(name);
 
-            var count = new TextBlock
+            var count = new ModuleLabel
             {
                 Text = group.DataCount.ToString("N0", CultureInfo.InvariantCulture),
                 FontSize = 10,
@@ -371,7 +323,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             Grid.SetColumn(count, 2);
             headerGrid.Children.Add(count);
 
-            var rate = new TextBlock
+            var rate = new ModuleLabel
             {
                 Text = FormatGroupRate(group) + (group.Lost > 0 ? " !" + group.Lost.ToString(CultureInfo.InvariantCulture) : string.Empty),
                 FontSize = 10,
@@ -384,7 +336,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             Grid.SetColumn(rate, 3);
             headerGrid.Children.Add(rate);
 
-            var chevron = new TextBlock
+            var chevron = new ModuleLabel
             {
                 Text = active ? "▾" : "▸",
                 FontSize = 10,
@@ -443,7 +395,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
 
         if (_groups.Count == 0)
         {
-            _groupCardsPanel.Children.Add(new TextBlock
+            _groupCardsPanel.Children.Add(new ModuleLabel
             {
                 Text = Tr("view.empty"),
                 FontSize = 11,
@@ -501,7 +453,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         Grid.SetColumn(name, 1);
         row.Children.Add(name);
 
-        var readout = new TextBlock
+        var readout = new ModuleLabel
         {
             FontSize = 9,
             Foreground = FindBrush("TextSecondary", FallbackText),
@@ -683,7 +635,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
     private double XSpan(SeriesWindowSnapshot snapshot)
     {
         var span = Math.Max(0, snapshot.XRangeEnd - snapshot.XRangeStart);
-        return _xAxisMode == DisplayXAxisMode.Time && _rate > 0 ? span / _rate : span;
+        return DisplayAxisUnits.UsesTime(_xAxisMode, _rate) ? span / _rate : span;
     }
 
     private static bool IsDense(double span, double step, int readableLimit) =>
@@ -710,15 +662,15 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         }
 
         var count = snapshot.Channels.Count > 0 ? snapshot.Channels[0].Values.Length : 0;
-        var time = _xAxisMode == DisplayXAxisMode.Time && _rate > 0;
-        var xStart = time ? snapshot.XRangeStart / _rate : snapshot.XRangeStart;
-        var xEnd = time ? snapshot.XRangeEnd / _rate : snapshot.XRangeEnd;
+        var usesTime = DisplayAxisUnits.UsesTime(_xAxisMode, _rate);
+        var xStart = DisplayAxisUnits.SamplesToAxis(snapshot.XRangeStart, _xAxisMode, _rate);
+        var xEnd = DisplayAxisUnits.SamplesToAxis(snapshot.XRangeEnd, _xAxisMode, _rate);
         var step = count > 1 ? (xEnd - xStart) / (count - 1) : 1;
 
         _chart.XStart = xStart;
         _chart.XEnd = xEnd;
         _chart.XStep = step;
-        _chart.XAxisKind = time ? ChartAxisKind.Time : ChartAxisKind.Index;
+        _chart.XAxisKind = usesTime ? ChartAxisKind.Time : ChartAxisKind.Index;
         _chart.XTickStep = _xTickEffective;
         _chart.YTickStep = _yTickEffective;
         _chart.YMin = snapshot.YMin;
@@ -774,26 +726,23 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         _suppressRange = true;
         try
         {
-            var time = _xAxisMode == DisplayXAxisMode.Time && _rate > 0;
-            var maximum = time ? Math.Max(1e-6, _latestIndex / _rate) : Math.Max(1, _latestIndex);
-            if (time)
-            {
-                maximum = Math.Max(maximum, snapshot.XRangeEnd / _rate);
-            }
-            else
-            {
-                maximum = Math.Max(maximum, snapshot.XRangeEnd);
-            }
+            var usesTime = DisplayAxisUnits.UsesTime(_xAxisMode, _rate);
+            var maximum = usesTime
+                ? Math.Max(1e-6, DisplayAxisUnits.SamplesToAxis(_latestIndex, _xAxisMode, _rate))
+                : Math.Max(1, _latestIndex);
+            maximum = Math.Max(
+                maximum,
+                DisplayAxisUnits.SamplesToAxis(snapshot.XRangeEnd, _xAxisMode, _rate));
 
             _range.Minimum = 0;
             _range.Maximum = maximum;
-            _range.MinimumRangeSpan = time ? 2 / _rate : 2;
+            _range.MinimumRangeSpan = usesTime ? 2 / _rate : 2;
             _range.TickStep = _xTickEffective;
-            _range.XAxisKind = time ? ChartAxisKind.Time : ChartAxisKind.Index;
+            _range.XAxisKind = usesTime ? ChartAxisKind.Time : ChartAxisKind.Index;
             _range.ShowTicks = true;
             _range.ShowTickLabels = true;
-            _range.RangeStart = time ? snapshot.XRangeStart / _rate : snapshot.XRangeStart;
-            _range.RangeEnd = time ? snapshot.XRangeEnd / _rate : snapshot.XRangeEnd;
+            _range.RangeStart = DisplayAxisUnits.SamplesToAxis(snapshot.XRangeStart, _xAxisMode, _rate);
+            _range.RangeEnd = DisplayAxisUnits.SamplesToAxis(snapshot.XRangeEnd, _xAxisMode, _rate);
         }
         finally
         {
@@ -877,15 +826,21 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             return;
         }
 
-        var time = _xAxisMode == DisplayXAxisMode.Time && _rate > 0;
-        var start = time ? (long)Math.Round(_range.RangeStart * _rate) : (long)Math.Round(_range.RangeStart);
-        var end = time ? (long)Math.Round(_range.RangeEnd * _rate) : (long)Math.Round(_range.RangeEnd);
+        var start = DisplayAxisUnits.AxisToSamples(_range.RangeStart, _xAxisMode, _rate);
+        var end = DisplayAxisUnits.AxisToSamples(_range.RangeEnd, _xAxisMode, _rate);
         if (end < start)
         {
             (start, end) = (end, start);
         }
 
-        SubmitAction(new { op = "setRange", start, end });
+        // 意图由选择器给出：拖左端才是"只改宽度"，其余手势都是移动范围。
+        SubmitAction(new
+        {
+            op = "setRange",
+            start,
+            end,
+            startOnly = _range.LastChangeKind == RangeChangeKind.Start,
+        });
     }
 
     private void OnAxisModeSelected(object? sender, EventArgs e)
@@ -1073,15 +1028,8 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         input.Text = text;
     }
 
-    private string FormatX(long sample)
-    {
-        if (_xAxisMode == DisplayXAxisMode.Time && _rate > 0)
-        {
-            return (sample / _rate).ToString("0.######", CultureInfo.InvariantCulture);
-        }
-
-        return sample.ToString(CultureInfo.InvariantCulture);
-    }
+    private string FormatX(long sample) =>
+        DisplayAxisUnits.FormatSamples(sample, _xAxisMode, _rate);
 
     private static string Format(double value) =>
         value.ToString("0.######", CultureInfo.InvariantCulture);
@@ -1205,13 +1153,13 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         uint GroupId,
         Border Header,
         TextBox Name,
-        TextBlock IdText,
-        TextBlock Count,
-        TextBlock Rate,
-        TextBlock Chevron,
+        ModuleLabel IdText,
+        ModuleLabel Count,
+        ModuleLabel Rate,
+        ModuleLabel Chevron,
         Border Body)
     {
-        public TextBlock Id => IdText;
+        public ModuleLabel Id => IdText;
     }
 
     private sealed record ChannelRowVisual(
@@ -1219,7 +1167,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         Grid Row,
         Button ColorButton,
         TextBox Name,
-        TextBlock Readout,
+        ModuleLabel Readout,
         ToggleButton Hide,
         ToggleButton Fit);
 }

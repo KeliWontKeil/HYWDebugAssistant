@@ -2,7 +2,9 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.LogicalTree;
 using Avalonia.Markup.Xaml.Styling;
+using Avalonia.Media;
 using Avalonia.Styling;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
@@ -55,6 +57,7 @@ public class ModuleView : UserControl
         }
     }
 
+    private PreviewBoundsOverlay? _previewOverlay;
     private double _initialWidth;
     private double _initialHeight;
 
@@ -102,8 +105,12 @@ public class ModuleView : UserControl
         return false;
     }
 
-    /// <summary>当前进程是否处于**设计/预览环境**（控件的"预览占位框"据此显示）。</summary>
-    internal static bool IsDesignEnvironment => Design.IsDesignMode || IsPreviewHost;
+    /// <summary>当前进程是否处于**设计/预览环境**（预览范围框与预览值据此显示）。</summary>
+    /// <remarks>
+    /// 模块视图与控件都只认这一个判定；不要在别处再写 `Design.IsDesignMode || IsPreviewHost`，
+    /// 否则预览行为会随入口分叉。
+    /// </remarks>
+    public static bool IsDesignEnvironment => Design.IsDesignMode || IsPreviewHost;
 
     private static readonly Uri ControlsThemeUri =
         new("avares://HYWDebugAssistant.Sdk.Ui/Themes/Controls.axaml");
@@ -155,8 +162,119 @@ public class ModuleView : UserControl
                     DataContext = new DesignModuleViewContext(configType, GetType().Assembly);
                 }
             }
+
+            // 预览范围框只在设计环境附加；运行期连遍历都不发生。
+            AttachedToVisualTree += (_, _) => AttachPreviewOverlay();
+            DetachedFromVisualTree += (_, _) => DetachPreviewOverlay();
         }
     }
+
+    /// <summary>
+    /// 在预览环境把视图内容包进一层 Panel，并在其上叠一个只画范围框的覆盖层。
+    /// </summary>
+    /// <remarks>
+    /// 不依赖窗口的 AdornerLayer：不同预览宿主是否提供该层并不稳定；这里把覆盖层放在
+    /// 视图自身的可视树里，位置与截图都只由模块视图决定。
+    /// </remarks>
+    private void AttachPreviewOverlay()
+    {
+        if (_previewOverlay is not null || !IsDesignEnvironment)
+        {
+            return;
+        }
+
+        if (Content is not Control content)
+        {
+            return;
+        }
+
+        var targets = new List<Control>();
+        AddPreviewTarget(content, targets);
+
+        foreach (var descendant in content.GetLogicalDescendants().OfType<Control>())
+        {
+            AddPreviewTarget(descendant, targets);
+        }
+
+        if (targets.Count == 0)
+        {
+            return;
+        }
+
+        var panel = new Panel
+        {
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch,
+        };
+
+        Content = null;
+        panel.Children.Add(content);
+
+        _previewOverlay = new PreviewBoundsOverlay(targets);
+        panel.Children.Add(_previewOverlay);
+        Content = panel;
+    }
+
+    /// <summary>把一个控件加入预览框目标（标签、读数与不可见的布局容器）。</summary>
+    /// <param name="control">候选控件。</param>
+    /// <param name="targets">目标表。</param>
+    private static void AddPreviewTarget(Control control, List<Control> targets)
+    {
+        if (!PreviewBounds.GetShow(control) || control is PreviewBoundsOverlay)
+        {
+            return;
+        }
+
+        if (control is ModuleLabel or ModuleNumeric)
+        {
+            targets.Add(control);
+            return;
+        }
+
+        // 自带边框的输入控件已经有可见轮廓，不重复叠加。
+        if (control is ModuleElement)
+        {
+            return;
+        }
+
+        if (control is Panel panel && IsInvisible(panel.Background))
+        {
+            targets.Add(control);
+            return;
+        }
+
+        if (control is Border border
+            && border.BorderThickness == default
+            && IsInvisible(border.Background))
+        {
+            targets.Add(control);
+        }
+    }
+
+    /// <summary>移除预览覆盖层并把内容还原为原来的根。</summary>
+    private void DetachPreviewOverlay()
+    {
+        if (_previewOverlay is null)
+        {
+            return;
+        }
+
+        if (Content is Panel panel)
+        {
+            panel.Children.Remove(_previewOverlay);
+
+            if (panel.Children.Count == 1 && panel.Children[0] is Control original)
+            {
+                panel.Children.Remove(original);
+                Content = original;
+            }
+        }
+
+        _previewOverlay = null;
+    }
+
+    private static bool IsInvisible(IBrush? brush) =>
+        brush is null || brush is ISolidColorBrush { Color.A: 0 };
 
     /// <summary>当前应用是否已经挂了控件库主题（避免模块视图在运行时重复挂一套样式）。</summary>
     private static bool HasControlsTheme()

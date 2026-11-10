@@ -52,5 +52,6 @@ internal static class WaveformGeneratorText
     public const string Sine = "waveform.sine";
     public const string Square = "waveform.square";
     public const string Triangle = "waveform.triangle";
+    public const string Saddle = "waveform.saddle";
     public const string Noise = "waveform.noise";
 }

@@ -14,7 +14,7 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 /// <para>
 /// 运行时的 <see cref="IModuleViewContext"/> 由宿主提供，字段来自组合件里的配置 Schema；
 /// 预览器不启动运行时，拿不到这个上下文。于是 <see cref="ModuleView"/> 在设计环境
-/// （<see cref="Design.IsDesignMode"/> 或 <see cref="ModuleView.IsPreviewHost"/>）挂一个本类实例：
+/// （<see cref="ModuleView.IsDesignEnvironment"/>）挂一个本类实例：
 /// 字段类型与可选项从配置类型自己的标注读；标题 / 说明 / 分组 / 枚举选项的文本从
 /// **声明该接入的模块**的表读——和运行时是同一份元数据与同一张表，只是值用默认实例。
 /// </para>
@@ -24,9 +24,6 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 /// </remarks>
 public sealed class DesignModuleViewContext : IModuleViewContext
 {
-    /// <summary>设计时的样例数字（让读数/占位在预览里有墨；不参与任何业务）。</summary>
-    private const double SampleNumber = 1234;
-
     private readonly Type _configType;
     private readonly Assembly _textOwner;
     private readonly object? _config;
@@ -63,20 +60,17 @@ public sealed class DesignModuleViewContext : IModuleViewContext
     public string MultilineSubmitKey => "CtrlEnter";
 
     /// <inheritdoc />
-    public double? ReadLatest(string source) =>
-        source is "latestIndex" or "rate" or "historyUsed"
-            ? 0
-            : SampleNumber;
+    /// <remarks>预览值由视图在 XAML 里声明；设计上下文不再伪造数据。</remarks>
+    public double? ReadLatest(string source) => null;
 
     /// <inheritdoc />
-    public IReadOnlyList<double> ReadSeries(string source) => [SampleNumber];
+    public IReadOnlyList<double> ReadSeries(string source) => [];
 
     /// <inheritdoc />
-    public SeriesWindowSnapshot? ReadSeriesWindow(string source) =>
-        new(0, 0, 255, 0, 0, -1, 1, true, []);
+    public SeriesWindowSnapshot? ReadSeriesWindow(string source) => null;
 
     /// <inheritdoc />
-    public TextBufferSnapshot ReadText(string source) => new([SampleText], 0, 20000);
+    public TextBufferSnapshot ReadText(string source) => TextBufferSnapshot.Empty;
 
     /// <inheritdoc />
     public long ReadTextRevision(string source) => 0;
@@ -186,12 +180,6 @@ public sealed class DesignModuleViewContext : IModuleViewContext
             description,
             group);
     }
-
-    /// <summary>设计时的样例文本（预览里让标签有墨；表不在设计环境可用时为空，由占位框兜住）。</summary>
-    private static string SampleText =>
-        TextCatalog.TryGet(typeof(DesignModuleViewContext).Assembly, "design.sampleText", out var text)
-            ? text
-            : string.Empty;
 
     /// <summary>读属性当前值的文本形态（配置实例构造失败 ⇒ 空串）。</summary>
     private string ReadValue(PropertyInfo property)

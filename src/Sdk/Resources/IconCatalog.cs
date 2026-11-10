@@ -23,7 +23,16 @@ public sealed record IconAsset(
     IReadOnlyList<string> PathData,
     double ViewBoxWidth,
     double ViewBoxHeight,
-    bool EvenOdd);
+    bool EvenOdd)
+{
+    /// <summary>
+    /// 是否**线条图标**：所有可用路径的有效填充都是 `none`。
+    /// </summary>
+    /// <remarks>
+    /// 线条图标由界面层只描边、不填充；混合填充/描边的文件仍按填充图标处理。
+    /// </remarks>
+    public bool StrokeOnly { get; init; }
+}
 
 /// <summary>
 /// **界面图标表**：每个拥有者一份 `icons.json`（键 → 相对路径的 `.svg`），
@@ -381,6 +390,7 @@ public static class IconCatalog
         var (width, height) = ReadViewBox(root);
         var paths = new List<string>();
         var evenOdd = false;
+        var strokeOnly = true;
         var unsupported = new List<string>();
 
         foreach (var element in root.Descendants())
@@ -406,6 +416,13 @@ public static class IconCatalog
                     evenOdd = true;
                 }
 
+                // 有效填充按 path 自身 → 祖先继承；全部 none 才是线条图标。
+                var fill = EffectiveFill(element);
+                if (!string.Equals(fill, "none", StringComparison.OrdinalIgnoreCase))
+                {
+                    strokeOnly = false;
+                }
+
                 paths.Add(data);
             }
             else if (name is "use" or "script" or "image" or "text" or "foreignObject")
@@ -420,7 +437,10 @@ public static class IconCatalog
             return false;
         }
 
-        asset = new IconAsset(paths, width, height, evenOdd);
+        asset = new IconAsset(paths, width, height, evenOdd)
+        {
+            StrokeOnly = strokeOnly,
+        };
 
         if (unsupported.Count > 0)
         {
@@ -429,6 +449,21 @@ public static class IconCatalog
         }
 
         return true;
+    }
+
+    /// <summary>求某个 path 的有效填充：自身 `fill` 优先，缺省时沿祖先继承。</summary>
+    /// <param name="element">路径元素。</param>
+    private static string? EffectiveFill(XElement element)
+    {
+        for (var current = element; current is not null; current = current.Parent)
+        {
+            if (current.Attribute("fill") is { Value: var value })
+            {
+                return value;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>读 `viewBox`（四段）；缺失/坏值退回 `width`/`height`，再退回 20×20。</summary>

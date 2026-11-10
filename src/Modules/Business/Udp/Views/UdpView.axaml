@@ -44,19 +44,20 @@
     <ui:ModuleLabel Canvas.Left="172" Canvas.Top="60" Width="36" Height="20"
                     Classes="caption right" Text="{loc:Tr view.rx}" />
     <ui:ModuleNumeric Canvas.Left="210" Canvas.Top="60" Width="54" Height="20"
-                      Source="{x:Static views:UdpViewKeys.RxCount}" Quantity="Bytes" />
+                      Source="{x:Static views:UdpViewKeys.RxCount}" Quantity="Bytes" Text="0 B" />
 
     <ui:ModuleLabel Canvas.Left="266" Canvas.Top="60" Width="36" Height="20"
                     Classes="caption right" Text="{loc:Tr view.tx}" />
     <ui:ModuleNumeric Canvas.Left="304" Canvas.Top="60" Width="54" Height="20"
-                      Source="{x:Static views:UdpViewKeys.TxCount}" Quantity="Bytes" />
+                      Source="{x:Static views:UdpViewKeys.TxCount}" Quantity="Bytes" Text="0 B" />
 
     <ui:ModuleLabel Canvas.Left="172" Canvas.Top="85" Width="36" Height="20"
                     Classes="caption right" Text="{loc:Tr view.drop}" />
     <ui:ModuleNumeric Canvas.Left="210" Canvas.Top="85" Width="54" Height="20"
-                      Source="{x:Static views:UdpViewKeys.DropCount}" Quantity="Bytes" />
+                      Source="{x:Static views:UdpViewKeys.DropCount}" Quantity="Bytes" Text="0 B" />
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="108" Width="358" Height="14"
+                    Text="{loc:Tr status.idle}"
                     Source="{x:Static views:UdpViewKeys.State}" />
 
     <ui:ModuleLabel Canvas.Left="172" Canvas.Top="34" Width="56" Height="24"

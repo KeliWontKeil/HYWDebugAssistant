@@ -39,6 +39,12 @@ public enum TextSurfaceMode
 /// **失焦不提交**：编辑内容逐键写进视图状态，失焦只是"编辑结束"；提交只由 Enter（单行）/
 /// Ctrl+Enter（多行）或显式 <see cref="Commit"/> 触发 —— 否则"填完点别处"会变成一次发送。
 /// </para>
+/// <para>
+/// **程序写入 ≠ 用户编辑**：给 <see cref="Text"/> 赋值（视图刷新/模块回写）只更新叶子显示，
+/// 不写视图状态；只有用户真的改字才写 `ViewState`。Avalonia 12 的 `TextBox.TextChanged`
+/// 由 `Dispatcher.Post` **异步投递**，一次性抑制标志盖不住它 —— 程序写入后本面已知文本
+/// 已经前移，迟到的回调读到相同文本即可判定不是用户编辑。
+/// </para>
 /// </remarks>
 public sealed class ModuleTextSurface : ModuleElement
 {
@@ -56,8 +62,8 @@ public sealed class ModuleTextSurface : ModuleElement
     private bool _appearanceReadOnly;
     private bool _multiline;
     private bool _showNewlineMarks = true;
-    private bool _syncing;
     private bool _restored;
+    private bool _userEdited;
     private bool _followTail;
     private string _textValue = string.Empty;
     private string _unmarkedKey = string.Empty;
@@ -399,9 +405,7 @@ public sealed class ModuleTextSurface : ModuleElement
 
         if (_input is not null && !string.Equals(_input.Text, _textValue, StringComparison.Ordinal))
         {
-            _syncing = true;
             _input.Text = _textValue;
-            _syncing = false;
         }
     }
 
@@ -423,9 +427,7 @@ public sealed class ModuleTextSurface : ModuleElement
         }
         else if (_input is not null && !string.Equals(_input.Text, text, StringComparison.Ordinal))
         {
-            _syncing = true;
             _input.Text = text;
-            _syncing = false;
         }
 
         SetUnmarked(unmarked);
@@ -453,13 +455,22 @@ public sealed class ModuleTextSurface : ModuleElement
 
     private void OnInputTextChanged(object? sender, TextChangedEventArgs e)
     {
-        if (_syncing || _context is null || Source.Length == 0 || _mode != TextSurfaceMode.Input || IsReadOnlyEffective)
+        if (_context is null || Source.Length == 0 || _mode != TextSurfaceMode.Input || IsReadOnlyEffective)
         {
             return;
         }
 
-        _textValue = _input?.Text ?? string.Empty;
-        _context.WriteInputText(Source, _textValue);
+        var text = _input?.Text ?? string.Empty;
+        if (string.Equals(text, _textValue, StringComparison.Ordinal))
+        {
+            // Avalonia 12 的 TextChanged 走 `Dispatcher.Post`，程序写入的回调在抑制窗口之后才到。
+            // 本面已知文本已由 SetSurfaceText/SyncActiveText 前移：相同 ⇒ 这是程序回显，不是用户编辑。
+            return;
+        }
+
+        _textValue = text;
+        _userEdited = true;
+        _context.WriteInputText(Source, text);
     }
 
     private void OnInputLostFocus(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -530,14 +541,16 @@ public sealed class ModuleTextSurface : ModuleElement
 
         _restored = true;
 
-        if (!DeclaredReadOnly && _input?.Text is { Length: > 0 })
+        // 用户真的改过字 ⇒ 本地意图优先，不被视图状态倒灌。
+        if (_userEdited)
         {
             return;
         }
 
+        // 运行期状态（包括显式空串）覆盖 XAML 的初始/预览值；没有状态才保留声明值。
         var text = _context.ReadInputText(Source);
 
-        if (string.IsNullOrEmpty(text))
+        if (text is null)
         {
             return;
         }

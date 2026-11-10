@@ -29,8 +29,10 @@
     <Canvas Grid.Row="2" Height="52" ClipToBounds="True">
       <ui:ModuleButton Canvas.Left="0" Canvas.Top="4" Width="64" Height="27"
                        CommandName="{x:Static views:HexSenderViewKeys.Send}" Content="{loc:Tr view.send}" />
-      <ui:ModuleToggle Canvas.Left="82" Canvas.Top="5" Width="100" Height="24"
-                       Source="{x:Static views:HexSenderViewKeys.Continuous}" Text="{loc:Tr view.continuous}" />
+      <ui:ModuleToggle Canvas.Left="82" Canvas.Top="5" Width="36" Height="24"
+                       Source="{x:Static views:HexSenderViewKeys.Continuous}" />
+      <ui:ModuleLabel Canvas.Left="122" Canvas.Top="5" Width="52" Height="24" Classes="caption"
+                      VerticalAlignment="Center" Text="{loc:Tr view.continuous}" />
 
       <!-- 间隔：输入框一条矩形，单位 `ms` 是紧挨着的普通标签。 -->
       <ui:ModuleTextSurface Canvas.Left="190" Canvas.Top="4" Width="48" Height="24" Mode="Input"
@@ -39,6 +41,7 @@
                       Classes="caption" Text="{loc:Tr view.intervalUnit}" />
 
       <ui:ModuleLabel Canvas.Left="0" Canvas.Top="36" Width="358" Height="16"
+                      Text="{loc:Tr view.statusPreview}"
                       Source="{x:Static views:HexSenderViewKeys.Status}" />
 
       <!--
@@ -49,7 +52,7 @@
         <StackPanel Orientation="Horizontal" Spacing="2"
                     HorizontalAlignment="Right" VerticalAlignment="Center">
           <ui:ModuleLabel Classes="caption" Text="{loc:Tr view.sentTitle}" />
-          <ui:ModuleNumeric Source="{x:Static views:HexSenderViewKeys.Sent}" />
+          <ui:ModuleNumeric Source="{x:Static views:HexSenderViewKeys.Sent}" Text="0" />
           <ui:ModuleLabel Classes="caption" Text="{loc:Tr view.sentUnit}" />
         </StackPanel>
       </Grid>

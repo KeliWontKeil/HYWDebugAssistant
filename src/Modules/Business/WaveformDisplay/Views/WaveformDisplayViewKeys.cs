@@ -22,6 +22,8 @@ public static class WaveformDisplayViewKeys
     public const string FollowRange = WaveformDisplayModule.FollowRangeSource;
     public const string Cursors = WaveformDisplayModule.CursorsSource;
     public const string XAxisMode = WaveformDisplayModule.XAxisModeSource;
+    public const string UseCustomRate = WaveformDisplayModule.UseCustomRateSource;
+    public const string CustomRate = WaveformDisplayModule.CustomRateSource;
     public const string XTick = WaveformDisplayModule.XTickSource;
     public const string YTick = WaveformDisplayModule.YTickSource;
     public const string KeepInactive = WaveformDisplayModule.KeepInactiveSource;

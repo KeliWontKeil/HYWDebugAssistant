@@ -13,33 +13,6 @@
   -->
   <Styles.Resources>
 
-    <ControlTheme x:Key="{x:Type ui:ModuleLabel}" TargetType="ui:ModuleLabel">
-      <Setter Property="Template">
-        <ControlTemplate>
-          <!-- 透明底：整个矩形都能命中，悬停提示才不用"指到字上"才出来。 -->
-          <Panel Background="Transparent">
-            <!-- 预览专用：空/透明的标签也要有个框，否则没法在预览器里排版（产品运行不显示）。 -->
-            <Rectangle Name="PART_Placeholder" Margin="0.5" StrokeDashArray="2,2"
-                       StrokeThickness="1" Stroke="{DynamicResource TextMuted}" IsVisible="False" />
-            <TextBlock Name="PART_Text" VerticalAlignment="Center" />
-          </Panel>
-        </ControlTemplate>
-      </Setter>
-    </ControlTheme>
-
-    <ControlTheme x:Key="{x:Type ui:ModuleNumeric}" TargetType="ui:ModuleNumeric">
-      <Setter Property="Template">
-        <ControlTemplate>
-          <Panel>
-            <!-- 预览专用：没有值的读数也要有个框（产品运行不显示）。 -->
-            <Rectangle Name="PART_Placeholder" Margin="0.5" StrokeDashArray="2,2"
-                       StrokeThickness="1" Stroke="{DynamicResource TextMuted}" IsVisible="False" />
-            <TextBlock Name="PART_Value" Classes="module-value" VerticalAlignment="Center" />
-          </Panel>
-        </ControlTemplate>
-      </Setter>
-    </ControlTheme>
-
     <ControlTheme x:Key="{x:Type ui:ModuleStatusLight}" TargetType="ui:ModuleStatusLight">
       <Setter Property="Template">
         <ControlTemplate>
@@ -64,6 +37,11 @@
                 <Path Name="PART_Path" Fill="{TemplateBinding Foreground}"
                       Stroke="{TemplateBinding Foreground}" StrokeThickness="1"
                       IsHitTestVisible="False" />
+                <!-- 线条图标：只描边、不填充；线宽由控件统一，不读 SVG 的 stroke-width。 -->
+                <Path Name="PART_StrokePath" Fill="{x:Null}"
+                      Stroke="{TemplateBinding Foreground}" StrokeThickness="1.8"
+                      StrokeLineCap="Round" StrokeJoin="Round"
+                      IsVisible="False" IsHitTestVisible="False" />
               </Canvas>
             </Viewbox>
             <TextBlock Name="PART_Fallback"
@@ -114,7 +92,8 @@
     <ControlTheme x:Key="{x:Type ui:ModuleToggle}" TargetType="ui:ModuleToggle">
       <Setter Property="Template">
         <ControlTemplate>
-          <Grid ColumnDefinitions="Auto,*" VerticalAlignment="Center">
+          <!-- 开关只有轨道与圆钮：文字是旁边的独立 ModuleLabel，不再长在控件里。 -->
+          <Grid VerticalAlignment="Center" HorizontalAlignment="Left">
             <Border Name="PART_Track" Width="36" Height="18" CornerRadius="9"
                     Background="{DynamicResource SurfaceToggleTrackOffBrush}"
                     BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
@@ -124,10 +103,6 @@
                       BorderBrush="{DynamicResource SurfaceToggleKnobEdgeBrush}" BorderThickness="1"
                       HorizontalAlignment="Left" VerticalAlignment="Center" Margin="2,0,2,0" />
             </Border>
-            <TextBlock Grid.Column="1" Text="{TemplateBinding Text}"
-                       Foreground="{TemplateBinding Foreground}"
-                       FontSize="{TemplateBinding FontSize}"
-                       Margin="6,0,0,0" VerticalAlignment="Center" />
           </Grid>
         </ControlTemplate>
       </Setter>
@@ -233,12 +208,8 @@
     </ControlTheme>
   </Styles.Resources>
 
-  <Style Selector="ui|ModuleLabel">
-    <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleLabel}}" />
-  </Style>
-
-  <Style Selector="ui|ModuleNumeric">
-    <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleNumeric}}" />
+  <Style Selector="ScrollViewer">
+    <Setter Property="ui:WheelScroll.HorizontalFallback" Value="True" />
   </Style>
 
   <Style Selector="ui|ModuleStatusLight">
@@ -360,31 +331,41 @@
 
   <!--
     **标签只有一套排印**：字号/墨色/省略号都在这里；视图用类选档位，不自己写字号。
-    默认档 = 事实/状态（正文墨）；`caption` = 标题类（次级墨）；`hint` = 说明（更小、更弱）。
-    文本一律单行、超宽省略号（装不下要让眼睛看得见，而不是被硬切一半）。
+    默认档 = 事实/状态（正文墨）；`caption` = 标题类（次级墨）；`hint` = 说明（更小、更弱）；
+    `micro` = 更紧凑的辅助读数；`right` = 在自己的矩形里右对齐；`wrap` = 显式换行（默认单行省略）。
   -->
-  <Style Selector="ui|ModuleLabel /template/ TextBlock">
+  <Style Selector="ui|ModuleLabel">
     <Setter Property="FontSize" Value="11" />
     <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
     <Setter Property="TextWrapping" Value="NoWrap" />
     <Setter Property="TextTrimming" Value="CharacterEllipsis" />
   </Style>
 
-  <Style Selector="ui|ModuleLabel.caption /template/ TextBlock">
+  <Style Selector="ui|ModuleLabel.caption">
     <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
   </Style>
 
-  <Style Selector="ui|ModuleLabel.hint /template/ TextBlock">
+  <Style Selector="ui|ModuleLabel.hint">
     <Setter Property="FontSize" Value="10" />
     <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
   </Style>
 
-  <!-- 读数标签在组内贴住值：右对齐，右缘就是它自己的矩形右缘（值紧接着开始）。 -->
-  <Style Selector="ui|ModuleLabel.right /template/ TextBlock">
-    <Setter Property="HorizontalAlignment" Value="Right" />
+  <Style Selector="ui|ModuleLabel.micro">
+    <Setter Property="FontSize" Value="9" />
+    <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
   </Style>
 
-  <Style Selector="TextBlock.module-value">
+  <!-- 读数标签在组内贴住值：在自己的矩形里右对齐，右缘不动。 -->
+  <Style Selector="ui|ModuleLabel.right">
+    <Setter Property="TextAlignment" Value="Right" />
+  </Style>
+
+  <Style Selector="ui|ModuleLabel.wrap">
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="TextTrimming" Value="None" />
+  </Style>
+
+  <Style Selector="ui|ModuleNumeric">
     <Setter Property="FontSize" Value="11" />
     <Setter Property="FontFamily" Value="{DynamicResource FontData}" />
     <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
@@ -602,8 +583,12 @@
     <Setter Property="TickLabelBrush" Value="{DynamicResource TextPrimary}" />
   </Style>
 
-  <!-- 通用下拉：紧凑行高，与模块字段一致；不重造 ComboBox 模板。 -->
-  <Style Selector="ui|ModuleSelect">
+  <!--
+    通用下拉：紧凑行高，与模块字段一致；不重造 ComboBox 模板。
+    `ModuleSelect` 的 `StyleKey` 是 `ComboBox`，所以这里必须按 `ComboBox.module-select` 选；
+    若写成 `ui|ModuleSelect`，选择器不会命中，全局 ComboBox 的 MinHeight 会悄悄变成高度下限。
+  -->
+  <Style Selector="ComboBox.module-select">
     <Setter Property="Height" Value="24" />
     <Setter Property="MinHeight" Value="0" />
     <Setter Property="FontSize" Value="11" />

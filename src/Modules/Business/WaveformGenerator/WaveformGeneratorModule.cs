@@ -142,6 +142,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
     private bool _configLoaded;
     private bool _sending;
     private bool _continuous;
+    private bool? _lastSendEnabled;
     private bool _limited;
     private long _revision;
     private long _structureRevision;
@@ -375,6 +376,22 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
                 channels.RemoveRange(GeneratorConfig.MaxChannels, channels.Count - GeneratorConfig.MaxChannels);
             }
 
+            var legacyResolution = 0;
+            foreach (var channel in channels)
+            {
+                if (channel.LegacyResolution is >= 2 and <= 4096
+                    && channel.LegacyResolution > legacyResolution)
+                {
+                    legacyResolution = channel.LegacyResolution.Value;
+                }
+            }
+
+            var resolution = legacyResolution > 0
+                ? legacyResolution
+                : group.Resolution is >= 2 and <= 4096
+                    ? group.Resolution
+                    : 100;
+
             for (var channelIndex = 0; channelIndex < channels.Count; channelIndex++)
             {
                 var channel = channels[channelIndex];
@@ -401,6 +418,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
                     CarrierFrequencyHz = carrier,
                     ModulationIndex = modulation,
                     CarrierPhaseDegrees = carrierPhase,
+                    LegacyResolution = null,
                 };
             }
 
@@ -439,6 +457,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
                 GroupId = id,
                 Name = groupName,
                 FrequencyHz = frequency,
+                Resolution = resolution,
                 Channels = channels,
             };
         }
@@ -720,7 +739,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
                 if (int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var resolution)
                     && resolution is >= 2 and <= 4096)
                 {
-                    UpdateSelectedChannel(context, channel => channel with { Resolution = resolution });
+                    UpdateSelectedGroup(context, group => group with { Resolution = resolution });
                 }
                 else
                 {
@@ -1225,16 +1244,18 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
                 continue;
             }
 
+            if (group.Resolution is < 2 or > 4096
+                || !double.IsFinite(group.FrequencyHz)
+                || group.FrequencyHz <= 0)
+            {
+                PublishStatus(Tr(WaveformGeneratorText.Invalid));
+                return false;
+            }
+
             var rate = WaveformMath.GroupRate(group);
             if (rate <= 0)
             {
                 continue;
-            }
-
-            if (!double.IsFinite(group.FrequencyHz) || group.FrequencyHz <= 0)
-            {
-                PublishStatus(Tr(WaveformGeneratorText.Invalid));
-                return false;
             }
 
             if (rate > GeneratorConfig.MaxGroupRateHz)
@@ -1250,8 +1271,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
                     continue;
                 }
 
-                if (channel.Resolution is < 2 or > 4096
-                    || !double.IsFinite(channel.CarrierFrequencyHz)
+                if (!double.IsFinite(channel.CarrierFrequencyHz)
                     || channel.CarrierFrequencyHz <= 0
                     || !IsModulationIndexValid(channel.Kind, channel.ModulationIndex))
                 {
@@ -1309,6 +1329,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         _sending = true;
         _continuous = continuous;
         _limited = batch > 1;
+        PublishSendControls(context);
         SyncTimers(context);
         PublishBool(context, ContinuousSource, continuous);
         SetInput(context, ContinuousSource, continuous ? "true" : "false");
@@ -1323,6 +1344,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
     {
         _sending = false;
         _continuous = false;
+        PublishSendControls(context);
         StopAllTimers();
         PublishBool(context, ContinuousSource, false);
         SetInput(context, ContinuousSource, "false");
@@ -1538,6 +1560,22 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         PublishBool(context, GroupEnabledSource, SelectedGroup.Enabled);
         SetInput(context, ContinuousSource, _continuous ? "true" : "false");
         SetInput(context, GroupEnabledSource, SelectedGroup.Enabled ? "true" : "false");
+        PublishSendControls(context);
+    }
+
+    /// <summary>发送命令闸门：空闲可发送、发送中只可停止；值不变不重写外观表。</summary>
+    private void PublishSendControls(IModuleContext context)
+    {
+        var canStart = !_sending;
+        if (_lastSendEnabled == canStart)
+        {
+            return;
+        }
+
+        _lastSendEnabled = canStart;
+        context.Appearance.SetEnabled(StartContinuousCommand, canStart);
+        context.Appearance.SetEnabled(SendOnceCommand, canStart);
+        context.Appearance.SetEnabled(StopCommand, !canStart);
     }
 
     private void PublishFields(IModuleContext context)
@@ -1548,6 +1586,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         PublishText(context, GroupIdSource, group.GroupId.ToString(CultureInfo.InvariantCulture));
         PublishText(context, FrequencySource, Format(group.FrequencyHz));
         PublishText(context, PeriodSource, Format(group.FrequencyHz > 0 ? 1 / group.FrequencyHz : 0));
+        PublishText(context, ResolutionSource, group.Resolution.ToString(CultureInfo.InvariantCulture));
         PublishText(context, OneShotPeriodsSource, _config.OneShotPeriods.ToString(CultureInfo.InvariantCulture));
 
         if (channel is null)
@@ -1560,7 +1599,6 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         PublishText(context, PhaseSource, Format(channel.PhaseDegrees));
         PublishText(context, OffsetSource, Format(channel.Offset));
         PublishText(context, AmplitudeSource, Format(channel.Amplitude));
-        PublishText(context, ResolutionSource, channel.Resolution.ToString(CultureInfo.InvariantCulture));
         PublishText(context, DutySource, Format(channel.DutyCycle));
         PublishText(context, CarrierFrequencySource, Format(channel.CarrierFrequencyHz));
         PublishText(context, ModulationIndexSource, Format(channel.ModulationIndex));
@@ -1606,6 +1644,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
                 name = group.Name,
                 enabled = group.Enabled,
                 frequency = group.FrequencyHz,
+                resolution = group.Resolution,
                 rate = WaveformMath.GroupRate(group),
                 active = index == activeIndex,
                 channels = group.Channels.Select((channel, channelIndex) => new
@@ -1617,7 +1656,6 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
                     phase = channel.PhaseDegrees,
                     offset = channel.Offset,
                     amplitude = channel.Amplitude,
-                    resolution = channel.Resolution,
                     duty = channel.DutyCycle,
                     carrierFrequency = channel.CarrierFrequencyHz,
                     modulationIndex = channel.ModulationIndex,
@@ -1672,8 +1710,8 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
             return;
         }
 
-        // 组预览用统一点数，保证同一条 x 轴上的点一一对应；各通道仍按自己的周期采样。
-        var count = Math.Max(2, channels.Max(item => Math.Max(2, item.Channel.Resolution)) * 2);
+        // 组预览用统一点数：每周期点数属于组，所有通道共用同一分辨率。
+        var count = Math.Max(2, group.Resolution * 2);
         var min = double.PositiveInfinity;
         var max = double.NegativeInfinity;
         var previewChannels = new List<SeriesWindowChannel>(channels.Count);

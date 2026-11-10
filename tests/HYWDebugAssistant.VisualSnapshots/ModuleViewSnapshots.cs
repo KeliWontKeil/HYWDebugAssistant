@@ -86,16 +86,7 @@ public class ModuleViewSnapshots
                 var host = new ModuleViewHost(context, view);
 
                 // 截图窗口 = 视图声明的初始内容尺寸 + 同一份 chrome；真实窗口也按这一份初始尺寸。
-                var contentWidth = view is ModuleView moduleView && moduleView.InitialWidth > 0
-                    ? moduleView.InitialWidth
-                    : view.MinWidth > 0 ? view.MinWidth : 500;
-                var contentHeight = view is ModuleView moduleViewHeight && moduleViewHeight.InitialHeight > 0
-                    ? moduleViewHeight.InitialHeight
-                    : view.MinHeight > 0 ? view.MinHeight : 400;
-                var width = contentWidth + (2 * ModuleSurfaceMetrics.FrameBorder)
-                    + ModuleSurfaceMetrics.InsetLeft + ModuleSurfaceMetrics.InsetRight;
-                var height = contentHeight + (2 * ModuleSurfaceMetrics.FrameBorder)
-                    + ModuleSurfaceMetrics.InsetTop + ModuleSurfaceMetrics.InsetBottom;
+                var (width, height) = WindowSize(view);
 
                 var window = new Window
                 {
@@ -133,6 +124,80 @@ public class ModuleViewSnapshots
                 window.Close();
             },
             CancellationToken.None);
+    }
+
+    /// <summary>
+    /// 生成某模块的**无刷新预览**截图：模拟预览器，只实例化 XAML、不调用 Refresh。
+    /// 用来人眼复核预览初值、范围框与布局；不是判据。
+    /// </summary>
+    /// <param name="moduleType">模块入口类型。</param>
+    /// <param name="factoryType">视图工厂类型。</param>
+    /// <param name="configType">配置类型。</param>
+    [Theory]
+    [MemberData(nameof(Modules))]
+    public async Task 生成快照_模块视图预览(Type moduleType, Type factoryType, Type configType)
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var previous = ModuleView.IsPreviewHost;
+                ModuleView.IsPreviewHost = true;
+
+                try
+                {
+                    var probe = new TestModuleContext();
+                    var module = (IModule)Activator.CreateInstance(moduleType)!;
+                    module.OnRegistered(probe);
+
+                    var fields = BuildFields(configType, moduleType.Assembly);
+                    var context = new SnapshotContext(probe, fields);
+                    var factory = (IModuleViewFactory)Activator.CreateInstance(factoryType)!;
+                    var view = factory.Create(context);
+                    var host = new ModuleViewHost(context, view);
+                    var (width, height) = WindowSize(view);
+
+                    var window = new Window
+                    {
+                        Width = width,
+                        Height = height,
+                        Content = new Border
+                        {
+                            Margin = ModuleSurfaceMetrics.ContentMargin,
+                            Child = host,
+                        },
+                    };
+
+                    window.Show();
+                    SnapshotTool.Pump();
+
+                    // 故意不调用 host.Refresh()：模拟 Avalonia 预览器。
+                    var name = moduleType.Name.Replace("Module", string.Empty, StringComparison.Ordinal);
+                    SnapshotTool.Save(window, "modules/" + name + "-preview.png");
+                    window.Close();
+                }
+                finally
+                {
+                    ModuleView.IsPreviewHost = previous;
+                }
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>截图窗口尺寸 = 视图声明的初始内容尺寸 + 同一份 chrome。</summary>
+    private static (double Width, double Height) WindowSize(Control view)
+    {
+        var contentWidth = view is ModuleView moduleView && moduleView.InitialWidth > 0
+            ? moduleView.InitialWidth
+            : view.MinWidth > 0 ? view.MinWidth : 500;
+        var contentHeight = view is ModuleView moduleViewHeight && moduleViewHeight.InitialHeight > 0
+            ? moduleViewHeight.InitialHeight
+            : view.MinHeight > 0 ? view.MinHeight : 400;
+
+        return (
+            contentWidth + (2 * ModuleSurfaceMetrics.FrameBorder)
+                + ModuleSurfaceMetrics.InsetLeft + ModuleSurfaceMetrics.InsetRight,
+            contentHeight + (2 * ModuleSurfaceMetrics.FrameBorder)
+                + ModuleSurfaceMetrics.InsetTop + ModuleSurfaceMetrics.InsetBottom);
     }
 
     /// <summary>从配置类型推出“每个字段长什么样”的替身（标题取声明该接入的模块的表，与运行时同一份）。</summary>

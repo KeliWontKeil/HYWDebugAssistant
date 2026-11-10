@@ -42,15 +42,27 @@
 
   <!--
     ③ **滚动条**：钉 `Foreground` —— Fluent 的滚动条模板把拇指画在它上面。
-    同时让条**常驻**（模板缺省会自己淡出，于是"有没有得滚"要靠鼠标去试）；
-    这条只作用于还没被别处覆盖的滚动条（文本面自己那一条更具体，仍是它赢）。
+    **常驻且不展开**：`AllowAutoHide=False` 会让 `IsExpanded` 常真，Fluent 随即把 Thumb 的缩放去掉；
+    因此真正决定视觉宽度的是 `ScrollBarSize`（App token，已压到 4），不是缩放。
+    同时隐藏上下/翻页按钮与轨道底色，只留一条细拇指 —— 条不再盖住控件内容。
+    文本面不再单独覆盖：它和其它滚动条走同一条策略。
   -->
   <Style Selector="ScrollBar">
+    <Setter Property="AllowAutoHide" Value="False" />
     <Setter Property="Foreground" Value="{DynamicResource BorderStrong}" />
+    <Setter Property="Background" Value="Transparent" />
   </Style>
 
-  <Style Selector="TextBox /template/ ScrollBar">
-    <Setter Property="AllowAutoHide" Value="False" />
+  <Style Selector="ScrollBar /template/ RepeatButton">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+
+  <Style Selector="ScrollBar /template/ Rectangle#TrackRect">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+
+  <Style Selector="ScrollBar[IsExpanded=true] /template/ Grid#Root">
+    <Setter Property="Background" Value="Transparent" />
   </Style>
 
   <Style Selector="ListBoxItem">

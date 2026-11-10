@@ -86,23 +86,17 @@ public class ModuleSizingTests
     }
 
     [Fact]
-    public void 设计预览应返回与运行期空状态同形的空快照()
+    public void 设计预览不应伪造数据()
     {
         var context = new DesignModuleViewContext(
             typeof(SerialConfig),
             typeof(DesignModuleViewContext).Assembly);
 
-        var snapshot = context.ReadSeriesWindow("series");
-
-        snapshot.ShouldNotBeNull();
-        snapshot.XRangeStart.ShouldBe(0);
-        snapshot.XRangeEnd.ShouldBe(255);
-        snapshot.YMin.ShouldBe(-1);
-        snapshot.YMax.ShouldBe(1);
-        snapshot.YAuto.ShouldBeTrue();
-        snapshot.Channels.ShouldBeEmpty();
-        context.ReadLatest("latestIndex").ShouldBe(0);
-        context.ReadLatest("rate").ShouldBe(0);
+        // 预览值由视图在 XAML 里声明；设计上下文只提供字段元数据，不再造样例数据。
+        context.ReadSeriesWindow("series").ShouldBeNull();
+        context.ReadLatest("latestIndex").ShouldBeNull();
+        context.ReadLatest("rate").ShouldBeNull();
+        context.ReadText("status").Lines.ShouldBeEmpty();
     }
 
     private const double ChromeWidth =

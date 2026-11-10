@@ -49,7 +49,8 @@ public sealed class MyModule : IModule { /* … */ }
 - **结构常显，可选参数可隐藏**：组/通道/页签/动作等结构控件必须在 XAML 中常显；无选中项时用 `IsEnabled` 禁用。波形类型等“仅部分数据适用”的参数行允许运行期用 `IsVisible` 隐藏，但 XAML 默认必须全显，保证预览器不调用 `Refresh` 时仍能定位全部控件。不能把结构控件默认藏在 `IsVisible=False` 后面。
 - 需要隐藏/显示的行列参数块可以使用 `Grid`/`StackPanel`；固定结构控件仍用 `Canvas`，不要把整页改成自动排版。
 - 单位是普通标签（`ms`、`条`），不占用控件属性。
-- 颜色一律取主题 token 或角色词，不写死色值；排印档位用样式类 `caption` / `hint` / 默认。
+- 开关的文字是独立 `ModuleLabel`，统一放在轨道右侧；`ModuleToggle` 本身不再接受文字。
+- 颜色一律取主题 token 或角色词，不写死色值；排印档位用样式类 `caption` / `hint` / `micro` 或默认。
 - 需要用户选色时走 `IModuleViewContext.ColorPicker`（框架统一调色窗口），不要自建色板；首次数据自动分配色也只从它给的推荐色取一次。
 
 ## 文本
@@ -105,7 +106,9 @@ public partial class App : Application
 
 1. 先 `dotnet build` 一次，让预览器能加载程序集；
 2. 打开模块视图的 `.axaml`，在预览器右上角把目标选为 `MyModule.Preview`；
-3. 看到带样式的控件、样例读数与配置字段标题即为成功。
+3. 看到带样式的控件、预览值、范围框与配置字段标题即为成功。
+
+**预览显示什么由视图声明决定**：输入框/读数/开关/下拉的初始值直接写在控件的 `Text` / `IsChecked` / `SelectedKey` 上；标签与不可见容器由框架附加虚线范围框；配置字段显示配置默认值。运行期数据到达后覆盖这些声明值。不要为了预览在视图代码里写一套默认值，也不要在设计环境调用 `Refresh`。
 
 预览的边界：
 
@@ -115,9 +118,11 @@ public partial class App : Application
 | 文案显示成键名 | 预览器读不到文本表 | 工程里加上[项目与包布局](project-layout.md)中的 `Content` 项 |
 | 配置字段是空的 | 预览器没有运行时上下文 | 视图类上加 `[ModuleViewDesignData(typeof(预览配置类型))]` |
 | 参数控件在预览里消失 | XAML 默认 `IsVisible=False`，只靠运行时 `Refresh` 打开 | 预览器不调用 `Refresh`；结构控件常显，可选参数行 XAML 默认全显，运行期再按数据隐藏 |
-| 预览期出现布局外框、运行期消失 | 外框是设计期定位辅助，由 `Design.IsDesignMode` / `ModuleView.IsPreviewHost` 决定 | 正常；运行期隐藏且不参与布局、命中或 PNG 捕获 |
+| 预览期出现虚线范围框、运行期消失 | 范围框是设计期定位辅助，由 `ModuleView.IsDesignEnvironment` 决定 | 正常；运行期不创建、不参与布局、命中或 PNG 捕获 |
+| 某个装饰件只在预览期出现 | 使用了 `ui:PreviewOnly.IsEnabled="True"` | 正常；运行期自动隐藏 |
 | 命令按钮点了没反应 | 设计时上下文不执行命令 | 正常；命令只在产品里生效 |
-| 读数显示样例数字 | 设计时上下文给的固定样例 | 正常；真实数据只在运行期 |
+| 读数或输入框预览为空 | 视图没有在 XAML 里给预览值 | 在 `Text` / `IsChecked` / `SelectedKey` 等属性上写代表性初值；运行期数据到达后覆盖 |
+| 配置字段在预览里显示默认值 | 这是配置元数据的默认实例 | 正常；配置字段不在 XAML 重复默认值 |
 | 标准接入的字段画不出来 | 参数类型在框架侧，模块引用不到 | 写一个**预览镜像配置类型**（字段名与运行时一致、带配置标注），只给预览用 |
 
 ## 验证

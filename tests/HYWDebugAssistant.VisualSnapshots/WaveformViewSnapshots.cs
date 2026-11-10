@@ -74,7 +74,7 @@ public class WaveformViewSnapshots
             new WaveformDisplayViewFactory(),
             new DisplaySnapshotContext(),
             1002,
-            588,
+            628,
             "modules/waveform-display-preview.png");
 
     [Fact]
@@ -185,7 +185,7 @@ public class WaveformViewSnapshots
             new WaveformDisplayViewFactory(),
             new DisplaySnapshotContext(),
             1002,
-            588,
+            628,
             "modules/waveform-display.png");
 
     [Fact]
@@ -194,7 +194,7 @@ public class WaveformViewSnapshots
             new WaveformDisplayViewFactory(),
             new DisplaySnapshotContext(empty: true),
             1002,
-            588,
+            628,
             "modules/waveform-display-empty.png");
 
     [Fact]
@@ -205,7 +205,7 @@ public class WaveformViewSnapshots
             {
                 var view = new WaveformDisplayViewFactory().Create(new DisplaySnapshotContext());
                 Assert.Equal(960, Design.GetWidth(view));
-                Assert.Equal(540, Design.GetHeight(view));
+                Assert.Equal(580, Design.GetHeight(view));
             },
             CancellationToken.None);
     }
@@ -316,7 +316,7 @@ public class WaveformViewSnapshots
 
         public CommandOutcome UpdateField(string fieldName, string value) => CommandOutcome.Ok;
 
-        public ViewAppearance Appearance(string source) => ViewAppearance.None;
+        public virtual ViewAppearance Appearance(string source) => ViewAppearance.None;
 
         public string? ReadInputText(string source) => null;
 
@@ -344,19 +344,19 @@ public class WaveformViewSnapshots
             var activeChannel = groupSelected ? -1 : 0;
             _snapshot =
                 "{\"revision\":1,\"structureRevision\":1,\"groups\":["
-                + "{\"index\":0,\"id\":1,\"name\":\"G1\",\"enabled\":true,\"frequency\":10,\"rate\":1000,"
+                + "{\"index\":0,\"id\":1,\"name\":\"G1\",\"enabled\":true,\"frequency\":10,\"resolution\":100,\"rate\":1000,"
                 + "\"channels\":["
                 + "{\"index\":0,\"name\":\"CH1\",\"kind\":\""
                 + kind
                 + "\",\"enabled\":true,\"phase\":0,\"offset\":0,\"amplitude\":1,"
-                + "\"resolution\":100,\"duty\":0.5,\"carrierFrequency\":100,\"modulationIndex\":0.8,\"carrierPhase\":0},"
+                + "\"duty\":0.5,\"carrierFrequency\":100,\"modulationIndex\":0.8,\"carrierPhase\":0},"
                 + "{\"index\":1,\"name\":\"CH2\",\"kind\":\"square\",\"enabled\":true,"
-                + "\"phase\":0,\"offset\":0,\"amplitude\":0.5,\"resolution\":50,\"duty\":0.5,"
+                + "\"phase\":0,\"offset\":0,\"amplitude\":0.5,\"duty\":0.5,"
                 + "\"carrierFrequency\":100,\"modulationIndex\":0.8,\"carrierPhase\":0}]},"
-                + "{\"index\":1,\"id\":2,\"name\":\"G2\",\"enabled\":false,\"frequency\":5,\"rate\":500,"
+                + "{\"index\":1,\"id\":2,\"name\":\"G2\",\"enabled\":false,\"frequency\":5,\"resolution\":100,\"rate\":500,"
                 + "\"channels\":["
                 + "{\"index\":0,\"name\":\"CH1\",\"kind\":\"triangle\",\"enabled\":false,"
-                + "\"phase\":0,\"offset\":0,\"amplitude\":1,\"resolution\":100,\"duty\":0.5,"
+                + "\"phase\":0,\"offset\":0,\"amplitude\":1,\"duty\":0.5,"
                 + "\"carrierFrequency\":100,\"modulationIndex\":0.8,\"carrierPhase\":0}]}],"
                 + "\"activeGroupIndex\":0,\"activeChannelIndex\":" + activeChannel.ToString(System.Globalization.CultureInfo.InvariantCulture)
                 + ",\"oneShotPeriods\":5,\"estimatedFrames\":500,\"estimatedBytes\":140000,"
@@ -365,6 +365,11 @@ public class WaveformViewSnapshots
         }
 
         public override IModuleColorPicker? ColorPicker => WaveformViewSnapshots.ColorPicker;
+
+        public override ViewAppearance Appearance(string source) =>
+            string.Equals(source, WaveformGeneratorViewKeys.Stop, StringComparison.Ordinal)
+                ? new ViewAppearance { Enabled = false }
+                : base.Appearance(source);
 
         public override SeriesWindowSnapshot? ReadSeriesWindow(string source)
         {

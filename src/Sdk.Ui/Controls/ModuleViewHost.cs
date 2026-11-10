@@ -21,6 +21,23 @@ public interface IModuleViewElement
 }
 
 /// <summary>
+/// **模块元件对宿主的内部契约**：按源名取运行期外观，并把外观落到自己画得出来的那一块。
+/// </summary>
+/// <remarks>
+/// 它只服务 <see cref="ModuleViewHost"/>，不进入模块作者的公共面：文本元件已经改为
+/// <see cref="Avalonia.Controls.TextBlock"/> 派生，不能再共用 <see cref="ModuleElement"/> 基类，
+/// 但仍必须接受同一条外观通道。
+/// </remarks>
+internal interface IModuleElementInternal
+{
+    /// <summary>本元件绑定的名字（空 = 不承接外观）。</summary>
+    string Source { get; }
+
+    /// <summary>把模块设的外观落到本元件上。</summary>
+    void ApplyModuleAppearance(ViewAppearance appearance);
+}
+
+/// <summary>
 /// **模块界面元件的底座**：一个"绑到某个名字上"的控件，按帧刷新、并承接运行期外观。
 /// </summary>
 /// <remarks>
@@ -39,11 +56,17 @@ public interface IModuleViewElement
 /// 这条边界写在契约上，比"到处兜底"可预测得多。
 /// </para>
 /// </remarks>
-public abstract class ModuleElement : ContentControl, IModuleViewElement
+public abstract class ModuleElement : ContentControl, IModuleViewElement, IModuleElementInternal
 {
     /// <summary>本元件绑定的名字（显示源名 / 输入源名 / 字段名；空 = 不绑）。</summary>
     /// <remarks>它同时是**运行期外观的寻址键** —— 模块说的"这一格现在描红"就是按这个名字找到它。</remarks>
     public string Source { get; set; } = string.Empty;
+
+    /// <inheritdoc />
+    string IModuleElementInternal.Source => Source;
+
+    /// <inheritdoc />
+    void IModuleElementInternal.ApplyModuleAppearance(ViewAppearance appearance) => ApplyAppearance(appearance);
 
     /// <summary>
     /// 每帧刷新一次。
@@ -206,9 +229,9 @@ public sealed class ModuleViewHost : ContentControl
     /// </remarks>
     private void ApplyAppearance(Control control)
     {
-        if (control is ModuleElement element && element.Source.Length > 0)
+        if (control is IModuleElementInternal element && element.Source.Length > 0)
         {
-            element.ApplyAppearance(_context.Appearance(element.Source));
+            element.ApplyModuleAppearance(_context.Appearance(element.Source));
         }
 
         foreach (var child in control.GetVisualChildren())

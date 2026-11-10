@@ -3,25 +3,25 @@ namespace HYWDebugAssistant.Modules.WaveformGenerator;
 /// <summary>波形数学与组帧率/一次性帧数计算（纯函数，便于测试）。</summary>
 internal static class WaveformMath
 {
-    /// <summary>组帧率 = 组频率 × 启用通道 resolution 的最大值；没有启用通道/频率非法 = 0。</summary>
+    /// <summary>组帧率 = 组频率 × 组每周期点数；没有启用通道/参数非法 = 0。</summary>
     public static double GroupRate(GeneratorGroupConfig group)
     {
         var frequency = group.FrequencyHz;
-        if (!double.IsFinite(frequency) || frequency <= 0)
+        if (!double.IsFinite(frequency) || frequency <= 0
+            || group.Resolution is < 2 or > 4096)
         {
             return 0;
         }
 
-        var maxResolution = 0;
         foreach (var channel in group.Channels)
         {
-            if (channel.Enabled && channel.Resolution > maxResolution)
+            if (channel.Enabled)
             {
-                maxResolution = channel.Resolution;
+                return group.Resolution * frequency;
             }
         }
 
-        return maxResolution * frequency;
+        return 0;
     }
 
     /// <summary>一次性发送 N 个组基波周期所需帧数；向上取整。</summary>
@@ -52,6 +52,7 @@ internal static class WaveformMath
             WaveformKind.Noise => (random.NextDouble() * 2d) - 1d,
             WaveformKind.Spwm => Spwm(channel, groupFrequencyHz, time),
             WaveformKind.Svpwm => Svpwm(channel, groupFrequencyHz, time),
+            WaveformKind.Saddle => Saddle(fraction),
             _ => 0d,
         };
 
@@ -83,6 +84,19 @@ internal static class WaveformMath
         return (2d * Math.Abs((2d * fraction) - 1d)) - 1d;
     }
 
+    /// <summary>
+    /// 马鞍波：正弦注入 1/6 三次谐波，再归一化到峰值 1。
+    /// </summary>
+    /// <remarks>
+    /// 标准 SVPWM 等效调制波是 <c>sinθ + sin3θ/6</c>，峰值在 60°/120° 处为 √3/2；
+    /// 乘 <c>2/√3</c> 后复合波峰值为 ±1，使界面「幅值」仍然是峰值（基波为 2/√3 倍）。
+    /// </remarks>
+    private static double Saddle(double phase)
+    {
+        var angle = 2 * Math.PI * phase;
+        return (2 / Math.Sqrt(3)) * (Math.Sin(angle) + (Math.Sin(3 * angle) / 6));
+    }
+
     /// <summary>波形种类的稳定键（供输入/JSON 使用）。</summary>
     public static string KindKey(WaveformKind kind) => kind switch
     {
@@ -92,6 +106,7 @@ internal static class WaveformMath
         WaveformKind.Noise => "noise",
         WaveformKind.Spwm => "spwm",
         WaveformKind.Svpwm => "svpwm",
+        WaveformKind.Saddle => "saddle",
         _ => "sine",
     };
 
@@ -117,6 +132,9 @@ internal static class WaveformMath
                 return true;
             case "svpwm":
                 kind = WaveformKind.Svpwm;
+                return true;
+            case "saddle":
+                kind = WaveformKind.Saddle;
                 return true;
             default:
                 kind = WaveformKind.Sine;

@@ -7,7 +7,7 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 /// **模块视图的设计时配置类型（或标准标识）**：预览器没有运行时上下文，用它决定从哪个配置类型反射字段。
 /// </summary>
 /// <remarks>
-/// 只影响设计环境（<see cref="Design.IsDesignMode"/> 或 <see cref="ModuleView.IsPreviewHost"/>）；
+/// 只影响设计环境（<see cref="ModuleView.IsDesignEnvironment"/>）；
 /// 运行时 <see cref="ModuleViewHost"/> 会覆盖 <c>DataContext</c>，真实上下文优先。
 /// <para>
 /// 两种写法：模块自带配置类型时给 <see cref="ConfigType"/>；配置类型在框架侧时只给

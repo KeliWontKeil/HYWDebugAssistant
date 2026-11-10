@@ -27,13 +27,12 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
 
     private readonly List<ChartSeries> _seriesList = [];
     private readonly ChartSurface? _chart;
-    private readonly Border? _chartLayoutFrame;
     private readonly ModuleSegmentedControl? _groupChips;
     private readonly ModuleSegmentedControl? _channelChips;
     private readonly ModuleSegmentedControl? _waveformType;
     private readonly ModuleTextSurface? _groupNameInput;
     private readonly ModuleTextSurface? _groupIdInput;
-    private readonly TextBlock? _groupRateLabel;
+    private readonly ModuleLabel? _groupRateLabel;
     private readonly ModuleTextSurface? _channelNameInput;
     private readonly ModuleToggle? _channelEnabledToggle;
     private readonly ModuleTextSurface? _frequencyInput;
@@ -47,8 +46,8 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
     private readonly ModuleTextSurface? _modulationIndexInput;
     private readonly ModuleTextSurface? _carrierPhaseInput;
     private readonly ModuleTextSurface? _periodsInput;
-    private readonly TextBlock? _estimateLabel;
-    private readonly TextBlock? _totalEstimateLabel;
+    private readonly ModuleLabel? _estimateLabel;
+    private readonly ModuleLabel? _totalEstimateLabel;
     private readonly StackPanel? _parameterRows;
     private readonly Grid? _baseParameterRow;
     private readonly Control? _phaseCell;
@@ -69,18 +68,12 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
     {
         AvaloniaXamlLoader.Load(this);
         _chart = this.FindControl<ChartSurface>("Chart");
-        _chartLayoutFrame = this.FindControl<Border>("ChartLayoutFrame");
-        if (_chartLayoutFrame is not null && !Design.IsDesignMode && !ModuleView.IsPreviewHost)
-        {
-            _chartLayoutFrame.IsVisible = false;
-        }
-
         _groupChips = this.FindControl<ModuleSegmentedControl>("GroupChips");
         _channelChips = this.FindControl<ModuleSegmentedControl>("ChannelChips");
         _waveformType = this.FindControl<ModuleSegmentedControl>("WaveformType");
         _groupNameInput = this.FindControl<ModuleTextSurface>("GroupNameInput");
         _groupIdInput = this.FindControl<ModuleTextSurface>("GroupIdInput");
-        _groupRateLabel = this.FindControl<TextBlock>("GroupRateLabel");
+        _groupRateLabel = this.FindControl<ModuleLabel>("GroupRateLabel");
         _channelNameInput = this.FindControl<ModuleTextSurface>("ChannelNameInput");
         _channelEnabledToggle = this.FindControl<ModuleToggle>("ChannelEnabledToggle");
         _frequencyInput = this.FindControl<ModuleTextSurface>("FrequencyInput");
@@ -94,8 +87,8 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
         _modulationIndexInput = this.FindControl<ModuleTextSurface>("ModulationIndexInput");
         _carrierPhaseInput = this.FindControl<ModuleTextSurface>("CarrierPhaseInput");
         _periodsInput = this.FindControl<ModuleTextSurface>("PeriodsInput");
-        _estimateLabel = this.FindControl<TextBlock>("EstimateLabel");
-        _totalEstimateLabel = this.FindControl<TextBlock>("TotalEstimateLabel");
+        _estimateLabel = this.FindControl<ModuleLabel>("EstimateLabel");
+        _totalEstimateLabel = this.FindControl<ModuleLabel>("TotalEstimateLabel");
         _parameterRows = this.FindControl<StackPanel>("ParameterRows");
         _baseParameterRow = this.FindControl<Grid>("BaseParameterRow");
         _phaseCell = this.FindControl<Grid>("PhaseCell");
@@ -110,7 +103,6 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
             _phaseInput,
             _offsetInput,
             _amplitudeInput,
-            _resolutionInput,
             _dutyInput,
             _carrierFrequencyInput,
             _modulationIndexInput,
@@ -120,9 +112,6 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
         if (_chart is not null)
         {
             _chart.Series = _seriesList;
-            _chart.YMin = -1;
-            _chart.YMax = 1;
-            ApplyPreviewAxis(1);
         }
 
         if (_groupChips is not null)
@@ -142,49 +131,12 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
                 new ModuleSegmentOption("sine", Tr(WaveformGeneratorText.Sine), "icon.wave.sine", ToolTip: Tr(WaveformGeneratorText.Sine)),
                 new ModuleSegmentOption("square", Tr(WaveformGeneratorText.Square), "icon.wave.square", ToolTip: Tr(WaveformGeneratorText.Square)),
                 new ModuleSegmentOption("triangle", Tr(WaveformGeneratorText.Triangle), "icon.wave.triangle", ToolTip: Tr(WaveformGeneratorText.Triangle)),
+                new ModuleSegmentOption("saddle", Tr(WaveformGeneratorText.Saddle), "icon.wave.saddle", ToolTip: Tr(WaveformGeneratorText.Saddle)),
                 new ModuleSegmentOption("spwm", "SPWM", "icon.wave.spwm", ToolTip: "SPWM"),
                 new ModuleSegmentOption("svpwm", "SVPWM", "icon.wave.svpwm", ToolTip: "SVPWM"),
                 new ModuleSegmentOption("noise", Tr(WaveformGeneratorText.Noise), "icon.wave.noise", ToolTip: Tr(WaveformGeneratorText.Noise)),
             ];
             _waveformType.OptionSelected += OnWaveformSelected;
-        }
-
-        ApplyDesignPreview();
-    }
-
-    /// <summary>
-    /// 预览器只实例化 XAML，不调用 Refresh；这里给 chips 一组可见样例，便于调整固定坐标。
-    /// 样例不进入运行期数据路径，也不写配置。
-    /// </summary>
-    private void ApplyDesignPreview()
-    {
-        if (!Design.IsDesignMode && !ModuleView.IsPreviewHost)
-        {
-            return;
-        }
-
-        if (_groupChips is not null)
-        {
-            _syncingGroups = true;
-            _groupChips.Options =
-            [
-                new ModuleSegmentOption("0", "G1"),
-                new ModuleSegmentOption("1", "G2"),
-            ];
-            _groupChips.SelectedKey = "0";
-            _syncingGroups = false;
-        }
-
-        if (_channelChips is not null)
-        {
-            _syncingChannels = true;
-            _channelChips.Options =
-            [
-                new ModuleSegmentOption("0", "CH1"),
-                new ModuleSegmentOption("1", "CH2"),
-            ];
-            _channelChips.SelectedKey = "0";
-            _syncingChannels = false;
         }
     }
 
@@ -294,6 +246,7 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
         SetInput(_groupIdInput, group.Id.ToString(CultureInfo.InvariantCulture));
         SetInput(_frequencyInput, Format(group.Frequency));
         SetInput(_periodInput, Format(group.Frequency > 0 ? 1 / group.Frequency : 0));
+        SetInput(_resolutionInput, group.Resolution.ToString(CultureInfo.InvariantCulture));
         if (_groupRateLabel is not null)
         {
             _groupRateLabel.Text = group.Rate > 0
@@ -313,7 +266,7 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
             return;
         }
 
-        var periodic = channel.Kind is "sine" or "square" or "triangle" or "spwm" or "svpwm";
+        var periodic = channel.Kind is "sine" or "square" or "triangle" or "saddle" or "spwm" or "svpwm";
         var modulated = channel.Kind is "spwm" or "svpwm";
         SetParameterVisibility(true, periodic, channel.Kind == "square", modulated);
 
@@ -327,7 +280,6 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
         SetInput(_phaseInput, Format(channel.Phase));
         SetInput(_offsetInput, Format(channel.Offset));
         SetInput(_amplitudeInput, Format(channel.Amplitude));
-        SetInput(_resolutionInput, channel.Resolution.ToString(CultureInfo.InvariantCulture));
         SetInput(_dutyInput, Format(channel.Duty));
         SetInput(_carrierFrequencyInput, Format(channel.CarrierFrequency));
         SetInput(_modulationIndexInput, Format(channel.ModulationIndex));
@@ -371,7 +323,6 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
         SetInput(_phaseInput, string.Empty);
         SetInput(_offsetInput, string.Empty);
         SetInput(_amplitudeInput, string.Empty);
-        SetInput(_resolutionInput, string.Empty);
         SetInput(_dutyInput, string.Empty);
         SetInput(_carrierFrequencyInput, string.Empty);
         SetInput(_modulationIndexInput, string.Empty);
@@ -593,6 +544,7 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
         string Name,
         bool Enabled,
         double Frequency,
+        int Resolution,
         double Rate,
         List<GeneratorChannelSnapshot> Channels);
 
@@ -604,7 +556,6 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
         double Phase,
         double Offset,
         double Amplitude,
-        int Resolution,
         double Duty,
         double CarrierFrequency,
         double ModulationIndex,

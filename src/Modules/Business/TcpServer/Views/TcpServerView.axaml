@@ -36,29 +36,30 @@
     <ui:ModuleLabel Canvas.Left="172" Canvas.Top="54" Width="36" Height="20"
                     Classes="caption right" Text="{loc:Tr view.rx}" />
     <ui:ModuleNumeric Canvas.Left="210" Canvas.Top="54" Width="54" Height="20"
-                      Source="{x:Static views:TcpServerViewKeys.RxCount}" Quantity="Bytes" />
+                      Source="{x:Static views:TcpServerViewKeys.RxCount}" Quantity="Bytes" Text="0 B" />
 
     <ui:ModuleLabel Canvas.Left="266" Canvas.Top="54" Width="36" Height="20"
                     Classes="caption right" Text="{loc:Tr view.tx}" />
     <ui:ModuleNumeric Canvas.Left="304" Canvas.Top="54" Width="54" Height="20"
-                      Source="{x:Static views:TcpServerViewKeys.TxCount}" Quantity="Bytes" />
+                      Source="{x:Static views:TcpServerViewKeys.TxCount}" Quantity="Bytes" Text="0 B" />
 
     <ui:ModuleLabel Canvas.Left="172" Canvas.Top="79" Width="36" Height="20"
                     Classes="caption right" Text="{loc:Tr view.drop}" />
     <ui:ModuleNumeric Canvas.Left="210" Canvas.Top="79" Width="54" Height="20"
-                      Source="{x:Static views:TcpServerViewKeys.DropCount}" Quantity="Bytes" />
+                      Source="{x:Static views:TcpServerViewKeys.DropCount}" Quantity="Bytes" Text="0 B" />
 
     <!-- 已连接数：标题 / 值 / 单位靠右紧排在一个声明矩形里。 -->
     <Grid Canvas.Left="152" Canvas.Top="30" Width="74" Height="24">
       <StackPanel Orientation="Horizontal" Spacing="2"
                   HorizontalAlignment="Right" VerticalAlignment="Center">
         <ui:ModuleLabel Classes="caption" Text="{loc:Tr view.connections}" />
-        <ui:ModuleNumeric Source="{x:Static views:TcpServerViewKeys.ConnCount}" />
+        <ui:ModuleNumeric Source="{x:Static views:TcpServerViewKeys.ConnCount}" Text="0" />
         <ui:ModuleLabel Classes="caption" Text="{loc:Tr view.unitConnections}" />
       </StackPanel>
     </Grid>
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="104" Width="358" Height="14"
+                    Text="{loc:Tr status.idle}"
                     Source="{x:Static views:TcpServerViewKeys.State}" />
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="76" Width="65" Height="24"

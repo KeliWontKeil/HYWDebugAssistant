@@ -19,6 +19,7 @@
     "view.roleSend": "发送",
     "view.send": "发送",
     "view.sentTitle": "已发送",
+    "view.statusPreview": "就绪",
     "view.sentUnit": "条"
   }
 }

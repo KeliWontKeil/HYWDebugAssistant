@@ -24,10 +24,6 @@ public sealed class ModuleToggle : ModuleElement
     public static readonly StyledProperty<bool> IsCheckedProperty =
         AvaloniaProperty.Register<ModuleToggle, bool>(nameof(IsChecked));
 
-    /// <summary>开关旁边的文字（空 = 不显示）。</summary>
-    public static readonly StyledProperty<string> TextProperty =
-        AvaloniaProperty.Register<ModuleToggle, string>(nameof(Text), defaultValue: string.Empty);
-
     private IModuleViewContext? _context;
     private bool _syncing;
     private bool _readOnly;
@@ -45,13 +41,6 @@ public sealed class ModuleToggle : ModuleElement
     {
         get => GetValue(IsCheckedProperty);
         set => SetValue(IsCheckedProperty, value);
-    }
-
-    /// <summary>开关旁边的文字。</summary>
-    public string Text
-    {
-        get => GetValue(TextProperty);
-        set => SetValue(TextProperty, value);
     }
 
     /// <summary>勾选态变化（**程序化写回也会触发**；调用方用 `_syncing` 区分）。</summary>

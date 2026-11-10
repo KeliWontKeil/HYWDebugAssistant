@@ -108,16 +108,14 @@ public class WaveformModulesTests
     }
 
     [Fact]
-    public void 波形数学_组帧率与一次性帧数应按最慢通道()
+    public void 波形数学_组帧率与一次性帧数应按组分辨率()
     {
         var one = new GeneratorGroupConfig
         {
             GroupId = 1,
             FrequencyHz = 10,
-            Channels =
-            [
-                new GeneratorChannelConfig { Resolution = 100 },
-            ],
+            Resolution = 100,
+            Channels = [new GeneratorChannelConfig()],
         };
 
         WaveformMath.GroupRate(one).ShouldBe(1000);
@@ -127,15 +125,22 @@ public class WaveformModulesTests
         {
             GroupId = 2,
             FrequencyHz = 50,
-            Channels =
-            [
-                new GeneratorChannelConfig { Resolution = 100 },
-                new GeneratorChannelConfig { Resolution = 200 },
-            ],
+            Resolution = 200,
+            Channels = [new GeneratorChannelConfig(), new GeneratorChannelConfig()],
         };
 
         WaveformMath.GroupRate(two).ShouldBe(10_000);
         WaveformMath.OneShotFrames(two, 5).ShouldBe(1000);
+
+        var disabled = two with
+        {
+            Channels =
+            [
+                new GeneratorChannelConfig { Enabled = false },
+                new GeneratorChannelConfig { Enabled = false },
+            ],
+        };
+        WaveformMath.GroupRate(disabled).ShouldBe(0);
     }
 
     [Fact]
@@ -148,7 +153,6 @@ public class WaveformModulesTests
             PhaseDegrees = 0,
             Amplitude = 2,
             Offset = 1,
-            Resolution = 100,
         };
 
         WaveformMath.Sample(sine, 1, 0, random).ShouldBe(1f, 1e-5f);
@@ -170,6 +174,34 @@ public class WaveformModulesTests
     }
 
     [Fact]
+    public void 波形数学_马鞍波应为归一化的三次谐波注入()
+    {
+        WaveformMath.TryParseKind("saddle", out var saddle).ShouldBeTrue();
+        saddle.ShouldBe(WaveformKind.Saddle);
+        WaveformMath.KindKey(WaveformKind.Saddle).ShouldBe("saddle");
+        WaveformMath.IsModulated(WaveformKind.Saddle).ShouldBeFalse();
+
+        var channel = new GeneratorChannelConfig
+        {
+            Kind = WaveformKind.Saddle,
+            Amplitude = 1,
+            Offset = 0,
+            PhaseDegrees = 0,
+        };
+        var random = new Random(1);
+
+        WaveformMath.Sample(channel, 1, 0, random).ShouldBe(0f, 1e-4f);
+        WaveformMath.Sample(channel, 1, 1d / 6, random).ShouldBe(1f, 1e-4f);
+        WaveformMath.Sample(channel, 1, 0.25, random).ShouldBe(0.96225f, 1e-4f);
+        WaveformMath.Sample(channel, 1, 1d / 3, random).ShouldBe(1f, 1e-4f);
+        WaveformMath.Sample(channel, 1, 0.5, random).ShouldBe(0f, 1e-4f);
+        WaveformMath.Sample(channel, 1, 2d / 3, random).ShouldBe(-1f, 1e-4f);
+
+        var shifted = channel with { PhaseDegrees = 90, Amplitude = 2, Offset = 1 };
+        WaveformMath.Sample(shifted, 1, 0, random).ShouldBe(1f + (2f * 0.96225f), 1e-4f);
+    }
+
+    [Fact]
     public void 波形数学_SPWM与SVPWM每个参数都应改变输出()
     {
         WaveformMath.TryParseKind("spwm", out var spwm).ShouldBeTrue();
@@ -180,7 +212,6 @@ public class WaveformModulesTests
         var baseChannel = new GeneratorChannelConfig
         {
             Kind = WaveformKind.Spwm,
-            Resolution = 100,
             CarrierFrequencyHz = 100,
             ModulationIndex = 0.8,
             CarrierPhaseDegrees = 0,
@@ -269,7 +300,8 @@ public class WaveformModulesTests
                 {
                     GroupId = 1,
                     Enabled = false,
-                    Channels = [new GeneratorChannelConfig { Resolution = 100 }],
+                    Resolution = 100,
+                    Channels = [new GeneratorChannelConfig()],
                 },
             ],
             OneShotPeriods = 5,
@@ -296,12 +328,12 @@ public class WaveformModulesTests
                 new GeneratorGroupConfig
                 {
                     GroupId = 1,
+                    Resolution = 100,
                     Channels =
                     [
                         new GeneratorChannelConfig
                         {
                             Kind = WaveformKind.Spwm,
-                            Resolution = 100,
                             CarrierFrequencyHz = 10_000,
                             ModulationIndex = 0.8,
                         },
@@ -595,7 +627,8 @@ public class WaveformModulesTests
                 new GeneratorGroupConfig
                 {
                     GroupId = 1,
-                    Channels = [new GeneratorChannelConfig { Resolution = 100 }],
+                    Resolution = 100,
+                    Channels = [new GeneratorChannelConfig()],
                 },
             ],
         });
@@ -614,6 +647,52 @@ public class WaveformModulesTests
         context.Timers.AdvanceTo(TimeSpan.FromMilliseconds(200));
         context.Sent.Count.ShouldBe(sent);
     }
+
+    [Fact]
+    public void 发生器_发送命令的可用状态应随发送变化()
+    {
+        var context = new TestModuleContext();
+        context.Configuration.Write(new GeneratorConfig
+        {
+            Groups =
+            [
+                new GeneratorGroupConfig
+                {
+                    GroupId = 1,
+                    Resolution = 100,
+                    Channels = [new GeneratorChannelConfig()],
+                },
+            ],
+        });
+
+        var module = new WaveformGeneratorModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        LastEnabled(context, WaveformGeneratorModule.StartContinuousCommand).ShouldBe(true);
+        LastEnabled(context, WaveformGeneratorModule.SendOnceCommand).ShouldBe(true);
+        LastEnabled(context, WaveformGeneratorModule.StopCommand).ShouldBe(false);
+
+        context.EnqueueCommand(WaveformGeneratorModule.StartContinuousCommand);
+        module.PumpOnce(context);
+
+        LastEnabled(context, WaveformGeneratorModule.StartContinuousCommand).ShouldBe(false);
+        LastEnabled(context, WaveformGeneratorModule.SendOnceCommand).ShouldBe(false);
+        LastEnabled(context, WaveformGeneratorModule.StopCommand).ShouldBe(true);
+
+        context.EnqueueCommand(WaveformGeneratorModule.StopCommand);
+        module.PumpOnce(context);
+
+        LastEnabled(context, WaveformGeneratorModule.StartContinuousCommand).ShouldBe(true);
+        LastEnabled(context, WaveformGeneratorModule.SendOnceCommand).ShouldBe(true);
+        LastEnabled(context, WaveformGeneratorModule.StopCommand).ShouldBe(false);
+    }
+
+    private static bool? LastEnabled(TestModuleContext context, string command) =>
+        context.AppearanceReports
+            .LastOrDefault(report => string.Equals(report.SourceName, command, StringComparison.Ordinal)
+                && report.Enabled is not null)
+            .Enabled;
 
     [Fact]
     public void 发生器_组选中应显示组属性并可树形增删通道()
@@ -677,7 +756,7 @@ public class WaveformModulesTests
     public void 发生器_旧配置的通道频率应迁移为组频率()
     {
         var old = System.Text.Json.JsonSerializer.Deserialize<GeneratorConfig>(
-            "{\"Groups\":[{\"GroupId\":1,\"Name\":\"G1\",\"Channels\":[{\"Name\":\"CH1\",\"FrequencyHz\":25,\"Resolution\":100}]}],\"OneShotPeriods\":5}",
+            "{\"Groups\":[{\"GroupId\":1,\"Name\":\"G1\",\"Channels\":[{\"Name\":\"CH1\",\"FrequencyHz\":25,\"Resolution\":200}]}],\"OneShotPeriods\":5}",
             LegacyJsonOptions);
         old.ShouldNotBeNull();
 
@@ -689,11 +768,14 @@ public class WaveformModulesTests
 
         var snapshot = GeneratorSnapshot(context);
         snapshot.GetProperty("groups")[0].GetProperty("frequency").GetDouble().ShouldBe(25);
-        snapshot.GetProperty("groups")[0].GetProperty("channels")[0].GetProperty("resolution").GetInt32().ShouldBe(100);
+        snapshot.GetProperty("groups")[0].GetProperty("resolution").GetInt32().ShouldBe(200);
+        snapshot.GetProperty("groups")[0].GetProperty("channels")[0].TryGetProperty("resolution", out _).ShouldBeFalse();
 
         var normalized = context.Configuration.Read<GeneratorConfig>();
         normalized.Groups[0].FrequencyHz.ShouldBe(25);
+        normalized.Groups[0].Resolution.ShouldBe(200);
         normalized.Groups[0].Channels[0].LegacyFrequencyHz.ShouldBeNull();
+        normalized.Groups[0].Channels[0].LegacyResolution.ShouldBeNull();
     }
 
     [Fact]
@@ -787,6 +869,203 @@ public class WaveformModulesTests
         context.SetTexts.ShouldContain(item =>
             item.SourceName == WaveformDisplayModule.MetaSource
             && item.Text.Contains("\"followRange\":10", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void 显示器_自定义频率应覆盖帧声明并驱动时间换算()
+    {
+        var context = new TestModuleContext();
+        context.Configuration.Write(new DisplayConfig
+        {
+            Settings = new DisplaySettings
+            {
+                XAxisMode = DisplayXAxisMode.Time,
+                UseCustomRate = true,
+                CustomRateHz = 500,
+                FollowRangeSamples = 100,
+            },
+        });
+
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+        for (var index = 0; index < 200; index++)
+        {
+            Deliver(context, 1, (uint)index, [index]);
+        }
+
+        module.OnStep(context, StepReason.Data);
+
+        var snapshot = Snapshot(context).ShouldNotBeNull();
+        snapshot.RateHz.ShouldBe(500f);
+        snapshot.XRangeStart.ShouldBe(100);
+        snapshot.XRangeEnd.ShouldBe(199);
+        context.ViewState.GetInputText(WaveformDisplayModule.CustomRateSource).ShouldBe("500");
+        context.ViewState.GetInputText(WaveformDisplayModule.XEndSource).ShouldBe("0.398");
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowRangeSource).ShouldBe("0.2");
+
+        context.EnqueueInput(WaveformDisplayModule.UseCustomRateSource, "false");
+        module.PumpOnce(context);
+        Snapshot(context).ShouldNotBeNull().RateHz.ShouldBe(1000f);
+    }
+
+    [Fact]
+    public void 显示器_轴模式切换应协同换算X刻度与跟踪范围()
+    {
+        var context = new TestModuleContext();
+        context.Configuration.Write(new DisplayConfig
+        {
+            Settings = new DisplaySettings
+            {
+                XAxisMode = DisplayXAxisMode.Index,
+                UseCustomRate = true,
+                CustomRateHz = 1000,
+                FollowRangeSamples = 100,
+                XTickStep = 100,
+            },
+        });
+
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        context.ViewState.GetInputText(WaveformDisplayModule.XTickSource).ShouldBe("100");
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowRangeSource).ShouldBe("100");
+
+        context.EnqueueInput(WaveformDisplayModule.XAxisModeSource, "time");
+        module.PumpOnce(context);
+        context.ViewState.GetInputText(WaveformDisplayModule.XTickSource).ShouldBe("0.1");
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowRangeSource).ShouldBe("0.1");
+
+        context.EnqueueInput(WaveformDisplayModule.XAxisModeSource, "index");
+        module.PumpOnce(context);
+        context.ViewState.GetInputText(WaveformDisplayModule.XTickSource).ShouldBe("100");
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowRangeSource).ShouldBe("100");
+    }
+
+    [Fact]
+    public void 显示器_跟踪状态应只由最后一次操作决定()
+    {
+        var context = new TestModuleContext();
+        context.Configuration.Write(new DisplayConfig
+        {
+            Settings = new DisplaySettings
+            {
+                Follow = true,
+                FollowRangeSamples = 5,
+            },
+        });
+
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+        for (var index = 0; index < 10; index++)
+        {
+            Deliver(context, 1, (uint)index, [index]);
+        }
+
+        module.OnStep(context, StepReason.Data);
+        Snapshot(context).ShouldNotBeNull().XRangeStart.ShouldBe(5);
+        Snapshot(context)!.XRangeEnd.ShouldBe(9);
+
+        // 拖左端：只改宽度，跟踪保持；下一帧继续推进。
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"setRange\",\"start\":2,\"end\":9,\"startOnly\":true}");
+        module.PumpOnce(context);
+        Snapshot(context).ShouldNotBeNull().XRangeStart.ShouldBe(2);
+        Snapshot(context)!.XRangeEnd.ShouldBe(9);
+        Deliver(context, 1, 10, [10f]);
+        module.OnStep(context, StepReason.Data);
+        Snapshot(context).ShouldNotBeNull().XRangeStart.ShouldBe(3);
+        Snapshot(context)!.XRangeEnd.ShouldBe(10);
+
+        // X 起也是宽度意图：保持跟踪，宽度更新。
+        context.ViewState.SetInputText(WaveformDisplayModule.XStartSource, "1");
+        module.OnStep(context, StepReason.Input);
+        Snapshot(context).ShouldNotBeNull().XRangeStart.ShouldBe(1);
+        Snapshot(context)!.XRangeEnd.ShouldBe(10);
+        Deliver(context, 1, 11, [11f]);
+        module.OnStep(context, StepReason.Data);
+        Snapshot(context).ShouldNotBeNull().XRangeStart.ShouldBe(2);
+        Snapshot(context)!.XRangeEnd.ShouldBe(11);
+
+        // X 止是移动意图：关闭跟踪，下一帧不再推进。
+        context.ViewState.SetInputText(WaveformDisplayModule.XEndSource, "8");
+        module.OnStep(context, StepReason.Input);
+        Snapshot(context).ShouldNotBeNull().XRangeStart.ShouldBe(2);
+        Snapshot(context)!.XRangeEnd.ShouldBe(8);
+        Deliver(context, 1, 12, [12f]);
+        module.OnStep(context, StepReason.Data);
+        Snapshot(context).ShouldNotBeNull().XRangeStart.ShouldBe(2);
+        Snapshot(context)!.XRangeEnd.ShouldBe(8);
+
+        // 关闭状态下的 X 起仍是宽度意图，不会重新打开跟踪。
+        context.ViewState.SetInputText(WaveformDisplayModule.XStartSource, "0");
+        module.OnStep(context, StepReason.Input);
+        Deliver(context, 1, 13, [13f]);
+        module.OnStep(context, StepReason.Data);
+        Snapshot(context).ShouldNotBeNull().XRangeStart.ShouldBe(0);
+        Snapshot(context)!.XRangeEnd.ShouldBe(8);
+
+        // 显式打开跟踪，使用最后一次宽度并贴 latest。
+        context.EnqueueInput(WaveformDisplayModule.FollowSource, "true");
+        module.PumpOnce(context);
+        Snapshot(context).ShouldNotBeNull().XRangeStart.ShouldBe(5);
+        Snapshot(context)!.XRangeEnd.ShouldBe(13);
+        Deliver(context, 1, 14, [14f]);
+        module.OnStep(context, StepReason.Data);
+        Snapshot(context).ShouldNotBeNull().XRangeStart.ShouldBe(6);
+        Snapshot(context)!.XRangeEnd.ShouldBe(14);
+
+        // 整体平移是移动意图：关闭跟踪；非法 X 起不改变状态。
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"setRange\",\"start\":4,\"end\":9}");
+        module.PumpOnce(context);
+        context.ViewState.SetInputText(WaveformDisplayModule.XStartSource, "bad");
+        module.OnStep(context, StepReason.Input);
+        Deliver(context, 1, 15, [15f]);
+        module.OnStep(context, StepReason.Data);
+        Snapshot(context).ShouldNotBeNull().XRangeStart.ShouldBe(4);
+        Snapshot(context)!.XRangeEnd.ShouldBe(9);
+    }
+
+    [Fact]
+    public void 显示器_修改跟踪范围不应改变跟踪状态()
+    {
+        var context = new TestModuleContext();
+        context.Configuration.Write(new DisplayConfig
+        {
+            Settings = new DisplaySettings
+            {
+                Follow = true,
+                FollowRangeSamples = 5,
+            },
+        });
+
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+        for (var index = 0; index < 10; index++)
+        {
+            Deliver(context, 1, (uint)index, [index]);
+        }
+
+        module.OnStep(context, StepReason.Data);
+        context.ViewState.SetInputText(WaveformDisplayModule.FollowRangeSource, "3");
+        module.OnStep(context, StepReason.Input);
+        Snapshot(context).ShouldNotBeNull().XRangeStart.ShouldBe(7);
+        Snapshot(context)!.XRangeEnd.ShouldBe(9);
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowSource).ShouldBe("true");
+
+        context.EnqueueInput(WaveformDisplayModule.FollowSource, "false");
+        module.PumpOnce(context);
+        context.ViewState.SetInputText(WaveformDisplayModule.FollowRangeSource, "2");
+        module.OnStep(context, StepReason.Input);
+        Snapshot(context).ShouldNotBeNull().XRangeStart.ShouldBe(7);
+        Snapshot(context)!.XRangeEnd.ShouldBe(9);
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowSource).ShouldBe("false");
     }
 
     [Fact]

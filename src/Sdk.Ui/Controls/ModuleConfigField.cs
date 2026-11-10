@@ -217,7 +217,7 @@ public sealed class ModuleConfigField : ModuleElement
         {
             // **布尔一律用模块自己的滑块开关**：同一个语义只能对应一套外观；
             // 配置表单与视图都走 `ModuleToggle`，视觉在 `ControlTheme` 里。
-            ConfigFieldKind.Boolean => new ModuleToggle { Text = string.Empty, VerticalAlignment = VerticalAlignment.Center },
+            ConfigFieldKind.Boolean => new ModuleToggle { VerticalAlignment = VerticalAlignment.Center },
             ConfigFieldKind.Enum => new ComboBox
             {
                 VerticalAlignment = VerticalAlignment.Center,
@@ -285,7 +285,9 @@ public sealed class ModuleConfigField : ModuleElement
             case TextBox text:
                 text.TextChanged += (_, _) =>
                 {
-                    if (!_syncing)
+                    // 程序写入的回调由 Avalonia 12 异步投递（`_syncing` 盖不住）：
+                    // 与"已显示/已提交的值"相同就只是回显，不算用户正在编辑。
+                    if (!string.Equals(text.Text, _editorValue, StringComparison.Ordinal))
                     {
                         _dirty = true;
                     }

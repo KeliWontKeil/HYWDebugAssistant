@@ -2,6 +2,15 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!--
+      **滚动条常驻细条**：Fluent 的默认尺寸很宽，且 `IsExpanded` 会把 Thumb 的缩放去掉、瞬间占满；
+      这里把尺寸压到细条，并让 App 统一 `AllowAutoHide=False`。因为该状态本身就是“展开”，
+      实际视觉宽度由这个尺寸决定，而不是由缩放决定；缩放只作未展开状态的防御。
+    -->
+    <x:Double x:Key="ScrollBarSize">4</x:Double>
+    <TransformOperations x:Key="VerticalSmallScrollThumbScaleTransform">scaleX(0.5) translateX(-2px)</TransformOperations>
+    <TransformOperations x:Key="HorizontalSmallScrollThumbScaleTransform">scaleY(0.5) translateY(-2px)</TransformOperations>
+
+    <!--
       视觉 token（docs/zh/concepts/shell.md）：
       颜色一律以**角色 token** 引用，主题切换只替换 token 值（V2 的可切换与"允许更换背景/色系"由此实现）。
       · 默认主题 = 浅色（C9-2）；深色同样内置且可切换。

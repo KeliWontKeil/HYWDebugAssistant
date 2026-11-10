@@ -10,6 +10,8 @@
     "status.saved": "已保存：{0}（{1} 行）",
     "view.clear": "清空",
     "view.hex": "十六进制",
+    "view.logPreview": "就绪",
+    "view.statusPreview": "就绪",
     "view.paused": "暂停显示",
     "view.roleDisplay": "显示",
     "status.savedLog": "内容已保存：{0}（{1} 行）",

@@ -1009,7 +1009,8 @@ public sealed class ChartSurface : Control
         _cursorALabel = DrawCursorLabel(context, plot, xa, FormatXCursorValue("A", valueA, cursorStep), labelBackground, labelBorder, labelText);
         _cursorBLabel = DrawCursorLabel(context, plot, xb, FormatXCursorValue("B", valueB, cursorStep), labelBackground, labelBorder, labelText);
 
-        var delta = Math.Abs(valueB - valueA);
+        // Δ = 第二游标 − 第一游标：反向拖动时为负，符合示波器读数习惯。
+        var delta = valueB - valueA;
         DrawCursorLabel(context, plot, (xa + xb) / 2, FormatXCursorValue("Δ", delta, cursorStep), labelBackground, labelBorder, labelText);
     }
 
@@ -1064,7 +1065,8 @@ public sealed class ChartSurface : Control
             labelBorder,
             labelText);
 
-        var delta = Math.Abs(valueB - valueA);
+        // Δ = n − m：不取绝对值。
+        var delta = valueB - valueA;
         DrawYCursorLabel(
             context,
             plot,

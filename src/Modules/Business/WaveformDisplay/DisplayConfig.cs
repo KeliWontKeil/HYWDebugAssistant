@@ -50,6 +50,12 @@ public sealed record DisplaySettings
     public double YTickStep { get; init; }
     public bool Follow { get; init; } = true;
     public bool Cursors { get; init; } = true;
+
+    /// <summary>是否用本模块声明的频率代替数据帧的 rateHz。</summary>
+    public bool UseCustomRate { get; init; }
+
+    /// <summary>自定义显示频率（Hz）；关闭开关时不参与换算。</summary>
+    public double CustomRateHz { get; init; } = 1000;
 }
 
 /// <summary>波形显示配置。</summary>

@@ -14,11 +14,12 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>画的是几何</b>：模板里 `Viewbox` 包一层按 `viewBox` 尺寸的 `Canvas`，里面一条 `Path`；
-///     路径数据由 <see cref="IconCatalog"/> 解析出的字符串在这里合成 `GeometryGroup`——
+///   <item><b>画的是几何</b>：模板里 `Viewbox` 包一层按 `viewBox` 尺寸的 `Canvas`，里面两条 `Path`
+///     （填充 / 仅描边）；路径数据由 <see cref="IconCatalog"/> 解析出的字符串在这里合成 `GeometryGroup`——
 ///     `Sdk` 零依赖、不能引 Avalonia，所以"数据 → 几何"的合成只能留在界面层；</item>
-///   <item><b>填充色跟随 <see cref="TemplatedControl.Foreground"/></b>：外壳/模块按钮的
-///     `:pointerover` / `:pressed` 换前景色时图标自动跟着走，不需要每个按钮另写一条；</item>
+///   <item><b>填充色/线条色跟随 <see cref="TemplatedControl.Foreground"/></b>：外壳/模块按钮的
+///     `:pointerover` / `:pressed` 换前景色时图标自动跟着走，不需要每个按钮另写一条；
+///     所有 path 的有效填充为 `none` 的资产按线条模式绘制（不填充、统一描边宽度）；</item>
 ///   <item><b>缺键 / 缺表显示键名</b>（界面字体）并由 <see cref="IconCatalog.Diagnostics"/> 报一条诊断——
 ///     宁可界面上露出缺的是哪个键，也不要一块看不见的空白；</item>
 ///   <item><b>尺寸由使用方给</b>：控件本身只有 16×16 的默认值，具体大小靠样式
@@ -38,6 +39,7 @@ public class Icon : TemplatedControl
     private Viewbox? _svg;
     private Canvas? _canvas;
     private Path? _path;
+    private Path? _strokePath;
     private TextBlock? _fallback;
 
     static Icon()
@@ -68,6 +70,7 @@ public class Icon : TemplatedControl
         _svg = e.NameScope.Find<Viewbox>("PART_Svg");
         _canvas = e.NameScope.Find<Canvas>("PART_Canvas");
         _path = e.NameScope.Find<Path>("PART_Path");
+        _strokePath = e.NameScope.Find<Path>("PART_StrokePath");
         _fallback = e.NameScope.Find<TextBlock>("PART_Fallback");
 
         Apply();
@@ -92,6 +95,7 @@ public class Icon : TemplatedControl
 
         if (string.IsNullOrEmpty(key))
         {
+            HidePaths();
             _svg.IsVisible = false;
             _fallback.IsVisible = false;
             return;
@@ -111,17 +115,41 @@ public class Icon : TemplatedControl
                 group.Children.Add(StreamGeometry.Parse(data));
             }
 
-            _path.Data = group;
-            _canvas.Width = asset.ViewBoxWidth;
+            // 线条资产只描边；混合/填充资产保持原“填充 + 细描边”观感。
+            var strokeOnly = asset.StrokeOnly && _strokePath is not null;
+            _path!.Data = strokeOnly ? null : group;
+            _path.IsVisible = !strokeOnly;
+            if (_strokePath is not null)
+            {
+                _strokePath.Data = strokeOnly ? group : null;
+                _strokePath.IsVisible = strokeOnly;
+            }
+
+            _canvas!.Width = asset.ViewBoxWidth;
             _canvas.Height = asset.ViewBoxHeight;
             _svg.IsVisible = true;
-            _fallback.IsVisible = false;
+            _fallback!.IsVisible = false;
             return;
         }
 
-        _path.Data = null;
+        HidePaths();
         _svg.IsVisible = false;
-        _fallback.Text = IconCatalog.MissingValue(key);
+        _fallback!.Text = IconCatalog.MissingValue(key);
         _fallback.IsVisible = true;
+    }
+
+    private void HidePaths()
+    {
+        if (_path is not null)
+        {
+            _path.Data = null;
+            _path.IsVisible = false;
+        }
+
+        if (_strokePath is not null)
+        {
+            _strokePath.Data = null;
+            _strokePath.IsVisible = false;
+        }
     }
 }

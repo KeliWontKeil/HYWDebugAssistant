@@ -1,21 +1,60 @@
 using Avalonia;
+using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
-using Avalonia.Media;
 using Avalonia.VisualTree;
-using HYWDebugAssistant.Sdk.Resources;
 using IconControl = HYWDebugAssistant.Sdk.Ui.Controls.Icon;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
 /// <summary>一个互斥分段选项。</summary>
-public sealed record ModuleSegmentOption(
-    string Key,
-    string Label,
-    string? IconKey = null,
-    bool IsEnabled = true,
-    string? ToolTip = null);
+/// <remarks>
+/// 记录提供无参构造与 `init` 属性，让视图可以在 XAML 的 `PreviewOptions` 里直接声明预览选项；
+/// 运行期仍可继续用位置构造。
+/// </remarks>
+public sealed record ModuleSegmentOption
+{
+    /// <summary>造一个空选项（XAML 用）。</summary>
+    public ModuleSegmentOption()
+    {
+    }
+
+    /// <summary>造一个互斥分段选项。</summary>
+    /// <param name="Key">提交给模块的稳定键。</param>
+    /// <param name="Label">界面显示文本（模块 i18n）。</param>
+    /// <param name="IconKey">可选图标键。</param>
+    /// <param name="IsEnabled">是否可点。</param>
+    /// <param name="ToolTip">悬停提示。</param>
+    public ModuleSegmentOption(
+        string Key,
+        string Label,
+        string? IconKey = null,
+        bool IsEnabled = true,
+        string? ToolTip = null)
+    {
+        this.Key = Key;
+        this.Label = Label;
+        this.IconKey = IconKey;
+        this.IsEnabled = IsEnabled;
+        this.ToolTip = ToolTip;
+    }
+
+    /// <summary>提交给模块的稳定键。</summary>
+    public string Key { get; init; } = string.Empty;
+
+    /// <summary>界面显示文本（模块 i18n）。</summary>
+    public string Label { get; init; } = string.Empty;
+
+    /// <summary>可选图标键。</summary>
+    public string? IconKey { get; init; }
+
+    /// <summary>是否可点。</summary>
+    public bool IsEnabled { get; init; } = true;
+
+    /// <summary>悬停提示。</summary>
+    public string? ToolTip { get; init; }
+}
 
 /// <summary>通用互斥分段选择：文字或图标按钮，选中态唯一。</summary>
 public sealed class ModuleSegmentedControl : TemplatedControl
@@ -47,12 +86,29 @@ public sealed class ModuleSegmentedControl : TemplatedControl
         IconSizeProperty.Changed.AddClassHandler<ModuleSegmentedControl>(static (control, _) => control.Rebuild());
     }
 
+    /// <summary>造一个分段控件。</summary>
+    public ModuleSegmentedControl()
+    {
+        PreviewOptions.CollectionChanged += (_, _) =>
+        {
+            if (ModuleView.IsDesignEnvironment)
+            {
+                Rebuild();
+            }
+        };
+    }
+
     /// <summary>选项集合。</summary>
     public IReadOnlyList<ModuleSegmentOption>? Options
     {
         get => GetValue(OptionsProperty);
         set => SetValue(OptionsProperty, value);
     }
+
+    /// <summary>
+    /// **预览选项**：只在设计环境、且 <see cref="Options"/> 为空时使用；运行期视图不读它。
+    /// </summary>
+    public AvaloniaList<ModuleSegmentOption> PreviewOptions { get; } = [];
 
     /// <summary>当前选中键；程序设置不触发 <see cref="OptionSelected"/>。</summary>
     public string SelectedKey
@@ -93,6 +149,20 @@ public sealed class ModuleSegmentedControl : TemplatedControl
         Rebuild();
     }
 
+    /// <summary>当前实际参与显示的选项：运行期优先，预览期才回退到 <see cref="PreviewOptions"/>。</summary>
+    private IReadOnlyList<ModuleSegmentOption> EffectiveOptions
+    {
+        get
+        {
+            if (Options is { Count: > 0 } options)
+            {
+                return options;
+            }
+
+            return ModuleView.IsDesignEnvironment ? PreviewOptions : [];
+        }
+    }
+
     private void Rebuild()
     {
         if (_items is null)
@@ -101,7 +171,8 @@ public sealed class ModuleSegmentedControl : TemplatedControl
         }
 
         _items.Children.Clear();
-        if (Options is not { Count: > 0 } options)
+        var options = EffectiveOptions;
+        if (options.Count == 0)
         {
             return;
         }

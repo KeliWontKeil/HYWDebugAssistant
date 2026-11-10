@@ -22,6 +22,9 @@ public enum WaveformKind
 
     /// <summary>空间矢量 PWM（开关波形）。</summary>
     Svpwm = 5,
+
+    /// <summary>马鞍波（正弦注入三次谐波；连续调制波）。</summary>
+    Saddle = 6,
 }
 
 /// <summary>单通道波形参数。</summary>
@@ -41,9 +44,6 @@ public sealed record GeneratorChannelConfig
 
     /// <summary>幅值。</summary>
     public double Amplitude { get; init; } = 1;
-
-    /// <summary>每周期点数（2–4096）。</summary>
-    public int Resolution { get; init; } = 100;
 
     /// <summary>方波占空比（0.01–0.99）。</summary>
     public double DutyCycle { get; init; } = 0.5;
@@ -67,6 +67,14 @@ public sealed record GeneratorChannelConfig
     [JsonPropertyName("FrequencyHz")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public double? LegacyFrequencyHz { get; init; }
+
+    /// <summary>
+    /// **配置迁移字段**：每周期点数以组为唯一来源。
+    /// 该字段只用于读取旧配置中的通道分辨率；归一化后清空，写入时 null 不落盘。
+    /// </summary>
+    [JsonPropertyName("Resolution")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? LegacyResolution { get; init; }
 }
 
 /// <summary>一个通道组。</summary>
@@ -83,6 +91,9 @@ public sealed record GeneratorGroupConfig
 
     /// <summary>组基波频率（Hz）；组内所有通道共享。</summary>
     public double FrequencyHz { get; init; } = 10;
+
+    /// <summary>每周期点数（2–4096）；组内所有通道共享。</summary>
+    public int Resolution { get; init; } = 100;
 
     /// <summary>通道列表。</summary>
     public List<GeneratorChannelConfig> Channels { get; init; } = [];
@@ -128,6 +139,7 @@ public sealed record GeneratorConfig
                 GroupId = 1,
                 Name = "G1",
                 FrequencyHz = 10,
+                Resolution = 100,
                 Channels = [new GeneratorChannelConfig { Name = "CH1" }],
             },
         ],
@@ -145,6 +157,7 @@ public sealed record GeneratorConfig
         GroupId = groupId,
         Name = "G" + (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
         FrequencyHz = 10,
+        Resolution = 100,
         Channels = [CreateChannel(0)],
     };
 }

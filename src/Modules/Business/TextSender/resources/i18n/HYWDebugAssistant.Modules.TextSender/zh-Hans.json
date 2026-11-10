@@ -16,6 +16,7 @@
     "status.unknownCommand": "未知命令：{0}",
     "view.send": "发送",
     "view.sentTitle": "已发送",
+    "view.statusPreview": "就绪",
     "view.sentUnit": "条"
   }
 }

@@ -34,6 +34,7 @@ XAML 里用 `{loc:Tr key}`；模块视图的键与显示源名一样，只写一
 - 位置：`resources/icons/<程序集简名>/icons.json` + 同目录 `.svg`；
 - `icons.json` 是"键 → 相对 `.svg` 路径"的映射；
 - SVG 只支持子集：`viewBox` + `<path d>` + `fill-rule`；`transform` / `<use>` / 脚本 / 外部引用会被跳过并报诊断；
+- 同一文件里所有可用 path 的**有效填充**都是 `none`（自身或祖先继承）⇒ 线条图标：`Icon` 只描边、不填充，线宽由控件统一（不读 SVG 的 `stroke-width`）；有任一 path 带填充色 ⇒ 填充图标（填充 + 细描边）；
 - 界面里用 `Icon` 控件：`IconKey` + `Owner`（模块程序集）。
 
 ## 自定义资源

@@ -8,7 +8,7 @@
                x:Class="HYWDebugAssistant.Samples.UiModule.Views.UiSampleView"
                x:CompileBindings="True"
                x:DataType="contracts:IModuleViewContext"
-               d:DesignWidth="340" d:DesignHeight="168">
+               InitialWidth="340" InitialHeight="168">
 
   <!--
     带界面的最小视图：标题 / 计数 / 状态 / 一个命令按钮。
@@ -27,13 +27,14 @@
 
       <ui:ModuleNumeric Grid.Row="0" Grid.Column="1" Margin="10,0,0,0"
                         Source="{x:Static local:UiSampleModule.CountSource}"
-                        VerticalAlignment="Center" />
+                        Text="42" VerticalAlignment="Center" />
 
       <ui:ModuleStatusLight Grid.Row="0" Grid.Column="2"
                             Source="{x:Static local:UiSampleModule.StateSource}"
                             HorizontalAlignment="Right" VerticalAlignment="Center" />
 
       <ui:ModuleLabel Grid.Row="1" Grid.ColumnSpan="3" Margin="0,8,0,0" Classes="hint"
+                      Text="{loc:Tr state.ready}"
                       Source="{x:Static local:UiSampleModule.StateSource}" />
     </Grid>
 
