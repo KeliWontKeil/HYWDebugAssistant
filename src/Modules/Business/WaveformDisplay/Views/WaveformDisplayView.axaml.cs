@@ -22,6 +22,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
 {
     private readonly List<ChartSeries> _series = [];
     private readonly ChartSurface? _chart;
+    private readonly Border? _chartLayoutFrame;
     private readonly RangeSelector? _range;
     private readonly ModuleSelect? _axisModeSelect;
     private readonly StackPanel? _groupCardsPanel;
@@ -77,6 +78,12 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
     {
         AvaloniaXamlLoader.Load(this);
         _chart = this.FindControl<ChartSurface>("Chart");
+        _chartLayoutFrame = this.FindControl<Border>("ChartLayoutFrame");
+        if (_chartLayoutFrame is not null && !Design.IsDesignMode && !ModuleView.IsPreviewHost)
+        {
+            _chartLayoutFrame.IsVisible = false;
+        }
+
         _range = this.FindControl<RangeSelector>("Range");
         _axisModeSelect = this.FindControl<ModuleSelect>("AxisModeSelect");
         _groupCardsPanel = this.FindControl<StackPanel>("GroupCardsPanel");

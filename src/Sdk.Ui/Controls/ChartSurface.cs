@@ -117,6 +117,17 @@ public sealed class ChartSurface : Control
     public static readonly StyledProperty<string> YCursorBLabelProperty =
         AvaloniaProperty.Register<ChartSurface, string>(nameof(YCursorBLabel), "B");
 
+    /// <summary>
+    /// **绘图区相对控件边界的内缩**（左、上、右、下，DIP）。
+    /// </summary>
+    /// <remarks>
+    /// 这是绘图区边距的唯一来源：刻度文字、游标标签、轴标题都算在这块内缩里，控件不再
+    /// 按 <see cref="ShowCursors"/> 或固定常量额外增加顶部/底部预留。调用方按实际需要给出；
+    /// 设置 <see cref="XAxisTitle"/> 时还必须把标题高度计入底部。
+    /// </remarks>
+    public static readonly StyledProperty<Thickness> PlotInsetProperty =
+        AvaloniaProperty.Register<ChartSurface, Thickness>(nameof(PlotInset), new Thickness(40, 20, 4, 20));
+
     /// <summary>绘图区背景。</summary>
     public static readonly StyledProperty<IBrush?> PlotBackgroundProperty =
         AvaloniaProperty.Register<ChartSurface, IBrush?>(nameof(PlotBackground));
@@ -153,10 +164,6 @@ public sealed class ChartSurface : Control
     public static readonly StyledProperty<double> FontSizeProperty =
         AvaloniaProperty.Register<ChartSurface, double>(nameof(FontSize), 10);
 
-    private const double LeftAxisWidth = 40;
-    private const double RightPadding = 0;
-    private const double BottomAxisHeight = 30;
-
     private readonly Dictionary<Color, IBrush> _colorCache = [];
     private readonly Dictionary<(IBrush Brush, double Thickness), IPen> _pens = [];
 
@@ -192,6 +199,7 @@ public sealed class ChartSurface : Control
             YCursorBFractionProperty,
             YCursorALabelProperty,
             YCursorBLabelProperty,
+            PlotInsetProperty,
             PlotBackgroundProperty,
             AxisBrushProperty,
             GridBrushProperty,
@@ -356,6 +364,13 @@ public sealed class ChartSurface : Control
     {
         get => GetValue(YCursorBLabelProperty);
         set => SetValue(YCursorBLabelProperty, value ?? string.Empty);
+    }
+
+    /// <summary>绘图区相对控件边界的内缩（左、上、右、下，DIP）。</summary>
+    public Thickness PlotInset
+    {
+        get => GetValue(PlotInsetProperty);
+        set => SetValue(PlotInsetProperty, value);
     }
 
     /// <summary>绘图区背景。</summary>
@@ -687,13 +702,13 @@ public sealed class ChartSurface : Control
 
     private Rect CalculatePlotArea(Rect bounds)
     {
-        var left = Math.Min(LeftAxisWidth, Math.Max(0, bounds.Width - RightPadding - 20));
-        var width = Math.Max(0, bounds.Width - left - RightPadding);
-        // 只有确实绘制 X 游标标签时才预留顶部高度；无游标时不为不存在的标签留白。
-        var top = ShowCursors
-            ? Math.Max(16, FontSize + 12)
-            : Math.Max(4, FontSize * 0.4);
-        var height = Math.Max(0, bounds.Height - top - BottomAxisHeight);
+        // 四边只取调用方给的内缩；夹紧到实际边界，避免极小窗口出现负宽高。
+        var left = Math.Clamp(PlotInset.Left, 0, bounds.Width);
+        var top = Math.Clamp(PlotInset.Top, 0, bounds.Height);
+        var right = Math.Clamp(PlotInset.Right, 0, Math.Max(0, bounds.Width - left));
+        var bottom = Math.Clamp(PlotInset.Bottom, 0, Math.Max(0, bounds.Height - top));
+        var width = Math.Max(0, bounds.Width - left - right);
+        var height = Math.Max(0, bounds.Height - top - bottom);
         return new Rect(left, top, width, height);
     }
 
@@ -742,6 +757,11 @@ public sealed class ChartSurface : Control
 
     private void DrawGridAndAxes(DrawingContext context, Rect plot)
     {
+        if (plot.Width <= 1 || plot.Height <= 1)
+        {
+            return;
+        }
+
         var series = Series;
         var maxCount = 1;
         if (series is not null)
@@ -836,8 +856,11 @@ public sealed class ChartSurface : Control
                 right: true);
         }
 
+        // 坐标轴外框：左、下就是坐标轴；补上、右两条边线，只框绘图区，不含刻度文字/游标标签/图例。
         context.DrawLine(axisPen, new Point(plot.Left, plot.Top), new Point(plot.Left, plot.Bottom));
         context.DrawLine(axisPen, new Point(plot.Left, plot.Bottom), new Point(plot.Right, plot.Bottom));
+        context.DrawLine(axisPen, new Point(plot.Right, plot.Top), new Point(plot.Right, plot.Bottom));
+        context.DrawLine(axisPen, new Point(plot.Left, plot.Top), new Point(plot.Right, plot.Top));
 
         if (XAxisTitle.Length > 0)
         {

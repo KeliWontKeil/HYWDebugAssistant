@@ -23,7 +23,7 @@
 | `ModuleTabs` | 页签容器 | `StateKey`、`TabItem` 子项 |
 | `ModuleSelect` | 紧凑选项下拉 | `Options`、`SelectedKey`、`OptionSelected` |
 | `ModuleSegmentedControl` | 互斥分段选择（文字/图标，可禁用） | `Options`、`SelectedKey`、`ShowLabels`、`IconSize`、`OptionSelected` |
-| `ChartSurface` | 通用多序列绘图（全量点、X/Y 游标、参考线、PNG） | `Series`、`XStart`、`XEnd`、`XStep`、`XAxisKind`、`YMin/Max`、`XTickStep/YTickStep`、`ReferenceLines`、`ShowCursors`、`ShowYCursors`、`CapturePng()` |
+| `ChartSurface` | 通用多序列绘图（全量点、X/Y 游标、参考线、PNG） | `Series`、`XStart`、`XEnd`、`XStep`、`XAxisKind`、`YMin/Max`、`XTickStep/YTickStep`、`PlotInset`、`ReferenceLines`、`ShowCursors`、`ShowYCursors`、`CapturePng()` |
 | `RangeSelector` | 通用线性范围可视化/拖动（单一范围、主题色轨道、细边界、主/次刻度、边缘/块内指针） | `Minimum`、`Maximum`、`RangeStart/End`、`MinimumRangeSpan`、`TickStep`、`ShowTicks`、`ShowTickLabels`、`MinorTickStep`、`XAxisKind`、`TickBrush`、`TickLabelBrush`、`HandleWidth`（仅边缘命中）、`RangeChanged`；轨道占满自身宽度，不接收图表 inset |
 | `Icon` | 模块自己的图标 | `IconKey`、`Owner` |
 | `ModuleView` | 视图根（推荐） | 继承 `UserControl`，自动带控件主题 |
@@ -41,6 +41,8 @@
 - `ChartSeries.Values` 是 `ReadOnlyMemory<float>`，可以直接引用快照数组；`Count` 为点数。
 - 旧 `Sequence` 环形缓冲仍可供其他模块使用；波形图表不再走它。
 - `ChartSurface` 的曲线颜色由调用方显式给出；缺省兜底是主题强调色，不再按索引取内置七色。
+- `ChartSurface.PlotInset` 是绘图区四边内缩的唯一来源（左/上/右/下，DIP）；刻度文字、游标标签和轴标题都算在内，控件不再自动增加顶部/底部预留。波形显示器用 `40,20,4,20`，发生器用 `40,4,4,20`。
+- 绘图区左、下边线就是坐标轴，另补上、右边线形成完整外框；外框只框绘图区，不包含刻度文字、游标标签或图例。
 
 ## 颜色选择（`IModuleColorPicker`）
 

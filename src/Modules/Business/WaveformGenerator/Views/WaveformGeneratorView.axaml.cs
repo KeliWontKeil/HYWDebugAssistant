@@ -27,6 +27,7 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
 
     private readonly List<ChartSeries> _seriesList = [];
     private readonly ChartSurface? _chart;
+    private readonly Border? _chartLayoutFrame;
     private readonly ModuleSegmentedControl? _groupChips;
     private readonly ModuleSegmentedControl? _channelChips;
     private readonly ModuleSegmentedControl? _waveformType;
@@ -48,6 +49,11 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
     private readonly ModuleTextSurface? _periodsInput;
     private readonly TextBlock? _estimateLabel;
     private readonly TextBlock? _totalEstimateLabel;
+    private readonly StackPanel? _parameterRows;
+    private readonly Grid? _baseParameterRow;
+    private readonly Control? _phaseCell;
+    private readonly Grid? _dutyParameterRow;
+    private readonly Grid? _carrierParameterRow;
     private readonly Control?[] _channelControls;
 
     private IModuleViewContext? _context;
@@ -63,6 +69,12 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
     {
         AvaloniaXamlLoader.Load(this);
         _chart = this.FindControl<ChartSurface>("Chart");
+        _chartLayoutFrame = this.FindControl<Border>("ChartLayoutFrame");
+        if (_chartLayoutFrame is not null && !Design.IsDesignMode && !ModuleView.IsPreviewHost)
+        {
+            _chartLayoutFrame.IsVisible = false;
+        }
+
         _groupChips = this.FindControl<ModuleSegmentedControl>("GroupChips");
         _channelChips = this.FindControl<ModuleSegmentedControl>("ChannelChips");
         _waveformType = this.FindControl<ModuleSegmentedControl>("WaveformType");
@@ -84,6 +96,11 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
         _periodsInput = this.FindControl<ModuleTextSurface>("PeriodsInput");
         _estimateLabel = this.FindControl<TextBlock>("EstimateLabel");
         _totalEstimateLabel = this.FindControl<TextBlock>("TotalEstimateLabel");
+        _parameterRows = this.FindControl<StackPanel>("ParameterRows");
+        _baseParameterRow = this.FindControl<Grid>("BaseParameterRow");
+        _phaseCell = this.FindControl<Grid>("PhaseCell");
+        _dutyParameterRow = this.FindControl<Grid>("DutyParameterRow");
+        _carrierParameterRow = this.FindControl<Grid>("CarrierParameterRow");
 
         _channelControls =
         [
@@ -290,10 +307,15 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
 
         if (channel is null)
         {
+            SetParameterVisibility(false, false, false, false);
             ClearChannelInputs();
             SetChannelEnabled(false);
             return;
         }
+
+        var periodic = channel.Kind is "sine" or "square" or "triangle" or "spwm" or "svpwm";
+        var modulated = channel.Kind is "spwm" or "svpwm";
+        SetParameterVisibility(true, periodic, channel.Kind == "square", modulated);
 
         SetChannelEnabled(true);
         SetInput(_channelNameInput, channel.Name);
@@ -310,12 +332,37 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
         SetInput(_carrierFrequencyInput, Format(channel.CarrierFrequency));
         SetInput(_modulationIndexInput, Format(channel.ModulationIndex));
         SetInput(_carrierPhaseInput, Format(channel.CarrierPhase));
+    }
 
-        var modulated = channel.Kind is "spwm" or "svpwm";
-        SetFieldEnabled(_dutyInput, channel.Kind == "square");
-        SetFieldEnabled(_carrierFrequencyInput, modulated);
-        SetFieldEnabled(_modulationIndexInput, modulated);
-        SetFieldEnabled(_carrierPhaseInput, modulated);
+    /// <summary>
+    /// 参数块按波形类型隐藏/显示；XAML 默认全显，运行期第一次 Refresh 才收紧。
+    /// </summary>
+    private void SetParameterVisibility(bool hasChannel, bool showPhase, bool showDuty, bool showCarrier)
+    {
+        if (_parameterRows is not null)
+        {
+            _parameterRows.IsVisible = hasChannel;
+        }
+
+        if (_baseParameterRow is not null)
+        {
+            _baseParameterRow.IsVisible = hasChannel;
+        }
+
+        if (_phaseCell is not null)
+        {
+            _phaseCell.IsVisible = hasChannel && showPhase;
+        }
+
+        if (_dutyParameterRow is not null)
+        {
+            _dutyParameterRow.IsVisible = hasChannel && showDuty;
+        }
+
+        if (_carrierParameterRow is not null)
+        {
+            _carrierParameterRow.IsVisible = hasChannel && showCarrier;
+        }
     }
 
     private void ClearChannelInputs()
@@ -339,14 +386,6 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
             {
                 control.IsEnabled = enabled;
             }
-        }
-    }
-
-    private static void SetFieldEnabled(Control? control, bool enabled)
-    {
-        if (control is not null)
-        {
-            control.IsEnabled = enabled;
         }
     }
 

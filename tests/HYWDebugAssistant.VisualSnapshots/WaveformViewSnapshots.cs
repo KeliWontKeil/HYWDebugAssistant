@@ -29,7 +29,7 @@ public class WaveformViewSnapshots
             new WaveformGeneratorViewFactory(),
             new GeneratorSnapshotContext(),
             1002,
-            408,
+            368,
             "modules/waveform-generator.png");
 
     [Fact]
@@ -38,7 +38,7 @@ public class WaveformViewSnapshots
             new WaveformGeneratorViewFactory(),
             new GeneratorSnapshotContext(groupSelected: true),
             1002,
-            408,
+            368,
             "modules/waveform-generator-group.png");
 
     [Fact]
@@ -47,8 +47,17 @@ public class WaveformViewSnapshots
             new WaveformGeneratorViewFactory(),
             new GeneratorSnapshotContext(kind: "spwm"),
             1002,
-            408,
+            368,
             "modules/waveform-generator-spwm.png");
+
+    [Fact]
+    public async Task 生成快照_波形发生器_方波() =>
+        await SaveAsync(
+            new WaveformGeneratorViewFactory(),
+            new GeneratorSnapshotContext(kind: "square"),
+            1002,
+            368,
+            "modules/waveform-generator-square.png");
 
     [Fact]
     public async Task 生成快照_波形发生器_无刷新预览() =>
@@ -56,7 +65,7 @@ public class WaveformViewSnapshots
             new WaveformGeneratorViewFactory(),
             new GeneratorSnapshotContext(),
             1002,
-            408,
+            368,
             "modules/waveform-generator-preview.png");
 
     [Fact]
@@ -79,7 +88,7 @@ public class WaveformViewSnapshots
                 var window = new Window
                 {
                     Width = 960,
-                    Height = 360,
+                    Height = 320,
                     Content = new Border
                     {
                         Margin = ModuleSurfaceMetrics.ContentMargin,
@@ -99,6 +108,75 @@ public class WaveformViewSnapshots
                 window.Close();
             },
             CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task 发生器_参数行应随波形隐藏()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var sine = VisibilityFor("sine");
+                Assert.True(sine.Base);
+                Assert.True(sine.Phase);
+                Assert.False(sine.Duty);
+                Assert.False(sine.Carrier);
+
+                var square = VisibilityFor("square");
+                Assert.True(square.Base);
+                Assert.True(square.Duty);
+                Assert.False(square.Carrier);
+
+                var spwm = VisibilityFor("spwm");
+                Assert.True(spwm.Base);
+                Assert.False(spwm.Duty);
+                Assert.True(spwm.Carrier);
+
+                var noise = VisibilityFor("noise");
+                Assert.True(noise.Base);
+                Assert.False(noise.Phase);
+
+                var groupSelected = VisibilityFor("sine", groupSelected: true);
+                Assert.False(groupSelected.Parameters);
+            },
+            CancellationToken.None);
+    }
+
+    private static (bool Parameters, bool Base, bool Phase, bool Duty, bool Carrier) VisibilityFor(
+        string kind,
+        bool groupSelected = false)
+    {
+        var context = new GeneratorSnapshotContext(kind, groupSelected);
+        var view = new WaveformGeneratorViewFactory().Create(context);
+        var host = new ModuleViewHost(context, view);
+        var window = new Window
+        {
+            Width = 960,
+            Height = 320,
+            Content = new Border
+            {
+                Margin = ModuleSurfaceMetrics.ContentMargin,
+                Child = host,
+            },
+        };
+
+        try
+        {
+            window.Show();
+            SnapshotTool.Pump();
+            host.Refresh();
+            SnapshotTool.Pump();
+            return (
+                view.FindControl<Control>("ParameterRows")?.IsVisible ?? false,
+                view.FindControl<Control>("BaseParameterRow")?.IsVisible ?? false,
+                view.FindControl<Control>("PhaseCell")?.IsVisible ?? false,
+                view.FindControl<Control>("DutyParameterRow")?.IsVisible ?? false,
+                view.FindControl<Control>("CarrierParameterRow")?.IsVisible ?? false);
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [Fact]
@@ -142,24 +220,34 @@ public class WaveformViewSnapshots
         await SnapshotSession.Shared.Dispatch(
             () =>
             {
-                var view = factory.Create(context);
-                var host = new ModuleViewHost(context, view);
-                var window = new Window
-                {
-                    Width = width,
-                    Height = height,
-                    Content = new Border
-                    {
-                        Margin = ModuleSurfaceMetrics.ContentMargin,
-                        Child = host,
-                    },
-                };
+                var previousPreviewHost = ModuleView.IsPreviewHost;
+                ModuleView.IsPreviewHost = true;
 
-                window.Show();
-                SnapshotTool.Pump();
-                // 故意不调用 host.Refresh()：模拟 Avalonia 预览器。
-                SnapshotTool.Save(window, path);
-                window.Close();
+                try
+                {
+                    var view = factory.Create(context);
+                    var host = new ModuleViewHost(context, view);
+                    var window = new Window
+                    {
+                        Width = width,
+                        Height = height,
+                        Content = new Border
+                        {
+                            Margin = ModuleSurfaceMetrics.ContentMargin,
+                            Child = host,
+                        },
+                    };
+
+                    window.Show();
+                    SnapshotTool.Pump();
+                    // 故意不调用 host.Refresh()：模拟 Avalonia 预览器。
+                    SnapshotTool.Save(window, path);
+                    window.Close();
+                }
+                finally
+                {
+                    ModuleView.IsPreviewHost = previousPreviewHost;
+                }
             },
             CancellationToken.None);
     }
