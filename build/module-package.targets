@@ -60,7 +60,23 @@
       <!-- 清单与模块自有资源从**项目目录**直接归拢：不依赖它们是否被复制进输出目录。 -->
       <ModuleManifestFile Include="$(MSBuildProjectDirectory)\module.json" Condition="Exists('$(MSBuildProjectDirectory)\module.json')" />
       <ModuleResourceFile Include="$(MSBuildProjectDirectory)\resources\**\*" Condition="Exists('$(MSBuildProjectDirectory)\resources')" />
+
+      <!--
+        **端口声明源**：模块视图 XAML（`Views/**/*.axaml`）与可选的根目录 `ports.axaml`。
+        宿主/测试通过 `views/` 里的源解析端口声明（不依赖 Avalonia）；这是包的一部分，
+        不是资源包（不进 `module.json.resources`）。
+      -->
+      <ModulePortViewFile Include="$(MSBuildProjectDirectory)\Views\**\*.axaml"
+                          Condition="Exists('$(MSBuildProjectDirectory)\Views')" />
+      <ModulePortViewFile Include="$(MSBuildProjectDirectory)\ports.axaml"
+                          Condition="Exists('$(MSBuildProjectDirectory)\ports.axaml')" />
     </ItemGroup>
+
+    <!-- 同步一份到输出目录：测试/宿主可能直接从 bin 目录加载（而不是从归拢后的包目录）。 -->
+    <Copy SourceFiles="@(ModulePortViewFile)"
+          DestinationFiles="@(ModulePortViewFile->'$(TargetDir)views\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(ModulePortViewFile)' != ''" />
 
     <RemoveDir Directories="$(ModulePackageDirectory)" Condition="Exists('$(ModulePackageDirectory)')" />
     <MakeDir Directories="$(ModulePackageDirectory)" />
@@ -75,6 +91,11 @@
           SkipUnchangedFiles="true"
           Condition="'@(ModuleResourceFile)' != ''" />
 
+    <Copy SourceFiles="@(ModulePortViewFile)"
+          DestinationFiles="@(ModulePortViewFile->'$(ModulePackageDirectory)\views\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(ModulePortViewFile)' != ''" />
+
     <Message Importance="high" Text="[module-pkg] $(ModulePackageName) → $(ModulePackageDirectory)" />
   </Target>
 
@@ -86,6 +107,9 @@
   -->
   <ItemGroup>
     <UpToDateCheckInput Include="module.json" Condition="Exists('$(MSBuildProjectDirectory)\module.json')" />
+    <!-- 端口声明源参与包内容：只改 XAML 也要让归拢重新跑。 -->
+    <UpToDateCheckInput Include="Views\**\*.axaml" Condition="Exists('$(MSBuildProjectDirectory)\Views')" />
+    <UpToDateCheckInput Include="ports.axaml" Condition="Exists('$(MSBuildProjectDirectory)\ports.axaml')" />
   </ItemGroup>
 
 </Project>

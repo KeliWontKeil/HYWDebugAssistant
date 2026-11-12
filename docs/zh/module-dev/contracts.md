@@ -1,18 +1,18 @@
 # 声明面
 
-声明是模块与框架的契约：模块说“我有哪些类型、口、界面通道”，框架据此建缓冲、校验连接、生成表单。声明只在 `OnRegistered` 里写一次，框架随后只读一次并转成不可变元数据；运行期不再重读，也不要再调用 `Declare*`。
+声明是模块与框架的契约：模块说“我有哪些类型、口、界面通道”，框架据此建缓冲、校验连接、生成表单。**类型/角色/界面通道**在 `OnRegistered` 里声明一次；**端口**在视图 XAML 的 `ModuleView.Ports` 里声明。框架在加载期读取一次并转成不可变元数据，运行期不再重读。
 
 成员签名与默认值见[接口参考](reference.md)；本页讲**怎么写才合法、写错会怎样**。
 
 ## 声明顺序
 
-1. 数据类型
-2. 端口
-3. 角色与内部处理顺序（可选）
-4. 显示源 / 输入 / 命令（界面契约）
-5. 外部接入（可选）
+1. 数据类型（`OnRegistered`）
+2. 端口（视图 XAML 的 `ModuleView.Ports`）
+3. 角色与内部处理顺序（`OnRegistered`，可选）
+4. 显示源 / 输入 / 命令（`OnRegistered`）
+5. 外部接入（`OnRegistered`，可选）
 
-顺序不是框架强制，但按这个顺序读代码最清楚：类型先有，口才能引用；口先有，角色才能引用；界面键与接入名最后登记。
+类型先有，口才能按 `TypeId` 引用；口先有，角色才能按名字引用。顺序不是框架强制，但按这个顺序读代码最清楚。
 
 ## 数据类型
 
@@ -43,28 +43,41 @@ context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, Shape)
 
 ## 端口
 
-```csharp
-context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape)
-{
-    TypeId = TypeId,
-    Edge = PortEdge.Bottom,
-});
+端口是**视图声明**：写在模块视图 XAML 的 `ModuleView.Ports` 里；数据类型与角色仍在 `OnRegistered` 声明。
+
+```xml
+<ui:ModuleView ...>
+  <ui:ModuleView.Ports>
+    <ui:ModulePort Name="{x:Static local:MyModule.OutPort}"
+                   Direction="Send"
+                   TypeId="{x:Static local:MyModule.TypeId}"
+                   Edge="Bottom" />
+  </ui:ModuleView.Ports>
+
+  <Canvas>...</Canvas>
+</ui:ModuleView>
 ```
 
 | 项 | 规则 |
 |---|---|
-| 名称 | 模块内唯一且稳定；连接锚定为 `实例ID.口名`。多同型口用 `rx1`/`rx2` |
+| 名称 | 模块内唯一且稳定；连接锚定为 `实例ID.口名`。多同型口用 `rx1`/`rx2`；用 `{x:Static}` 指向模块常量 |
 | 方向 | `Send` / `Receive`；双向 = 两个口 + 两条单向网络 |
-| 形状 | 引用了类型时，必须与类型形状完全相同 |
-| 类型引用 | 不声明 `TypeId` = 只按形状判定；声明后按标识 + 形状判定；引用的标识必须在本模块声明过 |
+| 类型引用 | `TypeId` 必须在本模块 `DeclareDataType` 声明过；形状与传递语义从该类型继承，XAML 不重复写 |
 | 默认边 | `Auto`（发送右、接收左）、`Left/Right/Top/Bottom`；用户拖动优先 |
-| 锚点 | `AnchorOffset` 0–1；`AnchorDraggable` 默认 `false` |
+| 锚点 | `Offset` 0–1（默认 0.5）；`AnchorDraggable` 默认 `false`（框架固定项） |
+| 可选语义覆盖 | `Semantics="Stream/Message/Event"`；不写则取类型语义 |
+
+**几何惯例**：宽大于高的模块把**接收口放在上边（`Top`）、发送口放在下边（`Bottom`）**，与内置发送器 / 监视器 / 波形模块的分边一致。这样两个窗口上下叠放时端口正好贴合，松开即可自动建网；`Auto` 的"发送右、接收左"只在左右并排摆放时才有意义。分边只影响呈现与叠放吸附，不参与兼容判定；跨窗口仍可用命名网络连接。
+
+**加载链**：构建把 `Views/**/*.axaml` 随包复制到 `views/`；Hosting 用 `PortSpecReader` 从同一份 XAML 源解析端口，再按 `TypeId` 解析成运行时 `PortDeclaration`。预览器直接读 `ModuleView.Ports`，两边同源。
+
+**旧模块兼容**：没有视图端口声明的模块仍可调用 `DeclarePort(PortDeclaration)`；**不要**同时用 XAML 与 C# 声明（会报“双声明”警告，且以 XAML 为准）。
 
 常见错误：
 
-- 口引用了未在本模块声明的标识：框架把该口退回“未声明类型”，只按形状判定，自检会报问题；
-- 口形状与类型形状写法不同（字段名大小写、顺序、长度）：加载期拒连，计数/呈现按错的那一份算；
-- 同一模块两个口同名：后一个被拒并报 Issue。
+- 口引用了未在本模块声明的 `TypeId`：加载期报错并跳过该口；
+- 同一模块两个口同名：后一个被拒并报 Issue；
+- XAML 里写 `Name`/`TypeId` 字面量：可以加载，但架构约定要求用 `{x:Static}` 指向模块常量，避免两处漂移。
 
 ## 角色与内部顺序
 
@@ -163,8 +176,8 @@ context.Declaration.DeclareExternalAccess(new ExternalAccessDeclaration(
 |---|---|---|
 | 入口缺公共无参构造 / 未实现 `IModule` | 自检 `Problems` / 加载 | 模块不可用 |
 | 口名重复、类型标识重复、显示源/输入/命令重名 | 自检 `Problems` / 加载 Issue | 后者被跳过 |
-| 口引用了本模块未声明的类型 | 自检 `Problems` / 加载 Warning | 该口回退为只按形状判定 |
-| 口形状与类型形状不同 | 自检 `Problems` / 加载 Error | 该口不可用 |
+| XAML 端口引用了本模块未声明的 `TypeId` | 自检 `Problems` / 加载 Error | 跳过该口（引用它的角色随后报错） |
+| 旧模块 C# 口的形状与类型形状不同 | 自检 `Problems` / 加载 Error | 该口不可用 |
 | 同一标识在两个模块里形状不同 | 全场对账 | 一条类型冲突 Issue，连接失败 |
 | 角色引用不存在的口/类型、口属于多个角色、两侧不同型 | 自检 `Problems` / 加载忽略 | 该角色不生效 |
 | 内部顺序引用不存在的角色、自环、重复 | 自检 `Problems` | 该条被忽略 |

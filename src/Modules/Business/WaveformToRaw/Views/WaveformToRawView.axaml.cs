@@ -14,6 +14,8 @@ public partial class WaveformToRawView : ModuleView, IModuleViewElement
 {
     private Control? _textParams;
     private Control? _fireWaterParams;
+    private ModuleLabel? _definition;
+    private ModuleLabel? _sample;
     private WaveformToRawProtocol? _lastProtocol;
 
     /// <summary>创建视图。</summary>
@@ -24,6 +26,8 @@ public partial class WaveformToRawView : ModuleView, IModuleViewElement
     {
         _textParams ??= this.FindControl<Control>("TextParams");
         _fireWaterParams ??= this.FindControl<Control>("FireWaterParams");
+        _definition ??= this.FindControl<ModuleLabel>("ProtocolDefinition");
+        _sample ??= this.FindControl<ModuleLabel>("ProtocolSample");
 
         var protocol = ProtocolText.Parse(context.ReadField(WaveformToRawModule.ProtocolField)?.Value);
         if (protocol == _lastProtocol)
@@ -40,6 +44,13 @@ public partial class WaveformToRawView : ModuleView, IModuleViewElement
         if (_fireWaterParams is not null)
         {
             _fireWaterParams.IsVisible = protocol is null or WaveformToRawProtocol.FireWater;
+        }
+
+        if (protocol is { } kind && _definition is not null && _sample is not null)
+        {
+            var help = WaveformToRawText.ProtocolHelp(kind);
+            _definition.Text = help.Definition;
+            _sample.Text = help.Sample;
         }
     }
 }

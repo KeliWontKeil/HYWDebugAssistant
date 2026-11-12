@@ -1,40 +1,43 @@
 namespace HYWDebugAssistant.Ui.Geometry;
 
 /// <summary>
-/// **屏幕几何的取整口径**（唯一一处）。
+/// **屏幕几何的量化口径**（唯一一处）。
 /// </summary>
 /// <remarks>
 /// <para>
-/// 两件事，尺度不同，都在这里：
-/// <list type="number">
-///   <item><b>模型几何 = DIP</b>（见 <c>ModuleLayoutView</c>）：<see cref="RoundDip"/> 把模块坐标/尺寸
-///     取整到**整 DIP** —— 拖动与吸附在整数格上做，避免"贴齐"在缩放 ≠100% 时差几个物理像素
-///     （小数 DIP 一旦乘上缩放再取整，舍入误差在两端各自累积 ⇒ 看得见的缝）。</item>
-///   <item><b>窗口边界 = 一个整数物理矩形</b>：<see cref="PixelRectOf"/> 把 DIP 矩形的**四条边各自取整**
-///     成 <see cref="PixelEdges"/>；窗口位置取 <c>Left/Top</c>，尺寸由 <c>(Right-Left)/scaling</c> 反推
-///     —— 位置与尺寸来自**同一个派生值**，不再各自取整（那样在 125%/150% 下相邻窗口的公共边会差 1px）。</item>
-/// </list>
+/// <b>量化点只有一个：窗口边界的整数物理像素。</b>模型位置仍是 DIP（见 <c>ModuleLayoutView</c>），
+/// 但它由整数物理像素**派生**：<c>X = pixel / Scaling</c>。因此模型里允许出现小数 DIP，
+/// 而 <c>X * Scaling</c> 必须落在整数像素上 —— 拖动、吸附、落位都按这个口径。
 /// </para>
 /// <para>
-/// 【用户第十二轮反馈 · `architecture/15` §3.1】口径必须只有一处：**所有**几何在写入模型之前都要经过本类，
-/// 禁止各自 <c>Math.Round</c>（口径不一致就等于没有口径）。
+/// <b>为什么不再对 DIP 独立取整</b>：缩放 ≠100% 时，整 DIP 乘回缩放仍是小数（125% 下 1 DIP = 1.25 px）；
+/// 相邻窗口各自把 DIP 取整再取整像素，公共边就会差 1px。把量化放在物理像素上，
+/// 组内成员共用同一个整数位移，贴合关系不会被舍入破坏。
+/// </para>
+/// <para>
+/// <b>窗口位置与尺寸来自同一个整数矩形</b>：<see cref="PixelRectOf"/> 把 DIP 矩形的四条边各自量化成
+/// <see cref="PixelEdges"/>；窗口位置取 <c>Left/Top</c>，尺寸由 <c>(Right-Left)/scaling</c> 反推，
+/// 不再各自取整。
 /// </para>
 /// </remarks>
 public static class ScreenPixels
 {
-    /// <summary>把 **DIP** 坐标/尺寸取整到整数值（`AwayFromZero`：0.5 → 1，避免"银行家舍入"在正负方向上不一致）。</summary>
-    /// <param name="dip">DIP 值（可为小数）。</param>
-    /// <returns>整 DIP（仍以 <see cref="double"/> 返回，便于与既有几何运算混用）。</returns>
-    public static double RoundDip(double dip) => double.IsFinite(dip)
-        ? Math.Round(dip, MidpointRounding.AwayFromZero)
-        : dip;
-
     /// <summary>把**物理像素**值取整为窗口位置用的整数点坐标。</summary>
     /// <param name="pixels">物理像素值。</param>
     /// <returns>整数像素坐标。</returns>
     public static int ToPixel(double pixels) => double.IsFinite(pixels)
         ? (int)Math.Round(pixels, MidpointRounding.AwayFromZero)
         : 0;
+
+    /// <summary>把整数**物理像素**换算成该窗口的 DIP（模型坐标）——与 <see cref="ToPixel"/> 互逆。</summary>
+    /// <param name="pixel">整数物理像素（窗口位置）。</param>
+    /// <param name="scaling">该窗口所在屏的缩放；≤0 / 非有限值按 1.0。</param>
+    /// <returns>DIP 坐标（可能带小数；乘回缩放后应回到原像素）。</returns>
+    public static double DipOfPixel(int pixel, double scaling)
+    {
+        var scale = double.IsFinite(scaling) && scaling > 0 ? scaling : 1.0;
+        return pixel / scale;
+    }
 
     /// <summary>
     /// 把 DIP 矩形落成一个**整数物理像素矩形**（四边各自 <see cref="ToPixel"/>）。

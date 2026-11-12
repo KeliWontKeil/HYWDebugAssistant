@@ -146,13 +146,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
             Metering = new MeteringBlock { PayloadLengthField = "len" },
         });
 
-        context.Declaration.DeclarePort(new PortDeclaration(InPort, PortDirection.Receive, RawBytesShape)
-        {
-            TypeId = RawBytesTypeId,
-
-            // 接收口在**上边**（与两个发送器的下边配对：上下叠放即可连）。
-            Edge = PortEdge.Top,
-        });
+        // 端口声明在 Views/DataMonitorView.axaml 的 ModuleView.Ports 里。
 
         context.Declaration.DeclareRole(RoleDeclaration.Input(
             RoleId,

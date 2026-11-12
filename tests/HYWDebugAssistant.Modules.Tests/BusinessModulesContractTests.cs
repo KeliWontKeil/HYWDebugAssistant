@@ -34,12 +34,17 @@ public class BusinessModulesContractTests
         ("len", ContractShape.OfPrimitive(ContractPrimitive.U16)),
         ("data", ContractShape.OfBytes(1472)));
 
+    private static IReadOnlyList<PortDeclarationSpec> Specs(string folder, Type entryType) =>
+        ModulePortSpecs.Read(folder, entryType.Assembly);
+
     // ---------------------------------------------------------------- 基础四模块
 
     [Fact]
     public void 文本发送器_声明面应自洽()
     {
-        var probe = ModuleContract.Probe(typeof(TextSenderModule));
+        var probe = ModuleContract.Probe(
+            typeof(TextSenderModule),
+            portSpecs: Specs("TextSender", typeof(TextSenderModule)));
 
         probe.Problems.ShouldBeEmpty();
         probe.Advisories.ShouldBeEmpty();
@@ -63,7 +68,9 @@ public class BusinessModulesContractTests
     [Fact]
     public void 十六进制发送器_声明面应自洽且与文本发送器同型()
     {
-        var probe = ModuleContract.Probe(typeof(HexSenderModule));
+        var probe = ModuleContract.Probe(
+            typeof(HexSenderModule),
+            portSpecs: Specs("HexSender", typeof(HexSenderModule)));
 
         probe.Problems.ShouldBeEmpty();
         probe.Advisories.ShouldBeEmpty();
@@ -79,7 +86,9 @@ public class BusinessModulesContractTests
     [Fact]
     public void 数据显示器_声明面应自洽且口在上边()
     {
-        var probe = ModuleContract.Probe(typeof(DataMonitorModule));
+        var probe = ModuleContract.Probe(
+            typeof(DataMonitorModule),
+            portSpecs: Specs("DataMonitor", typeof(DataMonitorModule)));
 
         probe.Problems.ShouldBeEmpty();
         probe.Advisories.ShouldBeEmpty();
@@ -113,9 +122,15 @@ public class BusinessModulesContractTests
     [Fact]
     public void 四个模块_应具备开箱即连的声明前提()
     {
-        var text = ModuleContract.Probe(typeof(TextSenderModule));
-        var hex = ModuleContract.Probe(typeof(HexSenderModule));
-        var monitor = ModuleContract.Probe(typeof(DataMonitorModule));
+        var text = ModuleContract.Probe(
+            typeof(TextSenderModule),
+            portSpecs: Specs("TextSender", typeof(TextSenderModule)));
+        var hex = ModuleContract.Probe(
+            typeof(HexSenderModule),
+            portSpecs: Specs("HexSender", typeof(HexSenderModule)));
+        var monitor = ModuleContract.Probe(
+            typeof(DataMonitorModule),
+            portSpecs: Specs("DataMonitor", typeof(DataMonitorModule)));
 
         // ① 同一个类型标识 + 同一形状（兼容判定：不同标识默认不兼容）
         text.DataTypes[0].TypeId.ShouldBe(hex.DataTypes[0].TypeId);
@@ -136,7 +151,10 @@ public class BusinessModulesContractTests
     [Fact]
     public void 串口_声明面应自洽_且与四个基础模块同型()
     {
-        var probe = ModuleContract.Probe(typeof(SerialModule), catalog: new BuiltInExternalAccessCatalog());
+        var probe = ModuleContract.Probe(
+            typeof(SerialModule),
+            catalog: new BuiltInExternalAccessCatalog(),
+            portSpecs: Specs("Serial", typeof(SerialModule)));
 
         probe.Problems.ShouldBeEmpty();
         probe.Advisories.ShouldBeEmpty();
@@ -175,7 +193,14 @@ public class BusinessModulesContractTests
     [InlineData(typeof(UdpModule), "udp")]
     public void 网络类模块_声明面应自洽_且与基础模块同型(Type entryType, string roleId)
     {
-        var probe = ModuleContract.Probe(entryType, catalog: new BuiltInExternalAccessCatalog());
+        var folder = entryType.Name.EndsWith("Module", StringComparison.Ordinal)
+            ? entryType.Name[..^"Module".Length]
+            : entryType.Name;
+
+        var probe = ModuleContract.Probe(
+            entryType,
+            catalog: new BuiltInExternalAccessCatalog(),
+            portSpecs: Specs(folder, entryType));
 
         probe.Problems.ShouldBeEmpty();
         probe.Advisories.ShouldBeEmpty();

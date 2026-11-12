@@ -5,7 +5,6 @@
     "module.description": "把文本帧或 VOFA+ 帧解析成波形帧",
     "role.decode": "解析",
     "role.emit": "输出",
-    "view.title": "原始 → 波形",
     "view.header": "帧头",
     "view.footer": "帧尾",
     "view.channels": "通道数量",
@@ -24,6 +23,12 @@
     "field.rate": "采样率",
     "choice.textFrame": "自定义文本帧",
     "choice.fireWater": "VOFA+ FireWater",
-    "choice.justFloat": "VOFA+ JustFloat"
+    "choice.justFloat": "VOFA+ JustFloat",
+    "proto.textFrame.def": "文本帧：帧头 + 空格分隔的数字 + 帧尾",
+    "proto.textFrame.sample": "ab 1.2 4.35 3.6 cd",
+    "proto.fireWater.def": "FireWater：逗号分隔一行，换行结束",
+    "proto.fireWater.sample": "samples:1.0,2.0",
+    "proto.justFloat.def": "JustFloat：小端 f32 数组 + 帧尾 00 00 80 7F",
+    "proto.justFloat.sample": "00 00 80 3F / 00 00 00 40 / 00 00 80 7F"
   }
 }

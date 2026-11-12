@@ -67,8 +67,7 @@ public sealed class TemplateModule : IModule, IActivitySource
     public void OnRegistered(IModuleContext context)
     {
         context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, Shape));
-        context.Declaration.DeclarePort(new PortDeclaration(InPort, PortDirection.Receive, Shape) { TypeId = TypeId });
-        context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape) { TypeId = TypeId });
+        // 端口声明在 Views/TemplateView.axaml 的 ModuleView.Ports 里（见“界面”页）。
         context.Declaration.DeclareRole(RoleDeclaration.Both("forward", TypeId, InPort, OutPort, "转发"));
         context.Ports.SetReceiveHandler(InPort, OnData);
         // 配置、显示源、命令、定时器见模板源码。
@@ -76,7 +75,7 @@ public sealed class TemplateModule : IModule, IActivitySource
 }
 ```
 
-要点：类型、端口、角色、显示源、输入、命令全部在 `OnRegistered` 声明；数据到达由框架回调；发出的长度必须等于发送口契约尺寸。详细规则见[声明面](contracts.md)与[实现](implementation.md)。
+要点：类型、角色、显示源、输入、命令在 `OnRegistered` 声明；**端口在视图 XAML 的 `ModuleView.Ports` 声明**；数据到达由框架回调；发出的长度必须等于发送口契约尺寸。详细规则见[声明面](contracts.md)、[界面](ui.md)与[实现](implementation.md)。
 
 ## 4 构建
 

@@ -116,21 +116,7 @@ public sealed class SerialModule : IModule, IActivitySource
         // ① 数据类型（模块间约定，本模块自己声明）→ ② 口 → ③ 角色 → ④ 界面契约 → ⑤ 接入
         context.Declaration.DeclareDataType(PortType);
 
-        context.Declaration.DeclarePort(new PortDeclaration(RxPort, PortDirection.Send, PortType.Shape)
-        {
-            TypeId = PortType.TypeId,
-
-            // 发送口在**下边**（与监视器的上边配对：上下叠放即可连）。用户仍可拖动覆盖。
-            Edge = PortEdge.Bottom,
-        });
-
-        context.Declaration.DeclarePort(new PortDeclaration(TxPort, PortDirection.Receive, PortType.Shape)
-        {
-            TypeId = PortType.TypeId,
-
-            // 接收口在**上边**（与两个发送器的下边配对：上下叠放即可连）。
-            Edge = PortEdge.Top,
-        });
+        // 端口声明在 Views/SerialView.axaml 的 ModuleView.Ports 里。
 
         context.Declaration.DeclareRole(RoleDeclaration.Both(
             RoleId,

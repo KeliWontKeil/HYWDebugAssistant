@@ -55,7 +55,7 @@ public sealed class TickSender : IModule, IActivitySource
     public void OnRegistered(IModuleContext context)
     {
         _context = context;
-        context.Declaration.DeclarePort(new PortDeclaration("out", PortDirection.Send, Shape));
+        // 端口声明在视图 XAML 的 ModuleView.Ports（无视图模块可放在根目录 ports.axaml）。
 
         _timer = context.Timers.Create();
         _timer.Interval = TimeSpan.FromMilliseconds(10);

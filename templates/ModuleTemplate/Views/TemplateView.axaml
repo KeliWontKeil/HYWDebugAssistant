@@ -10,6 +10,18 @@
                InitialWidth="360" InitialHeight="180"
                MinWidth="360" MinHeight="180">
 
+  <!-- 端口声明：位置与契约都在这里（名称/类型标识用模块常量，不写字面量）。 -->
+  <ui:ModuleView.Ports>
+    <ui:ModulePort Name="{x:Static local:TemplateModule.InPort}"
+                   Direction="Receive"
+                   TypeId="{x:Static local:TemplateModule.TypeId}"
+                   Edge="Left" />
+    <ui:ModulePort Name="{x:Static local:TemplateModule.OutPort}"
+                   Direction="Send"
+                   TypeId="{x:Static local:TemplateModule.TypeId}"
+                   Edge="Right" />
+  </ui:ModuleView.Ports>
+
   <!-- 模板视图：标题 / 一个配置字段 / 两个读数 / 一个命令。 -->
   <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="12">
 

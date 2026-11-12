@@ -185,6 +185,20 @@ public sealed class ModuleContext : IModuleContext, IDisposable
     /// <summary>已声明的口（按声明顺序）。</summary>
     public IReadOnlyList<PortDeclaration> DeclaredPorts => _ports;
 
+    /// <summary>
+    /// **用 XAML 声明的端口替换 C# 声明**（Hosting 在 `OnRegistered` 之后、成员实例化之前调用）。
+    /// </summary>
+    /// <param name="ports">已按数据类型解析好的端口。</param>
+    /// <remarks>
+    /// 只在模块包带 `views/` 端口声明时调用；旧模块没有该调用，保持 `DeclarePort` 的收集结果。
+    /// </remarks>
+    internal void ReplaceDeclaredPorts(IReadOnlyList<PortDeclaration> ports)
+    {
+        ArgumentNullException.ThrowIfNull(ports);
+        _ports.Clear();
+        _ports.AddRange(ports);
+    }
+
     /// <summary>已声明的**数据类型**（按声明顺序）。</summary>
     public IReadOnlyList<DataTypeDeclaration> DeclaredDataTypes => _dataTypes;
 

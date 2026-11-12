@@ -46,6 +46,15 @@ public sealed partial class ModuleRuntime
     /// <summary>一条被拒绝的候选（带可读原因，用于上报）。</summary>
     private readonly record struct ConnectionRejection(ConnectionCandidate Candidate, string Reason);
 
+    /// <summary>同网络名但契约不兼容的一对端口（内部只读事实）。</summary>
+    internal readonly record struct PortContractConflict(
+        string InstanceId,
+        string PortName,
+        string PeerInstanceId,
+        string PeerPortName,
+        string? NetworkName,
+        string Reason);
+
     /// <summary>
     /// 已上报过的拒绝键（**同一事实只报一次**）：拒绝是"持续状态"，而 Issue 是追加式列表——
     /// 每次拖动都重算一次，不按集合去重就会把同一条灌满面板。
@@ -280,6 +289,61 @@ public sealed partial class ModuleRuntime
         candidate.Origin == ConnectionOrigin.Contact
             ? "contact|" + candidate.Source
             : "label|" + candidate.Label;
+
+    /// <summary>
+    /// **同网络名但契约不兼容的端口对**（只读；供界面标红提示）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>只处理命名网络候选</b>：未打标签的几何候选不属于“同网络名”这个语义；</item>
+    ///   <item><b>判定复用唯一入口</b> <see cref="CheckCompatibility"/>：与实际建网/Issue 同一套规则；</item>
+    ///   <item><b>只报契约原因</b>：口缺失/方向不符不在这里报（那不是“同名不兼容”）；</item>
+    ///   <item><b>无副作用</b>：不写布局、不改网络；按 (源, 宿) 去重。</item>
+    /// </list>
+    /// </remarks>
+    internal IReadOnlyList<PortContractConflict> DescribeLabelContractConflicts()
+    {
+        var candidates = new List<ConnectionCandidate>();
+        CollectLabelCandidates(candidates, notices: []);
+        var conflicts = new List<PortContractConflict>(candidates.Count);
+        var seen = new HashSet<(string Source, string Target)>();
+
+        foreach (var candidate in candidates)
+        {
+            var source = FindPort(candidate.Source.InstanceId, candidate.Source.PortName);
+            var target = FindPort(candidate.Target.InstanceId, candidate.Target.PortName);
+
+            if (source is null || target is null)
+            {
+                continue;   // 方向/口缺失不是契约冲突
+            }
+
+            var result = CheckCompatibility(
+                candidate.Source.InstanceId, source,
+                candidate.Target.InstanceId, target);
+
+            if (result.IsCompatible)
+            {
+                continue;
+            }
+
+            var key = (candidate.Source.ToString(), candidate.Target.ToString());
+            if (!seen.Add(key))
+            {
+                continue;
+            }
+
+            conflicts.Add(new PortContractConflict(
+                candidate.Source.InstanceId,
+                candidate.Source.PortName,
+                candidate.Target.InstanceId,
+                candidate.Target.PortName,
+                candidate.Label,
+                result.Reason ?? CoreText.Get("core.runtime.reason.contractIncompatible")));
+        }
+
+        return conflicts;
+    }
 
     /// <summary>
     /// 上报**被拒绝**的候选：只报"结构条件都满足、只差契约"的对（几何不成立的根本不是候选，不报）。

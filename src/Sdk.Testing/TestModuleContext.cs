@@ -303,6 +303,54 @@ public sealed class TestModuleContext : IModuleContext
     /// <summary>已声明的口（按声明顺序；测试断言用）。</summary>
     public IReadOnlyList<PortDeclaration> DeclaredPorts => _ports;
 
+    /// <summary>
+    /// **把视图 XAML 的端口规格应用到测试上下文**（`ModuleContract.Probe` 在 `OnRegistered` 之后调用）。
+    /// </summary>
+    /// <param name="specs">端口规格。</param>
+    /// <param name="problems">问题收集（类型未声明、与 C# 双声明）。</param>
+    public void ApplyPortSpecs(IReadOnlyList<PortDeclarationSpec> specs, List<string> problems)
+    {
+        ArgumentNullException.ThrowIfNull(specs);
+        ArgumentNullException.ThrowIfNull(problems);
+
+        if (specs.Count == 0)
+        {
+            return;
+        }
+
+        if (_ports.Count > 0)
+        {
+            problems.Add("模块同时用 XAML 与 C# 声明了端口；请只保留 XAML 声明");
+        }
+
+        var types = _dataTypes.ToDictionary(type => type.TypeId, StringComparer.Ordinal);
+        var resolved = new List<PortDeclaration>(specs.Count);
+
+        foreach (var spec in specs)
+        {
+            if (!types.TryGetValue(spec.TypeId, out var type))
+            {
+                problems.Add($"端口 '{spec.Name}' 引用了未声明的数据类型 '{spec.TypeId}'");
+                continue;
+            }
+
+            resolved.Add(new PortDeclaration(
+                spec.Name,
+                spec.Direction,
+                type.Shape,
+                spec.Semantics ?? type.Semantics)
+            {
+                TypeId = spec.TypeId,
+                Edge = spec.Edge,
+                AnchorOffset = spec.AnchorOffset,
+                AnchorDraggable = spec.AnchorDraggable,
+            });
+        }
+
+        _ports.Clear();
+        _ports.AddRange(resolved);
+    }
+
     /// <summary>已声明的**数据类型**（按声明顺序；测试断言用）。</summary>
     public IReadOnlyList<DataTypeDeclaration> DeclaredDataTypes => _dataTypes;
 

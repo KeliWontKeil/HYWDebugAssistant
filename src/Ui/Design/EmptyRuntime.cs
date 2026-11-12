@@ -191,6 +191,9 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     public IReadOnlyList<ConnectionCandidateView> PreviewConnections(IReadOnlyList<ModuleLayoutView>? provisionalLayouts = null) => [];
 
     /// <inheritdoc />
+    public IReadOnlyList<PortContractConflictView> GetPortContractConflicts() => [];
+
+    /// <inheritdoc />
     public ApplicationSettings GetSettings() => new()
     {
         Hotkeys = new Dictionary<string, string>(StringComparer.Ordinal),

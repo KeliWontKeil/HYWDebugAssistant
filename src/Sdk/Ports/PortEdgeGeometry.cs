@@ -31,4 +31,15 @@ public static class PortEdgeGeometry
     /// <summary>该边是否为**水平边**（上/下）。</summary>
     /// <param name="edge">边。</param>
     public static bool IsHorizontal(PortEdge edge) => edge is PortEdge.Top or PortEdge.Bottom;
+
+    /// <summary>
+    /// **数据流惯例**：<see cref="PortEdge.Auto"/> 落成发送在右、接收在左。
+    /// </summary>
+    /// <param name="direction">口方向。</param>
+    /// <remarks>
+    /// 这是"没特别要求时"的唯一惯例实现：Core 的声明解析、预览外壳、快照共用本方法，
+    /// 不在各处再写一份三元表达式。
+    /// </remarks>
+    public static PortEdge DefaultFor(PortDirection direction) =>
+        direction == PortDirection.Send ? PortEdge.Right : PortEdge.Left;
 }

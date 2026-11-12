@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.VisualTree;
+using HYWDebugAssistant.Sdk.Ui.Geometry;
 using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.ViewModels;
 

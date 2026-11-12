@@ -28,8 +28,4 @@ public sealed class WaveformToRawConfig
     /// <summary>通道组编号（开启筛选时只转换该组）。</summary>
     [ConfigurationField(TitleKey = WaveformToRawText.FieldGroup, Minimum = 1, Maximum = int.MaxValue)]
     public int GroupId { get; set; } = 1;
-
-    /// <summary>只转换 <see cref="GroupId"/> 指定的组。</summary>
-    [ConfigurationField(TitleKey = WaveformToRawText.FieldOnlyGroup)]
-    public bool OnlyThisGroup { get; set; }
 }

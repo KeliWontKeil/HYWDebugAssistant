@@ -16,10 +16,10 @@
 |---|---|---|---|
 | 包 | `module.json` + 程序集 + `resources/` | 加载器 | 导入被拒，模块不出现在列表里 |
 | 入口与元数据 | `[ModuleDefinition]`：标识、显示名、视图工厂、能力、依赖 | 加载器、模块清单、窗口 | 清单与代码标识不一致 → 拒绝加载；缺无参构造 → 不可实例化 |
-| 声明面 | `OnRegistered` 里的 `Declare*`：类型、端口、角色、显示源、输入、命令、外部接入 | 实例化期校验 | 自检 `Problems` 非空；加载期 Issue；建网连不上 |
+| 声明面 | `OnRegistered` 里的 `Declare*`：类型、角色、显示源、输入、命令、外部接入；端口在视图 XAML 的 `ModuleView.Ports` | 实例化期校验 | 自检 `Problems` 非空；加载期 Issue；建网连不上 |
 | 生命周期 | `IModule` 的六个钩子 | 状态机 | 初始化时机错（在注册期假定数据已流动） |
 | 活动与调度 | `IActivitySource`：`OnStep`、`ReceiveMode`、定时器 | 实例线程 | 收不到命令/输入、周期不触发、数据没人取 |
-| 视图 | 视图工厂 + 模块 XAML | 窗口与呈现层 | 窗口空白、控件无样式、读数不刷新 |
+| 视图 | 视图工厂 + 模块 XAML（含 `ModuleView.Ports` 端口声明） | 窗口与呈现层 | 窗口空白、控件无样式、读数不刷新、端口加载失败 |
 | 资源 | `resources/i18n`、`resources/icons`、自定义 kind | 文本/图标目录、模块自己 | 界面显示键名；图标缺失；清单目录校验失败 |
 
 每层的细节在对应页面：包与清单见[项目与包布局](project-layout.md)，声明规则见[声明面](contracts.md)，钩子与上下文见[实现](implementation.md)，调度见[自发活动与定时器](activity.md)，视图见[界面](ui.md)与[控件](controls.md)，资源见[资源与文本](resources.md)，成员签名见[接口参考](reference.md)。
@@ -50,7 +50,7 @@
 
 ## 声明与读取的边界
 
-- 声明只在 `OnRegistered` 发生一次，框架随后**只读一次**并转成不可变元数据；运行期不再重读，也不要再调用 `Declare*`。
+- 类型/角色/界面通道的 `Declare*` 只在 `OnRegistered` 发生一次；端口在视图 XAML 的 `ModuleView.Ports` 声明。框架在加载期各读一次并转成不可变元数据，运行期不再重读。
 - 视图与命令都按**名字**寻址：名字是模块在声明里给出的字符串常量，代码与 XAML 共用同一份（`{x:Static}`），不各写一份字面量。
 - 类型与形状必须自洽：端口的形状要与它引用的类型完全一致，否则加载期报错。规则见[声明面](contracts.md)。
 - 模块只通过 `IModuleContext` 接触框架；不持有框架对象引用，不引用、不查询其它模块。

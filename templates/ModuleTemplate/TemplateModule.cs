@@ -77,17 +77,7 @@ public sealed class TemplateModule : IModule, IActivitySource
 
         context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, Shape));
 
-        context.Declaration.DeclarePort(new PortDeclaration(InPort, PortDirection.Receive, Shape)
-        {
-            TypeId = TypeId,
-            Edge = PortEdge.Left,
-        });
-
-        context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, Shape)
-        {
-            TypeId = TypeId,
-            Edge = PortEdge.Right,
-        });
+        // 端口声明在 Views/TemplateView.axaml 的 ModuleView.Ports 里（随包 views/ 源解析）。
 
         context.Declaration.DeclareRole(RoleDeclaration.Both(
             RoleId, TypeId, InPort, OutPort, TemplateText.Get(TemplateText.RoleName)));

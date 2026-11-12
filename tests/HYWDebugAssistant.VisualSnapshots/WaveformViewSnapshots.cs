@@ -3,8 +3,8 @@ using HYWDebugAssistant.Modules.WaveformDisplay.Views;
 using HYWDebugAssistant.Modules.WaveformGenerator.Views;
 using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
+using HYWDebugAssistant.Sdk.Ui.Geometry;
 using HYWDebugAssistant.Sdk.Views;
-using HYWDebugAssistant.Ui.Geometry;
 using Xunit;
 
 namespace HYWDebugAssistant.VisualSnapshots;
@@ -85,16 +85,7 @@ public class WaveformViewSnapshots
             {
                 var view = new WaveformGeneratorViewFactory().Create(new GeneratorSnapshotContext());
                 var host = new ModuleViewHost(new GeneratorSnapshotContext(), view);
-                var window = new Window
-                {
-                    Width = 960,
-                    Height = 320,
-                    Content = new Border
-                    {
-                        Margin = ModuleSurfaceMetrics.ContentMargin,
-                        Child = host,
-                    },
-                };
+                var window = SnapshotWindow.CreateFramed(host, view as ModuleView, 960, 320);
                 window.Show();
                 SnapshotTool.Pump();
 
@@ -149,16 +140,7 @@ public class WaveformViewSnapshots
         var context = new GeneratorSnapshotContext(kind, groupSelected);
         var view = new WaveformGeneratorViewFactory().Create(context);
         var host = new ModuleViewHost(context, view);
-        var window = new Window
-        {
-            Width = 960,
-            Height = 320,
-            Content = new Border
-            {
-                Margin = ModuleSurfaceMetrics.ContentMargin,
-                Child = host,
-            },
-        };
+        var window = SnapshotWindow.CreateFramed(host, view as ModuleView, 960, 320);
 
         try
         {
@@ -227,16 +209,7 @@ public class WaveformViewSnapshots
                 {
                     var view = factory.Create(context);
                     var host = new ModuleViewHost(context, view);
-                    var window = new Window
-                    {
-                        Width = width,
-                        Height = height,
-                        Content = new Border
-                        {
-                            Margin = ModuleSurfaceMetrics.ContentMargin,
-                            Child = host,
-                        },
-                    };
+                    var window = SnapshotWindow.CreatePreview(host, width, height);
 
                     window.Show();
                     SnapshotTool.Pump();
@@ -264,16 +237,7 @@ public class WaveformViewSnapshots
             {
                 var view = factory.Create(context);
                 var host = new ModuleViewHost(context, view);
-                var window = new Window
-                {
-                    Width = width,
-                    Height = height,
-                    Content = new Border
-                    {
-                        Margin = ModuleSurfaceMetrics.ContentMargin,
-                        Child = host,
-                    },
-                };
+                var window = SnapshotWindow.CreateFramed(host, view as ModuleView, width, height);
 
                 window.Show();
                 SnapshotTool.Pump();

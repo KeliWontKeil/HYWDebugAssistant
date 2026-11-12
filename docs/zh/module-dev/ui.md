@@ -92,13 +92,32 @@ public partial class MyView : ModuleView, IModuleViewElement
 
 - 尺寸指内容区，不含外框：框架在内容区外再加左侧 20 / 顶部 22 / 右侧 20 / 底部 24 DIP 的端口预留带与 1 DIP 描边。窗口的实际最小尺寸还会被端口标记下限（160 DIP）托底。
 - 用户拖过的尺寸随组合件保存；读回旧布局时夹到当前有效区间。
-- `InitialWidth/Height` 是唯一声明；`ModuleView` 在 setter 里把同一值镜像给预览器的 `Design.Width/Height`，不要再写 `d:DesignWidth/Height`。
+- `InitialWidth/Height` 是唯一声明；`ModuleView` 在 setter 里把**内容尺寸 + 窗口外框**镜像给预览器的 `Design.Width/Height`（运行期 `InitialWidth` 仍是内容尺寸），不要再写 `d:DesignWidth/Height`。
 - 内容放不下时内容区滚动，窗口不按内容长高。
 - 最小尺寸要容得下端口标记，否则标记会被裁掉。
+
+## 端口声明
+
+端口（名称/方向/类型/默认边/偏移/可拖动性）写在视图 XAML 的 `ModuleView.Ports` 里：
+
+```xml
+<ui:ModuleView.Ports>
+  <ui:ModulePort Name="{x:Static local:MyModule.InPort}"
+                 Direction="Receive"
+                 TypeId="{x:Static local:MyModule.TypeId}"
+                 Edge="Top" />
+</ui:ModuleView.Ports>
+```
+
+- `TypeId` 指向 `OnRegistered` 里已声明的数据类型；形状/语义从类型继承，XAML 不重复写；
+- 名称与类型标识用 `{x:Static}`，不要在 XAML 里复制字面量；
+- 构建会把 `Views/**/*.axaml` 随包复制到 `views/`，Hosting 从同一份源解析端口；预览器直接读 `ModuleView.Ports`；
+- 旧模块仍可用 C# `DeclarePort`，但不要与 XAML 双声明；内置模块与模板已全部迁到 XAML。
 
 ## 布局
 
 - 内容区用 `Grid`：`*` 行/列吸收剩余空间，固定行放动作条与状态行。
+- **没有自适应需求的模块可以整块用一个 `Canvas`**（示例：串口、两个波形桥）：窗口尺寸 = 内容尺寸，`Min` 与 `Initial` 相等，不写行列容器；此时隐藏的参数行只留固定空档，其余行不重排。
 - 固定控件集中放在一个 `Canvas` 中，用 `Canvas.Left/Top` 精确摆放；坐标只写在 XAML，代码不写位置、不按内容改行高。
 - `Canvas` 是“相对坐标容器”，不是窗口级绝对坐标：窗口变宽时由外层 `*` 区域吸收。
 - **结构常显，可选参数可隐藏**：组/通道/页签/动作等结构控件必须在 XAML 中常显；无选中项时用 `IsEnabled` 禁用。仅部分数据适用的参数行允许运行期用 `IsVisible` 隐藏，但 XAML 默认必须全显，保证预览器不调用 `Refresh` 时仍能定位全部控件。
@@ -141,7 +160,7 @@ public partial class MyView : ModuleView, IModuleViewElement
 
 本仓库模块可用 `.\tools\dev.ps1 -Mode Snapshots` 生成截图；外部模块没有这条工具，靠主应用看。
 
-预览器不创建实例，也不显示端口标记、状态行或窗口边框；它不能代替本节。
+预览器不创建实例；它会显示**窗口外框**与**端口占位标记**（位置/尺寸/方向色），但不显示网络名/速率/指示灯/状态行等运行期信息；它不能代替本节。
 
 ## 可选：XAML 设计器预览
 
@@ -203,13 +222,13 @@ public partial class App : Application
 2. 打开模块视图的 `.axaml`，在预览器右上角把目标选为 `MyModule.Preview`；
 3. 看到带样式的控件、预览值、范围框与配置字段标题，只说明 **XAML 设计面可加载**，不是模块完成判据。
 
-**不要双击或 `dotnet run` 这个预览工程来验收模块。** 它没有实例、生命周期、端口与数据面；用它截图或 `PrintWindow` 得到的结果也不能代表主应用里的模块。
+**不要双击或 `dotnet run` 这个预览工程来验收模块。** 它没有实例、生命周期与数据面；端口只以占位标记显示。用它截图或 `PrintWindow` 得到的结果也不能代表主应用里的模块。
 
 预览器能验证与不能验证的边界：
 
 | 能验证 | 不能验证 |
 |---|---|
-| XAML 能否加载、控件主题、文本表、预览值、范围框、带设计数据的配置字段 | 实例创建与生命周期、`OnRegistered`/`OnStep`、端口声明与连接、命令执行、数据流、外部会话、状态行、端口标记、导入/重启 |
+| XAML 能否加载、控件主题、文本表、预览值、范围框、带设计数据的配置字段、窗口外框、端口占位标记 | 实例创建与生命周期、`OnRegistered`/`OnStep`、端口连接、命令执行、数据流、外部会话、状态行、端口运行期信息（网络名/速率/指示灯）、导入/重启 |
 
 **预览显示什么由视图声明决定**：输入框/读数/开关/下拉的初始值直接写在控件的 `Text` / `IsChecked` / `SelectedKey` 上；标签与不可见容器由框架附加虚线范围框；配置字段显示配置默认值。运行期数据到达后覆盖这些声明值。不要为了预览在视图代码里写一套默认值，也不要在设计环境调用 `Refresh`。
 
@@ -228,13 +247,14 @@ public sealed partial class MyView : ModuleView { }
 |---|---|---|
 | 控件没有样式、像裸控件 | 视图根不是 `ModuleView`，或预览宿主没有进入设计环境 | 根改成 `ModuleView`；预览宿主设置 `ModuleView.IsPreviewHost = true` |
 | 文案显示成键名 | 预览器读不到文本表 | 工程里加上[项目与包布局](project-layout.md)中的 `Content` 项 |
-| 配置字段是空的 | 预览器没有运行时上下文 | 视图类加 `[ModuleViewDesignData(typeof(配置类型))]` 或使用镜像配置类型 |
+| 配置字段只剩虚线框、看不到控件 | 视图缺设计数据：`ModuleConfigField` 没有配置 schema，只能画范围框 | 视图类加 `[ModuleViewDesignData(typeof(配置类型))]`；外部预览宿主用镜像配置类型 |
 | 参数控件在预览里消失 | XAML 默认 `IsVisible=False`，只靠运行时 `Refresh` 打开 | 结构控件常显，可选参数行 XAML 默认全显，运行期再按数据隐藏 |
 | 预览期出现虚线范围框、运行期消失 | 范围框是设计期定位辅助，由 `ModuleView.IsDesignEnvironment` 决定 | 正常；运行期不创建、不参与布局、命中或 PNG 捕获 |
 | 某个装饰件只在预览期出现 | 使用了 `ui:PreviewOnly.IsEnabled="True"` | 正常；运行期自动隐藏 |
 | 命令按钮点了没反应 | 设计时上下文不执行命令 | 正常；命令只在主应用里生效 |
 | 读数或输入框预览为空 | 视图没有在 XAML 里给预览值 | 在 `Text` / `IsChecked` / `SelectedKey` 等属性上写代表性初值 |
-| 端口标记、状态行或窗口边框不出现 | 它们由主应用窗口绘制，不属于视图 | 正常；到主应用装载后的实例里看 |
+| 端口占位标记不出现 / 位置不对 | 视图没有 `ModuleView.Ports`，或 `Edge`/`Offset` 写错 | 补端口声明；运行期完整标记（网络名/速率/指示灯）仍到主应用实例里看 |
+| 端口占位标记出现了、但运行期没有该口 | XAML 与 C# 双声明或 `TypeId` 未声明 | 看 Issue 中心；只保留 XAML 声明，并确认 `TypeId` 已在 `OnRegistered` 声明 |
 | 标准接入的字段画不出来 | 参数类型在框架侧，外部预览宿主没有注册 | 写镜像配置类型并用 `typeof` 指定，不要用未注册的标准标识 |
 
 ## 相关

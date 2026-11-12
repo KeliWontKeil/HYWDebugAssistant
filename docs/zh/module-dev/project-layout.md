@@ -115,6 +115,7 @@ bin/module-package/Release/<模块名>/
 - `module.json`
 - 实现程序集（可含 `.pdb`）
 - `resources/**`（若项目里有）
+- `views/**/*.axaml`：端口声明源（Hosting 从同一份 XAML 解析端口；不是资源包）
 - 可选的 `preview.png`：模块清单卡片封面（不是窗口截图）
 - 模块私有第三方依赖（含 `runtimes/<rid>/lib|native/…` 平台分片）
 

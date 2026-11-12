@@ -32,6 +32,12 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
     /// <summary>发送口。</summary>
     public const string OutPort = "raw";
 
+    /// <summary>原始字节类型标识（供视图 XAML 的 `{x:Static}` 引用）。</summary>
+    public const string RawBytesTypeId = Codec.RawBytesContract.TypeId;
+
+    /// <summary>波形帧类型标识（供视图 XAML 的 `{x:Static}` 引用）。</summary>
+    public const string WaveformTypeId = Codec.WaveformContract.TypeId;
+
     /// <summary>接收角色。</summary>
     public const string RoleIngest = "ingest";
 
@@ -56,6 +62,9 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
     /// <summary>命令：清空统计。</summary>
     public const string ResetCommand = "reset";
 
+    /// <summary>清空统计按钮的图标键（图标表在模块自有资源里）。</summary>
+    public const string ClearStatsIcon = "icon.refresh";
+
     /// <summary>配置字段名：协议。</summary>
     public const string ProtocolField = nameof(WaveformToRawConfig.Protocol);
 
@@ -70,9 +79,6 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
 
     /// <summary>配置字段名：通道组编号。</summary>
     public const string GroupIdField = nameof(WaveformToRawConfig.GroupId);
-
-    /// <summary>配置字段名：仅转换该组。</summary>
-    public const string OnlyGroupField = nameof(WaveformToRawConfig.OnlyThisGroup);
 
     /// <summary>配置字段名：小数位数。</summary>
     public const string DecimalsField = nameof(WaveformToRawConfig.Decimals);
@@ -116,25 +122,7 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
             Metering = RawBytesContract.Metering,
         });
 
-        context.Declaration.DeclarePort(new PortDeclaration(
-            InPort,
-            PortDirection.Receive,
-            WaveformContract.Shape,
-            WaveformContract.Semantics)
-        {
-            TypeId = WaveformContract.TypeId,
-            Edge = PortEdge.Top,
-        });
-
-        context.Declaration.DeclarePort(new PortDeclaration(
-            OutPort,
-            PortDirection.Send,
-            RawBytesContract.Shape,
-            TransferSemantics.Stream)
-        {
-            TypeId = RawBytesContract.TypeId,
-            Edge = PortEdge.Bottom,
-        });
+        // 端口声明在 Views/WaveformToRawView.axaml 的 ModuleView.Ports 里。
 
         context.Declaration.DeclareRole(RoleDeclaration.Input(
             RoleIngest,
@@ -239,6 +227,9 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
         _config.Protocol is not WaveformToRawProtocol.TextFrame
         || (!string.IsNullOrEmpty(_config.TextHeader) && !string.IsNullOrEmpty(_config.TextFooter));
 
+    /// <summary>本模块负责的通道组；0 是保留值，按 1 处理。</summary>
+    private uint ConfiguredGroupId => _config.GroupId > 0 ? unchecked((uint)_config.GroupId) : 1u;
+
     private void OnWave(ReadOnlySpan<byte> payload)
     {
         if (_context is not { } context)
@@ -262,7 +253,7 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
             return;
         }
 
-        if (_config.OnlyThisGroup && groupId != (_config.GroupId > 0 ? unchecked((uint)_config.GroupId) : 1u))
+        if (groupId != ConfiguredGroupId)
         {
             SetStatus(context, WaveformToRawText.Get(WaveformToRawText.GroupFiltered));
             return;

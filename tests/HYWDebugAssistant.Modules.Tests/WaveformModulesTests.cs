@@ -28,8 +28,12 @@ public class WaveformModulesTests
     [Fact]
     public void 波形两模块_应声明同一类型与形状()
     {
-        var generator = ModuleContract.Probe(typeof(WaveformGeneratorModule));
-        var display = ModuleContract.Probe(typeof(WaveformDisplayModule));
+        var generator = ModuleContract.Probe(
+            typeof(WaveformGeneratorModule),
+            portSpecs: ModulePortSpecs.Read("WaveformGenerator", typeof(WaveformGeneratorModule).Assembly));
+        var display = ModuleContract.Probe(
+            typeof(WaveformDisplayModule),
+            portSpecs: ModulePortSpecs.Read("WaveformDisplay", typeof(WaveformDisplayModule).Assembly));
 
         generator.Problems.ShouldBeEmpty();
         generator.Advisories.ShouldBeEmpty();

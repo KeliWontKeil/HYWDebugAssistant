@@ -2,7 +2,7 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
-using HYWDebugAssistant.Ui.Geometry;
+using HYWDebugAssistant.Sdk.Ui.Geometry;
 using HYWDebugAssistant.Ui.ViewModels;
 
 namespace HYWDebugAssistant.Ui.Controls;
@@ -56,15 +56,6 @@ public sealed class PortMarkerPanel : Panel
     /// <summary>面板层（标记 / 固定按钮）。</summary>
     public static readonly StyledProperty<PortMarkerLayer> LayerProperty =
         AvaloniaProperty.Register<PortMarkerPanel, PortMarkerLayer>(nameof(Layer));
-
-    /// <summary>
-    /// 标记与窗口外沿的间距（px）——**-1 = 标记外沿与窗口外框完全重合**。
-    /// </summary>
-    /// <remarks>
-    /// 本面板位于 1 px 边框**之内**，故取 −1 让标记压到窗口外框上：两个相邻模块的标记带因此**严丝合缝**
-    /// （否则中间会留 2 px 边框缝，看起来像"没对齐"）。
-    /// </remarks>
-    private const double EdgeInset = -1;
 
     /// <summary>已挂上变更通知的子项 → 其当前的标记视图模型（用于解绑，防泄漏）。</summary>
     private readonly Dictionary<Control, PortMarkerViewModel> _hooked = [];
@@ -124,7 +115,11 @@ public sealed class PortMarkerPanel : Panel
 
             child.Arrange(Layer == PortMarkerLayer.AnchorButton
                 ? AnchorButtonRect(marker, size, child.DesiredSize, finalSize)
-                : MarkerRect(marker, size, finalSize));
+                : PortMarkerLayout.MarkerRect(
+                    marker?.Side ?? PortSide.Left,
+                    marker?.Offset ?? 0.5,
+                    finalSize,
+                    size));
         }
 
         return finalSize;
@@ -133,43 +128,6 @@ public sealed class PortMarkerPanel : Panel
     /// <summary>标记的占地尺寸（**以视图模型为准**；模型缺失时回退到实测尺寸）。</summary>
     private static Size MarkerSize(PortMarkerViewModel? marker, Size fallback) =>
         marker is null ? fallback : new Size(marker.MarkerWidth, marker.MarkerHeight);
-
-    /// <summary>
-    /// **标记沿边占的那一段**（起点 + 可用长度）——标记层与按钮层**共用这一份算法**
-    /// （同一规则只许有一处实现，见类注释）。
-    /// </summary>
-    private static (double Start, double Available) AlongEdgeSpan(
-        PortSide side,
-        double offset,
-        Size panel,
-        Size marker)
-    {
-        var vertical = side is PortSide.Left or PortSide.Right;
-        var available = vertical ? panel.Height : panel.Width;
-        var length = vertical ? marker.Height : marker.Width;
-
-        var start = (available * Math.Clamp(offset, 0, 1)) - (length / 2);
-        start = Math.Clamp(start, 0, Math.Max(0, available - length));
-        return (start, available);
-    }
-
-    /// <summary>标记层的矩形：沿边按偏移分布，跨轴贴窗口外沿。</summary>
-    private static Rect MarkerRect(PortMarkerViewModel? marker, Size size, Size panel)
-    {
-        var side = marker?.Side ?? PortSide.Left;
-        var offset = marker?.Offset ?? 0.5;
-        var (start, available) = AlongEdgeSpan(side, offset, panel, size);
-
-        return side switch
-        {
-            PortSide.Left => new Rect(EdgeInset, start, size.Width, size.Height),
-            PortSide.Right => new Rect(
-                Math.Max(0, panel.Width - size.Width - EdgeInset), start, size.Width, size.Height),
-            PortSide.Top => new Rect(start, EdgeInset, size.Width, size.Height),
-            _ => new Rect(
-                start, Math.Max(0, panel.Height - size.Height - EdgeInset), size.Width, size.Height),
-        };
-    }
 
     /// <summary>
     /// **「固定 / 解锁」按钮**的矩形（G5 · C5-7）：落在**同一条边的预留带里、标记长度之外**。
@@ -196,7 +154,7 @@ public sealed class PortMarkerPanel : Panel
         var offset = marker?.Offset ?? 0.5;
         var vertical = side is PortSide.Left or PortSide.Right;
 
-        var (start, available) = AlongEdgeSpan(side, offset, panel, markerSize);
+        var (start, available) = PortMarkerLayout.AlongEdgeSpan(side, offset, panel, markerSize);
         var markerLength = vertical ? markerSize.Height : markerSize.Width;
 
         // 按钮的沿边长度取**实测尺寸**（模板里已固定 20×20；不在这里再写一份常量，免得两处会漂）
@@ -224,16 +182,16 @@ public sealed class PortMarkerPanel : Panel
         return vertical
             ? new Rect(
                 side == PortSide.Right
-                    ? Math.Max(0, panel.Width - button.Width - EdgeInset)
-                    : EdgeInset,
+                    ? Math.Max(0, panel.Width - button.Width - PortMarkerLayout.EdgeInset)
+                    : PortMarkerLayout.EdgeInset,
                 along,
                 button.Width,
                 button.Height)
             : new Rect(
                 along,
                 side == PortSide.Bottom
-                    ? Math.Max(0, panel.Height - button.Height - EdgeInset)
-                    : EdgeInset,
+                    ? Math.Max(0, panel.Height - button.Height - PortMarkerLayout.EdgeInset)
+                    : PortMarkerLayout.EdgeInset,
                 button.Width,
                 button.Height);
     }

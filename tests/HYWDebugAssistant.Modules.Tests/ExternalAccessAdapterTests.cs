@@ -429,6 +429,13 @@ public sealed class ExternalAccessAdapterTests
         var context = new TestModuleContext();
         var module = new SerialModule();
         module.OnRegistered(context);
+
+        var portProblems = new List<string>();
+        context.ApplyPortSpecs(
+            ModulePortSpecs.Read("Serial", typeof(SerialModule).Assembly),
+            portProblems);
+        portProblems.ShouldBeEmpty();
+
         module.OnActivated();
 
         context.DeclaredExternalAccesses.ShouldHaveSingleItem().Name.ShouldBe(SerialModule.AccessName);

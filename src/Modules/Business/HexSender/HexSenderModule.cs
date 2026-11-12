@@ -129,13 +129,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
             Metering = new MeteringBlock { PayloadLengthField = "len" },
         });
 
-        context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, RawBytesShape)
-        {
-            TypeId = RawBytesTypeId,
-
-            // 发送口在**下边**（与监视器的上边配对：上下叠放即可连）。用户仍可拖动覆盖。
-            Edge = PortEdge.Bottom,
-        });
+        // 端口声明在 Views/HexSenderView.axaml 的 ModuleView.Ports 里。
 
         context.Declaration.DeclareRole(RoleDeclaration.Output(
             RoleId,

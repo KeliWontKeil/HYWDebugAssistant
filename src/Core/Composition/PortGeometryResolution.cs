@@ -47,7 +47,7 @@ internal static class PortGeometryResolution
     /// </remarks>
     private static PortEdge DeclaredEdge(PortDeclaration declaration) => declaration.Edge switch
     {
-        PortEdge.Auto => declaration.Direction == PortDirection.Send ? PortEdge.Right : PortEdge.Left,
+        PortEdge.Auto => PortEdgeGeometry.DefaultFor(declaration.Direction),
         var edge => edge,
     };
 

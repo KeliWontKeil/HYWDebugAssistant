@@ -10,12 +10,21 @@
 [Fact]
 public void 声明面应合法()
 {
-    var probe = ModuleContract.Probe(typeof(MyModule));
+    // 端口在视图 XAML 的 ModuleView.Ports 里：先把规格读出来再交给 Probe。
+    var specs = PortSpecReader.ReadDirectory(
+        Path.Combine(AppContext.BaseDirectory, "views"),
+        typeof(MyModule).Assembly);
+
+    var probe = ModuleContract.Probe(typeof(MyModule), portSpecs: specs.Specs);
 
     probe.Problems.ShouldBeEmpty(string.Join("；", probe.Problems));
     probe.Advisories.ShouldBeEmpty();
 }
 ```
+
+- `PortSpecReader` 只依赖 BCL，不需要 Avalonia；它读 `views/*.axaml`（仓库/包内同一份源）。
+- 测试输出里没有 `views/` 时，把模块的 `Views/*.axaml` 作为 `Content` 复制到测试输出，或直接把 `ReadDirectory` 指向模块源码目录；不要为了测试再抄一份端口声明。
+- 没有 XAML 端口声明的旧模块可省略 `portSpecs`，继续用 C# `DeclarePort`。
 
 - `Problems` 空 = 合法；非空是**必须改**的声明错误（口重名、类型未声明、口形状与类型不一致、角色引用不存在、配置类型缺无参构造……）。
 - `Advisories` 是建议（有数据口却零角色、口不属于任何角色、角色口数 > 2）；逐条确认后可以保留，不影响合法性。
@@ -37,7 +46,16 @@ public void 声明面应合法()
 
 契约文字见[数据面](../concepts/data-plane.md)与[波形帧约定](../concepts/waveform-frame.md)。
 
-仓库维护者另有内部手段：用 `Hosting` 的加载/工厂按真实包加载内置模块，跑一次 `OnRegistered`，再对比 `ContractProbeResult` 的 `DataTypes`/`Ports`。这依赖仓库内的 `Hosting`，不在 `Sdk.Testing` 中，**不是外部作者可用的入口**；外部作者不要为它搭私有加载器，直接走主应用实测。
+仓库维护者另有内部手段：用 `Hosting` 的加载/工厂按真实包加载内置模块，跑一次 `OnRegistered`，再对比 `ContractProbeResult` 的 `DataTypes`/`Ports`。这依赖仓库内的 `Hosting`，不在 `Sdk.Testing` 中，**不是外部作者可用的入口**。
+
+已经装过产品的作者可以更早做一次对照：在测试里 `Assembly.LoadFrom` 内置模块的 DLL，用 `Sdk.Testing` 的 `TestModuleContext` 跑一次它的 `OnRegistered`，再把自己与它的 `DataTypes` / `Ports` 逐项比对（形状、`Semantics`、端口语义）。这只是最早的一次契约对照，**不替代**主应用建网实测，也不要把产品 DLL 带进模块包。
+
+失败现象对照（两者都不是加载失败，模块仍会出现在清单里）：
+
+| 现象 | 通常是什么不一致 |
+|---|---|
+| 建网被拒、端口连不上 | 类型标识、形状，或**传递语义**（`Stream` / `Message` / `Event` 跨语义不判兼容） |
+| 连上但数据被丢弃（状态句如"格式不正确"） | 字段级约束不满足：`groupId == 0`、`payloadBytes != 4 × channelCount`、通道数越界等 |
 
 ## 新建测试工程
 

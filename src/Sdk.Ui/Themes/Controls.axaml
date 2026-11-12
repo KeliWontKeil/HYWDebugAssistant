@@ -604,6 +604,42 @@
     <Setter Property="Height" Value="10" />
     <Setter Property="Margin" Value="0,0,6,0" />
   </Style>
+
+  <!--
+    **模块窗口外框**：运行时 `ModuleWindow`、IDE 预览外壳与快照共用这一处外观。
+    只放外观（背景/描边/圆角）；内外预留带与内容尺寸仍由 `ModuleSurfaceMetrics` 决定。
+  -->
+  <Style Selector="Border.moduleFrame">
+    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource ModuleCornerRadius}" />
+  </Style>
+
+  <!--
+    **预览外壳的端口占位标记**：只画位置/尺寸/方向色，不画网络名/速率/指示灯。
+    位置与尺寸由 `PortMarkerLayout`/`PortMarkerMetrics` 决定，样式不复制数值。
+  -->
+  <Style Selector="Border.previewPortMarker">
+    <Setter Property="Background" Value="{DynamicResource BgChrome}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource DirectionReceive}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="ClipToBounds" Value="True" />
+    <Setter Property="IsHitTestVisible" Value="False" />
+  </Style>
+  <Style Selector="Border.previewPortMarker.send">
+    <Setter Property="BorderBrush" Value="{DynamicResource DirectionSend}" />
+  </Style>
+
+  <Style Selector="TextBlock.previewPortName">
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+    <Setter Property="FontSize" Value="{DynamicResource PortMarkerFontSize}" />
+    <Setter Property="FontFamily" Value="{DynamicResource FontData}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
 </Styles>
 
 

@@ -1,0 +1,46 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctrl="using:HYWDebugAssistant.Sdk.Ui.Controls"
+             x:Class="HYWDebugAssistant.Sdk.Ui.Controls.ModulePreviewChrome">
+
+  <!--
+    模块窗口的**预览外壳**：外框 + 预留带 + 端口占位标记。
+    外观全部走样式（`Border.moduleFrame` / `Border.previewPortMarker`）；位置由 `PreviewPortPanel`
+    按 `PortMarkerLayout` 排布 —— 运行时、IDE 预览器、快照共用同一套几何。
+  -->
+  <Border Classes="moduleFrame" ClipToBounds="True">
+    <Panel>
+      <Border Name="ContentPaddingHost">
+        <ContentPresenter Name="ContentHost" />
+      </Border>
+
+      <ItemsControl Name="PortHost" IsHitTestVisible="False">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <ctrl:PreviewPortPanel />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="ctrl:ModulePort">
+            <Border Classes="previewPortMarker"
+                    Classes.send="{Binding IsSend}"
+                    Width="{Binding MarkerWidth}"
+                    Height="{Binding MarkerHeight}">
+              <Panel>
+                <TextBlock Classes="previewPortName"
+                           IsVisible="{Binding !IsVertical}"
+                           Text="{Binding Name}" />
+                <LayoutTransformControl IsVisible="{Binding IsVertical}">
+                  <LayoutTransformControl.LayoutTransform>
+                    <RotateTransform Angle="-90" />
+                  </LayoutTransformControl.LayoutTransform>
+                  <TextBlock Classes="previewPortName" Text="{Binding Name}" />
+                </LayoutTransformControl>
+              </Panel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </Panel>
+  </Border>
+</UserControl>

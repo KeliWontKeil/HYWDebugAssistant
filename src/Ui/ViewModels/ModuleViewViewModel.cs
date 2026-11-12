@@ -7,6 +7,7 @@ using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
+using HYWDebugAssistant.Sdk.Ui.Geometry;
 using HYWDebugAssistant.Sdk.Views;
 using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.Images;
@@ -310,6 +311,18 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
     /// <summary>位置与尺寸换算到屏幕物理像素后的矩形（组内贴合/物理位移用）。</summary>
     public CanvasRect PhysicalRect => new(X * Scaling, Y * Scaling, Width * Scaling, Height * Scaling);
+
+    /// <summary>本窗口的**整数物理像素矩形**（位置与尺寸由同一次量化推出）。</summary>
+    public PixelEdges PixelRect => ScreenPixels.PixelRectOf(Rect, Scaling);
+
+    /// <summary>把模型位置设到指定**整数物理像素**原点（尺寸不变；DIP 由像素 ÷ 本窗缩放派生）。</summary>
+    /// <param name="left">窗口左边缘（物理像素）。</param>
+    /// <param name="top">窗口上边缘（物理像素）。</param>
+    public void ApplyPixelOrigin(int left, int top)
+    {
+        X = ScreenPixels.DipOfPixel(left, Scaling);
+        Y = ScreenPixels.DipOfPixel(top, Scaling);
+    }
 
     /// <summary>X（**屏幕坐标，DIP**；DIP → 物理像素只在窗口边界换算一次）。</summary>
     [ObservableProperty]

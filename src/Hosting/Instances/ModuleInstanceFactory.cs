@@ -1,5 +1,6 @@
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Contracts;
+using HYWDebugAssistant.Sdk.Ports;
 
 namespace HYWDebugAssistant.Hosting.Instances;
 
@@ -79,6 +80,9 @@ public static class ModuleInstanceFactory
                 Sdk.Reporting.IssueSeverity.Error,
                 HostingText.Get("hosting.instance.onRegisteredThrew", ex.GetType().Name, ex.Message)));
         }
+
+        // ①b XAML 端口声明（若有）：按已声明的数据类型解析成运行时口声明，替换 C# 收集结果。
+        ApplyDeclaredPorts(context, definition, objectPath, issues);
 
         // ② 成员实例化：口实例（含口名唯一性校验）+ **数据类型镜像**
         var ports = BuildPortInstances(context, objectPath, issues);
@@ -580,6 +584,66 @@ public static class ModuleInstanceFactory
         }
 
         return types;
+    }
+
+    /// <summary>
+    /// 把视图 XAML 的端口规格解析成运行时口声明（形状/语义来自 `TypeId` 指向的数据类型）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>没有 `PortSpecs` ⇒ 什么都不做（旧模块的 C# `DeclarePort` 生效）；</item>
+    ///   <item>类型未声明 ⇒ 报 Error 并跳过该口（引用它的角色随后会报错，不静默降级）；</item>
+    ///   <item>XAML 与 C# 同时声明 ⇒ 报 Warning，以 XAML 为准（单一事实源迁移期提示）。</item>
+    /// </list>
+    /// </remarks>
+    private static void ApplyDeclaredPorts(
+        Context.ModuleContext context,
+        Registry.ModuleDefinition definition,
+        string objectPath,
+        Diagnostics.IIssueSink issues)
+    {
+        if (definition.PortSpecs.Count == 0)
+        {
+            return;
+        }
+
+        if (context.DeclaredPorts.Count > 0)
+        {
+            issues.Report(objectPath, new Sdk.Reporting.IssueReport(
+                Sdk.Reporting.IssueCategory.InterfaceError,
+                Sdk.Reporting.IssueSeverity.Warning,
+                HostingText.Get("hosting.instance.portDeclaredTwice", definition.Id.ToString())));
+        }
+
+        var types = context.DeclaredDataTypes.ToDictionary(type => type.TypeId, StringComparer.Ordinal);
+        var ports = new List<PortDeclaration>(definition.PortSpecs.Count);
+
+        foreach (var spec in definition.PortSpecs)
+        {
+            if (!types.TryGetValue(spec.TypeId, out var type))
+            {
+                issues.Report(objectPath, new Sdk.Reporting.IssueReport(
+                    Sdk.Reporting.IssueCategory.InterfaceError,
+                    Sdk.Reporting.IssueSeverity.Error,
+                    HostingText.Get("hosting.instance.portUndeclaredType", spec.Name, spec.TypeId),
+                    spec.Name));
+                continue;
+            }
+
+            ports.Add(new PortDeclaration(
+                spec.Name,
+                spec.Direction,
+                type.Shape,
+                spec.Semantics ?? type.Semantics)
+            {
+                TypeId = spec.TypeId,
+                Edge = spec.Edge,
+                AnchorOffset = spec.AnchorOffset,
+                AnchorDraggable = spec.AnchorDraggable,
+            });
+        }
+
+        context.ReplaceDeclaredPorts(ports);
     }
 
     private static List<PortInstance> BuildPortInstances(Context.ModuleContext context, string objectPath, Diagnostics.IIssueSink issues)

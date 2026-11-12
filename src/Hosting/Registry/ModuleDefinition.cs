@@ -1,6 +1,7 @@
 using System.Reflection;
 using HYWDebugAssistant.Hosting.Packages;
 using HYWDebugAssistant.Sdk;
+using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Hosting.Registry;
@@ -31,7 +32,8 @@ public sealed class ModuleDefinition
         double windowWidth = 0,
         double windowHeight = 0,
         double minWidth = 0,
-        double minHeight = 0)
+        double minHeight = 0,
+        IReadOnlyList<PortDeclarationSpec>? portSpecs = null)
     {
         Id = id;
         DisplayName = displayName;
@@ -48,6 +50,7 @@ public sealed class ModuleDefinition
         WindowHeight = windowHeight;
         MinWidth = minWidth;
         MinHeight = minHeight;
+        PortSpecs = portSpecs ?? [];
     }
 
     /// <summary>模块标识（作者/模块名，两段）。</summary>
@@ -100,6 +103,15 @@ public sealed class ModuleDefinition
     /// <summary>窗口最小高（DIP）；<c>0</c> = 框架地板。</summary>
     public double MinHeight { get; }
 
+    /// <summary>
+    /// 视图 XAML 声明的端口（空 = 该模块使用 C# `DeclarePort` 兼容路径）。
+    /// </summary>
+    /// <remarks>
+    /// 它是**加载期规格**：形状/语义要等 `OnRegistered` 把数据类型声明完之后，
+    /// 由 `ModuleInstanceFactory` 按 `TypeId` 解析成运行时 `PortDeclaration`。
+    /// </remarks>
+    public IReadOnlyList<PortDeclarationSpec> PortSpecs { get; }
+
     /// <summary>由已校验的包构造定义。</summary>
     public static ModuleDefinition FromPackage(ModulePackage package)
     {
@@ -126,7 +138,8 @@ public sealed class ModuleDefinition
             attribute.WindowWidth,
             attribute.WindowHeight,
             attribute.MinWidth,
-            attribute.MinHeight);
+            attribute.MinHeight,
+            package.PortSpecs);
     }
 
     /// <summary>按声明里的文本键取值（拥有者 = 模块程序集）；未声明或表里没有 ⇒ null。</summary>

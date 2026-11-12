@@ -8,7 +8,7 @@
 bin/module-package/Release/<模块名>/
 ```
 
-包内是会被分发的那一棵目录：`module.json`、实现程序集（可含 `.pdb`）、`resources/**`、模块私有依赖。宿主提供的程序集与 `*.deps.json` 自动排除；包名默认取项目名最后一个点段，可用 `<ModulePackageName>` 覆盖。
+包内是会被分发的那一棵目录：`module.json`、实现程序集（可含 `.pdb`）、`resources/**`、`views/**/*.axaml`（端口声明源）、模块私有依赖。宿主提供的程序集与 `*.deps.json` 自动排除；包名默认取项目名最后一个点段，可用 `<ModulePackageName>` 覆盖。
 
 包内文件的完整规则（含平台分片与排除清单）见[项目与包布局](project-layout.md)，这里不重复。
 

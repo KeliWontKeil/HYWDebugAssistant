@@ -37,6 +37,9 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     /// <summary>输入端口。</summary>
     public const string InPort = "in";
 
+    /// <summary>波形帧类型标识（供视图 XAML 的 `{x:Static}` 引用）。</summary>
+    public const string WaveformTypeId = WaveformFrameContract.TypeId;
+
     /// <summary>角色 Id。</summary>
     public const string RoleId = "display";
 
@@ -206,15 +209,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             Metering = WaveformFrameContract.Metering,
         });
 
-        context.Declaration.DeclarePort(new PortDeclaration(
-            InPort,
-            PortDirection.Receive,
-            WaveformFrameContract.Shape,
-            TransferSemantics.Stream)
-        {
-            TypeId = WaveformFrameContract.TypeId,
-            Edge = PortEdge.Top,
-        });
+        // 端口声明在 Views/WaveformDisplayView.axaml 的 ModuleView.Ports 里。
 
         context.Declaration.DeclareRole(RoleDeclaration.Input(
             RoleId,

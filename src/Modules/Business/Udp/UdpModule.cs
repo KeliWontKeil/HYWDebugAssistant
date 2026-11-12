@@ -117,17 +117,7 @@ public sealed class UdpModule : IModule, IActivitySource
         // ① 数据类型（模块间约定，本模块自己声明）→ ② 口 → ③ 角色 → ④ 界面契约 → ⑤ 接入
         context.Declaration.DeclareDataType(PortType);
 
-        context.Declaration.DeclarePort(new PortDeclaration(RxPort, PortDirection.Send, PortType.Shape)
-        {
-            TypeId = PortType.TypeId,
-            Edge = PortEdge.Bottom,
-        });
-
-        context.Declaration.DeclarePort(new PortDeclaration(TxPort, PortDirection.Receive, PortType.Shape)
-        {
-            TypeId = PortType.TypeId,
-            Edge = PortEdge.Top,
-        });
+        // 端口声明在 Views/UdpView.axaml 的 ModuleView.Ports 里。
 
         context.Declaration.DeclareRole(RoleDeclaration.Both(
             RoleId,

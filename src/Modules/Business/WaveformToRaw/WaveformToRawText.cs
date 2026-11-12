@@ -9,7 +9,6 @@ internal static class WaveformToRawText
     public const string Description = "module.description";
     public const string RoleIngest = "role.ingest";
     public const string RoleEmit = "role.emit";
-    public const string ViewTitle = "view.title";
     public const string Header = "view.header";
     public const string Footer = "view.footer";
     public const string Channels = "view.channels";
@@ -41,9 +40,6 @@ internal static class WaveformToRawText
     /// <summary>配置字段标题：通道组编号。</summary>
     public const string FieldGroup = "field.group";
 
-    /// <summary>配置字段标题：仅转换该组。</summary>
-    public const string FieldOnlyGroup = "field.onlyGroup";
-
     /// <summary>协选项：自定义文本帧。</summary>
     public const string ChoiceTextFrame = "choice.textFrame";
 
@@ -53,5 +49,32 @@ internal static class WaveformToRawText
     /// <summary>协选项：VOFA+ JustFloat。</summary>
     public const string ChoiceJustFloat = "choice.justFloat";
 
+    /// <summary>协议说明：文本帧定义。</summary>
+    public const string ProtoTextFrameDefinition = "proto.textFrame.def";
+
+    /// <summary>协议说明：文本帧示例。</summary>
+    public const string ProtoTextFrameSample = "proto.textFrame.sample";
+
+    /// <summary>协议说明：FireWater 定义。</summary>
+    public const string ProtoFireWaterDefinition = "proto.fireWater.def";
+
+    /// <summary>协议说明：FireWater 示例。</summary>
+    public const string ProtoFireWaterSample = "proto.fireWater.sample";
+
+    /// <summary>协议说明：JustFloat 定义。</summary>
+    public const string ProtoJustFloatDefinition = "proto.justFloat.def";
+
+    /// <summary>协议说明：JustFloat 示例。</summary>
+    public const string ProtoJustFloatSample = "proto.justFloat.sample";
+
     public static string Get(string key) => TextCatalog.Get(typeof(WaveformToRawText).Assembly, key);
+
+    /// <summary>当前协议的"定义 + 示例"两行说明。</summary>
+    public static (string Definition, string Sample) ProtocolHelp(WaveformToRawProtocol protocol) =>
+        protocol switch
+        {
+            WaveformToRawProtocol.FireWater => (Get(ProtoFireWaterDefinition), Get(ProtoFireWaterSample)),
+            WaveformToRawProtocol.JustFloat => (Get(ProtoJustFloatDefinition), Get(ProtoJustFloatSample)),
+            _ => (Get(ProtoTextFrameDefinition), Get(ProtoTextFrameSample)),
+        };
 }

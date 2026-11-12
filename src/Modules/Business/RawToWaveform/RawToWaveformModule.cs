@@ -31,6 +31,12 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     /// <summary>发送口。</summary>
     public const string OutPort = "wave";
 
+    /// <summary>原始字节类型标识（供视图 XAML 的 `{x:Static}` 引用）。</summary>
+    public const string RawBytesTypeId = Codec.RawBytesContract.TypeId;
+
+    /// <summary>波形帧类型标识（供视图 XAML 的 `{x:Static}` 引用）。</summary>
+    public const string WaveformTypeId = Codec.WaveformContract.TypeId;
+
     /// <summary>解析角色。</summary>
     public const string RoleDecode = "decode";
 
@@ -51,6 +57,9 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
 
     /// <summary>命令：清空统计。</summary>
     public const string ResetCommand = "reset";
+
+    /// <summary>清空统计按钮的图标键（图标表在模块自有资源里）。</summary>
+    public const string ClearStatsIcon = "icon.refresh";
 
     /// <summary>配置字段名：协议。</summary>
     public const string ProtocolField = nameof(RawToWaveformConfig.Protocol);
@@ -109,25 +118,7 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
             Metering = WaveformContract.Metering,
         });
 
-        context.Declaration.DeclarePort(new PortDeclaration(
-            InPort,
-            PortDirection.Receive,
-            RawBytesContract.Shape,
-            TransferSemantics.Stream)
-        {
-            TypeId = RawBytesContract.TypeId,
-            Edge = PortEdge.Top,
-        });
-
-        context.Declaration.DeclarePort(new PortDeclaration(
-            OutPort,
-            PortDirection.Send,
-            WaveformContract.Shape,
-            WaveformContract.Semantics)
-        {
-            TypeId = WaveformContract.TypeId,
-            Edge = PortEdge.Bottom,
-        });
+        // 端口声明在 Views/RawToWaveformView.axaml 的 ModuleView.Ports 里。
 
         context.Declaration.DeclareRole(RoleDeclaration.Input(
             RoleDecode,

@@ -94,7 +94,7 @@ public interface IActivitySource
 | 方法 | 声明什么 | 关键约束 |
 |---|---|---|
 | `DeclareDataType(DataTypeDeclaration)` | 类型：标识、形状、语义、计量块、解码器、语义标签 | 标识模块内唯一；口形状必须与类型形状完全一致 |
-| `DeclarePort(PortDeclaration)` | 端口：名称、方向、形状、语义、默认边、锚点 | 名称模块内唯一且稳定 |
+| `DeclarePort(PortDeclaration)` | **旧模块兼容**：端口：名称、方向、形状、语义、默认边、锚点 | 新模块改用视图 XAML 的 `ModuleView.Ports`；不要与 XAML 双声明 |
 | `DeclareRole(RoleDeclaration)` | 功能分块：一种类型 + 输入口/输出口集合 | 一个口最多属于一个角色；两侧同型；未声明时只给建议 |
 | `DeclareFlow(FlowDeclaration)` | 角色之间的内部处理顺序 | 两端角色必须已声明；不得自环 |
 | `DeclareDisplaySource(DisplaySourceDeclaration)` | 界面可读的数据通道：名称、类别、值类型、单位 | 名称模块内唯一 |
@@ -116,26 +116,30 @@ public interface IActivitySource
 
 ### 端口
 
-```csharp
-new PortDeclaration("in", PortDirection.Receive, Shape, TransferSemantics.Stream)
-{
-    TypeId = "RawBytes",
-    Edge = PortEdge.Left,
-    AnchorOffset = 0.5,
-    AnchorDraggable = false,
-}
+新模块在视图 XAML 里声明端口（数据类型/角色仍在 `OnRegistered`）：
+
+```xml
+<ui:ModuleView.Ports>
+  <ui:ModulePort Name="{x:Static local:MyModule.InPort}"
+                 Direction="Receive"
+                 TypeId="{x:Static local:MyModule.TypeId}"
+                 Edge="Left"
+                 Offset="0.5"
+                 AnchorDraggable="False" />
+</ui:ModuleView.Ports>
 ```
 
 | 成员 | 默认 | 说明 |
 |---|---|---|
-| `Name` | — | 模块内唯一、稳定；连接锚定为 `实例ID.口名` |
+| `Name` | — | 模块内唯一、稳定；连接锚定为 `实例ID.口名`；用 `{x:Static}` 指向模块常量 |
 | `Direction` | — | `Send` / `Receive`；双向 = 两个口 + 两条网络 |
-| `Shape` | — | 定长形状；引用类型时必须与类型形状相同 |
-| `Semantics` | `Stream` | 跨语义不判兼容 |
-| `TypeId` | `null` | 不声明 = 只按形状判定；声明后按标识 + 形状判定 |
+| `TypeId` | — | 必须是本模块 `DeclareDataType` 声明过的标识；形状/语义从该类型继承 |
+| `Semantics` | 类型语义 | 可选覆盖；`Stream` / `Message` / `Event`，跨语义不判兼容 |
 | `Edge` | `Auto` | `Auto` 发送在右、接收在左；也可 `Left/Right/Top/Bottom`；用户拖动优先 |
-| `AnchorOffset` | `0.5` | 在该边上的默认位置（0–1） |
+| `Offset` | `0.5` | 在该边上的默认位置（0–1） |
 | `AnchorDraggable` | `false` | 默认固定；`true` 允许用户拖动标记 |
+
+**兼容入口**：没有视图端口声明的旧模块仍可用 `DeclarePort(PortDeclaration)`；内置模块与模板已全部迁到 XAML，架构门禁禁止在 `src/Modules` 再出现 `DeclarePort(`。
 
 ### 角色与内部顺序
 
@@ -407,7 +411,7 @@ public sealed class MyViewFactory : IModuleViewFactory
 
 | 类型 | 用途 |
 |---|---|
-| `ModuleContract.Probe(type, context?, catalog?)` | 跑声明面检查；`Problems` 空 = 合法，`Advisories` 是建议 |
+| `ModuleContract.Probe(type, context?, catalog?, portSpecs?)` | 跑声明面检查；`portSpecs` 传视图 XAML 的 `PortSpecReader` 结果；`Problems` 空 = 合法，`Advisories` 是建议 |
 | `ModuleContract.CheckAll(types…)` | 只汇总所有模块的 `Problems` |
 | `TestModuleContext` | 驱动 `OnRegistered`、投递、收件箱、配置、定时器、外部接入、视图状态 |
 | `TestActivityDriver.Run(source, context, token)` | 在测试线程推进定时器并周期调 `OnStep` |

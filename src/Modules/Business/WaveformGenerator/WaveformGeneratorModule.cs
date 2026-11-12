@@ -32,6 +32,9 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
     /// <summary>输出端口。</summary>
     public const string OutPort = "out";
 
+    /// <summary>波形帧类型标识（供视图 XAML 的 `{x:Static}` 引用）。</summary>
+    public const string WaveformTypeId = WaveformFrameContract.TypeId;
+
     /// <summary>角色 Id。</summary>
     public const string RoleId = "generate";
 
@@ -165,15 +168,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
             Metering = WaveformFrameContract.Metering,
         });
 
-        context.Declaration.DeclarePort(new PortDeclaration(
-            OutPort,
-            PortDirection.Send,
-            WaveformFrameContract.Shape,
-            TransferSemantics.Stream)
-        {
-            TypeId = WaveformFrameContract.TypeId,
-            Edge = PortEdge.Bottom,
-        });
+        // 端口声明在 Views/WaveformGeneratorView.axaml 的 ModuleView.Ports 里。
 
         context.Declaration.DeclareRole(RoleDeclaration.Output(
             RoleId,

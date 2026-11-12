@@ -4,11 +4,19 @@
              xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
              xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
              xmlns:views="using:HYWDebugAssistant.Modules.WaveformDisplay.Views"
+             xmlns:local="using:HYWDebugAssistant.Modules.WaveformDisplay"
              x:Class="HYWDebugAssistant.Modules.WaveformDisplay.Views.WaveformDisplayView"
              x:CompileBindings="True"
              x:DataType="contracts:IModuleViewContext"
              InitialWidth="960" InitialHeight="580"
              MinWidth="960" MinHeight="580">
+
+  <ui:ModuleView.Ports>
+    <ui:ModulePort Name="{x:Static local:WaveformDisplayModule.InPort}"
+                   Direction="Receive"
+                   TypeId="{x:Static local:WaveformDisplayModule.WaveformTypeId}"
+                   Edge="Top" />
+  </ui:ModuleView.Ports>
 
   <!--
     图表/数据轴/右栏随窗口伸缩；其下的输入与按钮是固定控件，全部绝对定位。

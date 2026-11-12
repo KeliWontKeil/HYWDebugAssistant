@@ -594,23 +594,25 @@ public class ArchitectureRulesTests
     }
 
     /// <summary>
-    /// **AR-18：模块的尺寸只来自视图 XAML 内容声明，端口几何只来自代码声明**。
+    /// **AR-18：模块尺寸与端口几何都只来自视图 XAML 声明**。
     /// </summary>
     /// <remarks>
     /// <para>
     /// 口径：视图根 `.axaml` 同时声明初始内容尺寸（`InitialWidth/InitialHeight`）与运行期最小内容尺寸
-    /// （`MinWidth/MinHeight`），两者语义独立；`[ModuleDefinition]` 不再声明 Window/Min 尺寸。
+    /// （`MinWidth/MinHeight`），两者语义独立；`[ModuleDefinition]` 不再声明 Window/Min 尺寸；
+    /// 端口声明（名称/方向/类型/边/偏移）写在 `ModuleView.Ports` 里，C# 不再 `DeclarePort`。
     /// </para>
     /// <para>
     /// 本用例把纪律变成可执行检查：模块视图根缺 `MinWidth/MinHeight` 即红；
     /// 模块 `[ModuleDefinition]` 再出现 Window/Min 尺寸也红；
-    /// 模块源码里出现"从界面数据文件读几何"的通路（`ViewFrame` / `ViewWindowDeclaration` / `view.json`）也红。
+    /// 模块源码里出现"从界面数据文件读几何"的通路（`ViewFrame` / `ViewWindowDeclaration` / `view.json`）也红；
+    /// 模块 C# 再出现 `DeclarePort(` 也红（旧模块兼容路径只允许测试夹具/外部模块使用）。
     /// </para>
     /// </remarks>
     [Fact]
-    public void AR18_模块尺寸必须只来自视图XAML内容声明()
+    public void AR18_模块尺寸与端口几何必须来自视图XAML声明()
     {
-        string[] forbidden = ["ViewFrame", "ViewWindowDeclaration", "view.json", "frame.ports"];
+        string[] forbidden = ["ViewFrame", "ViewWindowDeclaration", "view.json", "frame.ports", "DeclarePort("];
 
         var offenders = new List<string>();
 
@@ -682,7 +684,7 @@ public class ArchitectureRulesTests
         }
 
         offenders.ShouldBeEmpty(
-            "模块的尺寸 / 端口几何只能来自视图 XAML 与代码声明的非尺寸契约（AR-18）："
+            "模块的尺寸与端口几何只能来自视图 XAML（AR-18）："
             + Environment.NewLine + string.Join(Environment.NewLine, offenders));
     }
 

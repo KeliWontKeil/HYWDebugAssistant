@@ -5,7 +5,6 @@
     "module.description": "把波形帧编码成文本帧或 VOFA+ 帧",
     "role.ingest": "接收",
     "role.emit": "编码",
-    "view.title": "波形 → 原始",
     "view.header": "帧头",
     "view.footer": "帧尾",
     "view.prefix": "前缀",
@@ -25,9 +24,14 @@
     "field.prefix": "前缀",
     "field.decimals": "小数位数",
     "field.group": "通道组编号",
-    "field.onlyGroup": "仅转换该组",
     "choice.textFrame": "自定义文本帧",
     "choice.fireWater": "VOFA+ FireWater",
-    "choice.justFloat": "VOFA+ JustFloat"
+    "choice.justFloat": "VOFA+ JustFloat",
+    "proto.textFrame.def": "文本帧：帧头 + 空格分隔的数字 + 帧尾",
+    "proto.textFrame.sample": "ab 1.20 4.35 3.60 cd",
+    "proto.fireWater.def": "FireWater：可选前缀 + 逗号分隔 + 换行",
+    "proto.fireWater.sample": "samples:1.0,2.5",
+    "proto.justFloat.def": "JustFloat：小端 f32 数组 + 帧尾 00 00 80 7F",
+    "proto.justFloat.sample": "00 00 80 3F / 00 00 00 40 / 00 00 80 7F"
   }
 }

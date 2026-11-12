@@ -16,7 +16,17 @@
   <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
   <SolidColorBrush x:Key="BgModule" Color="#FFFFFF" />
   <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="BgChrome" Color="#FAFAFA" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
   <SolidColorBrush x:Key="BorderDefault" Color="#D4D4D8" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="DirectionSend" Color="#EA580C" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="DirectionReceive" Color="#0891B2" />
+  <!-- 预览外壳圆角：运行时唯一来源仍是 Ui/Styles/Tokens.axaml。 -->
+  <CornerRadius x:Key="ModuleCornerRadius">2</CornerRadius>
+  <!-- 预览端口占位文字字号：运行时唯一来源仍是 Ui/Styles/Tokens.axaml。 -->
+  <x:Double x:Key="PortMarkerFontSize">11</x:Double>
   <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
   <SolidColorBrush x:Key="BorderStrong" Color="#A1A1AA" />
   <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->

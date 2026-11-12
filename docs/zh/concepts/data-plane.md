@@ -293,5 +293,5 @@ OnRegistered 声明
 - [网络](network.md)
 - [波形帧约定](waveform-frame.md)
 - [模块机制](modules.md)
-- [声明面](../module-dev/contracts.md)：`DeclareDataType` / `DeclarePort` 的写法与约束
+- [声明面](../module-dev/contracts.md)：`DeclareDataType` 与视图 `ModuleView.Ports` 的写法与约束
 - [运行期](runtime.md)

@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Lifecycle;
+using HYWDebugAssistant.Sdk.Ports;
 
 namespace HYWDebugAssistant.Hosting.Packages;
 
@@ -121,13 +122,30 @@ public static class ModulePackageLoader
                 HostingText.Get("hosting.package.declarationMismatch", declaredId, attribute.Id));
         }
 
+        // 端口声明来自模块视图 XAML 的**源文件**（构建时随包复制到 `views/`）。
+        // 没有 views/ ⇒ 空（旧模块仍走 C# `DeclarePort`）；有错 ⇒ 拒绝该包并给可读原因。
+        var portSpecs = PortSpecReader.ReadDirectory(
+            Path.Combine(packageDirectory, "views"),
+            assembly);
+
+        if (portSpecs.Errors.Count > 0)
+        {
+            var first = portSpecs.Errors[0];
+            return PackageLoadResult.Failure(HostingText.Get(
+                "hosting.package.portSpecsInvalid",
+                Path.GetFileName(first.FilePath ?? packageDirectory),
+                first.Code.ToString(),
+                first.Detail));
+        }
+
         var package = new ModulePackage(
             manifest,
             declaredId,
             Path.GetFullPath(packageDirectory),
             assemblyPath,
             entryType,
-            attribute);
+            attribute,
+            portSpecs.Specs);
 
         return PackageLoadResult.Success(package);
     }

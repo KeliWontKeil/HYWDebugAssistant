@@ -6,6 +6,8 @@ using Avalonia.LogicalTree;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Media;
 using Avalonia.Styling;
+using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Ui.Geometry;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
@@ -39,7 +41,7 @@ public class ModuleView : UserControl
         set
         {
             _initialWidth = value;
-            Design.SetWidth(this, value);
+            Design.SetWidth(this, WithPreviewChrome(value, ModuleSurfaceMetrics.HorizontalChrome));
         }
     }
 
@@ -53,13 +55,32 @@ public class ModuleView : UserControl
         set
         {
             _initialHeight = value;
-            Design.SetHeight(this, value);
+            Design.SetHeight(this, WithPreviewChrome(value, ModuleSurfaceMetrics.VerticalChrome));
         }
     }
 
+    /// <summary>
+    /// 预览器里根控件的设计尺寸 = 内容尺寸 + 窗口外壳；运行期仍返回内容尺寸。
+    /// </summary>
+    private static double WithPreviewChrome(double content, double chrome) =>
+        IsDesignEnvironment && content > 0 ? content + chrome : content;
+
     private PreviewBoundsOverlay? _previewOverlay;
+    private Panel? _previewInner;
     private double _initialWidth;
     private double _initialHeight;
+
+    /// <summary>
+    /// **端口声明**（视图 XAML 的 `ModuleView.Ports`）：名称/方向/类型/位置/可拖动性。
+    /// </summary>
+    /// <remarks>
+    /// 运行时由框架窗口按它画标记；预览外壳按它画占位标记；包加载器从同一份 XAML 源解析
+    /// （字段名必须与 <see cref="ModulePort"/> 一致）。
+    /// </remarks>
+    public List<ModulePort> Ports { get; } = [];
+
+    /// <summary>端口声明的加载链规格（空 = 没有 XAML 端口声明）。</summary>
+    public IReadOnlyList<PortDeclarationSpec> PortSpecs => [.. Ports.Select(port => port.ToSpec())];
 
     /// <summary>
     /// 当前进程是否是 **XAML 预览宿主**（`tools/PreviewHost`）。
@@ -212,7 +233,10 @@ public class ModuleView : UserControl
 
         _previewOverlay = new PreviewBoundsOverlay(targets);
         panel.Children.Add(_previewOverlay);
-        Content = panel;
+        _previewInner = panel;
+
+        // 预览外壳：外框 + 预留带 + 端口占位。运行时完全不创建。
+        Content = ModulePreviewChrome.Create(panel, Ports);
     }
 
     /// <summary>把一个控件加入预览框目标（标签、读数与不可见的布局容器）。</summary>
@@ -259,7 +283,7 @@ public class ModuleView : UserControl
             return;
         }
 
-        if (Content is Panel panel)
+        if (_previewInner is { } panel)
         {
             panel.Children.Remove(_previewOverlay);
 
@@ -271,6 +295,7 @@ public class ModuleView : UserControl
         }
 
         _previewOverlay = null;
+        _previewInner = null;
     }
 
     private static bool IsInvisible(IBrush? brush) =>

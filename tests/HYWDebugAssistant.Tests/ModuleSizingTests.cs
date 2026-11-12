@@ -1,7 +1,7 @@
 using HYWDebugAssistant.Access.Parameters;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Ui.Controls;
-using HYWDebugAssistant.Ui.Geometry;
+using HYWDebugAssistant.Sdk.Ui.Geometry;
 using HYWDebugAssistant.Ui.ViewModels;
 using NSubstitute;
 using Shouldly;

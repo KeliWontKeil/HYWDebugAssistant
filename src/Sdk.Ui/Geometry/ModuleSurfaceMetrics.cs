@@ -1,6 +1,6 @@
 using Avalonia;
 
-namespace HYWDebugAssistant.Ui.Geometry;
+namespace HYWDebugAssistant.Sdk.Ui.Geometry;
 
 /// <summary>
 /// **模块内容区的几何** —— 窗口描边与四周预留带的**唯一来源**。
@@ -8,13 +8,11 @@ namespace HYWDebugAssistant.Ui.Geometry;
 /// <remarks>
 /// <list type="bullet">
 ///   <item><b>内容区 = 窗口客户区 − 描边 − 预留带</b>。模块视图的坐标以内容区左上角为原点，
-///     所以"内容区多大"只能有一处算法：真机、快照用例与预览都读这里，
-///     否则两边差 1～2px，"快照看着行、真机却挤"就会反复出现。</item>
+///     所以"内容区多大"只能有一处算法：真机、预览外壳、快照用例都读这里，
+///     否则两边差 1～2px，"预览看着行、真机却挤"就会反复出现。</item>
 ///   <item><b>左右预留带 = 端口标记带的厚度</b>：标记沿边向内占那么宽，内容让开的是**同一块地方**，
 ///     不是相加。</item>
 ///   <item><b>上下比左右厚</b>：标记之外，左下角还要留运行指示的位置。</item>
-///   <item><see cref="ContentMargin"/> 供**没有窗口外壳的宿主**（测试/预览）使用：
-///     它把描边一起算进外边距，于是那一层拿到的大小与真机内容区一致。</item>
 /// </list>
 /// </remarks>
 public static class ModuleSurfaceMetrics
@@ -44,10 +42,16 @@ public static class ModuleSurfaceMetrics
         InsetRight + FrameBorder,
         InsetBottom + FrameBorder);
 
+    /// <summary>窗口外框相对内容区多出的宽（左右描边 + 左右预留带）。</summary>
+    public static double HorizontalChrome => (2 * FrameBorder) + InsetLeft + InsetRight;
+
+    /// <summary>窗口外框相对内容区多出的高（上下描边 + 上下预留带）。</summary>
+    public static double VerticalChrome => (2 * FrameBorder) + InsetTop + InsetBottom;
+
     /// <summary>按窗口客户区尺寸算出内容区尺寸。</summary>
     /// <param name="windowWidth">窗口客户区宽。</param>
     /// <param name="windowHeight">窗口客户区高。</param>
     public static Size ContentSize(double windowWidth, double windowHeight) => new(
-        Math.Max(0, windowWidth - (2 * FrameBorder) - InsetLeft - InsetRight),
-        Math.Max(0, windowHeight - (2 * FrameBorder) - InsetTop - InsetBottom));
+        Math.Max(0, windowWidth - HorizontalChrome),
+        Math.Max(0, windowHeight - VerticalChrome));
 }

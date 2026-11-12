@@ -190,13 +190,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
             Metering = new MeteringBlock { PayloadLengthField = "len" },
         });
 
-        context.Declaration.DeclarePort(new PortDeclaration(OutPort, PortDirection.Send, RawBytesShape)
-        {
-            TypeId = RawBytesTypeId,
-
-            // 发送口在**下边**（与监视器的上边配对：上下叠放即可连）。用户仍可拖动覆盖。
-            Edge = PortEdge.Bottom,
-        });
+        // 端口声明在 Views/TextSenderView.axaml 的 ModuleView.Ports 里。
 
         // 纯源角色：**只有输出口** ⇒ α（两侧同型）天然满足；单角色 ⇒ 不声明 DeclareFlow
         context.Declaration.DeclareRole(RoleDeclaration.Output(

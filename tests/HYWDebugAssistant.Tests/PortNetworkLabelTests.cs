@@ -103,6 +103,48 @@ public class PortNetworkLabelTests
 
     }
 
+    [Fact]
+    public void 同名但不兼容的端口对_应可被只读查询返回()
+    {
+        using var harness = new LabelHarness();
+        harness.Add("s", "sender");          // f32
+        harness.Add("r", "receiver");        // f32（兼容）
+        harness.Add("w", "wide-receiver");   // f64（不兼容）
+
+        harness.Services.UpdatePortNetwork("s", "out", "bus").Succeeded.ShouldBeTrue();
+        harness.Services.UpdatePortNetwork("r", "in", "bus").Succeeded.ShouldBeTrue();
+        harness.Services.UpdatePortNetwork("w", "in", "bus").Succeeded.ShouldBeTrue();
+
+        var conflicts = harness.Services.GetPortContractConflicts();
+
+        conflicts.ShouldHaveSingleItem();
+        var conflict = conflicts[0];
+        conflict.InstanceId.ShouldBe("s");
+        conflict.PortName.ShouldBe("out");
+        conflict.PeerInstanceId.ShouldBe("w");
+        conflict.PeerPortName.ShouldBe("in");
+        conflict.NetworkName.ShouldBe("bus");
+        conflict.Reason.ShouldNotBeNullOrWhiteSpace("冲突必须带出可读原因，悬停提示才能说清为什么");
+
+        // 兼容的 r 不在结果里（冲突查询只报“同名但不会连上”的对）
+        conflicts.ShouldNotContain(item => item.PeerInstanceId == "r");
+    }
+
+    [Fact]
+    public void 冲突查询_改标签后应自动失效()
+    {
+        using var harness = new LabelHarness();
+        harness.Add("s", "sender");
+        harness.Add("w", "wide-receiver");
+
+        harness.Services.UpdatePortNetwork("s", "out", "bus").Succeeded.ShouldBeTrue();
+        harness.Services.UpdatePortNetwork("w", "in", "bus").Succeeded.ShouldBeTrue();
+        harness.Services.GetPortContractConflicts().ShouldNotBeEmpty();
+
+        harness.Services.UpdatePortNetwork("w", "in", "other").Succeeded.ShouldBeTrue();
+        harness.Services.GetPortContractConflicts().ShouldBeEmpty();
+    }
+
     // 「命名口自动从匿名直连中摘出」的用例随「加入即连」整体移除：
     // 新规则下**显式建立的网络一律不动**（用户意图优先），命名口只是不参与"对齐建网"。
 

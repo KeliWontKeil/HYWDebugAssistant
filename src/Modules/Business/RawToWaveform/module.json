@@ -3,5 +3,5 @@
   "entryAssembly": "HYWDebugAssistant.Modules.RawToWaveform.dll",
   "entryType": "HYWDebugAssistant.Modules.RawToWaveform.RawToWaveformModule",
   "dependsOn": [],
-  "resources": ["resources/i18n"]
+  "resources": ["resources/i18n", "resources/icons"]
 }

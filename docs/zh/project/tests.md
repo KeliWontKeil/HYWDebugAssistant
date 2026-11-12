@@ -57,15 +57,16 @@
 .\tools\dev.ps1 -Mode Snapshots
 ```
 
-输出在 `artifacts\snapshots\`：`overlay\`（叠加层三窗）、`color-picker*.png`、`modules\<模块>.png`（每个页签各一张）。
-打开看，判断“能不能看、挤不挤、字有没有被裁”——**这里没有自动化判据**。
+输出在 `artifacts\snapshots\`：`overlay\`（叠加层三窗 + 契约冲突红边 `conflict-*.png` + 建网预览粗边 `dock-highlight.png`）、
+`color-picker*.png`、`modules\<模块>.png`（每个页签各一张；含窗口外框与端口占位标记）。
+打开看，判断“能不能看、挤不挤、字有没有被裁、外框与端口位置对不对”——**这里没有自动化判据**。
 
 ## 预算与准入
 
 | 项目 | 用例预算（含 Theory 行） |
 |---|---:|
 | `Tests` | 350（其中 Pressure 12 / Perf 2 不进门禁） |
-| `Modules.Tests` | 100 |
+| `Modules.Tests` | 135 |
 | `Tests.Reference` | 16 |
 | `ArchitectureTests` | 21 |
 

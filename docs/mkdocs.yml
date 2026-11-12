@@ -79,6 +79,7 @@ nav:
       - 代码结构: project/code-structure.md
       - 构建与门禁: project/build.md
       - 测试体系: project/tests.md
+      - 新增内置模块: project/modules.md
       - 版本与提交: project/versioning.md
       - 已知问题与极端工况: project/known-issues.md
       - 文档体系: project/docs.md

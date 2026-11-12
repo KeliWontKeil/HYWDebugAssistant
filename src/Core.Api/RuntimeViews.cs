@@ -785,6 +785,27 @@ public sealed record ModuleCatalogEntryView(
 public sealed record ConnectionCandidateView(string SourceLiteral, string TargetLiteral);
 
 /// <summary>
+/// **同网络名但契约不兼容的端口对**（只读呈现；不参与建网判定）。
+/// </summary>
+/// <param name="InstanceId">发送端所属实例。</param>
+/// <param name="PortName">发送端口名。</param>
+/// <param name="PeerInstanceId">接收端所属实例。</param>
+/// <param name="PeerPortName">接收端口名。</param>
+/// <param name="NetworkName">两端共同的网络名（已 Trim）。</param>
+/// <param name="Reason">不兼容原因（面向用户的描述）。</param>
+/// <remarks>
+/// 它只回答“这两个口打了同一个网络名、但框架不会把它们连起来，为什么”。
+/// 判定复用建网的唯一入口（<c>ContractCompatibility.Check</c>），因此与 Issue 中心/实际网络行为一致。
+/// </remarks>
+public sealed record PortContractConflictView(
+    string InstanceId,
+    string PortName,
+    string PeerInstanceId,
+    string PeerPortName,
+    string? NetworkName,
+    string Reason);
+
+/// <summary>
 /// **拖动网络标签时的「连接对齐」建议**（G5）。
 /// </summary>
 /// <param name="InstanceId">本口所属实例。</param>

@@ -37,14 +37,23 @@ public class WaveformBridgeModulesTests
     [Fact]
     public void 两个转换模块与内置对端同契约()
     {
-        var display = ModuleContract.Probe(typeof(WaveformDisplayModule));
-        var monitor = ModuleContract.Probe(typeof(DataMonitorModule));
+        var display = ModuleContract.Probe(
+            typeof(WaveformDisplayModule),
+            portSpecs: ModulePortSpecs.Read("WaveformDisplay", typeof(WaveformDisplayModule).Assembly));
+        var monitor = ModuleContract.Probe(
+            typeof(DataMonitorModule),
+            portSpecs: ModulePortSpecs.Read("DataMonitor", typeof(DataMonitorModule).Assembly));
         var wavePeer = display.DataTypes.Single(type => type.TypeId == "WaveformFrame");
         var rawPeer = monitor.DataTypes.Single(type => type.TypeId == "RawBytes");
 
         foreach (var moduleType in new[] { typeof(RawToWaveformModule), typeof(WaveformToRawModule) })
         {
-            var probe = ModuleContract.Probe(moduleType);
+            var folder = moduleType.Name.EndsWith("Module", StringComparison.Ordinal)
+                ? moduleType.Name[..^"Module".Length]
+                : moduleType.Name;
+            var probe = ModuleContract.Probe(
+                moduleType,
+                portSpecs: ModulePortSpecs.Read(folder, moduleType.Assembly));
 
             probe.Problems.ShouldBeEmpty();
             probe.Advisories.ShouldBeEmpty();
@@ -105,7 +114,7 @@ public class WaveformBridgeModulesTests
             },
             out var encodeContext);
 
-        DeliverWave(encodeContext, BuildWave(3, 5, [1.2f, 4.35f, 3.6f]));
+        DeliverWave(encodeContext, BuildWave(3, 1, [1.2f, 4.35f, 3.6f]));
         ReadRawText(encodeContext.Sent.ShouldHaveSingleItem().Payload).ShouldBe("ab 1.20 4.35 3.60 cd");
     }
 
@@ -135,7 +144,7 @@ public class WaveformBridgeModulesTests
             },
             out var encodeContext);
 
-        DeliverWave(encodeContext, BuildWave(2, 0, [1f, 2.5f]));
+        DeliverWave(encodeContext, BuildWave(2, 1, [1f, 2.5f]));
         ReadRawText(encodeContext.Sent.ShouldHaveSingleItem().Payload).ShouldBe("samples:1.0,2.5\n");
     }
 
@@ -159,7 +168,7 @@ public class WaveformBridgeModulesTests
             new WaveformToRawConfig { Protocol = WaveformToRawProtocol.JustFloat },
             out var encodeContext);
 
-        DeliverWave(encodeContext, BuildWave(2, 0, [3f, 4f]));
+        DeliverWave(encodeContext, BuildWave(2, 1, [3f, 4f]));
         ReadRawBytes(encodeContext.Sent.ShouldHaveSingleItem().Payload).ShouldBe(frame);
     }
 
@@ -191,8 +200,9 @@ public class WaveformBridgeModulesTests
     }
 
     [Fact]
-    public void 波形到原始_仅转换指定组_清空统计归零()
+    public void 波形到原始_只转换配置的组_清空统计归零()
     {
+
         var module = CreateEncoder(
             new WaveformToRawConfig
             {
@@ -200,7 +210,6 @@ public class WaveformBridgeModulesTests
                 TextHeader = "ab",
                 TextFooter = "cd",
                 GroupId = 5,
-                OnlyThisGroup = true,
             },
             out var context);
 

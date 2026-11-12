@@ -60,6 +60,10 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     private IReadOnlyList<Api.NetworkView>? _networksCache;
     private (long Content, object? Bindings) _networksKey;
 
+    /// <summary>同网络名不兼容端口的缓存（键 = 现场/布局修订号；只读查询）。</summary>
+    private IReadOnlyList<Api.PortContractConflictView>? _portConflictsCache;
+    private (long Content, long Layout) _portConflictsKey;
+
     /// <summary>布局视图的缓存（键 = 布局修订号）。</summary>
     private IReadOnlyList<Api.ModuleLayoutView>? _layoutCache;
     private long _layoutKey = -1;
@@ -358,6 +362,35 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     public IReadOnlyList<ConnectionCandidateView> PreviewConnections(IReadOnlyList<ModuleLayoutView>? provisionalLayouts = null) =>
         [.. _runtime.CollectAcceptedDockPairs(provisionalLayouts)
             .Select(pair => new ConnectionCandidateView(pair.SourceLiteral, pair.TargetLiteral))];
+
+    /// <inheritdoc />
+    public IReadOnlyList<PortContractConflictView> GetPortContractConflicts()
+    {
+        var content = _runtime.Content;
+        var key = (content.Revision, content.Layout.Revision);
+
+        lock (_viewCacheGate)
+        {
+            if (_portConflictsCache is { } cached && _portConflictsKey == key)
+            {
+                return cached;
+            }
+
+            var views = _runtime.DescribeLabelContractConflicts()
+                .Select(conflict => new PortContractConflictView(
+                    conflict.InstanceId,
+                    conflict.PortName,
+                    conflict.PeerInstanceId,
+                    conflict.PeerPortName,
+                    conflict.NetworkName,
+                    conflict.Reason))
+                .ToList();
+
+            _portConflictsKey = key;
+            _portConflictsCache = views;
+            return views;
+        }
+    }
 
     /// <inheritdoc />
     public AnchorDockHintView? SuggestAnchorDock(

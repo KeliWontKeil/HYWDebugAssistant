@@ -30,8 +30,8 @@ using HYWDebugAssistant.Sdk.Testing;
 using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
+using HYWDebugAssistant.Sdk.Ui.Geometry;
 using HYWDebugAssistant.Sdk.Views;
-using HYWDebugAssistant.Ui.Geometry;
 using Xunit;
 
 namespace HYWDebugAssistant.VisualSnapshots;
@@ -88,16 +88,7 @@ public class ModuleViewSnapshots
                 // 截图窗口 = 视图声明的初始内容尺寸 + 同一份 chrome；真实窗口也按这一份初始尺寸。
                 var (width, height) = WindowSize(view);
 
-                var window = new Window
-                {
-                    Width = width,
-                    Height = height,
-                    Content = new Border
-                    {
-                        Margin = ModuleSurfaceMetrics.ContentMargin,
-                        Child = host,
-                    },
-                };
+                var window = SnapshotWindow.CreateFramed(host, view as ModuleView, width, height);
 
                 window.Show();
                 SnapshotTool.Pump();
@@ -156,16 +147,7 @@ public class ModuleViewSnapshots
                     var host = new ModuleViewHost(context, view);
                     var (width, height) = WindowSize(view);
 
-                    var window = new Window
-                    {
-                        Width = width,
-                        Height = height,
-                        Content = new Border
-                        {
-                            Margin = ModuleSurfaceMetrics.ContentMargin,
-                            Child = host,
-                        },
-                    };
+                    var window = SnapshotWindow.CreatePreview(host, width, height);
 
                     window.Show();
                     SnapshotTool.Pump();

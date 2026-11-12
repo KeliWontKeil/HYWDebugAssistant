@@ -4,11 +4,24 @@
              xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
              xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
              xmlns:views="using:HYWDebugAssistant.Modules.Serial.Views"
+             xmlns:local="using:HYWDebugAssistant.Modules.Serial"
              x:Class="HYWDebugAssistant.Modules.Serial.Views.SerialView"
              x:CompileBindings="True"
              x:DataType="contracts:IModuleViewContext"
              InitialWidth="360" InitialHeight="144"
              MinWidth="360" MinHeight="144">
+
+  <!-- 端口声明：发送在下、接收在上（与数据监视器的上边配对）。 -->
+  <ui:ModuleView.Ports>
+    <ui:ModulePort Name="{x:Static local:SerialModule.RxPort}"
+                   Direction="Send"
+                   TypeId="{x:Static local:SerialModule.RawBytesTypeId}"
+                   Edge="Bottom" />
+    <ui:ModulePort Name="{x:Static local:SerialModule.TxPort}"
+                   Direction="Receive"
+                   TypeId="{x:Static local:SerialModule.RawBytesTypeId}"
+                   Edge="Top" />
+  </ui:ModuleView.Ports>
 
   <!--
     串口：参数、读数、状态、按钮全部绝对定位。

@@ -178,14 +178,19 @@
         <Style Selector="Border.dockHighlight.send">
             <Setter Property="BorderBrush" Value="{DynamicResource DirectionSend}" />
         </Style>
+
+        <!--
+          同网络名但契约不兼容：**语义错误色 + 更粗的边框**。
+          用错误色而不是方向色：它表达的是“框架不会连这一对”，与“即将建网”的方向语义不冲突。
+        -->
+        <Style Selector="Border.contractConflict">
+            <Setter Property="BorderBrush" Value="{DynamicResource SemanticError}" />
+        </Style>
     </Window.Styles>
 
     <Grid>
         <Border Name="Frame"
-                Background="{DynamicResource BgModule}"
-                BorderBrush="{DynamicResource BorderDefault}"
-                BorderThickness="1"
-                CornerRadius="{DynamicResource ModuleCornerRadius}"
+                Classes="moduleFrame"
                 ClipToBounds="True"
                 PointerPressed="OnFramePressed">
         <Grid>
@@ -307,13 +312,6 @@
                                 CornerRadius="0"
                                 ToolTip.Tip="{Binding Tooltip}">
                             <Grid>
-                                <!-- 即将建网：**同一方向色**的粗描边（覆盖在标记之上，不改变布局） -->
-                                <Border Classes="dockHighlight"
-                                        Classes.send="{Binding IsSend}"
-                                        IsVisible="{Binding IsDockCandidate}"
-                                        BorderThickness="2"
-                                        CornerRadius="0" />
-
                                 <!-- 竖排（左右边缘）：整块内容旋转 −90°；**槽位固定**（名称吃掉剩余宽度） -->
                                 <LayoutTransformControl IsVisible="{Binding IsVertical}">
                                     <LayoutTransformControl.LayoutTransform>
@@ -492,6 +490,26 @@
                                                          WarnBrush="{DynamicResource SemanticWarn}"
                                                          ErrorBrush="{DynamicResource SemanticError}" />
                                 </Grid>
+
+                                <!--
+                                  粗描边**必须排在内容之后**：类型色条/指示灯贴在标记端部，
+                                  先画就会被内容盖掉（历史缺陷：建网预览的粗边看起来缺一截）。
+                                  冲突红边在方向色预览之上（ZIndex 11 > 10）。
+                                -->
+                                <Border Classes="dockHighlight"
+                                        Classes.send="{Binding IsSend}"
+                                        IsVisible="{Binding IsDockCandidate}"
+                                        ZIndex="10"
+                                        IsHitTestVisible="False"
+                                        BorderThickness="2"
+                                        CornerRadius="0" />
+
+                                <Border Classes="contractConflict"
+                                        IsVisible="{Binding HasContractConflict}"
+                                        ZIndex="11"
+                                        IsHitTestVisible="False"
+                                        BorderThickness="2"
+                                        CornerRadius="0" />
 
                                 <!--
                                   编辑输入框：**弹出**（不进标记内部）。

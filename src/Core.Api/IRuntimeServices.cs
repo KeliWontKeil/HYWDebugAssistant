@@ -123,6 +123,19 @@ public interface IRuntimeQuery
     IReadOnlyList<ConnectionCandidateView> PreviewConnections(IReadOnlyList<ModuleLayoutView>? provisionalLayouts = null);
 
     /// <summary>
+    /// **同网络名但契约不兼容的端口对**（只读查询，不产生副作用）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>只回答“为什么同名却没连上”</b>：两端都打了同一个标签、方向为发送↔接收，
+    ///     但 <c>ContractCompatibility.Check</c> 判为不兼容；</item>
+    ///   <item><b>不参与建网</b>：它只是呈现面的事实，实际网络仍由 <see cref="GetNetworks"/> 给出；</item>
+    ///   <item><b>只读、可缓存</b>：按现场与布局修订号缓存；改标签/改布局后自动失效。</item>
+    /// </list>
+    /// </remarks>
+    IReadOnlyList<PortContractConflictView> GetPortContractConflicts();
+
+    /// <summary>
     /// **拖动网络标签时的「连接对齐」建议**：把某个口拖到指定**边 + 偏移**时，
     /// 若它与某个**面对面**的口已满足"接触且对齐"的建网条件（只差对齐），返回**应对齐到的偏移**。
     /// </summary>

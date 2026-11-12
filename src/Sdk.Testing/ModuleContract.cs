@@ -66,10 +66,15 @@ public static class ModuleContract
     /// 可选的外部标准目录：给出时校验标准标识可解析、参数类型可登记；
     /// 省略时只做结构校验（外部接入不接线也能自检）。
     /// </param>
+    /// <param name="portSpecs">
+    /// 可选的**视图 XAML 端口规格**（用 `PortSpecReader` 读取）；给出时在 `OnRegistered` 之后
+    /// 按已声明的数据类型解析成端口，替代 C# `DeclarePort`。
+    /// </param>
     public static ContractProbeResult Probe(
         Type entryType,
         TestModuleContext? context = null,
-        IExternalAccessCatalog? catalog = null)
+        IExternalAccessCatalog? catalog = null,
+        IReadOnlyList<PortDeclarationSpec>? portSpecs = null)
     {
         ArgumentNullException.ThrowIfNull(entryType);
 
@@ -102,6 +107,11 @@ public static class ModuleContract
         {
             problems.Add($"OnRegistered 抛出异常：{ex.GetType().Name} — {ex.Message}");
             return new ContractProbeResult(entryType, [], [], problems);
+        }
+
+        if (portSpecs is { Count: > 0 })
+        {
+            probeContext.ApplyPortSpecs(portSpecs, problems);
         }
 
         CheckPorts(probeContext.DeclaredPorts, problems);

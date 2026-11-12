@@ -5,7 +5,7 @@
     模块内容区的**共用几何**（只放尺寸，不放颜色）。
 
     预留带（描边 + 四周厚度）与"窗口 → 内容区"的换算只在一处：
-    `Ui/Geometry/ModuleSurfaceMetrics`。这里不再有第二份数值 ——
+    `Sdk.Ui/Geometry/ModuleSurfaceMetrics`。这里不再有第二份数值 ——
     否则 token、C# 兜底与快照各写一份，真机与快照会对不上。
   -->
 

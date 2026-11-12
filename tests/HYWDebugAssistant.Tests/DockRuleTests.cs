@@ -60,6 +60,33 @@ public class DockRuleTests
         runtime.Content.Networks.ShouldHaveSingleItem();
     }
 
+    /// <summary>
+    /// **x 轴相等、上下相邻**也能建网：接触面是水平线，端口必须挂在下/上边且标记对齐。
+    /// </summary>
+    /// <remarks>
+    /// 这条用例把“上下拼接本身”与“拖动预览是否刷新”分开：Core 判定通过后，UI 不高亮就只能是
+    /// 预览刷新链路的问题，而不是 `DockRule` 的上下路径坏了。
+    /// </remarks>
+    [Fact]
+    public void 上下拼接_标记对齐时应建网()
+    {
+        using var runtime = new ModuleRuntime();
+        AddModule(runtime, "s", "sender", typeof(SenderModule));
+        AddModule(runtime, "r", "receiver", typeof(ReceiverModule));
+
+        Place(runtime, "s", 0, 0, 300, 200);
+        Place(runtime, "r", 0, 200, 300, 200);
+
+        SetPort(runtime, "s", "out", 0.5, PortEdge.Bottom);
+        SetPort(runtime, "r", "in", 0.5, PortEdge.Top);
+
+        runtime.Content.Networks.ShouldHaveSingleItem("x 相等、上下贴边、标记对齐 ⇒ 应建网");
+
+        // 标记沿接触面错开 ⇒ 仍不建网（对齐是独立条件）
+        SetPort(runtime, "s", "out", 0.05, PortEdge.Bottom);
+        runtime.Content.Networks.ShouldBeEmpty("上下接触但标记错开 ⇒ 不建网");
+    }
+
     /// <summary>**打了标签的口不参与**接触建网（标签 = 命名网络的唯一机制，两种机制不混用）。</summary>
     [Fact]
     public void 建网_打了标签的口不参与()
@@ -87,6 +114,16 @@ public class DockRuleTests
     private static void SetPortOffset(ModuleRuntime runtime, string instanceId, string portName, double offset) =>
         runtime.Apply(ChangeSet.OfOne(new UpdatePortGeometryOperation(
             instanceId, new PortGeometryView(portName, offset)))).Applied.ShouldBeTrue();
+
+    /// <summary>同时设置端口所在边与沿边偏移（不改标签）。</summary>
+    private static void SetPort(
+        ModuleRuntime runtime,
+        string instanceId,
+        string portName,
+        double offset,
+        PortEdge edge) =>
+        runtime.Apply(ChangeSet.OfOne(new UpdatePortGeometryOperation(
+            instanceId, new PortGeometryView(portName, offset, Edge: edge)))).Applied.ShouldBeTrue();
 
     /// <summary>给端口设置网络标签（走真实变更入口 → 触发推导）。</summary>
     private static void SetLabel(ModuleRuntime runtime, string instanceId, string portName, string? label) =>

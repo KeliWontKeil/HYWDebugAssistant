@@ -66,6 +66,8 @@
     "portMarker.state.stalled": "停流",
     "portMarker.tooltip.anchorFixed": "\n锚点已固定（不可拖动）；双击可填写或清除网络名",
     "portMarker.tooltip.bytes": "\n流量约 {0}（该口参与的通路）",
+    "portMarker.tooltip.contractConflict": "\n同网络名对端不兼容：{0}",
+    "portMarker.tooltip.contractConflictUnknown": "契约不兼容（框架不会连接该对端口）",
     "portMarker.tooltip.header": "{0}（{1}）\n{2}\n类型：{3}",
     "portMarker.tooltip.hint": "\n拖动可改锚点所在边与位置；双击填写或清除网络名",
     "portMarker.tooltip.metrics": "\n投递 {0} 单元，丢弃 {1} 单元（该端口参与的所有流）",

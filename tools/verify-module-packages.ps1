@@ -211,6 +211,26 @@ function Test-ModulePackages {
                     }
                 }
             }
+
+            # **端口声明源**（views/*.axaml）：与源码逐字对账 —— Hosting 从它解析端口，
+            # 旧副本会让"源码改了、包里还是旧端口"。
+            $sourceViews = Join-Path $sourceModule 'Views'
+            $packagedViews = Join-Path $package.FullName 'views'
+            if (Test-Path -LiteralPath $sourceViews -PathType Container) {
+                foreach ($sourceFile in (Get-ChildItem -LiteralPath $sourceViews -Recurse -File -Filter *.axaml | Sort-Object FullName)) {
+                    $relativeText = [System.IO.Path]::GetRelativePath($sourceViews, $sourceFile.FullName).Replace('\', '/')
+                    $packagedFile = Join-Path $package.FullName ('views\' + $relativeText.Replace('/', '\'))
+                    if (-not (Test-Path -LiteralPath $packagedFile -PathType Leaf)) {
+                        throw "模块包缺少端口声明源：views/$relativeText（包 $($package.FullName)）"
+                    }
+
+                    $sourceHash = (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash
+                    $packagedHash = (Get-FileHash -LiteralPath $packagedFile -Algorithm SHA256).Hash
+                    if ($sourceHash -ne $packagedHash) {
+                        throw "端口声明源与源码不一致：views/$relativeText（包 $($package.FullName)）"
+                    }
+                }
+            }
         }
 
         $ids.Add($manifest.id)

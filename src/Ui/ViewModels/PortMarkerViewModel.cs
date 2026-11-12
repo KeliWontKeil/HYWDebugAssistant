@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Ui.Geometry;
 using HYWDebugAssistant.Ui.Controls;
 using HYWDebugAssistant.Ui.Geometry;
 
@@ -132,6 +133,20 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     /// <summary>**即将自动建网**（拖动中按"接触且对齐"规则预览到会连上；松手后由网络行为落地）。</summary>
     [ObservableProperty]
     public partial bool IsDockCandidate { get; set; }
+
+    /// <summary>
+    /// **同网络名但契约不兼容**（该口至少有一个同名对端，框架不会连上）。
+    /// </summary>
+    /// <remarks>
+    /// 只驱动标记的**红色粗边框**与悬停提示；不改变网络状态、不参与判定。
+    /// 事实来源 = <c>IRuntimeQuery.GetPortContractConflicts()</c>（Core 的唯一兼容判定）。
+    /// </remarks>
+    [ObservableProperty]
+    public partial bool HasContractConflict { get; set; }
+
+    /// <summary>契约冲突原因（悬停提示用；空 = 无冲突）。</summary>
+    [ObservableProperty]
+    public partial string? ContractConflictReason { get; set; }
 
     /// <summary>
     /// **通路速率**（**通路维度**）：文本**常驻**显示在标记上
@@ -386,6 +401,16 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
                 }
             }
 
+            if (HasContractConflict)
+            {
+                text += TextCatalog.Get(
+                    typeof(PortMarkerViewModel).Assembly,
+                    "portMarker.tooltip.contractConflict",
+                    ContractConflictReason is { Length: > 0 } reason
+                        ? reason
+                        : TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, "portMarker.tooltip.contractConflictUnknown"));
+            }
+
             return text + TextCatalog.Get(typeof(PortMarkerViewModel).Assembly, IsAnchorFixed
                 ? "portMarker.tooltip.anchorFixed"
                 : "portMarker.tooltip.hint");
@@ -403,6 +428,10 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     partial void OnEditErrorChanged(string? value) => OnPropertyChanged(nameof(HasEditError));
 
     partial void OnQueueTextChanged(string? value) => OnPropertyChanged(nameof(Tooltip));
+
+    partial void OnHasContractConflictChanged(bool value) => OnPropertyChanged(nameof(Tooltip));
+
+    partial void OnContractConflictReasonChanged(string? value) => OnPropertyChanged(nameof(Tooltip));
 
     /// <summary>
     /// **换了边 ⇒ 形态全套跟着变**：竖排/横排、标记宽高、箭头字形、悬停提示。

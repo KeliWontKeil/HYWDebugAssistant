@@ -131,6 +131,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <summary>本次拖动**起点**的各成员几何（拖动中按 Ctrl 拆分时用来"放回原位"）。</summary>
     private readonly Dictionary<string, CanvasRect> _dragStartRects = new(StringComparer.Ordinal);
 
+    /// <summary>本次拖动**起点**各成员的整数物理像素矩形（整组位移的唯一基准）。</summary>
+    private readonly Dictionary<string, PixelEdges> _dragStartPixels = new(StringComparer.Ordinal);
+
     /// <summary>本次拖动**起点**的完整布局（连接在拖动中丢失时会提前提交中间布局，取消时要还原）。</summary>
     private readonly Dictionary<string, ModuleLayoutView> _dragStartLayouts = new(StringComparer.Ordinal);
 
@@ -139,8 +142,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
     private string? _draggingId;
     private IReadOnlyList<string> _dragGroup = [];
-    private double _dragPointerOffsetX;
-    private double _dragPointerOffsetY;
+
+    /// <summary>手势按下时的指针位置（**整数物理像素**）——整组位移从它算起，不逐帧累加。</summary>
+    private PixelPoint _dragStartPointer;
+
+    /// <summary>上一帧已施加的整组整数物理位移（相同则跳过，兼作死区；null = 本帧还没动过）。</summary>
+    private PixelPoint? _lastGroupDelta;
 
     /// <summary>拖动开始时缓存的参照线/端口锚点（拖动中其它模块不动，不必每帧重建）。</summary>
     private IReadOnlyList<SnapLine> _dragLines = [];
@@ -151,12 +158,21 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     private long _lastDockPreviewTicks;
     private int _lastDockPreviewCount = -1;
 
+    /// <summary>
+    /// 节流窗口内被推迟的建网预览补算（拖动结束/取消时取消）。
+    /// </summary>
+    /// <remarks>
+    /// 没有它时，接触那一帧若恰好落在 50ms 节流窗口内，而此后两轴都被吸附锁住（groupDelta 不变），
+    /// 端口高亮就永远不亮 —— 表现为"x 轴相等上下拖动拼接时不加粗，斜着拼就正常"。
+    /// </remarks>
+    private IDisposable? _dockPreviewRetry;
+
     /// <summary>整体平移造成的位置变化、**尚未落盘**的实例（合并提交用，见 <see cref="CommitSceneTranslation"/>）。</summary>
     private readonly HashSet<string> _pendingSceneCommits = new(StringComparer.Ordinal);
 
-    /// <summary>本次拖动已施加到外壳上的累计**物理像素**位移（取消/拆分时按绝对起点还原）。</summary>
-    private double _shellDragPxX;
-    private double _shellDragPxY;
+    /// <summary>本次拖动已施加到外壳上的累计**整数物理像素**位移（取消/拆分时按绝对起点还原）。</summary>
+    private int _shellDragPxX;
+    private int _shellDragPxY;
 
     /// <summary>本次拖动开始时外壳的物理原点（绝对目标以它为基准，避免逐帧取整累加漂移）。</summary>
     private PixelPoint? _shellDragOrigin;
@@ -1083,17 +1099,24 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             : [.. GroupOfNode(instanceId).Where(id => Find(id) is not { IsLocked: true })];
 
         // 拖动**起点**的几何（拖动中按 Ctrl 拆分时，把已经被带走的其他成员**放回原位** —— 见 DetachDrag）
+        // **整数物理像素矩形是整组位移的唯一基准**：整组每帧从起点 + 同一个整数位移重算，
+        // 不逐帧累加小数位移，窗口的独立取整就不会把公共边拉开。
         _dragStartRects.Clear();
+        _dragStartPixels.Clear();
         _dragStartLayouts.Clear();
         _dragCommittedLive = false;
+        _lastGroupDelta = null;
         foreach (var memberId in _dragGroup)
         {
             if (Find(memberId) is { } member)
             {
                 _dragStartRects[memberId] = member.Rect;
+                _dragStartPixels[memberId] = member.PixelRect;
                 _dragStartLayouts[memberId] = member.ToLayout();
             }
         }
+
+        _dragStartPointer = new PixelPoint(ScreenPixels.ToPixel(pointerX), ScreenPixels.ToPixel(pointerY));
 
         _shellDragPxX = 0;
         _shellDragPxY = 0;
@@ -1112,14 +1135,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 member.IsInteracting = true;
             }
         }
-        var dragScale = module.Scaling > 0 ? module.Scaling : 1;
-        _dragPointerOffsetX = pointerX - (module.X * dragScale);
-        _dragPointerOffsetY = pointerY - (module.Y * dragScale);
-
         // 拖动期间其他模块不动 ⇒ 参照线/端口锚点只算一次（不再每次指针事件全量重建）。
         _dragLines = CollectLines(instanceId);
         _dragAnchors = BuildPortAnchors(instanceId);
         _snapMemory = default;
+        CancelDockPreviewRetry();
         _lastDockPreviewTicks = 0;
         _lastDockPreviewCount = -1;
 
@@ -1184,11 +1204,19 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             _dragCommittedLive = false;
         }
 
-        // ③ 组收缩为"只有被拖的那个"
+        // ③ 组收缩为"只有被拖的那个"。
+        // **保留被拖成员的原始起点**（DIP / 整数像素 / 手势起点指针）：下一帧 DragTo 仍从
+        // "手势起点 + 指针位移"重算，拆分瞬间不会跳。其余成员的起点随之丢弃。
         _dragGroup = [draggingId];
         dragged.IsInteracting = true;
-        _dragStartRects.Clear();
-        _dragStartRects[draggingId] = dragged.Rect;
+        foreach (var memberId in _dragStartPixels.Keys
+                     .Where(id => !string.Equals(id, draggingId, StringComparison.Ordinal))
+                     .ToList())
+        {
+            _ = _dragStartPixels.Remove(memberId);
+        }
+
+        _lastGroupDelta = null;
 
         // 组变小 ⇒ 被放回原位的成员重新成为参照线/端口锚点。
         _dragLines = CollectLines(draggingId);
@@ -1203,20 +1231,20 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// 这是"主窗口与模块形成视觉整体后，移动谁都是整体动"的落点。
     /// 真实窗口由 `ModuleWindowManager` 移动；它移动时会回推一次 `ShellRect`（交互期间只刷新参照、不联动平移）。
     /// </remarks>
-    private void ApplyShellDelta(double dxPhysical, double dyPhysical)
+    private void ApplyShellDelta(int dxPixels, int dyPixels)
     {
         if (!_dragGroup.Contains(ShellNodeId) || _shellDragOrigin is not { } origin)
         {
             return;
         }
 
-        _shellDragPxX += dxPhysical;
-        _shellDragPxY += dyPhysical;
+        _shellDragPxX += dxPixels;
+        _shellDragPxY += dyPixels;
 
-        // **绝对物理目标**：起点 + 累计位移取整一次；不再“每帧增量取整后累加”。
+        // **绝对物理目标**：起点 + 整数位移；位移本身就是整像素，不再二次取整。
         var target = new PixelPoint(
-            origin.X + ScreenPixels.ToPixel(_shellDragPxX),
-            origin.Y + ScreenPixels.ToPixel(_shellDragPxY));
+            origin.X + _shellDragPxX,
+            origin.Y + _shellDragPxY);
 
         ShellMoveRequested?.Invoke(this, target);
         SetShellWindowPosition(target);
@@ -1370,12 +1398,22 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             return;
         }
 
-        // 原始位置（指针推出来的，未被吸附修正）——吸附是它的**纯函数**，不累加上一帧的结果。
-        // 指针是物理像素，先按被拖窗口自己的缩放换成 DIP（吸附在 DIP 模型里做），
-        // 组内成员再按**同一个物理位移**各自换回 DIP ⇒ 跨屏缩放不同也不会拉开相对位置。
+        // **从手势起点重算**，不累加上一帧：吸附是"指针原始位置"的纯函数。
+        // 指针是物理像素，先按被拖窗口自己的缩放换成 DIP（吸附在 DIP 模型里做）；
+        // 量化只在最后落到**整数物理像素**一次，整组共用这个整数位移。
         var dragScale = module.Scaling > 0 ? module.Scaling : 1;
-        var targetX = (pointerX - _dragPointerOffsetX) / dragScale;
-        var targetY = (pointerY - _dragPointerOffsetY) / dragScale;
+        var startRect = _dragStartRects.TryGetValue(draggingId, out var recordedStart)
+            ? recordedStart
+            : module.Rect;
+        var startPixels = _dragStartPixels.TryGetValue(draggingId, out var recordedPixels)
+            ? recordedPixels
+            : module.PixelRect;
+
+        var pointer = new PixelPoint(ScreenPixels.ToPixel(pointerX), ScreenPixels.ToPixel(pointerY));
+        var rawDeltaX = pointer.X - _dragStartPointer.X;
+        var rawDeltaY = pointer.Y - _dragStartPointer.Y;
+        var targetX = startRect.X + (rawDeltaX / dragScale);
+        var targetY = startRect.Y + (rawDeltaY / dragScale);
 
         IReadOnlyList<GuideLine> guides = [];
         var snapping = snapEnabled ?? SnapEnabled;
@@ -1383,7 +1421,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         if (snapping)
         {
             var snapped = SnapEngine.Snap(
-                module.Rect.At(targetX, targetY),
+                new CanvasRect(targetX, targetY, startRect.Width, startRect.Height),
                 _dragLines,
                 SnapDistance,                 // 对齐类容差 = 设置里的「吸附距离」
                 _dragAnchors,
@@ -1400,32 +1438,39 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             _snapMemory = default;
         }
 
-        // 量化点：目标先落到**整数物理像素**；组内成员跟同一个物理位移，再各自 ÷ 自己的 Scale。
-        // 不再对 DIP 取整 —— 125% 下 1 DIP = 1.25 px，按 DIP 取整会让窗口每次跳 1.25 px。
-        var targetPixelX = ScreenPixels.ToPixel(targetX * dragScale);
-        var targetPixelY = ScreenPixels.ToPixel(targetY * dragScale);
-        var dxPhysical = targetPixelX - module.PhysicalRect.X;
-        var dyPhysical = targetPixelY - module.PhysicalRect.Y;
+        // 量化点：被拖模块的目标先落到**整数物理像素**；整组共用"目标像素 − 起点像素"这个整数位移。
+        // 不再用 `X * Scaling`（可能是小数）做增量基准 —— 那会让每个窗口独立取整，公共边被拉开。
+        var targetPixels = ScreenPixels.PixelRectOf(
+            new CanvasRect(targetX, targetY, startRect.Width, startRect.Height),
+            dragScale);
+        var groupDelta = new PixelPoint(
+            targetPixels.Left - startPixels.Left,
+            targetPixels.Top - startPixels.Top);
 
-        // 物理死区：没有吸附参与且位移不足半个像素时，不让高频指针噪声推动窗口。
-        if (!snapping && Math.Abs(dxPhysical) < 0.5 && Math.Abs(dyPhysical) < 0.5)
-        {
-            return;
-        }
+        // 死区只约束**窗口几何**：整组整数位移没变 ⇒ 不再重复 ApplyPixelOrigin/RaiseGeometry。
+        // **预览不能一起跳过**：两轴都被吸附锁住时指针仍可能在动，而 groupDelta 不变；
+        // 若这里提前 return，接触那一帧又被 UpdateDockPreview 的 50ms 节流吞掉，端口就永远不亮。
+        var moved = _lastGroupDelta != groupDelta;
 
-        foreach (var memberId in _dragGroup)
+        if (moved)
         {
-            if (Find(memberId) is { } member)
+            _lastGroupDelta = groupDelta;
+
+            foreach (var memberId in _dragGroup)
             {
-                var memberScale = member.Scaling > 0 ? member.Scaling : 1;
-                member.X += dxPhysical / memberScale;
-                member.Y += dyPhysical / memberScale;
-                RaiseGeometry(member);
+                if (Find(memberId) is { } member
+                    && _dragStartPixels.TryGetValue(memberId, out var memberStart))
+                {
+                    member.ApplyPixelOrigin(
+                        memberStart.Left + groupDelta.X,
+                        memberStart.Top + groupDelta.Y);
+                    RaiseGeometry(member);
+                }
             }
-        }
 
-        // 组内含外壳（模块单侧吸附在外壳上）→ 外壳窗口也一起走（"视觉整体"）
-        ApplyShellDelta(dxPhysical, dyPhysical);
+            // 组内含外壳（模块单侧吸附在外壳上）→ 外壳窗口也一起走（"视觉整体"）
+            ApplyShellDelta(groupDelta.X, groupDelta.Y);
+        }
 
         // 窗内绘制用：辅助线挂到**被拖的模块**上（其余成员只跟随位移）
         if (Find(draggingId) is { } dragged)
@@ -1435,6 +1480,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         // **即将自动建网**预览：按"接触且对齐"规则问 L4"现在松手会连上什么"，
         // 高亮对应的端口标记 —— 判定规则与真正建网同一份实现，预览必然与结果一致。
+        // 即使本帧窗口没动也调用：吸附锁住两轴时，接触状态可能刚刚成立。
         UpdateDockPreview();
     }
 
@@ -1472,12 +1518,29 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     private void UpdateDockPreview()
     {
         // Core 的建网预览要遍历全部候选；拖动帧率远高于它需要的刷新率 ⇒ 约 20 Hz + 数量变化才发提示。
+        // **节流必须能自恢复**：被推迟的那一次要安排补算，否则接触帧一旦错过就再也不会重算
+        //（吸附锁住两轴时 groupDelta 不变，不会再来新的"变化帧"）。
+        const int interval = 50;
         var now = Environment.TickCount64;
-        if (now - _lastDockPreviewTicks < 50)
+        var elapsed = now - _lastDockPreviewTicks;
+
+        if (elapsed < interval)
         {
+            _dockPreviewRetry ??= UiFrameClock.ScheduleOnce(
+                TimeSpan.FromMilliseconds(interval - elapsed),
+                () =>
+                {
+                    _dockPreviewRetry = null;
+                    if (_draggingId is not null)
+                    {
+                        UpdateDockPreview();
+                    }
+                });
             return;
         }
 
+        _dockPreviewRetry?.Dispose();
+        _dockPreviewRetry = null;
         _lastDockPreviewTicks = now;
 
         var provisional = _dragGroup
@@ -1542,9 +1605,17 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             pair.Source.StartsWith(instanceId + ".", StringComparison.Ordinal)
             || pair.Target.StartsWith(instanceId + ".", StringComparison.Ordinal));
 
+    /// <summary>取消被节流推迟的建网预览补算（拖动开始/结束/取消时调用）。</summary>
+    private void CancelDockPreviewRetry()
+    {
+        _dockPreviewRetry?.Dispose();
+        _dockPreviewRetry = null;
+    }
+
     /// <summary>清掉"即将建网"高亮（拖动结束/取消时）。</summary>
     private void ClearDockPreview()
     {
+        CancelDockPreviewRetry();
         _lastDockPreviewTicks = 0;
         _lastDockPreviewCount = -1;
         foreach (var module in Modules)
@@ -1688,7 +1759,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
     /// <summary>结束拖动：**一次 ChangeSet** 提交整组位置（原子），随后清辅助线。</summary>
     public void EndDrag()
-    {        if (_draggingId is null)
+    {
+        if (_draggingId is null)
         {
             return;
         }
@@ -1710,7 +1782,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         _draggingId = null;
         _dragGroup = [];
+        _dragStartRects.Clear();
+        _dragStartPixels.Clear();
         _dragStartLayouts.Clear();
+        _lastGroupDelta = null;
         _dragCommittedLive = false;
         ClearDockPreview();
 
@@ -1756,6 +1831,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         var group = _dragGroup;
         _draggingId = null;
         _dragGroup = [];
+        _lastGroupDelta = null;
 
         // 组内含外壳时，外壳窗口也被拖走了 → 还原到本次拖动的绝对物理起点
         RestoreShellOrigin();
@@ -1793,7 +1869,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             _dragCommittedLive = false;
         }
 
+        _dragStartRects.Clear();
+        _dragStartPixels.Clear();
         _dragStartLayouts.Clear();
+        CancelDockPreviewRetry();
     }
 
     // ---------------------------------------------------------------- 缩放
@@ -2730,6 +2809,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         // 队列水位与网络一样每拍只取一次；只有真正刷指标的那一拍才取。
         Dictionary<string, PortQueueDepthView>? queues = null;
 
+        // 同网络名不兼容端口：也是每拍只取一次（Core 侧按修订号缓存）。
+        IReadOnlyDictionary<string, string>? conflicts = null;
+
         // 指标节拍按**时间**而不是帧数：刷新率调低时指标仍按约 0.5 秒更新，不被帧率拖慢。
         var now = Stopwatch.GetTimestamp();
         var metricsDue = _lastMetricsTimestamp == 0
@@ -2756,7 +2838,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             if (refreshMetrics)
             {
                 queues ??= QueueDepthsByPort();
-                RefreshMarkerStatus(module, networks, queues);
+                conflicts ??= BuildContractConflictMap();
+                RefreshMarkerStatus(module, networks, queues, conflicts);
                 RefreshRoleBoxes(module);
             }
 
@@ -2796,7 +2879,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     private void RefreshMarkerStatus(
         ModuleViewViewModel module,
         IReadOnlyList<NetworkView> networks,
-        Dictionary<string, PortQueueDepthView> queues)
+        Dictionary<string, PortQueueDepthView> queues,
+        IReadOnlyDictionary<string, string> conflicts)
     {
         if (module.Ports.Count == 0)
         {
@@ -2806,6 +2890,19 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         foreach (var marker in module.Ports)
         {
             var literal = $"{module.InstanceId}.{marker.PortName}";
+
+            // 同网络名但契约不兼容：与连接状态无关，必须先落（未入网也可能有冲突）。
+            if (conflicts.TryGetValue(literal, out var conflictReason))
+            {
+                marker.ContractConflictReason = conflictReason;
+                marker.HasContractConflict = true;
+            }
+            else
+            {
+                marker.HasContractConflict = false;
+                marker.ContractConflictReason = null;
+            }
+
             NetworkView? network = null;
 
             foreach (var candidate in networks)
@@ -2859,6 +2956,45 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
             // 队列压力（接收口才有队列）：只格式化框架给的队列账本，不在界面上算
             marker.QueueText = QueuePressureText(queues, literal);
+        }
+    }
+
+    /// <summary>
+    /// 本拍“同网络名但契约不兼容”的端口字面量 → 原因（每轮只建一次）。
+    /// </summary>
+    /// <remarks>
+    /// 一个口可能与多个同名对端都不兼容；提示里把不同原因去重后用 `；` 连接，避免重复刷屏。
+    /// </remarks>
+    private Dictionary<string, string> BuildContractConflictMap()
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        var reasons = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+        foreach (var conflict in _query.GetPortContractConflicts())
+        {
+            Add($"{conflict.InstanceId}.{conflict.PortName}", conflict.Reason);
+            Add($"{conflict.PeerInstanceId}.{conflict.PeerPortName}", conflict.Reason);
+        }
+
+        foreach (var (literal, list) in reasons)
+        {
+            map[literal] = string.Join("；", list);
+        }
+
+        return map;
+
+        void Add(string literal, string reason)
+        {
+            if (!reasons.TryGetValue(literal, out var list))
+            {
+                list = [];
+                reasons[literal] = list;
+            }
+
+            if (!list.Contains(reason, StringComparer.Ordinal))
+            {
+                list.Add(reason);
+            }
         }
     }
 

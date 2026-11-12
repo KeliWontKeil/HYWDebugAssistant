@@ -497,20 +497,20 @@ public sealed class ModuleWindowManager : IDisposable
         }
 
         // **单位口径**：`Window.Position` 是**物理像素**，模型是 **DIP** ⇒ 在这里 ÷ 该窗口的缩放一次
-        // （与 `ApplyGeometry` 里那个 × 缩放互为逆运算）。旧实现把物理像素直接写进 DIP 模型 ⇒
-        // 125% 下模型位置比真实大 25% ⇒ 与持久化布局永远对不上，刷新每次都在"纠正"它。
+        // （与 `ApplyGeometry` 里那个 × 缩放互为逆运算）。模型 DIP 由像素派生，**不再独立取整**：
+        // 125% 下整 DIP 乘回缩放仍是小数，相邻窗口各自取整会把公共边拉开（拖动后的"缝"）。
         // 回写**只改模型、不抬几何**：几何的唯一入口是真实用户动作与刷新里的差异判据。
         var scaling = window.ResolvedScaling > 0 ? window.ResolvedScaling : 1.0;
-        var x = ScreenPixels.RoundDip(window.Position.X / scaling);
-        var y = ScreenPixels.RoundDip(window.Position.Y / scaling);
+        var position = window.Position;
 
-        if (Math.Abs(module.X - x) < 0.5 && Math.Abs(module.Y - y) < 0.5)
+        if (ScreenPixels.ToPixel(module.X * scaling) == position.X
+            && ScreenPixels.ToPixel(module.Y * scaling) == position.Y)
         {
             return;
         }
 
-        module.X = x;
-        module.Y = y;
+        module.X = ScreenPixels.DipOfPixel(position.X, scaling);
+        module.Y = ScreenPixels.DipOfPixel(position.Y, scaling);
     }
 
     /// <summary>
