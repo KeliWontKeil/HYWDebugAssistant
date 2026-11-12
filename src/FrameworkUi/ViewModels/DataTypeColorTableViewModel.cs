@@ -14,7 +14,7 @@ namespace HYWDebugAssistant.FrameworkUi.ViewModels;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>一行 = 一种数据类型</b>（键 = 类型身份 `标识@v版本`；未声明类型的旧模块 = 结构描述）——
+///   <item><b>一行 = 一种数据类型</b>（键 = 类型标识；未声明类型的旧模块 = 结构描述）——
 ///     与端口标记的窄色条、叠加层角色方块的填充**同源**（都走 <see cref="PacketTypePalette"/>）；</item>
 ///   <item><b>颜色可改</b>：点色块打开取色弹窗（预设色片 + 十六进制），或"恢复自动"回落**稳定哈希配色**
 ///     （同一身份跨模块/跨重启同色 ⇒ 不改也能分辨类型）；</item>
@@ -26,7 +26,7 @@ public sealed partial class DataTypeColorRowViewModel : ViewModelBase
     private readonly Action<string, string?> _apply;
 
     /// <summary>创建一行。</summary>
-    /// <param name="typeKey">类型身份（`标识@v版本`）。</param>
+    /// <param name="typeKey">类型标识（色板键）。</param>
     /// <param name="shapeText">形状呈现文本（给人看）。</param>
     /// <param name="usageText">用在（如 `4 个口 · 2 个角色`）。</param>
     /// <param name="overrideHex">用户覆盖色（null/空 = 自动配色）。</param>

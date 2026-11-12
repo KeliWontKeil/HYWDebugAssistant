@@ -1,0 +1,29 @@
+{
+  "language": "zh-Hans",
+  "entries": {
+    "module.title": "原始 → 波形",
+    "module.description": "把文本帧或 VOFA+ 帧解析成波形帧",
+    "role.decode": "解析",
+    "role.emit": "输出",
+    "view.title": "原始 → 波形",
+    "view.header": "帧头",
+    "view.footer": "帧尾",
+    "view.channels": "通道数量",
+    "view.frames": "已转换",
+    "view.dropped": "丢弃",
+    "view.reset": "清空统计",
+    "state.ready": "就绪",
+    "state.converting": "转换中",
+    "state.reset": "已清空统计",
+    "state.bad-config": "帧头与帧尾不能为空",
+    "state.parse-error": "解析失败累计 {0} 帧",
+    "field.protocol": "协议",
+    "field.header": "帧头",
+    "field.footer": "帧尾",
+    "field.group": "通道组编号",
+    "field.rate": "采样率",
+    "choice.textFrame": "自定义文本帧",
+    "choice.fireWater": "VOFA+ FireWater",
+    "choice.justFloat": "VOFA+ JustFloat"
+  }
+}

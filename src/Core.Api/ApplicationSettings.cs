@@ -157,7 +157,7 @@ public sealed class ApplicationSettings
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item>键 = **类型身份**（`标识@v版本`；未声明类型的旧模块用结构描述），值 = `#RRGGBB`；</item>
+    ///   <item>键 = **类型标识**（未声明类型的旧模块用结构描述），值 = `#RRGGBB`；</item>
     ///   <item>**缺省 = 不配置** ⇒ 该类型走**稳定哈希自动配色**（同一身份跨模块/跨重启同色 ⇒ 不配置也能分辨类型）；</item>
     ///   <item>**只影响呈现**：它不参与建网/兼容/判定，也不进组合件；改色只改"画出来的颜色"。</item>
     /// </list>

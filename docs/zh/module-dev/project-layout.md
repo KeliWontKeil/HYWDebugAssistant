@@ -1,5 +1,7 @@
 # 项目与包布局
 
+一个模块 = 一个类库工程 + 一个 `module.json` + 可选 `resources/`。本页是这些文件与目录的唯一清单；构建与导入步骤见[从零开始](quickstart.md)与[发布与装载](publishing.md)。
+
 ## 最小文件集
 
 ```
@@ -7,18 +9,16 @@ MyModule/
   HYWDebugAssistant.Vendor.MyModule.csproj
   module.json
   MyModule.cs
-  NuGet.config               # 指向产品 sdk/（样例里已写好）
+  NuGet.config               # 指向 SDK 的 packages/（模板里已写好）
   Views/                     # 可选：模块 XAML 与视图工厂
   resources/                 # 可选：文本表 / 图标 / 自定义资源
 ```
 
-## 从样例开始
+推荐直接复制 SDK 目录里的 `template/ModuleTemplate`：工程文件、清单、`NuGet.config` 与打包配置都已就位，只需改三个名字（见[从零开始](quickstart.md)）。模板在 SDK 目录内时本地源是 `../../packages`；把模板移出 SDK 目录后要改本地源。从零手写时按下面照抄。
 
-推荐直接复制 `sdk/samples/` 里的样例：工程文件、清单、`NuGet.config` 与打包配置都已就位，只需改三个名字（见[从零开始](quickstart.md)）。从零手写时按下面两段照抄。
+## 工程文件
 
-## 项目文件
-
-外部工程只引作者包；版本取 `sdk/` 里包文件名中的四段版本（样例里已经写好，不需要手填）：
+外部工程只引作者包；版本取 SDK `packages/` 里包文件名中的四段版本（模板里已经写好，不需要手填）：
 
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
@@ -33,16 +33,18 @@ MyModule/
     <PlatformName>AnyCPU</PlatformName>
     <AssemblyName>HYWDebugAssistant.Vendor.MyModule</AssemblyName>
     <RootNamespace>HYWDebugAssistant.Vendor.MyModule</RootNamespace>
+    <!-- 包目录名；缺省取项目名最后一个点段。 -->
+    <ModulePackageName>MyModule</ModulePackageName>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="HYWDebugAssistant.Sdk" Version="<产品四段版本>" />
+    <PackageReference Include="HYWDebugAssistant.Sdk" Version="{{version}}" />
     <!-- 有界面时加 Sdk.Ui；用外部接入时加 Sdk.AccessKit；写测试时加 Sdk.Testing。 -->
-    <PackageReference Include="HYWDebugAssistant.Module.Build" Version="<产品四段版本>" PrivateAssets="all" />
+    <PackageReference Include="HYWDebugAssistant.Module.Build" Version="{{version}}" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- 文本表随构建输出：预览器与测试都按“程序集旁”的 resources 读取。 -->
+    <!-- 文本表随构建输出：预览器与行为测试按“程序集旁”的 resources 读取。 -->
     <Content Include="resources\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
@@ -50,29 +52,40 @@ MyModule/
 
 `Module.Build` 只参与构建（打包规则），不是运行时依赖，也不进模块包。
 
+依赖边界：
+
+- 可以引 `Sdk`、`Sdk.Ui`（有界面时）、`Sdk.AccessKit`（用设备接入时）、以及模块私有的第三方包；
+- 不得引 `Sdk.Testing`（只给测试项目，运行时引用会被加载器拒绝）；
+- 不得引本应用其它程序集（`Access`、`Core`、`Ui` 等），也不得引其它模块；
+- 私有第三方依赖会随包分发，宿主提供的程序集不会。
+
 ## NuGet.config
 
-本地源指向产品发布目录里的 `sdk/`（样例里写的是相对路径，复制到别处后要按实际位置调整）：
+本地源指向 SDK 目录里的 `packages/`（模板里写的是相对路径，移动模板后按实际位置调整）：
 
 ```xml
 <configuration>
   <packageSources>
     <clear />
-    <add key="hyw-sdk" value="..\..\sdk" />
+    <add key="hyw-sdk" value="..\..\packages" />
     <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
   </packageSources>
 </configuration>
 ```
 
+只复制模板而不保留 SDK 目录时，把 `hyw-sdk` 改成 SDK `packages/` 的绝对路径。
+
 ## module.json
+
+清单只有五个字段：
 
 | 字段 | 必填 | 含义 |
 |---|---|---|
-| `id` | 是 | 模块标识，`作者/模块名` 两段小写；必须与代码里的 `[ModuleDefinition]` 一致 |
+| `id` | 是 | 模块标识 `作者/模块名`：两段均为 `[a-z0-9-]`，不能为空、不能以 `-` 开头或结尾；必须与代码里的 `[ModuleDefinition]` 一致 |
 | `entryAssembly` | 是 | 实现程序集文件名（相对包目录） |
 | `entryType` | 是 | 入口类型全名（含命名空间） |
 | `dependsOn` | 否 | 依赖的模块标识列表；缺失即拒绝加载 |
-| `resources` | 否 | 资源目录（相对包目录）；目录不存在即拒绝加载 |
+| `resources` | 否 | 加载期必须存在的资源目录（相对包目录）；目录不存在、绝对路径或 `..` 即拒绝加载。它是“目录存在性清单”，不是资源枚举：`i18n` / `icons` 按目录约定读取，自定义 kind 由模块自己读 |
 
 ```json
 {
@@ -83,6 +96,11 @@ MyModule/
   "resources": ["resources/i18n"]
 }
 ```
+
+- JSON 允许注释与尾随逗号，属性名不区分大小写；空文件或语法错误会让导入失败。
+- `resources` 只登记实际存在的目录；声明了却不存在会在加载期被拒（不等到界面缺图标才发现）。
+- 清单与代码的标识必须一致，否则加载器拒绝加载，避免同名歧义。
+- `dependsOn` 只保证“依赖的模块已安装”，不提供代码引用；模块之间仍只经端口通信。
 
 ## 包长什么样
 
@@ -96,12 +114,21 @@ bin/module-package/Release/<模块名>/
 
 - `module.json`
 - 实现程序集（可含 `.pdb`）
-- `resources/**`（若声明了）
-- 模块私有第三方依赖（含 `runtimes/<rid>/…` 平台分片）
+- `resources/**`（若项目里有）
+- 可选的 `preview.png`：模块清单卡片封面（不是窗口截图）
+- 模块私有第三方依赖（含 `runtimes/<rid>/lib|native/…` 平台分片）
 
-包内**不得**有宿主提供的程序集：`HYWDebugAssistant.Sdk*`、`Avalonia*`、`System.IO.Ports`、`SkiaSharp` 等，也不得有 `*.deps.json`。打包规则会自动排除；手工打包时按这份清单剔除。
+包内**不得**有宿主提供的程序集：`HYWDebugAssistant.Sdk*`、`HYWDebugAssistant.Access*`、`Avalonia*`、`System.IO.Ports*`、`SkiaSharp*`、`HarfBuzzSharp*`、`MicroCom.Runtime*`，也不得有 `*.deps.json`。打包规则会自动排除；手工打包时按这份清单剔除。
 
-模块名默认取项目名最后一个点段，可用 `<ModulePackageName>` 覆盖。
+每次构建会先清空包目录再复制；改过 `module.json` 也会触发重新归拢（它被登记为过期判定输入）。
+
+`preview.png` 放在工程根目录并让它随构建输出（否则不会进包）：
+
+```xml
+<ItemGroup>
+  <None Update="preview.png" CopyToOutputDirectory="PreserveNewest" />
+</ItemGroup>
+```
 
 ## 资源布局
 
@@ -114,6 +141,30 @@ resources/
 
 `i18n` 与 `icons` 是框架认识的两种类别，由框架按拥有者读取；其他 `kind` 由模块用 `IResourceAccess` 自己读。细节见[资源与文本](resources.md)。
 
+## 发现与装载
+
+- 应用只扫描程序目录下的 `modules/`（内置）与 `modules/external/`（外部导入），每个根只扫直接子目录，一个子目录一个包。
+- 导入外部包时，框架先校验清单、入口、依赖与同标识冲突，通过后复制进 `modules/external/`；同标识已存在时拒绝导入，不覆盖、不并存。
+- 已载入的程序集不可替换：改过代码的包要关闭应用重开后生效，不提供热重载。
+- 内置模块与外部模块走同一条发现与加载路径，外部包没有结构特权。
+
+## SDK 目录长什么样
+
+SDK 是独立发布目录，**不在产品目录里**：
+
+```
+HYWDebugAssistant.Sdk-<版本>/
+  packages/                          # 五个 nupkg
+  template/ModuleTemplate/           # 模块模板（源码）
+  NuGet.config                       # 本地源指向 packages
+  README.txt
+  LICENSE.txt
+  THIRD_PARTY_NOTICES.md
+  sdk.json
+```
+
+保持整个目录在一起即可开发；模板单独复制时要改本地源。`Sdk.Testing` / `Module.Build` 只给作者的构建与测试使用。
+
 ## 进构建序
 
 - 外部工程：不需要登记，`dotnet build` 即可产出模块包。
@@ -121,5 +172,6 @@ resources/
 
 ## 相关
 
-- [声明面](contracts.md)
-- [发布与装载](publishing.md)
+- [从零开始](quickstart.md)：把这些文件变成能跑的模块
+- [发布与装载](publishing.md)：导入、重启与被拒原因
+- [SDK 与版本](sdk-version.md)：五个包与模板

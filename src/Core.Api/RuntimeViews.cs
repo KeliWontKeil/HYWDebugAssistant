@@ -53,13 +53,13 @@ public sealed record PortView(
     /// </remarks>
     public HYWDebugAssistant.Sdk.Ports.PortEdge Edge { get; init; } = HYWDebugAssistant.Sdk.Ports.PortEdge.Left;
     /// <summary>
-    /// **该口声明的类型身份**（`标识@版本`；未声明或引用不可解析 ⇒ <see langword="null"/>）。
+    /// **该口声明的类型标识**（未声明或引用不可解析 ⇒ <see langword="null"/>）。
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
     ///   <item>与 <see cref="ContractText"/> 的分工：**本字段 = 身份**（用于配对/色板映射/角色键），
     ///     <see cref="ContractText"/> = **呈现文本**（给人看）；</item>
-    ///   <item>**为什么不能用呈现文本代替**：`f32` 这个文本无法区分"声明了 `hyw/f32@1`"与"声明了别的标识但形状相同"，
+    ///   <item>**为什么不能用呈现文本代替**：`f32` 这个文本无法区分"声明了 `RawBytes`"与"声明了别的标识但形状相同"，
     ///     而二者**不是同一种量** ⇒ 用文本会把两种角色错误合并；</item>
     ///   <item>未声明类型的旧模块：身份回落为**结构描述**（= <see cref="ContractText"/>）。</item>
     /// </list>
@@ -84,7 +84,7 @@ public sealed record PortView(
 /// <param name="Key">角色键（= `实例ID/角色Id`，稳定、可供 UI 配对）。</param>
 /// <param name="RoleId">角色标识（模块内唯一）。</param>
 /// <param name="DisplayName">功能名（空 ⇒ 呈现层回退为类型短名）。</param>
-/// <param name="TypeKey">类型身份（`标识@v版本`；色板键，跨模块一致）。</param>
+/// <param name="TypeKey">类型标识（色板键，跨模块一致）。</param>
 /// <param name="TypeText">类型呈现文本（`{seq:u64, value:f32}` 之类，给人看）。</param>
 /// <param name="Inputs">输入口名（可为空 = 纯源分块）。</param>
 /// <param name="Outputs">输出口名（可为空 = 纯汇分块）。</param>

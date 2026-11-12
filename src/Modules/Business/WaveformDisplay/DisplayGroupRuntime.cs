@@ -9,11 +9,24 @@ internal sealed class DisplayGroupRuntime
     /// <summary>本组的显示配置（名称/颜色/显隐）。</summary>
     public required DisplayGroupConfig Config { get; set; }
 
-    /// <summary>当前通道数。</summary>
+    /// <summary>当前槽位数（配置中的通道数；不随帧缺失缩小）。</summary>
     public int ChannelCount { get; private set; }
 
-    /// <summary>每通道动态历史。</summary>
+    /// <summary>最新一帧声明的通道数；超出部分视为缺失。</summary>
+    public int PresentChannelCount { get; private set; }
+
+    /// <summary>每通道动态历史（与槽位一一对应）。</summary>
     public ChannelHistory[] Histories { get; private set; } = [];
+
+    /// <summary>该序号在当前帧中是否存在。</summary>
+    public bool IsPresent(int index) => index >= 0 && index < PresentChannelCount;
+
+    /// <summary>该序号是否被用户删除。</summary>
+    public bool IsDeleted(int index) =>
+        index >= 0 && index < Config.Channels.Count && Config.Channels[index].Deleted;
+
+    /// <summary>该序号当前是否应参与曲线/Y 自动/保存列。</summary>
+    public bool IsDisplayable(int index) => IsPresent(index) && !IsDeleted(index);
 
     /// <summary>模块自己的数据编号（每收到一帧 +1；可清零）。</summary>
     public long DisplayIndex { get; private set; }
@@ -110,27 +123,35 @@ internal sealed class DisplayGroupRuntime
     private long _rateWindowStartMs;
     private long _rateWindowFrames;
 
-    /// <summary>调整通道数；变化时重建历史并清零数据编号。</summary>
+    /// <summary>扩展槽位；保留已有历史与范围，不因帧通道数变化重建。</summary>
+    /// <param name="count">需要保证存在的槽位数（不会缩小）。</param>
     public void EnsureChannels(int count)
     {
-        if (count == ChannelCount)
+        count = Math.Max(0, count);
+        if (count <= Histories.Length)
         {
+            ChannelCount = Math.Max(ChannelCount, count);
             return;
         }
 
-        ChannelCount = count;
-        Histories = new ChannelHistory[count];
-        for (var index = 0; index < count; index++)
+        var histories = new ChannelHistory[count];
+        Array.Copy(Histories, histories, Histories.Length);
+        for (var index = Histories.Length; index < count; index++)
         {
-            Histories[index] = new ChannelHistory();
+            var history = new ChannelHistory();
+            history.StartAt(DisplayIndex);
+            histories[index] = history;
         }
 
-        DisplayIndex = 0;
-        ResetRange();
-        ResetAutoY();
+        Histories = histories;
+        ChannelCount = count;
     }
 
-    /// <summary>追加一帧样本（无效通道写 NaN，保持断线）。</summary>
+    /// <summary>记录最新帧的通道数；缺席的槽位保留历史并追加 NaN。</summary>
+    public void SetPresentChannels(int count) =>
+        PresentChannelCount = Math.Clamp(count, 0, ChannelCount);
+
+    /// <summary>追加一帧样本（缺失/无效通道写 NaN，保持断线）。</summary>
     public void Append(ReadOnlySpan<float> samples, ulong validMask, long nowMs)
     {
         if (ChannelCount <= 0 || Histories.Length < ChannelCount)
@@ -140,6 +161,17 @@ internal sealed class DisplayGroupRuntime
 
         for (var index = 0; index < ChannelCount; index++)
         {
+            if (IsDeleted(index))
+            {
+                continue;
+            }
+
+            if (!IsPresent(index))
+            {
+                Histories[index].Append(float.NaN);
+                continue;
+            }
+
             var valid = (validMask & (1UL << index)) != 0;
             Histories[index].Append(valid ? samples[index] : float.NaN);
         }
@@ -199,6 +231,15 @@ internal sealed class DisplayGroupRuntime
     {
         LastSeenMs = nowMs;
         ReceivedFrames++;
+    }
+
+    /// <summary>清空指定通道的历史；配置中的槽位保留。</summary>
+    public void DeleteChannel(int index)
+    {
+        if (index >= 0 && index < Histories.Length)
+        {
+            Histories[index].Clear();
+        }
     }
 
     /// <summary>清空历史与数据编号。</summary>

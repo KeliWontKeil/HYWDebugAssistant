@@ -16,6 +16,9 @@ public sealed record DisplayChannelConfig
     public string Name { get; init; } = string.Empty;
     public uint? ColorArgb { get; init; }
     public bool Visible { get; init; } = true;
+
+    /// <summary>用户已删除该通道；保留槽位以维持帧内位置映射，不再显示或接收新数据。</summary>
+    public bool Deleted { get; init; }
 }
 
 /// <summary>单组显示配置。</summary>

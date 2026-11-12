@@ -96,6 +96,8 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         if (_chart is not null)
         {
             _chart.Series = _series;
+            _chart.PanRequested += OnChartPanRequested;
+            _chart.ZoomRequested += OnChartZoomRequested;
         }
 
         if (_axisModeSelect is not null)
@@ -210,9 +212,13 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             return;
         }
 
-        var index = 0;
+        var position = 0;
         foreach (var channel in channels.EnumerateArray())
         {
+            var index = channel.TryGetProperty("index", out var indexElement)
+                && indexElement.ValueKind == JsonValueKind.Number
+                ? indexElement.GetInt32()
+                : position;
             _channels.Add(new ChannelInfo(
                 index,
                 channel.TryGetProperty("name", out var name) ? name.GetString() ?? string.Empty : string.Empty,
@@ -221,8 +227,9 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
                     && color.TryGetUInt32(out var argb)
                     ? argb
                     : null,
-                !channel.TryGetProperty("visible", out var visible) || visible.GetBoolean()));
-            index++;
+                !channel.TryGetProperty("visible", out var visible) || visible.GetBoolean(),
+                channel.TryGetProperty("missing", out var missing) && missing.GetBoolean()));
+            position++;
         }
     }
 
@@ -412,7 +419,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         var row = new Grid
         {
             Height = 20,
-            ColumnDefinitions = new ColumnDefinitions("16,*,66,18,18"),
+            ColumnDefinitions = new ColumnDefinitions("16,*,66,18,18,18"),
             ClipToBounds = true,
             Background = channel.Index == _activeChannelIndex
                 ? FindBrush("SurfaceTabHoverBrush")
@@ -485,6 +492,11 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         Grid.SetColumn(fit, 4);
         row.Children.Add(fit);
 
+        var delete = MakeCommandButton("icon.group.delete", Tr("view.deleteChannel"));
+        delete.Click += (_, _) => SubmitAction(new { op = "deleteChannel", index = channel.Index });
+        Grid.SetColumn(delete, 5);
+        row.Children.Add(delete);
+
         row.PointerPressed += (_, args) =>
         {
             if (args.Source is TextBox or Button)
@@ -498,7 +510,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             }
         };
 
-        _channelRows.Add(new ChannelRowVisual(channel.Index, row, colorButton, name, readout, hide, fit));
+        _channelRows.Add(new ChannelRowVisual(channel.Index, row, colorButton, name, readout, hide, fit, delete));
         return row;
     }
 
@@ -554,9 +566,12 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             row.Row.Background = channel.Index == _activeChannelIndex
                 ? FindBrush("SurfaceTabHoverBrush")
                 : Brushes.Transparent;
+            row.Row.Opacity = channel.Missing ? 0.55 : 1;
             row.ColorButton.Background = ResolveChannelBrush(channel);
             row.Hide.IsChecked = channel.Visible;
+            row.Hide.IsEnabled = !channel.Missing;
             row.Fit.IsChecked = activeGroup is { YAuto: true, YFitChannel: var fit } && fit == channel.Index;
+            row.Fit.IsEnabled = !channel.Missing;
             if (!row.Name.IsKeyboardFocusWithin)
             {
                 row.Name.Text = string.IsNullOrWhiteSpace(channel.Name)
@@ -679,18 +694,22 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         _chart.ShowYCursors = _cursors;
 
         EnsureAutoColors(snapshot.Channels);
-        EnsureSeries(snapshot.Channels.Count);
-        for (var index = 0; index < _series.Count; index++)
+        var maxIndex = -1;
+        foreach (var channel in snapshot.Channels)
         {
-            var series = _series[index];
-            if (index >= snapshot.Channels.Count)
-            {
-                series.Count = 0;
-                series.Visible = false;
-                continue;
-            }
+            maxIndex = Math.Max(maxIndex, channel.Index);
+        }
 
-            var channel = snapshot.Channels[index];
+        EnsureSeries(maxIndex + 1);
+        foreach (var series in _series)
+        {
+            series.Count = 0;
+            series.Visible = false;
+        }
+
+        foreach (var channel in snapshot.Channels)
+        {
+            var series = _series[channel.Index];
             series.Name = channel.Name;
             series.Color = channel.ColorArgb is { } argb
                 ? Color.FromUInt32(argb)
@@ -767,6 +786,13 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         var count = snapshot.Channels.Count > 0 ? snapshot.Channels[0].Values.Length : 0;
         foreach (var row in _channelRows)
         {
+            var info = _channels.Find(item => item.Index == row.Index);
+            if (info is { Missing: true })
+            {
+                row.Readout.Text = Tr("view.missingChannel");
+                continue;
+            }
+
             var channel = FindChannel(snapshot, row.Index);
             if (channel is null || count <= 0)
             {
@@ -840,6 +866,35 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             start,
             end,
             startOnly = _range.LastChangeKind == RangeChangeKind.Start,
+        });
+    }
+
+    private void OnChartPanRequested(object? sender, ChartDragEventArgs e) =>
+        SubmitChartDrag("pan", e);
+
+    private void OnChartZoomRequested(object? sender, ChartDragEventArgs e) =>
+        SubmitChartDrag("zoom", e);
+
+    /// <summary>
+    /// 把控件给出的目标轴范围换算成样本，交给模块统一夹紧和决定跟踪/Y 自动。
+    /// </summary>
+    private void SubmitChartDrag(string mode, ChartDragEventArgs e)
+    {
+        if (_context is null)
+        {
+            return;
+        }
+
+        var start = DisplayAxisUnits.AxisToSamples(e.XStart, _xAxisMode, _rate);
+        var end = DisplayAxisUnits.AxisToSamples(e.XEnd, _xAxisMode, _rate);
+        SubmitAction(new
+        {
+            op = "dragView",
+            mode,
+            xStart = start,
+            xEnd = end,
+            yMin = e.YMin,
+            yMax = e.YMax,
         });
     }
 
@@ -1065,6 +1120,28 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         return button;
     }
 
+    private static Button MakeCommandButton(string iconKey, string tooltip)
+    {
+        var button = new Button
+        {
+            Width = 18,
+            Height = 18,
+            Padding = new Thickness(0),
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Content = new IconControl
+            {
+                IconKey = iconKey,
+                Owner = typeof(WaveformDisplayView).Assembly,
+                Width = 12,
+                Height = 12,
+            },
+        };
+        button.Classes.Add("module-row-action");
+        ToolTip.SetTip(button, tooltip);
+        return button;
+    }
+
     private void HandleImageRequest(IModuleViewContext context)
     {
         if (_chart is null)
@@ -1147,7 +1224,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         double YMax,
         int YFitChannel);
 
-    private sealed record ChannelInfo(int Index, string Name, uint? Color, bool Visible);
+    private sealed record ChannelInfo(int Index, string Name, uint? Color, bool Visible, bool Missing);
 
     private sealed record GroupHeaderVisual(
         uint GroupId,
@@ -1169,7 +1246,8 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         TextBox Name,
         ModuleLabel Readout,
         ToggleButton Hide,
-        ToggleButton Fit);
+        ToggleButton Fit,
+        Button Delete);
 }
 
 /// <summary>波形显示器视图工厂。</summary>

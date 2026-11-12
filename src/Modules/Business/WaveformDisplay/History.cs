@@ -11,8 +11,20 @@ internal sealed class ChannelHistory
     /// <summary>有效样本数。</summary>
     public long Count { get; private set; }
 
+    /// <summary>第一条样本对应的全局样本索引（中途出现的通道从出现位置开始）。</summary>
+    public long StartIndex { get; private set; }
+
     /// <summary>估算占用字节（按已分配块计）。</summary>
     public long EstimatedBytes => (long)_chunks.Count * ChunkSize * sizeof(float);
+
+    /// <summary>设置起始索引；只在尚无样本时生效。</summary>
+    public void StartAt(long index)
+    {
+        if (Count == 0)
+        {
+            StartIndex = Math.Max(0, index);
+        }
+    }
 
     /// <summary>追加一个样本。</summary>
     public void Append(float value)
@@ -32,12 +44,13 @@ internal sealed class ChannelHistory
     {
         get
         {
-            if (index < 0 || index >= Count)
+            if (index < StartIndex || index >= StartIndex + Count)
             {
                 return float.NaN;
             }
 
-            return _chunks[(int)(index / ChunkSize)][(int)(index % ChunkSize)];
+            var local = index - StartIndex;
+            return _chunks[(int)(local / ChunkSize)][(int)(local % ChunkSize)];
         }
     }
 
@@ -49,7 +62,7 @@ internal sealed class ChannelHistory
         var start = Count - take;
         for (var index = 0; index < take; index++)
         {
-            destination[index] = this[start + index];
+            destination[index] = this[StartIndex + start + index];
         }
 
         return take;
@@ -60,5 +73,6 @@ internal sealed class ChannelHistory
     {
         _chunks.Clear();
         Count = 0;
+        StartIndex = 0;
     }
 }

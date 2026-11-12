@@ -118,10 +118,10 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     /// <summary>PNG 写盘结果（视图→模块）。</summary>
     public const string ImageResultSource = "imageResult";
 
-    /// <summary>清空活动组数据/编号。</summary>
+    /// <summary>清空活动组数据并执行一次轻量显示复位。</summary>
     public const string ClearCommand = "clear";
 
-    /// <summary>复位活动组显示配置。</summary>
+    /// <summary>轻量复位活动组显示（保留历史、组/通道身份）。</summary>
     public const string ResetGroupCommand = "resetGroup";
 
     /// <summary>保存当前 X 范围。</summary>
@@ -359,9 +359,9 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
         var groups = _config.Groups.ToList();
         var used = new HashSet<uint>();
-        for (var index = 0; index < groups.Count; index++)
+        var normalizedGroups = new List<DisplayGroupConfig>(groups.Count);
+        foreach (var group in groups)
         {
-            var group = groups[index];
             var id = group.GroupId;
             if (id == 0 || !used.Add(id))
             {
@@ -388,20 +388,32 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                 channels.Add(new DisplayChannelConfig());
             }
 
-            groups[index] = group with
+            // 所有通道都已被用户删除的组不再保留。
+            if (channels.All(channel => channel.Deleted))
+            {
+                continue;
+            }
+
+            var fit = group.YFitChannel < -1 ? -1 : group.YFitChannel;
+            if (fit < 0 || fit >= channels.Count || channels[fit].Deleted)
+            {
+                fit = -1;
+            }
+
+            normalizedGroups.Add(group with
             {
                 GroupId = id,
                 Name = group.Name ?? string.Empty,
                 YMin = yMin,
                 YMax = yMax,
-                YFitChannel = group.YFitChannel < -1 ? -1 : group.YFitChannel,
+                YFitChannel = fit,
                 Channels = channels,
-            };
+            });
         }
 
         _config = _config with
         {
-            Groups = groups,
+            Groups = normalizedGroups,
             Settings = settings with
             {
                 FollowRangeSamples = followRange,
@@ -416,6 +428,16 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         if (_config.FindGroup(_config.ActiveGroupId) is null)
         {
             _config = _config with { ActiveGroupId = 0 };
+        }
+
+        var active = _config.FindGroup(_config.ActiveGroupId);
+        if (active is not null)
+        {
+            var index = _config.ActiveChannelIndex;
+            if (index < 0 || index >= active.Channels.Count || active.Channels[index].Deleted)
+            {
+                _config = _config with { ActiveChannelIndex = FirstChannelIndex(active) };
+            }
         }
     }
 
@@ -1079,6 +1101,31 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
                     break;
 
+                case "dragView":
+                    if (root.TryGetProperty("mode", out var modeElement)
+                        && modeElement.GetString() is { } mode
+                        && (string.Equals(mode, "pan", StringComparison.Ordinal)
+                            || string.Equals(mode, "zoom", StringComparison.Ordinal))
+                        && root.TryGetProperty("xStart", out var dragXStart)
+                        && root.TryGetProperty("xEnd", out var dragXEnd)
+                        && root.TryGetProperty("yMin", out var dragYMin)
+                        && root.TryGetProperty("yMax", out var dragYMax)
+                        && dragXStart.TryGetDouble(out var dragStart)
+                        && dragXEnd.TryGetDouble(out var dragEnd)
+                        && dragYMin.TryGetDouble(out var yMin)
+                        && dragYMax.TryGetDouble(out var yMax))
+                    {
+                        ApplyDragView(
+                            context,
+                            zoom: string.Equals(mode, "zoom", StringComparison.Ordinal),
+                            dragStart,
+                            dragEnd,
+                            yMin,
+                            yMax);
+                    }
+
+                    break;
+
                 case "renameGroup":
                     if (root.TryGetProperty("name", out var groupName))
                     {
@@ -1101,12 +1148,18 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                     break;
 
                 case "selectChannel":
-                    if (root.TryGetProperty("index", out var indexElement))
+                    if (root.TryGetProperty("index", out var indexElement) && ActiveGroup is { } selectedGroup)
                     {
-                        _activeChannelIndex = Math.Max(0, indexElement.GetInt32());
-                        _config = _config with { ActiveChannelIndex = _activeChannelIndex };
-                        context.Configuration.Write(_config);
-                        PublishMeta(context);
+                        var index = indexElement.GetInt32();
+                        if (index >= 0
+                            && index < selectedGroup.Config.Channels.Count
+                            && !selectedGroup.IsDeleted(index))
+                        {
+                            _activeChannelIndex = index;
+                            _config = _config with { ActiveChannelIndex = _activeChannelIndex };
+                            context.Configuration.Write(_config);
+                            PublishMeta(context);
+                        }
                     }
 
                     break;
@@ -1153,11 +1206,20 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
                     break;
 
+                case "deleteChannel":
+                    if (root.TryGetProperty("index", out var deleteIndex)
+                        && deleteIndex.ValueKind == JsonValueKind.Number)
+                    {
+                        DeleteChannel(context, deleteIndex.GetInt32());
+                    }
+
+                    break;
+
                 case "fitY":
                     if (root.TryGetProperty("index", out var fitIndex) && ActiveGroup is { } fitGroup)
                     {
                         var index = fitIndex.GetInt32();
-                        var next = index >= 0 && index < fitGroup.ChannelCount
+                        var next = fitGroup.IsDisplayable(index)
                             && fitGroup.Config.YFitChannel != index
                             ? index
                             : -1;
@@ -1195,7 +1257,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         Func<DisplayChannelConfig, DisplayChannelConfig> update)
     {
         var group = ActiveGroup;
-        if (group is null || index < 0 || index >= group.Config.Channels.Count)
+        if (group is null || index < 0 || index >= group.Config.Channels.Count || group.IsDeleted(index))
         {
             return;
         }
@@ -1250,10 +1312,13 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         }
 
         var now = Environment.TickCount64;
+        var groupExisted = _groups.ContainsKey(frame.GroupId);
         var group = GetOrCreateGroup(context, frame.GroupId);
+        var newGroup = !groupExisted;
         var firstFrame = group.DisplayIndex == 0;
+        var channelsChanged = group.PresentChannelCount != frame.ChannelCount;
 
-        if (group.ChannelCount != frame.ChannelCount)
+        if (channelsChanged)
         {
             EnsureGroupChannels(context, group, frame.ChannelCount);
         }
@@ -1289,6 +1354,11 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
         if (!active)
         {
+            if (channelsChanged || newGroup || firstFrame)
+            {
+                PublishMeta(context);
+            }
+
             return;
         }
 
@@ -1319,7 +1389,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             BuildSnapshot(context);
         }
 
-        if (firstFrame)
+        if (firstFrame || channelsChanged || newGroup)
         {
             PublishMeta(context);
         }
@@ -1431,31 +1501,23 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
     private void EnsureGroupChannels(IModuleContext context, DisplayGroupRuntime group, int count)
     {
-        group.EnsureChannels(count);
         var channels = group.Config.Channels.ToList();
-
-        if (channels.Count > count)
-        {
-            channels.RemoveRange(count, channels.Count - count);
-        }
-
+        var added = false;
         while (channels.Count < count)
         {
             channels.Add(new DisplayChannelConfig());
+            added = true;
         }
 
-        UpdateGroupConfig(context, group, group.Config with { Channels = channels });
-        _structureRevision++;
-
-        if (group.GroupId == _activeGroupId)
+        if (added)
         {
-            group.ResetRange();
-            if (group.DisplayIndex > 0)
-            {
-                SetDefaultRange(group);
-                BuildSnapshot(context);
-            }
+            UpdateGroupConfig(context, group, group.Config with { Channels = channels });
+            _structureRevision++;
         }
+
+        // 历史按槽位保留；缺失/恢复只改变 PresentChannelCount，不重建数据。
+        group.EnsureChannels(channels.Count);
+        group.SetPresentChannels(count);
     }
 
     private void ActivateGroup(IModuleContext context, uint groupId)
@@ -1477,8 +1539,11 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         }
 
         _activeGroupId = groupId;
-        _activeChannelIndex = 0;
-        _config = _config with { ActiveGroupId = groupId, ActiveChannelIndex = 0 };
+        var targetConfig = _groups.TryGetValue(groupId, out var targetGroup)
+            ? targetGroup.Config
+            : _config.FindGroup(groupId);
+        _activeChannelIndex = targetConfig is null ? 0 : FirstChannelIndex(targetConfig);
+        _config = _config with { ActiveGroupId = groupId, ActiveChannelIndex = _activeChannelIndex };
         context.Configuration.Write(_config);
         _structureRevision++;
 
@@ -1513,20 +1578,10 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             return;
         }
 
-        active.ClearHistory();
         _historyLimited = false;
-        _defaultRangeStart = 0;
-        _defaultRangeEnd = _config.Settings.FollowRangeSamples - 1;
-        _defaultYAuto = true;
-        _defaultYMin = -1;
-        _defaultYMax = 1;
-        _defaultRangeEdited = false;
-        _defaultYEdited = false;
-        BuildSnapshot(context);
+        ResetActiveView(context, active, clearHistory: true);
         PublishValue(context, LatestIndexSource, 0UL);
         PublishValue(context, HistoryUsedSource, (ulong)InactiveSampleCount());
-        PublishMeta(context);
-        PublishInputs(context);
         PublishStatus(Tr(WaveformDisplayText.Cleared));
     }
 
@@ -1538,27 +1593,32 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             return;
         }
 
-        var channels = active.Config.Channels
-            .Select(_ => new DisplayChannelConfig())
-            .ToList();
+        ResetActiveView(context, active, clearHistory: false);
+    }
 
-        active.ResetAutoY();
-        UpdateGroupConfig(context, active, active.Config with
+    /// <summary>
+    /// 轻量显示复位：恢复视口/显示设置与 Y 自动，但保留组名、通道名、颜色与显隐。
+    /// </summary>
+    /// <param name="context">模块上下文。</param>
+    /// <param name="active">活动组。</param>
+    /// <param name="clearHistory">是否同时清历史（“清空”与“显示复位”的唯一差别）。</param>
+    private void ResetActiveView(
+        IModuleContext context,
+        DisplayGroupRuntime active,
+        bool clearHistory)
+    {
+        if (clearHistory)
         {
-            Name = string.Empty,
-            Channels = channels,
-            YAuto = true,
-            YMin = -1,
-            YMax = 1,
-            YFitChannel = -1,
-        });
+            active.ClearHistory();
+        }
+        else
+        {
+            active.ResetRange();
+            active.ResetAutoY();
+        }
 
-        _config = _config with
-        {
-            Settings = new DisplaySettings(),
-        };
-        context.Configuration.Write(_config);
-        _structureRevision++;
+        // 显示设置回到默认；组/通道身份字段（名称、颜色、显隐）不在这里重置。
+        _config = _config with { Settings = new DisplaySettings() };
         _defaultRangeStart = 0;
         _defaultRangeEnd = _config.Settings.FollowRangeSamples - 1;
         _defaultYAuto = true;
@@ -1567,6 +1627,14 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         _defaultRangeEdited = false;
         _defaultYEdited = false;
         ClearInputAlerts(context);
+
+        UpdateGroupConfig(context, active, active.Config with
+        {
+            YAuto = true,
+            YMin = -1,
+            YMax = 1,
+            YFitChannel = -1,
+        });
 
         if (active.DisplayIndex > 0)
         {
@@ -1580,6 +1648,130 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         BuildSnapshot(context);
         PublishMeta(context);
         PublishInputs(context);
+    }
+
+    /// <summary>手动删除通道：清历史、打删除标记；删空后整组移除。</summary>
+    private void DeleteChannel(IModuleContext context, int index)
+    {
+        var group = ActiveGroup;
+        if (group is null
+            || index < 0
+            || index >= group.Config.Channels.Count
+            || group.IsDeleted(index))
+        {
+            return;
+        }
+
+        group.DeleteChannel(index);
+        var channels = group.Config.Channels.ToList();
+        channels[index] = channels[index] with { Deleted = true };
+        if (channels.All(channel => channel.Deleted))
+        {
+            RemoveGroup(context, group);
+            return;
+        }
+
+        var config = group.Config with { Channels = channels };
+        if (config.YFitChannel == index)
+        {
+            config = config with { YFitChannel = -1 };
+        }
+
+        UpdateGroupConfig(context, group, config);
+        if (_activeChannelIndex == index
+            || _activeChannelIndex < 0
+            || _activeChannelIndex >= channels.Count
+            || channels[_activeChannelIndex].Deleted)
+        {
+            _activeChannelIndex = NextChannelIndex(config, index);
+        }
+
+        _config = _config with { ActiveChannelIndex = _activeChannelIndex };
+        context.Configuration.Write(_config);
+        _structureRevision++;
+        BuildSnapshot(context);
+        PublishMeta(context);
+        PublishInputs(context);
+    }
+
+    /// <summary>删除整组运行期与配置；活动组删除后选下一个剩余组。</summary>
+    private void RemoveGroup(IModuleContext context, DisplayGroupRuntime group)
+    {
+        _groups.Remove(group.GroupId);
+        _groupOrder.Remove(group.GroupId);
+        _config = _config with
+        {
+            Groups = _config.Groups.Where(item => item.GroupId != group.GroupId).ToList(),
+        };
+
+        if (_pendingGroup?.GroupId == group.GroupId)
+        {
+            _pendingGroup = null;
+            _pendingSave = PendingSave.None;
+        }
+
+        var wasActive = _activeGroupId == group.GroupId;
+        if (wasActive)
+        {
+            _activeGroupId = 0;
+            _activeChannelIndex = 0;
+            _config = _config with { ActiveGroupId = 0, ActiveChannelIndex = 0 };
+        }
+
+        context.Configuration.Write(_config);
+        _structureRevision++;
+        PublishValue(context, HistoryUsedSource, (ulong)InactiveSampleCount());
+
+        if (!wasActive)
+        {
+            PublishMeta(context);
+            return;
+        }
+
+        var next = _groupOrder.FirstOrDefault();
+        if (next != 0 && _groups.ContainsKey(next))
+        {
+            ActivateGroup(context, next);
+            return;
+        }
+
+        PublishEmptySnapshot(context);
+        PublishMeta(context);
+        PublishInputs(context);
+    }
+
+    private static int FirstChannelIndex(DisplayGroupConfig group)
+    {
+        for (var index = 0; index < group.Channels.Count; index++)
+        {
+            if (!group.Channels[index].Deleted)
+            {
+                return index;
+            }
+        }
+
+        return 0;
+    }
+
+    private static int NextChannelIndex(DisplayGroupConfig group, int deletedIndex)
+    {
+        for (var index = deletedIndex + 1; index < group.Channels.Count; index++)
+        {
+            if (!group.Channels[index].Deleted)
+            {
+                return index;
+            }
+        }
+
+        for (var index = deletedIndex - 1; index >= 0; index--)
+        {
+            if (!group.Channels[index].Deleted)
+            {
+                return index;
+            }
+        }
+
+        return 0;
     }
 
     private void SetDefaultRange(DisplayGroupRuntime group)
@@ -1690,6 +1882,91 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         PublishMeta(context);
     }
 
+    /// <summary>
+    /// 应用曲线区拖动产生的目标视口：X 为轴单位，Y 为数据值。
+    /// </summary>
+    /// <remarks>
+    /// 平移关闭实际改变的轴（X ⇒ Follow，Y ⇒ YAuto）；右键缩放只改实际变化的轴。
+    /// 跟踪开启时横向缩放保持跟踪并更新跟踪宽度，其余情况按目标范围精确应用。
+    /// </remarks>
+    private void ApplyDragView(
+        IModuleContext context,
+        bool zoom,
+        double xStartAxis,
+        double xEndAxis,
+        double yMin,
+        double yMax)
+    {
+        var group = ActiveGroup;
+        if (group is null || group.DisplayIndex <= 0)
+        {
+            return;
+        }
+
+        if (!double.IsFinite(xStartAxis)
+            || !double.IsFinite(xEndAxis)
+            || !double.IsFinite(yMin)
+            || !double.IsFinite(yMax)
+            || yMax <= yMin)
+        {
+            return;
+        }
+
+        var settings = _config.Settings;
+        var rate = EffectiveRate(group);
+        var latest = group.DisplayIndex - 1;
+        var targetStart = DisplayAxisUnits.AxisToSamples(xStartAxis, settings.XAxisMode, rate);
+        var targetEnd = DisplayAxisUnits.AxisToSamples(xEndAxis, settings.XAxisMode, rate);
+        var target = ClampRange(targetStart, targetEnd, latest);
+        var xChanged = target.Start != group.RangeStart || target.End != group.RangeEnd;
+
+        var (currentYMin, currentYMax) = EffectiveY(group);
+        var yChanged = Math.Abs(yMin - currentYMin) > 1e-9
+            || Math.Abs(yMax - currentYMax) > 1e-9;
+        if (!xChanged && !yChanged)
+        {
+            return;
+        }
+
+        if (xChanged)
+        {
+            group.SetRange(target.Start, target.End);
+            var width = (int)Math.Clamp(
+                target.End - target.Start + 1,
+                (long)MinimumRangeSamples,
+                (long)MaximumFollowRangeSamples);
+            settings = settings with
+            {
+                Follow = zoom ? settings.Follow : false,
+                FollowRangeSamples = width,
+            };
+        }
+
+        if (yChanged)
+        {
+            group.Config = group.Config with
+            {
+                YAuto = false,
+                YMin = yMin,
+                YMax = yMax,
+            };
+            ReplaceGroupConfig(group.Config);
+        }
+
+        _config = _config with { Settings = settings };
+        context.Configuration.Write(_config);
+
+        // 横向缩放保持跟踪时，显示窗口仍贴住最新样本；宽度用本次缩放后的跨度。
+        if (xChanged && zoom && settings.Follow)
+        {
+            UpdateFollowRange(group);
+        }
+
+        BuildSnapshot(context);
+        PublishMeta(context);
+        PublishInputs(context);
+    }
+
     private static (long Start, long End) ClampRange(long start, long end, long latest)
     {
         if (latest <= 0)
@@ -1730,10 +2007,17 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         var min = double.PositiveInfinity;
         var max = double.NegativeInfinity;
         var fitIndex = group.Config.YFitChannel;
-        var useFit = fitIndex >= 0 && fitIndex < group.ChannelCount;
+        var useFit = fitIndex >= 0
+            && fitIndex < group.Config.Channels.Count
+            && group.IsDisplayable(fitIndex);
 
-        for (var index = 0; index < group.ChannelCount; index++)
+        for (var index = 0; index < group.Config.Channels.Count; index++)
         {
+            if (!group.IsDisplayable(index))
+            {
+                continue;
+            }
+
             if (useFit && index != fitIndex)
             {
                 continue;
@@ -1801,10 +2085,14 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         var channels = new List<SeriesWindowChannel>();
         var rate = EffectiveRate(group);
 
-        for (var index = 0; index < group.ChannelCount; index++)
+        for (var index = 0; index < group.Config.Channels.Count; index++)
         {
             var config = index < group.Config.Channels.Count ? group.Config.Channels[index] : null;
-            if (config is { Visible: false } || index >= group.Histories.Length)
+            if (config is null
+                || config.Deleted
+                || !group.IsPresent(index)
+                || config.Visible == false
+                || index >= group.Histories.Length)
             {
                 continue;
             }
@@ -1920,7 +2208,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             {
                 id,
                 name = GroupDisplayName(group),
-                channels = group.ChannelCount,
+                channels = group.Config.Channels.Count(channel => !channel.Deleted),
                 dataCount = group.DisplayIndex,
                 declaredRate = group.DeclaredRateHz,
                 actualRate = group.ActualRateHz,
@@ -1937,13 +2225,18 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
         var channels = active is null
             ? null
-            : active.Config.Channels.Select((channel, index) => new
-            {
-                index,
-                name = ChannelDisplayName(channel, index),
-                color = channel.ColorArgb,
-                visible = channel.Visible,
-            }).ToArray();
+            : active.Config.Channels
+                .Select((channel, index) => (channel, index))
+                .Where(item => !item.channel.Deleted)
+                .Select(item => new
+                {
+                    index = item.index,
+                    name = ChannelDisplayName(item.channel, item.index),
+                    color = item.channel.ColorArgb,
+                    visible = item.channel.Visible,
+                    missing = !active.IsPresent(item.index),
+                })
+                .ToArray();
 
         var settings = _config.Settings;
         UpdateTickAlerts(context);
@@ -2184,18 +2477,32 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
             try
             {
-                var names = new string[group.Config.Channels.Count];
-                for (var index = 0; index < names.Length; index++)
+                var channelIndices = new List<int>();
+                var names = new List<string>();
+                for (var index = 0; index < group.Config.Channels.Count; index++)
                 {
-                    names[index] = ChannelDisplayName(group.Config.Channels[index], index);
+                    var channel = group.Config.Channels[index];
+                    if (channel.Deleted)
+                    {
+                        continue;
+                    }
+
+                    channelIndices.Add(index);
+                    names.Add(ChannelDisplayName(channel, index));
+                }
+
+                if (channelIndices.Count == 0)
+                {
+                    PublishStatus(Tr("status.saveNoData"));
+                    return;
                 }
 
                 _exportPath = path;
                 _export = new CsvExport(
                     path,
                     group,
-                    group.ChannelCount,
-                    names,
+                    channelIndices.ToArray(),
+                    names.ToArray(),
                     EffectiveRate(group),
                     _pendingStart,
                     _pendingEnd);

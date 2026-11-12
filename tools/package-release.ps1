@@ -1,36 +1,34 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Release 导出：构建 Release → 校验模块包 → 复制 App 输出（只含程序层）→ 生成出厂设置基线 →
-    断言发布边界 → 生成作者工具链 `sdk/` → 写 release.json。
+    产品发布：自包含发布 App → 复制资源/内置模块 → 生成设置基线 → 边界校验 → 写 release.json。
 
 .DESCRIPTION
-    不引入 RID / self-contained 新形态，不做安装器：只把**现有 Release 构建产物**整理成可分发目录。
-    发布包含**程序层**（程序文件 + `modules/` 内置包 + `resources/` 出厂种子与文本表）
-    与**作者工具链**（`sdk/`：五个作者包 + 四个样例源码）。
-    步骤：
-      1. 清理 PLATFORM，`dotnet build HYWDebugAssistant.slnx -c Release`；
-      2. `tools/verify-module-packages.ps1 -Configuration Release`（门禁）；
-      3. 复制应用输出（`$(OutDir)`，由 MSBuild 求值，不手抄目录结构）到干净目标目录，**排除**用户目录
-         （settings/ workspace/ logs/ composites/ framework/ modules/external/）；
-      4. 复核目标 modules 内无宿主程序集、模块 ID 与源码一致；
-      5. 用导出目录里的应用入口 `--emit-default-settings` 生成
-         `resources/seeds/settings/settings.json`（默认值唯一来源是代码，发布时才落盘）；
-      6. 断言发布边界：禁止项缺席、种子主题包在位、整个导出目录里 wallpaper.png 只有一份；
-      7. 生成 `sdk/`：`pack-sdk` 的五个包 + 四个样例（版本与本地源已改写，复制即可构建）；
-      8. 写 `release.json`（产品四段版本、resources[] 全树哈希、8 个模块 ID/文件 hash、sdk[] 文件 hash）。
-    安全护栏：目标目录必须**在仓库外**且为空/不存在；脚本不会清理仓库内路径。
+    产品只包含程序层：可执行文件、运行时依赖、`modules/`、`resources/`、许可与 release.json。
+    不包含 SDK、样例、源码、用户数据，也不生成压缩包。
+
+    默认 RID = win-x64（当前承诺目标）。其他 RID 允许尝试发布，但不承诺可编译/可运行，
+    脚本会标记 `validation = unverified`，不处理相关平台 bug。
+
+    默认先跑完整门禁 `build.ps1 -Configuration Release`；`-SkipGate` 只用于本地迭代。
+    默认要求工作树干净；`-AllowDirty` 会记录 `sourceDirty = true`，产物不能作为发布基准。
 
 .EXAMPLE
-    ./tools/package-release.ps1 -OutputDirectory D:\publish\hyw-release
+    ./tools/package-release.ps1 -OutputDirectory D:\dist\HYWDebugAssistant-0.0.0.13-win-x64
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$OutputDirectory,
 
+    [string]$RuntimeIdentifier = 'win-x64',
+
     [ValidateSet('Release')]
-    [string]$Configuration = 'Release'
+    [string]$Configuration = 'Release',
+
+    [switch]$SkipGate,
+
+    [switch]$AllowDirty
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,6 +41,38 @@ foreach ($name in @('Platform', 'Platform(x86)')) {
         Remove-Item "Env:$name" -ErrorAction SilentlyContinue
         Write-Host "[env] 已清除被污染的 $name" -ForegroundColor Yellow
     }
+}
+
+$rid = $RuntimeIdentifier.Trim().ToLowerInvariant()
+if ([string]::IsNullOrWhiteSpace($rid)) {
+    throw 'RuntimeIdentifier 不能为空'
+}
+
+$promised = $rid -eq 'win-x64'
+$validation = if ($promised) { 'full' } else { 'unverified' }
+if (-not $promised) {
+    Write-Host "[release] [warn] RID $rid 未验证：允许发布，但不承诺可编译/可运行，不处理相关 bug" -ForegroundColor Yellow
+}
+
+# ---------------------------------------------------------------- 版本与源码状态
+
+$version = (& (Join-Path $PSScriptRoot 'version.ps1') -Value).Trim()
+if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+    throw "无法从 version.props 取得四段版本：'$version'"
+}
+
+$commit = (& git rev-parse HEAD 2>$null | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commit)) {
+    throw '无法读取 git 提交号；发布必须能追溯到源码提交'
+}
+
+$dirty = -not [string]::IsNullOrWhiteSpace((& git status --porcelain 2>$null | Out-String).Trim())
+if ($dirty -and -not $AllowDirty) {
+    throw '工作树不干净：请先提交，或显式使用 -AllowDirty（产物不能作为发布基准）'
+}
+
+if ($dirty) {
+    Write-Host "[release] [warn] 工作树不干净：release.json 将记录 sourceDirty=true" -ForegroundColor Yellow
 }
 
 # ---------------------------------------------------------------- 安全护栏
@@ -62,7 +92,7 @@ $forbidden = @(
     [System.IO.Path]::GetFullPath((Join-Path $root 'src')),
     [System.IO.Path]::GetFullPath((Join-Path $root 'tests')),
     [System.IO.Path]::GetFullPath((Join-Path $root 'tools')),
-    [System.IO.Path]::GetFullPath((Join-Path $root 'samples'))
+    [System.IO.Path]::GetFullPath((Join-Path $root 'templates'))
 )
 
 foreach ($bad in $forbidden) {
@@ -75,359 +105,308 @@ if ((Test-Path -LiteralPath $target) -and (Get-ChildItem -LiteralPath $target -F
     throw "拒绝输出：目标目录非空（$target）——请指定空目录或不存在的路径"
 }
 
+$parent = Split-Path -Parent $target
+if ([string]::IsNullOrWhiteSpace($parent)) {
+    throw "无法解析输出目录的父目录：$target"
+}
+
+New-Item -ItemType Directory -Force -Path $parent | Out-Null
+$temp = Join-Path $parent ('.' + (Split-Path -Leaf $target) + '.publishing-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+
 Write-Host "[release] 目标目录：$target"
-Write-Host "[release] 构建 Release：HYWDebugAssistant.slnx" -ForegroundColor Cyan
-dotnet build 'HYWDebugAssistant.slnx' -c $Configuration -nologo
-if ($LASTEXITCODE -ne 0) { throw "Release 构建失败" }
+Write-Host "[release] RID：$rid（validation=$validation）"
 
-Write-Host "[release] 校验模块包（Release）" -ForegroundColor Cyan
-& (Join-Path $PSScriptRoot 'verify-module-packages.ps1') -Configuration $Configuration
-
-# 应用输出只向 MSBuild 要（不手抄 `bin\<配置>\net10.0`；理由见 tools/app-output.ps1 头注释）。
-$appOutput = Get-AppOutputDirectory -Root $root -Configuration $Configuration
-if (-not (Test-Path -LiteralPath $appOutput)) {
-    throw "宿主输出目录不存在：$appOutput"
-}
-
-# ---------------------------------------------------------------- 复制 + 复核
-
-if (Test-Path -LiteralPath $target) {
-    Remove-Item -LiteralPath $target -Recurse -Force
-}
-
-New-Item -ItemType Directory -Force -Path $target | Out-Null
-
-# **只导出程序层**：用户目录是运行期产生的现场，不是产品内容，一律不进发布。
-$excludedTopLevel = @('settings', 'workspace', 'logs', 'composites', 'framework')
-
-foreach ($item in (Get-ChildItem -LiteralPath $appOutput -Force)) {
-    if ($excludedTopLevel -contains $item.Name) {
-        continue
+try {
+    # ------------------------------------------------------------ 门禁
+    if (-not $SkipGate) {
+        Write-Host '[release] 完整门禁：build.ps1 -Configuration Release' -ForegroundColor Cyan
+        & (Join-Path $root 'build.ps1') -Configuration $Configuration
+        if ($LASTEXITCODE -ne 0) { throw '门禁未通过' }
+    }
+    else {
+        Write-Host '[release] [warn] 已跳过门禁（-SkipGate）' -ForegroundColor Yellow
     }
 
-    if ($item.Name -eq 'modules' -and $item.PSIsContainer) {
-        # 内置包目录：external/ 是用户导入的包，同样不进发布。
-        $modulesTarget = Join-Path $target 'modules'
-        New-Item -ItemType Directory -Force -Path $modulesTarget | Out-Null
+    # ------------------------------------------------------------ 自包含发布
+    Write-Host "[release] dotnet publish（$rid，self-contained）" -ForegroundColor Cyan
+    $appProject = Join-Path $root 'src\App\HYWDebugAssistant.App.csproj'
+    dotnet publish $appProject -c $Configuration -r $rid --self-contained true -o $temp -nologo
+    if ($LASTEXITCODE -ne 0) { throw 'dotnet publish 失败' }
 
-        foreach ($moduleItem in (Get-ChildItem -LiteralPath $item.FullName -Force)) {
-            if ($moduleItem.Name -eq 'external') {
-                continue
-            }
+    if (-not (Test-Path -LiteralPath $temp)) { throw "发布目录不存在：$temp" }
 
-            Copy-Item -LiteralPath $moduleItem.FullName -Destination $modulesTarget -Recurse -Force
+    # 开发符号与 XML 文档不属于产品；保留 .deps.json / .runtimeconfig.json / 原生库。
+    # 模块包里的 pdb 也一并去掉（运行时不需要）。
+    Get-ChildItem -LiteralPath $temp -Recurse -File -Include '*.pdb', '*.xml' -ErrorAction SilentlyContinue |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+
+    # ------------------------------------------------------------ 自包含检查
+    $isWindowsTarget = $rid -like 'win-*'
+    $runtimeFiles = if ($isWindowsTarget) {
+        @('coreclr.dll', 'hostfxr.dll')
+    }
+    elseif ($rid -like 'osx-*') {
+        @('libcoreclr.dylib', 'libhostfxr.dylib')
+    }
+    else {
+        @('libcoreclr.so', 'libhostfxr.so')
+    }
+
+    $missingRuntime = @($runtimeFiles | Where-Object { -not (Test-Path -LiteralPath (Join-Path $temp $_)) })
+    if ($missingRuntime.Count -gt 0) {
+        $message = "发布目录缺少自包含运行时文件：$($missingRuntime -join ', ')"
+        if ($promised) { throw $message }
+        Write-Host "[release] [warn] $message（该 RID 未验证）" -ForegroundColor Yellow
+    }
+
+    # ------------------------------------------------------------ 设置基线
+    $seedDirectory = Join-Path $temp 'resources\seeds\settings'
+    New-Item -ItemType Directory -Force -Path $seedDirectory | Out-Null
+    $seedPath = Join-Path $seedDirectory 'settings.json'
+
+    $hostRunnable = $IsWindows -and $rid -eq 'win-x64'
+    if ($hostRunnable) {
+        $entryName = if ($IsWindows) { 'HYWDebugAssistant.App.exe' } else { 'HYWDebugAssistant.App' }
+        $entry = Join-Path $temp $entryName
+        if (-not (Test-Path -LiteralPath $entry)) { throw "发布目录缺少应用入口：$entry" }
+
+        $seedArgument = '"' + $seedPath + '"'
+        $emit = Start-Process -FilePath $entry `
+            -ArgumentList @('--emit-default-settings', $seedArgument) `
+            -Wait -PassThru -WindowStyle Hidden
+        if ($emit.ExitCode -ne 0) {
+            throw "生成出厂设置基线失败（--emit-default-settings 退出码 $($emit.ExitCode)）"
+        }
+        $seedSource = 'target'
+    }
+    else {
+        # 非宿主 RID：用宿主可运行的 Release App 生成种子；产物本身不保证能在此机器启动。
+        $hostApp = Join-Path $root 'src\App\bin\Release\net10.0\HYWDebugAssistant.App.exe'
+        if (-not (Test-Path -LiteralPath $hostApp)) {
+            Write-Host '[release] 构建宿主可运行的 App 以生成设置基线' -ForegroundColor Cyan
+            dotnet build (Join-Path $root 'src\App\HYWDebugAssistant.App.csproj') -c $Configuration -nologo
+            if ($LASTEXITCODE -ne 0) { throw '宿主 App 构建失败（无法生成设置基线）' }
+        }
+        if (-not (Test-Path -LiteralPath $hostApp)) {
+            throw "找不到宿主可运行的 App.exe：$hostApp；非宿主 RID 需要先在 Windows 上构建宿主 App 才能生成设置基线"
         }
 
-        continue
-    }
-
-    Copy-Item -LiteralPath $item.FullName -Destination $target -Recurse -Force
-}
-
-$releaseModules = Join-Path $target 'modules'
-if (-not (Test-Path -LiteralPath $releaseModules)) {
-    throw "导出目录缺少 modules/：$releaseModules"
-}
-
-$hostPatterns = @(
-    'HYWDebugAssistant.Sdk.dll',
-    'HYWDebugAssistant.Sdk.pdb',
-    'HYWDebugAssistant.Sdk.Ui.*',
-    'HYWDebugAssistant.Sdk.AccessKit.*',
-    'HYWDebugAssistant.Access.*',
-    'Avalonia*',
-    'System.IO.Ports*',
-    'SkiaSharp*',
-    'HarfBuzzSharp*',
-    'MicroCom.Runtime*',
-    '*.deps.json'
-)
-
-$offenders = [System.Collections.Generic.List[string]]::new()
-foreach ($file in Get-ChildItem $releaseModules -Recurse -File) {
-    foreach ($pattern in $hostPatterns) {
-        if ($file.Name -like $pattern) {
-            $offenders.Add($file.FullName)
-            break
+        $seedArgument = '"' + $seedPath + '"'
+        $emit = Start-Process -FilePath $hostApp `
+            -ArgumentList @('--emit-default-settings', $seedArgument) `
+            -Wait -PassThru -WindowStyle Hidden
+        if ($emit.ExitCode -ne 0) {
+            throw "宿主 App 生成设置基线失败（退出码 $($emit.ExitCode)）"
         }
-    }
-}
-
-if ($offenders.Count -gt 0) {
-    $preview = ($offenders | Select-Object -First 10) -join ', '
-    throw "导出 modules/ 含宿主提供程序集：$preview"
-}
-
-$sourceManifests = Get-ChildItem (Join-Path $root 'src\Modules') -Recurse -Filter module.json -File |
-    Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' }
-$expectedIds = [System.Collections.Generic.List[string]]::new()
-foreach ($manifestFile in $sourceManifests) {
-    $id = (Get-Content $manifestFile.FullName -Raw | ConvertFrom-Json).id
-    if ($expectedIds.Contains($id)) { throw "源码模块 ID 重复：$id" }
-    $expectedIds.Add($id)
-}
-
-$packages = @(Get-ChildItem $releaseModules -Directory)
-if ($packages.Count -ne $expectedIds.Count) {
-    throw "导出 modules/ 包数量（$($packages.Count)）与源码模块数（$($expectedIds.Count)）不一致"
-}
-
-$moduleRecords = [System.Collections.Generic.List[object]]::new()
-$actualIds = [System.Collections.Generic.List[string]]::new()
-
-foreach ($package in ($packages | Sort-Object Name)) {
-    $manifestPath = Join-Path $package.FullName 'module.json'
-    if (-not (Test-Path -LiteralPath $manifestPath)) {
-        throw "导出包缺少 module.json：$($package.FullName)"
+        $seedSource = 'host'
+        Write-Host '[release] [warn] 种子由宿主 App 生成；非宿主 RID 的启动未验证' -ForegroundColor Yellow
     }
 
-    $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
-    if ([string]::IsNullOrWhiteSpace($manifest.id)) { throw "导出包缺少 id：$manifestPath" }
-    if ([string]::IsNullOrWhiteSpace($manifest.entryAssembly)) { throw "导出包缺少 entryAssembly：$manifestPath" }
-
-    if ($actualIds.Contains($manifest.id)) { throw "导出模块 ID 重复：$($manifest.id)" }
-    $actualIds.Add($manifest.id)
-
-    $entryPath = Join-Path $package.FullName $manifest.entryAssembly
-    if (-not (Test-Path -LiteralPath $entryPath)) { throw "导出包缺少实现程序集：$entryPath" }
-
-    $files = @(Get-ChildItem $package.FullName -Recurse -File | Sort-Object FullName | ForEach-Object {
-        [pscustomobject]@{
-            path = [System.IO.Path]::GetRelativePath($package.FullName, $_.FullName).Replace('\', '/')
-            sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-        }
-    })
-
-    $moduleRecords.Add([pscustomobject]@{
-        id = $manifest.id
-        package = $package.Name
-        entryAssembly = $manifest.entryAssembly
-        entryAssemblySha256 = (Get-FileHash -LiteralPath $entryPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        files = $files
-    })
-}
-
-$missing = @($expectedIds | Where-Object { $actualIds -notcontains $_ })
-$extra = @($actualIds | Where-Object { $expectedIds -notcontains $_ })
-if ($missing.Count -gt 0 -or $extra.Count -gt 0) {
-    throw "导出模块 ID 集合与源码不一致。缺少：$($missing -join ', ')；多余：$($extra -join ', ')"
-}
-
-# ---------------------------------------------------------------- 出厂设置基线 + 发布边界
-
-# 默认设置的唯一来源是代码：发布时才用导出目录里的程序生成基线（不在仓库里手工维护第二份）。
-Write-Host "[release] 生成出厂设置基线（--emit-default-settings）" -ForegroundColor Cyan
-$settingsSeed = Join-Path $target 'resources\seeds\settings\settings.json'
-$seedArgument = '"' + $settingsSeed + '"'
-
-# 入口形态随平台：Windows 用 apphost（.exe），其他平台用 `dotnet <dll>`（没有 `.exe` 后缀的 apphost）。
-# 应用是 WinExe：脚本里用 `&` 调用不会等它退出 ⇒ 必须 Start-Process -Wait，否则文件还没写完就检查。
-if ($IsWindows) {
-    $appExe = Join-Path $target 'HYWDebugAssistant.App.exe'
-    if (-not (Test-Path -LiteralPath $appExe)) { throw "导出目录缺少应用入口：$appExe" }
-
-    $emit = Start-Process -FilePath $appExe `
-        -ArgumentList @('--emit-default-settings', $seedArgument) `
-        -Wait -PassThru -WindowStyle Hidden
-}
-else {
-    $appDll = Join-Path $target 'HYWDebugAssistant.App.dll'
-    if (-not (Test-Path -LiteralPath $appDll)) { throw "导出目录缺少应用入口：$appDll" }
-
-    $emit = Start-Process -FilePath 'dotnet' `
-        -ArgumentList @(('"' + $appDll + '"'), '--emit-default-settings', $seedArgument) `
-        -Wait -PassThru
-}
-if ($emit.ExitCode -ne 0) {
-    throw "生成出厂设置基线失败（--emit-default-settings 退出码 $($emit.ExitCode)）"
-}
-
-if (-not (Test-Path -LiteralPath $settingsSeed)) { throw "生成出厂设置基线后仍找不到文件：$settingsSeed" }
-
-# 发布边界：禁止项缺席。settings/ 与设置基线（resources/seeds/settings/settings.json）是两回事：
-# 前者是用户数据根，后者是出厂种子，只有后者允许出现在导出目录里。
-$forbiddenEntries = @(
-    'settings',
-    'workspace',
-    'logs',
-    'composites',
-    'framework',
-    (Join-Path 'modules' 'external')
-)
-
-foreach ($entry in $forbiddenEntries) {
-    $path = Join-Path $target $entry
-    if (Test-Path -LiteralPath $path) {
-        throw "发布边界违规：导出目录里出现禁止项 '$entry'（$path）"
-    }
-}
-
-# 出厂种子主题包必须在位，且整个导出目录里壁纸只有一份。
-# 主题包**按目录发现**（不写死某套主题名：目录名就是 id，清单里的 wallpaper 才是文件名）。
-$seedThemeRoot = Join-Path $target 'resources\seeds\settings\appearance\themes'
-$seedThemes = @(Get-ChildItem -LiteralPath $seedThemeRoot -Directory -ErrorAction SilentlyContinue)
-if ($seedThemes.Count -eq 0) { throw "导出目录里没有任何种子主题包：$seedThemeRoot" }
-
-foreach ($themeDirectory in $seedThemes) {
-    $manifestPath = Join-Path $themeDirectory.FullName 'theme.json'
-    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-        throw "出厂种子主题包不完整：缺少 $manifestPath"
+    if (-not (Test-Path -LiteralPath $seedPath)) {
+        throw "生成出厂设置基线后仍找不到文件：$seedPath"
     }
 
-    $wallpaperName = [string](Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json).wallpaper
-    if ($wallpaperName.Length -gt 0) {
-        $wallpaperPath = Join-Path $themeDirectory.FullName $wallpaperName
-        if (-not (Test-Path -LiteralPath $wallpaperPath -PathType Leaf)) {
-            throw "出厂种子主题包不完整：缺少 $wallpaperPath（清单声明了它）"
-        }
-    }
-}
+    # ------------------------------------------------------------ 许可与说明
+    Copy-Item -LiteralPath (Join-Path $root 'LICENSE.txt') -Destination (Join-Path $temp 'LICENSE.txt') -Force
+    Copy-Item -LiteralPath (Join-Path $root 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $temp 'THIRD_PARTY_NOTICES.md') -Force
 
-$wallpapers = @(Get-ChildItem -LiteralPath $target -Recurse -File -Filter wallpaper.png)
-if ($wallpapers.Count -ne 1) {
-    $preview = ($wallpapers | Select-Object -First 5 | ForEach-Object { $_.FullName }) -join '; '
-    throw "导出目录里 wallpaper.png 必须只有一份（实际 $($wallpapers.Count) 份：$preview）"
-}
+    $entryName = if ($isWindowsTarget) { 'HYWDebugAssistant.App.exe' } else { 'HYWDebugAssistant.App' }
+    $readme = @"
+何译位调试助手 $version（$rid）
 
-Write-Host "[release] 发布边界通过：用户目录缺席；种子主题包在位；壁纸唯一" -ForegroundColor Green
+启动：双击 $entryName（或从终端运行）。
+本目录是自包含产品：不需要另装 .NET 运行时；不包含安装器，也不包含压缩包。
+运行中的产品就是主应用，也是模块宿主；模块包导入这个进程。
+数据目录（首次运行时按需建立）：settings\、workspace\、composites\、logs\。
+modules\ 是内置模块包；resources\ 是出厂文本、图标与种子。
+模块开发工具链是独立发布的 SDK 目录，不在本目录中。
 
-# ---------------------------------------------------------------- 作者工具链（sdk/）
-
-# 外部作者拿不到仓库源码：作者包与样例源码一起进发布包的 sdk/，这是他们唯一的获取途径。
-$productVersion = (& (Join-Path $PSScriptRoot 'version.ps1') -Value).Trim()
-if ($productVersion -notmatch '^\d+\.\d+\.\d+\.\d+$') {
-    throw "无法从 version.props 取得四段版本：'$productVersion'"
-}
-
-Write-Host "[release] 生成作者包（pack-sdk）" -ForegroundColor Cyan
-& (Join-Path $PSScriptRoot 'pack-sdk.ps1') -Configuration $Configuration
-if ($LASTEXITCODE -ne 0) { throw '作者包打包失败' }
-
-$sdkSource = Join-Path $root 'artifacts\sdk-packages'
-$sdkTarget = Join-Path $target 'sdk'
-New-Item -ItemType Directory -Force -Path $sdkTarget | Out-Null
-
-$sdkPackages = @(Get-ChildItem -LiteralPath $sdkSource -Filter *.nupkg -File)
-if ($sdkPackages.Count -ne 5) {
-    throw "作者包数量应为 5（实际 $($sdkPackages.Count)）：$sdkSource"
-}
-
-foreach ($package in $sdkPackages) {
-    Copy-Item -LiteralPath $package.FullName -Destination $sdkTarget -Force
-}
-
-# 样例随包分发：版本写成发布版本、本地源指向 sdk/，复制到任意位置即可构建。
-$sampleNames = @('DataModule', 'ExternalModule', 'ActivityModule', 'UiModule')
-$samplesTarget = Join-Path $sdkTarget 'samples'
-foreach ($sampleName in $sampleNames) {
-    $sampleSource = Join-Path $root "samples\$sampleName"
-    if (-not (Test-Path -LiteralPath $sampleSource)) { throw "样例目录不存在：$sampleSource" }
-
-    $sampleOutput = Join-Path $samplesTarget $sampleName
-    $sourceFiles = @(Get-ChildItem -LiteralPath $sampleSource -Recurse -File -Force |
-        Where-Object { $_.FullName -notmatch '\\(bin|obj|module-package)\\' })
-
-    foreach ($file in $sourceFiles) {
-        $relative = [System.IO.Path]::GetRelativePath($sampleSource, $file.FullName)
-        $destination = Join-Path $sampleOutput $relative
-        $destinationDirectory = Split-Path -Parent $destination
-        if (-not (Test-Path -LiteralPath $destinationDirectory)) {
-            New-Item -ItemType Directory -Force -Path $destinationDirectory | Out-Null
-        }
-
-        if ($file.Extension -in @('.csproj', '.config')) {
-            $text = Get-Content -LiteralPath $file.FullName -Raw
-            $text = $text.Replace('Version="$(Version)"', ('Version="' + $productVersion + '"'))
-            $text = $text.Replace('../../artifacts/sdk-packages', '..\..')
-            Set-Content -LiteralPath $destination -Value $text -Encoding utf8 -NoNewline
-        }
-        else {
-            Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
-        }
-    }
-}
-
-$readme = @"
-作者工具链：模块开发需要的 NuGet 包与样例源码（产品版本 $productVersion）。
-
-包（同一版本，五个）：
-  HYWDebugAssistant.Sdk            契约层（必需）
-  HYWDebugAssistant.Sdk.Ui         界面契约与控件库（带界面时）
-  HYWDebugAssistant.Sdk.AccessKit  外部接入通道（设备接入时）
-  HYWDebugAssistant.Sdk.Testing    契约自检（只给测试项目）
-  HYWDebugAssistant.Module.Build   打包规则（只参与构建）
-
-样例（samples/）：
-  DataModule      纯数据变换
-  ExternalModule  设备接入（标准标识 + 自己组帧）
-  ActivityModule  定时器
-  UiModule        带界面（视图工厂 + 文本表 + 命令）
-
-用法：把 samples/<样例> 复制到任意位置，dotnet build -c Release；
-产物在 bin\module-package\Release\<包名>\，在产品「模块清单」里导入这一层目录。
-样例的 NuGet.config 已指向本目录，包版本已写成 $productVersion。
+release.json 记录版本、源码提交与产物哈希。
 "@
-Set-Content -LiteralPath (Join-Path $sdkTarget 'README.txt') -Value $readme -Encoding utf8 -NoNewline
+    Set-Content -LiteralPath (Join-Path $temp 'README.txt') -Value $readme -Encoding utf8 -NoNewline
 
-$sdkRecords = [System.Collections.Generic.List[object]]::new()
-foreach ($file in (Get-ChildItem -LiteralPath $sdkTarget -Recurse -File | Sort-Object FullName)) {
-    $sdkRecords.Add([pscustomobject]@{
-        path = [System.IO.Path]::GetRelativePath($sdkTarget, $file.FullName).Replace('\', '/')
-        sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-    })
+    # ------------------------------------------------------------ 边界校验
+    $forbiddenEntries = @(
+        'sdk',
+        'samples',
+        'settings',
+        'workspace',
+        'logs',
+        'composites',
+        'framework',
+        (Join-Path 'modules' 'external')
+    )
+
+    foreach ($entry in $forbiddenEntries) {
+        $path = Join-Path $temp $entry
+        if (Test-Path -LiteralPath $path) {
+            throw "发布边界违规：导出目录里出现禁止项 '$entry'（$path）"
+        }
+    }
+
+    $sourceFiles = Get-ChildItem -LiteralPath $temp -Recurse -File
+    $sourceHits = @($sourceFiles | Where-Object { $_.Extension -in @('.cs', '.axaml', '.csproj', '.sln', '.slnx') })
+    if ($sourceHits.Count -gt 0) {
+        throw "发布目录包含源码文件：$($sourceHits[0].FullName)"
+    }
+
+    $hostPatterns = @(
+        'HYWDebugAssistant.Sdk.dll',
+        'HYWDebugAssistant.Sdk.pdb',
+        'HYWDebugAssistant.Sdk.Ui.*',
+        'HYWDebugAssistant.Sdk.AccessKit.*',
+        'HYWDebugAssistant.Access.*',
+        'Avalonia*',
+        'System.IO.Ports*',
+        'SkiaSharp*',
+        'HarfBuzzSharp*',
+        'MicroCom.Runtime*',
+        '*.deps.json'
+    )
+
+    $releaseModules = Join-Path $temp 'modules'
+    if (-not (Test-Path -LiteralPath $releaseModules)) { throw "发布目录缺少 modules/：$releaseModules" }
+
+    $offenders = [System.Collections.Generic.List[string]]::new()
+    foreach ($file in Get-ChildItem $releaseModules -Recurse -File) {
+        foreach ($pattern in $hostPatterns) {
+            if ($file.Name -like $pattern) {
+                $offenders.Add($file.FullName)
+                break
+            }
+        }
+    }
+
+    if ($offenders.Count -gt 0) {
+        throw "发布 modules/ 含宿主提供程序集：$(($offenders | Select-Object -First 10) -join ', ')"
+    }
+
+    $sourceManifests = Get-ChildItem (Join-Path $root 'src\Modules') -Recurse -Filter module.json -File |
+        Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' }
+    $expectedIds = [System.Collections.Generic.List[string]]::new()
+    foreach ($manifestFile in $sourceManifests) {
+        $id = (Get-Content $manifestFile.FullName -Raw | ConvertFrom-Json).id
+        if ($expectedIds.Contains($id)) { throw "源码模块 ID 重复：$id" }
+        $expectedIds.Add($id)
+    }
+
+    $packages = @(Get-ChildItem $releaseModules -Directory)
+    if ($packages.Count -ne $expectedIds.Count) {
+        throw "发布 modules/ 包数量（$($packages.Count)）与源码模块数（$($expectedIds.Count)）不一致"
+    }
+
+    $moduleRecords = [System.Collections.Generic.List[object]]::new()
+    $actualIds = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($package in ($packages | Sort-Object Name)) {
+        $manifestPath = Join-Path $package.FullName 'module.json'
+        if (-not (Test-Path -LiteralPath $manifestPath)) {
+            throw "发布包缺少 module.json：$($package.FullName)"
+        }
+
+        $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+        if ([string]::IsNullOrWhiteSpace($manifest.id)) { throw "发布包缺少 id：$manifestPath" }
+        if ([string]::IsNullOrWhiteSpace($manifest.entryAssembly)) { throw "发布包缺少 entryAssembly：$manifestPath" }
+
+        if ($actualIds.Contains($manifest.id)) { throw "发布模块 ID 重复：$($manifest.id)" }
+        $actualIds.Add($manifest.id)
+
+        $entryPath = Join-Path $package.FullName $manifest.entryAssembly
+        if (-not (Test-Path -LiteralPath $entryPath)) { throw "发布包缺少实现程序集：$entryPath" }
+
+        $files = @(Get-ChildItem $package.FullName -Recurse -File | Sort-Object FullName | ForEach-Object {
+            [pscustomobject]@{
+                path = [System.IO.Path]::GetRelativePath($package.FullName, $_.FullName).Replace('\', '/')
+                sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+        })
+
+        $moduleRecords.Add([pscustomobject]@{
+            id = $manifest.id
+            package = $package.Name
+            entryAssembly = $manifest.entryAssembly
+            entryAssemblySha256 = (Get-FileHash -LiteralPath $entryPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            files = $files
+        })
+    }
+
+    $missing = @($expectedIds | Where-Object { $actualIds -notcontains $_ })
+    $extra = @($actualIds | Where-Object { $expectedIds -notcontains $_ })
+    if ($missing.Count -gt 0 -or $extra.Count -gt 0) {
+        throw "发布模块 ID 集合与源码不一致。缺少：$($missing -join ', ')；多余：$($extra -join ', ')"
+    }
+
+    $resourcesRoot = Join-Path $temp 'resources'
+    if (-not (Test-Path -LiteralPath $resourcesRoot)) { throw "发布目录缺少 resources/：$resourcesRoot" }
+
+    $requiredResource = Join-Path $resourcesRoot 'i18n\HYWDebugAssistant.FrameworkUi\zh-Hans.json'
+    if (-not (Test-Path -LiteralPath $requiredResource)) {
+        throw "发布目录缺少框架文本表：$requiredResource"
+    }
+
+    $seedThemeRoot = Join-Path $resourcesRoot 'seeds\settings\appearance\themes'
+    $seedThemes = @(Get-ChildItem -LiteralPath $seedThemeRoot -Directory -ErrorAction SilentlyContinue)
+    if ($seedThemes.Count -eq 0) { throw "发布目录里没有任何种子主题包：$seedThemeRoot" }
+
+    $resourceRecords = [System.Collections.Generic.List[object]]::new()
+    foreach ($file in (Get-ChildItem $resourcesRoot -Recurse -File | Sort-Object FullName)) {
+        $resourceRecords.Add([pscustomobject]@{
+            path = [System.IO.Path]::GetRelativePath($resourcesRoot, $file.FullName).Replace('\', '/')
+            sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        })
+    }
+
+    # ------------------------------------------------------------ release.json
+    $appRecords = [System.Collections.Generic.List[object]]::new()
+    foreach ($file in (Get-ChildItem $temp -Recurse -File | Sort-Object FullName)) {
+        $relative = [System.IO.Path]::GetRelativePath($temp, $file.FullName).Replace('\', '/')
+        if ($relative.StartsWith('modules/') -or $relative.StartsWith('resources/') -or $relative -eq 'release.json') {
+            continue
+        }
+
+        $appRecords.Add([pscustomobject]@{
+            path = $relative
+            sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        })
+    }
+
+    $release = [pscustomobject]@{
+        kind = 'product'
+        version = [string]$version
+        sourceCommit = [string]$commit
+        sourceDirty = [bool]$dirty
+        rid = $rid
+        selfContained = $true
+        promised = [bool]$promised
+        validation = $validation
+        seedSource = $seedSource
+        app = $appRecords
+        modules = $moduleRecords
+        resources = $resourceRecords
+    }
+
+    $releaseJson = $release | ConvertTo-Json -Depth 10
+    Set-Content -LiteralPath (Join-Path $temp 'release.json') -Value $releaseJson -Encoding utf8
+
+    $written = Get-Content (Join-Path $temp 'release.json') -Raw | ConvertFrom-Json
+    if ([string]$written.version -ne $version) { throw "release.json 的 version 不正确：$($written.version)" }
+    if ([string]$written.rid -ne $rid) { throw "release.json 的 rid 不正确：$($written.rid)" }
+    if (@($written.modules).Count -ne $expectedIds.Count) {
+        throw "release.json 的模块数量不正确：$($written.modules).Count"
+    }
+
+    # ------------------------------------------------------------ 落位
+    if (Test-Path -LiteralPath $target) {
+        Remove-Item -LiteralPath $target -Recurse -Force
+    }
+
+    Move-Item -LiteralPath $temp -Destination $target
+    Write-Host "[release] 产品发布完成：$target" -ForegroundColor Green
+    Write-Host "[release] version=$version rid=$rid modules=$($moduleRecords.Count) resources=$($resourceRecords.Count) app=$($appRecords.Count)" -ForegroundColor Green
 }
-if ($sdkRecords.Count -eq 0) { throw 'sdk/ 为空（作者包没有复制进发布）' }
-
-# ---------------------------------------------------------------- release.json
-
-# 出厂资源清单：`resources/` **全树**（相对路径 + SHA256）。`seeds/` 是投放源、`i18n/` 是就地读的
-# 文本表，两者一起纳入同一张清单；发布校验按这份清单逐文件核对。
-$resourcesRoot = Join-Path $target 'resources'
-if (-not (Test-Path -LiteralPath $resourcesRoot)) { throw "导出目录缺少出厂资源根：$resourcesRoot" }
-
-$frameworkTable = Join-Path $resourcesRoot 'i18n\HYWDebugAssistant.FrameworkUi\zh-Hans.json'
-if (-not (Test-Path -LiteralPath $frameworkTable -PathType Leaf)) {
-    throw "导出目录缺少框架文本表：$frameworkTable（文本包没有被 StageResources 带进发布）"
+catch {
+    if (Test-Path -LiteralPath $temp) {
+        Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    throw
 }
-
-$resourceRecords = [System.Collections.Generic.List[object]]::new()
-foreach ($file in (Get-ChildItem -LiteralPath $resourcesRoot -Recurse -File | Sort-Object FullName)) {
-    $resourceRecords.Add([pscustomobject]@{
-        path = [System.IO.Path]::GetRelativePath($resourcesRoot, $file.FullName).Replace('\', '/')
-        sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-    })
-}
-
-if ($resourceRecords.Count -eq 0) { throw '导出目录的出厂资源为空（至少应有设置基线与文本表）' }
-
-$release = [pscustomobject]@{
-    version = [string]$productVersion
-    configuration = $Configuration
-    resources = $resourceRecords
-    modules = $moduleRecords
-    sdk = $sdkRecords
-}
-
-$releaseJson = $release | ConvertTo-Json -Depth 8
-Set-Content -LiteralPath (Join-Path $target 'release.json') -Value $releaseJson -Encoding utf8
-
-# 读回校验，避免写出不可解析的 JSON
-$written = Get-Content (Join-Path $target 'release.json') -Raw | ConvertFrom-Json
-if ($written.modules.Count -ne $expectedIds.Count) {
-    throw "release.json 的模块数量不正确：$($written.modules.Count)"
-}
-
-if ([string]$written.version -ne $productVersion) {
-    throw "release.json 的 version 不正确：$($written.version)"
-}
-
-if (@($written.resources).Count -ne $resourceRecords.Count) {
-    throw "release.json 的 resources 数量不正确：$(@($written.resources).Count)"
-}
-
-if (@($written.sdk).Count -ne $sdkRecords.Count) {
-    throw "release.json 的 sdk 数量不正确：$(@($written.sdk).Count)"
-}
-
-Write-Host "[release] release.json：version=$($written.version) resources=$(@($written.resources).Count) modules=$($written.modules.Count) sdk=$(@($written.sdk).Count)" -ForegroundColor Green
-Write-Host "[release] 导出完成：$target" -ForegroundColor Green

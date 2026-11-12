@@ -96,7 +96,7 @@ public class ConnectionAcceptanceTests
 
     // ------------------------------------------------------------ 测试模块（同形状、不同标识）
 
-    /// <summary>发送：<c>test/alpha@1</c>（f32）。</summary>
+    /// <summary>发送：<c>test/alpha</c>（f32）。</summary>
     [ModuleDefinition("test", "alpha-sender")]
     public sealed class AlphaSender : IModule
     {
@@ -105,10 +105,10 @@ public class ConnectionAcceptanceTests
 
         /// <inheritdoc />
         public void OnRegistered(IModuleContext context) =>
-            Declare(context, OutPort, PortDirection.Send, "test/alpha", 1);
+            Declare(context, OutPort, PortDirection.Send, "test/alpha");
     }
 
-    /// <summary>接收：<c>test/alpha@1</c>（f32）。</summary>
+    /// <summary>接收：<c>test/alpha</c>（f32）。</summary>
     [ModuleDefinition("test", "alpha-receiver")]
     public sealed class AlphaReceiver : IModule
     {
@@ -117,10 +117,10 @@ public class ConnectionAcceptanceTests
 
         /// <inheritdoc />
         public void OnRegistered(IModuleContext context) =>
-            Declare(context, InPort, PortDirection.Receive, "test/alpha", 1);
+            Declare(context, InPort, PortDirection.Receive, "test/alpha");
     }
 
-    /// <summary>发送：<c>test/beta@1</c>（f32；形状与 alpha 相同，标识不同）。</summary>
+    /// <summary>发送：<c>test/beta</c>（f32；形状与 alpha 相同，标识不同）。</summary>
     [ModuleDefinition("test", "beta-sender")]
     public sealed class BetaSender : IModule
     {
@@ -129,11 +129,11 @@ public class ConnectionAcceptanceTests
 
         /// <inheritdoc />
         public void OnRegistered(IModuleContext context) =>
-            Declare(context, OutPort, PortDirection.Send, "test/beta", 1);
+            Declare(context, OutPort, PortDirection.Send, "test/beta");
     }
 
     /// <summary>声明"数据类型 + 带类型引用的口"（形状恒为 f32，只有标识/方向不同）。</summary>
-    private static void Declare(IModuleContext context, string portName, PortDirection direction, string typeId, int version)
+    private static void Declare(IModuleContext context, string portName, PortDirection direction, string typeId)
     {
         var shape = ContractShape.OfPrimitive(ContractPrimitive.F32);
 

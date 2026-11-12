@@ -9,7 +9,7 @@ namespace HYWDebugAssistant.Ui.ViewModels;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>键 = 类型身份</b>（`DataRoleView.TypeKey` / `PortView.TypeKey`：`标识@v版本`；未声明类型 ⇒ 结构描述）。
+///   <item><b>键 = 类型标识</b>（`DataRoleView.TypeKey` / `PortView.TypeKey`；未声明类型 ⇒ 结构描述）。
 ///     **不能用呈现文本** —— `{seq:u64, value:f32}` 会把"不同标识但形状相同"的两种类型涂成同一色，
 ///     而**角色合并**规则明确二者**不是同一种量** ⇒ 按呈现文本配色会与它自相矛盾；</item>
 ///   <item><b>默认 = 稳定哈希配色</b>：同一 `TypeKey` **恒得同一色**（跨模块、跨进程、跨重启一致），
@@ -63,7 +63,7 @@ public static class PacketTypePalette
     /// 取某个**数据类型**对应的颜色：① 用户覆盖 ⇒ 用它；② 否则**稳定哈希自动配色**；③ 空键 ⇒ 占位色。
     /// </summary>
     /// <param name="typeKey">
-    /// 类型身份（`标识@v版本`；未声明类型 ⇒ 结构描述；空/未知 ⇒ 占位色）。
+    /// 类型标识（未声明类型 ⇒ 结构描述；空/未知 ⇒ 占位色）。
     /// </param>
     /// <returns>颜色条 / 角色方块填充用的画刷。</returns>
     public static IBrush For(string? typeKey) => typeKey is { Length: > 0 } key

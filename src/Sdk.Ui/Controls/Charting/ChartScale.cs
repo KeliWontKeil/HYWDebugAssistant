@@ -56,6 +56,57 @@ internal static class ChartScale
         return min + ((pixel - pixelMin) / (pixelMax - pixelMin) * (max - min));
     }
 
+    /// <summary>把一段范围整体平移给定轴距离。</summary>
+    /// <param name="min">原范围下限。</param>
+    /// <param name="max">原范围上限。</param>
+    /// <param name="delta">轴距离（正数向正方向平移）。</param>
+    public static (double Min, double Max) Pan(double min, double max, double delta)
+    {
+        if (!double.IsFinite(min) || !double.IsFinite(max) || !double.IsFinite(delta))
+        {
+            return (min, max);
+        }
+
+        return (min + delta, max + delta);
+    }
+
+    /// <summary>绕范围中心缩放；正的 <paramref name="deltaPixels"/> 表示放大。</summary>
+    /// <param name="min">原范围下限。</param>
+    /// <param name="max">原范围上限。</param>
+    /// <param name="deltaPixels">拖动像素；正数放大，负数缩小。</param>
+    /// <param name="pixelSpan">绘图区在该轴上的像素跨度。</param>
+    /// <remarks>
+    /// 使用与 ScottPlot 同形的比例：位移越大越接近 10 倍，位移为 0 时保持原范围。
+    /// 范围中心固定，因此缩放不会把视口整体拖向某一端。
+    /// </remarks>
+    public static (double Min, double Max) Zoom(
+        double min,
+        double max,
+        double deltaPixels,
+        double pixelSpan)
+    {
+        if (!double.IsFinite(min)
+            || !double.IsFinite(max)
+            || !double.IsFinite(deltaPixels)
+            || !double.IsFinite(pixelSpan)
+            || pixelSpan <= 0
+            || max <= min
+            || deltaPixels == 0)
+        {
+            return (min, max);
+        }
+
+        var exponent = deltaPixels / (Math.Abs(deltaPixels) + pixelSpan);
+        var factor = Math.Pow(10, exponent);
+        if (!double.IsFinite(factor) || factor <= 0)
+        {
+            return (min, max);
+        }
+
+        var center = (min + max) / 2;
+        return (center + ((min - center) / factor), center + ((max - center) / factor));
+    }
+
     /// <summary>夹紧到闭区间；上下界反了时自动交换。</summary>
     public static double Clamp(double value, double min, double max)
     {

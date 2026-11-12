@@ -8,11 +8,11 @@
     <OutputType>WinExe</OutputType>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!--
-      Release 输出是**发布形态**（tools/package-release.ps1 直接复制它，不引入 RID / self-contained）：
-      全部平台的原生资产必须齐全，因此不参与根目录 Directory.Build.targets 的本地输出裁剪。
-      Debug 输出只服务本机运行，按本机 RID 裁剪。
+      本地 Release 构建（无 RID）仍按“全平台原生资产”准备，便于直接运行；
+      正式产品使用 `dotnet publish` 指定 RID 并开启自包含，由 RID 决定所需的运行时与原生资产，
+      不在这里强制全平台拷贝。
     -->
-    <HywFullRuntimeAssets Condition="'$(Configuration)' == 'Release'">true</HywFullRuntimeAssets>
+    <HywFullRuntimeAssets Condition="'$(Configuration)' == 'Release' and '$(RuntimeIdentifier)' == ''">true</HywFullRuntimeAssets>
   </PropertyGroup>
 
   <!-- **模块项目按目录发现**（在引用它们之前求值）：新增模块零改动即进构建序。 -->
@@ -111,6 +111,42 @@
     <Message Importance="high"
              Text="[built-in-modules] @(BuiltInModuleFile->'%(RecursiveDir)'->Distinct()) → $(OutDir)modules"
              Condition="'@(BuiltInModuleFile)' != ''" />
+  </Target>
+
+  <!--
+    **发布目录也要带资源和内置模块**：`dotnet publish` 只复制项目项，不会自动带
+    `AfterTargets=Build` 写进 `$(OutDir)` 的 resources/modules。发布目录另跑同样的镜像。
+  -->
+  <Target Name="StagePublishResources" AfterTargets="Publish">
+    <ItemGroup>
+      <PublishResourceSeedFile Include="$(MSBuildThisFileDirectory)..\..\resources\**\*" />
+    </ItemGroup>
+
+    <RemoveDir Directories="$(PublishDir)resources" Condition="Exists('$(PublishDir)resources')" />
+    <MakeDir Directories="$(PublishDir)resources" Condition="'@(PublishResourceSeedFile)' != ''" />
+    <Copy SourceFiles="@(PublishResourceSeedFile)"
+          DestinationFolder="$(PublishDir)resources\%(RecursiveDir)"
+          Condition="'@(PublishResourceSeedFile)' != ''" />
+
+    <Message Importance="high"
+             Text="[publish-resources] @(PublishResourceSeedFile->'%(RecursiveDir)'->Distinct()) → $(PublishDir)resources"
+             Condition="'@(PublishResourceSeedFile)' != ''" />
+  </Target>
+
+  <Target Name="MirrorPublishModulePackages" AfterTargets="Publish">
+    <ItemGroup>
+      <PublishBuiltInModuleFile Include="$(MSBuildThisFileDirectory)..\..\artifacts\modules\$(Configuration)\**\*" />
+    </ItemGroup>
+
+    <RemoveDir Directories="$(PublishDir)modules" Condition="Exists('$(PublishDir)modules')" />
+    <MakeDir Directories="$(PublishDir)modules" Condition="'@(PublishBuiltInModuleFile)' != ''" />
+    <Copy SourceFiles="@(PublishBuiltInModuleFile)"
+          DestinationFolder="$(PublishDir)modules\%(RecursiveDir)"
+          Condition="'@(PublishBuiltInModuleFile)' != ''" />
+
+    <Message Importance="high"
+             Text="[publish-modules] @(PublishBuiltInModuleFile->'%(RecursiveDir)'->Distinct()) → $(PublishDir)modules"
+             Condition="'@(PublishBuiltInModuleFile)' != ''" />
   </Target>
 
 </Project>

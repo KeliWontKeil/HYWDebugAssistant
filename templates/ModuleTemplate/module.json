@@ -1,0 +1,7 @@
+{
+  "id": "template/module",
+  "entryAssembly": "HYWDebugAssistant.Template.Module.dll",
+  "entryType": "HYWDebugAssistant.Template.MyModule.TemplateModule",
+  "dependsOn": [],
+  "resources": ["resources/i18n"]
+}

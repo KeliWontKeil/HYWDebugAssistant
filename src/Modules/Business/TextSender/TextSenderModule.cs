@@ -135,12 +135,15 @@ public sealed class TextSenderModule : IModule, IActivitySource
     }
 
     /// <summary>
-    /// 数据类型标识 —— **PascalCase 短名**（新范式；`hyw/*` 形式的旧式标识已冻结）。
+    /// 数据类型标识 —— **PascalCase 短名**（不带作者前缀、不带版本）。
     /// </summary>
     /// <remarks>
+    /// 模块 ID 仍是 `hyw/*` 形态；**模块 ID 与类型标识是两个命名空间**，不要互相套用。
+    /// <para>
     /// 这个类型的本质是**一段带长度的字节区**（0–1472 字节）——**文本（UTF-8）与 HEX 字节都只是它的用法**。
     /// 文本发送器、HEX 发送器与数据监视器**共用同一标识**才能**开箱即连**
     /// （兼容规则：**不同标识默认不兼容**，要显式强连）。
+    /// </para>
     /// </remarks>
     public const string RawBytesTypeId = "RawBytes";
 

@@ -1,7 +1,0 @@
-{
-  "id": "sample/ui-module",
-  "entryAssembly": "HYWDebugAssistant.Samples.UiModule.dll",
-  "entryType": "HYWDebugAssistant.Samples.UiModule.UiSampleModule",
-  "dependsOn": [],
-  "resources": ["resources/i18n"]
-}

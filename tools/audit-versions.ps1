@@ -208,7 +208,7 @@ foreach ($file in $literalFiles) {
 
 $tokenPattern = [regex]::new('(?i)\b(schemaVersion|contractVersion|frameworkCompatibility|layoutVersion|sdkContractVersion)\b')
 $tokenExtensions = @('.cs', '.json', '.ps1', '.props', '.csproj', '.targets', '.axaml')
-$tokenRoots = @('src', 'resources', 'tools', 'tests', 'samples')
+$tokenRoots = @('src', 'resources', 'tools', 'tests', 'templates')
 
 foreach ($directoryName in $tokenRoots) {
     $directory = Join-Path $root $directoryName
@@ -356,3 +356,4 @@ if (-not $versionParsed) {
 }
 
 Write-Host "[OK] 版本纪律审计通过：$versionText（事实源 version.props）" -ForegroundColor Green
+exit 0

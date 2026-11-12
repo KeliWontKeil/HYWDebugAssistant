@@ -219,7 +219,7 @@ public static class ModuleContract
     }
 
     /// <summary>
-    /// 校验**数据类型声明**：标识/版本合法、同（标识,版本）不重复、引用都能在本模块解析、
+    /// 校验**数据类型声明**：标识合法（非空、字母开头、不含空格）、同一标识不重复、引用都能在本模块解析、
     /// 计量块自洽（否则兼容判定会退化成结构比较，作者应当**现在**就知道）。
     /// </summary>
     private static void CheckDataTypes(
@@ -239,7 +239,7 @@ public static class ModuleContract
 
             if (!char.IsLetter(type.TypeId[0]) || type.TypeId.Contains(' ', StringComparison.Ordinal))
             {
-                problems.Add($"数据类型标识不规范：'{type.TypeId}'（建议 <作者/名字> 形式，不含空格）");
+                problems.Add($"数据类型标识不规范：'{type.TypeId}'（须以字母开头且不含空格）");
             }
 
             if (!known.Add(type.TypeId))

@@ -1,6 +1,6 @@
 # 自发活动与定时器
 
-模块需要"周期性做事"（定时发送、轮询采样、批处理）或"在数据/命令到达时推进"时：
+模块需要“周期性做事”（定时发送、轮询采样、批处理）或“在数据/命令到达时推进”时：
 
 - 需要数据/命令/会话驱动的单步，实现 `IActivitySource`；
 - 需要周期，用 `IModuleContext.Timers` 创建 `IModuleTimer`。
@@ -28,28 +28,19 @@ public interface IActivitySource
 
 [Flags] public enum StepReason
 {
-    Start = 1, Data = 2, Session = 4,
-    Command = 8, Input = 16,
-}
-
-public interface IModuleTimer : IDisposable
-{
-    TimeSpan Interval { get; set; }   // > 0；运行中修改从修改时刻重新计
-    bool IsEnabled { get; }
-    event EventHandler? Tick;
-    void Start();
-    void Stop();
+    Start = 1, Data = 2, Session = 4, Command = 8, Input = 16,
 }
 ```
 
-- **不要写循环**：没有自建循环、没有等待原语、没有 `Thread.Sleep`、没有自建 `System.Threading.Timer`。
-- **不要保存线程**：`OnStep`、`Tick`、生命周期钩子都由框架在实例专属线程调用。
-- **定时器可多个**：一个模块可以创建多个不同周期的定时器；不再有"一个模块一个 NextDelay"的限制。
-- **Tick 在实例线程**：与 `OnStep`、生命周期钩子、接收回调同线程，不并发；Tick 内不得阻塞。
-- **第一个 Tick 在一个 Interval 之后**：没有"开启立即发一条"的特殊分支。
-- **Tick 可合并**：实例线程忙时最多保留一个待派发 Tick，不补发、不堆积。
-- **禁用/移除**：框架暂停/释放全部定时器；模块显式 `Stop`/`Dispose` 是幂等且允许的。
-- **异常**：Tick 异常由框架捕获、归到该实例并停掉该定时器，不每拍刷屏。
+| 规则 | 说明 |
+|---|---|
+| `Start` | 进入活动态后的第一拍，只调一次；在这里做上下文相关初始化 |
+| 原因可合并 | 同一拍既有命令又有数据时只调一次 `OnStep`，`reason` 是位组合；用 `(reason & StepReason.Data) != 0` 判断 |
+| 不保证每拍都有原因 | 没有工作时不调用；不要把 `OnStep` 当周期 |
+| 线程 | 与生命周期钩子、接收回调、定时器 Tick 同实例线程，不并发 |
+| 异常 | 不得逸出；框架会捕获并转 Issue |
+
+不实现 `IActivitySource` 的模块：端口数据仍可由 `SetReceiveHandler` 投递，但**收不到命令与输入**。
 
 ## 周期发送示例
 
@@ -72,14 +63,13 @@ public sealed class TickSender : IModule, IActivitySource
         _timer.Start();
     }
 
-    public void OnRemoved() => _timer?.Dispose();
-
     public void OnStep(IModuleContext context, StepReason reason)
     {
         _context = context;
-
-        // 输入/命令在这里处理；普通 step 不重置定时器。
+        // 命令/输入在这里消费；普通 step 不重置定时器。
     }
+
+    public void OnRemoved() => _timer?.Dispose();
 
     private void OnTimerTick(object? sender, EventArgs e)
     {
@@ -91,15 +81,43 @@ public sealed class TickSender : IModule, IActivitySource
 }
 ```
 
+- 定时器在 `OnRegistered` 创建、启动都可以；Tick 只在实例线程触发。
+- 第一个 Tick 在一个 `Interval` 之后；没有“开启立即发一条”的特殊分支。
 - 间隔变化时改 `timer.Interval`；运行中修改从修改时刻重新计。
 - 停止周期用 `timer.Stop()`；重新开始用 `timer.Start()`。
-- 需要"立即做一次"是模块自己的动作（直接调用 Send），不是定时器语义。
+- 需要“立即做一次”是模块自己的动作（直接调用 `Send`），不是定时器语义。
+- 实例禁用时框架暂停全部定时器，恢复后从现在重新计一个间隔；移除时统一释放。模块显式 `Stop`/`Dispose` 是幂等且允许的。
+- Tick 异常由框架捕获、归到该实例并停掉该定时器，不每拍刷屏。
+- 多个定时器可以有不同周期；不要用一个短定时器模拟多个节拍。
 
 ## Push / Pull
 
-- `ReceiveMode.Push`（默认）：框架在实例线程把端口/会话数据交给接收回调；`OnStep` 里只处理命令/输入/定时器之外的唤醒。
-- `ReceiveMode.Pull`：数据留在队列；`OnStep` 收到 `Data`/`Session` 后自己 `TryReceive`/`TryRead`。
+- `ReceiveMode.Push`（默认）：框架在实例线程把端口/会话数据交给接收回调；`OnStep` 只处理命令/输入/Start 等唤醒。
+- `ReceiveMode.Pull`：数据留在队列；收到 `OnStep(Data)` 后在自己的循环里 `TryReceive`：
+
+```csharp
+if ((reason & StepReason.Data) != 0)
+{
+    while (context.Ports.TryReceive(out var buffer, out var port) && buffer is not null)
+    {
+        try
+        {
+            if (port == InPort)
+            {
+                Handle(buffer.Span);
+            }
+        }
+        finally
+        {
+            context.Ports.ReleaseBuffer(buffer);
+        }
+    }
+}
+```
+
 - 一个模块只用一种消费方式，不能同时有回调与自取。
+- `OnStep(Data)` 只表示“有数据可处理”，不保证每拍一个；一次 `TryReceive` 循环取完。
+- 主动接收的缓冲必须归还；回调的载荷只在本次调用有效。
 
 ## 会话与设备探活
 
@@ -107,10 +125,16 @@ public sealed class TickSender : IModule, IActivitySource
 
 ## 测试
 
-定时器与单步的测试用 `Sdk.Testing` 的 `TestActivityDriver` 推进测试时钟；写法与断言见[测试与验证](testing.md)。
+定时器与单步的测试用 `Sdk.Testing`：
+
+- `TestActivityDriver.Run(module, context, token)`：先 `OnStep(Start)`，随后推进测试时钟并周期调 `OnStep(Command | Input)`；不投递 Data/Session；
+- `context.Timers.AdvanceTo(now)`：精确推进虚拟时钟，触发到期 Tick；
+- `TestModuleTimer.FireNow()`：立即触发一次，不改变下次到期。
+
+它只用于模块级测试，不代表框架的实例线程与计时服务。写法见[测试与验证](testing.md)。
 
 ## 相关
 
 - [实现](implementation.md)：上下文各面的用法
+- [接口参考](reference.md)：`IModuleTimer` 成员
 - [模块结构](anatomy.md)：活动层在整体结构中的位置
-- [SDK 与兼容](sdk-version.md)

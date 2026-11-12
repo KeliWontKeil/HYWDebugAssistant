@@ -96,7 +96,7 @@ public sealed record PortDeclaration
     ///   <item>用 <c>init</c> 属性而非构造器参数：加可选构造参数会**改变方法签名**，已编译模块会抛
     ///     <c>MissingMethodException</c>（实测踩过）。</item>
     /// </list>
-    /// 用法：<c>new PortDeclaration("in", PortDirection.Receive, shape) { TypeId = "hyw/f32" }</c>
+    /// 用法：<c>new PortDeclaration("in", PortDirection.Receive, shape) { TypeId = "RawBytes" }</c>
     /// </remarks>
     public string? TypeId { get; init; }
 

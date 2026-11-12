@@ -1,6 +1,8 @@
-# 波形数据帧类型约定（hyw/waveform-frame）
+# 波形数据帧类型约定（WaveformFrame）
 
-> 状态：已定稿并落地。函数发生器、波形显示器与相关控件已实现；本文仍是类型约定的唯一口径。
+> 状态：已定稿并落地。函数发生器、波形显示器与相关控件已实现；本文是类型约定的设计记录。
+>
+> 公开契约口径见 [docs/zh/concepts/waveform-frame.md](../../docs/zh/concepts/waveform-frame.md)；线上字段、发送端义务与消费方校验以公开页为准。本文保留设计理由、决策与验证背景。
 >
 > 本文只定义模块间的数据帧约定与解析标准。框架只负责把数据帧投递到端口；帧进入模块后，由模块自己的应用逻辑处理、过滤或丢弃。框架不解析帧内容，不按组/通道过滤，也不为模块的视图/控件提供专用通路。
 
@@ -31,10 +33,11 @@
 
 ## 3. 类型身份与声明
 
-- 类型标识：`hyw/waveform-frame`
+- 类型标识：`WaveformFrame`
 - 传递语义：`Stream`
 - 定长尺寸：`280 B`
 - 类型身份：`TypeId + Shape`；没有版本字段。字段、类型、顺序或尺寸发生变化，就是另一种类型，必须换新的类型标识。
+- 标识风格：**PascalCase 短名**（不带作者前缀、不带版本）；`hyw/*` 是**模块 ID** 的格式，不要拿来命名类型。
 - 类型不是共享程序集类型：两个模块各自在自己的 `OnRegistered` 里声明同一标识与同一形状；不要放进 `Sdk`，也不要引用另一个模块。
 
 ### 3.1 声明配方
@@ -42,7 +45,7 @@
 下面的代码是**模块作者的声明配方**，不是要新增的共享类型。每个模块复制同样的字段、顺序与取值。
 
 ```csharp
-public const string WaveformFrameTypeId = "hyw/waveform-frame";
+public const string WaveformFrameTypeId = "WaveformFrame";
 public const int WaveformFrameMaxChannels = 64;
 public const int WaveformFrameSizeInBytes = 280;
 public const int WaveformFrameHeaderSize = 24;
@@ -233,8 +236,8 @@ new MeteringBlock
 - 同一标识出现两种形状时，框架会报冲突；连接也会因形状不一致而失败。模块自检应先用 golden string 与 `SizeInBytes` 兜住。
 - 类型没有版本。任何字段、类型、顺序、尺寸变化都是破坏性变更，必须使用新的类型标识。
 - 未来变体各自使用新标识，例如：
-  - `hyw/waveform-frame-128`：超过 64 通道。
-  - `hyw/waveform-block`：一帧多采样点/批量样本。
+  - `WaveformFrame128`：超过 64 通道。
+  - `WaveformFrameBlock`：一帧多采样点/批量样本。
   - 带来源字段的变体：需要区分同组多源时。
 - 不要通过复用同一标识、只改字段含义来“升级”；框架没有版本协商，也不会自动转换。
 
@@ -296,6 +299,7 @@ new MeteringBlock
 | D8 | 名称、颜色、单位、波形类型、频率等不上线；属模块配置/呈现。 |
 | D9 | 类型没有版本字段；任何形状变化 = 新类型标识。 |
 | D10 | 计量块用 `payloadBytes`、`SamplesPerUnit=1`、`ChannelCount=1`、`NominalRateHz` 空。 |
+| D11 | 类型标识用 **PascalCase 短名**（`WaveformFrame`；与 `RawBytes` 同风格），不带前缀、不带版本；`hyw/*` 是模块 ID 格式，不是类型标识格式。 |
 | B1 | 类型只定义帧与解析标准；框架只投递到端口，不按组/通道过滤，不感知帧内容。 |
 | B2 | 模块收到帧后自行处理/过滤/丢弃；模块如何缓冲、如何送自己的视图/控件，是模块自己的实现。 |
 | B3 | 本阶段无框架/SDK/控件改动；类型是模块间约定，不是共享代码类型。 |

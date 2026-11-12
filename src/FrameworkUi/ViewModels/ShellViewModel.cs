@@ -184,7 +184,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     /// **数据结构 → 颜色** 映射表（交互页）。
     /// </summary>
     /// <remarks>
-    /// 行 = 当前现场出现过的**类型身份**（`标识@v版本`）；点色块可改色、可"恢复自动"。
+    /// 行 = 当前现场出现过的**类型标识**；点色块可改色、可"恢复自动"。
     /// 改色只影响呈现（端口标记的窄色条 + 叠加层角色方块的填充同源）。
     /// </remarks>
     public DataTypeColorTableViewModel DataTypeColors { get; } = new();

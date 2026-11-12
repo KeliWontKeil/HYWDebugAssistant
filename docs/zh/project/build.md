@@ -27,6 +27,21 @@
 | `.\tools\dev.ps1 -Mode Run` | 构建并启动应用 |
 | `.\docs\build.ps1 -Mode Check` | 文档站结构检查 |
 | `.\docs\build.ps1 -Mode Build -Languages all` | 构建中英文文档站 |
+| `.\tools\release.ps1 -OutputDirectory <空目录>` | 官方发布：门禁 → 自包含产品目录 + 独立 SDK 目录 |
+
+## 发布
+
+`tools/release.ps1` 是官方入口：要求工作树干净，先跑完整门禁，再产出两个**目录**（当前不压缩）：
+
+```powershell
+.\tools\release.ps1 -OutputDirectory D:\dist\<版本>
+```
+
+- 产品 `HYWDebugAssistant-<版本>-<rid>/`：`dotnet publish` 自包含目录，含程序、内置模块、资源、设置种子、许可与 `release.json`；不含 SDK、样例、源码、用户数据与开发符号/XML。
+- SDK `HYWDebugAssistant.Sdk-<版本>/`：五个作者包、模块模板、本地 NuGet 源、README 与 `sdk.json`；不随产品发布。
+- 默认 `rid=win-x64`（承诺目标）；其他 RID 可以尝试，但不承诺编译/运行，元数据标记 `validation=unverified`。
+- `tools\package-release.ps1` 与 `tools\package-sdk.ps1` 是分步入口；`tools\verify-release.ps1` 校验已产出的目录。
+- 安装器、压缩包、签名与自动更新暂不做；正式推送时再补。
 
 ## 分层验证
 
@@ -54,9 +69,10 @@
 6. 还原与构建，要求 0 警告、0 错误。
 7. 内置模块包校验。
 8. 模块作者包生成与校验（`-SkipPack` 可跳过，发布前不得跳过）。
-9. 输出资源包校验（逐文件与仓库一致）。
-10. 依赖许可审计。
-11. 测试：按项目逐个串行执行，默认排除压力、性能与截图。
+9. 模块模板：用作者包构建模板，并由仓库内 `StandaloneModuleHost` 装入（门禁专用；该宿主不随产品/SDK 发布）。
+10. 输出资源包校验（逐文件与仓库一致）。
+11. 依赖许可审计。
+12. 测试：按项目逐个串行执行，默认排除压力、性能与截图。
 
 ## 产物位置
 
@@ -65,7 +81,9 @@
 | 项目输出 | `bin\<配置>\net10.0` |
 | 模块包 | `artifacts/modules/<配置>/`，构建时自动归拢 |
 | 应用输出中的 `modules/`、`resources/` | 构建镜像，不手工放 |
-| 模块作者包 | `artifacts/sdk-packages/`；发布时随 `sdk/` 复制进发布目录 |
+| 模块作者包 | `artifacts/sdk-packages/`；发布时组装为独立 SDK 目录 |
+| 产品发布 | `tools\release.ps1` 产出的 `HYWDebugAssistant-<版本>-<rid>/`（自包含） |
+| SDK 发布 | 同一次发布产出的 `HYWDebugAssistant.Sdk-<版本>/`（五个包 + 模板） |
 | 文档站 | `artifacts/docs-site/` |
 | 网络与渲染截图 | `artifacts/snapshots/` |
 

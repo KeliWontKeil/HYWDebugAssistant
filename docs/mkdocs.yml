@@ -33,6 +33,8 @@ nav:
           - UDP 接入: guides/modules/udp.md
           - 波形显示器: guides/modules/waveform-display.md
           - 波形发生器: guides/modules/waveform-generator.md
+          - 原始 → 波形: guides/modules/raw-to-waveform.md
+          - 波形 → 原始: guides/modules/waveform-to-raw.md
       - 模块管理: guides/manage-modules.md
       - 窗口操作: guides/windows.md
       - 吸附与拼接: guides/puzzle.md
@@ -46,6 +48,7 @@ nav:
       - concepts/index.md
       - 系统概览: concepts/overview.md
       - 数据面: concepts/data-plane.md
+      - 波形帧约定: concepts/waveform-frame.md
       - 模块机制: concepts/modules.md
       - 网络: concepts/network.md
       - 运行期: concepts/runtime.md
@@ -70,6 +73,7 @@ nav:
       - 测试与验证: module-dev/testing.md
       - 发布与装载: module-dev/publishing.md
       - SDK 与兼容: module-dev/sdk-version.md
+      - 接口参考: module-dev/reference.md
   - 项目开发:
       - project/index.md
       - 代码结构: project/code-structure.md

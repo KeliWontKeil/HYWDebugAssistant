@@ -21,7 +21,7 @@
               BorderBrush="{DynamicResource BorderDefault}" BorderThickness="0" CornerRadius="2"
               Padding="0">
         <Panel>
-          <ui:ChartSurface x:Name="Chart" Margin="2" PlotInset="40,4,4,20"
+          <ui:ChartSurface x:Name="Chart" Margin="2" PlotInset="28,20,10,20"
                            ShowCursors="False" ShowYCursors="False"
                            XStart="0" XEnd="1" XStep="1" XAxisKind="Index"
                            XTickStep="0" YTickStep="0" YMin="-1" YMax="1" />
@@ -38,7 +38,7 @@
           <!-- 1. 组选择。 -->
           <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.channelGroup}" />
-          <ScrollViewer Canvas.Left="46" Canvas.Top="0" Width="420" Height="22"
+          <ScrollViewer Canvas.Left="46" Canvas.Top="0" Width="450" Height="22"
                         HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
             <ui:ModuleSegmentedControl x:Name="GroupChips" Height="22" SelectedKey="0">
               <ui:ModuleSegmentedControl.PreviewOptions>
@@ -47,11 +47,11 @@
               </ui:ModuleSegmentedControl.PreviewOptions>
             </ui:ModuleSegmentedControl>
           </ScrollViewer>
-          <ui:ModuleButton Canvas.Left="474" Canvas.Top="2" Width="18" Height="18" Classes="icon"
+          <ui:ModuleButton Canvas.Left="498" Canvas.Top="2" Width="18" Height="18" Classes="icon"
                            CommandName="{x:Static views:WaveformGeneratorViewKeys.AddGroup}"
                            Icon="{x:Static views:WaveformGeneratorViewKeys.IconAdd}"
                            ToolTip.Tip="{loc:Tr view.addGroup}" />
-          <ui:ModuleButton Canvas.Left="496" Canvas.Top="2" Width="18" Height="18" Classes="icon"
+          <ui:ModuleButton Canvas.Left="518" Canvas.Top="2" Width="18" Height="18" Classes="icon"
                            CommandName="{x:Static views:WaveformGeneratorViewKeys.RemoveGroup}"
                            Icon="{x:Static views:WaveformGeneratorViewKeys.IconTrash}"
                            ToolTip.Tip="{loc:Tr view.removeGroup}" />
@@ -67,9 +67,9 @@
           <ui:ModuleTextSurface x:Name="GroupIdInput" Canvas.Left="282" Canvas.Top="26" Width="72" Height="22"
                                 Mode="Input" Text="1"
                                 Source="{x:Static views:WaveformGeneratorViewKeys.GroupId}" />
-          <ui:ModuleToggle Canvas.Left="360" Canvas.Top="26" Width="36" Height="22" IsChecked="True"
+          <ui:ModuleToggle Canvas.Left="452" Canvas.Top="26" Width="36" Height="22" IsChecked="True"
                            Source="{x:Static views:WaveformGeneratorViewKeys.GroupEnabled}" />
-          <ui:ModuleLabel Canvas.Left="400" Canvas.Top="26" Width="56" Height="22" Classes="caption"
+          <ui:ModuleLabel Canvas.Left="490" Canvas.Top="26" Width="48" Height="22" Classes="caption"
                           VerticalAlignment="Center" Text="{loc:Tr view.enabled}" />
 
           <ui:ModuleLabel Canvas.Left="0" Canvas.Top="52" Width="42" Height="22" Classes="caption right"
@@ -103,7 +103,7 @@
           <!-- 3. 通道选择。 -->
           <ui:ModuleLabel Canvas.Left="0" Canvas.Top="88" Width="42" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.channel}" />
-          <ScrollViewer Canvas.Left="46" Canvas.Top="88" Width="420" Height="22"
+          <ScrollViewer Canvas.Left="46" Canvas.Top="88" Width="450" Height="22"
                         HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
             <ui:ModuleSegmentedControl x:Name="ChannelChips" Height="22" SelectedKey="0">
               <ui:ModuleSegmentedControl.PreviewOptions>
@@ -112,11 +112,11 @@
               </ui:ModuleSegmentedControl.PreviewOptions>
             </ui:ModuleSegmentedControl>
           </ScrollViewer>
-          <ui:ModuleButton Canvas.Left="474" Canvas.Top="90" Width="18" Height="18" Classes="icon"
+          <ui:ModuleButton Canvas.Left="498" Canvas.Top="90" Width="18" Height="18" Classes="icon"
                            CommandName="{x:Static views:WaveformGeneratorViewKeys.AddChannel}"
                            Icon="{x:Static views:WaveformGeneratorViewKeys.IconAdd}"
                            ToolTip.Tip="{loc:Tr view.addChannel}" />
-          <ui:ModuleButton Canvas.Left="496" Canvas.Top="90" Width="18" Height="18" Classes="icon"
+          <ui:ModuleButton Canvas.Left="518" Canvas.Top="90" Width="18" Height="18" Classes="icon"
                            CommandName="{x:Static views:WaveformGeneratorViewKeys.RemoveChannel}"
                            Icon="{x:Static views:WaveformGeneratorViewKeys.IconTrash}"
                            ToolTip.Tip="{loc:Tr view.removeChannel}" />
@@ -127,10 +127,10 @@
           <ui:ModuleTextSurface x:Name="ChannelNameInput" Canvas.Left="46" Canvas.Top="114" Width="180" Height="22"
                                 Mode="Input" Text="CH1"
                                 Source="{x:Static views:WaveformGeneratorViewKeys.ChannelName}" />
-          <ui:ModuleToggle x:Name="ChannelEnabledToggle" Canvas.Left="236" Canvas.Top="114" Width="36" Height="22"
+          <ui:ModuleToggle x:Name="ChannelEnabledToggle" Canvas.Left="452" Canvas.Top="114" Width="36" Height="22"
                            IsChecked="True"
                            Source="{x:Static views:WaveformGeneratorViewKeys.ChannelEnabled}" />
-          <ui:ModuleLabel Canvas.Left="276" Canvas.Top="114" Width="56" Height="22" Classes="caption"
+          <ui:ModuleLabel Canvas.Left="490" Canvas.Top="114" Width="48" Height="22" Classes="caption"
                           VerticalAlignment="Center" Text="{loc:Tr view.enabled}" />
 
           <ui:ModuleLabel Canvas.Left="0" Canvas.Top="142" Width="42" Height="26" Classes="caption right"
@@ -215,24 +215,24 @@
               BorderBrush="{DynamicResource BorderDefault}" BorderThickness="1" CornerRadius="2"
               Padding="3">
         <Canvas Width="132" Height="294" ClipToBounds="True">
-          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="58" Height="22" Classes="caption right"
+          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="45" Width="58" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.periods}" />
-          <ui:ModuleTextSurface x:Name="PeriodsInput" Canvas.Left="60" Canvas.Top="0" Width="50" Height="22"
+          <ui:ModuleTextSurface x:Name="PeriodsInput" Canvas.Left="60" Canvas.Top="45" Width="50" Height="22"
                                 Mode="Input" Text="5"
                                 Source="{x:Static views:WaveformGeneratorViewKeys.OneShotPeriods}" />
 
-          <ui:ModuleLabel x:Name="EstimateLabel" Canvas.Left="0" Canvas.Top="30" Width="140"
+          <ui:ModuleLabel x:Name="EstimateLabel" Canvas.Left="0" Canvas.Top="70" Width="140"
                           Classes="micro wrap" Text="{loc:Tr view.estimatePreview}" />
-          <ui:ModuleLabel x:Name="TotalEstimateLabel" Canvas.Left="0" Canvas.Top="48" Width="140"
+          <ui:ModuleLabel x:Name="TotalEstimateLabel" Canvas.Left="0" Canvas.Top="88" Width="140"
                           Classes="micro wrap" Text="{loc:Tr view.totalEstimatePreview}" />
 
-          <ui:ModuleButton Canvas.Left="6" Canvas.Top="144" Width="120" Height="22"
+          <ui:ModuleButton Canvas.Left="6" Canvas.Top="140" Width="120" Height="22"
                            CommandName="{x:Static views:WaveformGeneratorViewKeys.StartContinuous}"
                            Content="{loc:Tr view.startContinuous}" />
-          <ui:ModuleButton Canvas.Left="6" Canvas.Top="176" Width="120" Height="22"
+          <ui:ModuleButton Canvas.Left="6" Canvas.Top="104" Width="120" Height="22"
                            CommandName="{x:Static views:WaveformGeneratorViewKeys.SendOnce}"
                            Content="{loc:Tr view.send}" />
-          <ui:ModuleButton Canvas.Left="64" Canvas.Top="206" Width="60" Height="22"
+          <ui:ModuleButton Canvas.Left="6" Canvas.Top="170" Width="120" Height="22"
                            CommandName="{x:Static views:WaveformGeneratorViewKeys.Stop}"
                            Content="{loc:Tr view.stop}" />
         </Canvas>

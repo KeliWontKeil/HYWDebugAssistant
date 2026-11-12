@@ -103,9 +103,10 @@ T3 必须触发的三种情况：
 6. 还原与构建，要求 0 警告、0 错误。
 7. 内置模块包校验。
 8. 模块作者包：`tools/pack-sdk.ps1` 生成五个包，`tools/verify-sdk-packages.ps1` 校验 dll/xml/依赖组（`-SkipPack` 可跳过，发布前不得跳过）。
-9. 输出资源包校验（逐文件与仓库一致）。
-10. 依赖许可审计。
-11. 测试：按项目逐个串行执行；默认排除压力 / 性能类别与截图工具（`-IncludePressure` / `-IncludeSnapshots` 按需打开）。
+9. 模块模板：`tools/verify-standalone-module.ps1` 用作者包构建模板，并由仓库内 `StandaloneModuleHost` 装入（门禁专用；该宿主不随产品/SDK 发布）。
+10. 输出资源包校验（逐文件与仓库一致）。
+11. 依赖许可审计。
+12. 测试：按项目逐个串行执行；默认排除压力 / 性能类别与截图工具（`-IncludePressure` / `-IncludeSnapshots` 按需打开）。
 
 任何一步失败都会终止门禁。跳过文档相关的检查只在明确不涉及 `docs/` 时使用；跳过作者包只在迭代期间使用。
 
@@ -137,14 +138,21 @@ T3 必须触发的三种情况：
 
 ## 打包与发布
 
-发布目录包含程序层、`sdk/`（作者包与样例源码）与 `resources/`。
+发布由 `tools/release.ps1 -OutputDirectory <仓库外空目录>` 统一驱动，产出两个**独立目录**（当前不压缩）：
 
-- 用户数据目录（`settings/`、`workspace/`、`logs/`、`composites/`、`framework/`）与外部模块目录（`modules/external/`）不进入发布。
-- 不引入 RID 与自包含发布形态；宿主程序集由应用输出提供，模块包不携带。
-- 模块项目构建时自动归拢到 `artifacts/modules/<配置>/<包名>/`，应用构建后镜像到应用输出的 `modules/`。
+- **产品**：`HYWDebugAssistant-<版本>-<rid>/`，`dotnet publish` 自包含目录；只含程序、内置模块、资源、设置种子、许可与 `release.json`，不含 SDK、样例、源码、用户数据。
+- **SDK**：`HYWDebugAssistant.Sdk-<版本>/`，五个作者包、模板、本地 NuGet 源、README 与 `sdk.json`；不随产品发布。
+
+规则：
+
+- 发布默认要求工作树干净并先跑 `build.ps1 -Configuration Release`；`-SkipGate` 只用于本地迭代。
+- 默认 `rid=win-x64`（承诺目标）；其他 RID 允许尝试，但不承诺编译/运行，元数据标记 `unverified`。
+- 用户数据目录（`settings/`、`workspace/`、`logs/`、`composites/`、`framework/`）与外部模块目录（`modules/external/`）不进入产品。
+- 不引入 RID 之外的备用发布形态；自包含文件夹是当前唯一产品形态。安装器/压缩包/签名/自动更新暂不做。
+- 模块项目构建时自动归拢到 `artifacts/modules/<配置>/<包名>/`，产品发布时镜像到发布目录的 `modules/`。
 - 模块包只含模块自有文件：模块清单、模块程序集与自有资源；宿主提供的程序集不进入包。
-- `tools/pack-sdk.ps1` 生成三个契约包到 `artifacts/sdk-packages/`；`tools/verify-standalone-module.ps1` 让示例模块只依赖这些包完成构建并由独立宿主加载。
-- `tools/package-release.ps1 -OutputDirectory <仓库外的空目录>`：构建 Release、校验模块包、复制程序层、生成出厂设置基线、断言发布边界、生成 `sdk/`（五个作者包 + 四个样例，版本与本地源已改写）、写入 `release.json`（版本、配置、资源哈希、模块文件哈希、`sdk/` 文件哈希）。
+- `tools/pack-sdk.ps1` 生成五个作者包；`tools/verify-sdk-packages.ps1` 校验包内容；`tools/verify-standalone-module.ps1` 用 SDK 包构建模板模块并由独立宿主装入，`build.ps1` 4d 每次执行。
+- `tools/package-release.ps1` / `tools/package-sdk.ps1` 是分步入口；`tools/verify-release.ps1` 校验已产出的目录。
 - 文档站构建产物在 `artifacts/docs-site/`，与产品发布包相互独立。
 
 ## 文档写作

@@ -1,5 +1,6 @@
 {
   "entries": {
+    "icon.group.delete": "group.delete.svg",
     "icon.group.hide": "group.hide.svg",
     "icon.group.fit-y": "group.fit-y.svg"
   }

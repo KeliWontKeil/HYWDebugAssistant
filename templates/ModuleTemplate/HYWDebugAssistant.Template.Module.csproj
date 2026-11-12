@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    模块模板：外部作者的起点。只引用作者包，不引用仓库内任何工程。
+    作者要改的只有：工程/程序集名、module.json、[ModuleDefinition] 身份。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <PlatformName>AnyCPU</PlatformName>
+    <AssemblyName>HYWDebugAssistant.Template.Module</AssemblyName>
+    <RootNamespace>HYWDebugAssistant.Template.Module</RootNamespace>
+    <ModulePackageName>TemplateModule</ModulePackageName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="HYWDebugAssistant.Sdk" Version="$(Version)" />
+    <PackageReference Include="HYWDebugAssistant.Sdk.Ui" Version="$(Version)" />
+    <PackageReference Include="HYWDebugAssistant.Module.Build" Version="$(Version)" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="resources\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

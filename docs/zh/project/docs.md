@@ -9,7 +9,7 @@
 | 开始使用 | 从零到第一条数据 | `docs/zh/start/` |
 | 使用指南 | 每个可操作功能；每个模块一册 | `docs/zh/guides/` |
 | 深入理解 | 机制、文件结构、可手工改的范围 | `docs/zh/concepts/` |
-| 模块开发 | 外部作者：流程、声明面、打包与排障 | `docs/zh/module-dev/` |
+| 模块开发 | 外部作者：流程、声明面、接口参考、打包与排障 | `docs/zh/module-dev/` |
 | 项目开发 | 仓库：结构、构建、版本、测试、文档规则 | `docs/zh/project/` |
 | 关于 | 定位、许可、更新日志 | `docs/zh/about/` |
 

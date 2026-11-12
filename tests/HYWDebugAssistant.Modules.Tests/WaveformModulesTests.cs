@@ -38,7 +38,7 @@ public class WaveformModulesTests
 
         var generatorType = generator.DataTypes.ShouldHaveSingleItem();
         var displayType = display.DataTypes.ShouldHaveSingleItem();
-        generatorType.TypeId.ShouldBe("hyw/waveform-frame");
+        generatorType.TypeId.ShouldBe("WaveformFrame");
         displayType.TypeId.ShouldBe(generatorType.TypeId);
         generatorType.Shape.Describe().ShouldBe(GoldenShape);
         displayType.Shape.Describe().ShouldBe(GoldenShape);
@@ -800,6 +800,376 @@ public class WaveformModulesTests
     }
 
     [Fact]
+    public void 显示器_清空应复位视口且下一帧继续跟随()
+    {
+        var context = new TestModuleContext();
+        context.Configuration.Write(new DisplayConfig
+        {
+            Settings = new DisplaySettings
+            {
+                Follow = false,
+                FollowRangeSamples = 8,
+            },
+            Groups =
+            [
+                new DisplayGroupConfig
+                {
+                    GroupId = 1,
+                    Name = "group-a",
+                    Channels = [new DisplayChannelConfig { Name = "channel-a", ColorArgb = 0xFF112233 }],
+                    YAuto = false,
+                    YMin = 0,
+                    YMax = 2,
+                },
+            ],
+        });
+
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        for (var index = 0; index < 40; index++)
+        {
+            Deliver(context, 1, (uint)index, [index]);
+        }
+
+        module.OnStep(context, StepReason.Data);
+        context.EnqueueCommand(WaveformDisplayModule.ClearCommand);
+        module.PumpOnce(context);
+
+        var cleared = Snapshot(context).ShouldNotBeNull();
+        cleared.XRangeStart.ShouldBe(0);
+        cleared.XRangeEnd.ShouldBe(255);
+        cleared.YAuto.ShouldBeTrue();
+        cleared.YMin.ShouldBe(-1);
+        cleared.YMax.ShouldBe(1);
+        cleared.Channels.ShouldBeEmpty();
+
+        var config = context.Configuration.Read<DisplayConfig>();
+        config.Settings.Follow.ShouldBeTrue();
+        config.Settings.FollowRangeSamples.ShouldBe(256);
+        var group = config.FindGroup(1).ShouldNotBeNull();
+        group.Name.ShouldBe("group-a");
+        group.YAuto.ShouldBeTrue();
+        group.Channels[0].Name.ShouldBe("channel-a");
+        group.Channels[0].ColorArgb.ShouldBe(0xFF112233u);
+
+        for (var index = 0; index < 300; index++)
+        {
+            Deliver(context, 1, (uint)index, [index]);
+        }
+
+        module.OnStep(context, StepReason.Data);
+        var next = Snapshot(context).ShouldNotBeNull();
+        next.XRangeStart.ShouldBe(44);
+        next.XRangeEnd.ShouldBe(299);
+        next.YAuto.ShouldBeTrue();
+        next.Channels.ShouldHaveSingleItem().Values.Length.ShouldBe(256);
+    }
+
+    [Fact]
+    public void 显示器_显示复位应保留组与通道身份()
+    {
+        var context = new TestModuleContext();
+        context.Configuration.Write(new DisplayConfig
+        {
+            Settings = new DisplaySettings
+            {
+                Follow = false,
+                FollowRangeSamples = 8,
+                XAxisMode = DisplayXAxisMode.Time,
+                XTickStep = 0.01,
+                Cursors = false,
+            },
+            Groups =
+            [
+                new DisplayGroupConfig
+                {
+                    GroupId = 1,
+                    Name = "group-a",
+                    Channels = [new DisplayChannelConfig { Name = "channel-a", ColorArgb = 0xFF445566 }],
+                    YAuto = false,
+                    YMin = 0,
+                    YMax = 2,
+                    YFitChannel = 0,
+                },
+            ],
+        });
+
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+        for (var index = 0; index < 40; index++)
+        {
+            Deliver(context, 1, (uint)index, [index]);
+        }
+
+        module.OnStep(context, StepReason.Data);
+        context.EnqueueCommand(WaveformDisplayModule.ResetGroupCommand);
+        module.PumpOnce(context);
+
+        var config = context.Configuration.Read<DisplayConfig>();
+        config.Settings.Follow.ShouldBeTrue();
+        config.Settings.FollowRangeSamples.ShouldBe(256);
+        config.Settings.XAxisMode.ShouldBe(DisplayXAxisMode.Index);
+        config.Settings.XTickStep.ShouldBe(0);
+        config.Settings.Cursors.ShouldBeTrue();
+        var group = config.FindGroup(1).ShouldNotBeNull();
+        group.Name.ShouldBe("group-a");
+        group.Channels[0].Name.ShouldBe("channel-a");
+        group.Channels[0].ColorArgb.ShouldBe(0xFF445566u);
+        group.YAuto.ShouldBeTrue();
+        group.YMin.ShouldBe(-1);
+        group.YMax.ShouldBe(1);
+        group.YFitChannel.ShouldBe(-1);
+
+        var snapshot = Snapshot(context).ShouldNotBeNull();
+        snapshot.XRangeStart.ShouldBe(0);
+        snapshot.XRangeEnd.ShouldBe(39);
+        snapshot.YAuto.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void 显示器_通道数减少应保留历史并标记缺失()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        Deliver(context, 1, 0, [1f, 10f]);
+        Deliver(context, 1, 1, [2f, 20f]);
+        Deliver(context, 1, 2, [3f]);
+        Deliver(context, 1, 3, [4f]);
+        module.OnStep(context, StepReason.Data);
+
+        var snapshot = Snapshot(context).ShouldNotBeNull();
+        snapshot.XRangeStart.ShouldBe(0);
+        snapshot.XRangeEnd.ShouldBe(3);
+        snapshot.Channels.ShouldHaveSingleItem().Index.ShouldBe(0);
+        snapshot.Channels[0].Values.ShouldBe([1f, 2f, 3f, 4f]);
+
+        var missingMeta = DisplayMeta(context);
+        var missingChannels = missingMeta.GetProperty("channels");
+        missingChannels.GetArrayLength().ShouldBe(2);
+        missingChannels[1].GetProperty("missing").GetBoolean().ShouldBeTrue();
+
+        Deliver(context, 1, 4, [5f, 50f]);
+        module.OnStep(context, StepReason.Data);
+
+        snapshot = Snapshot(context).ShouldNotBeNull();
+        snapshot.Channels.Count.ShouldBe(2);
+        snapshot.Channels[1].Index.ShouldBe(1);
+        snapshot.Channels[1].Values[0].ShouldBe(10f);
+        snapshot.Channels[1].Values[1].ShouldBe(20f);
+        float.IsNaN(snapshot.Channels[1].Values[2]).ShouldBeTrue();
+        float.IsNaN(snapshot.Channels[1].Values[3]).ShouldBeTrue();
+        snapshot.Channels[1].Values[4].ShouldBe(50f);
+
+        var restoredMeta = DisplayMeta(context);
+        restoredMeta.GetProperty("channels")[1].GetProperty("missing").GetBoolean().ShouldBeFalse();
+    }
+
+    [Fact]
+    public void 显示器_通道数增加应从新通道出现位置开始()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        Deliver(context, 1, 0, [1f]);
+        Deliver(context, 1, 1, [2f]);
+        module.OnStep(context, StepReason.Data);
+
+        Deliver(context, 1, 2, [3f, 30f]);
+        Deliver(context, 1, 3, [4f, 40f]);
+        module.OnStep(context, StepReason.Data);
+
+        var snapshot = Snapshot(context).ShouldNotBeNull();
+        snapshot.Channels.Count.ShouldBe(2);
+        snapshot.Channels[0].Values.ShouldBe([1f, 2f, 3f, 4f]);
+        snapshot.Channels[1].Index.ShouldBe(1);
+        snapshot.Channels[1].Values.Length.ShouldBe(4);
+        float.IsNaN(snapshot.Channels[1].Values[0]).ShouldBeTrue();
+        float.IsNaN(snapshot.Channels[1].Values[1]).ShouldBeTrue();
+        snapshot.Channels[1].Values[2].ShouldBe(30f);
+        snapshot.Channels[1].Values[3].ShouldBe(40f);
+    }
+
+    [Fact]
+    public void 显示器_删除通道应清空该通道并保留其他通道()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        Deliver(context, 1, 0, [1f, 10f]);
+        Deliver(context, 1, 1, [2f, 20f]);
+        module.OnStep(context, StepReason.Data);
+        context.EnqueueInput(WaveformDisplayModule.ActionSource, "{\"op\":\"deleteChannel\",\"index\":0}");
+        module.PumpOnce(context);
+
+        var snapshot = Snapshot(context).ShouldNotBeNull();
+        snapshot.Channels.ShouldHaveSingleItem().Index.ShouldBe(1);
+        snapshot.Channels[0].Values.ShouldBe([10f, 20f]);
+
+        var config = context.Configuration.Read<DisplayConfig>();
+        config.FindGroup(1).ShouldNotBeNull().Channels[0].Deleted.ShouldBeTrue();
+        config.ActiveChannelIndex.ShouldBe(1);
+        DisplayMeta(context).GetProperty("activeChannelIndex").GetInt32().ShouldBe(1);
+        DisplayMeta(context).GetProperty("channels").GetArrayLength().ShouldBe(1);
+
+        Deliver(context, 1, 2, [3f, 30f]);
+        module.OnStep(context, StepReason.Data);
+        snapshot = Snapshot(context).ShouldNotBeNull();
+        snapshot.Channels.ShouldHaveSingleItem().Index.ShouldBe(1);
+        snapshot.Channels[0].Values.ShouldBe([10f, 20f, 30f]);
+    }
+
+    [Fact]
+    public void 显示器_删除最后一个通道应移除组并按下一帧重建()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        Deliver(context, 1, 0, [1f]);
+        module.OnStep(context, StepReason.Data);
+        context.EnqueueInput(WaveformDisplayModule.ActionSource, "{\"op\":\"deleteChannel\",\"index\":0}");
+        module.PumpOnce(context);
+
+        Snapshot(context).ShouldNotBeNull().Channels.ShouldBeEmpty();
+        context.Configuration.Read<DisplayConfig>().Groups.ShouldBeEmpty();
+        DisplayMeta(context).GetProperty("groups").GetArrayLength().ShouldBe(0);
+
+        Deliver(context, 1, 1, [2f]);
+        module.OnStep(context, StepReason.Data);
+        var rebuilt = Snapshot(context).ShouldNotBeNull();
+        rebuilt.Channels.ShouldHaveSingleItem().Index.ShouldBe(0);
+        rebuilt.Channels[0].Values.ShouldBe([2f]);
+        context.Configuration.Read<DisplayConfig>().Groups.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void 显示器_左键拖动应平移视口并关闭对应自动轴()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+        for (var index = 0; index < 100; index++)
+        {
+            Deliver(context, 1, (uint)index, [index]);
+        }
+
+        module.OnStep(context, StepReason.Data);
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"dragView\",\"mode\":\"pan\",\"xStart\":20,\"xEnd\":49,\"yMin\":2,\"yMax\":4}");
+        module.PumpOnce(context);
+
+        var snapshot = Snapshot(context).ShouldNotBeNull();
+        snapshot.XRangeStart.ShouldBe(20);
+        snapshot.XRangeEnd.ShouldBe(49);
+        snapshot.YAuto.ShouldBeFalse();
+        snapshot.YMin.ShouldBe(2);
+        snapshot.YMax.ShouldBe(4);
+        snapshot.Channels[0].Values.ShouldBe(Enumerable.Range(20, 30).Select(value => (float)value));
+
+        var config = context.Configuration.Read<DisplayConfig>();
+        config.Settings.Follow.ShouldBeFalse();
+        config.Settings.FollowRangeSamples.ShouldBe(30);
+        config.FindGroup(1).ShouldNotBeNull().YAuto.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void 显示器_右键缩放应绕中心改变跨度并保持未变化的轴()
+    {
+        var context = new TestModuleContext();
+        context.Configuration.Write(new DisplayConfig
+        {
+            Settings = new DisplaySettings { Follow = false },
+            Groups =
+            [
+                new DisplayGroupConfig
+                {
+                    GroupId = 1,
+                    Channels = [new DisplayChannelConfig()],
+                },
+            ],
+        });
+
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+        for (var index = 0; index < 100; index++)
+        {
+            Deliver(context, 1, (uint)index, [index]);
+        }
+
+        module.OnStep(context, StepReason.Data);
+        var before = Snapshot(context).ShouldNotBeNull();
+        before.YAuto.ShouldBeTrue();
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"dragView\",\"mode\":\"zoom\",\"xStart\":25,\"xEnd\":74,"
+            + "\"yMin\":" + before.YMin.ToString(CultureInfo.InvariantCulture) + ","
+            + "\"yMax\":" + before.YMax.ToString(CultureInfo.InvariantCulture) + "}");
+        module.PumpOnce(context);
+
+        var zoomed = Snapshot(context).ShouldNotBeNull();
+        zoomed.XRangeStart.ShouldBe(25);
+        zoomed.XRangeEnd.ShouldBe(74);
+        zoomed.YAuto.ShouldBeTrue();
+
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"dragView\",\"mode\":\"zoom\",\"xStart\":25,\"xEnd\":74,"
+            + "\"yMin\":" + (zoomed.YMin + 1).ToString(CultureInfo.InvariantCulture) + ","
+            + "\"yMax\":" + (zoomed.YMax - 1).ToString(CultureInfo.InvariantCulture) + "}");
+        module.PumpOnce(context);
+
+        var vertical = Snapshot(context).ShouldNotBeNull();
+        vertical.XRangeStart.ShouldBe(25);
+        vertical.XRangeEnd.ShouldBe(74);
+        vertical.YAuto.ShouldBeFalse();
+        vertical.YMin.ShouldBe(zoomed.YMin + 1);
+        vertical.YMax.ShouldBe(zoomed.YMax - 1);
+    }
+
+    [Fact]
+    public void 显示器_跟踪开启时横向缩放应保持跟踪并更新宽度()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+        for (var index = 0; index < 100; index++)
+        {
+            Deliver(context, 1, (uint)index, [index]);
+        }
+
+        module.OnStep(context, StepReason.Data);
+        var before = Snapshot(context).ShouldNotBeNull();
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"dragView\",\"mode\":\"zoom\",\"xStart\":25,\"xEnd\":74,"
+            + "\"yMin\":" + before.YMin.ToString(CultureInfo.InvariantCulture) + ","
+            + "\"yMax\":" + before.YMax.ToString(CultureInfo.InvariantCulture) + "}");
+        module.PumpOnce(context);
+
+        var zoomed = Snapshot(context).ShouldNotBeNull();
+        zoomed.XRangeStart.ShouldBe(50);
+        zoomed.XRangeEnd.ShouldBe(99);
+        var config = context.Configuration.Read<DisplayConfig>();
+        config.Settings.Follow.ShouldBeTrue();
+        config.Settings.FollowRangeSamples.ShouldBe(50);
+    }
+
+    [Fact]
     public void 显示器_无数据时应发布可调初始视口()
     {
         var context = new TestModuleContext();
@@ -1171,6 +1541,26 @@ public class WaveformModulesTests
     }
 
     [Fact]
+    public void 图表数学_拖动应平移范围并绕中心缩放()
+    {
+        var pan = ChartScale.Pan(10, 20, 5);
+        pan.Min.ShouldBe(15);
+        pan.Max.ShouldBe(25);
+
+        var zoomIn = ChartScale.Zoom(-1, 1, 100, 500);
+        ((zoomIn.Min + zoomIn.Max) / 2).ShouldBe(0, 1e-12);
+        (zoomIn.Max - zoomIn.Min).ShouldBeLessThan(2);
+
+        var zoomOut = ChartScale.Zoom(-1, 1, -100, 500);
+        ((zoomOut.Min + zoomOut.Max) / 2).ShouldBe(0, 1e-12);
+        (zoomOut.Max - zoomOut.Min).ShouldBeGreaterThan(2);
+
+        var unchanged = ChartScale.Zoom(10, 20, 0, 500);
+        unchanged.Min.ShouldBe(10);
+        unchanged.Max.ShouldBe(20);
+    }
+
+    [Fact]
     public void 轴格式_小范围增加精度且大数值收敛宽度()
     {
         ChartAxisFormatter.DecimalsForStep(1000).ShouldBe(0);
@@ -1186,6 +1576,15 @@ public class WaveformModulesTests
 
     private static SeriesWindowSnapshot? Snapshot(TestModuleContext context) =>
         context.ViewState.ReadSeriesWindow(WaveformDisplayModule.SeriesSource);
+
+    private static System.Text.Json.JsonElement DisplayMeta(TestModuleContext context)
+    {
+        var text = context.SetTexts
+            .Last(item => item.SourceName == WaveformDisplayModule.MetaSource)
+            .Text;
+        using var document = System.Text.Json.JsonDocument.Parse(text);
+        return document.RootElement.Clone();
+    }
 
     private static float ReadSample(byte[] frame) =>
         BinaryPrimitives.ReadSingleLittleEndian(frame.AsSpan(24));

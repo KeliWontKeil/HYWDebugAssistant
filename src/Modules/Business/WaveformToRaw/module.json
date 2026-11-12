@@ -1,0 +1,7 @@
+{
+  "id": "hyw/waveform-to-raw",
+  "entryAssembly": "HYWDebugAssistant.Modules.WaveformToRaw.dll",
+  "entryType": "HYWDebugAssistant.Modules.WaveformToRaw.WaveformToRawModule",
+  "dependsOn": [],
+  "resources": ["resources/i18n"]
+}

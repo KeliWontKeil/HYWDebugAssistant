@@ -88,7 +88,8 @@ public sealed record DataTypeDeclaration
 {
     /// <summary>创建数据类型声明。</summary>
     /// <param name="typeId">
-    /// 类型标识（非空；建议 <c>作者/名字</c> 形式并带模块前缀）。**跨模块同名 = 同一类型**，故务必加前缀。
+    /// 类型标识（非空）。内置约定用 **PascalCase 短名**（如 <c>RawBytes</c>、<c>WaveformFrame</c>），
+    /// 不带作者前缀、不带版本；**跨模块同名 = 同一类型**，所以名字要稳定、尽量不易撞名。
     /// </param>
     /// <param name="shape">定长形状（尺寸由它决定）。</param>
     /// <param name="semantics">传输语义（流/消息/事件；跨语义不判兼容）。</param>

@@ -27,6 +27,7 @@ public enum ChartAxisKind
 /// <list type="bullet">
 ///   <item><b>不做范围选择</b>：选择是独立控件 <see cref="RangeSelector"/> 的职责；本控件不持有选择状态、不画选择块。</item>
 ///   <item><b>不做跟踪</b>：跟踪是视图的视口策略；视图改 <see cref="XStart"/> / 序列即可，本控件只按给定范围画。</item>
+///   <item><b>不持有视口策略</b>：左/右键拖动只发 <see cref="PanRequested"/> / <see cref="ZoomRequested"/> 目标范围，由订阅者夹紧并回写属性。</item>
 ///   <item><b>不做保存/组/通道</b>：本控件不知道数据来源与业务语义，只画 <see cref="Series"/>。</item>
 ///   <item>游标与绘图区坐标映射内聚：游标留在本控件，避免把视口/序列复制给第二个控件。</item>
 /// </list>
@@ -172,8 +173,24 @@ public sealed class ChartSurface : Control
     private Rect _cursorBLabel;
     private Rect _cursorYLabelA;
     private Rect _cursorYLabelB;
+    private const double ViewDragThreshold = 2;
+
     private int _draggingCursor;
     private int _draggingYCursor;
+    private ChartViewDrag _draggingView;
+    private Point _viewDragStart;
+    private double _viewDragXStart;
+    private double _viewDragXEnd;
+    private double _viewDragYMin;
+    private double _viewDragYMax;
+    private bool _viewDragMoved;
+
+    private enum ChartViewDrag
+    {
+        None,
+        Pan,
+        Zoom,
+    }
 
     static ChartSurface()
     {
@@ -489,6 +506,25 @@ public sealed class ChartSurface : Control
     /// <summary>Y 轴游标位置变化（拖动产生；程序设置属性不触发）。</summary>
     public event EventHandler? YCursorChanged;
 
+    /// <summary>
+    /// **左键在绘图区拖动**产生的目标视口范围。
+    /// </summary>
+    /// <remarks>
+    /// 控件不直接修改 <see cref="XStart"/>/<see cref="XEnd"/>/<see cref="YMin"/>/<see cref="YMax"/>；
+    /// 订阅者负责把目标范围换算成业务单位、夹紧并回写属性。没有订阅者时控件不接管左键平移，
+    /// 因此只读图表不会因新增事件改变原有命中行为。
+    /// </remarks>
+    public event EventHandler<ChartDragEventArgs>? PanRequested;
+
+    /// <summary>
+    /// **右键在绘图区拖动**产生的目标视口范围；以当前视口中心缩放。
+    /// </summary>
+    /// <remarks>
+    /// 水平拖动改变 X 跨度，垂直拖动改变 Y 跨度；目标范围同样由订阅者决定是否应用。
+    /// 没有订阅者时控件不接管右键。
+    /// </remarks>
+    public event EventHandler<ChartDragEventArgs>? ZoomRequested;
+
     /// <inheritdoc />
     protected override Size ArrangeOverride(Size finalSize)
     {
@@ -559,7 +595,7 @@ public sealed class ChartSurface : Control
     {
         base.OnPointerPressed(e);
 
-        if (!ShowCursors && !ShowYCursors)
+        if (_draggingView != ChartViewDrag.None)
         {
             return;
         }
@@ -571,51 +607,75 @@ public sealed class ChartSurface : Control
             return;
         }
 
-        if (ShowCursors)
-        {
-            var tolerance = 6;
-            var xa = plot.Left + (CursorAFraction * plot.Width);
-            var xb = plot.Left + (CursorBFraction * plot.Width);
+        var properties = e.GetCurrentPoint(this).Properties;
+        var left = properties.IsLeftButtonPressed;
+        var right = properties.IsRightButtonPressed;
 
-            if (_cursorALabel.Contains(point) || ChartScale.Hit(point.X, xa, tolerance) == 1 && point.Y <= plot.Bottom)
+        if (left && (ShowCursors || ShowYCursors))
+        {
+            if (ShowCursors)
             {
-                _draggingCursor = 1;
-                e.Pointer.Capture(this);
-                e.Handled = true;
-                return;
+                var tolerance = 6;
+                var xa = plot.Left + (CursorAFraction * plot.Width);
+                var xb = plot.Left + (CursorBFraction * plot.Width);
+
+                if (_cursorALabel.Contains(point) || ChartScale.Hit(point.X, xa, tolerance) == 1 && point.Y <= plot.Bottom)
+                {
+                    _draggingCursor = 1;
+                    e.Pointer.Capture(this);
+                    e.Handled = true;
+                    return;
+                }
+
+                if (_cursorBLabel.Contains(point) || ChartScale.Hit(point.X, xb, tolerance) == 1 && point.Y <= plot.Bottom)
+                {
+                    _draggingCursor = 2;
+                    e.Pointer.Capture(this);
+                    e.Handled = true;
+                    return;
+                }
             }
 
-            if (_cursorBLabel.Contains(point) || ChartScale.Hit(point.X, xb, tolerance) == 1 && point.Y <= plot.Bottom)
+            if (ShowYCursors)
             {
-                _draggingCursor = 2;
-                e.Pointer.Capture(this);
-                e.Handled = true;
-                return;
+                var ya = plot.Top + (YCursorAFraction * plot.Height);
+                var yb = plot.Top + (YCursorBFraction * plot.Height);
+                if (_cursorYLabelA.Contains(point) || Math.Abs(point.Y - ya) <= 5 && point.X <= plot.Left + 8)
+                {
+                    _draggingYCursor = 1;
+                }
+                else if (_cursorYLabelB.Contains(point) || Math.Abs(point.Y - yb) <= 5 && point.X <= plot.Left + 8)
+                {
+                    _draggingYCursor = 2;
+                }
+
+                if (_draggingYCursor != 0)
+                {
+                    e.Pointer.Capture(this);
+                    e.Handled = true;
+                    return;
+                }
             }
         }
 
-        if (!ShowYCursors)
+        if (left
+            && PanRequested is not null
+            && plot.Contains(point)
+            && BeginViewDrag(ChartViewDrag.Pan, point))
         {
+            e.Pointer.Capture(this);
+            e.Handled = true;
             return;
         }
 
-        var ya = plot.Top + (YCursorAFraction * plot.Height);
-        var yb = plot.Top + (YCursorBFraction * plot.Height);
-        if (_cursorYLabelA.Contains(point) || Math.Abs(point.Y - ya) <= 5 && point.X <= plot.Left + 8)
+        if (right
+            && ZoomRequested is not null
+            && plot.Contains(point)
+            && BeginViewDrag(ChartViewDrag.Zoom, point))
         {
-            _draggingYCursor = 1;
+            e.Pointer.Capture(this);
+            e.Handled = true;
         }
-        else if (_cursorYLabelB.Contains(point) || Math.Abs(point.Y - yb) <= 5 && point.X <= plot.Left + 8)
-        {
-            _draggingYCursor = 2;
-        }
-        else
-        {
-            return;
-        }
-
-        e.Pointer.Capture(this);
-        e.Handled = true;
     }
 
     /// <inheritdoc />
@@ -623,11 +683,6 @@ public sealed class ChartSurface : Control
     {
         base.OnPointerMoved(e);
 
-        if (_draggingCursor == 0 && _draggingYCursor == 0)
-        {
-            return;
-        }
-
         var plot = _plotArea;
         if (plot.Width <= 1 || plot.Height <= 1)
         {
@@ -635,6 +690,21 @@ public sealed class ChartSurface : Control
         }
 
         var point = e.GetPosition(this);
+        if (_draggingView != ChartViewDrag.None)
+        {
+            if (HandleViewDrag(point, plot))
+            {
+                e.Handled = true;
+            }
+
+            return;
+        }
+
+        if (_draggingCursor == 0 && _draggingYCursor == 0)
+        {
+            return;
+        }
+
         if (_draggingYCursor != 0)
         {
             var yFraction = ChartScale.Clamp((point.Y - plot.Top) / plot.Height, 0, 1);
@@ -671,6 +741,14 @@ public sealed class ChartSurface : Control
     {
         base.OnPointerReleased(e);
 
+        if (_draggingView != ChartViewDrag.None)
+        {
+            ResetViewDrag();
+            e.Pointer.Capture(null);
+            e.Handled = true;
+            return;
+        }
+
         if (_draggingCursor == 0 && _draggingYCursor == 0)
         {
             return;
@@ -688,6 +766,104 @@ public sealed class ChartSurface : Control
         base.OnPointerCaptureLost(e);
         _draggingCursor = 0;
         _draggingYCursor = 0;
+        ResetViewDrag();
+    }
+
+    private bool BeginViewDrag(ChartViewDrag kind, Point point)
+    {
+        var step = XStep > 0 && double.IsFinite(XStep) ? XStep : 1;
+        var xStart = XStart;
+        var xEnd = ResolveXEnd(step, VisiblePointCount());
+        var yMin = YMin;
+        var yMax = YMax;
+        if (!double.IsFinite(xStart)
+            || !double.IsFinite(xEnd)
+            || xEnd <= xStart
+            || !double.IsFinite(yMin)
+            || !double.IsFinite(yMax)
+            || yMax <= yMin)
+        {
+            return false;
+        }
+
+        _draggingView = kind;
+        _viewDragStart = point;
+        _viewDragXStart = xStart;
+        _viewDragXEnd = xEnd;
+        _viewDragYMin = yMin;
+        _viewDragYMax = yMax;
+        _viewDragMoved = false;
+        return true;
+    }
+
+    private bool HandleViewDrag(Point point, Rect plot)
+    {
+        if (!_viewDragMoved)
+        {
+            if (Math.Abs(point.X - _viewDragStart.X) < ViewDragThreshold
+                && Math.Abs(point.Y - _viewDragStart.Y) < ViewDragThreshold)
+            {
+                return false;
+            }
+
+            _viewDragMoved = true;
+        }
+
+        var dx = point.X - _viewDragStart.X;
+        var dy = point.Y - _viewDragStart.Y;
+        (double Min, double Max) xRange;
+        (double Min, double Max) yRange;
+
+        if (_draggingView == ChartViewDrag.Pan)
+        {
+            var xShift = -(dx / plot.Width) * (_viewDragXEnd - _viewDragXStart);
+            var yShift = (dy / plot.Height) * (_viewDragYMax - _viewDragYMin);
+            xRange = ChartScale.Pan(_viewDragXStart, _viewDragXEnd, xShift);
+            yRange = ChartScale.Pan(_viewDragYMin, _viewDragYMax, yShift);
+        }
+        else
+        {
+            xRange = ChartScale.Zoom(_viewDragXStart, _viewDragXEnd, dx, plot.Width);
+            yRange = ChartScale.Zoom(_viewDragYMin, _viewDragYMax, -dy, plot.Height);
+        }
+
+        if (!double.IsFinite(xRange.Min)
+            || !double.IsFinite(xRange.Max)
+            || xRange.Max <= xRange.Min
+            || !double.IsFinite(yRange.Min)
+            || !double.IsFinite(yRange.Max)
+            || yRange.Max <= yRange.Min)
+        {
+            return false;
+        }
+
+        var args = new ChartDragEventArgs(xRange.Min, xRange.Max, yRange.Min, yRange.Max);
+        if (_draggingView == ChartViewDrag.Pan)
+        {
+            if (PanRequested is null)
+            {
+                return false;
+            }
+
+            PanRequested.Invoke(this, args);
+        }
+        else
+        {
+            if (ZoomRequested is null)
+            {
+                return false;
+            }
+
+            ZoomRequested.Invoke(this, args);
+        }
+
+        return true;
+    }
+
+    private void ResetViewDrag()
+    {
+        _draggingView = ChartViewDrag.None;
+        _viewDragMoved = false;
     }
 
     private static double ClampFraction(double value)

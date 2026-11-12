@@ -161,6 +161,10 @@ if (-not $SkipPack) {
 
     & (Join-Path $root 'tools\verify-sdk-packages.ps1')
     if ($LASTEXITCODE -ne 0) { throw 'SDK 包产物校验失败（见上方 x 行）' }
+
+    Write-Host "===== 4d/6 模块模板（作者包消费验证）=====" -ForegroundColor Cyan
+    & (Join-Path $root 'tools\verify-standalone-module.ps1') -SdkRoot (Join-Path $root 'artifacts\sdk-packages')
+    if ($LASTEXITCODE -ne 0) { throw '模块模板验证失败（只靠作者包构建/装入）' }
 }
 else {
     Write-Host "[skip] 模块作者包打包已跳过（-SkipPack）" -ForegroundColor Yellow

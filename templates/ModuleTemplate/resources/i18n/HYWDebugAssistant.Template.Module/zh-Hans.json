@@ -1,0 +1,17 @@
+{
+  "language": "zh-Hans",
+  "entries": {
+    "module.title": "模块模板",
+    "module.description": "最小的可构建模块：收发数据、配置、命令、定时器与视图",
+    "role.forward": "转发",
+    "view.title": "模板",
+    "view.interval": "间隔",
+    "view.count": "事件数",
+    "view.state": "状态",
+    "view.reset": "清零",
+    "state.ready": "就绪",
+    "state.received": "已收到数据",
+    "state.tick": "定时触发",
+    "state.reset": "已清零"
+  }
+}

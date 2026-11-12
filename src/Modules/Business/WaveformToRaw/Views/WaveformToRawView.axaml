@@ -1,0 +1,83 @@
+<ui:ModuleView xmlns="https://github.com/avaloniaui"
+               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+               xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+               xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+               xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
+               xmlns:local="using:HYWDebugAssistant.Modules.WaveformToRaw"
+               x:Class="HYWDebugAssistant.Modules.WaveformToRaw.Views.WaveformToRawView"
+               x:CompileBindings="True"
+               x:DataType="contracts:IModuleViewContext"
+               InitialWidth="560" InitialHeight="340"
+               MinWidth="560" MinHeight="340">
+
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="12">
+
+    <ui:ModuleLabel Grid.Row="0" Classes="caption" Text="{loc:Tr view.title}" />
+
+    <Grid Grid.Row="1" Margin="0,10,0,0" ColumnDefinitions="Auto,150" HorizontalAlignment="Left">
+      <ui:ModuleLabel Grid.Column="0" Classes="caption right" Width="84" Height="24" Margin="0,0,8,0"
+                      Field="{x:Static local:WaveformToRawModule.ProtocolField}" />
+      <ui:ModuleConfigField Grid.Column="1" Width="150" Height="24"
+                            Field="{x:Static local:WaveformToRawModule.ProtocolField}" />
+    </Grid>
+
+    <Grid Grid.Row="2" Name="TextParams" Margin="0,8,0,0"
+          ColumnDefinitions="Auto,110,Auto,110" HorizontalAlignment="Left">
+      <ui:ModuleLabel Grid.Column="0" Classes="caption right" Width="84" Height="24" Margin="0,0,8,0"
+                      Field="{x:Static local:WaveformToRawModule.HeaderField}" />
+      <ui:ModuleConfigField Grid.Column="1" Width="110" Height="24"
+                            Field="{x:Static local:WaveformToRawModule.HeaderField}" />
+      <ui:ModuleLabel Grid.Column="2" Classes="caption right" Width="60" Height="24" Margin="12,0,0,0"
+                      Field="{x:Static local:WaveformToRawModule.FooterField}" />
+      <ui:ModuleConfigField Grid.Column="3" Width="110" Height="24"
+                            Field="{x:Static local:WaveformToRawModule.FooterField}" />
+    </Grid>
+
+    <Grid Grid.Row="3" Name="FireWaterParams" Margin="0,8,0,0"
+          ColumnDefinitions="Auto,160" HorizontalAlignment="Left">
+      <ui:ModuleLabel Grid.Column="0" Classes="caption right" Width="84" Height="24"
+                      Text="{loc:Tr view.prefix}" />
+      <ui:ModuleConfigField Grid.Column="1" Width="160" Height="24"
+                            Field="{x:Static local:WaveformToRawModule.PrefixField}" />
+    </Grid>
+
+    <Grid Grid.Row="4" Margin="0,8,0,0"
+          ColumnDefinitions="Auto,100,Auto,57,Auto,64" HorizontalAlignment="Left">
+      <ui:ModuleLabel Grid.Column="0" Classes="caption right" Width="84" Height="24" Margin="0,0,8,0"
+                      Field="{x:Static local:WaveformToRawModule.GroupIdField}" />
+      <ui:ModuleConfigField Grid.Column="1" Width="100" Height="24"
+                            Field="{x:Static local:WaveformToRawModule.GroupIdField}" />
+      <ui:ModuleLabel Grid.Column="2" Classes="caption right" Width="57" Height="24" Margin="12,0,0,0"
+                      Field="{x:Static local:WaveformToRawModule.OnlyGroupField}" />
+      <ui:ModuleConfigField Grid.Column="3" Width="57" Height="24"
+                            Field="{x:Static local:WaveformToRawModule.OnlyGroupField}" />
+      <ui:ModuleLabel Grid.Column="4" Classes="caption right" Width="64" Height="24" Margin="12,0,0,0"
+                      Field="{x:Static local:WaveformToRawModule.DecimalsField}" />
+      <ui:ModuleConfigField Grid.Column="5" Width="64" Height="24"
+                            Field="{x:Static local:WaveformToRawModule.DecimalsField}" />
+    </Grid>
+
+    <Grid Grid.Row="5" Margin="0,12,0,0" ColumnDefinitions="Auto,Auto,Auto,Auto,*" HorizontalAlignment="Left">
+      <ui:ModuleLabel Grid.Column="0" Classes="caption" Text="{loc:Tr view.channels}" VerticalAlignment="Center" />
+      <ui:ModuleNumeric Grid.Column="1" Margin="10,0,0,0" Text="0" VerticalAlignment="Center"
+                        Source="{x:Static local:WaveformToRawModule.ChannelCountSource}" />
+      <ui:ModuleLabel Grid.Column="2" Classes="caption" Margin="18,0,0,0" Text="{loc:Tr view.group}" VerticalAlignment="Center" />
+      <ui:ModuleNumeric Grid.Column="3" Margin="10,0,0,0" Text="0" VerticalAlignment="Center"
+                        Source="{x:Static local:WaveformToRawModule.GroupIdSource}" />
+      <ui:ModuleLabel Grid.Column="4" Margin="18,0,0,0" Classes="hint" Text="{loc:Tr state.ready}"
+                      Source="{x:Static local:WaveformToRawModule.StatusSource}" VerticalAlignment="Center" />
+    </Grid>
+
+    <Grid Grid.Row="7" ColumnDefinitions="Auto,Auto,Auto,Auto,*" HorizontalAlignment="Left" VerticalAlignment="Bottom">
+      <ui:ModuleLabel Grid.Column="0" Classes="micro" Text="{loc:Tr view.frames}" VerticalAlignment="Center" />
+      <ui:ModuleNumeric Grid.Column="1" Margin="6,0,0,0" Text="0" VerticalAlignment="Center"
+                        Source="{x:Static local:WaveformToRawModule.FramesSource}" />
+      <ui:ModuleLabel Grid.Column="2" Classes="micro" Margin="14,0,0,0" Text="{loc:Tr view.dropped}" VerticalAlignment="Center" />
+      <ui:ModuleNumeric Grid.Column="3" Margin="6,0,0,0" Text="0" VerticalAlignment="Center"
+                        Source="{x:Static local:WaveformToRawModule.DroppedSource}" />
+      <ui:ModuleButton Grid.Column="4" Width="88" Height="27" Margin="24,0,0,0" HorizontalAlignment="Left"
+                       CommandName="{x:Static local:WaveformToRawModule.ResetCommand}"
+                       Content="{loc:Tr view.reset}" />
+    </Grid>
+  </Grid>
+</ui:ModuleView>

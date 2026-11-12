@@ -8,17 +8,24 @@ internal sealed class CsvExport : IDisposable
 {
     private readonly StreamWriter _writer;
     private readonly DisplayGroupRuntime _group;
-    private readonly string[] _channelNames;
+    private readonly int[] _channelIndices;
     private readonly double _rate;
     private readonly long _end;
     private readonly StringBuilder _row = new(256);
 
     private long _index;
 
-    public CsvExport(string path, DisplayGroupRuntime group, int channelCount, string[] channelNames, double rate, long start, long end)
+    public CsvExport(
+        string path,
+        DisplayGroupRuntime group,
+        int[] channelIndices,
+        string[] channelNames,
+        double rate,
+        long start,
+        long end)
     {
         _group = group;
-        _channelNames = channelNames;
+        _channelIndices = channelIndices;
         _rate = rate;
         _end = end;
         _index = start;
@@ -26,10 +33,10 @@ internal sealed class CsvExport : IDisposable
 
         _writer = new StreamWriter(path, append: false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
         _writer.Write("sample_index,time_seconds");
-        for (var index = 0; index < channelCount; index++)
+        for (var index = 0; index < channelNames.Length; index++)
         {
             _writer.Write(',');
-            _writer.Write(Escape(index < channelNames.Length ? channelNames[index] : "CH" + (index + 1).ToString(CultureInfo.InvariantCulture)));
+            _writer.Write(Escape(channelNames[index]));
         }
 
         _writer.WriteLine();
@@ -51,10 +58,11 @@ internal sealed class CsvExport : IDisposable
             _row.Append(',');
             _row.Append(_rate > 0 ? (_index / _rate).ToString("0.######", CultureInfo.InvariantCulture) : "0");
 
-            for (var channel = 0; channel < _group.ChannelCount; channel++)
+            for (var column = 0; column < _channelIndices.Length; column++)
             {
                 _row.Append(',');
-                if (channel >= _group.Histories.Length || _index >= _group.Histories[channel].Count)
+                var channel = _channelIndices[column];
+                if (channel < 0 || channel >= _group.Histories.Length)
                 {
                     continue;
                 }

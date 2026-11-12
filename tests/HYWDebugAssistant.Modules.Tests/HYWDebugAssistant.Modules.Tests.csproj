@@ -38,9 +38,12 @@
     <ProjectReference Include="..\..\src\Modules\Business\TcpClient\HYWDebugAssistant.Modules.TcpClient.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\TcpServer\HYWDebugAssistant.Modules.TcpServer.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\Udp\HYWDebugAssistant.Modules.Udp.csproj" />
-    <!-- 第三批（波形）：显示器/发生器；两者以 hyw/waveform-frame 约定互连。 -->
+    <!-- 第三批（波形）：显示器/发生器；两者以 WaveformFrame 约定互连。 -->
     <ProjectReference Include="..\..\src\Modules\Business\WaveformDisplay\HYWDebugAssistant.Modules.WaveformDisplay.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\WaveformGenerator\HYWDebugAssistant.Modules.WaveformGenerator.csproj" />
+    <!-- 第四批（波形桥）：原始 ↔ 波形 双向转换；与显示器/监视器同契约。 -->
+    <ProjectReference Include="..\..\src\Modules\Business\RawToWaveform\HYWDebugAssistant.Modules.RawToWaveform.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\WaveformToRaw\HYWDebugAssistant.Modules.WaveformToRaw.csproj" />
     <!-- 样板模块（开发样板 · 声明面演示箱）：与四个正式模块同型，契约自检同口径 -->
   </ItemGroup>
 

@@ -30,7 +30,7 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     /// <param name="offset">在所属边缘上的归一化位置（0–1）。</param>
     /// <param name="typeText">端口的**信息类型**描述（如 <c>f32</c>；null = 未知 → 显示占位符）。</param>
     /// <param name="typeKey">
-    /// 端口的**类型身份**（`标识@v版本`；未声明类型 ⇒ 结构描述）——**色板键**：
+    /// 端口的**类型标识**（未声明类型 ⇒ 结构描述）——**色板键**：
     /// 颜色按身份映射，才能与角色方块同色、且不把"不同标识同形状"混为一色。
     /// </param>
     /// <remarks>
@@ -170,7 +170,7 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     public partial string TypeText { get; set; } = "—";
 
     /// <summary>
-    /// 端口**类型身份**（色板键）：已声明类型 ⇒ `标识@v版本`；未声明 ⇒ 结构描述；未知 ⇒ null。
+    /// 端口**类型标识**（色板键）：已声明类型 ⇒ 标识；未声明 ⇒ 结构描述；未知 ⇒ null。
     /// </summary>
     /// <remarks>颜色**按身份**映射（不是按呈现文本）：与角色方块同色，且不会把"不同标识同形状"混为一色。</remarks>
     public string? TypeKey { get; }
