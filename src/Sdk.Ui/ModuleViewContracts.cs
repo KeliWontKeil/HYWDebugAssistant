@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Ui;
@@ -61,6 +62,16 @@ public enum ConfigFieldKind
 /// <param name="Value">写回时的字面量。</param>
 /// <param name="Title">显示文本。</param>
 public sealed record ConfigChoice(string Value, string Title);
+
+/// <summary>控件把用户修改交出去的时机（纯操作行为，与值存在哪里无关）。</summary>
+public enum ValueCommitMode
+{
+    /// <summary>每次修改即提交（开关、下拉、即时生效的文本）。</summary>
+    OnChange = 0,
+
+    /// <summary>回车 / 显式动作才提交（普通文本、数字）。</summary>
+    OnExplicit = 1,
+}
 
 /// <summary>一个配置字段的呈现（"这一格怎么画、写回什么字面量"）。</summary>
 /// <param name="Name">字段名（写回时的键）。</param>
@@ -253,6 +264,56 @@ public interface IModuleViewContext
     /// <param name="source">输入源名。</param>
     /// <param name="text">当前文本。</param>
     void WriteInputText(string source, string text);
+
+    /// <summary>
+    /// 读一个值此刻对视图呈现的全部事实（当前值、默认、可选项、只读/禁用、结论、变更号）。
+    /// </summary>
+    /// <param name="name">值名。</param>
+    /// <remarks>控件只按这个名字取状态；它不知道值最终落在配置还是视图状态里。</remarks>
+    ValueState ReadValue(string name)
+    {
+        var field = ReadField(name);
+        if (field is null)
+        {
+            return ValueState.Empty(name);
+        }
+
+        var editor = field.Kind switch
+        {
+            ConfigFieldKind.Boolean => ValueEditor.Boolean,
+            ConfigFieldKind.WholeNumber or ConfigFieldKind.Number => ValueEditor.Number,
+            ConfigFieldKind.Enum => ValueEditor.Enum,
+            _ => ValueEditor.Text,
+        };
+
+        return new ValueState(
+            name,
+            editor,
+            field.Value,
+            field.Value,
+            field.Choices?.Select(choice => new ValueChoice(choice.Value, choice.Title)).ToArray(),
+            false,
+            true,
+            null,
+            0,
+            IsKnown: true);
+    }
+
+    /// <summary>把用户交出的值提交给框架（控件不直接接触存储）。</summary>
+    /// <param name="name">值名。</param>
+    /// <param name="text">新值。</param>
+    void CommitValue(string name, string text)
+    {
+    }
+
+    /// <summary>
+    /// 登记控件在 XAML 里声明的初值；仅在值声明没有提供默认值时使用。
+    /// </summary>
+    /// <param name="name">值名。</param>
+    /// <param name="value">XAML 初值。</param>
+    void RegisterViewDefault(string name, string value)
+    {
+    }
 
     /// <summary>读某个页签组当前选中的页（没有记录 ⇒ <see langword="null"/>）。</summary>
     /// <param name="stateKey">页签组的状态键（模块与视图共用的常量）。</param>

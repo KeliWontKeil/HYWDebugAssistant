@@ -54,36 +54,41 @@
     <Canvas Grid.Row="1" Height="86" ClipToBounds="True">
       <!-- X 行：范围、刻度、起止、跟踪、自定义频率；数值单位只由 AxisModeSelect 决定。 -->
       <ui:ModuleSelect x:Name="AxisModeSelect" Canvas.Left="0" Canvas.Top="44" Width="80" Height="22"
-                       SelectedKey="index" />
+                       Value="{x:Static views:WaveformDisplayViewKeys.XAxisMode}" SelectedKey="index">
+        <ui:ModuleSelect.PreviewOptions>
+          <ui:ModuleSelectOption Key="index" Label="{loc:Tr view.xIndex}" />
+          <ui:ModuleSelectOption Key="time" Label="{loc:Tr view.xTime}" />
+        </ui:ModuleSelect.PreviewOptions>
+      </ui:ModuleSelect>
 
       <ui:ModuleLabel Canvas.Left="84" Canvas.Top="29" Width="54" Height="22" Classes="caption right"
                       Text="{loc:Tr view.xTick}" />
       <ui:ModuleTextSurface x:Name="XTickInput" Canvas.Left="140" Canvas.Top="29" Width="42" Height="24"
                             Mode="Input" Text="0"
-                            Source="{x:Static views:WaveformDisplayViewKeys.XTick}" />
+                            CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.XTick}" />
       <ui:ModuleLabel Canvas.Left="186" Canvas.Top="29" Width="72" Height="22" Classes="caption right"
                       Text="{loc:Tr view.xStart}" />
       <ui:ModuleTextSurface x:Name="XStartInput" Canvas.Left="260" Canvas.Top="29" Width="56" Height="24"
                             Mode="Input" Text="0"
-                            Source="{x:Static views:WaveformDisplayViewKeys.XStart}" />
+                            CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.XStart}" />
       <ui:ModuleLabel Canvas.Left="320" Canvas.Top="29" Width="72" Height="22" Classes="caption right"
                       Text="{loc:Tr view.xEnd}" />
       <ui:ModuleTextSurface x:Name="XEndInput" Canvas.Left="394" Canvas.Top="29" Width="56" Height="24"
                             Mode="Input" Text="255"
-                            Source="{x:Static views:WaveformDisplayViewKeys.XEnd}" />
+                            CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.XEnd}" />
 
       <ui:ModuleToggle Canvas.Left="572" Canvas.Top="29" Width="36" Height="24" IsChecked="True"
-                       Source="{x:Static views:WaveformDisplayViewKeys.Follow}" />
+                       Value="{x:Static views:WaveformDisplayViewKeys.Follow}" />
       <ui:ModuleLabel Canvas.Left="610" Canvas.Top="29" Width="30" Height="24" Classes="caption"
                       Text="{loc:Tr view.follow}" />
       <ui:ModuleLabel Canvas.Left="452" Canvas.Top="29" Width="56" Height="24" Classes="caption right"
                       Text="{loc:Tr view.followRange}" />
       <ui:ModuleTextSurface x:Name="FollowRangeInput" Canvas.Left="510" Canvas.Top="29" Width="56" Height="24"
                             Mode="Input" Text="256"
-                            Source="{x:Static views:WaveformDisplayViewKeys.FollowRange}" />
+                            CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.FollowRange}" />
 
       <ui:ModuleToggle x:Name="UseCustomRateToggle" Canvas.Left="400" Canvas.Top="0" Width="36" Height="24"
-                       Source="{x:Static views:WaveformDisplayViewKeys.UseCustomRate}"
+                       Value="{x:Static views:WaveformDisplayViewKeys.UseCustomRate}"
                        ToolTip.Tip="{loc:Tr view.customRateTip}" />
       <ui:ModuleLabel Canvas.Left="438" Canvas.Top="0" Width="90" Height="24" Classes="caption"
                       Text="{loc:Tr view.useCustomRate}" />
@@ -91,27 +96,27 @@
                       Text="{loc:Tr view.CustomRate}" />
       <ui:ModuleTextSurface x:Name="CustomRateInput" Canvas.Left="332" Canvas.Top="0" Width="64" Height="24"
                             Mode="Input" Text="100"
-                            Source="{x:Static views:WaveformDisplayViewKeys.CustomRate}" />
+                            CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.CustomRate}" />
 
       <!-- Y 行：范围、刻度、起止,自动y -->
       <ui:ModuleLabel Canvas.Left="84" Canvas.Top="54" Width="54" Height="22" Classes="caption right"
                       Text="{loc:Tr view.yTick}" />
       <ui:ModuleTextSurface x:Name="YTickInput" Canvas.Left="140" Canvas.Top="54" Width="42" Height="22"
                             Mode="Input" Text="0"
-                            Source="{x:Static views:WaveformDisplayViewKeys.YTick}" />
+                            CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.YTick}" />
       <ui:ModuleLabel Canvas.Left="186" Canvas.Top="54" Width="72" Height="22" Classes="caption right"
                       Text="{loc:Tr view.yMin}" />
       <ui:ModuleTextSurface x:Name="YMinInput" Canvas.Left="260" Canvas.Top="54" Width="56" Height="22"
                             Mode="Input" Text="-1"
-                            Source="{x:Static views:WaveformDisplayViewKeys.YMin}" />
+                            CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.YMin}" />
       <ui:ModuleLabel Canvas.Left="320" Canvas.Top="54" Width="72" Height="22" Classes="caption right"
                       Text="{loc:Tr view.yMax}" />
       <ui:ModuleTextSurface x:Name="YMaxInput" Canvas.Left="394" Canvas.Top="54" Width="56" Height="22"
                             Mode="Input" Text="1"
-                            Source="{x:Static views:WaveformDisplayViewKeys.YMax}" />
+                            CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.YMax}" />
 
       <ui:ModuleToggle Canvas.Left="460" Canvas.Top="54" Width="36" Height="22" IsChecked="True"
-                       Source="{x:Static views:WaveformDisplayViewKeys.YAuto}" />
+                       Value="{x:Static views:WaveformDisplayViewKeys.YAuto}" />
       <ui:ModuleLabel Canvas.Left="498" Canvas.Top="54" Width="56" Height="22" Classes="caption"
                       Text="{loc:Tr view.yAuto}" />
 
@@ -123,13 +128,13 @@
                        CommandName="{x:Static views:WaveformDisplayViewKeys.Clear}"
                        Content="{loc:Tr view.clear}" />
       <ui:ModuleToggle Canvas.Left="184" Canvas.Top="0" Width="36" Height="22" IsChecked="True"
-                       Source="{x:Static views:WaveformDisplayViewKeys.Cursors}" />
+                       Value="{x:Static views:WaveformDisplayViewKeys.Cursors}" />
       <ui:ModuleLabel Canvas.Left="222" Canvas.Top="0" Width="36" Height="22" Classes="caption"
                       Text="{loc:Tr view.cursors}" />
 
       <ui:ModuleToggle x:Name="KeepInactiveToggle" Canvas.Left="682" Canvas.Top="32" Width="36" Height="22"
                        IsChecked="True"
-                       Source="{x:Static views:WaveformDisplayViewKeys.KeepInactive}" />
+                       Value="{x:Static views:WaveformDisplayViewKeys.KeepInactive}" />
       <ui:ModuleLabel Canvas.Left="720" Canvas.Top="32" Width="108" Height="22" Classes="caption"
                       Text="{loc:Tr view.keepInactive}" />
       <ui:ModuleLabel Canvas.Left="834" Canvas.Top="32" Width="48" Height="22" Classes="caption right"
@@ -139,7 +144,7 @@
                       Text="{loc:Tr view.historyUsagePreview}" />
       <ui:ModuleTextSurface x:Name="HistoryLimitInput" Canvas.Left="884" Canvas.Top="32" Width="56" Height="22"
                             Mode="Input" Text="0"
-                            Source="{x:Static views:WaveformDisplayViewKeys.HistoryLimit}" />
+                            CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.HistoryLimit}" />
       
 
       <ui:ModuleButton Canvas.Left="680" Canvas.Top="0" Width="74" Height="22"

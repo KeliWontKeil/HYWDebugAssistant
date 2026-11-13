@@ -6,6 +6,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
@@ -36,14 +37,14 @@ public enum TextSurfaceMode
 /// 仍可用鼠标选中复制（只是没有光标与提交）。
 /// </para>
 /// <para>
-/// **失焦不提交**：编辑内容逐键写进视图状态，失焦只是"编辑结束"；提交只由 Enter（单行）/
-/// Ctrl+Enter（多行）或显式 <see cref="Commit"/> 触发 —— 否则"填完点别处"会变成一次发送。
+/// **提交是控件行为**：<see cref="CommitMode"/> 为 <see cref="ValueCommitMode.OnChange"/> 时逐键交值，
+/// 为 <see cref="ValueCommitMode.OnExplicit"/> 时只由 Enter（单行）/ Ctrl+Enter（多行）或显式
+/// <see cref="Commit"/> 交值；<see cref="ValueCommitMode.OnExplicit"/> 在失焦时也提交。
 /// </para>
 /// <para>
-/// **程序写入 ≠ 用户编辑**：给 <see cref="Text"/> 赋值（视图刷新/模块回写）只更新叶子显示，
-/// 不写视图状态；只有用户真的改字才写 `ViewState`。Avalonia 12 的 `TextBox.TextChanged`
-/// 由 `Dispatcher.Post` **异步投递**，一次性抑制标志盖不住它 —— 程序写入后本面已知文本
-/// 已经前移，迟到的回调读到相同文本即可判定不是用户编辑。
+/// **控件不碰后端**：值从 <see cref="IModuleViewContext.ReadValue"/> 来，用户修改经
+/// <see cref="IModuleViewContext.CommitValue"/> 交出去；控件不知道值落在配置还是视图状态里，
+/// 也不判断错误。给 <see cref="Text"/> 赋值只更新显示。
 /// </para>
 /// </remarks>
 public sealed class ModuleTextSurface : ModuleElement
@@ -62,8 +63,10 @@ public sealed class ModuleTextSurface : ModuleElement
     private bool _appearanceReadOnly;
     private bool _multiline;
     private bool _showNewlineMarks = true;
-    private bool _restored;
-    private bool _userEdited;
+    private bool _valueRegistered;
+    private string _committedValue = string.Empty;
+    private object? _baseToolTip;
+    private bool _noticeToolTipActive;
     private bool _followTail;
     private string _textValue = string.Empty;
     private string _unmarkedKey = string.Empty;
@@ -83,12 +86,20 @@ public sealed class ModuleTextSurface : ModuleElement
     /// <summary>造一个文本面（视觉部件在模板应用时取得）。</summary>
     public ModuleTextSurface()
     {
-        AttachedToVisualTree += (_, _) =>
-        {
-            ResolveContext();
-            Restore();
-        };
+        AttachedToVisualTree += (_, _) => ResolveContext();
     }
+
+    /// <summary>
+    /// 绑定的**值名**（输入模式）。不可为空；显示模式用 <c>Source</c>。
+    /// </summary>
+    /// <remarks>控件不知道值最终存在哪里；它只读 <see cref="IModuleViewContext.ReadValue"/>。</remarks>
+    public string Value { get; set; } = string.Empty;
+
+    /// <summary>用户修改交出去的时机（仅值通道）。</summary>
+    public ValueCommitMode CommitMode { get; set; } = ValueCommitMode.OnExplicit;
+
+    /// <summary>值通道用值名寻址外观；显示模式仍用显示源名。</summary>
+    protected override string AppearanceKey => Value.Length > 0 ? Value : base.AppearanceKey;
 
     /// <summary>输入源 / 显示源模式。</summary>
     public TextSurfaceMode Mode
@@ -225,8 +236,6 @@ public sealed class ModuleTextSurface : ModuleElement
         {
             SetSurfaceText(_textValue, null);
         }
-
-        Restore();
     }
 
     /// <inheritdoc />
@@ -235,29 +244,107 @@ public sealed class ModuleTextSurface : ModuleElement
         ArgumentNullException.ThrowIfNull(context);
         _context = context;
 
-        if (Source.Length == 0)
-        {
-            return;
-        }
-
         if (Mode == TextSurfaceMode.Display)
         {
-            RefreshDisplay(context);
+            if (Source.Length > 0)
+            {
+                RefreshDisplay(context);
+            }
+
             return;
         }
 
-        Restore();
+        if (Value.Length > 0)
+        {
+            RefreshValue(context);
+        }
     }
 
-    /// <summary>把当前编辑文本提交给模块（仅可编辑 Input 面；**失焦不会调用它**，只由 Enter / 显式调用触发）。</summary>
-    public void Commit()
+    /// <summary>值通道的一帧：登记 XAML 初值、读有效值、把结论落到框外圈与悬停提示。</summary>
+    private void RefreshValue(IModuleViewContext context)
     {
-        if (_context is null || Source.Length == 0 || _input is null || IsReadOnlyEffective)
+        if (_input is null)
         {
             return;
         }
 
-        _ = _context.SubmitInput(Source, _input.Text ?? string.Empty);
+        if (!_valueRegistered)
+        {
+            _valueRegistered = true;
+            context.RegisterViewDefault(Value, Text);
+        }
+
+        var state = context.ReadValue(Value);
+
+        if (!state.IsKnown)
+        {
+            ApplyValueNotice(null);
+            return;
+        }
+
+        // 焦点内且文本尚未被值层接受时，保留本地上次提交值；否则 Enter 后失焦会重复提交。
+        if (!_input.IsKeyboardFocusWithin
+            || string.Equals(_input.Text, state.Value, StringComparison.Ordinal))
+        {
+            _committedValue = state.Value;
+        }
+
+        // 用户正在输入时不覆盖本地意图；失焦后下一帧接受值层的有效值。
+        if (!_input.IsKeyboardFocusWithin
+            && !string.Equals(_input.Text, state.Value, StringComparison.Ordinal))
+        {
+            SetSurfaceText(state.Value, null);
+        }
+        ApplyValueNotice(state.Notice);
+    }
+
+    /// <summary>把值层的结论画成外圈/提示；控件不判断结论是什么。</summary>
+    private void ApplyValueNotice(ValueNotice? notice)
+    {
+        // 外观通道先于本方法执行：Notice 为空时不清圈，否则模块刚设的红框会被本控件擦掉。
+        if (notice is { Severity: ValueNoticeSeverity.Error or ValueNoticeSeverity.Warning }
+            && _errorRing is not null)
+        {
+            SetTokenBrush(
+                _errorRing,
+                Border.BorderBrushProperty,
+                notice.Severity == ValueNoticeSeverity.Error ? "SemanticError" : "SemanticWarn");
+            _errorRing.IsVisible = true;
+        }
+
+        if (notice is { Message.Length: > 0 })
+        {
+            if (!_noticeToolTipActive)
+            {
+                _baseToolTip = ToolTip.GetTip(this);
+                _noticeToolTipActive = true;
+            }
+
+            ToolTip.SetTip(this, notice.Message);
+        }
+        else if (_noticeToolTipActive)
+        {
+            ToolTip.SetTip(this, _baseToolTip);
+            _noticeToolTipActive = false;
+        }
+    }
+
+    /// <summary>把当前编辑文本提交给模块（仅可编辑 Input 面；Enter、显式调用或 OnExplicit 失焦触发）。</summary>
+    public void Commit()
+    {
+        if (_context is null || _input is null || IsReadOnlyEffective)
+        {
+            return;
+        }
+
+        if (Value.Length == 0)
+        {
+            return;
+        }
+
+        var text = _input.Text ?? string.Empty;
+        _context.CommitValue(Value, text);
+        _committedValue = text;
     }
 
     /// <inheritdoc />
@@ -455,7 +542,7 @@ public sealed class ModuleTextSurface : ModuleElement
 
     private void OnInputTextChanged(object? sender, TextChangedEventArgs e)
     {
-        if (_context is null || Source.Length == 0 || _mode != TextSurfaceMode.Input || IsReadOnlyEffective)
+        if (_context is null || Value.Length == 0 || _mode != TextSurfaceMode.Input || IsReadOnlyEffective)
         {
             return;
         }
@@ -469,8 +556,12 @@ public sealed class ModuleTextSurface : ModuleElement
         }
 
         _textValue = text;
-        _userEdited = true;
-        _context.WriteInputText(Source, text);
+
+        // 提交时机是控件的操作属性：即时档每次修改都交给值层，显式档等 Enter/Commit。
+        if (CommitMode == ValueCommitMode.OnChange)
+        {
+            _context.CommitValue(Value, text);
+        }
     }
 
     private void OnInputLostFocus(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -480,8 +571,16 @@ public sealed class ModuleTextSurface : ModuleElement
             _focusRing.IsVisible = false;
         }
 
-        // **失焦 = 编辑结束，不是动作**：不提交。
-        // 内容已由 OnInputTextChanged 逐键写进视图状态，模块每拍都读得到；提交只属于 Enter / 显式调用。
+        // 显式提交档：失焦提交，避免“改了输入框、点了别处却没提交”。
+        // 即时档已经在 OnInputTextChanged 逐键提交，这里不重复。
+        if (Value.Length > 0
+            && CommitMode == ValueCommitMode.OnExplicit
+            && !IsReadOnlyEffective
+            && _input is not null
+            && !string.Equals(_input.Text ?? string.Empty, _committedValue, StringComparison.Ordinal))
+        {
+            Commit();
+        }
     }
 
     private void OnInputGotFocus(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -530,32 +629,6 @@ public sealed class ModuleTextSurface : ModuleElement
             args.Handled = true;
             Commit();
         }
-    }
-
-    private void Restore()
-    {
-        if (_restored || _context is null || Source.Length == 0 || _mode != TextSurfaceMode.Input)
-        {
-            return;
-        }
-
-        _restored = true;
-
-        // 用户真的改过字 ⇒ 本地意图优先，不被视图状态倒灌。
-        if (_userEdited)
-        {
-            return;
-        }
-
-        // 运行期状态（包括显式空串）覆盖 XAML 的初始/预览值；没有状态才保留声明值。
-        var text = _context.ReadInputText(Source);
-
-        if (text is null)
-        {
-            return;
-        }
-
-        SetSurfaceText(text, null);
     }
 
     private void RefreshDisplay(IModuleViewContext context)

@@ -774,6 +774,14 @@ public sealed class ChartSurface : Control
         var step = XStep > 0 && double.IsFinite(XStep) ? XStep : 1;
         var xStart = XStart;
         var xEnd = ResolveXEnd(step, VisiblePointCount());
+
+        // 空图（或只有一个点）没有“点数跨度”可算；宿主仍给了 XEnd，
+        // 用它作为可拖动视口，否则空图表上的平移/缩放手势会被判为无效。
+        if (xEnd <= xStart && double.IsFinite(XEnd) && XEnd > xStart)
+        {
+            xEnd = XEnd;
+        }
+
         var yMin = YMin;
         var yMax = YMax;
         if (!double.IsFinite(xStart)

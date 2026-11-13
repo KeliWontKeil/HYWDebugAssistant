@@ -37,27 +37,27 @@
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="1" Width="48" Height="24"
                     Classes="caption right" Field="{x:Static views:SerialViewKeys.PortName}" />
     <ui:ModuleConfigField Canvas.Left="52" Canvas.Top="1" Width="100" Height="24"
-                          Field="{x:Static views:SerialViewKeys.PortName}" />
+                          Value="{x:Static views:SerialViewKeys.PortName}" />
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="27" Width="48" Height="24"
                     Classes="caption right" Field="{x:Static views:SerialViewKeys.BaudRate}" />
     <ui:ModuleConfigField Canvas.Left="52" Canvas.Top="27" Width="100" Height="24"
-                          Field="{x:Static views:SerialViewKeys.BaudRate}" />
+                          Value="{x:Static views:SerialViewKeys.BaudRate}" />
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="53" Width="48" Height="24"
                     Classes="caption right" Field="{x:Static views:SerialViewKeys.DataBits}" />
     <ui:ModuleConfigField Canvas.Left="52" Canvas.Top="53" Width="100" Height="24"
-                          Field="{x:Static views:SerialViewKeys.DataBits}" />
+                          Value="{x:Static views:SerialViewKeys.DataBits}" />
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="79" Width="48" Height="24"
                     Classes="caption right" Field="{x:Static views:SerialViewKeys.StopBits}" />
     <ui:ModuleConfigField Canvas.Left="52" Canvas.Top="79" Width="100" Height="24"
-                          Field="{x:Static views:SerialViewKeys.StopBits}" />
+                          Value="{x:Static views:SerialViewKeys.StopBits}" />
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="105" Width="48" Height="24"
                     Classes="caption right" Field="{x:Static views:SerialViewKeys.Parity}" />
     <ui:ModuleConfigField Canvas.Left="52" Canvas.Top="105" Width="100" Height="24"
-                          Field="{x:Static views:SerialViewKeys.Parity}" />
+                          Value="{x:Static views:SerialViewKeys.Parity}" />
 
     <!-- 右栏：状态灯 + 三格读数。 -->
     <ui:ModuleStatusLight Canvas.Left="170" Canvas.Top="28"

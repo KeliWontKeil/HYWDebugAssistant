@@ -3,6 +3,7 @@ using System.Reflection;
 using Avalonia.Controls;
 using HYWDebugAssistant.Sdk.Configuration;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
@@ -180,6 +181,48 @@ public sealed class DesignModuleViewContext : IModuleViewContext
             description,
             group);
     }
+
+    /// <inheritdoc />
+    public ValueState ReadValue(string name)
+    {
+        var field = ReadField(name);
+        if (field is null)
+        {
+            return ValueState.Empty(name);
+        }
+
+        return new ValueState(
+            name,
+            Translate(field.Kind),
+            field.Value,
+            field.Value,
+            field.Choices?.Select(choice => new ValueChoice(choice.Value, choice.Title)).ToArray(),
+            false,
+            true,
+            null,
+            0,
+            IsKnown: true);
+    }
+
+    /// <inheritdoc />
+    public void CommitValue(string name, string text)
+    {
+        // 预览没有运行时；控件只负责显示排版。
+    }
+
+    /// <inheritdoc />
+    public void RegisterViewDefault(string name, string value)
+    {
+        // 预览没有运行时值存储。
+    }
+
+    private static ValueEditor Translate(ConfigFieldKind kind) => kind switch
+    {
+        ConfigFieldKind.Boolean => ValueEditor.Boolean,
+        ConfigFieldKind.WholeNumber or ConfigFieldKind.Number => ValueEditor.Number,
+        ConfigFieldKind.Enum => ValueEditor.Enum,
+        _ => ValueEditor.Text,
+    };
 
     /// <summary>读属性当前值的文本形态（配置实例构造失败 ⇒ 空串）。</summary>
     private string ReadValue(PropertyInfo property)

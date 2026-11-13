@@ -1,17 +1,17 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using HYWDebugAssistant.Sdk.Values;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
 /// <summary>
-/// **开关**（绑一条输入源）：勾上提交 <c>"true"</c>、取消提交 <c>"false"</c>。
+/// **开关**（绑一个值）：勾上提交 <c>"true"</c>、取消提交 <c>"false"</c>。
 /// </summary>
 /// <remarks>
 /// <para>
-/// 显示值优先从**输入状态**读：模块把用户拨动后的值写回 `ViewState.SetInputValue`，
-/// 这就是"用户拨了"与"模块认了"的同一份事实；没有输入状态时才回退到同名显示源。
-/// 只读显示源会导致刷新时把开关弹回 false，而模块内部变量已经变了。
+/// 控件只读 <see cref="IModuleViewContext.ReadValue"/>、按 <see cref="CommitMode"/> 提交；
+/// 它不知道值最终落在配置还是视图状态里，也不判断错误。
 /// </para>
 /// <para>
 /// 视觉是模块自己的滑块（轨道 + 圆钮 + 滑动过渡），在 `ControlTheme` 的 `PART_Track` /
@@ -27,6 +27,9 @@ public sealed class ModuleToggle : ModuleElement
     private IModuleViewContext? _context;
     private bool _syncing;
     private bool _readOnly;
+    private bool _valueRegistered;
+    private object? _baseToolTip;
+    private bool _noticeToolTipActive;
 
     /// <summary>造一个开关（视觉结构在 `ControlTheme` 的 `PART_Track` / `PART_Knob` 里）。</summary>
     public ModuleToggle()
@@ -42,6 +45,15 @@ public sealed class ModuleToggle : ModuleElement
         get => GetValue(IsCheckedProperty);
         set => SetValue(IsCheckedProperty, value);
     }
+
+    /// <summary>绑定的**值名**；空 = 未绑定。</summary>
+    public string Value { get; set; } = string.Empty;
+
+    /// <summary>用户拨动交出去的时机（开关通常即时）。</summary>
+    public ValueCommitMode CommitMode { get; set; } = ValueCommitMode.OnChange;
+
+    /// <summary>值通道用值名寻址外观。</summary>
+    protected override string AppearanceKey => Value.Length > 0 ? Value : base.AppearanceKey;
 
     /// <summary>勾选态变化（**程序化写回也会触发**；调用方用 `_syncing` 区分）。</summary>
     public event EventHandler? CheckedChanged;
@@ -66,9 +78,14 @@ public sealed class ModuleToggle : ModuleElement
         }
 
         // 用户拨动 ⇒ 提交意愿；模块写回（`_syncing`）不得再提交一次。
-        if (_context is not null && Source.Length > 0)
+        if (_context is null || _syncing)
         {
-            _ = _context.SubmitInput(Source, value ? "true" : "false");
+            return;
+        }
+
+        if (Value.Length > 0 && CommitMode == ValueCommitMode.OnChange)
+        {
+            _context.CommitValue(Value, value ? "true" : "false");
         }
     }
 
@@ -78,30 +95,55 @@ public sealed class ModuleToggle : ModuleElement
         ArgumentNullException.ThrowIfNull(context);
         _context = context;
 
-        if (Source.Length == 0)
+        if (Value.Length == 0)
         {
             return;
         }
 
-        // **输入开关的事实源是输入状态，不是显示源**：模块把用户拨动后的值写回
-        // `ViewState.SetInputValue`；只看 `ReadLatest` 会拿到 null，刷新时把开关弹回 false，
-        // 而模块内部变量其实已经改了。显示源只作为没有输入状态时的兼容回退。
-        var text = context.ReadInputText(Source);
-
-        bool? wanted = text is not null
-            ? string.Equals(text, "true", StringComparison.OrdinalIgnoreCase)
-            : context.ReadLatest(Source) is { } number
-                ? number != 0
-                : null;
-
-        if (wanted is null || IsChecked == wanted.Value)
+        if (!_valueRegistered)
         {
+            _valueRegistered = true;
+            context.RegisterViewDefault(Value, IsChecked ? "true" : "false");
+        }
+
+        var state = context.ReadValue(Value);
+
+        if (!state.IsKnown)
+        {
+            ApplyNoticeToolTip(null);
             return;
         }
 
-        _syncing = true;
-        IsChecked = wanted.Value;
-        _syncing = false;
+        var wantedValue = string.Equals(state.Value, "true", StringComparison.OrdinalIgnoreCase);
+
+        if (IsChecked != wantedValue)
+        {
+            _syncing = true;
+            IsChecked = wantedValue;
+            _syncing = false;
+        }
+
+        ApplyNoticeToolTip(state.Notice);
+    }
+
+    /// <summary>值结论的悬停提示；不覆盖 XAML 声明的提示。</summary>
+    private void ApplyNoticeToolTip(ValueNotice? notice)
+    {
+        if (notice is { Message.Length: > 0 })
+        {
+            if (!_noticeToolTipActive)
+            {
+                _baseToolTip = ToolTip.GetTip(this);
+                _noticeToolTipActive = true;
+            }
+
+            ToolTip.SetTip(this, notice.Message);
+        }
+        else if (_noticeToolTipActive)
+        {
+            ToolTip.SetTip(this, _baseToolTip);
+            _noticeToolTipActive = false;
+        }
     }
 
     /// <inheritdoc />

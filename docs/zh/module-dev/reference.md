@@ -75,7 +75,8 @@ public interface IActivitySource
 | `Declaration` | `IModuleDeclaration` | **仅 `OnRegistered` 期间**使用；运行期不要再用 |
 | `Ports` | `IPortAccess` | 收发端口、发布显示值、读口压力、上报模块内部丢弃 |
 | `Access` | `IExternalAccess` | 外部接入；未接线时为空实现（请求被忽略、读无数据、写失败，不抛） |
-| `Configuration` | `IConfigurationAccess` | 读写实例配置；`Read<T>` 首次调用即登记默认值 |
+| `Configuration` | `IConfigurationAccess` | 读写实例配置；`Read<T>` 首次调用即登记默认值；控件值请走 `Values` |
+| `Values` | `IModuleValues` | 按值名读当前值、接受规范化值、报告字段结论；不区分配置/输入 |
 | `Issues` | `IIssueReporter` | 需要用户处理的问题；不抛 |
 | `Log` | `IModuleLogger` | 诊断日志；先 `IsEnabled` 再构造昂贵参数 |
 | `State` | `IBusinessStateReporter` | 业务状态行；不是 Issue |
@@ -98,7 +99,8 @@ public interface IActivitySource
 | `DeclareRole(RoleDeclaration)` | 功能分块：一种类型 + 输入口/输出口集合 | 一个口最多属于一个角色；两侧同型；未声明时只给建议 |
 | `DeclareFlow(FlowDeclaration)` | 角色之间的内部处理顺序 | 两端角色必须已声明；不得自环 |
 | `DeclareDisplaySource(DisplaySourceDeclaration)` | 界面可读的数据通道：名称、类别、值类型、单位 | 名称模块内唯一 |
-| `DeclareInput(string)` / `DeclareInput(InputDeclaration)` | 输入源名；可选持久化 | 名称模块内唯一 |
+| `DeclareValue(ValueDeclaration)` | 视图可编辑值：编辑器、可选项、持久化/重置属性；初值写在 XAML | 名称模块内唯一 |
+| `DeclareInput(string)` / `DeclareInput(InputDeclaration)` | 动作/事件输入源名（文件结果、结构动作等） | 名称模块内唯一 |
 | `DeclareCommand(string name, string title)` | 按钮命令 | 名称模块内唯一；`title` 只用于诊断文案 |
 | `DeclareExternalAccess(ExternalAccessDeclaration)` | 外部接入：接入名 + 标准标识 + 单元上限 | 接入名模块内唯一；标准标识必须是框架认识的值 |
 
@@ -173,7 +175,8 @@ new DisplaySourceDeclaration("count", ViewDataSourceKind.Value, ContractPrimitiv
 
 | 类型 | 要点 |
 |---|---|
-| `new InputDeclaration(name) { Persistence = InputPersistence.Persistent }` | 默认 `Transient`；`Persistent` 随组合件保存并在激活前恢复 |
+| `new ValueDeclaration(name) { ... }` | 视图可编辑值；`Persistent` / `ResetWithModule` 是正交属性，初值写在 XAML；详见[值](values.md) |
+| `new InputDeclaration(name) { Persistence = InputPersistence.Persistent }` | 动作/事件输入；持久化仅对这类事件保留旧语义 |
 | `DeclareCommand(name, title)` | 未登记的命令名被框架拒收并报 Issue |
 | `new ExternalAccessDeclaration(name, standardId) { MaxUnitBytes = 1472 }` | 适配器、参数类型与会话都在框架侧；上限超过框架校验值时该接入被拒 |
 
@@ -283,8 +286,9 @@ context.Configuration.Write(new MyConfig { Host = "10.0.0.2" });
 | 成员 | 语义 |
 |---|---|
 | `ViewState.GetSelectedPage(stateKey)` | 页签组当前页（0 基）；未知 ⇒ `null` |
-| `ViewState.GetInputText(source)` | 用户正在编辑（含未提交）的文本 |
-| `ViewState.SetInputValue(source, text)` | 模块宣告该输入格的值；只更新界面与视图状态，不回投模块 |
+| `Values.ReadText(name)` | 当前有效值（持久化值，或激活前播种的 XAML 初值） |
+| `Values.AcceptText(name, text)` | 模块接受/规范化后的值；控件下一帧读到 |
+| `Values.Report(name, notice)` | 报告该值当前的结论；控件只负责画 |
 | `ViewState.GetDisplayLines(source)` | 文本显示缓冲的全部行（调用时复制） |
 
 ### 外观
@@ -327,7 +331,8 @@ public sealed class MyViewFactory : IModuleViewFactory
 | `InvokeCommand(command)` | 触发命令，返回 `CommandOutcome(IsError, Message)` |
 | `ReadField(field)` / `UpdateField(field, value)` | 配置字段呈现/写回 |
 | `Appearance(source)` | 当前外观 |
-| `ReadInputText(source)` / `WriteInputText(source, text)` | 读/写输入框编辑态 |
+| `ReadValue(name)` / `CommitValue(name, text)` | 读值状态 / 按控件提交时机交值 |
+| `RegisterViewDefault(name, value)` | 登记 XAML 初值；正常由加载期播种，设计期/自定义上下文作后备 |
 | `SelectedPage(stateKey)` / `SetSelectedPage(stateKey, page)` | 页签选中页 |
 | `MultilineSubmitKey` | 当前多行提交键档位（`CtrlEnter`/`Enter`/`None`） |
 | `ColorPicker` | 框架调色窗口（可空）；`SuggestedColors` + `PickAsync` |
@@ -392,7 +397,7 @@ public sealed class MyViewFactory : IModuleViewFactory
 
 `ExternalAccessSnapshot` 关键字段：`State`（`Closed`/`Opening`/`Open`/`Closing`/`Faulted`）、`Suspended`、`Endpoint`、`Failure`、`ReceivedUnits/Bytes`、`SentUnits/Bytes`、`DroppedUnits/Bytes`、`RejectedUnits`、`ActiveConnections`、`LastReceivedAt`；分原因丢弃字段与饱和/滞回字段见快照类型。计数在实例生命周期内累计，只有 `ClearCounters` 归零。失败用 `ExternalAccessFailure(Kind, Endpoint, Value, Detail)` 表达：`Kind` 是机器可读种类（地址为空/端口占用/超时/对端关闭/设备丢失/读写失败等），其余字段只搬运事实，句子由模块自己的表生成。框架不自动重试，失败后需用户再次请求打开。
 
-四个标准与配置字段（模块视图用 `ModuleConfigField` 绑这些字段名，用 `ExternalAccessFieldNames` 常量）：
+四个标准与配置字段（模块视图用 `ModuleConfigField Value="字段名"` 绑定，用 `ExternalAccessFieldNames` 常量）：
 
 | 标准 | 字段 |
 |---|---|

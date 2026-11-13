@@ -10,18 +10,18 @@ public enum DisplayXAxisMode
     Time = 1,
 }
 
-/// <summary>单通道显示配置（名称/颜色/显隐；不上线）。</summary>
+/// <summary>单通道运行期显示状态（名称/颜色/显隐；不是持久化对象）。</summary>
 public sealed record DisplayChannelConfig
 {
     public string Name { get; init; } = string.Empty;
     public uint? ColorArgb { get; init; }
     public bool Visible { get; init; } = true;
 
-    /// <summary>用户已删除该通道；保留槽位以维持帧内位置映射，不再显示或接收新数据。</summary>
+    /// <summary>本次显示中已移除该通道；槽位保留以维持帧内位置映射，下一帧仍报告时自动恢复。</summary>
     public bool Deleted { get; init; }
 }
 
-/// <summary>单组显示配置。</summary>
+/// <summary>单组运行期显示状态（数据帧发现组时才存在；不是持久化对象）。</summary>
 public sealed record DisplayGroupConfig
 {
     public uint GroupId { get; init; }
@@ -41,7 +41,7 @@ public sealed record DisplayGroupConfig
     public int YFitChannel { get; init; } = -1;
 }
 
-/// <summary>显示设置（随组合件持久化；与数据帧无关）。</summary>
+/// <summary>显示设置（值声明负责持久化；这里只是运行期快照）。</summary>
 public sealed record DisplaySettings
 {
     public DisplayXAxisMode XAxisMode { get; init; } = DisplayXAxisMode.Index;
@@ -59,31 +59,10 @@ public sealed record DisplaySettings
 
     /// <summary>自定义显示频率（Hz）；关闭开关时不参与换算。</summary>
     public double CustomRateHz { get; init; } = 1000;
-}
 
-/// <summary>波形显示配置。</summary>
-public sealed record DisplayConfig
-{
-    public List<DisplayGroupConfig> Groups { get; init; } = [];
-    public DisplaySettings Settings { get; init; } = new();
-    public uint ActiveGroupId { get; init; }
-    public int ActiveChannelIndex { get; init; }
+    /// <summary>是否保留非活动组历史。</summary>
     public bool KeepInactiveHistory { get; init; } = true;
 
     /// <summary>非活动组允许保留的样本帧合计上限（0 = 不限）。</summary>
     public int HistoryLimitSamples { get; init; }
-
-    /// <summary>按组 ID 找显示配置（不存在 = null）。</summary>
-    public DisplayGroupConfig? FindGroup(uint groupId)
-    {
-        foreach (var group in Groups)
-        {
-            if (group.GroupId == groupId)
-            {
-                return group;
-            }
-        }
-
-        return null;
-    }
 }

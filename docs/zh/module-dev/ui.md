@@ -247,7 +247,7 @@ public sealed partial class MyView : ModuleView { }
 |---|---|---|
 | 控件没有样式、像裸控件 | 视图根不是 `ModuleView`，或预览宿主没有进入设计环境 | 根改成 `ModuleView`；预览宿主设置 `ModuleView.IsPreviewHost = true` |
 | 文案显示成键名 | 预览器读不到文本表 | 工程里加上[项目与包布局](project-layout.md)中的 `Content` 项 |
-| 配置字段只剩虚线框、看不到控件 | 视图缺设计数据：`ModuleConfigField` 没有配置 schema，只能画范围框 | 视图类加 `[ModuleViewDesignData(typeof(配置类型))]`；外部预览宿主用镜像配置类型 |
+| 值编辑器只剩虚线框、看不到控件 | 视图缺设计数据：值不是配置字段，或视图没有登记初值/编辑器 | 配置字段视图加 `[ModuleViewDesignData(typeof(配置类型))]`；模块自有值给 `ModuleConfigField` 写 `Value`、`Editor`、`InitialValue` |
 | 参数控件在预览里消失 | XAML 默认 `IsVisible=False`，只靠运行时 `Refresh` 打开 | 结构控件常显，可选参数行 XAML 默认全显，运行期再按数据隐藏 |
 | 预览期出现虚线范围框、运行期消失 | 范围框是设计期定位辅助，由 `ModuleView.IsDesignEnvironment` 决定 | 正常；运行期不创建、不参与布局、命中或 PNG 捕获 |
 | 某个装饰件只在预览期出现 | 使用了 `ui:PreviewOnly.IsEnabled="True"` | 正常；运行期自动隐藏 |

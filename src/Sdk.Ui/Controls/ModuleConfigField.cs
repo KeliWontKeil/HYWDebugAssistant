@@ -7,11 +7,12 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Values;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
 /// <summary>
-/// **配置字段编辑器**：绑一个配置字段名，按字段种类自己选编辑器，改一项写回一项。
+/// **值编辑器**：绑一个值名，按值状态自己选编辑器，改一项交给值层。
 /// </summary>
 /// <remarks>
 /// <para>
@@ -23,9 +24,9 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 /// <b>可选项来自配置类型</b>（<c>[ConfigurationField]</c> / <c>IConfigurationChoices</c>），视图只说"编哪一个字段"。
 /// </para>
 /// <para>
-/// <b>改一项写一项</b>：没有"保存"按钮。文本 / 数字默认在**失焦或回车**时写回
-/// （逐键写回会让 <c>1</c>→<c>11</c>→<c>115</c> 每个中间态各触发一次配置变更，而配置变更会重开会话）；
-/// 布尔与枚举是"点一下就有明确结果"的交互，当场写回。
+/// <b>改一项交一项</b>：没有"保存"按钮。文本 / 数字在**回车或失焦**时交值
+/// （逐键交值会让 <c>1</c>→<c>11</c>→<c>115</c> 每个中间态各触发一次配置变更，而配置变更会重开会话）；
+/// 布尔与枚举是"点一下就有明确结果"的交互，当场交值。
 /// </para>
 /// <para>
 /// <b>编辑中的文本不被每帧刷新覆盖</b>：字段值来自事实源，但用户正在打的字是本地意图；
@@ -47,6 +48,7 @@ public sealed class ModuleConfigField : ModuleElement
     private Border? _errorRing;
 
     private TemplatedControl? _editor;
+    private string _valueName = string.Empty;
     private ConfigFieldKind? _kind;
     private ConfigFieldView? _field;
     private IModuleViewContext? _context;
@@ -78,18 +80,27 @@ public sealed class ModuleConfigField : ModuleElement
         };
     }
 
-    /// <summary>本格编辑的配置字段名。</summary>
-    public string Field
+    /// <summary>值通道用值名寻址外观。</summary>
+    protected override string AppearanceKey => Value.Length > 0 ? Value : base.AppearanceKey;
+
+    /// <summary>XAML 初值（设计期/无运行期值状态时用于画编辑器）。</summary>
+    public string InitialValue { get; set; } = string.Empty;
+
+    /// <summary>XAML 编辑器种类（设计期/无运行期值状态时使用）。</summary>
+    public ValueEditor Editor { get; set; } = ValueEditor.Text;
+
+    /// <summary>本格编辑的**值名**。</summary>
+    public string Value
     {
-        get => Source;
+        get => _valueName;
         set
         {
-            if (string.Equals(Source, value, StringComparison.Ordinal))
+            if (string.Equals(_valueName, value, StringComparison.Ordinal))
             {
                 return;
             }
 
-            Source = value;
+            _valueName = value ?? string.Empty;
             _editorValue = null;
             _dirty = false;
             Load();
@@ -152,24 +163,59 @@ public sealed class ModuleConfigField : ModuleElement
             return;
         }
 
-        if (Field.Length == 0)
+        if (Value.Length == 0)
         {
             Reject(TextCatalog.Get(typeof(ModuleConfigField).Assembly, "moduleField.reject.missingFieldName"));
             return;
         }
 
-        var field = context.ReadField(Field);
+        LoadValue(context);
+    }
 
-        if (field is null)
+    /// <summary>值通道的一帧：把 <see cref="ValueState"/> 翻译成编辑器呈现，不直接碰配置。</summary>
+    private void LoadValue(IModuleViewContext context)
+    {
+        var state = context.ReadValue(Value);
+
+        if (!state.IsKnown)
         {
-            Reject(TextCatalog.Get(typeof(ModuleConfigField).Assembly, "moduleField.reject.unknownField", Field));
+            // 预览/自定义上下文没有运行期值状态：用 XAML 的初值与编辑器种类画出同一格。
+            var preview = new ConfigFieldView(
+                Value,
+                string.Empty,
+                Translate(Editor),
+                InitialValue,
+                null,
+                null,
+                null);
+
+            _field = preview;
+
+            if (_editor is null || _kind != preview.Kind)
+            {
+                BuildEditor(preview);
+                ShowValue(preview.Value);
+            }
+
             return;
         }
 
-        _field = field;
+        var kind = Translate(state.Editor);
+        var choices = state.Choices?
+            .Select(choice => new ConfigChoice(choice.Value, choice.Title))
+            .ToArray();
 
-        // 标题是另一个控件；编辑器自己仍要对屏读器说得出"这是哪一项"。
-        AutomationProperties.SetName(this, field.Title);
+        var field = new ConfigFieldView(
+            Value,
+            string.Empty,
+            kind,
+            state.Value,
+            choices,
+            null,
+            null);
+
+        _field = field;
+        SetNotice(state.Notice?.Message);
 
         if (_editor is null || _kind != field.Kind)
         {
@@ -178,20 +224,35 @@ public sealed class ModuleConfigField : ModuleElement
             return;
         }
 
-        // 用户正在编辑（或刚写回失败）⇒ 本地文本优先，等失焦/回车再决定。
         if (_dirty)
         {
+            // 写回成功 ⇒ 事实源已经等于用户刚交出去的字，脏标记结束；
+            // 写回失败 ⇒ 保留用户输入（不回滚），等下一次提交。
+            if (string.Equals(field.Value, _editorValue, StringComparison.Ordinal))
+            {
+                _dirty = false;
+                SetNotice(state.Notice?.Message);
+            }
+
             return;
         }
 
-        // 值没变、但可选项变了（插拔设备）也要刷新下拉；用户正在编辑时仍让路。
-        var choicesChanged = field.Choices is { } choices && !SameChoices(_choices, choices);
+        var choicesChanged = choices is { Length: > 0 } && !SameChoices(_choices, choices);
 
         if (!string.Equals(field.Value, _editorValue, StringComparison.Ordinal) || choicesChanged)
         {
             ShowValue(field.Value);
         }
     }
+
+    /// <summary>值编辑形态 → 旧编辑器种类（只用于复用编辑器构造）。</summary>
+    private static ConfigFieldKind Translate(ValueEditor editor) => editor switch
+    {
+        ValueEditor.Boolean => ConfigFieldKind.Boolean,
+        ValueEditor.Number => ConfigFieldKind.Number,
+        ValueEditor.Enum => ConfigFieldKind.Enum,
+        _ => ConfigFieldKind.Text,
+    };
 
     /// <summary>这一格画不出来：撤掉编辑器，只留一句事实。</summary>
     /// <param name="reason">要显示的那句话。</param>
@@ -356,9 +417,10 @@ public sealed class ModuleConfigField : ModuleElement
                     }
 
                     combo.SelectedIndex = IndexOf(choices, value);
-                    combo.PlaceholderText = combo.SelectedIndex < 0 && value.Length > 0
-                        ? TextCatalog.Get(typeof(ModuleConfigField).Assembly, "moduleField.currentChoiceUnavailable")
-                        : null;
+
+                    // 当前值不在动态选项里（例如端口已拔掉）是“这里现在没有值”，
+                    // 下拉框保持空选择即可；不另造“当前值不可用”的占位提示。
+                    combo.PlaceholderText = null;
                     break;
 
                 case TextBox text:
@@ -410,19 +472,9 @@ public sealed class ModuleConfigField : ModuleElement
             return;
         }
 
-        var outcome = context.UpdateField(Field, value);
-
-        if (outcome.IsError)
-        {
-            _dirty = true;
-            SetNotice(outcome.Message);
-            return;
-        }
-
-        // 成功 ⇒ 事实源就是新值；把"上次交出去的字"跟着前进一格。
         _editorValue = value;
-        _dirty = false;
-        SetNotice(null);
+        _dirty = true;
+        context.CommitValue(Value, value);
     }
 
     /// <summary>就地显示一句事实（空 ⇒ 收起来，不占位）。</summary>

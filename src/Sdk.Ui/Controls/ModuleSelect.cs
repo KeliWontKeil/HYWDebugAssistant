@@ -1,5 +1,6 @@
 using Avalonia.Collections;
 using Avalonia.Controls;
+using HYWDebugAssistant.Sdk.Values;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
@@ -44,9 +45,13 @@ public sealed record ModuleSelectOption
 /// 设计环境用这里的样例选项把下拉画出来；运行期永远不用它。
 /// </para>
 /// </remarks>
-public sealed class ModuleSelect : ComboBox
+public sealed class ModuleSelect : ComboBox, IModuleViewElement
 {
     private bool _syncing;
+    private bool _valueRegistered;
+    private object? _baseToolTip;
+    private bool _noticeToolTipActive;
+    private IModuleViewContext? _context;
     private IReadOnlyList<ModuleSelectOption> _options = [];
     private string _selectedKey = string.Empty;
 
@@ -91,8 +96,78 @@ public sealed class ModuleSelect : ComboBox
         }
     }
 
+    /// <summary>绑定的**值名**；非空时走统一值通道，空时保持旧的“控件自己抛事件”通道。</summary>
+    public string Value { get; set; } = string.Empty;
+
+    /// <summary>用户选择交出去的时机（下拉通常即时）。</summary>
+    public ValueCommitMode CommitMode { get; set; } = ValueCommitMode.OnChange;
+
     /// <summary>用户切换选项（程序设置 <see cref="SelectedKey"/> 不触发）。</summary>
     public event EventHandler? OptionSelected;
+
+    /// <inheritdoc />
+    public void Refresh(IModuleViewContext context)
+    {
+        _context = context;
+
+        if (Value.Length == 0)
+        {
+            return;
+        }
+
+        if (!_valueRegistered)
+        {
+            _valueRegistered = true;
+            context.RegisterViewDefault(Value, SelectedKey);
+        }
+
+        var state = context.ReadValue(Value);
+
+        if (!state.IsKnown)
+        {
+            ApplyNoticeToolTip(null);
+            return;
+        }
+
+        if (state.Choices is { Count: > 0 } choices)
+        {
+            var options = choices
+                .Select(choice => new ModuleSelectOption(choice.Value, choice.Title))
+                .ToArray();
+
+            if (!SameOptions(_options, options))
+            {
+                Options = options;
+            }
+        }
+
+        if (!string.Equals(SelectedKey, state.Value, StringComparison.Ordinal))
+        {
+            SelectedKey = state.Value;
+        }
+
+        ApplyNoticeToolTip(state.Notice);
+    }
+
+    /// <summary>值结论的悬停提示；不覆盖 XAML 声明的提示。</summary>
+    private void ApplyNoticeToolTip(ValueNotice? notice)
+    {
+        if (notice is { Message.Length: > 0 })
+        {
+            if (!_noticeToolTipActive)
+            {
+                _baseToolTip = ToolTip.GetTip(this);
+                _noticeToolTipActive = true;
+            }
+
+            ToolTip.SetTip(this, notice.Message);
+        }
+        else if (_noticeToolTipActive)
+        {
+            ToolTip.SetTip(this, _baseToolTip);
+            _noticeToolTipActive = false;
+        }
+    }
 
     /// <inheritdoc />
     protected override Type StyleKeyOverride => typeof(ComboBox);
@@ -153,6 +228,31 @@ public sealed class ModuleSelect : ComboBox
         }
 
         _selectedKey = options[SelectedIndex].Key;
+
+        if (Value.Length > 0 && _context is not null && CommitMode == ValueCommitMode.OnChange)
+        {
+            _context.CommitValue(Value, _selectedKey);
+        }
+
         OptionSelected?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static bool SameOptions(IReadOnlyList<ModuleSelectOption> left, ModuleSelectOption[] right)
+    {
+        if (left.Count != right.Length)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < right.Length; index++)
+        {
+            if (!string.Equals(left[index].Key, right[index].Key, StringComparison.Ordinal)
+                || !string.Equals(left[index].Label, right[index].Label, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

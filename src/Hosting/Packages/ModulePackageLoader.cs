@@ -4,6 +4,7 @@ using System.Reflection.PortableExecutable;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Values;
 
 namespace HYWDebugAssistant.Hosting.Packages;
 
@@ -138,6 +139,20 @@ public static class ModulePackageLoader
                 first.Detail));
         }
 
+        var valueSpecs = ValueSpecReader.ReadDirectory(
+            Path.Combine(packageDirectory, "views"),
+            assembly);
+
+        if (valueSpecs.Errors.Count > 0)
+        {
+            var first = valueSpecs.Errors[0];
+            return PackageLoadResult.Failure(HostingText.Get(
+                "hosting.package.valueSpecsInvalid",
+                Path.GetFileName(first.FilePath ?? packageDirectory),
+                first.Code.ToString(),
+                first.Detail));
+        }
+
         var package = new ModulePackage(
             manifest,
             declaredId,
@@ -145,7 +160,8 @@ public static class ModulePackageLoader
             assemblyPath,
             entryType,
             attribute,
-            portSpecs.Specs);
+            portSpecs.Specs,
+            valueSpecs.Specs);
 
         return PackageLoadResult.Success(package);
     }

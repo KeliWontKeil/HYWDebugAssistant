@@ -5,18 +5,19 @@ using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Timing;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Template.MyModule;
 
 /// <summary>
-/// **模块模板**：一个接收口 + 一个发送口、一种数据类型、一个角色、一个配置字段、
+/// **模块模板**：一个接收口 + 一个发送口、一种数据类型、一个角色、一个值、
 /// 一个命令、一个定时器与一个最小视图。外部作者复制本目录后改三处身份即可开始。
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
 ///   <item>数据类型与端口由模块自己声明；对端要连接必须声明同一标识与形状；</item>
-///   <item>配置只在 <see cref="OnRegistered"/> 读取一次即登记，配置变更时重新读取；</item>
+///   <item>可编辑的值用 <c>DeclareValue</c> 声明，模块用 <c>Values.ReadText</c> 读取；</item>
 ///   <item>定时器由模块创建、框架调度，Tick 在实例线程触发；</item>
 ///   <item>视图只按声明的名字取数、提交；文案只写文本表键。</item>
 /// </list>
@@ -52,8 +53,8 @@ public sealed class TemplateModule : IModule, IActivitySource
     /// <summary>命令：清零。</summary>
     public const string ResetCommand = "reset";
 
-    /// <summary>配置字段名（与 <see cref="TemplateConfig.IntervalMs"/> 一致）。</summary>
-    public const string IntervalField = nameof(TemplateConfig.IntervalMs);
+    /// <summary>值名：定时器间隔（毫秒）。</summary>
+    public const string IntervalValue = "intervalMs";
 
     /// <summary>数据形状：<c>{ sequence: u64, value: f32 }</c>。</summary>
     public static readonly ContractShape Shape = ContractShape.OfStruct(
@@ -62,7 +63,7 @@ public sealed class TemplateModule : IModule, IActivitySource
 
     private IModuleContext? _context;
     private IModuleTimer? _timer;
-    private TemplateConfig _config = new();
+    private int _intervalMs;
     private ulong _count;
 
     /// <inheritdoc />
@@ -73,7 +74,6 @@ public sealed class TemplateModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
         _context = context;
-        _config = context.Configuration.Read<TemplateConfig>();
 
         context.Declaration.DeclareDataType(new DataTypeDeclaration(TypeId, Shape));
 
@@ -86,12 +86,17 @@ public sealed class TemplateModule : IModule, IActivitySource
             CountSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
 
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(StateSource, ViewDataSourceKind.Text));
+        context.Declaration.DeclareValue(new ValueDeclaration(IntervalValue)
+        {
+            Editor = ValueEditor.Number,
+            Persistent = true,
+        });
         context.Declaration.DeclareCommand(ResetCommand, TemplateText.Get(TemplateText.Reset));
 
         context.Ports.SetReceiveHandler(InPort, OnData);
 
         _timer = context.Timers.Create();
-        _timer.Interval = TimeSpan.FromMilliseconds(Math.Clamp(_config.IntervalMs, 10, 60_000));
+        ApplyInterval(context);
         _timer.Tick += OnTimerTick;
         _timer.Start();
     }
@@ -104,26 +109,17 @@ public sealed class TemplateModule : IModule, IActivitySource
             return;
         }
 
+        ApplyInterval(context);
         PublishCount(context);
         context.Display.SetText(StateSource, TemplateText.Get(TemplateText.Ready));
-    }
-
-    /// <inheritdoc />
-    public void OnConfigurationChanged()
-    {
-        if (_context is not { } context || _timer is null)
-        {
-            return;
-        }
-
-        _config = context.Configuration.Read<TemplateConfig>();
-        _timer.Interval = TimeSpan.FromMilliseconds(Math.Clamp(_config.IntervalMs, 10, 60_000));
     }
 
     /// <inheritdoc />
     public void OnStep(IModuleContext context, StepReason reason)
     {
         ArgumentNullException.ThrowIfNull(context);
+
+        ApplyInterval(context);
 
         while (context.Inbox.TryDequeueCommand(out var command))
         {
@@ -143,6 +139,32 @@ public sealed class TemplateModule : IModule, IActivitySource
 
     /// <inheritdoc />
     public void OnRemoved() => _timer?.Dispose();
+
+    private void ApplyInterval(IModuleContext context)
+    {
+        if (!int.TryParse(
+                context.Values.ReadText(IntervalValue),
+                System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var value))
+        {
+            return;
+        }
+
+        value = Math.Clamp(value, 10, 60_000);
+
+        if (value == _intervalMs)
+        {
+            return;
+        }
+
+        _intervalMs = value;
+
+        if (_timer is not null)
+        {
+            _timer.Interval = TimeSpan.FromMilliseconds(value);
+        }
+    }
 
     private void OnTimerTick(object? sender, EventArgs e)
     {

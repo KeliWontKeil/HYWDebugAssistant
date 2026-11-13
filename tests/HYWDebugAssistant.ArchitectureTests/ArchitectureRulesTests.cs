@@ -1290,4 +1290,64 @@ public class ArchitectureRulesTests
 
         return new string(buffer, 0, length);
     }
+
+    /// <summary>
+    /// AR-26：控件不得直接接触配置、视图状态、提交或字段写回 API。
+    /// 控件只允许经 <c>IModuleViewContext</c> 的值契约（ReadValue / CommitValue / RegisterViewDefault）
+    /// 与显示契约取数；任何后端调用都应被这一层拦下。
+    /// </summary>
+    [Fact]
+    public void AR26_控件不得直接调用值后端()
+    {
+        var controlsDir = Path.Combine(RepoRoot, "src", "Sdk.Ui", "Controls");
+        Directory.Exists(controlsDir).ShouldBeTrue($"缺少控件目录：{controlsDir}");
+
+        var forbidden = new[]
+        {
+            "SubmitInput(",
+            "ReadInputText(",
+            "WriteInputText(",
+            "UpdateField(",
+            "ReadField(",
+            "IConfigurationAccess",
+            "IViewStateReader",
+        };
+
+        var violations = new List<string>();
+
+        foreach (var file in Directory.EnumerateFiles(controlsDir, "*.cs", SearchOption.TopDirectoryOnly))
+        {
+            var name = Path.GetFileName(file);
+            if (string.Equals(name, "DesignModuleViewContext.cs", StringComparison.Ordinal))
+            {
+                // 设计期上下文是 IModuleViewContext 的实现，不是控件。
+                continue;
+            }
+
+            // ModuleLabel / ModuleNumeric 读配置字段标题是显示契约，不是字段编辑器后端。
+            var allowReadField = string.Equals(name, "ModuleTextControls.cs", StringComparison.Ordinal);
+
+            var lines = File.ReadAllLines(file);
+            for (var index = 0; index < lines.Length; index++)
+            {
+                var line = lines[index];
+                foreach (var token in forbidden)
+                {
+                    if (allowReadField && string.Equals(token, "ReadField(", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    if (line.Contains(token, StringComparison.Ordinal))
+                    {
+                        violations.Add($"{name}:{index + 1}: {token}");
+                    }
+                }
+            }
+        }
+
+        violations.ShouldBeEmpty(
+            "控件不得直接读配置/视图状态或提交值；请改走 IModuleViewContext 的值契约。违规：\n"
+            + string.Join("\n", violations));
+    }
 }

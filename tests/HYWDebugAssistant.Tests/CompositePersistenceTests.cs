@@ -10,6 +10,7 @@ using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Values;
 using Shouldly;
 using Xunit;
 
@@ -87,6 +88,44 @@ public class CompositePersistenceTests
         var before = ReadWithoutTimestamp(path);
         var after = ReadWithoutTimestamp(secondPath);
         JsonNode.DeepEquals(before, after).ShouldBeTrue($"往返应无损：\n前：{before}\n后：{after}");
+    }
+
+    [Fact]
+    public void 值_无声明默认时应为空_持久化值应随组合件往返()
+    {
+        ValueModule.LastActivated = null;
+        var path = Path.Combine(Path.GetTempPath(), "hyw-value-" + Guid.NewGuid().ToString("N") + ".json");
+
+        try
+        {
+            using (var first = new Harness(("value", typeof(ValueModule))))
+            {
+                first.Services.AddModule("v1", "test/value").Succeeded.ShouldBeTrue();
+
+                first.ViewState.SetInputText("v1", ValueModule.TextValue, "typed");
+                first.Services.SaveComposite(path, "value").Succeeded.ShouldBeTrue();
+            }
+
+            ValueModule.LastActivated = null;
+
+            using (var second = new Harness(("value", typeof(ValueModule))))
+            {
+                second.Services.LoadComposite(path).Succeeded.ShouldBeTrue();
+                WaitUntil(() => ValueModule.LastActivated is not null, TimeSpan.FromSeconds(2)).ShouldBeTrue();
+                ValueModule.LastActivated.ShouldBe("typed");
+            }
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(path);
+            }
+            catch (IOException)
+            {
+                // 清理失败不影响结论
+            }
+        }
     }
 
     [Fact]
@@ -737,7 +776,8 @@ public class CompositePersistenceTests
             _ = Directory.CreateDirectory(_directory);
             RestartPath = restartPath ?? Path.Combine(_directory, "restart.json");
 
-            Runtime = new ModuleRuntime();
+            ViewState = new ViewStateStore();
+            Runtime = new ModuleRuntime(viewState: ViewState);
             Runtime.UpdateAlignAutoNetwork(false);
             Services = new RuntimeServices(Runtime, restartSnapshotPath: RestartPath);
 
@@ -748,6 +788,8 @@ public class CompositePersistenceTests
         }
 
         public ModuleRuntime Runtime { get; }
+
+        public ViewStateStore ViewState { get; }
 
         public RuntimeServices Services { get; }
 
@@ -815,6 +857,33 @@ public class CompositePersistenceTests
         }
 
         public void OnActivated() => ActivatedPeriods.Add(_context!.Configuration.Read<GeneratorConfig>().PeriodMs);
+    }
+
+    /// <summary>测试模块：声明一个值，激活时记录读到的值（验证默认值与持久化往返）。</summary>
+    [ModuleDefinition("test", "value")]
+    public sealed class ValueModule : IModule
+    {
+        /// <summary>值名。</summary>
+        public const string TextValue = "text";
+
+        /// <summary>最近一次激活读到的值。</summary>
+        public static string? LastActivated { get; set; }
+
+        private IModuleContext? _context;
+
+        /// <inheritdoc />
+        public void OnRegistered(IModuleContext context)
+        {
+            _context = context;
+            context.Declaration.DeclareValue(new ValueDeclaration(TextValue)
+            {
+                Editor = ValueEditor.Text,
+                Persistent = true,
+            });
+        }
+
+        /// <inheritdoc />
+        public void OnActivated() => LastActivated = _context!.Values.ReadText(TextValue);
     }
 
     /// <summary>测试模块：接收口（f32），把收到的值收集到静态列表。</summary>

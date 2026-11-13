@@ -2,6 +2,7 @@ using System.Globalization;
 using Avalonia.Controls;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Ui;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
 
@@ -36,6 +37,7 @@ internal sealed class ModuleViewContext : IModuleViewContext
     private readonly SurfaceSourceReader _reader;
     private readonly Dictionary<string, ViewAppearance> _appearances = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ConfigFieldView?> _fieldCache = new(StringComparer.Ordinal);
+    private readonly ModuleValuePresenter _values;
     private ConfigurationSchemaView? _schemaCache;
     private long _appearanceRevision = -1;
 
@@ -64,6 +66,7 @@ internal sealed class ModuleViewContext : IModuleViewContext
         _multilineSubmitKey = multilineSubmitKey;
         _colorPicker = colorPicker;
         _reader = new SurfaceSourceReader(query, viewState);
+        _values = new ModuleValuePresenter(instanceId, ReadField, Appearance, query, command, viewState);
     }
 
     /// <inheritdoc />
@@ -294,6 +297,15 @@ internal sealed class ModuleViewContext : IModuleViewContext
             _viewState?.SetInputText(InstanceId, source, text);
         }
     }
+
+    /// <inheritdoc />
+    public ValueState ReadValue(string name) => _values.ReadValue(name);
+
+    /// <inheritdoc />
+    public void CommitValue(string name, string text) => _values.CommitValue(name, text);
+
+    /// <inheritdoc />
+    public void RegisterViewDefault(string name, string value) => _values.RegisterViewDefault(name, value);
 
     /// <inheritdoc />
     public int? SelectedPage(string stateKey) =>

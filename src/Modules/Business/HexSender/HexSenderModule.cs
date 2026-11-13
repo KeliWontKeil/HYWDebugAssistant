@@ -6,6 +6,7 @@ using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Timing;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Modules.HexSender;
@@ -150,7 +151,12 @@ public sealed class HexSenderModule : IModule, IActivitySource
         foreach (var name in new[] { Hex1, Hex2, Hex3, Hex4, Hex5 })
         {
             context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(name, ViewDataSourceKind.Text));
-            context.Declaration.DeclareInput(new InputDeclaration(name) { Persistence = InputPersistence.Persistent });
+            context.Declaration.DeclareValue(new ValueDeclaration(name)
+            {
+                Editor = ValueEditor.Text,
+                Persistent = true,
+                ResetWithModule = false,
+            });
         }
 
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(ContinuousSource, ViewDataSourceKind.Value, ContractPrimitive.Bool));
@@ -159,8 +165,16 @@ public sealed class HexSenderModule : IModule, IActivitySource
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(StatusSource, ViewDataSourceKind.Text));
 
         // 连续发送是动作，不恢复；间隔是用户设置，恢复。
-        context.Declaration.DeclareInput(ContinuousSource);
-        context.Declaration.DeclareInput(new InputDeclaration(IntervalSource) { Persistence = InputPersistence.Persistent });
+        context.Declaration.DeclareValue(new ValueDeclaration(ContinuousSource)
+        {
+            Editor = ValueEditor.Boolean,
+            Persistent = false,
+        });
+        context.Declaration.DeclareValue(new ValueDeclaration(IntervalSource)
+        {
+            Editor = ValueEditor.Number,
+            Persistent = true,
+        });
 
         context.Declaration.DeclareCommand(SendCommand, Tr(HexSenderText.Send));
     }
@@ -403,7 +417,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
         var senderPage = submittedPage ?? sendPage ?? selectedPage;
         var outgoing = submittedPage is not null
             ? submittedText ?? string.Empty
-            : context.ViewState.GetInputText(HexSourceOf(senderPage)) ?? string.Empty;
+            : context.Values.ReadText(HexSourceOf(senderPage)) ?? string.Empty;
 
         // **"按了发送而这一页是空的"⇒ 记下"这一页被拦下过"**（红按页粘住，补上内容才消失）。
         // 只认"按发送"，不认"连续发送当前页空" —— 后者每拍都成立，会把一整列格子永久染红。
@@ -411,12 +425,18 @@ public sealed class HexSenderModule : IModule, IActivitySource
         {
             _pageBlockedBySend[Math.Clamp(senderPage, 0, PageCount - 1)] = true;
         }
+        else if (outgoing.Length > 0)
+        {
+            // 内容已被用户补上：这次“发送被拦下”的历史条件消失。
+            // 否则用户再删空时会没有按发送也复活红框（红应只表达当前事实）。
+            _pageBlockedBySend[Math.Clamp(senderPage, 0, PageCount - 1)] = false;
+        }
 
         // ③ **开关该是几**。
         // · 本拍**刚拨过** ⇒ 就用那一刻判定的结果（当场闭环，请求不会留到下一拍）；
         // · 本拍没拨 ⇒ 维持现状，但若**间隔变得不可用**则立即收起来（不留半开状态）。
         var asked = string.Equals(
-            context.ViewState.GetInputText(ContinuousSource), "true", StringComparison.OrdinalIgnoreCase);
+            context.Values.ReadText(ContinuousSource), "true", StringComparison.OrdinalIgnoreCase);
 
         if (toggleAsked is { } want2)
         {
@@ -454,11 +474,11 @@ public sealed class HexSenderModule : IModule, IActivitySource
             var desired = acceptedToggle ? "true" : "false";
 
             if (!string.Equals(
-                context.ViewState.GetInputText(ContinuousSource),
+                context.Values.ReadText(ContinuousSource),
                 desired,
                 StringComparison.OrdinalIgnoreCase))
             {
-                context.ViewState.SetInputValue(ContinuousSource, desired);
+                context.Values.AcceptText(ContinuousSource, desired);
             }
         }
 
@@ -695,7 +715,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// </remarks>
     private void SyncInterval(IModuleContext context)
     {
-        var text = context.ViewState.GetInputText(IntervalSource);
+        var text = context.Values.ReadText(IntervalSource);
 
         if (string.Equals(text, _intervalSeen, StringComparison.Ordinal))
         {
@@ -708,6 +728,15 @@ public sealed class HexSenderModule : IModule, IActivitySource
         {
             _intervalMs = (int)milliseconds;
             _intervalState = IntervalState.Usable;
+
+            // 用户已经把间隔改到可用：上一次“拨开但没成立”的请求到此结束。
+            // 不自动打开连续发送（避免“补上间隔后开关自己开了”），但要撤掉红框的粘性依据，
+            // 否则之后把间隔删空时会在没有拨开关的情况下重新冒红。
+            if (!_continuous)
+            {
+                _userWantsContinuous = false;
+            }
+
             return;
         }
 
@@ -746,7 +775,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
         ArgumentNullException.ThrowIfNull(context);
 
         var page = context.ViewState.GetSelectedPage(PagesStateKey) ?? 0;
-        return context.ViewState.GetInputText(HexSourceOf(page)) ?? string.Empty;
+        return context.Values.ReadText(HexSourceOf(page)) ?? string.Empty;
     }
 
     /// <summary>发送**当前选中页**的内容（回读视图状态；解析失败 ⇒ 回报失败 ⇒ 该页输入框红框）。</summary>
@@ -759,7 +788,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
 
         var page = context.ViewState.GetSelectedPage(PagesStateKey) ?? 0;
         var source = HexSourceOf(page);
-        var text = context.ViewState.GetInputText(source) ?? string.Empty;
+        var text = context.Values.ReadText(source) ?? string.Empty;
         return Send(context, text, source, out packets);
     }
 

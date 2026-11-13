@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.VisualTree;
+using HYWDebugAssistant.Sdk.Values;
 using IconControl = HYWDebugAssistant.Sdk.Ui.Controls.Icon;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
@@ -57,7 +58,7 @@ public sealed record ModuleSegmentOption
 }
 
 /// <summary>通用互斥分段选择：文字或图标按钮，选中态唯一。</summary>
-public sealed class ModuleSegmentedControl : TemplatedControl
+public sealed class ModuleSegmentedControl : TemplatedControl, IModuleViewElement
 {
     /// <summary>选项集合。</summary>
     public static readonly StyledProperty<IReadOnlyList<ModuleSegmentOption>?> OptionsProperty =
@@ -77,6 +78,10 @@ public sealed class ModuleSegmentedControl : TemplatedControl
 
     private StackPanel? _items;
     private bool _syncing;
+    private bool _valueRegistered;
+    private object? _baseToolTip;
+    private bool _noticeToolTipActive;
+    private IModuleViewContext? _context;
 
     static ModuleSegmentedControl()
     {
@@ -131,8 +136,79 @@ public sealed class ModuleSegmentedControl : TemplatedControl
         set => SetValue(IconSizeProperty, value);
     }
 
+    /// <summary>绑定的**值名**；非空时走统一值通道。</summary>
+    public string Value { get; set; } = string.Empty;
+
+    /// <summary>用户选择交出去的时机（分段选择通常即时）。</summary>
+    public ValueCommitMode CommitMode { get; set; } = ValueCommitMode.OnChange;
+
     /// <summary>用户选择了某一段。</summary>
     public event EventHandler? OptionSelected;
+
+    /// <inheritdoc />
+    public void Refresh(IModuleViewContext context)
+    {
+        _context = context;
+
+        if (Value.Length == 0)
+        {
+            return;
+        }
+
+        if (!_valueRegistered)
+        {
+            _valueRegistered = true;
+            context.RegisterViewDefault(Value, SelectedKey);
+        }
+
+        var state = context.ReadValue(Value);
+
+        if (!state.IsKnown)
+        {
+            ApplyNoticeToolTip(null);
+            return;
+        }
+
+        // 视图可以给带图标/悬停提示的静态选项；只有视图没给时才用值声明里的纯文本选项。
+        if (Options is not { Count: > 0 } && state.Choices is { Count: > 0 } choices)
+        {
+            var options = choices
+                .Select(choice => new ModuleSegmentOption(choice.Value, choice.Title))
+                .ToArray();
+
+            if (!SameOptions(Options, options))
+            {
+                Options = options;
+            }
+        }
+
+        if (!string.Equals(SelectedKey, state.Value, StringComparison.Ordinal))
+        {
+            SelectedKey = state.Value;
+        }
+
+        ApplyNoticeToolTip(state.Notice);
+    }
+
+    /// <summary>值结论的悬停提示；不覆盖 XAML 声明的提示。</summary>
+    private void ApplyNoticeToolTip(ValueNotice? notice)
+    {
+        if (notice is { Message.Length: > 0 })
+        {
+            if (!_noticeToolTipActive)
+            {
+                _baseToolTip = ToolTip.GetTip(this);
+                _noticeToolTipActive = true;
+            }
+
+            ToolTip.SetTip(this, notice.Message);
+        }
+        else if (_noticeToolTipActive)
+        {
+            ToolTip.SetTip(this, _baseToolTip);
+            _noticeToolTipActive = false;
+        }
+    }
 
     /// <inheritdoc />
     protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
@@ -268,6 +344,33 @@ public sealed class ModuleSegmentedControl : TemplatedControl
         _syncing = true;
         SelectedKey = key;
         _syncing = false;
+
+        if (Value.Length > 0 && _context is not null && CommitMode == ValueCommitMode.OnChange)
+        {
+            _context.CommitValue(Value, key);
+        }
+
         OptionSelected?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static bool SameOptions(
+        IReadOnlyList<ModuleSegmentOption>? left,
+        ModuleSegmentOption[] right)
+    {
+        if (left is null || left.Count != right.Length)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < right.Length; index++)
+        {
+            if (!string.Equals(left[index].Key, right[index].Key, StringComparison.Ordinal)
+                || !string.Equals(left[index].Label, right[index].Label, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

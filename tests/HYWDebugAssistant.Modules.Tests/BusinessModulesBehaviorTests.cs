@@ -128,6 +128,95 @@ public class BusinessModulesBehaviorTests
     }
 
     [Fact]
+    public void 文本发送器_间隔修复后删空不应复活红框()
+    {
+        var context = new TestModuleContext();
+        var module = new TextSenderModule();
+        module.OnRegistered(context);
+
+        // 空间隔拨开：这是用户的一次请求，标红正确。
+        context.ViewState.SetInputText(TextSenderModule.IntervalSource, string.Empty);
+        context.EnqueueInput(TextSenderModule.ContinuousSource, "true");
+        module.PumpOnce(context);
+        Alerted(context, TextSenderModule.IntervalSource).ShouldBeTrue();
+
+        // 改成合法值：请求已结束，红应消失（不自动打开开关）。
+        context.ViewState.SetInputText(TextSenderModule.IntervalSource, "20");
+        module.PumpOnce(context);
+        Alerted(context, TextSenderModule.IntervalSource).ShouldBeFalse();
+
+        // 再删空，用户没有重新拨开关：不得复活上一次请求的红。
+        context.ViewState.SetInputText(TextSenderModule.IntervalSource, string.Empty);
+        module.PumpOnce(context);
+        Alerted(context, TextSenderModule.IntervalSource).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void 十六进制发送器_间隔修复后删空不应复活红框()
+    {
+        var context = new TestModuleContext();
+        var module = new HexSenderModule();
+        module.OnRegistered(context);
+
+        context.ViewState.SetInputText(HexSenderModule.IntervalSource, string.Empty);
+        context.EnqueueInput(HexSenderModule.ContinuousSource, "true");
+        module.PumpOnce(context);
+        Alerted(context, HexSenderModule.IntervalSource).ShouldBeTrue();
+
+        context.ViewState.SetInputText(HexSenderModule.IntervalSource, "20");
+        module.PumpOnce(context);
+        Alerted(context, HexSenderModule.IntervalSource).ShouldBeFalse();
+
+        context.ViewState.SetInputText(HexSenderModule.IntervalSource, string.Empty);
+        module.PumpOnce(context);
+        Alerted(context, HexSenderModule.IntervalSource).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void 文本发送器_补上内容后删空不应复活发送红框()
+    {
+        var context = new TestModuleContext();
+        var module = new TextSenderModule();
+        module.OnRegistered(context);
+        var page = TextSenderModule.TextSourceOf(0);
+
+        context.ViewState.SetInputText(page, string.Empty);
+        context.EnqueueCommand(TextSenderModule.SendCommand);
+        module.PumpOnce(context);
+        Alerted(context, page).ShouldBeTrue();
+
+        context.ViewState.SetInputText(page, "补上");
+        module.PumpOnce(context);
+        Alerted(context, page).ShouldBeFalse();
+
+        context.ViewState.SetInputText(page, string.Empty);
+        module.PumpOnce(context);
+        Alerted(context, page).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void 十六进制发送器_补上内容后删空不应复活发送红框()
+    {
+        var context = new TestModuleContext();
+        var module = new HexSenderModule();
+        module.OnRegistered(context);
+        var page = HexSenderModule.HexSourceOf(0);
+
+        context.ViewState.SetInputText(page, string.Empty);
+        context.EnqueueCommand(HexSenderModule.SendCommand);
+        module.PumpOnce(context);
+        Alerted(context, page).ShouldBeTrue();
+
+        context.ViewState.SetInputText(page, "41");
+        module.PumpOnce(context);
+        Alerted(context, page).ShouldBeFalse();
+
+        context.ViewState.SetInputText(page, string.Empty);
+        module.PumpOnce(context);
+        Alerted(context, page).ShouldBeFalse();
+    }
+
+    [Fact]
     public void 文本发送器_发送应回读当前页而不是别的页()
     {
         var context = new TestModuleContext();

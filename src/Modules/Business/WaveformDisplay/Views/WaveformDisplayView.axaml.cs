@@ -100,16 +100,6 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             _chart.ZoomRequested += OnChartZoomRequested;
         }
 
-        if (_axisModeSelect is not null)
-        {
-            _axisModeSelect.Options =
-            [
-                new ModuleSelectOption("index", Tr("view.xIndex")),
-                new ModuleSelectOption("time", Tr("view.xTime")),
-            ];
-            _axisModeSelect.OptionSelected += OnAxisModeSelected;
-        }
-
         if (_range is not null)
         {
             _range.RangeChanged += OnRangeChanged;
@@ -896,16 +886,6 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             yMin = e.YMin,
             yMax = e.YMax,
         });
-    }
-
-    private void OnAxisModeSelected(object? sender, EventArgs e)
-    {
-        if (_axisModeSelect is null || _context is null)
-        {
-            return;
-        }
-
-        _ = _context.SubmitInput(WaveformDisplayViewKeys.XAxisMode, _axisModeSelect.SelectedKey);
     }
 
     private void OnGroupNameKeyDown(object? sender, KeyEventArgs e)

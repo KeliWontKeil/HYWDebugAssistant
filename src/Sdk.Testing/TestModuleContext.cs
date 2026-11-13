@@ -1,4 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Reflection;
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Contracts;
@@ -6,6 +8,7 @@ using HYWDebugAssistant.Sdk.Data;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Timing;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Testing;
@@ -28,6 +31,8 @@ public sealed class TestModuleContext : IModuleContext
     private readonly List<RoleDeclaration> _roles = [];
     private readonly List<DisplaySourceDeclaration> _displaySources = [];
     private readonly List<string> _inputs = [];
+    private readonly List<ValueDeclaration> _values = [];
+    private readonly Dictionary<string, ValueNotice> _valueNotices = new(StringComparer.Ordinal);
     private readonly List<(string Name, string Title)> _commands = [];
     private readonly List<ExternalAccessDeclaration> _externalAccesses = [];
     private readonly List<AppearanceReport> _appearances = [];
@@ -49,10 +54,11 @@ public sealed class TestModuleContext : IModuleContext
         InstanceId = instanceId;
         ModuleId = moduleId ?? HYWDebugAssistant.Sdk.ModuleId.Create("test", "under-test");
         Declaration = new DeclarationCollector(
-            _ports, _dataTypes, _flows, _roles, _displaySources, _inputs, _commands, _externalAccesses);
+            _ports, _dataTypes, _flows, _roles, _displaySources, _inputs, _values, _commands, _externalAccesses);
         Issues = new IssueCollector(ReportedIssues);
         Configuration = new InMemoryConfigurationAccess(_configuration);
         Appearance = new AppearanceRecorder(_appearances);
+        Values = new TestValues(this);
     }
 
     /// <summary>
@@ -162,6 +168,15 @@ public sealed class TestModuleContext : IModuleContext
 
     /// <inheritdoc />
     public IConfigurationAccess Configuration { get; }
+
+    /// <inheritdoc />
+    public IModuleValues Values { get; }
+
+    /// <summary>模块声明的值（测试断言用）。</summary>
+    public IReadOnlyList<ValueDeclaration> DeclaredValues => _values;
+
+    /// <summary>模块上报的字段结论（测试断言用）。</summary>
+    public IReadOnlyDictionary<string, ValueNotice> ValueNotices => _valueNotices;
 
     /// <inheritdoc />
     public IIssueReporter Issues { get; }
@@ -417,6 +432,7 @@ public sealed class TestModuleContext : IModuleContext
         List<RoleDeclaration> roles,
         List<DisplaySourceDeclaration> displaySources,
         List<string> inputs,
+        List<ValueDeclaration> values,
         List<(string Name, string Title)> commands,
         List<ExternalAccessDeclaration> externalAccesses) : IModuleDeclaration
     {
@@ -432,9 +448,70 @@ public sealed class TestModuleContext : IModuleContext
 
         public void DeclareInput(string sourceName) => inputs.Add(sourceName);
 
+        public void DeclareValue(ValueDeclaration value)
+        {
+            values.Add(value);
+            inputs.Add(value.Name);
+        }
+
         public void DeclareCommand(string name, string title) => commands.Add((name, title));
 
         public void DeclareExternalAccess(ExternalAccessDeclaration access) => externalAccesses.Add(access);
+    }
+
+    /// <summary>测试里的值面：读视图状态/声明默认，接受写视图状态，报告存表。</summary>
+    private sealed class TestValues(TestModuleContext owner) : IModuleValues
+    {
+        /// <inheritdoc />
+        public string? ReadText(string name)
+        {
+            var declaration = owner._values.Find(value => string.Equals(value.Name, name, StringComparison.Ordinal));
+            if (declaration is not null)
+            {
+                return owner.ViewState.GetInputText(name);
+            }
+
+            foreach (var configuration in owner._configuration.Values)
+            {
+                var property = configuration.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+                if (property is null || !property.CanRead || property.GetIndexParameters().Length > 0)
+                {
+                    continue;
+                }
+
+                return property.GetValue(configuration) switch
+                {
+                    null => string.Empty,
+                    bool boolean => boolean ? "true" : "false",
+                    IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
+                    var value => value.ToString() ?? string.Empty,
+                };
+            }
+
+            return null;
+        }
+
+        /// <inheritdoc />
+        public void AcceptText(string name, string? value)
+        {
+            if (owner._values.Exists(valueDeclaration => string.Equals(valueDeclaration.Name, name, StringComparison.Ordinal)))
+            {
+                owner.ViewState.SetInputValue(name, value);
+            }
+        }
+
+        /// <inheritdoc />
+        public void Report(string name, ValueNotice? notice)
+        {
+            if (notice is null)
+            {
+                _ = owner._valueNotices.Remove(name);
+            }
+            else
+            {
+                owner._valueNotices[name] = notice;
+            }
+        }
     }
 
     private sealed class IssueCollector(List<IssueReport> sink) : IIssueReporter

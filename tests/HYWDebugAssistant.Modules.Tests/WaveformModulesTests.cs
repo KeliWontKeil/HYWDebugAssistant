@@ -450,7 +450,7 @@ public class WaveformModulesTests
     public void 显示器_关闭非活动组历史后切换不应带回旧数据()
     {
         var context = new TestModuleContext();
-        context.Configuration.Write(new DisplayConfig { KeepInactiveHistory = false });
+        SeedSettings(context, new DisplaySettings { KeepInactiveHistory = false });
 
         var module = new WaveformDisplayModule();
         module.OnRegistered(context);
@@ -783,6 +783,111 @@ public class WaveformModulesTests
     }
 
     [Fact]
+    public void 发生器_不同通道参数应独立保存()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformGeneratorModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        context.EnqueueInput(
+            WaveformGeneratorModule.ActionSource,
+            "{\"op\":\"addChannel\",\"groupIndex\":0}");
+        module.PumpOnce(context);
+
+        context.EnqueueInput(
+            WaveformGeneratorModule.ActionSource,
+            "{\"op\":\"selectChannel\",\"groupIndex\":0,\"index\":0}");
+        module.PumpOnce(context);
+        context.EnqueueInput(WaveformGeneratorModule.PhaseSource, "30");
+        module.PumpOnce(context);
+
+        context.EnqueueInput(
+            WaveformGeneratorModule.ActionSource,
+            "{\"op\":\"selectChannel\",\"groupIndex\":0,\"index\":1}");
+        module.PumpOnce(context);
+        context.EnqueueInput(WaveformGeneratorModule.PhaseSource, "90");
+        module.PumpOnce(context);
+
+        context.EnqueueInput(
+            WaveformGeneratorModule.ActionSource,
+            "{\"op\":\"selectChannel\",\"groupIndex\":0,\"index\":0}");
+        module.PumpOnce(context);
+        GeneratorSnapshot(context).GetProperty("groups")[0]
+            .GetProperty("channels")[0].GetProperty("phase").GetDouble().ShouldBe(30);
+        GeneratorSnapshot(context).GetProperty("groups")[0]
+            .GetProperty("channels")[1].GetProperty("phase").GetDouble().ShouldBe(90);
+
+        var config = context.Configuration.Read<GeneratorConfig>();
+        config.Groups[0].Channels[0].PhaseDegrees.ShouldBe(30);
+        config.Groups[0].Channels[1].PhaseDegrees.ShouldBe(90);
+    }
+
+    [Fact]
+    public void 发生器_不同组参数应独立保存()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformGeneratorModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        context.EnqueueInput(
+            WaveformGeneratorModule.ActionSource,
+            "{\"op\":\"addGroup\"}");
+        module.PumpOnce(context);
+        context.EnqueueInput(
+            WaveformGeneratorModule.ActionSource,
+            "{\"op\":\"selectGroup\",\"groupIndex\":1}");
+        module.PumpOnce(context);
+        context.EnqueueInput(WaveformGeneratorModule.FrequencySource, "50");
+        module.PumpOnce(context);
+
+        var config = context.Configuration.Read<GeneratorConfig>();
+        config.Groups[0].FrequencyHz.ShouldBe(10);
+        config.Groups[1].FrequencyHz.ShouldBe(50);
+        var groups = GeneratorSnapshot(context).GetProperty("groups");
+        groups[0].GetProperty("frequency").GetDouble().ShouldBe(10);
+        groups[1].GetProperty("frequency").GetDouble().ShouldBe(50);
+    }
+
+    [Fact]
+    public void 发生器_重新装载应恢复各通道独立参数()
+    {
+        var context = new TestModuleContext();
+        var first = new WaveformGeneratorModule();
+        first.OnRegistered(context);
+        first.OnStep(context, StepReason.Start);
+
+        context.EnqueueInput(
+            WaveformGeneratorModule.ActionSource,
+            "{\"op\":\"addChannel\",\"groupIndex\":0}");
+        first.PumpOnce(context);
+        context.EnqueueInput(
+            WaveformGeneratorModule.ActionSource,
+            "{\"op\":\"selectChannel\",\"groupIndex\":0,\"index\":0}");
+        first.PumpOnce(context);
+        context.EnqueueInput(WaveformGeneratorModule.AmplitudeSource, "2");
+        first.PumpOnce(context);
+        context.EnqueueInput(
+            WaveformGeneratorModule.ActionSource,
+            "{\"op\":\"selectChannel\",\"groupIndex\":0,\"index\":1}");
+        first.PumpOnce(context);
+        context.EnqueueInput(WaveformGeneratorModule.AmplitudeSource, "3");
+        first.PumpOnce(context);
+
+        var second = new WaveformGeneratorModule();
+        second.OnRegistered(context);
+        second.OnStep(context, StepReason.Start);
+
+        var config = context.Configuration.Read<GeneratorConfig>();
+        config.Groups[0].Channels[0].Amplitude.ShouldBe(2);
+        config.Groups[0].Channels[1].Amplitude.ShouldBe(3);
+        var channels = GeneratorSnapshot(context).GetProperty("groups")[0].GetProperty("channels");
+        channels[0].GetProperty("amplitude").GetDouble().ShouldBe(2);
+        channels[1].GetProperty("amplitude").GetDouble().ShouldBe(3);
+    }
+
+    [Fact]
     public void 发生器_树形启用动作应同时更新组与通道()
     {
         var context = new TestModuleContext();
@@ -807,25 +912,10 @@ public class WaveformModulesTests
     public void 显示器_清空应复位视口且下一帧继续跟随()
     {
         var context = new TestModuleContext();
-        context.Configuration.Write(new DisplayConfig
+        SeedSettings(context, new DisplaySettings
         {
-            Settings = new DisplaySettings
-            {
-                Follow = false,
-                FollowRangeSamples = 8,
-            },
-            Groups =
-            [
-                new DisplayGroupConfig
-                {
-                    GroupId = 1,
-                    Name = "group-a",
-                    Channels = [new DisplayChannelConfig { Name = "channel-a", ColorArgb = 0xFF112233 }],
-                    YAuto = false,
-                    YMin = 0,
-                    YMax = 2,
-                },
-            ],
+            Follow = false,
+            FollowRangeSamples = 8,
         });
 
         var module = new WaveformDisplayModule();
@@ -838,6 +928,10 @@ public class WaveformModulesTests
         }
 
         module.OnStep(context, StepReason.Data);
+        context.EnqueueInput(WaveformDisplayModule.ActionSource, "{\"op\":\"renameGroup\",\"id\":1,\"name\":\"group-a\"}");
+        context.EnqueueInput(WaveformDisplayModule.ActionSource, "{\"op\":\"renameChannel\",\"index\":0,\"name\":\"channel-a\"}");
+        context.EnqueueInput(WaveformDisplayModule.ActionSource, "{\"op\":\"setColor\",\"index\":0,\"color\":\"#FF112233\"}");
+        module.PumpOnce(context);
         context.EnqueueCommand(WaveformDisplayModule.ClearCommand);
         module.PumpOnce(context);
 
@@ -849,14 +943,13 @@ public class WaveformModulesTests
         cleared.YMax.ShouldBe(1);
         cleared.Channels.ShouldBeEmpty();
 
-        var config = context.Configuration.Read<DisplayConfig>();
-        config.Settings.Follow.ShouldBeTrue();
-        config.Settings.FollowRangeSamples.ShouldBe(256);
-        var group = config.FindGroup(1).ShouldNotBeNull();
-        group.Name.ShouldBe("group-a");
-        group.YAuto.ShouldBeTrue();
-        group.Channels[0].Name.ShouldBe("channel-a");
-        group.Channels[0].ColorArgb.ShouldBe(0xFF112233u);
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowSource).ShouldBe("true");
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowRangeSource).ShouldBe("256");
+        var meta = DisplayMeta(context);
+        var groupMeta = meta.GetProperty("groups")[0];
+        groupMeta.GetProperty("name").GetString().ShouldBe("group-a");
+        groupMeta.GetProperty("channels").GetInt32().ShouldBe(1);
+        meta.GetProperty("channels")[0].GetProperty("name").GetString().ShouldBe("channel-a");
 
         for (var index = 0; index < 300; index++)
         {
@@ -875,29 +968,13 @@ public class WaveformModulesTests
     public void 显示器_显示复位应保留组与通道身份()
     {
         var context = new TestModuleContext();
-        context.Configuration.Write(new DisplayConfig
+        SeedSettings(context, new DisplaySettings
         {
-            Settings = new DisplaySettings
-            {
-                Follow = false,
-                FollowRangeSamples = 8,
-                XAxisMode = DisplayXAxisMode.Time,
-                XTickStep = 0.01,
-                Cursors = false,
-            },
-            Groups =
-            [
-                new DisplayGroupConfig
-                {
-                    GroupId = 1,
-                    Name = "group-a",
-                    Channels = [new DisplayChannelConfig { Name = "channel-a", ColorArgb = 0xFF445566 }],
-                    YAuto = false,
-                    YMin = 0,
-                    YMax = 2,
-                    YFitChannel = 0,
-                },
-            ],
+            Follow = false,
+            FollowRangeSamples = 8,
+            XAxisMode = DisplayXAxisMode.Time,
+            XTickStep = 0.01,
+            Cursors = false,
         });
 
         var module = new WaveformDisplayModule();
@@ -909,23 +986,26 @@ public class WaveformModulesTests
         }
 
         module.OnStep(context, StepReason.Data);
+        context.EnqueueInput(WaveformDisplayModule.ActionSource, "{\"op\":\"renameGroup\",\"id\":1,\"name\":\"group-a\"}");
+        context.EnqueueInput(WaveformDisplayModule.ActionSource, "{\"op\":\"renameChannel\",\"index\":0,\"name\":\"channel-a\"}");
+        context.EnqueueInput(WaveformDisplayModule.ActionSource, "{\"op\":\"setColor\",\"index\":0,\"color\":\"#FF445566\"}");
+        module.PumpOnce(context);
         context.EnqueueCommand(WaveformDisplayModule.ResetGroupCommand);
         module.PumpOnce(context);
 
-        var config = context.Configuration.Read<DisplayConfig>();
-        config.Settings.Follow.ShouldBeTrue();
-        config.Settings.FollowRangeSamples.ShouldBe(256);
-        config.Settings.XAxisMode.ShouldBe(DisplayXAxisMode.Index);
-        config.Settings.XTickStep.ShouldBe(0);
-        config.Settings.Cursors.ShouldBeTrue();
-        var group = config.FindGroup(1).ShouldNotBeNull();
-        group.Name.ShouldBe("group-a");
-        group.Channels[0].Name.ShouldBe("channel-a");
-        group.Channels[0].ColorArgb.ShouldBe(0xFF445566u);
-        group.YAuto.ShouldBeTrue();
-        group.YMin.ShouldBe(-1);
-        group.YMax.ShouldBe(1);
-        group.YFitChannel.ShouldBe(-1);
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowSource).ShouldBe("true");
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowRangeSource).ShouldBe("256");
+        context.ViewState.GetInputText(WaveformDisplayModule.XAxisModeSource).ShouldBe("index");
+        context.ViewState.GetInputText(WaveformDisplayModule.XTickSource).ShouldBe("0");
+        context.ViewState.GetInputText(WaveformDisplayModule.CursorsSource).ShouldBe("true");
+        var groupMeta = DisplayMeta(context).GetProperty("groups")[0];
+        groupMeta.GetProperty("name").GetString().ShouldBe("group-a");
+        groupMeta.GetProperty("channels").GetInt32().ShouldBe(1);
+        DisplayMeta(context).GetProperty("channels")[0].GetProperty("name").GetString().ShouldBe("channel-a");
+        groupMeta.GetProperty("yAuto").GetBoolean().ShouldBeTrue();
+        groupMeta.GetProperty("yMin").GetDouble().ShouldBe(-1);
+        groupMeta.GetProperty("yMax").GetDouble().ShouldBe(1);
+        groupMeta.GetProperty("yFitChannel").GetInt32().ShouldBe(-1);
 
         var snapshot = Snapshot(context).ShouldNotBeNull();
         snapshot.XRangeStart.ShouldBe(0);
@@ -1019,17 +1099,19 @@ public class WaveformModulesTests
         snapshot.Channels.ShouldHaveSingleItem().Index.ShouldBe(1);
         snapshot.Channels[0].Values.ShouldBe([10f, 20f]);
 
-        var config = context.Configuration.Read<DisplayConfig>();
-        config.FindGroup(1).ShouldNotBeNull().Channels[0].Deleted.ShouldBeTrue();
-        config.ActiveChannelIndex.ShouldBe(1);
         DisplayMeta(context).GetProperty("activeChannelIndex").GetInt32().ShouldBe(1);
         DisplayMeta(context).GetProperty("channels").GetArrayLength().ShouldBe(1);
 
+        // 数据帧仍报告 2 个通道 ⇒ 删除只移出本次显示，下一帧恢复槽位（不是永久消失）。
         Deliver(context, 1, 2, [3f, 30f]);
         module.OnStep(context, StepReason.Data);
         snapshot = Snapshot(context).ShouldNotBeNull();
-        snapshot.Channels.ShouldHaveSingleItem().Index.ShouldBe(1);
-        snapshot.Channels[0].Values.ShouldBe([10f, 20f, 30f]);
+        snapshot.Channels.Count.ShouldBe(2);
+        snapshot.Channels[0].Index.ShouldBe(0);
+        snapshot.Channels[0].Values[^1].ShouldBe(3f, "删除清掉历史后，下一帧的新样本仍应进入该槽位");
+        snapshot.Channels[1].Index.ShouldBe(1);
+        snapshot.Channels[1].Values.ShouldBe([10f, 20f, 30f]);
+        DisplayMeta(context).GetProperty("channels").GetArrayLength().ShouldBe(2);
     }
 
     [Fact]
@@ -1046,7 +1128,6 @@ public class WaveformModulesTests
         module.PumpOnce(context);
 
         Snapshot(context).ShouldNotBeNull().Channels.ShouldBeEmpty();
-        context.Configuration.Read<DisplayConfig>().Groups.ShouldBeEmpty();
         DisplayMeta(context).GetProperty("groups").GetArrayLength().ShouldBe(0);
 
         Deliver(context, 1, 1, [2f]);
@@ -1054,7 +1135,7 @@ public class WaveformModulesTests
         var rebuilt = Snapshot(context).ShouldNotBeNull();
         rebuilt.Channels.ShouldHaveSingleItem().Index.ShouldBe(0);
         rebuilt.Channels[0].Values.ShouldBe([2f]);
-        context.Configuration.Read<DisplayConfig>().Groups.Count.ShouldBe(1);
+        DisplayMeta(context).GetProperty("groups").GetArrayLength().ShouldBe(1);
     }
 
     [Fact]
@@ -1083,28 +1164,16 @@ public class WaveformModulesTests
         snapshot.YMax.ShouldBe(4);
         snapshot.Channels[0].Values.ShouldBe(Enumerable.Range(20, 30).Select(value => (float)value));
 
-        var config = context.Configuration.Read<DisplayConfig>();
-        config.Settings.Follow.ShouldBeFalse();
-        config.Settings.FollowRangeSamples.ShouldBe(30);
-        config.FindGroup(1).ShouldNotBeNull().YAuto.ShouldBeFalse();
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowSource).ShouldBe("false");
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowRangeSource).ShouldBe("30");
+        snapshot.YAuto.ShouldBeFalse();
     }
 
     [Fact]
     public void 显示器_右键缩放应绕中心改变跨度并保持未变化的轴()
     {
         var context = new TestModuleContext();
-        context.Configuration.Write(new DisplayConfig
-        {
-            Settings = new DisplaySettings { Follow = false },
-            Groups =
-            [
-                new DisplayGroupConfig
-                {
-                    GroupId = 1,
-                    Channels = [new DisplayChannelConfig()],
-                },
-            ],
-        });
+        SeedSettings(context, new DisplaySettings { Follow = false });
 
         var module = new WaveformDisplayModule();
         module.OnRegistered(context);
@@ -1168,9 +1237,8 @@ public class WaveformModulesTests
         var zoomed = Snapshot(context).ShouldNotBeNull();
         zoomed.XRangeStart.ShouldBe(50);
         zoomed.XRangeEnd.ShouldBe(99);
-        var config = context.Configuration.Read<DisplayConfig>();
-        config.Settings.Follow.ShouldBeTrue();
-        config.Settings.FollowRangeSamples.ShouldBe(50);
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowSource).ShouldBe("true");
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowRangeSource).ShouldBe("50");
     }
 
     [Fact]
@@ -1207,6 +1275,69 @@ public class WaveformModulesTests
         snapshot.YAuto.ShouldBeFalse();
         snapshot.YMin.ShouldBe(0);
         snapshot.YMax.ShouldBe(2);
+
+        // 数据轴（范围选择器）走的是 setRange，不是曲线区 dragView；无数据时同样要生效。
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"setRange\",\"start\":10,\"end\":19}");
+        module.PumpOnce(context);
+        snapshot = Snapshot(context).ShouldNotBeNull();
+        snapshot.XRangeStart.ShouldBe(10);
+        snapshot.XRangeEnd.ShouldBe(19);
+    }
+
+    [Fact]
+    public void 显示器_只有设置值声明持久化_视口值不持久化()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+
+        context.DeclaredValues.Single(value => value.Name == WaveformDisplayModule.FollowSource)
+            .Persistent.ShouldBeTrue();
+        context.DeclaredValues.Single(value => value.Name == WaveformDisplayModule.XAxisModeSource)
+            .Persistent.ShouldBeTrue();
+        context.DeclaredValues.Single(value => value.Name == WaveformDisplayModule.CustomRateSource)
+            .Persistent.ShouldBeTrue();
+        context.DeclaredValues.Single(value => value.Name == WaveformDisplayModule.KeepInactiveSource)
+            .Persistent.ShouldBeTrue();
+
+        context.DeclaredValues.Single(value => value.Name == WaveformDisplayModule.XStartSource)
+            .Persistent.ShouldBeFalse();
+        context.DeclaredValues.Single(value => value.Name == WaveformDisplayModule.YMinSource)
+            .Persistent.ShouldBeFalse();
+        context.DeclaredValues.Single(value => value.Name == WaveformDisplayModule.YAutoSource)
+            .Persistent.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void 显示器_设置应由值恢复_组只在数据帧到达后出现()
+    {
+        var context = new TestModuleContext();
+        SeedSettings(context, new DisplaySettings
+        {
+            Follow = false,
+            FollowRangeSamples = 10,
+            Cursors = false,
+        });
+
+        var first = new WaveformDisplayModule();
+        first.OnRegistered(context);
+        first.OnStep(context, StepReason.Start);
+
+        var second = new WaveformDisplayModule();
+        second.OnRegistered(context);
+        second.OnStep(context, StepReason.Start);
+
+        var meta = DisplayMeta(context);
+        meta.GetProperty("groups").GetArrayLength().ShouldBe(0, "组是数据帧派生的运行期对象，不应从配置恢复");
+        meta.GetProperty("settings").GetProperty("follow").GetBoolean().ShouldBeFalse();
+        meta.GetProperty("settings").GetProperty("followRange").GetInt32().ShouldBe(10);
+        meta.GetProperty("settings").GetProperty("cursors").GetBoolean().ShouldBeFalse();
+
+        Deliver(context, 7, 0, [1f]);
+        second.OnStep(context, StepReason.Data);
+        DisplayMeta(context).GetProperty("groups").GetArrayLength().ShouldBe(1);
     }
 
     [Fact]
@@ -1246,18 +1377,41 @@ public class WaveformModulesTests
     }
 
     [Fact]
+    public void 显示器_无数据拖动曲线区应更新默认视口()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"dragView\",\"mode\":\"pan\",\"xStart\":10,\"xEnd\":19,\"yMin\":-2,\"yMax\":2}");
+        module.PumpOnce(context);
+
+        var snapshot = Snapshot(context).ShouldNotBeNull();
+        snapshot.Channels.ShouldBeEmpty();
+        snapshot.XRangeStart.ShouldBe(10);
+        snapshot.XRangeEnd.ShouldBe(19);
+        snapshot.YAuto.ShouldBeFalse();
+        snapshot.YMin.ShouldBe(-2);
+        snapshot.YMax.ShouldBe(2);
+        context.ViewState.GetInputText(WaveformDisplayModule.XStartSource).ShouldBe("10");
+        context.ViewState.GetInputText(WaveformDisplayModule.XEndSource).ShouldBe("19");
+        context.ViewState.GetInputText(WaveformDisplayModule.YMinSource).ShouldBe("-2");
+        context.ViewState.GetInputText(WaveformDisplayModule.YMaxSource).ShouldBe("2");
+    }
+
+    [Fact]
     public void 显示器_自定义频率应覆盖帧声明并驱动时间换算()
     {
         var context = new TestModuleContext();
-        context.Configuration.Write(new DisplayConfig
+        SeedSettings(context, new DisplaySettings
         {
-            Settings = new DisplaySettings
-            {
-                XAxisMode = DisplayXAxisMode.Time,
-                UseCustomRate = true,
-                CustomRateHz = 500,
-                FollowRangeSamples = 100,
-            },
+            XAxisMode = DisplayXAxisMode.Time,
+            UseCustomRate = true,
+            CustomRateHz = 500,
+            FollowRangeSamples = 100,
         });
 
         var module = new WaveformDisplayModule();
@@ -1287,16 +1441,13 @@ public class WaveformModulesTests
     public void 显示器_轴模式切换应协同换算X刻度与跟踪范围()
     {
         var context = new TestModuleContext();
-        context.Configuration.Write(new DisplayConfig
+        SeedSettings(context, new DisplaySettings
         {
-            Settings = new DisplaySettings
-            {
-                XAxisMode = DisplayXAxisMode.Index,
-                UseCustomRate = true,
-                CustomRateHz = 1000,
-                FollowRangeSamples = 100,
-                XTickStep = 100,
-            },
+            XAxisMode = DisplayXAxisMode.Index,
+            UseCustomRate = true,
+            CustomRateHz = 1000,
+            FollowRangeSamples = 100,
+            XTickStep = 100,
         });
 
         var module = new WaveformDisplayModule();
@@ -1321,13 +1472,10 @@ public class WaveformModulesTests
     public void 显示器_跟踪状态应只由最后一次操作决定()
     {
         var context = new TestModuleContext();
-        context.Configuration.Write(new DisplayConfig
+        SeedSettings(context, new DisplaySettings
         {
-            Settings = new DisplaySettings
-            {
-                Follow = true,
-                FollowRangeSamples = 5,
-            },
+            Follow = true,
+            FollowRangeSamples = 5,
         });
 
         var module = new WaveformDisplayModule();
@@ -1409,13 +1557,10 @@ public class WaveformModulesTests
     public void 显示器_修改跟踪范围不应改变跟踪状态()
     {
         var context = new TestModuleContext();
-        context.Configuration.Write(new DisplayConfig
+        SeedSettings(context, new DisplaySettings
         {
-            Settings = new DisplaySettings
-            {
-                Follow = true,
-                FollowRangeSamples = 5,
-            },
+            Follow = true,
+            FollowRangeSamples = 5,
         });
 
         var module = new WaveformDisplayModule();
@@ -1446,7 +1591,7 @@ public class WaveformModulesTests
     public void 显示器_非活动组历史按样本数限制且活动组不受限()
     {
         var context = new TestModuleContext();
-        context.Configuration.Write(new DisplayConfig
+        SeedSettings(context, new DisplaySettings
         {
             KeepInactiveHistory = true,
             HistoryLimitSamples = 2,
@@ -1576,6 +1721,37 @@ public class WaveformModulesTests
             .Length.ShouldBeLessThanOrEqualTo(6);
         ChartAxisFormatter.Format(1_234_567, ChartAxisKind.Index, 1000, 4)
             .ShouldNotContain(".");
+    }
+
+    /// <summary>把显示设置写进值（模块只从值读设置；组/通道由帧建立）。</summary>
+    private static void SeedSettings(TestModuleContext context, DisplaySettings settings)
+    {
+        context.ViewState.SetInputText(
+            WaveformDisplayModule.XAxisModeSource,
+            settings.XAxisMode == DisplayXAxisMode.Time ? "time" : "index");
+        context.ViewState.SetInputText(WaveformDisplayModule.FollowSource, settings.Follow ? "true" : "false");
+        context.ViewState.SetInputText(
+            WaveformDisplayModule.FollowRangeSource,
+            settings.FollowRangeSamples.ToString(CultureInfo.InvariantCulture));
+        context.ViewState.SetInputText(WaveformDisplayModule.CursorsSource, settings.Cursors ? "true" : "false");
+        context.ViewState.SetInputText(
+            WaveformDisplayModule.UseCustomRateSource,
+            settings.UseCustomRate ? "true" : "false");
+        context.ViewState.SetInputText(
+            WaveformDisplayModule.CustomRateSource,
+            settings.CustomRateHz.ToString(CultureInfo.InvariantCulture));
+        context.ViewState.SetInputText(
+            WaveformDisplayModule.XTickSource,
+            settings.XTickStep.ToString(CultureInfo.InvariantCulture));
+        context.ViewState.SetInputText(
+            WaveformDisplayModule.YTickSource,
+            settings.YTickStep.ToString(CultureInfo.InvariantCulture));
+        context.ViewState.SetInputText(
+            WaveformDisplayModule.KeepInactiveSource,
+            settings.KeepInactiveHistory ? "true" : "false");
+        context.ViewState.SetInputText(
+            WaveformDisplayModule.HistoryLimitSource,
+            settings.HistoryLimitSamples.ToString(CultureInfo.InvariantCulture));
     }
 
     private static SeriesWindowSnapshot? Snapshot(TestModuleContext context) =>

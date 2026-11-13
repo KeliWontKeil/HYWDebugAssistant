@@ -9,6 +9,7 @@ using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Timing;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Modules.WaveformDisplay;
@@ -152,8 +153,8 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
     private IModuleContext? _context;
     private IModuleTimer? _uiTimer;
-    private DisplayConfig _config = new();
-    private bool _configLoaded;
+    private DisplaySettings _settings = new();
+    private bool _settingsLoaded;
     private uint _activeGroupId;
     private int _activeChannelIndex;
     private long _structureRevision;
@@ -228,21 +229,24 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(
             HistoryUsedSource, ViewDataSourceKind.Value, ContractPrimitive.U64));
 
-        DeclareInput(context, XStartSource);
-        DeclareInput(context, XEndSource);
-        DeclareInput(context, YMinSource);
-        DeclareInput(context, YMaxSource);
-        DeclareInput(context, YAutoSource);
-        DeclareInput(context, FollowSource);
-        DeclareInput(context, FollowRangeSource);
-        DeclareInput(context, CursorsSource);
-        DeclareInput(context, XAxisModeSource);
-        DeclareInput(context, UseCustomRateSource);
-        DeclareInput(context, CustomRateSource);
-        DeclareInput(context, XTickSource);
-        DeclareInput(context, YTickSource);
-        DeclareInput(context, KeepInactiveSource);
-        DeclareInput(context, HistoryLimitSource);
+        DeclareValue(context, XStartSource, ValueEditor.Number);
+        DeclareValue(context, XEndSource, ValueEditor.Number);
+        DeclareValue(context, YMinSource, ValueEditor.Number);
+        DeclareValue(context, YMaxSource, ValueEditor.Number);
+        DeclareValue(context, YAutoSource, ValueEditor.Boolean);
+        DeclareValue(context, FollowSource, ValueEditor.Boolean, persistent: true);
+        DeclareValue(context, FollowRangeSource, ValueEditor.Number, persistent: true);
+        DeclareValue(context, CursorsSource, ValueEditor.Boolean, persistent: true);
+        DeclareValue(context, XAxisModeSource, ValueEditor.Enum, persistent: true, choices: [
+            new ValueChoice("index", Tr("view.xIndex")),
+            new ValueChoice("time", Tr("view.xTime")),
+        ]);
+        DeclareValue(context, UseCustomRateSource, ValueEditor.Boolean, persistent: true);
+        DeclareValue(context, CustomRateSource, ValueEditor.Number, persistent: true);
+        DeclareValue(context, XTickSource, ValueEditor.Number, persistent: true);
+        DeclareValue(context, YTickSource, ValueEditor.Number, persistent: true);
+        DeclareValue(context, KeepInactiveSource, ValueEditor.Boolean, persistent: true);
+        DeclareValue(context, HistoryLimitSource, ValueEditor.Number, persistent: true);
         DeclareInput(context, ReadableTickLimitsSource);
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(ImageRequestSource, ViewDataSourceKind.Text));
         context.Declaration.DeclareInput(ActionSource);
@@ -264,6 +268,19 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     private static void DeclareInput(IModuleContext context, string name) =>
         context.Declaration.DeclareInput(name);
 
+    private static void DeclareValue(
+        IModuleContext context,
+        string name,
+        ValueEditor editor,
+        bool persistent = false,
+        IReadOnlyList<ValueChoice>? choices = null) =>
+        context.Declaration.DeclareValue(new ValueDeclaration(name)
+        {
+            Editor = editor,
+            Choices = choices,
+            Persistent = persistent,
+        });
+
     /// <inheritdoc />
     public ReceiveMode Receive => ReceiveMode.Pull;
 
@@ -273,7 +290,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         ArgumentNullException.ThrowIfNull(context);
         _context = context;
 
-        if (!_configLoaded)
+        if (!_settingsLoaded)
         {
             LoadConfig(context);
         }
@@ -296,7 +313,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         ArgumentNullException.ThrowIfNull(context);
         _context = context;
 
-        if (!_configLoaded)
+        if (!_settingsLoaded)
         {
             LoadConfig(context);
         }
@@ -305,6 +322,10 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         PollTextInputs(context);
         DrainFrames(context);
     }
+
+    /// <inheritdoc />
+    /// <remarks>“还原”会重置配置与值；下一拍重新读配置并发布，避免界面/模块各留一份旧值。</remarks>
+    public void OnConfigurationChanged() => _settingsLoaded = false;
 
     /// <inheritdoc />
     public void OnRemoved() => Dispose();
@@ -325,116 +346,91 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
     private void LoadConfig(IModuleContext context)
     {
-        _config = context.Configuration.Read<DisplayConfig>();
-        NormalizeConfig();
-        _configLoaded = true;
-        context.Configuration.Write(_config);
-        _activeGroupId = _config.ActiveGroupId;
-        _activeChannelIndex = _config.ActiveChannelIndex;
+        // 显示设置来自值（XAML 初值/持久化值）；组与通道只在数据帧到达时存在。
+        _settings = ReadSettings(context);
+        NormalizeSettings();
+
+        _settingsLoaded = true;
+        _activeGroupId = 0;
+        _activeChannelIndex = 0;
         _defaultRangeStart = 0;
-        _defaultRangeEnd = _config.Settings.FollowRangeSamples - 1;
+        _defaultRangeEnd = _settings.FollowRangeSamples - 1;
+        _defaultRangeEdited = false;
+        _defaultYEdited = false;
         _uiTimer?.Start();
         PublishMeta(context);
         PublishEmptySnapshot(context);
         PublishStatus(Tr(WaveformDisplayText.Ready));
     }
 
-    private void NormalizeConfig()
+    private static DisplaySettings ReadSettings(IModuleContext context)
     {
-        var settings = _config.Settings;
-        var followRange = Math.Clamp(
-            settings.FollowRangeSamples <= 0 ? DefaultFollowRangeSamples : settings.FollowRangeSamples,
-            MinimumRangeSamples,
-            MaximumFollowRangeSamples);
-        var xTick = double.IsFinite(settings.XTickStep) && settings.XTickStep > 0 ? settings.XTickStep : 0;
-        var yTick = double.IsFinite(settings.YTickStep) && settings.YTickStep > 0 ? settings.YTickStep : 0;
-        var customRate = double.IsFinite(settings.CustomRateHz) && settings.CustomRateHz > 0
-            ? settings.CustomRateHz
-            : 1000;
+        var defaults = new DisplaySettings();
 
-        var groups = _config.Groups.ToList();
-        var used = new HashSet<uint>();
-        var normalizedGroups = new List<DisplayGroupConfig>(groups.Count);
-        foreach (var group in groups)
+        var axisMode = string.Equals(
+            context.Values.ReadText(XAxisModeSource),
+            "time",
+            StringComparison.OrdinalIgnoreCase)
+                ? DisplayXAxisMode.Time
+                : DisplayXAxisMode.Index;
+
+        var followRange = ParseInt(context.Values.ReadText(FollowRangeSource), defaults.FollowRangeSamples);
+        var customRate = ParseDouble(context.Values.ReadText(CustomRateSource), defaults.CustomRateHz);
+        var xTick = ParseDouble(context.Values.ReadText(XTickSource), defaults.XTickStep);
+        var yTick = ParseDouble(context.Values.ReadText(YTickSource), defaults.YTickStep);
+        var historyLimit = ParseInt(context.Values.ReadText(HistoryLimitSource), defaults.HistoryLimitSamples);
+
+        return new DisplaySettings
         {
-            var id = group.GroupId;
-            if (id == 0 || !used.Add(id))
-            {
-                var candidate = 1u;
-                while (used.Contains(candidate))
-                {
-                    candidate++;
-                }
-
-                id = candidate;
-                _ = used.Add(id);
-            }
-
-            var yMin = double.IsFinite(group.YMin) ? group.YMin : -1;
-            var yMax = double.IsFinite(group.YMax) ? group.YMax : 1;
-            if (yMax <= yMin)
-            {
-                yMax = yMin + 1;
-            }
-
-            var channels = group.Channels.ToList();
-            if (channels.Count == 0)
-            {
-                channels.Add(new DisplayChannelConfig());
-            }
-
-            // 所有通道都已被用户删除的组不再保留。
-            if (channels.All(channel => channel.Deleted))
-            {
-                continue;
-            }
-
-            var fit = group.YFitChannel < -1 ? -1 : group.YFitChannel;
-            if (fit < 0 || fit >= channels.Count || channels[fit].Deleted)
-            {
-                fit = -1;
-            }
-
-            normalizedGroups.Add(group with
-            {
-                GroupId = id,
-                Name = group.Name ?? string.Empty,
-                YMin = yMin,
-                YMax = yMax,
-                YFitChannel = fit,
-                Channels = channels,
-            });
-        }
-
-        _config = _config with
-        {
-            Groups = normalizedGroups,
-            Settings = settings with
-            {
-                FollowRangeSamples = followRange,
-                XTickStep = xTick,
-                YTickStep = yTick,
-                CustomRateHz = customRate,
-            },
-            ActiveChannelIndex = Math.Max(0, _config.ActiveChannelIndex),
-            HistoryLimitSamples = Math.Max(0, _config.HistoryLimitSamples),
+            XAxisMode = axisMode,
+            Follow = ParseBool(context.Values.ReadText(FollowSource), defaults.Follow),
+            FollowRangeSamples = followRange,
+            Cursors = ParseBool(context.Values.ReadText(CursorsSource), defaults.Cursors),
+            UseCustomRate = ParseBool(context.Values.ReadText(UseCustomRateSource), defaults.UseCustomRate),
+            CustomRateHz = customRate,
+            XTickStep = xTick,
+            YTickStep = yTick,
+            KeepInactiveHistory = ParseBool(
+                context.Values.ReadText(KeepInactiveSource),
+                defaults.KeepInactiveHistory),
+            HistoryLimitSamples = Math.Max(0, historyLimit),
         };
-
-        if (_config.FindGroup(_config.ActiveGroupId) is null)
-        {
-            _config = _config with { ActiveGroupId = 0 };
-        }
-
-        var active = _config.FindGroup(_config.ActiveGroupId);
-        if (active is not null)
-        {
-            var index = _config.ActiveChannelIndex;
-            if (index < 0 || index >= active.Channels.Count || active.Channels[index].Deleted)
-            {
-                _config = _config with { ActiveChannelIndex = FirstChannelIndex(active) };
-            }
-        }
     }
+
+    private void NormalizeSettings()
+    {
+        _settings = _settings with
+        {
+            FollowRangeSamples = Math.Clamp(
+                _settings.FollowRangeSamples <= 0 ? DefaultFollowRangeSamples : _settings.FollowRangeSamples,
+                MinimumRangeSamples,
+                MaximumFollowRangeSamples),
+            XTickStep = double.IsFinite(_settings.XTickStep) && _settings.XTickStep > 0
+                ? _settings.XTickStep
+                : 0,
+            YTickStep = double.IsFinite(_settings.YTickStep) && _settings.YTickStep > 0
+                ? _settings.YTickStep
+                : 0,
+            CustomRateHz = double.IsFinite(_settings.CustomRateHz) && _settings.CustomRateHz > 0
+                ? _settings.CustomRateHz
+                : 1000,
+            HistoryLimitSamples = Math.Max(0, _settings.HistoryLimitSamples),
+        };
+    }
+
+    private static bool ParseBool(string? text, bool fallback) =>
+        bool.TryParse(text, out var value) ? value : fallback;
+
+    private static int ParseInt(string? text, int fallback) =>
+        int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            ? value
+            : fallback;
+
+    private static double ParseDouble(string? text, double fallback) =>
+        double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+        && double.IsFinite(value)
+            ? value
+            : fallback;
 
     private void Pump(IModuleContext context)
     {
@@ -470,7 +466,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         var pending = new List<(string Source, string Text)>();
         foreach (var source in PolledTextSources)
         {
-            var text = context.ViewState.GetInputText(source);
+            var text = context.Values.ReadText(source);
             if (text is null
                 || (_lastText.TryGetValue(source, out var last) && string.Equals(last, text, StringComparison.Ordinal)))
             {
@@ -547,7 +543,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         var (start, end) = CurrentXRange();
         var span = Math.Max(0, end - start);
         var rate = EffectiveRate(ActiveGroup);
-        return DisplayAxisUnits.UsesTime(_config.Settings.XAxisMode, rate)
+        return DisplayAxisUnits.UsesTime(_settings.XAxisMode, rate)
             ? span / rate
             : span;
     }
@@ -555,8 +551,8 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     /// <summary>用户刻度比实际可读上限更密时标红；范围缩小或窗口变宽后自动清除。</summary>
     private void UpdateTickAlerts(IModuleContext context)
     {
-        var xTick = _config.Settings.XTickStep;
-        var yTick = _config.Settings.YTickStep;
+        var xTick = _settings.XTickStep;
+        var yTick = _settings.YTickStep;
         var xSpan = CurrentXSpan();
         var (yMin, yMax) = CurrentYRange();
         var ySpan = Math.Max(0, yMax - yMin);
@@ -666,8 +662,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             case CursorsSource:
                 if (bool.TryParse(text.Trim(), out var cursors))
                 {
-                    _config = _config with { Settings = _config.Settings with { Cursors = cursors } };
-                    context.Configuration.Write(_config);
+                    _settings = _settings with { Cursors = cursors };
                     PublishMeta(context);
                     PublishInputs(context);
                 }
@@ -679,8 +674,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             case UseCustomRateSource:
                 if (bool.TryParse(text.Trim(), out var useCustomRate))
                 {
-                    _config = _config with { Settings = _config.Settings with { UseCustomRate = useCustomRate } };
-                    context.Configuration.Write(_config);
+                    _settings = _settings with { UseCustomRate = useCustomRate };
                     EnsureTimeModeRate(context);
                     BuildSnapshot(context);
                     PublishMeta(context);
@@ -691,8 +685,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             case CustomRateSource:
                 if (TryDouble(text, out var customRate) && customRate > 0)
                 {
-                    _config = _config with { Settings = _config.Settings with { CustomRateHz = customRate } };
-                    context.Configuration.Write(_config);
+                    _settings = _settings with { CustomRateHz = customRate };
                     EnsureTimeModeRate(context);
                     BuildSnapshot(context);
                     PublishMeta(context);
@@ -708,11 +701,10 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             case FollowRangeSource:
                 if (TryParseFollowRange(text, out var followRange))
                 {
-                    _config = _config with { Settings = _config.Settings with { FollowRangeSamples = followRange } };
-                    context.Configuration.Write(_config);
+                    _settings = _settings with { FollowRangeSamples = followRange };
                     _defaultRangeStart = 0;
                     _defaultRangeEnd = followRange - 1;
-                    if (ActiveGroup is { } followGroup && followGroup.DisplayIndex > 0 && _config.Settings.Follow)
+                    if (ActiveGroup is { } followGroup && followGroup.DisplayIndex > 0 && _settings.Follow)
                     {
                         UpdateFollowRange(followGroup);
                     }
@@ -732,8 +724,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                 if (TryDouble(text, out var xTick) && xTick >= 0)
                 {
                     _xTickParseInvalid = false;
-                    _config = _config with { Settings = _config.Settings with { XTickStep = xTick } };
-                    context.Configuration.Write(_config);
+                    _settings = _settings with { XTickStep = xTick };
                     UpdateTickAlerts(context);
                     PublishMeta(context);
                     PublishInputs(context);
@@ -749,8 +740,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                 if (TryDouble(text, out var yTick) && yTick >= 0)
                 {
                     _yTickParseInvalid = false;
-                    _config = _config with { Settings = _config.Settings with { YTickStep = yTick } };
-                    context.Configuration.Write(_config);
+                    _settings = _settings with { YTickStep = yTick };
                     UpdateTickAlerts(context);
                     PublishMeta(context);
                     PublishInputs(context);
@@ -765,7 +755,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             case KeepInactiveSource:
                 if (bool.TryParse(text.Trim(), out var keepInactive))
                 {
-                    _config = _config with { KeepInactiveHistory = keepInactive };
+                    _settings = _settings with { KeepInactiveHistory = keepInactive };
                     if (!keepInactive)
                     {
                         foreach (var pair in _groups)
@@ -776,8 +766,6 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                             }
                         }
                     }
-
-                    context.Configuration.Write(_config);
                     PublishMeta(context);
                     PublishInputs(context);
                 }
@@ -787,9 +775,8 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                 if (int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var limit)
                     && limit >= 0)
                 {
-                    _config = _config with { HistoryLimitSamples = limit };
+                    _settings = _settings with { HistoryLimitSamples = limit };
                     _historyLimited = false;
-                    context.Configuration.Write(_config);
                     PublishMeta(context);
                     PublishInputs(context);
                     SetInputValidity(context, HistoryLimitSource, invalid: false);
@@ -962,8 +949,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
     private void SetFollow(IModuleContext context, bool follow)
     {
-        _config = _config with { Settings = _config.Settings with { Follow = follow } };
-        context.Configuration.Write(_config);
+        _settings = _settings with { Follow = follow };
 
         if (follow && ActiveGroup is { } group && group.DisplayIndex > 0)
         {
@@ -982,7 +968,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
     private void ApplyXAxisMode(IModuleContext context, string text)
     {
-        var previous = _config.Settings.XAxisMode;
+        var previous = _settings.XAxisMode;
         var mode = string.Equals(text.Trim(), "time", StringComparison.OrdinalIgnoreCase)
             ? DisplayXAxisMode.Time
             : DisplayXAxisMode.Index;
@@ -994,16 +980,12 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         }
 
         var rate = EffectiveRate(ActiveGroup);
-        var tick = ConvertTickForMode(_config.Settings.XTickStep, previous, mode, rate);
-        _config = _config with
+        var tick = ConvertTickForMode(_settings.XTickStep, previous, mode, rate);
+        _settings = _settings with
         {
-            Settings = _config.Settings with
-            {
-                XAxisMode = mode,
-                XTickStep = tick,
-            },
+            XAxisMode = mode,
+            XTickStep = tick,
         };
-        context.Configuration.Write(_config);
         UpdateTickAlerts(context);
         PublishMeta(context);
         PublishInputs(context);
@@ -1037,21 +1019,17 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     /// <summary>速率丢失时 Time 模式没有意义：回到 Index，并把刻度恢复为自动。</summary>
     private void EnsureTimeModeRate(IModuleContext context)
     {
-        if (_config.Settings.XAxisMode != DisplayXAxisMode.Time
+        if (_settings.XAxisMode != DisplayXAxisMode.Time
             || EffectiveRate(ActiveGroup) > 0)
         {
             return;
         }
 
-        _config = _config with
+        _settings = _settings with
         {
-            Settings = _config.Settings with
-            {
-                XAxisMode = DisplayXAxisMode.Index,
-                XTickStep = 0,
-            },
+            XAxisMode = DisplayXAxisMode.Index,
+            XTickStep = 0,
         };
-        context.Configuration.Write(_config);
         UpdateTickAlerts(context);
         PublishStatus(Tr("status.rateUnknown"));
     }
@@ -1151,8 +1129,6 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                             && !selectedGroup.IsDeleted(index))
                         {
                             _activeChannelIndex = index;
-                            _config = _config with { ActiveChannelIndex = _activeChannelIndex };
-                            context.Configuration.Write(_config);
                             PublishMeta(context);
                         }
                     }
@@ -1239,11 +1215,13 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         }
     }
 
-    private void UpdateGroupConfig(IModuleContext context, DisplayGroupRuntime group, DisplayGroupConfig config)
+    private static void UpdateGroupConfig(
+        IModuleContext context,
+        DisplayGroupRuntime group,
+        DisplayGroupConfig config)
     {
+        _ = context;
         group.Config = config;
-        ReplaceGroupConfig(config);
-        context.Configuration.Write(_config);
     }
 
     private void UpdateChannelAt(
@@ -1263,23 +1241,6 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         BuildSnapshot(context);
         PublishMeta(context);
         PublishInputs(context);
-    }
-
-    private void ReplaceGroupConfig(DisplayGroupConfig config)
-    {
-        var groups = _config.Groups.ToList();
-        for (var index = 0; index < groups.Count; index++)
-        {
-            if (groups[index].GroupId == config.GroupId)
-            {
-                groups[index] = config;
-                _config = _config with { Groups = groups };
-                return;
-            }
-        }
-
-        groups.Add(config);
-        _config = _config with { Groups = groups };
     }
 
     private void DrainFrames(IModuleContext context)
@@ -1311,7 +1272,11 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         var group = GetOrCreateGroup(context, frame.GroupId);
         var newGroup = !groupExisted;
         var firstFrame = group.DisplayIndex == 0;
-        var channelsChanged = group.PresentChannelCount != frame.ChannelCount;
+
+        // 删除通道是“本次显示移除”，不是持久身份：下一帧仍报告该槽位时恢复。
+        // 否则用户删掉的通道会永久消失，直到整组重建；隐藏/显隐才是长期操作。
+        var revived = ReviveDeletedChannels(context, group, frame.ChannelCount);
+        var channelsChanged = revived || group.PresentChannelCount != frame.ChannelCount;
 
         if (channelsChanged)
         {
@@ -1334,7 +1299,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         var active = group.GroupId == _activeGroupId;
 
         // 活动组永远保留（否则显示会自己冻住）；历史上限只约束非活动组。
-        var saving = active || (_config.KeepInactiveHistory && !HistoryLimitReached(group));
+        var saving = active || (_settings.KeepInactiveHistory && !HistoryLimitReached(group));
         if (saving)
         {
             group.Append(frame.Samples, frame.ValidMask, now);
@@ -1365,7 +1330,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             SetDefaultRange(group);
             BuildSnapshot(context);
         }
-        else if (_config.Settings.Follow)
+        else if (_settings.Follow)
         {
             var width = (int)Math.Max(MinimumRangeSamples, group.RangeEnd - group.RangeStart + 1);
             var large = width > LargeRangeFrameThreshold;
@@ -1412,7 +1377,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             UpdateGroupConfig(context, group, config);
         }
 
-        if (_defaultRangeEdited && !_config.Settings.Follow && latest > 0)
+        if (_defaultRangeEdited && !_settings.Follow && latest > 0)
         {
             var start = Math.Clamp(_defaultRangeStart, 0, latest);
             var end = Math.Clamp(_defaultRangeEnd, 0, latest);
@@ -1426,7 +1391,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     /// <summary>非活动组当前保留的样本帧合计。</summary>
     private long InactiveSampleCount()
     {
-        if (!_config.KeepInactiveHistory)
+        if (!_settings.KeepInactiveHistory)
         {
             return 0;
         }
@@ -1446,12 +1411,12 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     private bool HistoryLimitReached(DisplayGroupRuntime group)
     {
         _ = group;
-        if (_config.HistoryLimitSamples <= 0)
+        if (_settings.HistoryLimitSamples <= 0)
         {
             return false;
         }
 
-        if (InactiveSampleCount() < _config.HistoryLimitSamples)
+        if (InactiveSampleCount() < _settings.HistoryLimitSamples)
         {
             return false;
         }
@@ -1472,16 +1437,9 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             return existing;
         }
 
-        var config = _config.FindGroup(groupId);
-        if (config is null)
-        {
-            config = new DisplayGroupConfig { GroupId = groupId };
-            var groups = _config.Groups.ToList();
-            groups.Add(config);
-            _config = _config with { Groups = groups };
-            context.Configuration.Write(_config);
-            _structureRevision++;
-        }
+        // 组只由数据帧发现；这里不查/不写任何持久化配置。
+        var config = new DisplayGroupConfig { GroupId = groupId };
+        _structureRevision++;
 
         var runtime = new DisplayGroupRuntime
         {
@@ -1492,6 +1450,42 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         _groups[groupId] = runtime;
         _groupOrder.Add(groupId);
         return runtime;
+    }
+
+    /// <summary>
+    /// 数据帧仍包含某个槽位时恢复该通道。删除只清本帧显示，不改变槽位映射。
+    /// </summary>
+    private bool ReviveDeletedChannels(
+        IModuleContext context,
+        DisplayGroupRuntime group,
+        int presentCount)
+    {
+        var limit = Math.Min(presentCount, group.Config.Channels.Count);
+        if (limit <= 0)
+        {
+            return false;
+        }
+
+        var channels = group.Config.Channels.ToList();
+        var revived = false;
+        for (var index = 0; index < limit; index++)
+        {
+            if (!channels[index].Deleted)
+            {
+                continue;
+            }
+
+            channels[index] = channels[index] with { Deleted = false };
+            revived = true;
+        }
+
+        if (revived)
+        {
+            UpdateGroupConfig(context, group, group.Config with { Channels = channels });
+            _structureRevision++;
+        }
+
+        return revived;
     }
 
     private void EnsureGroupChannels(IModuleContext context, DisplayGroupRuntime group, int count)
@@ -1528,7 +1522,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             return;
         }
 
-        if (!_config.KeepInactiveHistory && _groups.TryGetValue(_activeGroupId, out var previous))
+        if (!_settings.KeepInactiveHistory && _groups.TryGetValue(_activeGroupId, out var previous))
         {
             previous.ClearHistory();
         }
@@ -1536,15 +1530,13 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         _activeGroupId = groupId;
         var targetConfig = _groups.TryGetValue(groupId, out var targetGroup)
             ? targetGroup.Config
-            : _config.FindGroup(groupId);
+            : null;
         _activeChannelIndex = targetConfig is null ? 0 : FirstChannelIndex(targetConfig);
-        _config = _config with { ActiveGroupId = groupId, ActiveChannelIndex = _activeChannelIndex };
-        context.Configuration.Write(_config);
         _structureRevision++;
 
         if (_groups.TryGetValue(groupId, out var group))
         {
-            if (_config.Settings.Follow && group.DisplayIndex > 0)
+            if (_settings.Follow && group.DisplayIndex > 0)
             {
                 UpdateFollowRange(group);
             }
@@ -1613,9 +1605,9 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         }
 
         // 显示设置回到默认；组/通道身份字段（名称、颜色、显隐）不在这里重置。
-        _config = _config with { Settings = new DisplaySettings() };
+        _settings = new DisplaySettings();
         _defaultRangeStart = 0;
-        _defaultRangeEnd = _config.Settings.FollowRangeSamples - 1;
+        _defaultRangeEnd = _settings.FollowRangeSamples - 1;
         _defaultYAuto = true;
         _defaultYMin = -1;
         _defaultYMax = 1;
@@ -1681,8 +1673,6 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             _activeChannelIndex = NextChannelIndex(config, index);
         }
 
-        _config = _config with { ActiveChannelIndex = _activeChannelIndex };
-        context.Configuration.Write(_config);
         _structureRevision++;
         BuildSnapshot(context);
         PublishMeta(context);
@@ -1694,10 +1684,6 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     {
         _groups.Remove(group.GroupId);
         _groupOrder.Remove(group.GroupId);
-        _config = _config with
-        {
-            Groups = _config.Groups.Where(item => item.GroupId != group.GroupId).ToList(),
-        };
 
         if (_pendingGroup?.GroupId == group.GroupId)
         {
@@ -1710,10 +1696,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         {
             _activeGroupId = 0;
             _activeChannelIndex = 0;
-            _config = _config with { ActiveGroupId = 0, ActiveChannelIndex = 0 };
         }
-
-        context.Configuration.Write(_config);
         _structureRevision++;
         PublishValue(context, HistoryUsedSource, (ulong)InactiveSampleCount());
 
@@ -1779,7 +1762,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
         var latest = group.DisplayIndex - 1;
         var width = Math.Clamp(
-            _config.Settings.FollowRangeSamples,
+            _settings.FollowRangeSamples,
             MinimumRangeSamples,
             MaximumFollowRangeSamples);
         var start = Math.Max(0, latest - width + 1);
@@ -1796,7 +1779,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
         var latest = group.DisplayIndex - 1;
         var width = Math.Clamp(
-            _config.Settings.FollowRangeSamples,
+            _settings.FollowRangeSamples,
             MinimumRangeSamples,
             MaximumFollowRangeSamples);
         var start = Math.Max(0, latest - width + 1);
@@ -1819,7 +1802,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         long end,
         RangeEditIntent intent)
     {
-        var settings = _config.Settings;
+        var settings = _settings;
         var group = ActiveGroup;
         long currentStart;
         long currentEnd;
@@ -1852,18 +1835,14 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             rangeEnd - rangeStart + 1,
             (long)MinimumRangeSamples,
             (long)MaximumFollowRangeSamples);
-        _config = _config with
+        _settings = _settings with
         {
-            Settings = settings with
-            {
-                // 只有实际移动范围才关闭跟踪；没有变化的点击/抖动不算用户操作。
-                Follow = intent == RangeEditIntent.Width || !rangeChanged
-                    ? settings.Follow
-                    : false,
-                FollowRangeSamples = width,
-            },
+            // 只有实际移动范围才关闭跟踪；没有变化的点击/抖动不算用户操作。
+            Follow = intent == RangeEditIntent.Width || !rangeChanged
+                ? settings.Follow
+                : false,
+            FollowRangeSamples = width,
         };
-        context.Configuration.Write(_config);
 
         if (group is { DisplayIndex: > 0 })
         {
@@ -1893,10 +1872,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         double yMax)
     {
         var group = ActiveGroup;
-        if (group is null || group.DisplayIndex <= 0)
-        {
-            return;
-        }
+        var hasData = group is { DisplayIndex: > 0 };
 
         if (!double.IsFinite(xStartAxis)
             || !double.IsFinite(xEndAxis)
@@ -1907,17 +1883,38 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             return;
         }
 
-        var settings = _config.Settings;
+        var settings = _settings;
         var rate = EffectiveRate(group);
-        var latest = group.DisplayIndex - 1;
         var targetStart = DisplayAxisUnits.AxisToSamples(xStartAxis, settings.XAxisMode, rate);
         var targetEnd = DisplayAxisUnits.AxisToSamples(xEndAxis, settings.XAxisMode, rate);
-        var target = ClampRange(targetStart, targetEnd, latest);
-        var xChanged = target.Start != group.RangeStart || target.End != group.RangeEnd;
 
-        var (currentYMin, currentYMax) = EffectiveY(group);
-        var yChanged = Math.Abs(yMin - currentYMin) > 1e-9
-            || Math.Abs(yMax - currentYMax) > 1e-9;
+        bool xChanged;
+        bool yChanged;
+        long targetXStart;
+        long targetXEnd;
+
+        if (hasData)
+        {
+            var latest = group!.DisplayIndex - 1;
+            var target = ClampRange(targetStart, targetEnd, latest);
+            targetXStart = target.Start;
+            targetXEnd = target.End;
+            xChanged = targetXStart != group.RangeStart || targetXEnd != group.RangeEnd;
+            var (currentYMin, currentYMax) = EffectiveY(group);
+            yChanged = Math.Abs(yMin - currentYMin) > 1e-9
+                || Math.Abs(yMax - currentYMax) > 1e-9;
+        }
+        else
+        {
+            // 无数据时没有样本可夹紧；拖动/缩放改写会话默认视口，下一次有数据时由
+            // ApplyNoDataDefaults 应用。没有这段，空图表上的曲线区手势会被直接丢掉。
+            targetXStart = Math.Max(0, Math.Min(targetStart, targetEnd));
+            targetXEnd = Math.Max(targetXStart + 1, Math.Max(targetStart, targetEnd));
+            xChanged = targetXStart != _defaultRangeStart || targetXEnd != _defaultRangeEnd;
+            yChanged = Math.Abs(yMin - _defaultYMin) > 1e-9
+                || Math.Abs(yMax - _defaultYMax) > 1e-9;
+        }
+
         if (!xChanged && !yChanged)
         {
             return;
@@ -1925,11 +1922,22 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
         if (xChanged)
         {
-            group.SetRange(target.Start, target.End);
             var width = (int)Math.Clamp(
-                target.End - target.Start + 1,
+                targetXEnd - targetXStart + 1,
                 (long)MinimumRangeSamples,
                 (long)MaximumFollowRangeSamples);
+
+            if (hasData)
+            {
+                group!.SetRange(targetXStart, targetXEnd);
+            }
+            else
+            {
+                _defaultRangeStart = targetXStart;
+                _defaultRangeEnd = targetXEnd;
+                _defaultRangeEdited = true;
+            }
+
             settings = settings with
             {
                 Follow = zoom ? settings.Follow : false,
@@ -1939,25 +1947,41 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
         if (yChanged)
         {
-            group.Config = group.Config with
+            if (hasData)
             {
-                YAuto = false,
-                YMin = yMin,
-                YMax = yMax,
-            };
-            ReplaceGroupConfig(group.Config);
+                group!.Config = group.Config with
+                {
+                    YAuto = false,
+                    YMin = yMin,
+                    YMax = yMax,
+                };
+            }
+            else
+            {
+                _defaultYAuto = false;
+                _defaultYMin = yMin;
+                _defaultYMax = yMax;
+                _defaultYEdited = true;
+            }
         }
 
-        _config = _config with { Settings = settings };
-        context.Configuration.Write(_config);
+        _settings = settings;
 
         // 横向缩放保持跟踪时，显示窗口仍贴住最新样本；宽度用本次缩放后的跨度。
-        if (xChanged && zoom && settings.Follow)
+        if (xChanged && zoom && settings.Follow && hasData)
         {
-            UpdateFollowRange(group);
+            UpdateFollowRange(group!);
         }
 
-        BuildSnapshot(context);
+        if (hasData)
+        {
+            BuildSnapshot(context);
+        }
+        else
+        {
+            PublishEmptySnapshot(context);
+        }
+
         PublishMeta(context);
         PublishInputs(context);
     }
@@ -2166,33 +2190,16 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
     /// <summary>有效时间基：模块自定义频率优先，否则用当前活动组帧头声明速率。</summary>
     private double EffectiveRate(DisplayGroupRuntime? group) =>
-        _config.Settings.UseCustomRate && _config.Settings.CustomRateHz > 0
-            ? _config.Settings.CustomRateHz
+        _settings.UseCustomRate && _settings.CustomRateHz > 0
+            ? _settings.CustomRateHz
             : group?.DeclaredRateHz ?? 0;
 
     private void PublishMeta(IModuleContext context)
     {
         var active = ActiveGroup;
         var groups = new List<object>(_groupOrder.Count);
-        var ordered = new List<uint>();
-
-        foreach (var config in _config.Groups)
-        {
-            if (_groups.ContainsKey(config.GroupId))
-            {
-                ordered.Add(config.GroupId);
-            }
-        }
 
         foreach (var id in _groupOrder)
-        {
-            if (!ordered.Contains(id))
-            {
-                ordered.Add(id);
-            }
-        }
-
-        foreach (var id in ordered)
         {
             if (!_groups.TryGetValue(id, out var group))
             {
@@ -2233,7 +2240,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                 })
                 .ToArray();
 
-        var settings = _config.Settings;
+        var settings = _settings;
         UpdateTickAlerts(context);
         var snapshot = new
         {
@@ -2253,8 +2260,8 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                 follow = settings.Follow,
                 followRange = settings.FollowRangeSamples,
                 cursors = settings.Cursors,
-                keepInactive = _config.KeepInactiveHistory,
-                historyLimit = _config.HistoryLimitSamples,
+                keepInactive = _settings.KeepInactiveHistory,
+                historyLimit = _settings.HistoryLimitSamples,
             },
             badFrames = _badFrames,
             historyLimited = _historyLimited,
@@ -2266,7 +2273,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     private void PublishInputs(IModuleContext context)
     {
         var group = ActiveGroup;
-        var settings = _config.Settings;
+        var settings = _settings;
         var rate = EffectiveRate(group);
         var hasData = group is { DisplayIndex: > 0 };
 
@@ -2304,8 +2311,8 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         SetInput(context, CustomRateSource, Format(settings.CustomRateHz));
         SetInput(context, XTickSource, Format(settings.XTickStep));
         SetInput(context, YTickSource, Format(settings.YTickStep));
-        SetInput(context, KeepInactiveSource, _config.KeepInactiveHistory ? "true" : "false");
-        SetInput(context, HistoryLimitSource, _config.HistoryLimitSamples.ToString(CultureInfo.InvariantCulture));
+        SetInput(context, KeepInactiveSource, _settings.KeepInactiveHistory ? "true" : "false");
+        SetInput(context, HistoryLimitSource, _settings.HistoryLimitSamples.ToString(CultureInfo.InvariantCulture));
         SetInput(context, FollowRangeSource, DisplayAxisUnits.FormatFollowRange(
             settings.FollowRangeSamples,
             settings.XAxisMode,
@@ -2316,12 +2323,12 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     private void SetInput(IModuleContext context, string source, string text)
     {
         _lastText[source] = text;
-        if (string.Equals(context.ViewState.GetInputText(source), text, StringComparison.Ordinal))
+        if (string.Equals(context.Values.ReadText(source), text, StringComparison.Ordinal))
         {
             return;
         }
 
-        context.ViewState.SetInputValue(source, text);
+        context.Values.AcceptText(source, text);
     }
 
     private static string FormatX(long sample, DisplayXAxisMode mode, double rate) =>
@@ -2331,7 +2338,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     {
         samples = 0;
         var rate = EffectiveRate(ActiveGroup);
-        if (DisplayAxisUnits.UsesTime(_config.Settings.XAxisMode, rate))
+        if (DisplayAxisUnits.UsesTime(_settings.XAxisMode, rate))
         {
             if (!TryDouble(text, out var seconds) || seconds <= 0)
             {
@@ -2340,7 +2347,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
             samples = (int)Math.Min(
                 int.MaxValue,
-                DisplayAxisUnits.AxisToSamples(seconds, _config.Settings.XAxisMode, rate));
+                DisplayAxisUnits.AxisToSamples(seconds, _settings.XAxisMode, rate));
         }
         else if (!int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out samples))
         {
@@ -2355,15 +2362,15 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         _ = context;
         sample = 0;
         var rate = EffectiveRate(group);
-        if (DisplayAxisUnits.UsesTime(_config.Settings.XAxisMode, rate))
+        if (DisplayAxisUnits.UsesTime(_settings.XAxisMode, rate))
         {
             return TryDouble(text, out var seconds)
-                && (sample = DisplayAxisUnits.AxisToSamples(seconds, _config.Settings.XAxisMode, rate)) >= 0;
+                && (sample = DisplayAxisUnits.AxisToSamples(seconds, _settings.XAxisMode, rate)) >= 0;
         }
 
         return long.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out sample)
             || TryDouble(text, out var value)
-            && (sample = DisplayAxisUnits.AxisToSamples(value, _config.Settings.XAxisMode, rate)) >= 0;
+            && (sample = DisplayAxisUnits.AxisToSamples(value, _settings.XAxisMode, rate)) >= 0;
     }
 
     private void RequestCsv(IModuleContext context, bool selection)

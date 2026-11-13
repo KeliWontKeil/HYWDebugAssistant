@@ -5,7 +5,8 @@
 ## 共同规则
 
 - 控件全部来自 `HYWDebugAssistant.Sdk.Ui.Controls`，XAML 命名空间写 `xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"`。
-- 引用显示源、输入源、命令、配置字段时，一律用模块自己的常量（`{x:Static}`），不写字符串字面量。
+- 引用显示源、值、命令时，一律用模块自己的常量（`{x:Static}`），不写字符串字面量。
+- 可编辑控件只绑**值名**：不知道值落在配置还是视图状态里，也不直接读写它们。
 - 控件不写死颜色与字号：颜色取主题 token 或角色词，排印用样式类 `caption` / `hint` / `micro`。
 - 控件由 `ModuleViewHost` 每帧驱动：**值没变就不碰视觉**，视图不自己起定时器、不在 `Refresh` 里重建控件树。
 - **模块文字只有一套实现**：`ModuleLabel` 与 `ModuleNumeric` 都是 `TextBlock` 派生，直接继承换行、对齐、字号等属性；模块视图里不再用裸 `TextBlock` 显示文字。
@@ -20,13 +21,13 @@
 | `ModuleLabel` | 一句话：静态文字、配置字段标题、文本显示源 | `Text`、`Field`、`Source`、`TextVerticalAlignment`；样式类 `caption` / `hint` / `micro` / `right` / `wrap` |
 | `ModuleNumeric` | 数值读数 | `Source`、`Quantity`（`None` / `Bytes`）、`Text`（预览值） |
 | `ModuleStatusLight` | 状态灯：底色来自模块设的**角色词** | `Source`；配合 `Appearance.SetOutlineRole(Source, role)` |
-| `ModuleTextSurface` | 文本面：日志显示或可编辑输入 | `Mode`、`Source`、`Text`、`Multiline`、`IsReadOnly`、`ShowNewlineMarks`、`TextAlignment`、`MinEditorHeight`、`Commit()` |
+| `ModuleTextSurface` | 文本面：日志显示或可编辑值 | `Mode`、`Value`、`CommitMode`、`Source`（仅显示）、`Text`、`Multiline`、`IsReadOnly`、`ShowNewlineMarks`、`TextAlignment`、`MinEditorHeight`、`Commit()` |
 | `ModuleButton` | 命令按钮 | `CommandName`、`Content`、`Icon` |
-| `ModuleToggle` | 开关：勾选提交 `"true"` / `"false"` | `Source`、`IsChecked`、`CheckedChanged`（程序写回也触发） |
-| `ModuleConfigField` | 配置字段编辑器 | `Field`（标题另用 `ModuleLabel`） |
+| `ModuleToggle` | 开关：勾选提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`CheckedChanged`（程序写回也触发） |
+| `ModuleConfigField` | 值编辑器（文本/数字/布尔/枚举） | `Value`（标题另用 `ModuleLabel`） |
 | `ModuleTabs` | 页签容器，选中页写入视图状态 | `StateKey`、`TabItem` 子项 |
-| `ModuleSelect` | 紧凑下拉 | `Options`、`SelectedKey`、`PreviewOptions`、`OptionSelected` |
-| `ModuleSegmentedControl` | 互斥分段选择（文字/图标，可禁用） | `Options`、`SelectedKey`、`PreviewOptions`、`ShowLabels`、`IconSize`、`OptionSelected` |
+| `ModuleSelect` | 紧凑下拉 | `Value`、`CommitMode`、`SelectedKey`、`PreviewOptions`；旧 `Options`/`OptionSelected` 仅供结构选择 |
+| `ModuleSegmentedControl` | 互斥分段选择（文字/图标，可禁用） | `Value`、`CommitMode`、`SelectedKey`、`PreviewOptions`、`ShowLabels`、`IconSize`；旧 `Options`/`OptionSelected` 供结构选择 |
 | `ChartSurface` | 通用多序列绘图（全量点、X/Y 游标、参考线、PNG、左键平移/右键缩放） | `Series`、`DataVersion`、`XStart`、`XEnd`、`XStep`、`XAxisKind`、`YMin/Max`、`XTickStep/YTickStep`、`PlotInset`、`ReferenceLines`、`ShowCursors`、`ShowYCursors`、`CapturePng()`、`PanRequested`、`ZoomRequested` |
 | `RangeSelector` | 通用线性范围可视化/拖动 | `Minimum`、`Maximum`、`RangeStart/End`、`MinimumRangeSpan`、`TickStep`、`ShowTicks`、`ShowTickLabels`、`MinorTickStep`、`XAxisKind`、`HandleWidth`、`RangeChanged`、`LastChangeKind` |
 | `Icon` | 模块图标 | `IconKey`、`Owner` |
@@ -60,42 +61,43 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 
 `ModuleTextSurface` 有两种模式：
 
-- `Display`：只读、跟随尾部，适合日志与结果。`ShowNewlineMarks` 决定是否画出数据里的换行字符；`Text` 是预览文本。
-- `Input`：可编辑并提交到输入源。`Multiline` 控制多行，提交键由应用设置里的“多行输入提交键”决定（`Ctrl+Enter` / `Enter` / `None`）；`Commit()` 可主动提交（例如按钮点击时取当前编辑内容）。
+- `Display`：只读、跟随尾部，适合日志与结果。`Source` 是显示源名，`ShowNewlineMarks` 决定是否画出数据里的换行字符；`Text` 是预览文本。
+- `Input`：可编辑值。`Value` 是值名，`CommitMode` 决定交值时机；`Multiline` 控制多行，提交键由应用设置里的“多行输入提交键”决定（`Ctrl+Enter` / `Enter` / `None`）；`Commit()` 可主动交值（例如按钮点击时取当前编辑内容）。
 
 规则：
 
-- `Display` 模式的文本来自 `Display.Append*` / `SetText`；输入模式的文本由用户逐键写入视图状态。
-- **失焦不提交**：提交只由提交键或 `Commit()` 触发；否则“填完点别处”会变成一次发送。
-- **程序写入 ≠ 用户编辑**：给 `Text` 赋值只更新显示，不写视图状态；模块要回写输入值请用 `ViewState.SetInputValue`。
-- 模块若希望“内容一变就处理”，在 `OnStep(StepReason.Input)` 里回读 `ViewState.GetInputText`。
+- `Display` 模式的文本来自 `Display.Append*` / `SetText`；`Input` 模式只读值状态、只按 `CommitMode` 交值。
+- **失焦提交**：`OnExplicit` 在提交键、`Commit()` 或**失焦**时交值；`OnChange` 已逐键交值。
+- 控件不读写视图状态；模块读值用 `context.Values.ReadText(值名)`。
+- 模块要回写“接受后的值”用 `context.Values.AcceptText(值名, 文本)`；控件会在下一帧读到。
+- 值的错误由模块 `context.Values.Report` 给出，控件只画结论。
 
 ## 按钮与开关
 
 - `ModuleButton` 的 `CommandName` 必须是声明过的命令；`Content` 是文案，`Icon` 是图标键（图标按钮加 `Classes="icon"` 并给尺寸）。
-- `ModuleToggle` 勾选后向 `Source` 提交 `"true"`，取消提交 `"false"`；`IsChecked` 的显示值优先从**输入状态**读（模块写回的值），没有输入状态才回退同名显示源。
+- `ModuleToggle` 绑定一个值：用户拨动后按 `CommitMode` 交值；显示值来自 `ReadValue`，不是显示源。
 - `CheckedChanged` 在用户拨动和程序写回时都会触发；需要区分时自行用标志。
 - 开关文字是独立的 `ModuleLabel`，放在轨道右侧。
 
-## 配置字段
+## 值编辑器
 
-`ModuleConfigField` 只写 `Field`，标题、说明、范围、可选项全部来自配置 Schema：
+`ModuleConfigField` 只写 `Value`；标题仍是独立的 `ModuleLabel`（配置字段标题可用 `Field` 从配置元数据取）：
 
 ```xml
 <ui:ModuleLabel Classes="caption right" Field="{x:Static views:MyViewKeys.PortName}" />
-<ui:ModuleConfigField Field="{x:Static views:MyViewKeys.PortName}" />
+<ui:ModuleConfigField Value="{x:Static views:MyViewKeys.PortName}" />
 ```
 
-- 字段必须存在于该实例的配置（模块自己的配置类型，或框架登记的标准接入参数类型）。
+- 值可以是配置字段，也可以是模块声明的值；控件只按名字取 `ValueState`。
 - 支持的编辑器：布尔、整数、实数、文本、枚举（含动态选项下拉）。
-- **写回时机**：布尔与枚举点一下即写；文本 / 数字默认失焦或回车才写。需要"改完即生效"的输入不要用它，改用 `ModuleTextSurface` + 输入源（见[实现](implementation.md)：值变更 → 应用只有一条链）。
-- **选型**：运行期可调参数用输入源（模块每步 `GetInputText` 读并应用）；需要 Schema 的范围/单位/协选项或只读设置，才用配置字段。持久化由模块声明（`InputPersistence` / 配置字段），控件不承担。
+- **提交时机**：布尔与枚举点一下即交；文本 / 数字在回车、显式动作或失焦时交。需要"逐键生效"的内容改用 `ModuleTextSurface CommitMode="OnChange"`。
+- 值的持久化、可选项与错误由值声明/框架决定，初值由 XAML 声明；控件不直接读写配置或视图状态。
 - 标题与说明用配置类型上的 `[ConfigurationField]` / 文本表，不在视图重复。
-- **没有自动生成的配置表单**：字段只有视图里画了 `ModuleConfigField` 才出现；不声明视图工厂的模块窗口只显示身份与状态，配置不会自己长出来。
+- **没有自动生成的配置表单**：字段只有视图里画了控件才出现；不声明视图工厂的模块窗口只显示身份与状态。
 - 标准接入的参数字段用 `ExternalAccessFieldNames` 的常量（命名空间 `HYWDebugAssistant.Sdk.Access`），不写字符串字面量：
 
 ```xml
-<ui:ModuleConfigField Field="{x:Static access:ExternalAccessFieldNames.PortName}" />
+<ui:ModuleConfigField Value="{x:Static access:ExternalAccessFieldNames.PortName}" />
 ```
 - 预览里没有运行时上下文时，视图类加 `[ModuleViewDesignData(typeof(MyConfig))]`；标准接入用**镜像配置类型**（字段名与运行时一致）。`[ModuleViewDesignData("serial")]` 只有预览宿主注册了该标准才生效，外部作者不要依赖它。
 
@@ -104,17 +106,22 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 ```xml
 <ui:ModuleTabs StateKey="{x:Static local:MyModule.PagesKey}">
   <TabItem Header="{loc:Tr tab.one}">
-    <ui:ModuleTextSurface Mode="Input" Source="{x:Static local:MyModule.Text1}" />
+    <ui:ModuleTextSurface Mode="Input"
+                          Value="{x:Static local:MyModule.Text1}"
+                          CommitMode="OnChange" />
   </TabItem>
   <TabItem Header="{loc:Tr tab.two}">
-    <ui:ModuleTextSurface Mode="Input" Source="{x:Static local:MyModule.Text2}" />
+    <ui:ModuleTextSurface Mode="Input"
+                          Value="{x:Static local:MyModule.Text2}"
+                          CommitMode="OnChange" />
   </TabItem>
 </ui:ModuleTabs>
 ```
 
 - `ModuleTabs` 的 `StateKey` 是模块与视图共用的常量；用户切页写入视图状态，模块用 `ViewState.GetSelectedPage(StateKey)` 读。`StateKey` 为空时不持久化选中页。
-- `ModuleSelect` / `ModuleSegmentedControl` 的 `Options` 是选项记录（`ModuleSelectOption`：`Key` + `Label`；`ModuleSegmentOption` 另有 `IconKey`/`IsEnabled`/`ToolTip`），`SelectedKey` 是当前值；`OptionSelected` 携带新键。
-- 选项来自代码构造（例如枚举）；`PreviewOptions` 只在设计环境且 `Options` 为空时提供样例词表。
+- `ModuleSelect` / `ModuleSegmentedControl` 绑定值：`Value` + `CommitMode`；用户选择后交值，选项在运行期来自 `ValueState.Choices`（视图给了带图标的静态 `Options` 时优先用视图选项）。
+- `PreviewOptions` 只在设计环境且没有运行期选项时提供样例词表；它不参与运行期持久化。
+- 结构选择（组/通道 chips）仍是动作：用 `OptionSelected` 把选中键交给模块，不当作值。
 
 ## 图表
 

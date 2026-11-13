@@ -15,7 +15,8 @@ namespace HYWDebugAssistant.Core.Services;
 ///   <item><b>线程</b>：写方 = **UI 线程**（切页 / 输入文本）与 **实例线程**（显示缓冲，经
 ///     <c>IViewDisplayAccess</c> 直接写）；读方 = 模块（输入/保存快照）与 UI（显示窗口）。
 ///     字典用锁保护；<see cref="DisplayBuffer"/> 自带锁；</item>
-///   <item><b>不持久化</b>：既不入组合件，也不落盘 —— 重启即空（与"开关不落盘"同一取向）。</item>
+///   <item><b>持久化</b>：选中页、折叠态与声明为 <c>Persistent</c> 的值随组合件/工作区保存；
+///     不写独立设置文件，未声明的值重启即空。</item>
 /// </list>
 /// </remarks>
 public sealed class ViewStateStore : IViewStateAccess

@@ -136,8 +136,8 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
                 new ModuleSegmentOption("svpwm", "SVPWM", "icon.wave.svpwm", ToolTip: "SVPWM"),
                 new ModuleSegmentOption("noise", Tr(WaveformGeneratorText.Noise), "icon.wave.noise", ToolTip: Tr(WaveformGeneratorText.Noise)),
             ];
-            _waveformType.OptionSelected += OnWaveformSelected;
         }
+
     }
 
     private static string Tr(string key) =>
@@ -503,16 +503,6 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
                     index,
                 }));
         }
-    }
-
-    private void OnWaveformSelected(object? sender, EventArgs e)
-    {
-        if (_waveformType is null || _context is null || _waveformType.SelectedKey.Length == 0)
-        {
-            return;
-        }
-
-        _ = _context.SubmitInput(WaveformGeneratorViewKeys.Waveform, _waveformType.SelectedKey);
     }
 
     private static string Format(double value) =>

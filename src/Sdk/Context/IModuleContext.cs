@@ -6,6 +6,7 @@ using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Resources;
 using HYWDebugAssistant.Sdk.Timing;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Context;
@@ -109,6 +110,27 @@ public interface IModuleDeclaration
     /// </summary>
     /// <param name="input">输入声明。</param>
     void DeclareInput(InputDeclaration input) => DeclareInput(input.Name);
+
+    /// <summary>
+    /// 声明一个**由视图控件编辑的值**：名字、编辑形态、默认值、可选项、持久化与重置属性。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 值没有“配置值/输入值”的分类：视图只按名字绑定，落盘位置由框架的值存储决定。
+    /// 名字重复 ⇒ 后者被拒并报 Issue。
+    /// </para>
+    /// <para>
+    /// 默认实现保持旧模块可用：只登记输入源，不登记值状态。
+    /// </para>
+    /// </remarks>
+    /// <param name="value">值声明。</param>
+    void DeclareValue(ValueDeclaration value)
+    {
+        if (!string.IsNullOrWhiteSpace(value?.Name))
+        {
+            DeclareInput(value.Name);
+        }
+    }
 
     /// <summary>
     /// 声明一条**命令**（按钮点一下要触发的那件事）。
@@ -386,6 +408,50 @@ public interface IViewAppearanceAccess
 }
 
 /// <summary>
+/// **值的只读事实 / 接受值 / 字段结论**（模块侧）。
+/// </summary>
+/// <remarks>
+/// 值没有“配置值/输入值”的分类：模块只按名字读取当前值，接受规范化后的值，或报告这一格现在的结论。
+/// 落盘位置与控件提交时机都由框架/视图决定，不进入模块的业务判断。
+/// </remarks>
+public interface IModuleValues
+{
+    /// <summary>读某个值的当前文本（无此值 ⇒ <see langword="null"/>）。</summary>
+    /// <param name="name">值名。</param>
+    string? ReadText(string name);
+
+    /// <summary>宣告模块接受/规范化后的值。</summary>
+    /// <param name="name">值名。</param>
+    /// <param name="value">接受后的值；<see langword="null"/> = 清除。</param>
+    void AcceptText(string name, string? value);
+
+    /// <summary>报告某一格当前的结论（错误 / 警告 / 提示）；<see langword="null"/> = 收起。</summary>
+    /// <param name="name">值名。</param>
+    /// <param name="notice">结论。</param>
+    void Report(string name, ValueNotice? notice);
+}
+
+/// <summary>未接线时的值面：读不到、接受被忽略、结论被丢弃（不抛）。</summary>
+public sealed class EmptyModuleValues : IModuleValues
+{
+    /// <summary>唯一实例。</summary>
+    public static readonly EmptyModuleValues Instance = new();
+
+    /// <inheritdoc />
+    public string? ReadText(string name) => null;
+
+    /// <inheritdoc />
+    public void AcceptText(string name, string? value)
+    {
+    }
+
+    /// <inheritdoc />
+    public void Report(string name, ValueNotice? notice)
+    {
+    }
+}
+
+/// <summary>
 /// 模块上下文：模块**唯一**的框架访问面（不持有框架对象引用）。
 /// </summary>
 /// <remarks>
@@ -412,8 +478,17 @@ public interface IModuleContext
     /// </remarks>
     IExternalAccess Access => ExternalAccessDefaults.Empty;
 
-    /// <summary>配置读写。</summary>
+    /// <summary>配置读写（模块私有、强类型的设置对象；控件值请走 <see cref="Values"/>）。</summary>
     IConfigurationAccess Configuration { get; }
+
+    /// <summary>
+    /// **值面**：按名字读取当前值、接受规范化后的值、报告这一格的结论。
+    /// </summary>
+    /// <remarks>
+    /// 值没有“配置值/输入值”的分类；模块不再需要通过 <see cref="ViewState"/> 读控件文本。
+    /// 未接线时回落到 <see cref="EmptyModuleValues.Instance"/>。
+    /// </remarks>
+    IModuleValues Values => EmptyModuleValues.Instance;
 
     /// <summary>Issue 上报（可呈现的问题；**业务状态不入 Issue**）。</summary>
     IIssueReporter Issues { get; }

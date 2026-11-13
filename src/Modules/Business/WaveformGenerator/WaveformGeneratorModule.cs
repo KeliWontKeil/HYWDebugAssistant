@@ -8,6 +8,7 @@ using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Timing;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Modules.WaveformGenerator;
@@ -187,21 +188,29 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(SnapshotSource, ViewDataSourceKind.Text));
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(StatusSource, ViewDataSourceKind.Text));
 
-        DeclareText(context, GroupNameSource);
-        DeclareText(context, GroupIdSource);
-        DeclareText(context, ChannelNameSource);
-        DeclareText(context, WaveformSource);
-        DeclareText(context, FrequencySource);
-        DeclareText(context, PeriodSource);
-        DeclareText(context, PhaseSource);
-        DeclareText(context, OffsetSource);
-        DeclareText(context, AmplitudeSource);
-        DeclareText(context, ResolutionSource);
-        DeclareText(context, DutySource);
-        DeclareText(context, CarrierFrequencySource);
-        DeclareText(context, ModulationIndexSource);
-        DeclareText(context, CarrierPhaseSource);
-        DeclareText(context, OneShotPeriodsSource);
+        DeclareValue(context, GroupNameSource, ValueEditor.Text);
+        DeclareValue(context, GroupIdSource, ValueEditor.Number);
+        DeclareValue(context, ChannelNameSource, ValueEditor.Text);
+        DeclareValue(context, WaveformSource, ValueEditor.Enum, [
+            new ValueChoice("sine", Tr(WaveformGeneratorText.Sine)),
+            new ValueChoice("square", Tr(WaveformGeneratorText.Square)),
+            new ValueChoice("triangle", Tr(WaveformGeneratorText.Triangle)),
+            new ValueChoice("saddle", Tr(WaveformGeneratorText.Saddle)),
+            new ValueChoice("spwm", "SPWM"),
+            new ValueChoice("svpwm", "SVPWM"),
+            new ValueChoice("noise", Tr(WaveformGeneratorText.Noise)),
+        ]);
+        DeclareValue(context, FrequencySource, ValueEditor.Number);
+        DeclareValue(context, PeriodSource, ValueEditor.Number);
+        DeclareValue(context, PhaseSource, ValueEditor.Number);
+        DeclareValue(context, OffsetSource, ValueEditor.Number);
+        DeclareValue(context, AmplitudeSource, ValueEditor.Number);
+        DeclareValue(context, ResolutionSource, ValueEditor.Number);
+        DeclareValue(context, DutySource, ValueEditor.Number);
+        DeclareValue(context, CarrierFrequencySource, ValueEditor.Number);
+        DeclareValue(context, ModulationIndexSource, ValueEditor.Number);
+        DeclareValue(context, CarrierPhaseSource, ValueEditor.Number);
+        DeclareValue(context, OneShotPeriodsSource, ValueEditor.Number);
 
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(
             ChannelEnabledSource, ViewDataSourceKind.Value, ContractPrimitive.Bool));
@@ -210,9 +219,9 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(
             ContinuousSource, ViewDataSourceKind.Value, ContractPrimitive.Bool));
 
-        context.Declaration.DeclareInput(ChannelEnabledSource);
-        context.Declaration.DeclareInput(GroupEnabledSource);
-        context.Declaration.DeclareInput(ContinuousSource);
+        DeclareValue(context, ChannelEnabledSource, ValueEditor.Boolean);
+        DeclareValue(context, GroupEnabledSource, ValueEditor.Boolean);
+        DeclareValue(context, ContinuousSource, ValueEditor.Boolean);
         context.Declaration.DeclareInput(ActionSource);
 
         context.Declaration.DeclareCommand(AddGroupCommand, Tr(WaveformGeneratorText.Group));
@@ -224,11 +233,17 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         context.Declaration.DeclareCommand(StopCommand, Tr(WaveformGeneratorText.Stop));
     }
 
-    private static void DeclareText(IModuleContext context, string name)
-    {
-        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(name, ViewDataSourceKind.Text));
-        context.Declaration.DeclareInput(name);
-    }
+    private static void DeclareValue(
+        IModuleContext context,
+        string name,
+        ValueEditor editor,
+        IReadOnlyList<ValueChoice>? choices = null) =>
+        context.Declaration.DeclareValue(new ValueDeclaration(name)
+        {
+            Editor = editor,
+            Choices = choices,
+            Persistent = false,
+        });
 
     /// <inheritdoc />
     public ReceiveMode Receive => ReceiveMode.Push;
@@ -289,7 +304,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         var pending = new List<(string Source, string Text)>();
         foreach (var source in PolledTextSources)
         {
-            var text = context.ViewState.GetInputText(source);
+            var text = context.Values.ReadText(source);
             if (text is null
                 || (_lastText.TryGetValue(source, out var last) && string.Equals(last, text, StringComparison.Ordinal)))
             {
@@ -305,6 +320,10 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
             OnInput(context, source, text);
         }
     }
+
+    /// <inheritdoc />
+    /// <remarks>“还原”会重置配置与值；下一拍重新读配置并发布。</remarks>
+    public void OnConfigurationChanged() => _configLoaded = false;
 
     /// <inheritdoc />
     public void OnRemoved()
@@ -885,7 +904,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
 
     private void Validate(IModuleContext context, string source, Func<string, bool> isValid)
     {
-        var text = context.ViewState.GetInputText(source);
+        var text = context.Values.ReadText(source);
         if (text is not null)
         {
             MarkInput(context, source, !isValid(text));
@@ -1577,27 +1596,31 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
     {
         var group = SelectedGroup;
         var channel = SelectedChannel;
-        PublishText(context, GroupNameSource, group.Name);
-        PublishText(context, GroupIdSource, group.GroupId.ToString(CultureInfo.InvariantCulture));
-        PublishText(context, FrequencySource, Format(group.FrequencyHz));
-        PublishText(context, PeriodSource, Format(group.FrequencyHz > 0 ? 1 / group.FrequencyHz : 0));
-        PublishText(context, ResolutionSource, group.Resolution.ToString(CultureInfo.InvariantCulture));
-        PublishText(context, OneShotPeriodsSource, _config.OneShotPeriods.ToString(CultureInfo.InvariantCulture));
+
+        // 这些是**可编辑值**，不是只读显示面；必须走 Values，不能写 Display。
+        // 写 Display 会让输入框保持旧值，随后 PollTextInputs 再把旧值套回当前通道 ——
+        // 表现就是“改一个输入框，所有通道参数一起变”。
+        SetInput(context, GroupNameSource, group.Name);
+        SetInput(context, GroupIdSource, group.GroupId.ToString(CultureInfo.InvariantCulture));
+        SetInput(context, FrequencySource, Format(group.FrequencyHz));
+        SetInput(context, PeriodSource, Format(group.FrequencyHz > 0 ? 1 / group.FrequencyHz : 0));
+        SetInput(context, ResolutionSource, group.Resolution.ToString(CultureInfo.InvariantCulture));
+        SetInput(context, OneShotPeriodsSource, _config.OneShotPeriods.ToString(CultureInfo.InvariantCulture));
 
         if (channel is null)
         {
             return;
         }
 
-        PublishText(context, ChannelNameSource, channel.Name);
-        PublishText(context, WaveformSource, WaveformMath.KindKey(channel.Kind));
-        PublishText(context, PhaseSource, Format(channel.PhaseDegrees));
-        PublishText(context, OffsetSource, Format(channel.Offset));
-        PublishText(context, AmplitudeSource, Format(channel.Amplitude));
-        PublishText(context, DutySource, Format(channel.DutyCycle));
-        PublishText(context, CarrierFrequencySource, Format(channel.CarrierFrequencyHz));
-        PublishText(context, ModulationIndexSource, Format(channel.ModulationIndex));
-        PublishText(context, CarrierPhaseSource, Format(channel.CarrierPhaseDegrees));
+        SetInput(context, ChannelNameSource, channel.Name);
+        SetInput(context, WaveformSource, WaveformMath.KindKey(channel.Kind));
+        SetInput(context, PhaseSource, Format(channel.PhaseDegrees));
+        SetInput(context, OffsetSource, Format(channel.Offset));
+        SetInput(context, AmplitudeSource, Format(channel.Amplitude));
+        SetInput(context, DutySource, Format(channel.DutyCycle));
+        SetInput(context, CarrierFrequencySource, Format(channel.CarrierFrequencyHz));
+        SetInput(context, ModulationIndexSource, Format(channel.ModulationIndex));
+        SetInput(context, CarrierPhaseSource, Format(channel.CarrierPhaseDegrees));
         PublishBool(context, ChannelEnabledSource, channel.Enabled);
         PublishBool(context, GroupEnabledSource, group.Enabled);
         SetInput(context, ChannelEnabledSource, channel.Enabled ? "true" : "false");
@@ -1826,11 +1849,11 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
     private void SetInput(IModuleContext context, string source, string text)
     {
         _lastText[source] = text;
-        if (string.Equals(context.ViewState.GetInputText(source), text, StringComparison.Ordinal))
+        if (string.Equals(context.Values.ReadText(source), text, StringComparison.Ordinal))
         {
             return;
         }
 
-        context.ViewState.SetInputValue(source, text);
+        context.Values.AcceptText(source, text);
     }
 }

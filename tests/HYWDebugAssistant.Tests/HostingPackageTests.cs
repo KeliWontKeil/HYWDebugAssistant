@@ -79,6 +79,29 @@ public class HostingPackageTests
     }
 
     [Fact]
+    public void 值初值_真实包应在激活前播种()
+    {
+        var packageDirectory = Path.Combine(
+            RepoRoot, "src", "Modules", "Business", "RawToWaveform", "bin", Configuration, "net10.0");
+
+        var load = ModulePackageLoader.Load(packageDirectory);
+        load.Succeeded.ShouldBeTrue(load.FailureReason);
+
+        var viewState = new ViewStateStore();
+        using var runtime = new ModuleRuntime(viewState: viewState);
+        var added = runtime.Apply(ChangeSet.OfOne(new AddModuleOperation(
+            "raw-xaml-defaults",
+            ModuleDefinition.FromPackage(load.Package!))));
+        added.Applied.ShouldBeTrue(string.Join("；", added.Failures));
+
+        runtime.Content.TryGetInstance("raw-xaml-defaults", out var instance).ShouldBeTrue();
+        instance!.Context.Values.ReadText("header").ShouldBe("ab");
+        instance.Context.Values.ReadText("footer").ShouldBe("cd");
+        instance.Context.Values.ReadText("groupId").ShouldBe("1");
+        instance.Context.Values.ReadText("rateHz").ShouldBe("1000");
+    }
+
+    [Fact]
     public void 外部接入模块_经真实包与运行时_配置写回与打开失败应走到会话和Issue()
     {
         var packageDirectory = Path.Combine(

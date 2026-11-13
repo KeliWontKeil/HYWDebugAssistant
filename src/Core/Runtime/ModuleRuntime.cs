@@ -20,6 +20,7 @@ using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Values;
 using System.Diagnostics;
 
 namespace HYWDebugAssistant.Core.Runtime;
@@ -288,6 +289,7 @@ public sealed partial class ModuleRuntime : IDisposable
                         (ViewState as Services.ViewStateStore)?.DisplayFor(add.InstanceId),
                         FileAccessFor?.Invoke(add.InstanceId),
                         catalog: _catalog);
+                    SeedValueDefaults(created);
                     plan.AddInstances.Add((created, CreateAdapter(created)));
                     break;
 
@@ -551,6 +553,8 @@ public sealed partial class ModuleRuntime : IDisposable
             if (Content.TryGetInstance(instanceId, out var resetInstance) && resetInstance is not null)
             {
                 _ = resetInstance.Context.ResetConfiguration();
+                resetInstance.Context.ResetValues();
+                SeedValueDefaults(resetInstance, onlyResettable: true);
                 NotifyConfigurationChanged(instanceId);
                 notices.Add(CoreText.Get("core.runtime.configReset", resetInstance.Definition.DisplayName));
             }

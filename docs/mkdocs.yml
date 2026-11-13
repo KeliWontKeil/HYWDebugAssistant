@@ -66,6 +66,7 @@ nav:
       - 项目与包布局: module-dev/project-layout.md
       - 声明面: module-dev/contracts.md
       - 实现: module-dev/implementation.md
+      - 值: module-dev/values.md
       - 自发活动: module-dev/activity.md
       - 界面: module-dev/ui.md
       - 控件: module-dev/controls.md

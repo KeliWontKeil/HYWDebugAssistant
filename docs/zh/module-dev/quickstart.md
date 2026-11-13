@@ -25,7 +25,7 @@ HYWDebugAssistant.Sdk-<版本>/         # 作者工具链
 <add key="hyw-sdk" value="D:\path\to\HYWDebugAssistant.Sdk-<版本>\packages" />
 ```
 
-模板包含：一个收发数据的模块类、一个配置字段、一个命令、一个定时器、一个最小视图、文本表与 `module.json`。它不含外部接入；设备接入参考 `hyw/serial` 的行为与[实现](implementation.md)的“外部接入”。
+模板包含：一个收发数据的模块类、一个可编辑的值、一个命令、一个定时器、一个最小视图、文本表与 `module.json`。它不含外部接入；设备接入参考 `hyw/serial` 的行为与[实现](implementation.md)的“外部接入”。
 
 ## 2 改身份（三处必须一致）
 

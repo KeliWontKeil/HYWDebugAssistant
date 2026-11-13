@@ -9,6 +9,7 @@ using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Timing;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Modules.RawToWaveform;
@@ -17,9 +18,8 @@ namespace HYWDebugAssistant.Modules.RawToWaveform;
 /// 原始数据 → 波形帧：按所选协议把 <c>RawBytes</c> 里的字节流解析成 <c>WaveformFrame</c>。
 /// </summary>
 /// <remarks>
-/// <b>值变更 → 应用只有一条链</b>：视图把用户改的每个字写进输入源（每次按键），
-/// 模块在每一拍用 <see cref="ApplySettings"/> 读一次输入、解析、校验，变了就重建解码器。
-/// 回车/失焦不是另一条路径，只是"再应用一次"的开关；持久化由本模块的输入声明决定。
+/// <b>值变更 → 应用只有一条链</b>：视图按 <c>CommitMode</c> 交值，模块在每一拍用
+/// <see cref="ApplySettings"/> 读一次值、解析、校验，变了就重建解码器。持久化由值声明决定。
 /// </remarks>
 [ModuleDefinition(
     "hyw",
@@ -85,8 +85,6 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     /// <summary>输入：FireWater 前缀过滤（空 = 任意前缀）。</summary>
     public const string PrefixInput = "prefix";
 
-    private const string DefaultHeader = "ab";
-    private const string DefaultFooter = "cd";
     private const int DefaultGroupId = 1;
     private const double DefaultRateHz = 1000;
 
@@ -94,8 +92,8 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     private IModuleContext? _context;
     private Settings _settings = new(
         RawToWaveformProtocol.TextFrame,
-        DefaultHeader,
-        DefaultFooter,
+        string.Empty,
+        string.Empty,
         string.Empty,
         DefaultGroupId,
         DefaultRateHz);
@@ -116,6 +114,9 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
         _context = context;
+
+        // 配置类型是协议下拉的 Schema 来源；读一次即登记（值本身由 context.Values 读取）。
+        _ = context.Configuration.Read<RawToWaveformConfig>();
 
         context.Declaration.DeclareDataType(new DataTypeDeclaration(
             RawBytesContract.TypeId,
@@ -168,17 +169,16 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
             StatusSource,
             ViewDataSourceKind.Text));
 
-        DeclareInput(context, GroupIdInput);
-        DeclareInput(context, RateInput);
-        DeclareInput(context, HeaderInput);
-        DeclareInput(context, FooterInput);
-        DeclareInput(context, PrefixInput);
+        DeclareValue(context, GroupIdInput, ValueEditor.Number);
+        DeclareValue(context, RateInput, ValueEditor.Number);
+        DeclareValue(context, HeaderInput, ValueEditor.Text);
+        DeclareValue(context, FooterInput, ValueEditor.Text);
+        DeclareValue(context, PrefixInput, ValueEditor.Text);
 
         context.Declaration.DeclareCommand(ResetCommand, RawToWaveformText.Get(RawToWaveformText.Reset));
 
         context.Ports.SetReceiveHandler(InPort, OnRaw);
         _settings = ReadSettings(context);
-        BuildDecoder(context);
     }
 
     /// <inheritdoc />
@@ -189,10 +189,13 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
             return;
         }
 
-        PublishCounters(context);
+        // 激活发生在 XAML 初值播种之后：这时才按当前值建立解码器/状态句。
+        _settings = ReadSettings(context);
+        BuildDecoder(context);
         SetStatus(context, IsTextFrameUsable(_settings)
             ? RawToWaveformText.Get(RawToWaveformText.Ready)
             : RawToWaveformText.Get(RawToWaveformText.BadConfig));
+        PublishCounters(context);
     }
 
     /// <inheritdoc />
@@ -233,7 +236,7 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
 
         while (context.Inbox.TryDequeueInput(out _, out _))
         {
-            // 值在 ApplySettings 里按输入源文本统一读取；这里只消费事件，避免积压。
+            // 值在 ApplySettings 里按值名统一读取；这里只消费事件，避免积压。
         }
     }
 
@@ -246,21 +249,31 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
         _context = null;
     }
 
-    private static void DeclareInput(IModuleContext context, string name)
+    private static void DeclareValue(IModuleContext context, string name, ValueEditor editor)
     {
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(name, ViewDataSourceKind.Text));
-        context.Declaration.DeclareInput(new InputDeclaration(name) { Persistence = InputPersistence.Persistent });
+        context.Declaration.DeclareValue(new ValueDeclaration(name)
+        {
+            Editor = editor,
+            Persistent = true,
+        });
     }
 
     /// <summary>读一次输入与协议，得到"此刻应该生效"的一组值。</summary>
     private Settings ReadSettings(IModuleContext context)
     {
-        var protocol = context.Configuration.Read<RawToWaveformConfig>().Protocol;
+        var protocol = Enum.TryParse<RawToWaveformProtocol>(
+                context.Values.ReadText(ProtocolField),
+                ignoreCase: true,
+                out var parsed)
+            && Enum.IsDefined(parsed)
+                ? parsed
+                : _settings.Protocol;
 
         // 空串对帧头/帧尾是非法值 ⇒ 保持上一次的有效值；前缀空串是合法值（= 不过滤）。
         var header = ReadText(context, HeaderInput, _settings.Header);
         var footer = ReadText(context, FooterInput, _settings.Footer);
-        var prefix = context.ViewState.GetInputText(PrefixInput) ?? string.Empty;
+        var prefix = context.Values.ReadText(PrefixInput) ?? string.Empty;
         var groupId = ReadInt(context, GroupIdInput, _settings.GroupId, 1, int.MaxValue);
         var rateHz = ReadRate(context, RateInput, _settings.RateHz);
 
@@ -300,13 +313,13 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
 
     private static string ReadText(IModuleContext context, string name, string fallback)
     {
-        var text = context.ViewState.GetInputText(name);
+        var text = context.Values.ReadText(name);
         return string.IsNullOrEmpty(text) ? fallback : text;
     }
 
     private static int ReadInt(IModuleContext context, string name, int fallback, int minimum, int maximum)
     {
-        var text = context.ViewState.GetInputText(name);
+        var text = context.Values.ReadText(name);
         return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
             ? Math.Clamp(value, minimum, maximum)
             : fallback;
@@ -314,7 +327,7 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
 
     private static double ReadRate(IModuleContext context, string name, double fallback)
     {
-        var text = context.ViewState.GetInputText(name);
+        var text = context.Values.ReadText(name);
         return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
             && double.IsFinite(value)
             && value > 0

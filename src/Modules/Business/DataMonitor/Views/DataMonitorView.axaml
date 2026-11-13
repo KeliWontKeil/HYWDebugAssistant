@@ -36,19 +36,19 @@
                        CommandName="{x:Static views:DataMonitorViewKeys.Save}" Content="{loc:Tr view.save}" />
 
       <ui:ModuleToggle Canvas.Left="0" Canvas.Top="34" Width="36" Height="24"
-                       Source="{x:Static views:DataMonitorViewKeys.Paused}" />
+                       Value="{x:Static views:DataMonitorViewKeys.Paused}" />
       <ui:ModuleLabel Canvas.Left="40" Canvas.Top="34" Width="56" Height="24" Classes="caption"
                       VerticalAlignment="Center" Text="{loc:Tr view.paused}" />
-      <ui:ModuleToggle Canvas.Left="96" Canvas.Top="34" Width="36" Height="24" IsChecked="True"
-                       Source="{x:Static views:DataMonitorViewKeys.Wrap}" />
+      <ui:ModuleToggle Canvas.Left="96" Canvas.Top="34" Width="36" Height="24"
+                       Value="{x:Static views:DataMonitorViewKeys.Wrap}" />
       <ui:ModuleLabel Canvas.Left="136" Canvas.Top="34" Width="68" Height="24" Classes="caption"
                       VerticalAlignment="Center" Text="{loc:Tr view.wrap}" />
       <ui:ModuleToggle Canvas.Left="96" Canvas.Top="62" Width="36" Height="24"
-                       Source="{x:Static views:DataMonitorViewKeys.HexView}" />
+                       Value="{x:Static views:DataMonitorViewKeys.HexView}" />
       <ui:ModuleLabel Canvas.Left="136" Canvas.Top="62" Width="48" Height="24" Classes="caption"
                       VerticalAlignment="Center" Text="{loc:Tr view.hex}" />
-      <ui:ModuleToggle Canvas.Left="0" Canvas.Top="62" Width="36" Height="24" IsChecked="True"
-                       Source="{x:Static views:DataMonitorViewKeys.Timestamp}" />
+      <ui:ModuleToggle Canvas.Left="0" Canvas.Top="62" Width="36" Height="24"
+                       Value="{x:Static views:DataMonitorViewKeys.Timestamp}" />
       <ui:ModuleLabel Canvas.Left="40" Canvas.Top="62" Width="48" Height="24" Classes="caption"
                       VerticalAlignment="Center" Text="{loc:Tr view.timestamp}" />
 

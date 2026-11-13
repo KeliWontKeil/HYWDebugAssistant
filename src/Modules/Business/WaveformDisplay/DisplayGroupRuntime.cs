@@ -239,6 +239,10 @@ internal sealed class DisplayGroupRuntime
         if (index >= 0 && index < Histories.Length)
         {
             Histories[index].Clear();
+
+            // 清空后从当前样本位置重新开始，下一帧的新样本落在正确的时间轴上，
+            // 不从 0 起再“补一段 NaN”。
+            Histories[index].StartAt(DisplayIndex);
         }
     }
 

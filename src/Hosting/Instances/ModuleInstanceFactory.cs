@@ -1,6 +1,7 @@
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Values;
 
 namespace HYWDebugAssistant.Hosting.Instances;
 
@@ -98,6 +99,7 @@ public static class ModuleInstanceFactory
         var displaySources = BuildDisplaySources(context, objectPath, issues);
         var inputs = BuildInputs(context, objectPath, issues);
         var persistentInputs = new HashSet<string>(context.PersistentInputs, StringComparer.Ordinal);
+        var values = BuildValues(context, objectPath, issues);
         var commands = BuildCommands(context, objectPath, issues);
 
         // ②e **外部接入**（名唯一 + 标准可解析 + 参数类型可实例化 + 单元上限合法）
@@ -105,7 +107,7 @@ public static class ModuleInstanceFactory
 
         var instance = new ModuleInstance(
             instanceId, definition, module, ports, dataTypes, roles, flows,
-            displaySources, inputs, persistentInputs, commands, externalAccesses, context)
+            displaySources, inputs, persistentInputs, values, commands, externalAccesses, context)
         {
             State = ModuleInstanceState.Registered,
         };
@@ -170,6 +172,37 @@ public static class ModuleInstanceFactory
             }
 
             list.Add(name);
+        }
+
+        return list;
+    }
+
+    /// <summary>校验**值**声明：名字唯一；重复 ⇒ 保留先声明者并报 Issue。</summary>
+    private static List<ValueDeclaration> BuildValues(
+        Context.ModuleContext context,
+        string objectPath,
+        Diagnostics.IIssueSink issues)
+    {
+        var list = new List<ValueDeclaration>(context.DeclaredValues.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var value in context.DeclaredValues)
+        {
+            if (string.IsNullOrWhiteSpace(value.Name))
+            {
+                continue;
+            }
+
+            if (!seen.Add(value.Name))
+            {
+                issues.Report(objectPath, new Sdk.Reporting.IssueReport(
+                    Sdk.Reporting.IssueCategory.InterfaceError,
+                    Sdk.Reporting.IssueSeverity.Warning,
+                    HostingText.Get("hosting.instance.valueDuplicate", value.Name)));
+                continue;
+            }
+
+            list.Add(value);
         }
 
         return list;

@@ -377,10 +377,38 @@ public sealed partial class ModuleRuntime
         }
 
         RestoreViewState(record);
+        SeedValueDefaults(instance!);
         RestoreWallpaper(record);
         RestoreConfiguration(instance!, record, notices);
         ActivateInstance(instance!, record.Enabled);
         return true;
+    }
+
+    /// <summary>
+    /// 用视图 XAML 声明的初值播种值状态；已有持久化值（包括空串）不覆盖。
+    /// </summary>
+    /// <param name="instance">实例。</param>
+    /// <param name="onlyResettable">只播种参与模块还原的值。</param>
+    private void SeedValueDefaults(ModuleInstance instance, bool onlyResettable = false)
+    {
+        if (ViewState is null || instance.Definition.ValueInitials.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var spec in instance.Definition.ValueInitials)
+        {
+            var declaration = instance.Context.FindValueDeclaration(spec.Name);
+            if (declaration is null || (onlyResettable && !declaration.ResetWithModule))
+            {
+                continue;
+            }
+
+            if (ViewState.GetInputText(instance.InstanceId, spec.Name) is null)
+            {
+                ViewState.SetInputText(instance.InstanceId, spec.Name, spec.Value);
+            }
+        }
     }
 
     /// <summary>把实例记录里的 viewState 恢复到共享视图状态存储（必须在激活之前）。</summary>

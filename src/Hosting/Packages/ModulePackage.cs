@@ -1,5 +1,6 @@
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Values;
 
 namespace HYWDebugAssistant.Hosting.Packages;
 
@@ -13,6 +14,7 @@ namespace HYWDebugAssistant.Hosting.Packages;
 /// <param name="EntryType">模块入口类型。</param>
 /// <param name="DefinitionAttribute">代码级声明（<c>[ModuleDefinition]</c>）。</param>
 /// <param name="PortSpecs">视图 XAML 声明的端口（空 = 使用 C# `DeclarePort` 兼容路径）。</param>
+/// <param name="ValueInitials">视图 XAML 声明的值初值。</param>
 public sealed record ModulePackage(
     ModuleManifest Manifest,
     ModuleId Id,
@@ -20,7 +22,8 @@ public sealed record ModulePackage(
     string AssemblyPath,
     Type EntryType,
     ModuleDefinitionAttribute DefinitionAttribute,
-    IReadOnlyList<PortDeclarationSpec> PortSpecs);
+    IReadOnlyList<PortDeclarationSpec> PortSpecs,
+    IReadOnlyList<ValueInitialSpec> ValueInitials);
 
 /// <summary>
 /// 包加载结果：**失败是正常结果**（返回原因，不抛异常）——失败只影响该包，不影响既有运行。

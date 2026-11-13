@@ -62,8 +62,13 @@ public abstract class ModuleElement : ContentControl, IModuleViewElement, IModul
     /// <remarks>它同时是**运行期外观的寻址键** —— 模块说的"这一格现在描红"就是按这个名字找到它。</remarks>
     public string Source { get; set; } = string.Empty;
 
+    /// <summary>
+    /// 运行期外观的寻址键。默认是 <see cref="Source"/>；绑定值的控件用值名。
+    /// </summary>
+    protected virtual string AppearanceKey => Source;
+
     /// <inheritdoc />
-    string IModuleElementInternal.Source => Source;
+    string IModuleElementInternal.Source => AppearanceKey;
 
     /// <inheritdoc />
     void IModuleElementInternal.ApplyModuleAppearance(ViewAppearance appearance) => ApplyAppearance(appearance);

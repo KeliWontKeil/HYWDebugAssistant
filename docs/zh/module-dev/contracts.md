@@ -125,20 +125,31 @@ context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(
 - 未声明的名字被写入时，框架丢弃并只提示一次。
 - 文本缓冲的总行数由应用设置控制（默认 20000 行），不是模块自己配的。
 
-## 输入
+## 值
 
 ```csharp
-context.Declaration.DeclareInput("savePath");                       // 临时：关闭即丢
-context.Declaration.DeclareInput(new InputDeclaration("interval")
+context.Declaration.DeclareValue(new ValueDeclaration("header")
 {
-    Persistence = InputPersistence.Persistent,                      // 随组合件保存
+    Editor = ValueEditor.Text,
+    Persistent = true,
+    ResetWithModule = true,
 });
 ```
 
-- 输入名模块内唯一；未登记的输入名由框架拒收并报 Issue。
-- 用户提交、文件选择结果、开关拨动都经输入源投递，模块在 `OnStep` 里从收件箱取。
-- 有副作用的输入（路径、间隔、发送内容）用 `Transient`；需要下次打开还在的用 `Persistent`。
-- 有输入但没有界面元素是合法的：例如文件选择只把路径投回一个看不见的输入源。
+- 值名模块内唯一；视图按这个名字绑定，模块按这个名字 `context.Values.ReadText` 读。
+- 没有“配置值/输入值”分类；持久化、重置是值声明上的正交属性；视图可见值的初值只写在 XAML。
+- 配置字段自动是同名的值；视图可以直接用 `Value` 绑定，模块也可以用 `Values` 按名字读。
+- 详见[值](values.md)。
+
+## 动作输入
+
+```csharp
+context.Declaration.DeclareInput("savePath");
+```
+
+- 动作/事件输入（文件选择结果、结构动作、一次性消息）用 `DeclareInput`；它们从收件箱取，不是可编辑的值。
+- 有动作输入但没有界面元素是合法的：文件选择只把路径投回一个看不见的输入源。
+- 未登记的输入名由框架拒收并报 Issue。
 
 ## 命令
 

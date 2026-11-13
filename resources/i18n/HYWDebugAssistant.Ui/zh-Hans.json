@@ -89,6 +89,8 @@
     "role.noPorts": "无数据口",
     "role.undeclared": "未声明角色（{0} 个数据口）",
     "ui.moduleView.commandNameMissing": "按钮控件缺少 CommandName，无法派发命令",
+    "ui.moduleView.valueNameMissing": "输入控件缺少 Value 名字，无法读写值",
+    "ui.moduleView.valueUnknown": "值「{0}」未声明，无法写入",
     "ui.palette.derivationMissingFrom": "色板契约中 {0} 的派生规则缺少 from（源 token 名）",
     "ui.palette.derivationUnknown": "色板契约中 {0} 的派生规则无法识别：{1}；可用值为 tint、darken、shift、none",
     "ui.palette.resourceMissing": "缺少色板契约资源：{0}（由 Ui 工程的 Styles/palette.json 嵌入）",

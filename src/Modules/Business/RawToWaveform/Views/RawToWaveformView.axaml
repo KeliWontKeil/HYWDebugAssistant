@@ -33,20 +33,29 @@
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="24"
                     Classes="caption right" Field="{x:Static local:RawToWaveformModule.ProtocolField}" />
-    <ui:ModuleConfigField Canvas.Left="44" Canvas.Top="0" Width="100" Height="24"
-                          Field="{x:Static local:RawToWaveformModule.ProtocolField}" />
+    <ui:ModuleSelect Canvas.Left="44" Canvas.Top="0" Width="100" Height="24"
+                     Value="{x:Static local:RawToWaveformModule.ProtocolField}"
+                     SelectedKey="TextFrame">
+      <ui:ModuleSelect.PreviewOptions>
+        <ui:ModuleSelectOption Key="TextFrame" Label="{loc:Tr choice.textFrame}" />
+        <ui:ModuleSelectOption Key="FireWater" Label="{loc:Tr choice.fireWater}" />
+        <ui:ModuleSelectOption Key="JustFloat" Label="{loc:Tr choice.justFloat}" />
+      </ui:ModuleSelect.PreviewOptions>
+    </ui:ModuleSelect>
 
     <ui:ModuleLabel Canvas.Left="148" Canvas.Top="0" Width="30" Height="24"
                     Classes="caption right" Text="{loc:Tr view.groupShort}" />
     <ui:ModuleTextSurface Canvas.Left="180" Canvas.Top="0" Width="36" Height="24" Mode="Input"
-                          Source="{x:Static local:RawToWaveformModule.GroupIdInput}"
-                          Text="1" TextAlignment="Right" />
+                          Value="{x:Static local:RawToWaveformModule.GroupIdInput}"
+                          Text="1" TextAlignment="Right"
+                          CommitMode="OnChange" />
 
     <ui:ModuleLabel Canvas.Left="220" Canvas.Top="0" Width="44" Height="24"
                     Classes="caption right" Text="{loc:Tr field.rate}" />
     <ui:ModuleTextSurface Canvas.Left="266" Canvas.Top="0" Width="50" Height="24" Mode="Input"
-                          Source="{x:Static local:RawToWaveformModule.RateInput}"
-                          Text="1000" TextAlignment="Right" />
+                          Value="{x:Static local:RawToWaveformModule.RateInput}"
+                          Text="1000" TextAlignment="Right"
+                          CommitMode="OnChange" />
     <ui:ModuleLabel Canvas.Left="318" Canvas.Top="0" Width="24" Height="24"
                     Classes="caption" Text="{loc:Tr unit.hz}" />
 
@@ -63,21 +72,22 @@
         <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="24"
                         Classes="caption right" Text="{loc:Tr field.header}" />
         <ui:ModuleTextSurface Canvas.Left="44" Canvas.Top="0" Width="88" Height="24" Mode="Input"
-                              Source="{x:Static local:RawToWaveformModule.HeaderInput}"
-                              Text="ab" />
+                              Value="{x:Static local:RawToWaveformModule.HeaderInput}"
+                              Text="ab" CommitMode="OnChange" />
         <ui:ModuleLabel Canvas.Left="134" Canvas.Top="0" Width="42" Height="24"
                         Classes="caption right" Text="{loc:Tr field.footer}" />
         <ui:ModuleTextSurface Canvas.Left="178" Canvas.Top="0" Width="88" Height="24" Mode="Input"
-                              Source="{x:Static local:RawToWaveformModule.FooterInput}"
-                              Text="cd" />
+                              Value="{x:Static local:RawToWaveformModule.FooterInput}"
+                              Text="cd" CommitMode="OnChange" />
       </Canvas>
 
       <Canvas Name="FireWaterParams" Width="356" Height="24">
         <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="24"
                         Classes="caption right" Text="{loc:Tr field.prefix}" />
         <ui:ModuleTextSurface Canvas.Left="44" Canvas.Top="0" Width="88" Height="24" Mode="Input"
-                              Source="{x:Static local:RawToWaveformModule.PrefixInput}"
-                              Text="" ToolTip.Tip="{loc:Tr field.prefix.hint}" />
+                              Value="{x:Static local:RawToWaveformModule.PrefixInput}"
+                              Text="" ToolTip.Tip="{loc:Tr field.prefix.hint}"
+                              CommitMode="OnChange" />
       </Canvas>
     </StackPanel>
 

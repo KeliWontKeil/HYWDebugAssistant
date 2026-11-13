@@ -1,4 +1,5 @@
 using HYWDebugAssistant.Sdk.Ports;
+using HYWDebugAssistant.Sdk.Values;
 
 namespace HYWDebugAssistant.Core.Api;
 
@@ -266,6 +267,26 @@ public interface IRuntimeQuery
     /// <param name="schema">Schema（含 <c>Notice</c>：不可编辑时的原因）。</param>
     /// <returns>实例存在时为 true（占位实例返回空字段 + 原因）。</returns>
     bool TryGetConfigurationSchema(string instanceId, out ConfigurationSchemaView? schema);
+
+    /// <summary>取某个值的声明（未声明 ⇒ false）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="name">值名。</param>
+    /// <param name="declaration">声明。</param>
+    bool TryGetValueDeclaration(string instanceId, string name, out ValueDeclaration? declaration)
+    {
+        declaration = null;
+        return false;
+    }
+
+    /// <summary>取某个值当前的结论（模块/框架最近一次报告；没有 ⇒ false）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="name">值名。</param>
+    /// <param name="notice">结论。</param>
+    bool TryGetValueNotice(string instanceId, string name, out ValueNotice? notice)
+    {
+        notice = null;
+        return false;
+    }
 }
 
 /// <summary>

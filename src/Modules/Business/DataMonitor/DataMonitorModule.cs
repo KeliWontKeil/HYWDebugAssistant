@@ -9,6 +9,7 @@ using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Modules.DataMonitor;
@@ -177,10 +178,26 @@ public sealed class DataMonitorModule : IModule, IActivitySource
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(BufferFullSource, ViewDataSourceKind.Text));
 
         // 四个显示开关是用户偏好，恢复；保存路径是一次动作的结果，不恢复。
-        foreach (var source in new[] { PausedSource, HexViewSource, LineBreakSource, TimestampSource })
+        context.Declaration.DeclareValue(new ValueDeclaration(PausedSource)
         {
-            context.Declaration.DeclareInput(new InputDeclaration(source) { Persistence = InputPersistence.Persistent });
-        }
+            Editor = ValueEditor.Boolean,
+            Persistent = true,
+        });
+        context.Declaration.DeclareValue(new ValueDeclaration(LineBreakSource)
+        {
+            Editor = ValueEditor.Boolean,
+            Persistent = true,
+        });
+        context.Declaration.DeclareValue(new ValueDeclaration(HexViewSource)
+        {
+            Editor = ValueEditor.Boolean,
+            Persistent = true,
+        });
+        context.Declaration.DeclareValue(new ValueDeclaration(TimestampSource)
+        {
+            Editor = ValueEditor.Boolean,
+            Persistent = true,
+        });
 
         context.Declaration.DeclareInput(SavePathSource);
 
@@ -197,6 +214,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     public void OnStep(IModuleContext context, StepReason reason)
     {
         ArgumentNullException.ThrowIfNull(context);
+        _context = context;
 
         if (reason.HasFlag(StepReason.Start))
         {
@@ -236,6 +254,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
 
     // ---------------------------------------------------------------- ④ 接线与业务
 
+    private IModuleContext? _context;
     private bool _paused;
     private bool _lineBreakPerPacket;
     private bool _hexView;
@@ -255,22 +274,22 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        if (context.ViewState.GetInputText(PausedSource) is { } paused)
+        if (context.Values.ReadText(PausedSource) is { } paused)
         {
             _paused = IsTrue(paused);
         }
 
-        if (context.ViewState.GetInputText(LineBreakSource) is { } lineBreak)
+        if (context.Values.ReadText(LineBreakSource) is { } lineBreak)
         {
             _lineBreakPerPacket = IsTrue(lineBreak);
         }
 
-        if (context.ViewState.GetInputText(HexViewSource) is { } hex)
+        if (context.Values.ReadText(HexViewSource) is { } hex)
         {
             _hexView = IsTrue(hex);
         }
 
-        if (context.ViewState.GetInputText(TimestampSource) is { } timestamp)
+        if (context.Values.ReadText(TimestampSource) is { } timestamp)
         {
             _timestamp = IsTrue(timestamp);
         }
@@ -278,6 +297,15 @@ public sealed class DataMonitorModule : IModule, IActivitySource
 
     /// <summary>是否处于"暂停显示"（测试可读）。</summary>
     public bool IsPaused => _paused;
+
+    /// <inheritdoc />
+    public void OnConfigurationChanged()
+    {
+        if (_context is { } context)
+        {
+            RestorePersistedState(context);
+        }
+    }
 
     /// <summary>最近一次保存结果（测试可读；成功为 <see langword="null"/>）。</summary>
     public string? LastSaveFailure { get; private set; }
@@ -361,28 +389,28 @@ public sealed class DataMonitorModule : IModule, IActivitySource
             if (string.Equals(source, PausedSource, StringComparison.Ordinal))
             {
                 _paused = IsTrue(text);
-                context.ViewState.SetInputValue(PausedSource, _paused ? "true" : "false");
+                context.Values.AcceptText(PausedSource, _paused ? "true" : "false");
                 continue;
             }
 
             if (string.Equals(source, LineBreakSource, StringComparison.Ordinal))
             {
                 _lineBreakPerPacket = IsTrue(text);
-                context.ViewState.SetInputValue(LineBreakSource, _lineBreakPerPacket ? "true" : "false");
+                context.Values.AcceptText(LineBreakSource, _lineBreakPerPacket ? "true" : "false");
                 continue;
             }
 
             if (string.Equals(source, HexViewSource, StringComparison.Ordinal))
             {
                 _hexView = IsTrue(text);
-                context.ViewState.SetInputValue(HexViewSource, _hexView ? "true" : "false");
+                context.Values.AcceptText(HexViewSource, _hexView ? "true" : "false");
                 continue;
             }
 
             if (string.Equals(source, TimestampSource, StringComparison.Ordinal))
             {
                 _timestamp = IsTrue(text);
-                context.ViewState.SetInputValue(TimestampSource, _timestamp ? "true" : "false");
+                context.Values.AcceptText(TimestampSource, _timestamp ? "true" : "false");
                 continue;
             }
 

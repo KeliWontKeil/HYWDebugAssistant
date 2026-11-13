@@ -115,7 +115,8 @@ public void 收到一个单元应转发并计数()
 | 显示请求 | `ClearedDisplays`、`SetTexts`、`FullDisplays`（预置） |
 | 文件选择 | `FilePickRequests`（只记录，不弹窗） |
 | 外部接入 | `Access`（见下） |
-| 视图状态 | `ViewState`（预置/读取） |
+| 值 | `Values.ReadText`；`EnqueueInput` 写值/动作输入 |
+| 视图状态 | `ViewState`（页签/显示缓冲；控件值请用 `Values`） |
 | 定时器 | `Timers`（见下） |
 
 注意：`Deliver` 省略 `layout` 时按“定长字节块”推断形状，Pull 下拿到的 `buffer.Layout` 没有命名字段；需要按字段读取时要显式传 `ContractLayout.FromShape(Shape)`。Pull 模式下要先把数据 `Deliver` 进队列，再调 `OnStep(StepReason.Data)` 自取。
@@ -172,11 +173,11 @@ context.Access.Written.ShouldContain(entry => entry.AccessName == "my-serial");
 
 ```csharp
 context.ViewState.SetSelectedPage(MyModule.PagesKey, 1);
-context.ViewState.SetInputText(MyModule.TextSource, "hello");
+context.EnqueueInput(MyModule.TextValue, "hello");
 
 module.OnStep(context, StepReason.Input);
 
-context.ViewState.GetInputText(MyModule.TextSource).ShouldBe("hello");
+context.Values.ReadText(MyModule.TextValue).ShouldBe("hello");
 context.ClearedDisplays.ShouldContain(MyModule.LogSource);
 context.SetTexts.ShouldContain(entry => entry.SourceName == MyModule.StateSource);
 context.ViewState.ReadSeriesWindow(MyModule.CurveSource).ShouldNotBeNull();

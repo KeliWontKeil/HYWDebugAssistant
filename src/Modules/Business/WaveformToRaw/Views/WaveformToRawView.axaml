@@ -33,20 +33,29 @@
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="24"
                     Classes="caption right" Field="{x:Static local:WaveformToRawModule.ProtocolField}" />
-    <ui:ModuleConfigField Canvas.Left="44" Canvas.Top="0" Width="100" Height="24"
-                          Field="{x:Static local:WaveformToRawModule.ProtocolField}" />
+    <ui:ModuleSelect Canvas.Left="44" Canvas.Top="0" Width="100" Height="24"
+                     Value="{x:Static local:WaveformToRawModule.ProtocolField}"
+                     SelectedKey="TextFrame">
+      <ui:ModuleSelect.PreviewOptions>
+        <ui:ModuleSelectOption Key="TextFrame" Label="{loc:Tr choice.textFrame}" />
+        <ui:ModuleSelectOption Key="FireWater" Label="{loc:Tr choice.fireWater}" />
+        <ui:ModuleSelectOption Key="JustFloat" Label="{loc:Tr choice.justFloat}" />
+      </ui:ModuleSelect.PreviewOptions>
+    </ui:ModuleSelect>
 
     <ui:ModuleLabel Canvas.Left="148" Canvas.Top="0" Width="30" Height="24"
                     Classes="caption right" Text="{loc:Tr view.groupShort}" />
     <ui:ModuleTextSurface Canvas.Left="180" Canvas.Top="0" Width="36" Height="24" Mode="Input"
-                          Source="{x:Static local:WaveformToRawModule.GroupIdInput}"
-                          Text="1" TextAlignment="Right" />
+                          Value="{x:Static local:WaveformToRawModule.GroupIdInput}"
+                          Text="1" TextAlignment="Right"
+                          CommitMode="OnChange" />
 
     <ui:ModuleLabel Canvas.Left="220" Canvas.Top="0" Width="48" Height="24"
                     Classes="caption right" Text="{loc:Tr field.decimals}" />
     <ui:ModuleTextSurface Canvas.Left="270" Canvas.Top="0" Width="48" Height="24" Mode="Input"
-                          Source="{x:Static local:WaveformToRawModule.DecimalsInput}"
-                          Text="0" TextAlignment="Right" />
+                          Value="{x:Static local:WaveformToRawModule.DecimalsInput}"
+                          Text="0" TextAlignment="Right"
+                          CommitMode="OnChange" />
 
     <ui:ModuleLabel Name="ProtocolDefinition" Canvas.Left="0" Canvas.Top="74" Width="350" Height="16"
                     Classes="hint" Text="{loc:Tr proto.textFrame.def}"
@@ -61,21 +70,21 @@
         <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="24"
                         Classes="caption right" Text="{loc:Tr field.header}" />
         <ui:ModuleTextSurface Canvas.Left="44" Canvas.Top="0" Width="88" Height="24" Mode="Input"
-                              Source="{x:Static local:WaveformToRawModule.HeaderInput}"
-                              Text="ab" />
+                              Value="{x:Static local:WaveformToRawModule.HeaderInput}"
+                              Text="ab" CommitMode="OnChange" />
         <ui:ModuleLabel Canvas.Left="134" Canvas.Top="0" Width="42" Height="24"
                         Classes="caption right" Text="{loc:Tr field.footer}" />
         <ui:ModuleTextSurface Canvas.Left="178" Canvas.Top="0" Width="88" Height="24" Mode="Input"
-                              Source="{x:Static local:WaveformToRawModule.FooterInput}"
-                              Text="cd" />
+                              Value="{x:Static local:WaveformToRawModule.FooterInput}"
+                              Text="cd" CommitMode="OnChange" />
       </Canvas>
 
       <Canvas Name="FireWaterParams" Width="356" Height="24">
         <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="24"
                         Classes="caption right" Text="{loc:Tr field.prefix}" />
         <ui:ModuleTextSurface Canvas.Left="44" Canvas.Top="0" Width="88" Height="24" Mode="Input"
-                              Source="{x:Static local:WaveformToRawModule.PrefixInput}"
-                              Text="" />
+                              Value="{x:Static local:WaveformToRawModule.PrefixInput}"
+                              Text="" CommitMode="OnChange" />
       </Canvas>
     </StackPanel>
 

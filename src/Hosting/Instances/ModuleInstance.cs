@@ -2,6 +2,7 @@ using HYWDebugAssistant.Hosting.Registry;
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.Contracts;
 using HYWDebugAssistant.Sdk.Lifecycle;
+using HYWDebugAssistant.Sdk.Values;
 
 namespace HYWDebugAssistant.Hosting.Instances;
 
@@ -30,6 +31,7 @@ public sealed class ModuleInstance
         IReadOnlyList<Sdk.Views.DisplaySourceDeclaration> displaySources,
         IReadOnlyList<string> inputs,
         IReadOnlyCollection<string> persistentInputs,
+        IReadOnlyList<ValueDeclaration> values,
         IReadOnlyList<(string Name, string Title)> commands,
         IReadOnlyList<ExternalAccessDeclaration> externalAccesses,
         Context.ModuleContext context)
@@ -44,6 +46,7 @@ public sealed class ModuleInstance
         DisplaySources = displaySources;
         Inputs = inputs;
         PersistentInputs = persistentInputs;
+        Values = values;
         Commands = commands;
         ExternalAccesses = externalAccesses;
         Context = context;
@@ -103,6 +106,9 @@ public sealed class ModuleInstance
 
     /// <summary>声明为持久化的输入源名（随组合件/工作区保存）。</summary>
     public IReadOnlyCollection<string> PersistentInputs { get; }
+
+    /// <summary>该实例声明的**值**（控件按名字读写；没有配置/输入分类）。</summary>
+    public IReadOnlyList<ValueDeclaration> Values { get; }
 
     /// <summary>该实例声明的**命令**（名字 + 诊断用标题；触发闸门据此判定）。</summary>
     public IReadOnlyList<(string Name, string Title)> Commands { get; }

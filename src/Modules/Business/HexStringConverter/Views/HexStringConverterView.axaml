@@ -22,7 +22,7 @@
     <ui:ModuleTabs Grid.Row="1" StateKey="{x:Static views:HexStringConverterViewKeys.CharPagesKey}">
       <TabItem Header="1">
         <Grid RowDefinitions="*,*">
-          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Char1}" Multiline="True" />
+          <ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexStringConverterViewKeys.Char1}" Multiline="True" CommitMode="OnChange" />
           <ui:ModuleTextSurface Grid.Row="1" Mode="Display" ShowNewlineMarks="False"
                             Text="{loc:Tr view.hexResultPreview}"
                             Source="{x:Static views:HexStringConverterViewKeys.HexResult}" />
@@ -30,7 +30,7 @@
       </TabItem>
       <TabItem Header="2">
         <Grid RowDefinitions="*,*">
-          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Char2}" Multiline="True" />
+          <ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexStringConverterViewKeys.Char2}" Multiline="True" CommitMode="OnChange" />
           <ui:ModuleTextSurface Grid.Row="1" Mode="Display" ShowNewlineMarks="False"
                             Text="{loc:Tr view.hexResultPreview}"
                             Source="{x:Static views:HexStringConverterViewKeys.HexResult}" />
@@ -38,7 +38,7 @@
       </TabItem>
       <TabItem Header="3">
         <Grid RowDefinitions="*,*">
-          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Char3}" Multiline="True" />
+          <ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexStringConverterViewKeys.Char3}" Multiline="True" CommitMode="OnChange" />
           <ui:ModuleTextSurface Grid.Row="1" Mode="Display" ShowNewlineMarks="False"
                             Text="{loc:Tr view.hexResultPreview}"
                             Source="{x:Static views:HexStringConverterViewKeys.HexResult}" />
@@ -46,7 +46,7 @@
       </TabItem>
       <TabItem Header="4">
         <Grid RowDefinitions="*,*">
-          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Char4}" Multiline="True" />
+          <ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexStringConverterViewKeys.Char4}" Multiline="True" CommitMode="OnChange" />
           <ui:ModuleTextSurface Grid.Row="1" Mode="Display" ShowNewlineMarks="False"
                             Text="{loc:Tr view.hexResultPreview}"
                             Source="{x:Static views:HexStringConverterViewKeys.HexResult}" />
@@ -54,7 +54,7 @@
       </TabItem>
       <TabItem Header="5">
         <Grid RowDefinitions="*,*">
-          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Char5}" Multiline="True" />
+          <ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexStringConverterViewKeys.Char5}" Multiline="True" CommitMode="OnChange" />
           <ui:ModuleTextSurface Grid.Row="1" Mode="Display" ShowNewlineMarks="False"
                             Text="{loc:Tr view.hexResultPreview}"
                             Source="{x:Static views:HexStringConverterViewKeys.HexResult}" />
@@ -67,7 +67,7 @@
     <ui:ModuleTabs Grid.Row="4" StateKey="{x:Static views:HexStringConverterViewKeys.HexPagesKey}">
       <TabItem Header="1">
         <Grid RowDefinitions="*,*">
-          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Hex1}" Multiline="True" ShowNewlineMarks="False" />
+          <ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexStringConverterViewKeys.Hex1}" Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" />
           <ui:ModuleTextSurface Grid.Row="1" Mode="Display"
                             Text="{loc:Tr view.charResultPreview}"
                             Source="{x:Static views:HexStringConverterViewKeys.CharResult}" />
@@ -75,7 +75,7 @@
       </TabItem>
       <TabItem Header="2">
         <Grid RowDefinitions="*,*">
-          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Hex2}" Multiline="True" ShowNewlineMarks="False" />
+          <ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexStringConverterViewKeys.Hex2}" Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" />
           <ui:ModuleTextSurface Grid.Row="1" Mode="Display"
                             Text="{loc:Tr view.charResultPreview}"
                             Source="{x:Static views:HexStringConverterViewKeys.CharResult}" />
@@ -83,7 +83,7 @@
       </TabItem>
       <TabItem Header="3">
         <Grid RowDefinitions="*,*">
-          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Hex3}" Multiline="True" ShowNewlineMarks="False" />
+          <ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexStringConverterViewKeys.Hex3}" Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" />
           <ui:ModuleTextSurface Grid.Row="1" Mode="Display"
                             Text="{loc:Tr view.charResultPreview}"
                             Source="{x:Static views:HexStringConverterViewKeys.CharResult}" />
@@ -91,7 +91,7 @@
       </TabItem>
       <TabItem Header="4">
         <Grid RowDefinitions="*,*">
-          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Hex4}" Multiline="True" ShowNewlineMarks="False" />
+          <ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexStringConverterViewKeys.Hex4}" Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" />
           <ui:ModuleTextSurface Grid.Row="1" Mode="Display"
                             Text="{loc:Tr view.charResultPreview}"
                             Source="{x:Static views:HexStringConverterViewKeys.CharResult}" />
@@ -99,7 +99,7 @@
       </TabItem>
       <TabItem Header="5">
         <Grid RowDefinitions="*,*">
-          <ui:ModuleTextSurface Mode="Input" Source="{x:Static views:HexStringConverterViewKeys.Hex5}" Multiline="True" ShowNewlineMarks="False" />
+          <ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexStringConverterViewKeys.Hex5}" Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" />
           <ui:ModuleTextSurface Grid.Row="1" Mode="Display"
                             Text="{loc:Tr view.charResultPreview}"
                             Source="{x:Static views:HexStringConverterViewKeys.CharResult}" />

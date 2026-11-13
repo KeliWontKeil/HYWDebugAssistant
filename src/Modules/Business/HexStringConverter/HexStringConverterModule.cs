@@ -4,6 +4,7 @@ using HYWDebugAssistant.Sdk.Context;
 using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Modules.HexStringConverter;
@@ -138,11 +139,21 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
         {
             var charSource = CharSourceOf(i);
             context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(charSource, ViewDataSourceKind.Text));
-            context.Declaration.DeclareInput(new InputDeclaration(charSource) { Persistence = InputPersistence.Persistent });
+            context.Declaration.DeclareValue(new ValueDeclaration(charSource)
+            {
+                Editor = ValueEditor.Text,
+                Persistent = true,
+                ResetWithModule = false,
+            });
 
             var hexSource = HexSourceOf(i);
             context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(hexSource, ViewDataSourceKind.Text));
-            context.Declaration.DeclareInput(new InputDeclaration(hexSource) { Persistence = InputPersistence.Persistent });
+            context.Declaration.DeclareValue(new ValueDeclaration(hexSource)
+            {
+                Editor = ValueEditor.Text,
+                Persistent = true,
+                ResetWithModule = false,
+            });
         }
 
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(HexResultSource, ViewDataSourceKind.Text));
@@ -207,7 +218,7 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     {
         var page = context.ViewState.GetSelectedPage(toHex ? CharPagesKey : HexPagesKey) ?? 0;
         var source = toHex ? CharSourceOf(page) : HexSourceOf(page);
-        var text = context.ViewState.GetInputText(source) ?? string.Empty;
+        var text = context.Values.ReadText(source) ?? string.Empty;
 
         if (_published.TryGetValue(toHex, out var shown)
             && string.Equals(shown.Source, source, StringComparison.Ordinal)

@@ -3,6 +3,7 @@ using HYWDebugAssistant.Hosting.Packages;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Values;
 
 namespace HYWDebugAssistant.Hosting.Registry;
 
@@ -33,7 +34,8 @@ public sealed class ModuleDefinition
         double windowHeight = 0,
         double minWidth = 0,
         double minHeight = 0,
-        IReadOnlyList<PortDeclarationSpec>? portSpecs = null)
+        IReadOnlyList<PortDeclarationSpec>? portSpecs = null,
+        IReadOnlyList<ValueInitialSpec>? valueInitials = null)
     {
         Id = id;
         DisplayName = displayName;
@@ -51,6 +53,7 @@ public sealed class ModuleDefinition
         MinWidth = minWidth;
         MinHeight = minHeight;
         PortSpecs = portSpecs ?? [];
+        ValueInitials = valueInitials ?? [];
     }
 
     /// <summary>模块标识（作者/模块名，两段）。</summary>
@@ -112,6 +115,9 @@ public sealed class ModuleDefinition
     /// </remarks>
     public IReadOnlyList<PortDeclarationSpec> PortSpecs { get; }
 
+    /// <summary>视图 XAML 声明的值初值（新实例/重置时的唯一默认值来源）。</summary>
+    public IReadOnlyList<ValueInitialSpec> ValueInitials { get; }
+
     /// <summary>由已校验的包构造定义。</summary>
     public static ModuleDefinition FromPackage(ModulePackage package)
     {
@@ -139,7 +145,8 @@ public sealed class ModuleDefinition
             attribute.WindowHeight,
             attribute.MinWidth,
             attribute.MinHeight,
-            package.PortSpecs);
+            package.PortSpecs,
+            package.ValueInitials);
     }
 
     /// <summary>按声明里的文本键取值（拥有者 = 模块程序集）；未声明或表里没有 ⇒ null。</summary>

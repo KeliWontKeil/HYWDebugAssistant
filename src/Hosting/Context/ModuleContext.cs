@@ -1,4 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Reflection;
 using HYWDebugAssistant.Hosting.Diagnostics;
 using HYWDebugAssistant.Hosting.Timing;
 using HYWDebugAssistant.Sdk;
@@ -9,6 +11,7 @@ using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Resources;
 using HYWDebugAssistant.Sdk.Timing;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Hosting.Context;
@@ -35,6 +38,9 @@ public sealed class ModuleContext : IModuleContext, IDisposable
     private readonly List<DisplaySourceDeclaration> _displaySources = [];
     private readonly List<string> _inputs = [];
     private readonly HashSet<string> _persistentInputs = new(StringComparer.Ordinal);
+    private readonly List<ValueDeclaration> _values = [];
+    private readonly Dictionary<string, ValueNotice> _valueNotices = new(StringComparer.Ordinal);
+    private readonly Lock _valueNoticeGate = new();
     private readonly List<(string Name, string Title)> _commands = [];
     private readonly List<ExternalAccessDeclaration> _externalAccesses = [];
     private readonly Dictionary<string, ReceiveHandler> _receiveHandlers = new(StringComparer.Ordinal);
@@ -61,7 +67,7 @@ public sealed class ModuleContext : IModuleContext, IDisposable
         ModuleId = moduleId;
 
         Declaration = new DeclarationCollector(
-            _ports, _dataTypes, _flows, _roles, _displaySources, _inputs, _persistentInputs, _commands,
+            _ports, _dataTypes, _flows, _roles, _displaySources, _inputs, _persistentInputs, _values, _commands,
             _externalAccesses);
         Issues = new IssueReporter(issues, _objectPath);
         Log = new NullModuleLogger();
@@ -72,6 +78,7 @@ public sealed class ModuleContext : IModuleContext, IDisposable
             _configurationGate,
             () => Interlocked.Increment(ref _configurationVersion));
         Inbox = new BoundedInbox();
+        Values = new ModuleValueAccess(this);
         Appearance = AppearanceStore;
     }
 
@@ -216,6 +223,102 @@ public sealed class ModuleContext : IModuleContext, IDisposable
 
     /// <summary>声明为持久化的输入源名（随组合件/工作区保存）；顺序不保证。</summary>
     public IReadOnlyCollection<string> PersistentInputs => _persistentInputs;
+
+    /// <summary>已声明的**值**（按声明顺序）。</summary>
+    public IReadOnlyList<ValueDeclaration> DeclaredValues => _values;
+
+    /// <inheritdoc />
+    public IModuleValues Values { get; }
+
+    /// <summary>读某一格当前的结论（控件侧呈现用）。</summary>
+    /// <param name="name">值名。</param>
+    /// <param name="notice">结论；没有 ⇒ <see langword="null"/>。</param>
+    /// <returns>是否有该值。</returns>
+    public bool TryGetValueNotice(string name, out ValueNotice? notice)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            notice = null;
+            return false;
+        }
+
+        lock (_valueNoticeGate)
+        {
+            return _valueNotices.TryGetValue(name, out notice);
+        }
+    }
+
+    /// <summary>
+    /// 按名字读配置字段的当前文本（配置字段也是值；模块不需要知道它属于哪个配置对象）。
+    /// </summary>
+    /// <param name="name">字段名。</param>
+    /// <returns>值的文本形态；没有该字段 ⇒ <see langword="null"/>。</returns>
+    private string? ReadConfigurationFieldText(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+
+        lock (_configurationGate)
+        {
+            foreach (var configuration in _configuration.Values)
+            {
+                var property = configuration.GetType().GetProperty(
+                    name,
+                    BindingFlags.Public | BindingFlags.Instance);
+
+                if (property is null || !property.CanRead || property.GetIndexParameters().Length > 0)
+                {
+                    continue;
+                }
+
+                var value = property.GetValue(configuration);
+
+                return value switch
+                {
+                    null => string.Empty,
+                    bool boolean => boolean ? "true" : "false",
+                    IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
+                    _ => value.ToString() ?? string.Empty,
+                };
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// **把参与还原的值恢复为声明默认值**（框架内部：模块「还原」时调用）。
+    /// </summary>
+    /// <remarks>配置字段由 <see cref="ResetConfiguration"/> 处理；本方法只清声明值。</remarks>
+    public void ResetValues()
+    {
+        foreach (var value in _values)
+        {
+            if (!value.ResetWithModule)
+            {
+                continue;
+            }
+
+            ViewState.SetInputValue(value.Name, null);
+        }
+
+        lock (_valueNoticeGate)
+        {
+            _valueNotices.Clear();
+        }
+    }
+
+    /// <summary>模块是否声明过该值。</summary>
+    /// <param name="name">值名。</param>
+    public bool DeclaresValue(string name) =>
+        _values.Exists(value => string.Equals(value.Name, name, StringComparison.Ordinal));
+
+    /// <summary>按名字取声明（未声明 ⇒ <see langword="null"/>）。</summary>
+    /// <param name="name">值名。</param>
+    public ValueDeclaration? FindValueDeclaration(string name) =>
+        _values.Find(value => string.Equals(value.Name, name, StringComparison.Ordinal));
 
     /// <summary>已声明的**命令**（名字 + 给人看的标题，按声明顺序）——触发闸门与诊断文案据此判定。</summary>
     public IReadOnlyList<(string Name, string Title)> DeclaredCommands => _commands;
@@ -400,6 +503,7 @@ public sealed class ModuleContext : IModuleContext, IDisposable
         List<DisplaySourceDeclaration> displaySources,
         List<string> inputs,
         HashSet<string> persistentInputs,
+        List<ValueDeclaration> values,
         List<(string Name, string Title)> commands,
         List<ExternalAccessDeclaration> externalAccesses) : IModuleDeclaration
     {
@@ -461,6 +565,24 @@ public sealed class ModuleContext : IModuleContext, IDisposable
             }
         }
 
+        public void DeclareValue(ValueDeclaration value)
+        {
+            ArgumentNullException.ThrowIfNull(value);
+
+            if (string.IsNullOrWhiteSpace(value.Name))
+            {
+                return;
+            }
+
+            values.Add(value);
+
+            // 值当前落在视图状态的后端；这属于框架内部实现，不进入模块/控件契约。
+            DeclareInput(new InputDeclaration(value.Name)
+            {
+                Persistence = value.Persistent ? InputPersistence.Persistent : InputPersistence.Transient,
+            });
+        }
+
         public void DeclareCommand(string name, string title)
         {
             if (!string.IsNullOrWhiteSpace(name))
@@ -510,6 +632,60 @@ public sealed class ModuleContext : IModuleContext, IDisposable
         public void Update(BusinessState state)
         {
             // M1-6 接入状态汇集
+        }
+    }
+
+    /// <summary>模块侧的值面：读当前值、接受规范化值、报告这一格的结论。</summary>
+    private sealed class ModuleValueAccess(ModuleContext owner) : IModuleValues
+    {
+        /// <inheritdoc />
+        public string? ReadText(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return null;
+            }
+
+            var declaration = owner.FindValueDeclaration(name);
+            if (declaration is not null)
+            {
+                return owner.ViewState.GetInputText(name);
+            }
+
+            // 配置字段也是值：按名字读取当前配置属性（模块不需要知道它存在哪份配置对象里）。
+            return owner.ReadConfigurationFieldText(name);
+        }
+
+        /// <inheritdoc />
+        public void AcceptText(string name, string? value)
+        {
+            if (string.IsNullOrWhiteSpace(name) || !owner.DeclaresValue(name))
+            {
+                return;
+            }
+
+            owner.ViewState.SetInputValue(name, value);
+        }
+
+        /// <inheritdoc />
+        public void Report(string name, ValueNotice? notice)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return;
+            }
+
+            lock (owner._valueNoticeGate)
+            {
+                if (notice is null)
+                {
+                    _ = owner._valueNotices.Remove(name);
+                }
+                else
+                {
+                    owner._valueNotices[name] = notice;
+                }
+            }
         }
     }
 

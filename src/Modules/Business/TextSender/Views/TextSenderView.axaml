@@ -28,24 +28,24 @@
     <ui:ModuleLabel Grid.Row="0" Classes="caption" Text="{loc:Tr view.inputLabel}" />
 
     <ui:ModuleTabs Grid.Row="1" StateKey="{x:Static views:TextSenderViewKeys.PagesStateKey}">
-      <TabItem Header="1"><ui:ModuleTextSurface Mode="Input" Source="{x:Static views:TextSenderViewKeys.Text1}" Multiline="True" /></TabItem>
-      <TabItem Header="2"><ui:ModuleTextSurface Mode="Input" Source="{x:Static views:TextSenderViewKeys.Text2}" Multiline="True" /></TabItem>
-      <TabItem Header="3"><ui:ModuleTextSurface Mode="Input" Source="{x:Static views:TextSenderViewKeys.Text3}" Multiline="True" /></TabItem>
-      <TabItem Header="4"><ui:ModuleTextSurface Mode="Input" Source="{x:Static views:TextSenderViewKeys.Text4}" Multiline="True" /></TabItem>
-      <TabItem Header="5"><ui:ModuleTextSurface Mode="Input" Source="{x:Static views:TextSenderViewKeys.Text5}" Multiline="True" /></TabItem>
+      <TabItem Header="1"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:TextSenderViewKeys.Text1}" Multiline="True" CommitMode="OnChange" /></TabItem>
+      <TabItem Header="2"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:TextSenderViewKeys.Text2}" Multiline="True" CommitMode="OnChange" /></TabItem>
+      <TabItem Header="3"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:TextSenderViewKeys.Text3}" Multiline="True" CommitMode="OnChange" /></TabItem>
+      <TabItem Header="4"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:TextSenderViewKeys.Text4}" Multiline="True" CommitMode="OnChange" /></TabItem>
+      <TabItem Header="5"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:TextSenderViewKeys.Text5}" Multiline="True" CommitMode="OnChange" /></TabItem>
     </ui:ModuleTabs>
 
     <Canvas Grid.Row="2" Height="52" ClipToBounds="True">
       <ui:ModuleButton Canvas.Left="0" Canvas.Top="4" Width="64" Height="27"
                        CommandName="{x:Static views:TextSenderViewKeys.Send}" Content="{loc:Tr view.send}" />
       <ui:ModuleToggle Canvas.Left="82" Canvas.Top="5" Width="36" Height="24"
-                       Source="{x:Static views:TextSenderViewKeys.Continuous}" />
+                       Value="{x:Static views:TextSenderViewKeys.Continuous}" />
       <ui:ModuleLabel Canvas.Left="122" Canvas.Top="5" Width="52" Height="24" Classes="caption"
                       VerticalAlignment="Center" Text="{loc:Tr view.continuous}" />
 
       <!-- 间隔：输入框一条矩形，单位 `ms` 是紧挨着的普通标签。 -->
       <ui:ModuleTextSurface Canvas.Left="190" Canvas.Top="4" Width="48" Height="24" Mode="Input"
-                            Source="{x:Static views:TextSenderViewKeys.Interval}" TextAlignment="Right" />
+                            Value="{x:Static views:TextSenderViewKeys.Interval}" TextAlignment="Right" CommitMode="OnChange" />
       <ui:ModuleLabel Canvas.Left="240" Canvas.Top="4" Width="20" Height="24"
                       Classes="caption" Text="{loc:Tr view.intervalUnit}" />
 

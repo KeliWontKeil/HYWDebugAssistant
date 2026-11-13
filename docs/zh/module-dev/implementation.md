@@ -65,9 +65,28 @@ var accepted = context.Ports.TrySend(OutPort, unit);
 - 写字段用 `PayloadWriter`（按布局寻址）；单原语类型直接用 `BinaryPrimitives` 也可以。
 - 热路径不分配：布局在类型旁边算一次，缓冲用字段或 `stackalloc`。
 
-## 配置
+## 值
 
-配置是**实例**属性，随组合件保存，读取得到不可变快照。
+控件编辑的都是值：视图只按名字绑定，模块只按名字读取、接受、报告结论。值没有“配置/输入”分类；完整规则见[值](values.md)。
+
+```csharp
+context.Declaration.DeclareValue(new ValueDeclaration("header")
+{
+    Editor = ValueEditor.Text,
+    Persistent = true,
+});
+
+var header = context.Values.ReadText("header") ?? string.Empty;
+context.Values.Report("header", header.Length == 0
+    ? new ValueNotice(ValueNoticeSeverity.Warning, "帧头不能为空")
+    : null);
+```
+
+配置字段自动是同名的值；模块也可以继续用强类型配置对象处理自己的领域状态。控件不直接读写配置或视图状态。
+
+## 配置（模块私有、强类型）
+
+配置是**实例**属性，随组合件保存，读取得到不可变快照。它适合模块自己的领域对象；视图控件值请优先用上面的值接口。
 
 ```csharp
 public sealed class MyConfig
@@ -102,11 +121,11 @@ public void OnConfigurationChanged()
 - 字段标题、说明、分组、枚举显示用 `TitleKey` / `DescriptionKey` / `GroupKey` / `[ConfigurationChoice(TitleKey = …)]` 指向本模块文本表；不给键时回退为字段名（如 `PeriodMs` → “Period Ms”）。
 - 动态选项（可用串口、本机地址）实现 `IConfigurationChoices`：返回 `null` = 不是动态字段，空表 = 现在没有可选项。它运行在界面线程，必须廉价、不抛、不阻塞。
 - 单位写在 `Unit` 或字段标题里，**不入契约**；改单位不改变数据字节。
-- **配置字段不会自动出现在窗口里**：需要在视图中用 `ModuleConfigField` 画出（见[界面](ui.md)）。不声明视图工厂的模块，窗口只显示身份与状态；配置仍可随组合件保存，但用户改不了。
+- **配置字段不会自动出现在窗口里**：需要在视图中用 `ModuleConfigField Value="字段名"` 画出（见[控件](controls.md)）。不声明视图工厂的模块，窗口只显示身份与状态；配置仍可随组合件保存，但用户改不了。
 
-## 收件箱：命令与输入
+## 收件箱：命令与动作输入
 
-用户点按钮、改输入框、拨开关，都投进收件箱，由模块在 `OnStep` 里排空：
+用户点按钮、文件选择结果、结构动作等**事件**投进收件箱，由模块在 `OnStep` 里排空：
 
 ```csharp
 public void OnStep(IModuleContext context, StepReason reason)
@@ -134,10 +153,11 @@ public void OnStep(IModuleContext context, StepReason reason)
 - 只有声明过的命令名与输入源名才会被投递；未登记的名字由框架拒收并报 Issue。
 - 收件箱容量 64，满时丢最旧并计数；同一命令重复点击会重复入队，需要幂等就自己做。
 - 不实现 `IActivitySource` 的模块**收不到**命令与输入：没有单步就没有消费时机。
-- 输入文本是**所见即所发**：需要“用户正在编辑但尚未提交”的内容时，用 `ViewState.GetInputText(source)`，不要依赖回车。
-- 模块要把某一格的值改掉（而不是复原用户刚做的动作），用 `ViewState.SetInputValue(source, text)`；它不会回投给模块。
-- **值变更 → 应用只有一条链**：控件写入输入文本 → 模块在 `OnStep` 读 `GetInputText` → 解析/校验 → 应用。回车/`Commit()` 只是"再应用一次"的开关，失焦不提交；"即时"与"回车/失焦"不是两套路径，区别只是开关是否常开。
-- **持久化与初值归模块**：要持久化就在声明期写 `InputPersistence.Persistent`（或声明配置字段），初值由模块常量/XAML 预览值给出；控件不持有任何持久化语义。
+- 控件值用 `context.Values.ReadText(名字)` 读取；它已经是当前有效值（持久化值，或框架在激活前播种的 XAML 初值）。
+- 需要“用户正在编辑但尚未提交”的内容时，把控件的 `CommitMode` 设为 `OnChange`，而不是依赖回车。
+- 模块接受/规范化的值用 `context.Values.AcceptText`；字段结论用 `context.Values.Report`。
+- **提交时机是控件属性**：`OnChange` 逐键交值，`OnExplicit` 在回车/动作/失焦时交值。模块不判断控件属于哪种。
+- **持久化归值声明，初值归 XAML**：`Persistent` / `ResetWithModule` 写在 `ValueDeclaration` 上；视图可见值的默认值只写在控件 XAML 初值（`Text` / `IsChecked` / `SelectedKey` / `InitialValue`）。控件不持有持久化语义。
 
 ## 上报
 
@@ -203,7 +223,7 @@ context.Appearance.ResetInteraction(ContinuousSource);
 
 - 优先用角色词（`ViewInkRoles.Danger` 等），它随主题与用户改色；绝对色只在确有需要时使用。
 - 只读 ≠ 禁用：只读让用户能看能选中但不能改；禁用让整格不可操作。
-- `ResetInteraction` 表达“这次动作不成立，把控件拨回”；要表达“这一格的值应该是 false”，同时用 `ViewState.SetInputValue`。
+- `ResetInteraction` 表达“这次动作不成立，把控件拨回”；要表达“这一格接受后的值”，用 `context.Values.AcceptText`，并可用 `context.Values.Report` 给出结论。
 
 ## 视图状态
 
@@ -211,12 +231,12 @@ context.Appearance.ResetInteraction(ContinuousSource);
 
 ```csharp
 var page = context.ViewState.GetSelectedPage(PagesKey);
-var editing = context.ViewState.GetInputText(TextSource);
 var lines = context.ViewState.GetDisplayLines(LogSource);   // 保存显示内容
 ```
 
+- 控件值用 `context.Values.ReadText`，不用 `ViewState.GetInputText`。
 - 只读快照：不保证与用户眼睛同步（通常差一个刷新节拍）；未知名字返回 `null` / 空列表，不抛。
-- 要改用户看到的内容，走输入/显示/外观通道，不要试图直接操作控件。
+- 要改用户看到的内容，走值/显示/外观通道，不要试图直接操作控件。
 
 ## 文件
 
@@ -296,7 +316,7 @@ var snapshot = context.Access.GetSnapshot(AccessName);
 | 命令不执行、输入收不到 | 没实现 `IActivitySource`，或没在 `OnStep` 里排空收件箱 | 实现接口并在 `OnStep` 里 `TryDequeue*` |
 | 状态行一直是初始值 | 显示源没声明，或只写了 `Text` 没写源 | 先 `DeclareDisplaySource`，再 `Display.SetText` |
 | 数值读数不更新 | 写显示源的字节数与声明的 `ValueType` 不一致，或空样本 | 按声明原语写小端；不要发布空数组 |
-| 开关自己弹回去 | 模块用显示源回写开关，且没有 `ViewState.SetInputValue` | 输入值写回视图状态；用 `Appearance` 标色说明原因 |
+| 开关自己弹回去 | 控件绑了值，但模块没有接受/回写 | 用 `context.Values.AcceptText` 宣告接受值；用 `Values.Report` 说明原因 |
 | 配置改了不生效 | 没有重写 `OnConfigurationChanged`，或读的是旧对象 | 在钩子里重新 `Read<T>`；写回走 `Configuration.Write` |
 | 配置字段不出现 | 配置类型不是公开类、缺无参构造，或属性不可读写 | 按“配置”一节的约束改 |
 | 视图不刷新 | 视图根不是 `ModuleView`、没被 `ModuleViewHost` 驱动，或窗口不可见 | 用工厂 + `ModuleView`；可见时框架每帧调用 `Refresh` |
