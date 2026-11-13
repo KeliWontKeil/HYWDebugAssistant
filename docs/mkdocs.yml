@@ -33,8 +33,8 @@ nav:
           - UDP 接入: guides/modules/udp.md
           - 波形显示器: guides/modules/waveform-display.md
           - 波形发生器: guides/modules/waveform-generator.md
-          - 原始 → 波形: guides/modules/raw-to-waveform.md
-          - 波形 → 原始: guides/modules/waveform-to-raw.md
+          - 文本→波形转换器: guides/modules/raw-to-waveform.md
+          - 波形→文本转换器: guides/modules/waveform-to-raw.md
       - 模块管理: guides/manage-modules.md
       - 窗口操作: guides/windows.md
       - 吸附与拼接: guides/puzzle.md

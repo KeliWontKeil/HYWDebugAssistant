@@ -136,6 +136,8 @@ public void OnStep(IModuleContext context, StepReason reason)
 - 不实现 `IActivitySource` 的模块**收不到**命令与输入：没有单步就没有消费时机。
 - 输入文本是**所见即所发**：需要“用户正在编辑但尚未提交”的内容时，用 `ViewState.GetInputText(source)`，不要依赖回车。
 - 模块要把某一格的值改掉（而不是复原用户刚做的动作），用 `ViewState.SetInputValue(source, text)`；它不会回投给模块。
+- **值变更 → 应用只有一条链**：控件写入输入文本 → 模块在 `OnStep` 读 `GetInputText` → 解析/校验 → 应用。回车/`Commit()` 只是"再应用一次"的开关，失焦不提交；"即时"与"回车/失焦"不是两套路径，区别只是开关是否常开。
+- **持久化与初值归模块**：要持久化就在声明期写 `InputPersistence.Persistent`（或声明配置字段），初值由模块常量/XAML 预览值给出；控件不持有任何持久化语义。
 
 ## 上报
 

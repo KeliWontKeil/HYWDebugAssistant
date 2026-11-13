@@ -12,6 +12,7 @@ internal static class RawToWaveformText
     public const string Header = "view.header";
     public const string Footer = "view.footer";
     public const string Channels = "view.channels";
+    public const string GroupShort = "view.groupShort";
     public const string Frames = "view.frames";
     public const string Dropped = "view.dropped";
     public const string Reset = "view.reset";
@@ -19,22 +20,9 @@ internal static class RawToWaveformText
     public const string Converting = "state.converting";
     public const string ResetDone = "state.reset";
     public const string BadConfig = "state.bad-config";
-    public const string ParseError = "state.parse-error";
 
     /// <summary>配置字段标题：协议。</summary>
     public const string FieldProtocol = "field.protocol";
-
-    /// <summary>配置字段标题：帧头。</summary>
-    public const string FieldHeader = "field.header";
-
-    /// <summary>配置字段标题：帧尾。</summary>
-    public const string FieldFooter = "field.footer";
-
-    /// <summary>配置字段标题：通道组编号。</summary>
-    public const string FieldGroup = "field.group";
-
-    /// <summary>配置字段标题：采样率。</summary>
-    public const string FieldRate = "field.rate";
 
     /// <summary>协选项：自定义文本帧。</summary>
     public const string ChoiceTextFrame = "choice.textFrame";
@@ -62,6 +50,9 @@ internal static class RawToWaveformText
 
     /// <summary>协议说明：JustFloat 示例。</summary>
     public const string ProtoJustFloatSample = "proto.justFloat.sample";
+
+    /// <summary>单位：Hz。</summary>
+    public const string UnitHz = "unit.hz";
 
     public static string Get(string key) => TextCatalog.Get(typeof(RawToWaveformText).Assembly, key);
 

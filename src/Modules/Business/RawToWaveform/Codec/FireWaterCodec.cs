@@ -49,21 +49,28 @@ internal static class FireWaterCodec
     }
 }
 
-/// <summary>FireWater 的流式解码器：按行切分，忽略 <c>image:</c> 前导帧。</summary>
+/// <summary>FireWater 的流式解码器：按行切分，忽略 <c>image:</c> 前导帧，可按前缀过滤。</summary>
 internal sealed class FireWaterDecoder
 {
     private readonly FrameBuffer _buffer;
-    private long _errors;
+    private readonly byte[] _prefixBytes;
     private long _ignored;
+    private long _filtered;
 
     /// <summary>创建解码器。</summary>
-    public FireWaterDecoder(int capacityBytes = 8192) => _buffer = new FrameBuffer(capacityBytes);
-
-    /// <summary>累计坏行数。</summary>
-    public long Errors => _errors;
+    /// <param name="prefixFilter">前缀过滤；空 = 接受任意前缀（有前缀就剥掉），非空 = 只接受同前缀的行。</param>
+    /// <param name="capacityBytes">内部缓冲上限。</param>
+    public FireWaterDecoder(string prefixFilter = "", int capacityBytes = 8192)
+    {
+        _prefixBytes = Encoding.UTF8.GetBytes(prefixFilter ?? string.Empty);
+        _buffer = new FrameBuffer(capacityBytes);
+    }
 
     /// <summary>累计忽略的图片前导帧数。</summary>
     public long Ignored => _ignored;
+
+    /// <summary>因前缀不匹配而跳过的行数（不计入错误）。</summary>
+    public long Filtered => _filtered;
 
     /// <summary>累计丢弃字节数。</summary>
     public long DiscardedBytes => _buffer.DiscardedBytes;
@@ -110,13 +117,84 @@ internal sealed class FireWaterDecoder
                 continue;
             }
 
-            if (TryParseLine(line, values, out count))
+            switch (TryParseLine(line, values, out count))
             {
-                return true;
+                case ParseOutcome.Ok:
+                    return true;
+
+                case ParseOutcome.Filtered:
+                    _filtered++;
+                    continue;
+
+                default:
+                    // 协议不匹配就跳过：这是可预见行为，不计数也不报错。
+                    continue;
+            }
+        }
+    }
+
+    private ParseOutcome TryParseLine(ReadOnlySpan<byte> line, Span<float> values, out int count)
+    {
+        count = 0;
+        line = Trim(line);
+
+        // 可选前缀：冒号必须在第一个逗号之前，否则那是数据里的字符。
+        var colon = line.IndexOf((byte)':');
+        var hasPrefix = colon > 0;
+        if (hasPrefix)
+        {
+            var comma = line.IndexOf((byte)',');
+            if (comma >= 0 && colon > comma)
+            {
+                hasPrefix = false;
+            }
+        }
+
+        if (_prefixBytes.Length > 0)
+        {
+            if (!hasPrefix || !line[..colon].SequenceEqual(_prefixBytes))
+            {
+                return ParseOutcome.Filtered;
             }
 
-            _errors++;
+            line = Trim(line[(colon + 1)..]);
         }
+        else if (hasPrefix)
+        {
+            line = Trim(line[(colon + 1)..]);
+        }
+
+        if (line.IsEmpty)
+        {
+            return ParseOutcome.Invalid;
+        }
+
+        var i = 0;
+        while (i <= line.Length)
+        {
+            var comma = line[i..].IndexOf((byte)',');
+            var end = comma < 0 ? line.Length : i + comma;
+            var token = Trim(line[i..end]);
+            if (token.IsEmpty)
+            {
+                return ParseOutcome.Invalid;
+            }
+
+            if (count >= values.Length || !ValueFormat.TryParse(token, out var value))
+            {
+                return ParseOutcome.Invalid;
+            }
+
+            values[count++] = value;
+            if (comma < 0)
+            {
+                break;
+            }
+
+            i = end + 1;
+        }
+
+        return count > 0 ? ParseOutcome.Ok : ParseOutcome.Invalid;
     }
 
     private static bool IsImageFrame(ReadOnlySpan<byte> line)
@@ -144,56 +222,6 @@ internal sealed class FireWaterDecoder
         return true;
     }
 
-    private static bool TryParseLine(ReadOnlySpan<byte> line, Span<float> values, out int count)
-    {
-        count = 0;
-        line = Trim(line);
-
-        // 可选前缀 "any:"：冒号必须出现在第一个逗号之前。
-        var colon = line.IndexOf((byte)':');
-        if (colon > 0)
-        {
-            var comma = line.IndexOf((byte)',');
-            if (comma < 0 || colon < comma)
-            {
-                line = Trim(line[(colon + 1)..]);
-            }
-        }
-
-        if (line.IsEmpty)
-        {
-            return false;
-        }
-
-        var i = 0;
-        while (i <= line.Length)
-        {
-            var comma = line[i..].IndexOf((byte)',');
-            var end = comma < 0 ? line.Length : i + comma;
-            var token = Trim(line[i..end]);
-            if (token.IsEmpty)
-            {
-                return false;
-            }
-
-            if (count >= values.Length || !ValueFormat.TryParse(token, out var value))
-            {
-                count = 0;
-                return false;
-            }
-
-            values[count++] = value;
-            if (comma < 0)
-            {
-                break;
-            }
-
-            i = end + 1;
-        }
-
-        return count > 0;
-    }
-
     private static ReadOnlySpan<byte> Trim(ReadOnlySpan<byte> span)
     {
         var start = 0;
@@ -209,5 +237,12 @@ internal sealed class FireWaterDecoder
         }
 
         return span[start..end];
+    }
+
+    private enum ParseOutcome
+    {
+        Ok,
+        Filtered,
+        Invalid,
     }
 }

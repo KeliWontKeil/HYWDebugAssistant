@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Globalization;
 using System.Text;
 using HYWDebugAssistant.Modules.WaveformToRaw.Codec;
 using HYWDebugAssistant.Sdk;
@@ -16,6 +17,11 @@ namespace HYWDebugAssistant.Modules.WaveformToRaw;
 /// <summary>
 /// 波形帧 → 原始数据：把 <c>WaveformFrame</c> 按所选协议编码成 <c>RawBytes</c> 字节流。
 /// </summary>
+/// <remarks>
+/// <b>值变更 → 应用只有一条链</b>：视图把用户改的每个字写进输入源（每次按键），
+/// 模块在每一拍用 <see cref="ApplySettings"/> 读一次输入、解析、校验，变了就换口径。
+/// 回车/失焦不是另一条路径，只是"再应用一次"的开关；持久化由本模块的输入声明决定。
+/// </remarks>
 [ModuleDefinition(
     "hyw",
     "waveform-to-raw",
@@ -47,9 +53,6 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
     /// <summary>显示源：最近一帧的通道数。</summary>
     public const string ChannelCountSource = "channelCount";
 
-    /// <summary>显示源：最近一帧的通道组编号。</summary>
-    public const string GroupIdSource = "groupId";
-
     /// <summary>显示源：已转换帧数。</summary>
     public const string FramesSource = "frames";
 
@@ -68,27 +71,38 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
     /// <summary>配置字段名：协议。</summary>
     public const string ProtocolField = nameof(WaveformToRawConfig.Protocol);
 
-    /// <summary>配置字段名：帧头。</summary>
-    public const string HeaderField = nameof(WaveformToRawConfig.TextHeader);
+    /// <summary>输入：通道组编号。</summary>
+    public const string GroupIdInput = "groupId";
 
-    /// <summary>配置字段名：帧尾。</summary>
-    public const string FooterField = nameof(WaveformToRawConfig.TextFooter);
+    /// <summary>输入：小数位数。</summary>
+    public const string DecimalsInput = "decimals";
 
-    /// <summary>配置字段名：FireWater 前缀。</summary>
-    public const string PrefixField = nameof(WaveformToRawConfig.FireWaterPrefix);
+    /// <summary>输入：文本帧帧头。</summary>
+    public const string HeaderInput = "header";
 
-    /// <summary>配置字段名：通道组编号。</summary>
-    public const string GroupIdField = nameof(WaveformToRawConfig.GroupId);
+    /// <summary>输入：文本帧帧尾。</summary>
+    public const string FooterInput = "footer";
 
-    /// <summary>配置字段名：小数位数。</summary>
-    public const string DecimalsField = nameof(WaveformToRawConfig.Decimals);
+    /// <summary>输入：FireWater 行前缀。</summary>
+    public const string PrefixInput = "prefix";
+
+    private const string DefaultHeader = "ab";
+    private const string DefaultFooter = "cd";
+    private const int DefaultGroupId = 1;
+    private const int DefaultDecimals = 0;
+    private const int MaxDecimals = 9;
 
     private IModuleContext? _context;
-    private WaveformToRawConfig _config = new();
+    private Settings _settings = new(
+        WaveformToRawProtocol.TextFrame,
+        DefaultHeader,
+        DefaultFooter,
+        string.Empty,
+        DefaultDecimals,
+        DefaultGroupId);
     private ulong _frames;
     private ulong _dropped;
     private ushort _lastChannelCount;
-    private uint _lastGroupId;
     private bool _badConfigReported;
     private string _lastStatus = string.Empty;
 
@@ -104,7 +118,6 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
         _context = context;
-        _config = context.Configuration.Read<WaveformToRawConfig>();
 
         context.Declaration.DeclareDataType(new DataTypeDeclaration(
             WaveformContract.TypeId,
@@ -144,11 +157,6 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
             ContractPrimitive.U16));
 
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(
-            GroupIdSource,
-            ViewDataSourceKind.Value,
-            ContractPrimitive.U32));
-
-        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(
             FramesSource,
             ViewDataSourceKind.Value,
             ContractPrimitive.U64));
@@ -162,9 +170,16 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
             StatusSource,
             ViewDataSourceKind.Text));
 
+        DeclareInput(context, GroupIdInput);
+        DeclareInput(context, DecimalsInput);
+        DeclareInput(context, HeaderInput);
+        DeclareInput(context, FooterInput);
+        DeclareInput(context, PrefixInput);
+
         context.Declaration.DeclareCommand(ResetCommand, WaveformToRawText.Get(WaveformToRawText.Reset));
 
         context.Ports.SetReceiveHandler(InPort, OnWave);
+        _settings = ReadSettings(context);
     }
 
     /// <inheritdoc />
@@ -176,7 +191,7 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
         }
 
         PublishCounters(context);
-        SetStatus(context, HasValidTextConfig()
+        SetStatus(context, HasValidTextConfig(_settings)
             ? WaveformToRawText.Get(WaveformToRawText.Ready)
             : WaveformToRawText.Get(WaveformToRawText.BadConfig));
     }
@@ -189,17 +204,15 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
             return;
         }
 
-        _config = context.Configuration.Read<WaveformToRawConfig>();
-        _badConfigReported = false;
-        SetStatus(context, HasValidTextConfig()
-            ? WaveformToRawText.Get(WaveformToRawText.Ready)
-            : WaveformToRawText.Get(WaveformToRawText.BadConfig));
+        ApplySettings(context);
     }
 
     /// <inheritdoc />
     public void OnStep(IModuleContext context, StepReason reason)
     {
         ArgumentNullException.ThrowIfNull(context);
+
+        ApplySettings(context);
 
         while (context.Inbox.TryDequeueCommand(out var command))
         {
@@ -216,19 +229,76 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
 
         while (context.Inbox.TryDequeueInput(out _, out _))
         {
-            // 本模块没有输入源。
+            // 值在 ApplySettings 里按输入源文本统一读取；这里只消费事件，避免积压。
         }
     }
 
     /// <inheritdoc />
     public void OnRemoved() => _context = null;
 
-    private bool HasValidTextConfig() =>
-        _config.Protocol is not WaveformToRawProtocol.TextFrame
-        || (!string.IsNullOrEmpty(_config.TextHeader) && !string.IsNullOrEmpty(_config.TextFooter));
+    private static void DeclareInput(IModuleContext context, string name)
+    {
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(name, ViewDataSourceKind.Text));
+        context.Declaration.DeclareInput(new InputDeclaration(name) { Persistence = InputPersistence.Persistent });
+    }
+
+    /// <summary>读一次输入与协议，得到"此刻应该生效"的一组值。</summary>
+    private Settings ReadSettings(IModuleContext context)
+    {
+        var protocol = context.Configuration.Read<WaveformToRawConfig>().Protocol;
+
+        // 空串对帧头/帧尾是非法值 ⇒ 保持上一次的有效值；前缀空串是合法值（= 不写前缀）。
+        var header = ReadText(context, HeaderInput, _settings.Header);
+        var footer = ReadText(context, FooterInput, _settings.Footer);
+        var prefix = context.ViewState.GetInputText(PrefixInput) ?? string.Empty;
+        var decimals = ReadInt(context, DecimalsInput, _settings.Decimals, 0, MaxDecimals);
+        var groupId = ReadInt(context, GroupIdInput, _settings.GroupId, 1, int.MaxValue);
+
+        return new Settings(protocol, header, footer, prefix, decimals, groupId);
+    }
+
+    /// <summary>值没变就什么都不做；变了才刷状态句（编码口径每帧直接读 <c>_settings</c>）。</summary>
+    private void ApplySettings(IModuleContext context)
+    {
+        var next = ReadSettings(context);
+        if (next == _settings)
+        {
+            return;
+        }
+
+        var becameValid = !HasValidTextConfig(_settings) && HasValidTextConfig(next);
+        _settings = next;
+
+        if (becameValid)
+        {
+            _badConfigReported = false;
+        }
+
+        SetStatus(context, HasValidTextConfig(_settings)
+            ? WaveformToRawText.Get(WaveformToRawText.Ready)
+            : WaveformToRawText.Get(WaveformToRawText.BadConfig));
+    }
+
+    private static bool HasValidTextConfig(Settings settings) =>
+        settings.Protocol is not WaveformToRawProtocol.TextFrame
+        || (!string.IsNullOrEmpty(settings.Header) && !string.IsNullOrEmpty(settings.Footer));
+
+    private static string ReadText(IModuleContext context, string name, string fallback)
+    {
+        var text = context.ViewState.GetInputText(name);
+        return string.IsNullOrEmpty(text) ? fallback : text;
+    }
+
+    private static int ReadInt(IModuleContext context, string name, int fallback, int minimum, int maximum)
+    {
+        var text = context.ViewState.GetInputText(name);
+        return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            ? Math.Clamp(value, minimum, maximum)
+            : fallback;
+    }
 
     /// <summary>本模块负责的通道组；0 是保留值，按 1 处理。</summary>
-    private uint ConfiguredGroupId => _config.GroupId > 0 ? unchecked((uint)_config.GroupId) : 1u;
+    private uint ConfiguredGroupId => _settings.GroupId > 0 ? unchecked((uint)_settings.GroupId) : 1u;
 
     private void OnWave(ReadOnlySpan<byte> payload)
     {
@@ -282,17 +352,16 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
         }
 
         _lastChannelCount = channelCount;
-        _lastGroupId = groupId;
         Send(context, bytes);
         SetStatus(context, WaveformToRawText.Get(WaveformToRawText.Converting));
     }
 
     private ReadOnlySpan<byte> Encode(IModuleContext context, ReadOnlySpan<float> values)
     {
-        switch (_config.Protocol)
+        switch (_settings.Protocol)
         {
             case WaveformToRawProtocol.TextFrame:
-                if (string.IsNullOrEmpty(_config.TextHeader) || string.IsNullOrEmpty(_config.TextFooter))
+                if (string.IsNullOrEmpty(_settings.Header) || string.IsNullOrEmpty(_settings.Footer))
                 {
                     ReportBadConfig(context);
                     return default;
@@ -301,17 +370,17 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
                 var textChars = TextFrameCodec.Write(
                     _textChars,
                     values,
-                    _config.TextHeader,
-                    _config.TextFooter,
-                    _config.Decimals);
+                    _settings.Header,
+                    _settings.Footer,
+                    _settings.Decimals);
                 return textChars <= 0 ? default : EncodeText(textChars);
 
             case WaveformToRawProtocol.FireWater:
                 var lineChars = FireWaterCodec.Write(
                     _textChars,
                     values,
-                    _config.FireWaterPrefix,
-                    _config.Decimals);
+                    _settings.Prefix,
+                    _settings.Decimals);
                 return lineChars <= 0 ? default : EncodeText(lineChars);
 
             default:
@@ -360,7 +429,7 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
             IssueCategory.ConfigurationError,
             IssueSeverity.Warning,
             WaveformToRawText.Get(WaveformToRawText.BadConfig),
-            nameof(WaveformToRawConfig.TextHeader)));
+            HeaderInput));
         SetStatus(context, WaveformToRawText.Get(WaveformToRawText.BadConfig));
     }
 
@@ -398,9 +467,6 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
         BinaryPrimitives.WriteUInt16LittleEndian(value, _lastChannelCount);
         context.Ports.Publish(ChannelCountSource, value[..sizeof(ushort)]);
 
-        BinaryPrimitives.WriteUInt32LittleEndian(value, _lastGroupId);
-        context.Ports.Publish(GroupIdSource, value[..sizeof(uint)]);
-
         BinaryPrimitives.WriteUInt64LittleEndian(value, _frames);
         context.Ports.Publish(FramesSource, value);
 
@@ -419,4 +485,13 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
         context.Display.SetText(StatusSource, text);
         context.State.Update(new BusinessState("convert", "ready", text));
     }
+
+    /// <summary>此刻生效的一组值（协议 + 运行期参数）。</summary>
+    private sealed record Settings(
+        WaveformToRawProtocol Protocol,
+        string Header,
+        string Footer,
+        string Prefix,
+        int Decimals,
+        int GroupId);
 }

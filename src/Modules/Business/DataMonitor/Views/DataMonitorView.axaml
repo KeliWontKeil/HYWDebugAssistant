@@ -8,8 +8,8 @@
              x:Class="HYWDebugAssistant.Modules.DataMonitor.Views.DataMonitorView"
              x:CompileBindings="True"
              x:DataType="contracts:IModuleViewContext"
-             InitialWidth="360" InitialHeight="368"
-             MinWidth="360" MinHeight="368">
+             InitialWidth="360" InitialHeight="288"
+             MinWidth="360" MinHeight="288">
 
   <ui:ModuleView.Ports>
     <ui:ModulePort Name="{x:Static local:DataMonitorModule.InPort}"

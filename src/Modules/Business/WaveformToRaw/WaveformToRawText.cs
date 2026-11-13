@@ -12,7 +12,7 @@ internal static class WaveformToRawText
     public const string Header = "view.header";
     public const string Footer = "view.footer";
     public const string Channels = "view.channels";
-    public const string Group = "view.group";
+    public const string GroupShort = "view.groupShort";
     public const string Frames = "view.frames";
     public const string Dropped = "view.dropped";
     public const string Reset = "view.reset";

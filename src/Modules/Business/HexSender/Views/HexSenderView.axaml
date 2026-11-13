@@ -8,8 +8,8 @@
              x:Class="HYWDebugAssistant.Modules.HexSender.Views.HexSenderView"
              x:CompileBindings="True"
              x:DataType="contracts:IModuleViewContext"
-             InitialWidth="360" InitialHeight="180"
-             MinWidth="360" MinHeight="180">
+             InitialWidth="360" InitialHeight="144"
+             MinWidth="360" MinHeight="144">
 
   <ui:ModuleView.Ports>
     <ui:ModulePort Name="{x:Static local:HexSenderModule.OutPort}"

@@ -23,7 +23,7 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 /// <b>可选项来自配置类型</b>（<c>[ConfigurationField]</c> / <c>IConfigurationChoices</c>），视图只说"编哪一个字段"。
 /// </para>
 /// <para>
-/// <b>改一项写一项</b>：没有"保存"按钮。文本 / 数字在**失焦或回车**时写回
+/// <b>改一项写一项</b>：没有"保存"按钮。文本 / 数字默认在**失焦或回车**时写回
 /// （逐键写回会让 <c>1</c>→<c>11</c>→<c>115</c> 每个中间态各触发一次配置变更，而配置变更会重开会话）；
 /// 布尔与枚举是"点一下就有明确结果"的交互，当场写回。
 /// </para>
@@ -58,6 +58,7 @@ public sealed class ModuleConfigField : ModuleElement
     /// <summary>造一个配置字段编辑器（视觉部件在模板应用时取得）。</summary>
     public ModuleConfigField()
     {
+
         // 宿主运行时走模块视图祖先；预览器没有宿主，上下文直接挂在视图 DataContext 上。
         DataContextChanged += (_, _) =>
         {
@@ -67,6 +68,7 @@ public sealed class ModuleConfigField : ModuleElement
                 Load();
             }
         };
+
 
         // 挂树时读一次字段（此刻实例与配置都已就绪）。
         AttachedToVisualTree += (_, _) =>
@@ -290,6 +292,7 @@ public sealed class ModuleConfigField : ModuleElement
                     if (!string.Equals(text.Text, _editorValue, StringComparison.Ordinal))
                     {
                         _dirty = true;
+
                     }
                 };
                 text.LostFocus += (_, _) => CommitText();

@@ -88,6 +88,8 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 
 - 字段必须存在于该实例的配置（模块自己的配置类型，或框架登记的标准接入参数类型）。
 - 支持的编辑器：布尔、整数、实数、文本、枚举（含动态选项下拉）。
+- **写回时机**：布尔与枚举点一下即写；文本 / 数字默认失焦或回车才写。需要"改完即生效"的输入不要用它，改用 `ModuleTextSurface` + 输入源（见[实现](implementation.md)：值变更 → 应用只有一条链）。
+- **选型**：运行期可调参数用输入源（模块每步 `GetInputText` 读并应用）；需要 Schema 的范围/单位/协选项或只读设置，才用配置字段。持久化由模块声明（`InputPersistence` / 配置字段），控件不承担。
 - 标题与说明用配置类型上的 `[ConfigurationField]` / 文本表，不在视图重复。
 - **没有自动生成的配置表单**：字段只有视图里画了 `ModuleConfigField` 才出现；不声明视图工厂的模块窗口只显示身份与状态，配置不会自己长出来。
 - 标准接入的参数字段用 `ExternalAccessFieldNames` 的常量（命名空间 `HYWDebugAssistant.Sdk.Access`），不写字符串字面量：

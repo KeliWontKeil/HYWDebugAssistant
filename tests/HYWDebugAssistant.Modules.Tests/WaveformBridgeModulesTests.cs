@@ -16,6 +16,10 @@ namespace HYWDebugAssistant.Modules.Tests;
 /// <summary>
 /// 波形桥两模块（原始 ↔ 波形）的契约与行为：与内置对端同契约、三种协议编解码、双向转换。
 /// </summary>
+/// <remarks>
+/// 运行期参数（帧头/帧尾/前缀/组号/采样率/小数位）由模块声明的输入源持有：
+/// 用例统一用 <see cref="TestModuleContext.EnqueueInput"/> 播种，等价于用户在输入框里逐键键入。
+/// </remarks>
 public class WaveformBridgeModulesTests
 {
     private static readonly ContractShape WaveShape = ContractShape.OfStruct(
@@ -80,15 +84,12 @@ public class WaveformBridgeModulesTests
     public void 文本帧_跨单元解码成波形帧_再按小数位编码回文本()
     {
         _ = CreateDecoder(
-            new RawToWaveformConfig
-            {
-                Protocol = RawToWaveformProtocol.TextFrame,
-                TextHeader = "ab",
-                TextFooter = "cd",
-                GroupId = 7,
-                RateHz = 500,
-            },
-            out var decodeContext);
+            RawToWaveformProtocol.TextFrame,
+            out var decodeContext,
+            (RawToWaveformModule.HeaderInput, "ab"),
+            (RawToWaveformModule.FooterInput, "cd"),
+            (RawToWaveformModule.GroupIdInput, "7"),
+            (RawToWaveformModule.RateInput, "500"));
 
         DeliverRaw(decodeContext, "ab 1.2 4.3");
         decodeContext.Sent.ShouldBeEmpty("帧尾未到不应出帧");
@@ -105,14 +106,11 @@ public class WaveformBridgeModulesTests
         samples[2].ShouldBe(3.6f);
 
         _ = CreateEncoder(
-            new WaveformToRawConfig
-            {
-                Protocol = WaveformToRawProtocol.TextFrame,
-                TextHeader = "ab",
-                TextFooter = "cd",
-                Decimals = 2,
-            },
-            out var encodeContext);
+            WaveformToRawProtocol.TextFrame,
+            out var encodeContext,
+            (WaveformToRawModule.HeaderInput, "ab"),
+            (WaveformToRawModule.FooterInput, "cd"),
+            (WaveformToRawModule.DecimalsInput, "2"));
 
         DeliverWave(encodeContext, BuildWave(3, 1, [1.2f, 4.35f, 3.6f]));
         ReadRawText(encodeContext.Sent.ShouldHaveSingleItem().Payload).ShouldBe("ab 1.20 4.35 3.60 cd");
@@ -122,8 +120,9 @@ public class WaveformBridgeModulesTests
     public void FireWater_解码忽略前缀与图片帧_编码带行前缀()
     {
         _ = CreateDecoder(
-            new RawToWaveformConfig { Protocol = RawToWaveformProtocol.FireWater, GroupId = 2 },
-            out var decodeContext);
+            RawToWaveformProtocol.FireWater,
+            out var decodeContext,
+            (RawToWaveformModule.GroupIdInput, "2"));
 
         DeliverRaw(decodeContext, "image:0,120,4,8,1\n1.0,2.");
         decodeContext.Sent.ShouldBeEmpty();
@@ -135,14 +134,29 @@ public class WaveformBridgeModulesTests
         groupId.ShouldBe(2u);
         samples[1].ShouldBe(2f);
 
+        // 前缀过滤：填写后只认同前缀的行，其余行跳过且不计错误。
+        _ = CreateDecoder(
+            RawToWaveformProtocol.FireWater,
+            out var filteredContext,
+            (RawToWaveformModule.PrefixInput, "samples"),
+            (RawToWaveformModule.GroupIdInput, "3"));
+
+        DeliverRaw(filteredContext, "other:9,9\n");
+        filteredContext.Sent.ShouldBeEmpty();
+
+        DeliverRaw(filteredContext, "samples:4,5\n");
+        var filtered = filteredContext.Sent.ShouldHaveSingleItem();
+        ReadWave(filtered.Payload, out var filteredChannels, out var filteredGroup, out _, out var filteredSamples);
+        filteredChannels.ShouldBe(2);
+        filteredGroup.ShouldBe(3u);
+        filteredSamples[0].ShouldBe(4f);
+        filteredSamples[1].ShouldBe(5f);
+
         _ = CreateEncoder(
-            new WaveformToRawConfig
-            {
-                Protocol = WaveformToRawProtocol.FireWater,
-                FireWaterPrefix = "samples",
-                Decimals = 1,
-            },
-            out var encodeContext);
+            WaveformToRawProtocol.FireWater,
+            out var encodeContext,
+            (WaveformToRawModule.PrefixInput, "samples"),
+            (WaveformToRawModule.DecimalsInput, "1"));
 
         DeliverWave(encodeContext, BuildWave(2, 1, [1f, 2.5f]));
         ReadRawText(encodeContext.Sent.ShouldHaveSingleItem().Payload).ShouldBe("samples:1.0,2.5\n");
@@ -154,8 +168,9 @@ public class WaveformBridgeModulesTests
         var frame = BuildJustFloat([3f, 4f]);
 
         _ = CreateDecoder(
-            new RawToWaveformConfig { Protocol = RawToWaveformProtocol.JustFloat, GroupId = 1 },
-            out var decodeContext);
+            RawToWaveformProtocol.JustFloat,
+            out var decodeContext,
+            (RawToWaveformModule.GroupIdInput, "1"));
 
         DeliverRawBytes(decodeContext, new byte[] { 0xFF, 0x01 });
         DeliverRawBytes(decodeContext, frame);
@@ -165,7 +180,7 @@ public class WaveformBridgeModulesTests
         samples[1].ShouldBe(4f);
 
         _ = CreateEncoder(
-            new WaveformToRawConfig { Protocol = WaveformToRawProtocol.JustFloat },
+            WaveformToRawProtocol.JustFloat,
             out var encodeContext);
 
         DeliverWave(encodeContext, BuildWave(2, 1, [3f, 4f]));
@@ -176,14 +191,11 @@ public class WaveformBridgeModulesTests
     public void 原始到波形_组号兜底为一_支持一单元多帧与六十四通道()
     {
         _ = CreateDecoder(
-            new RawToWaveformConfig
-            {
-                Protocol = RawToWaveformProtocol.TextFrame,
-                TextHeader = "ab",
-                TextFooter = "cd",
-                GroupId = 0,
-            },
-            out var context);
+            RawToWaveformProtocol.TextFrame,
+            out var context,
+            (RawToWaveformModule.HeaderInput, "ab"),
+            (RawToWaveformModule.FooterInput, "cd"),
+            (RawToWaveformModule.GroupIdInput, "0"));
 
         DeliverRaw(context, "ab 1 2 cd ab 3 cd");
         context.Sent.Count.ShouldBe(2);
@@ -202,16 +214,12 @@ public class WaveformBridgeModulesTests
     [Fact]
     public void 波形到原始_只转换配置的组_清空统计归零()
     {
-
         var module = CreateEncoder(
-            new WaveformToRawConfig
-            {
-                Protocol = WaveformToRawProtocol.TextFrame,
-                TextHeader = "ab",
-                TextFooter = "cd",
-                GroupId = 5,
-            },
-            out var context);
+            WaveformToRawProtocol.TextFrame,
+            out var context,
+            (WaveformToRawModule.HeaderInput, "ab"),
+            (WaveformToRawModule.FooterInput, "cd"),
+            (WaveformToRawModule.GroupIdInput, "5"));
 
         DeliverWave(context, BuildWave(1, 9, [1f]));
         context.Sent.ShouldBeEmpty("组 9 不在筛选范围");
@@ -225,26 +233,89 @@ public class WaveformBridgeModulesTests
         ReadU64(context.Published[WaveformToRawModule.FramesSource][^1]).ShouldBe(0ul);
     }
 
+    [Fact]
+    public void 改输入即生效_不需要回车或失焦()
+    {
+        var module = CreateDecoder(
+            RawToWaveformProtocol.TextFrame,
+            out var context,
+            (RawToWaveformModule.HeaderInput, "ab"),
+            (RawToWaveformModule.FooterInput, "cd"));
+
+        DeliverRaw(context, "ab 1 cd");
+        context.Sent.Count.ShouldBe(1);
+
+        // 只改输入文本（等价用户逐键键入），不按回车、不失焦。
+        context.EnqueueInput(RawToWaveformModule.HeaderInput, "xy");
+        module.OnStep(context, StepReason.Data);
+
+        DeliverRaw(context, "ab 2 cd");
+        context.Sent.Count.ShouldBe(1, "帧头已换成 xy，旧帧头不该再出帧");
+
+        DeliverRaw(context, "xy 3 cd");
+        context.Sent.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public void 非法输入保留上次有效值()
+    {
+        var module = CreateDecoder(
+            RawToWaveformProtocol.TextFrame,
+            out var context,
+            (RawToWaveformModule.HeaderInput, "ab"),
+            (RawToWaveformModule.FooterInput, "cd"),
+            (RawToWaveformModule.RateInput, "500"));
+
+        DeliverRaw(context, "ab 1 cd");
+        ReadWave(context.Sent[0].Payload, out _, out _, out var rate, out _);
+        rate.ShouldBe(500f);
+
+        context.EnqueueInput(RawToWaveformModule.RateInput, "abc");
+        module.OnStep(context, StepReason.Data);
+
+        DeliverRaw(context, "ab 2 cd");
+        ReadWave(context.Sent[1].Payload, out _, out _, out var stillRate, out _);
+        stillRate.ShouldBe(500f, "非法采样率不该改掉上一次的有效值");
+    }
+
     // ---------------------------------------------------------------- 辅助
 
-    private static RawToWaveformModule CreateDecoder(RawToWaveformConfig config, out TestModuleContext context)
+    private static RawToWaveformModule CreateDecoder(
+        RawToWaveformProtocol protocol,
+        out TestModuleContext context,
+        params (string Source, string Text)[] inputs)
     {
         context = new TestModuleContext();
-        context.SetConfiguration(config);
+        context.SetConfiguration(new RawToWaveformConfig { Protocol = protocol });
+        SeedInputs(context, inputs);
+
         var module = new RawToWaveformModule();
         module.OnRegistered(context);
         module.OnActivated();
         return module;
     }
 
-    private static WaveformToRawModule CreateEncoder(WaveformToRawConfig config, out TestModuleContext context)
+    private static WaveformToRawModule CreateEncoder(
+        WaveformToRawProtocol protocol,
+        out TestModuleContext context,
+        params (string Source, string Text)[] inputs)
     {
         context = new TestModuleContext();
-        context.SetConfiguration(config);
+        context.SetConfiguration(new WaveformToRawConfig { Protocol = protocol });
+        SeedInputs(context, inputs);
+
         var module = new WaveformToRawModule();
         module.OnRegistered(context);
         module.OnActivated();
         return module;
+    }
+
+    private static void SeedInputs(TestModuleContext context, (string Source, string Text)[] inputs)
+    {
+        foreach (var (source, text) in inputs)
+        {
+            context.EnqueueInput(source, text);
+        }
     }
 
     private static void DeliverRaw(TestModuleContext context, string text) =>

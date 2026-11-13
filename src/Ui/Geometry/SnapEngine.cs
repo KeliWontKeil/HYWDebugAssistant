@@ -44,7 +44,7 @@ public enum SnapLineSource
     /// <summary>**端口/网络标签锚点**：网络标签是外框上的一个点，对齐轴由它所在的边决定。</summary>
     PortAnchor,
 
-    /// <summary>**外壳边**（只暴露右边缘）：沿线方向有重叠时算贴合，否则边缘对齐。</summary>
+    /// <summary>**外壳边**（只暴露右边缘）：只接受被拖模块的**低侧边**（竖线为左边缘）贴上去。</summary>
     ShellEdge,
 }
 
@@ -77,6 +77,8 @@ public readonly record struct SnapLine(
 /// <remarks>
 /// 它**不是**一条特殊通道：由 <see cref="SnapEngine.LineOf"/> 转成
 /// <see cref="SnapLineSource.ShellEdge"/> 的 <see cref="SnapLine"/>，与模块外框线进同一张表。
+/// 外壳是**单侧锚点**：只接受被拖模块的低侧边（竖线为左边缘），
+/// 与 `AreNodesJoined` 的"模块左边缘贴外壳右边缘"保持同一侧。
 /// 之所以不复用矩形：零宽矩形会被 <see cref="CanvasRect.IsValid"/>（要求正尺寸）过滤掉（P25）。
 /// </remarks>
 public readonly record struct SnapReferenceLine(bool IsVertical, double Position, double Start, double End);
@@ -434,11 +436,12 @@ public static class SnapEngine
 
             case SnapLineSource.ShellEdge:
             {
-                // 外壳线：两条边都可以对；沿线方向有重叠才算贴合（外壳没有"内外侧"可言）
+                // 外壳是一侧锚点：只有被拖模块的**低侧边（竖线的左边缘 / 横线的上边缘）**能贴上去。
+                // 另一侧若也参与，模块会以右边缘吸到外壳右边缘 —— 视觉上压在壳上，却不符合
+                // `AreNodesJoined` 的"模块左边缘贴外壳右边缘"成组判据。
                 var overlap = LineOverlap(moving, line);
                 var kind = overlap > MinOverlap ? SnapKind.Flush : SnapKind.Edge;
                 Add(0, kind, line, origin, size, target);
-                Add(1, kind, line, origin, size, target);
                 break;
             }
 

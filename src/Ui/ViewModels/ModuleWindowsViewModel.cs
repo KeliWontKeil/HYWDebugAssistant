@@ -170,12 +170,21 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <summary>整体平移造成的位置变化、**尚未落盘**的实例（合并提交用，见 <see cref="CommitSceneTranslation"/>）。</summary>
     private readonly HashSet<string> _pendingSceneCommits = new(StringComparer.Ordinal);
 
-    /// <summary>本次拖动已施加到外壳上的累计**整数物理像素**位移（取消/拆分时按绝对起点还原）。</summary>
+    /// <summary>本次拖动相对起点的**绝对整数物理像素**位移（不是逐帧增量；取消/拆分时按起点还原）。</summary>
     private int _shellDragPxX;
     private int _shellDragPxY;
 
-    /// <summary>本次拖动开始时外壳的物理原点（绝对目标以它为基准，避免逐帧取整累加漂移）。</summary>
+    /// <summary>本次拖动开始时外壳的物理原点（`Window.Position`；绝对目标以它为基准）。</summary>
     private PixelPoint? _shellDragOrigin;
+
+    /// <summary>
+    /// 本次拖动开始时外壳的**可见外框**（物理像素）。
+    /// </summary>
+    /// <remarks>
+    /// 外壳的 `Window.Position` 是外层窗口左上角，与该窗口的 DWM 可见外框相差系统装饰的不可见边框。
+    /// 吸附/成组用的是可见外框 ⇒ 跟随拖动时只能把它整体平移，不能拿窗口位置冒充它。
+    /// </remarks>
+    private CanvasRect? _shellDragStartFrame;
 
     /// <summary>
     /// **请求把外壳移动到绝对物理目标**：拖动组包含外壳时（模块单侧吸附在外壳上）触发，
@@ -1124,6 +1133,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             ?? (ShellPhysicalRect is { IsValid: true } shellPhysical
                 ? new PixelPoint(ScreenPixels.ToPixel(shellPhysical.X), ScreenPixels.ToPixel(shellPhysical.Y))
                 : null);
+        _shellDragStartFrame = ShellPhysicalRect is { IsValid: true } startFrame ? startFrame : null;
 
         // 组内成员**也由指针驱动**：
         // 否则 `ModuleWindowManager.OnWindowMoved` 会把窗口取整后的位置回写到它们的模型上
@@ -1225,50 +1235,57 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 把位移施加到**外壳**上（仅当本次拖动组包含外壳）：乐观更新模型里的外壳矩形，并请求窗口管理器移动真实窗口。
+    /// 把**相对拖动起点的绝对位移**施加到外壳（仅当本次拖动组包含外壳），并请求窗口管理器移动真实窗口。
     /// </summary>
     /// <remarks>
-    /// 这是"主窗口与模块形成视觉整体后，移动谁都是整体动"的落点。
-    /// 真实窗口由 `ModuleWindowManager` 移动；它移动时会回推一次 `ShellRect`（交互期间只刷新参照、不联动平移）。
+    /// <para>
+    /// **不能累加**：调用方传入的是 `手势起点 → 当前目标` 的绝对整数位移；外壳目标 = 起点 + 该位移。
+    /// 若写成 `+=`，第二帧就会把绝对位移当增量再加一次，外壳会越拖越快直至飞出屏幕。
+    /// </para>
+    /// <para>
+    /// **可见外框不能由 `Window.Position` 构造**：后者是外层窗口左上角，与 DWM 可见外框相差系统装饰边框。
+    /// 这里以拖动起点的可见外框为基准平移，保留两者的偏移；真实值随后由 `ModuleWindowManager` 回推校正。
+    /// </para>
     /// </remarks>
-    private void ApplyShellDelta(int dxPixels, int dyPixels)
+    private void ApplyShellDelta(int offsetXPixels, int offsetYPixels)
     {
         if (!_dragGroup.Contains(ShellNodeId) || _shellDragOrigin is not { } origin)
         {
             return;
         }
 
-        _shellDragPxX += dxPixels;
-        _shellDragPxY += dyPixels;
+        _shellDragPxX = offsetXPixels;
+        _shellDragPxY = offsetYPixels;
 
         // **绝对物理目标**：起点 + 整数位移；位移本身就是整像素，不再二次取整。
         var target = new PixelPoint(
-            origin.X + _shellDragPxX,
-            origin.Y + _shellDragPxY);
+            origin.X + offsetXPixels,
+            origin.Y + offsetYPixels);
 
         ShellMoveRequested?.Invoke(this, target);
         SetShellWindowPosition(target);
 
-        // 乐观更新 DIP 模型（真实值随后由管理器的 ShellPhysicalRect 回推校正）。
-        var shellScale = ShellScaling > 0 ? ShellScaling : 1;
-        if (ShellRect is { IsValid: true } shell)
+        if (_shellDragStartFrame is not { IsValid: true } start)
         {
-            SetShellFrame(
-                new CanvasRect(
-                    target.X / shellScale,
-                    target.Y / shellScale,
-                    shell.Width,
-                    shell.Height),
-                new CanvasRect(target.X, target.Y, shell.Width * shellScale, shell.Height * shellScale));
+            return;
         }
+
+        // 尺寸优先取最近一次真实探测（跨屏缩放时可能变）；原点只按同一位移平移。
+        var current = ShellPhysicalRect is { IsValid: true } live ? live : start;
+        var frame = new CanvasRect(
+            start.X + offsetXPixels,
+            start.Y + offsetYPixels,
+            current.Width,
+            current.Height);
+
+        SetShellFrame(ScreenGeometry.ToDip(frame, ShellScaling), frame);
     }
 
     /// <summary>把外壳恢复到本次拖动的物理起点（Ctrl 拆分 / 取消拖动）。</summary>
     private void RestoreShellOrigin()
     {
         if (_shellDragOrigin is not { } origin
-            || ShellPhysicalRect is not { IsValid: true } physical
-            || (Math.Abs(_shellDragPxX) < 0.5 && Math.Abs(_shellDragPxY) < 0.5))
+            || (_shellDragPxX == 0 && _shellDragPxY == 0))
         {
             return;
         }
@@ -1276,10 +1293,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         ShellMoveRequested?.Invoke(this, origin);
         SetShellWindowPosition(origin);
 
-        var shellScale = ShellScaling > 0 ? ShellScaling : 1;
-        SetShellFrame(
-            new CanvasRect(origin.X / shellScale, origin.Y / shellScale, physical.Width / shellScale, physical.Height / shellScale),
-            new CanvasRect(origin.X, origin.Y, physical.Width, physical.Height));
+        if (_shellDragStartFrame is { IsValid: true } frame)
+        {
+            SetShellFrame(ScreenGeometry.ToDip(frame, ShellScaling), frame);
+        }
 
         _shellDragPxX = 0;
         _shellDragPxY = 0;
@@ -3415,8 +3432,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// **参照线**集合：其他模块的外框（4 边 + 中心线）+ 外壳边。
     /// </summary>
     /// <remarks>
-    /// 外壳只是"**只暴露一条边的对象**"，与模块进同一张线表（不做特殊通道）。
-    /// 同组成员与自身不提供外框线（自己不能吸自己）。
+    /// 外壳只是"**只暴露一条右边缘的对象**"，与模块进同一张线表（不做特殊通道）。
+    /// 同组成员与自身不提供外框线；**外壳在拖动组里时也不提供** —— 它跟着组一起走，
+    /// 留在起点的旧线会把被拖模块拉回去。
     /// </remarks>
     private List<SnapLine> CollectLines(string draggingId)
     {
@@ -3434,25 +3452,28 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             lines.AddRange(SnapEngine.LinesOf(ToDragDip(module.PhysicalRect, dragScale)));
         }
 
-        var shellPhysical = ShellPhysicalRect;
-        if (shellPhysical is not { IsValid: true } && ShellRect is { IsValid: true } dip)
+        if (!_dragGroup.Contains(ShellNodeId, StringComparer.Ordinal))
         {
-            var shellScale = ShellScaling > 0 ? ShellScaling : 1;
-            shellPhysical = new CanvasRect(
-                dip.X * shellScale,
-                dip.Y * shellScale,
-                dip.Width * shellScale,
-                dip.Height * shellScale);
-        }
+            var shellPhysical = ShellPhysicalRect;
+            if (shellPhysical is not { IsValid: true } && ShellRect is { IsValid: true } dip)
+            {
+                var shellScale = ShellScaling > 0 ? ShellScaling : 1;
+                shellPhysical = new CanvasRect(
+                    dip.X * shellScale,
+                    dip.Y * shellScale,
+                    dip.Width * shellScale,
+                    dip.Height * shellScale);
+            }
 
-        if (shellPhysical is { IsValid: true } shell)
-        {
-            var shellRect = ToDragDip(shell, dragScale);
-            lines.Add(SnapEngine.LineOf(new SnapReferenceLine(
-                true,
-                shellRect.X + shellRect.Width,
-                shellRect.Y,
-                shellRect.Y + shellRect.Height)));
+            if (shellPhysical is { IsValid: true } shell)
+            {
+                var shellRect = ToDragDip(shell, dragScale);
+                lines.Add(SnapEngine.LineOf(new SnapReferenceLine(
+                    true,
+                    shellRect.X + shellRect.Width,
+                    shellRect.Y,
+                    shellRect.Y + shellRect.Height)));
+            }
         }
 
         return lines;

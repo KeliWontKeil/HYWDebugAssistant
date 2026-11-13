@@ -66,7 +66,6 @@ internal sealed class TextFrameDecoder
     private readonly FrameBuffer _buffer;
     private readonly byte[] _header;
     private readonly byte[] _footer;
-    private long _errors;
     private long _discarded;
 
     /// <summary>创建解码器。<paramref name="header"/> 与 <paramref name="footer"/> 不得为空。</summary>
@@ -79,9 +78,6 @@ internal sealed class TextFrameDecoder
         _footer = Encoding.UTF8.GetBytes(footer);
         _buffer = new FrameBuffer(capacityBytes);
     }
-
-    /// <summary>累计坏帧数。</summary>
-    public long Errors => _errors;
 
     /// <summary>累计丢弃字节数（含找不到帧头与溢出）。</summary>
     public long DiscardedBytes => _discarded + _buffer.DiscardedBytes;
@@ -138,7 +134,7 @@ internal sealed class TextFrameDecoder
             _buffer.Consume(footerIndex + _footer.Length);
             if (!parsed || parsedCount == 0)
             {
-                _errors++;
+                // 协议不匹配就跳过：这是可预见行为，不计数也不报错。
                 continue;
             }
 

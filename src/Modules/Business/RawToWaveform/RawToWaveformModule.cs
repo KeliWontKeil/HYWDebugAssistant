@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Globalization;
 using HYWDebugAssistant.Modules.RawToWaveform.Codec;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Contracts;
@@ -15,6 +16,11 @@ namespace HYWDebugAssistant.Modules.RawToWaveform;
 /// <summary>
 /// 原始数据 → 波形帧：按所选协议把 <c>RawBytes</c> 里的字节流解析成 <c>WaveformFrame</c>。
 /// </summary>
+/// <remarks>
+/// <b>值变更 → 应用只有一条链</b>：视图把用户改的每个字写进输入源（每次按键），
+/// 模块在每一拍用 <see cref="ApplySettings"/> 读一次输入、解析、校验，变了就重建解码器。
+/// 回车/失焦不是另一条路径，只是"再应用一次"的开关；持久化由本模块的输入声明决定。
+/// </remarks>
 [ModuleDefinition(
     "hyw",
     "raw-to-waveform",
@@ -64,24 +70,35 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     /// <summary>配置字段名：协议。</summary>
     public const string ProtocolField = nameof(RawToWaveformConfig.Protocol);
 
-    /// <summary>配置字段名：帧头。</summary>
-    public const string HeaderField = nameof(RawToWaveformConfig.TextHeader);
+    /// <summary>输入：通道组编号。</summary>
+    public const string GroupIdInput = "groupId";
 
-    /// <summary>配置字段名：帧尾。</summary>
-    public const string FooterField = nameof(RawToWaveformConfig.TextFooter);
+    /// <summary>输入：采样率（Hz）。</summary>
+    public const string RateInput = "rateHz";
 
-    /// <summary>配置字段名：通道组编号。</summary>
-    public const string GroupIdField = nameof(RawToWaveformConfig.GroupId);
+    /// <summary>输入：文本帧帧头。</summary>
+    public const string HeaderInput = "header";
 
-    /// <summary>配置字段名：采样率。</summary>
-    public const string RateField = nameof(RawToWaveformConfig.RateHz);
+    /// <summary>输入：文本帧帧尾。</summary>
+    public const string FooterInput = "footer";
 
-    /// <summary>解析失败状态句的格式模板（避免每帧重新解析复合格式串）。</summary>
-    private static readonly System.Text.CompositeFormat ParseErrorFormat =
-        System.Text.CompositeFormat.Parse(RawToWaveformText.Get(RawToWaveformText.ParseError));
+    /// <summary>输入：FireWater 前缀过滤（空 = 任意前缀）。</summary>
+    public const string PrefixInput = "prefix";
+
+    private const string DefaultHeader = "ab";
+    private const string DefaultFooter = "cd";
+    private const int DefaultGroupId = 1;
+    private const double DefaultRateHz = 1000;
+
 
     private IModuleContext? _context;
-    private RawToWaveformConfig _config = new();
+    private Settings _settings = new(
+        RawToWaveformProtocol.TextFrame,
+        DefaultHeader,
+        DefaultFooter,
+        string.Empty,
+        DefaultGroupId,
+        DefaultRateHz);
     private TextFrameDecoder? _text;
     private FireWaterDecoder? _fireWater;
     private JustFloatDecoder? _justFloat;
@@ -89,7 +106,6 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     private ulong _dropped;
     private uint _sequence;
     private ushort _lastChannelCount;
-    private long _lastErrors;
     private string _lastStatus = string.Empty;
 
     /// <inheritdoc />
@@ -100,7 +116,6 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
         _context = context;
-        _config = context.Configuration.Read<RawToWaveformConfig>();
 
         context.Declaration.DeclareDataType(new DataTypeDeclaration(
             RawBytesContract.TypeId,
@@ -153,9 +168,16 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
             StatusSource,
             ViewDataSourceKind.Text));
 
+        DeclareInput(context, GroupIdInput);
+        DeclareInput(context, RateInput);
+        DeclareInput(context, HeaderInput);
+        DeclareInput(context, FooterInput);
+        DeclareInput(context, PrefixInput);
+
         context.Declaration.DeclareCommand(ResetCommand, RawToWaveformText.Get(RawToWaveformText.Reset));
 
         context.Ports.SetReceiveHandler(InPort, OnRaw);
+        _settings = ReadSettings(context);
         BuildDecoder(context);
     }
 
@@ -168,10 +190,9 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
         }
 
         PublishCounters(context);
-        SetStatus(context, _config.Protocol is RawToWaveformProtocol.TextFrame
-            && (string.IsNullOrEmpty(_config.TextHeader) || string.IsNullOrEmpty(_config.TextFooter))
-            ? RawToWaveformText.Get(RawToWaveformText.BadConfig)
-            : RawToWaveformText.Get(RawToWaveformText.Ready));
+        SetStatus(context, IsTextFrameUsable(_settings)
+            ? RawToWaveformText.Get(RawToWaveformText.Ready)
+            : RawToWaveformText.Get(RawToWaveformText.BadConfig));
     }
 
     /// <inheritdoc />
@@ -182,16 +203,15 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
             return;
         }
 
-        _config = context.Configuration.Read<RawToWaveformConfig>();
-        BuildDecoder(context);
-        _lastErrors = 0;
-        SetStatus(context, RawToWaveformText.Get(RawToWaveformText.Ready));
+        ApplySettings(context);
     }
 
     /// <inheritdoc />
     public void OnStep(IModuleContext context, StepReason reason)
     {
         ArgumentNullException.ThrowIfNull(context);
+
+        ApplySettings(context);
 
         while (context.Inbox.TryDequeueCommand(out var command))
         {
@@ -204,7 +224,6 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
             _dropped = 0;
             _sequence = 0;
             _lastChannelCount = 0;
-            _lastErrors = 0;
             _text?.Reset();
             _fireWater?.Reset();
             _justFloat?.Reset();
@@ -214,7 +233,7 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
 
         while (context.Inbox.TryDequeueInput(out _, out _))
         {
-            // 本模块没有输入源。
+            // 值在 ApplySettings 里按输入源文本统一读取；这里只消费事件，避免积压。
         }
     }
 
@@ -227,30 +246,106 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
         _context = null;
     }
 
+    private static void DeclareInput(IModuleContext context, string name)
+    {
+        context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(name, ViewDataSourceKind.Text));
+        context.Declaration.DeclareInput(new InputDeclaration(name) { Persistence = InputPersistence.Persistent });
+    }
+
+    /// <summary>读一次输入与协议，得到"此刻应该生效"的一组值。</summary>
+    private Settings ReadSettings(IModuleContext context)
+    {
+        var protocol = context.Configuration.Read<RawToWaveformConfig>().Protocol;
+
+        // 空串对帧头/帧尾是非法值 ⇒ 保持上一次的有效值；前缀空串是合法值（= 不过滤）。
+        var header = ReadText(context, HeaderInput, _settings.Header);
+        var footer = ReadText(context, FooterInput, _settings.Footer);
+        var prefix = context.ViewState.GetInputText(PrefixInput) ?? string.Empty;
+        var groupId = ReadInt(context, GroupIdInput, _settings.GroupId, 1, int.MaxValue);
+        var rateHz = ReadRate(context, RateInput, _settings.RateHz);
+
+        return new Settings(protocol, header, footer, prefix, groupId, rateHz);
+    }
+
+    /// <summary>值没变就什么都不做；变了才重建解码器并刷新状态句。</summary>
+    private void ApplySettings(IModuleContext context)
+    {
+        var next = ReadSettings(context);
+        if (next == _settings)
+        {
+            return;
+        }
+
+        var decoderChanged =
+            next.Protocol != _settings.Protocol
+            || !string.Equals(next.Header, _settings.Header, StringComparison.Ordinal)
+            || !string.Equals(next.Footer, _settings.Footer, StringComparison.Ordinal)
+            || !string.Equals(next.Prefix, _settings.Prefix, StringComparison.Ordinal);
+
+        _settings = next;
+
+        if (decoderChanged)
+        {
+            BuildDecoder(context);
+        }
+
+        SetStatus(context, IsTextFrameUsable(_settings)
+            ? RawToWaveformText.Get(RawToWaveformText.Ready)
+            : RawToWaveformText.Get(RawToWaveformText.BadConfig));
+    }
+
+    private static bool IsTextFrameUsable(Settings settings) =>
+        settings.Protocol is not RawToWaveformProtocol.TextFrame
+        || (!string.IsNullOrEmpty(settings.Header) && !string.IsNullOrEmpty(settings.Footer));
+
+    private static string ReadText(IModuleContext context, string name, string fallback)
+    {
+        var text = context.ViewState.GetInputText(name);
+        return string.IsNullOrEmpty(text) ? fallback : text;
+    }
+
+    private static int ReadInt(IModuleContext context, string name, int fallback, int minimum, int maximum)
+    {
+        var text = context.ViewState.GetInputText(name);
+        return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            ? Math.Clamp(value, minimum, maximum)
+            : fallback;
+    }
+
+    private static double ReadRate(IModuleContext context, string name, double fallback)
+    {
+        var text = context.ViewState.GetInputText(name);
+        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+            && double.IsFinite(value)
+            && value > 0
+                ? value
+                : fallback;
+    }
+
     private void BuildDecoder(IModuleContext context)
     {
         _text = null;
         _fireWater = null;
         _justFloat = null;
 
-        switch (_config.Protocol)
+        switch (_settings.Protocol)
         {
             case RawToWaveformProtocol.TextFrame:
-                if (string.IsNullOrEmpty(_config.TextHeader) || string.IsNullOrEmpty(_config.TextFooter))
+                if (string.IsNullOrEmpty(_settings.Header) || string.IsNullOrEmpty(_settings.Footer))
                 {
                     context.Issues.Report(new IssueReport(
                         IssueCategory.ConfigurationError,
                         IssueSeverity.Warning,
                         RawToWaveformText.Get(RawToWaveformText.BadConfig),
-                        nameof(RawToWaveformConfig.TextHeader)));
+                        HeaderInput));
                     return;
                 }
 
-                _text = new TextFrameDecoder(_config.TextHeader, _config.TextFooter);
+                _text = new TextFrameDecoder(_settings.Header, _settings.Footer);
                 return;
 
             case RawToWaveformProtocol.FireWater:
-                _fireWater = new FireWaterDecoder();
+                _fireWater = new FireWaterDecoder(_settings.Prefix);
                 return;
 
             default:
@@ -323,15 +418,7 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
             Emit(context, values, count);
         }
 
-        var errors = (_text?.Errors ?? 0) + (_fireWater?.Errors ?? 0) + (_justFloat?.Errors ?? 0);
-        if (errors != _lastErrors)
-        {
-            _lastErrors = errors;
-            SetStatus(context, string.Format(
-                System.Globalization.CultureInfo.InvariantCulture,
-                ParseErrorFormat,
-                errors));
-        }
+
     }
 
     private void Emit(IModuleContext context, ReadOnlySpan<float> values, int count)
@@ -342,9 +429,9 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
         writer.WriteU16(WaveformContract.ChannelCountField, (ushort)count);
         writer.WriteU16(WaveformContract.PayloadBytesField, (ushort)(count * sizeof(float)));
         // 内置波形显示器把 groupId == 0 判为格式不正确并丢弃整帧，这里兜底为 1。
-        writer.WriteU32(WaveformContract.GroupIdField, _config.GroupId > 0 ? unchecked((uint)_config.GroupId) : 1u);
+        writer.WriteU32(WaveformContract.GroupIdField, _settings.GroupId > 0 ? unchecked((uint)_settings.GroupId) : 1u);
         writer.WriteU32(WaveformContract.SequenceField, unchecked(_sequence++));
-        writer.WriteF32(WaveformContract.RateHzField, (float)_config.RateHz);
+        writer.WriteF32(WaveformContract.RateHzField, (float)_settings.RateHz);
         writer.WriteU64(
             WaveformContract.ValidMaskField,
             count >= WaveformContract.MaxChannels ? ulong.MaxValue : (1UL << count) - 1);
@@ -394,4 +481,13 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
         context.Display.SetText(StatusSource, text);
         context.State.Update(new BusinessState("convert", "ready", text));
     }
+
+    /// <summary>此刻生效的一组值（协议 + 运行期参数）。</summary>
+    private sealed record Settings(
+        RawToWaveformProtocol Protocol,
+        string Header,
+        string Footer,
+        string Prefix,
+        int GroupId,
+        double RateHz);
 }

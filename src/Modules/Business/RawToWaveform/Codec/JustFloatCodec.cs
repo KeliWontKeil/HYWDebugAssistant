@@ -36,14 +36,10 @@ internal static class JustFloatCodec
 internal sealed class JustFloatDecoder
 {
     private readonly FrameBuffer _buffer;
-    private long _errors;
     private long _discarded;
 
     /// <summary>创建解码器。</summary>
     public JustFloatDecoder(int capacityBytes = 8192) => _buffer = new FrameBuffer(capacityBytes);
-
-    /// <summary>累计坏帧数。</summary>
-    public long Errors => _errors;
 
     /// <summary>累计丢弃字节数。</summary>
     public long DiscardedBytes => _discarded + _buffer.DiscardedBytes;
@@ -76,7 +72,6 @@ internal sealed class JustFloatDecoder
             if (index == 0)
             {
                 _buffer.Consume(JustFloatCodec.Tail.Length);
-                _errors++;
                 continue;
             }
 
@@ -92,7 +87,6 @@ internal sealed class JustFloatDecoder
             if (channelCount > values.Length)
             {
                 _buffer.Consume(index + JustFloatCodec.Tail.Length);
-                _errors++;
                 continue;
             }
 

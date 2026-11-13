@@ -7,8 +7,8 @@
                x:Class="HYWDebugAssistant.Modules.RawToWaveform.Views.RawToWaveformView"
                x:CompileBindings="True"
                x:DataType="contracts:IModuleViewContext"
-               InitialWidth="360" InitialHeight="172"
-               MinWidth="360" MinHeight="172">
+               InitialWidth="360" InitialHeight="144"
+               MinWidth="360" MinHeight="144">
 
   <ui:ModuleView.Ports>
     <ui:ModulePort Name="{x:Static local:RawToWaveformModule.InPort}"
@@ -22,68 +22,86 @@
   </ui:ModuleView.Ports>
 
   <!--
-    原始 → 波形：参数、协议说明、读数、状态、计数全部绝对定位。
+    原始 → 波形：顶部一行放协议与参数，帧信息纵向堆叠并随协议折叠。
     **坐标只写在这一个文件里**（唯一视图事实源，预览器直接看这里）：
-      · 参数行 = 右对齐标签贴住编辑器，两者同高同中线；
-      · 协议说明两行随协议切换，默认写文本帧的文案，预览器不刷新也能看到；
-      · 计数行 = 标签 / 读数 + 右侧图标按钮；
-      · 可隐藏的参数行只留固定空档，其余行不重排。
+      · 协议是配置字段；组号/采样率/帧头/帧尾/前缀是输入源，逐键写、模块每拍读并应用；
+      · 说明两行在参数区之下；
+      · 统计只有一行（通道数量 / 已转换 / 丢弃 + 清空图标）；状态句单独贴底。
     具体数值以本文件的布局属性为准；内容区尺寸 = 窗口 − 描边 − 预留带（唯一算法见 `ModuleSurfaceMetrics`）。
   -->
   <Canvas ClipToBounds="True">
 
-    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="1" Width="48" Height="24"
+    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="24"
                     Classes="caption right" Field="{x:Static local:RawToWaveformModule.ProtocolField}" />
-    <ui:ModuleConfigField Canvas.Left="52" Canvas.Top="1" Width="140" Height="24"
+    <ui:ModuleConfigField Canvas.Left="44" Canvas.Top="0" Width="100" Height="24"
                           Field="{x:Static local:RawToWaveformModule.ProtocolField}" />
 
-    <ui:ModuleLabel Name="ProtocolDefinition" Canvas.Left="0" Canvas.Top="27" Width="350" Height="16"
+    <ui:ModuleLabel Canvas.Left="148" Canvas.Top="0" Width="30" Height="24"
+                    Classes="caption right" Text="{loc:Tr view.groupShort}" />
+    <ui:ModuleTextSurface Canvas.Left="180" Canvas.Top="0" Width="36" Height="24" Mode="Input"
+                          Source="{x:Static local:RawToWaveformModule.GroupIdInput}"
+                          Text="1" TextAlignment="Right" />
+
+    <ui:ModuleLabel Canvas.Left="220" Canvas.Top="0" Width="44" Height="24"
+                    Classes="caption right" Text="{loc:Tr field.rate}" />
+    <ui:ModuleTextSurface Canvas.Left="266" Canvas.Top="0" Width="50" Height="24" Mode="Input"
+                          Source="{x:Static local:RawToWaveformModule.RateInput}"
+                          Text="1000" TextAlignment="Right" />
+    <ui:ModuleLabel Canvas.Left="318" Canvas.Top="0" Width="24" Height="24"
+                    Classes="caption" Text="{loc:Tr unit.hz}" />
+
+    <ui:ModuleLabel Name="ProtocolDefinition" Canvas.Left="0" Canvas.Top="74" Width="350" Height="16"
                     Classes="hint" Text="{loc:Tr proto.textFrame.def}"
                     TextTrimming="CharacterEllipsis" ToolTip.Tip="{loc:Tr proto.textFrame.def}" />
-    <ui:ModuleLabel Name="ProtocolSample" Canvas.Left="0" Canvas.Top="45" Width="350" Height="16"
-                    Classes="micro" Text="{loc:Tr proto.textFrame.sample}"
+    <ui:ModuleLabel Name="ProtocolSample" Canvas.Left="0" Canvas.Top="90" Width="350" Height="16"
+                    Classes="micro " Text="{loc:Tr proto.textFrame.sample}"
                     TextTrimming="CharacterEllipsis" ToolTip.Tip="{loc:Tr proto.textFrame.sample}" />
 
-    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="67" Width="60" Height="24"
-                    Classes="caption right" Field="{x:Static local:RawToWaveformModule.GroupIdField}" />
-    <ui:ModuleConfigField Canvas.Left="64" Canvas.Top="67" Width="72" Height="24"
-                          Field="{x:Static local:RawToWaveformModule.GroupIdField}" />
-    <ui:ModuleLabel Canvas.Left="144" Canvas.Top="67" Width="44" Height="24"
-                    Classes="caption right" Field="{x:Static local:RawToWaveformModule.RateField}" />
-    <ui:ModuleConfigField Canvas.Left="192" Canvas.Top="67" Width="72" Height="24"
-                          Field="{x:Static local:RawToWaveformModule.RateField}" />
+    <StackPanel Name="ParamFlow" Canvas.Left="0" Canvas.Top="25" Width="356">
 
-    <Canvas Name="TextParams" Canvas.Left="0" Canvas.Top="93" Width="300" Height="24">
-      <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="48" Height="24"
-                      Classes="caption right" Field="{x:Static local:RawToWaveformModule.HeaderField}" />
-      <ui:ModuleConfigField Canvas.Left="52" Canvas.Top="0" Width="88" Height="24"
-                            Field="{x:Static local:RawToWaveformModule.HeaderField}" />
-      <ui:ModuleLabel Canvas.Left="148" Canvas.Top="0" Width="36" Height="24"
-                      Classes="caption right" Field="{x:Static local:RawToWaveformModule.FooterField}" />
-      <ui:ModuleConfigField Canvas.Left="184" Canvas.Top="0" Width="88" Height="24"
-                            Field="{x:Static local:RawToWaveformModule.FooterField}" />
+      <Canvas Name="TextParams" Width="356" Height="24">
+        <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="24"
+                        Classes="caption right" Text="{loc:Tr field.header}" />
+        <ui:ModuleTextSurface Canvas.Left="44" Canvas.Top="0" Width="88" Height="24" Mode="Input"
+                              Source="{x:Static local:RawToWaveformModule.HeaderInput}"
+                              Text="ab" />
+        <ui:ModuleLabel Canvas.Left="134" Canvas.Top="0" Width="42" Height="24"
+                        Classes="caption right" Text="{loc:Tr field.footer}" />
+        <ui:ModuleTextSurface Canvas.Left="178" Canvas.Top="0" Width="88" Height="24" Mode="Input"
+                              Source="{x:Static local:RawToWaveformModule.FooterInput}"
+                              Text="cd" />
+      </Canvas>
+
+      <Canvas Name="FireWaterParams" Width="356" Height="24">
+        <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="24"
+                        Classes="caption right" Text="{loc:Tr field.prefix}" />
+        <ui:ModuleTextSurface Canvas.Left="44" Canvas.Top="0" Width="88" Height="24" Mode="Input"
+                              Source="{x:Static local:RawToWaveformModule.PrefixInput}"
+                              Text="" ToolTip.Tip="{loc:Tr field.prefix.hint}" />
+      </Canvas>
+    </StackPanel>
+
+    <Canvas Canvas.Left="0" Canvas.Top="106" Width="356" Height="20">
+      <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="48" Height="20"
+                      Classes="caption" Text="{loc:Tr view.channels}" />
+      <ui:ModuleNumeric Canvas.Left="52" Canvas.Top="0" Width="44" Height="20" Text="0"
+                        Source="{x:Static local:RawToWaveformModule.ChannelCountSource}" />
+      <ui:ModuleLabel Canvas.Left="104" Canvas.Top="2" Width="44" Height="16"
+                      Classes="caption" Text="{loc:Tr view.frames}" />
+      <ui:ModuleNumeric Canvas.Left="152" Canvas.Top="0" Width="44" Height="20" Text="0"
+                        Source="{x:Static local:RawToWaveformModule.FramesSource}" />
+      <ui:ModuleLabel Canvas.Left="204" Canvas.Top="2" Width="32" Height="16"
+                      Classes="caption" Text="{loc:Tr view.dropped}" />
+      <ui:ModuleNumeric Canvas.Left="240" Canvas.Top="0" Width="44" Height="20" Text="0"
+                        Source="{x:Static local:RawToWaveformModule.DroppedSource}" />
+      <ui:ModuleButton Classes="icon" Canvas.Left="320" Canvas.Top="2" Width="16" Height="16"
+                       Icon="{x:Static local:RawToWaveformModule.ClearStatsIcon}"
+                       CommandName="{x:Static local:RawToWaveformModule.ResetCommand}"
+                       ToolTip.Tip="{loc:Tr view.reset}" />
     </Canvas>
 
-    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="121" Width="48" Height="20"
-                    Classes="caption" Text="{loc:Tr view.channels}" />
-    <ui:ModuleNumeric Canvas.Left="52" Canvas.Top="121" Width="48" Height="20" Text="0"
-                      Source="{x:Static local:RawToWaveformModule.ChannelCountSource}" />
-    <ui:ModuleLabel Canvas.Left="108" Canvas.Top="121" Width="250" Height="20" Classes="hint"
+    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="127" Width="356" Height="16" Classes="hint"
                     Text="{loc:Tr state.ready}"
                     Source="{x:Static local:RawToWaveformModule.StatusSource}" />
-
-    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="150" Width="44" Height="16"
-                    Classes="micro" Text="{loc:Tr view.frames}" />
-    <ui:ModuleNumeric Canvas.Left="48" Canvas.Top="148" Width="48" Height="20" Text="0"
-                      Source="{x:Static local:RawToWaveformModule.FramesSource}" />
-    <ui:ModuleLabel Canvas.Left="104" Canvas.Top="150" Width="32" Height="16"
-                    Classes="micro" Text="{loc:Tr view.dropped}" />
-    <ui:ModuleNumeric Canvas.Left="140" Canvas.Top="148" Width="48" Height="20" Text="0"
-                      Source="{x:Static local:RawToWaveformModule.DroppedSource}" />
-
-    <ui:ModuleButton Classes="icon" Canvas.Left="340" Canvas.Top="148" Width="16" Height="16"
-                     Icon="{x:Static local:RawToWaveformModule.ClearStatsIcon}"
-                     CommandName="{x:Static local:RawToWaveformModule.ResetCommand}"
-                     ToolTip.Tip="{loc:Tr view.reset}" />
   </Canvas>
 </ui:ModuleView>
