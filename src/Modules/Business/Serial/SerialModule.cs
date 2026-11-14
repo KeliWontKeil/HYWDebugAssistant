@@ -28,7 +28,7 @@ namespace HYWDebugAssistant.Modules.Serial;
     "serial",
     DisplayNameKey = SerialText.Title,
     DescriptionKey = SerialText.Description,
-    Tags = ["serial", "io"],
+    Tags = ["port", "serial", "io"],
     Capabilities = ModuleCapability.SerialPort,
     ParticipatesInDataFlow = true,
     ViewFactory = typeof(Views.SerialViewFactory))]

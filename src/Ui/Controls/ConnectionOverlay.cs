@@ -51,7 +51,7 @@ public sealed class ConnectionOverlay : Control
     /// <summary>角色方块高度（DIP）——**两行文本 + 内边距**（宽度随文本自适应，见 <see cref="RoleTextMetrics"/>）。</summary>
     public const double RoleBoxHeight = 34;
 
-    /// <summary>同列内角色方块间距（DIP）。</summary>
+    /// <summary>同列内角色方块的最小间距（DIP）；布局会按角色信息块高度自动扩展。</summary>
     public const double RoleBoxGap = 14;
 
     /// <summary>多列时的列间距（DIP）。</summary>
@@ -356,6 +356,14 @@ public sealed class ConnectionOverlay : Control
         int Hidden,
         double BoxHeight);
 
+    /// <summary>候选网格：列数、行数、各列宽度与总占用（DIP）。</summary>
+    private readonly record struct RoleGrid(
+        int Columns,
+        int Rows,
+        double[] ColumnWidths,
+        double TotalWidth,
+        double TotalHeight);
+
     /// <summary>
     /// **自回环几何**（DIP）：从方块**输出侧边缘**出发，绕到**输入侧边缘**。
     /// </summary>
@@ -472,13 +480,15 @@ public sealed class ConnectionOverlay : Control
     // ------------------------------------------------------------------ 纯几何（可单独断言）
 
     /// <summary>
-    /// **角色方块布局**：**单列竖直堆叠、居中**（每块左入右出，**宽度随文本自适应**）；放不下 ⇒ 加列 → 报未画出的数量。
+    /// **角色方块布局**：**竖向优先；高度不足时横向；再不足时网格**（每块左入右出，宽度随文本自适应）。
     /// </summary>
     /// <remarks>
     /// ① 宽度不能固定 128，而由 <see cref="RoleBoxViewModel.BoxWidth"/>
     /// （<see cref="RoleTextMetrics"/> 的确定性估算）给出 ⇒ "块跟着文字走"；
-    /// ② 去掉"先缩小方块再隐藏"的中间档（文字自适应后已无意义）——放不下就**如实报出** `+K`，不静默丢弃；
-    /// ③ 块高统一，故多列的容量计算仍按"每列几个"来算。
+    /// ② 枚举列数并选择：全部放得下时，一列优先、单行其次、其余取行数最少的网格；
+    ///    只有所有候选都放不下全部角色时才**如实报出** `+K`，不静默丢弃；
+    /// ③ 角色信息**恒在方块上方**；每个角色占一个“信息带 + 方块”的槽位，
+    ///    槽位高度取全组最大信息块高度，避免文字压到上一块。
     /// </remarks>
     /// <param name="roles">角色清单（声明顺序）。</param>
     /// <param name="width">窗口宽（DIP）。</param>
@@ -495,83 +505,150 @@ public sealed class ConnectionOverlay : Control
 
         const double boxHeight = RoleBoxHeight;
 
-        var availableHeight = Math.Max(boxHeight, height - (RoleBoxMargin * 2));
+        // 每个角色占一个“信息带 + 方块”的槽位：信息**恒在方块上方**，不靠“放不下就改到下方”。
+        // 槽位高度取全组最大信息块，保证同一列所有方块的上方都有同样的保留带。
+        var maxInfoHeight = roles.Max(RoleInfoHeight);
+        var slotHeight = maxInfoHeight + RoleInfoGap + boxHeight;
+        var topInset = Math.Max(RoleBoxMargin, TopInfoBottom);
+
+        var availableHeight = Math.Max(slotHeight, height - topInset - RoleBoxMargin);
         var availableWidth = Math.Max(RoleTextMetrics.MinBoxWidth, width - (Gutter * 2));
 
-        var perColumn = Math.Max(1, (int)Math.Floor((availableHeight + RoleBoxGap) / (boxHeight + RoleBoxGap)));
-        var hidden = Math.Max(0, roles.Count - perColumn);
-        var shown = Math.Min(roles.Count, perColumn);
+        // 先枚举所有“列数”候选：
+        // · 一列 = 竖向；一行 = 横向；其余 = 网格。
+        // · 不预设方向；只有全部角色都放得下的候选才进入选择。
+        var candidates = new List<RoleGrid>(roles.Count);
+        for (var columns = 1; columns <= roles.Count; columns++)
+        {
+            var candidateGrid = BuildRoleGrid(roles, columns, slotHeight);
+            if (candidateGrid.TotalWidth <= availableWidth && candidateGrid.TotalHeight <= availableHeight)
+            {
+                candidates.Add(candidateGrid);
+            }
+        }
 
-        // 一列放得下就一列；放不下才按"每列能放几个"分列（列宽 = 该列最宽的块）
-        var columns = Math.Max(1, (int)Math.Ceiling(roles.Count / (double)perColumn));
-        var columnWidths = new double[columns];
+        RoleGrid? chosen = null;
+
+        if (candidates.Count > 0)
+        {
+            var vertical = candidates.FirstOrDefault(candidate => candidate.Columns == 1);
+            if (vertical.Columns == 1)
+            {
+                chosen = vertical;
+            }
+            else
+            {
+                var horizontal = candidates.FirstOrDefault(candidate => candidate.Rows == 1);
+                if (horizontal.Rows == 1)
+                {
+                    chosen = horizontal;
+                }
+                else
+                {
+                    chosen = candidates
+                        .OrderBy(candidate => candidate.Rows)
+                        .ThenBy(candidate => candidate.Columns)
+                        .First();
+                }
+            }
+        }
+
+        if (chosen is { } selected)
+        {
+            return new RoleLayout(
+                BuildRoleBoxes(selected, roles, width, topInset, availableHeight, maxInfoHeight, slotHeight),
+                0,
+                boxHeight);
+        }
+
+        // **只有所有排布都放不下全部角色时才隐藏**（+K）。
+        // 退化为单列，最多显示高度允许的槽位数；方块宽度夹进可用宽度，避免画到窗外。
+        var fallbackRows = Math.Max(
+            1,
+            (int)Math.Floor((availableHeight + RoleBoxGap) / (slotHeight + RoleBoxGap)));
+        var shown = Math.Min(roles.Count, fallbackRows);
+        var fallbackWidth = Math.Min(availableWidth, roles.Take(shown).Max(role => role.BoxWidth));
+        var groupLeft = Math.Max(0, (width - fallbackWidth) / 2);
+        var fallbackHeight = (shown * slotHeight) + ((shown - 1) * RoleBoxGap);
+        var groupTop = topInset + Math.Max(0, (availableHeight - fallbackHeight) / 2);
+        var fallback = new List<RoleBox>(shown);
 
         for (var index = 0; index < shown; index++)
         {
-            var column = index / perColumn;
+            var role = roles[index];
+            fallback.Add(new RoleBox(
+                role.Key,
+                role.Inputs.Count,
+                role.Outputs.Count,
+                new Rect(
+                    groupLeft,
+                    groupTop + (index * (slotHeight + RoleBoxGap)) + maxInfoHeight + RoleInfoGap,
+                    fallbackWidth,
+                    boxHeight)));
+        }
+
+        return new RoleLayout(fallback, roles.Count - shown, boxHeight);
+    }
+
+    /// <summary>按“列优先”把角色放进候选网格，并计算总宽高。</summary>
+    private static RoleGrid BuildRoleGrid(
+        IReadOnlyList<RoleBoxViewModel> roles,
+        int requestedColumns,
+        double slotHeight)
+    {
+        var rows = (roles.Count + requestedColumns - 1) / requestedColumns;
+        var columns = (roles.Count + rows - 1) / rows;
+        var columnWidths = new double[columns];
+
+        for (var index = 0; index < roles.Count; index++)
+        {
+            var column = index / rows;
             columnWidths[column] = Math.Max(columnWidths[column], roles[index].BoxWidth);
         }
 
-        // 列数受可用宽度限制：超出 ⇒ 少画几列（未画出的角色计入 `+K`）
-        var fittingColumns = 0;
-        var used = 0.0;
+        var totalWidth = columnWidths.Sum() + (RoleBoxColumnGap * (columns - 1));
+        var totalHeight = (rows * slotHeight) + ((rows - 1) * RoleBoxGap);
+        return new RoleGrid(columns, rows, columnWidths, totalWidth, totalHeight);
+    }
 
-        foreach (var columnWidth in columnWidths)
+    /// <summary>把选中的网格落成角色方块（信息带在方块上方）。</summary>
+    private static List<RoleBox> BuildRoleBoxes(
+        RoleGrid grid,
+        IReadOnlyList<RoleBoxViewModel> roles,
+        double width,
+        double topInset,
+        double availableHeight,
+        double maxInfoHeight,
+        double slotHeight)
+    {
+        var groupLeft = Math.Max(0, (width - grid.TotalWidth) / 2);
+        var groupTop = topInset + Math.Max(0, (availableHeight - grid.TotalHeight) / 2);
+        var boxes = new List<RoleBox>(roles.Count);
+
+        for (var index = 0; index < roles.Count; index++)
         {
-            var next = fittingColumns == 0 ? columnWidth : used + RoleBoxColumnGap + columnWidth;
-            if (next > availableWidth)
-            {
-                break;
-            }
-
-            used = next;
-            fittingColumns++;
-        }
-
-        if (fittingColumns == 0)
-        {
-            // 连一列都放不下（窗口极窄）：只画第一个块，其余如实报出
-            fittingColumns = 1;
-            columnWidths[0] = Math.Min(columnWidths[0], availableWidth);
-            shown = Math.Min(shown, perColumn);
-            hidden = roles.Count - shown;
-        }
-        else
-        {
-            var capacity = fittingColumns * perColumn;
-            shown = Math.Min(shown, capacity);
-            hidden = roles.Count - shown;
-        }
-
-        var groupWidth = columnWidths.Take(fittingColumns).Sum() + (RoleBoxColumnGap * (fittingColumns - 1));
-        var groupLeft = Math.Max(0, (width - groupWidth) / 2);
-        var boxes = new List<RoleBox>(shown);
-
-        for (var index = 0; index < shown; index++)
-        {
-            var column = index / perColumn;
-            var row = index % perColumn;
-            var inColumn = Math.Min(perColumn, shown - (column * perColumn));
-            var columnHeight = (inColumn * boxHeight) + ((inColumn - 1) * RoleBoxGap);
-            var top = (height - columnHeight) / 2;
-
+            var column = index / grid.Rows;
+            var row = index % grid.Rows;
             var colLeft = groupLeft;
+
             for (var c = 0; c < column; c++)
             {
-                colLeft += columnWidths[c] + RoleBoxColumnGap;
+                colLeft += grid.ColumnWidths[c] + RoleBoxColumnGap;
             }
 
             var role = roles[index];
-            var boxWidth = columnWidths[column];
-
             boxes.Add(new RoleBox(
                 role.Key,
                 role.Inputs.Count,
                 role.Outputs.Count,
-                new Rect(colLeft, top + (row * (boxHeight + RoleBoxGap)), boxWidth, boxHeight)));
+                new Rect(
+                    colLeft,
+                    groupTop + (row * (slotHeight + RoleBoxGap)) + maxInfoHeight + RoleInfoGap,
+                    grid.ColumnWidths[column],
+                    RoleBoxHeight)));
         }
 
-        return new RoleLayout(boxes, Math.Max(0, hidden), boxHeight);
+        return boxes;
     }
 
     /// <summary>
@@ -909,7 +986,7 @@ public sealed class ConnectionOverlay : Control
         DrawRoleLinks(context, byKey, window, width, height, sendColor, receiveColor, mid, ink, muted);
 
         // ③ 角色方块（画在线之上：方块是"这个模块有哪几块功能"的主体）
-        DrawRoleBoxes(context, roles, byKey, width, height, sendColor, receiveColor, ink, muted);
+        DrawRoleBoxes(context, roles, byKey, width, sendColor, receiveColor, ink, muted);
 
         if (!ShowLabels)
         {
@@ -1022,9 +1099,8 @@ public sealed class ConnectionOverlay : Control
             // 自回环：两端都在本方块上 ⇒ 走"从输出侧绕到输入侧"的环线，不参与两点共线判定。
             if (link.IsSelfLoop)
             {
-                var role = Roles?.FirstOrDefault(item => string.Equals(item.Key, link.LocalRoleKey, StringComparison.Ordinal));
-                var infoAbove = role is not null && RoleInfoIsAbove(role, box);
-                DrawSelfLoop(context, box, window, sendColor, receiveColor, muted, infoAbove);
+                // 角色信息恒在方块上方 ⇒ 自回环固定走方块下方。
+                DrawSelfLoop(context, box, window, sendColor, receiveColor, muted, preferBelow: true);
                 continue;
             }
 
@@ -1177,32 +1253,44 @@ public sealed class ConnectionOverlay : Control
     private static double TopInfoBottom => 8 + CaptionFontSize + 5 + SmallFontSize + 4;
 
     /// <summary>
-    /// 画**角色自身的信息文字**（速率 / 投递·丢弃 / 类型语义）——**不画文本框**，贴在方块**上方**（放不下则下方）。
+    /// **角色信息块的高度**（DIP）：只统计非空行，行间用 <see cref="RoleInfoLineGap"/>。
     /// </summary>
     /// <remarks>
-    /// **不显式绘制文本框**：文字的大致位置位于角色方块周围/上方。这些信息表达的不是「数据通路信息」，
-    /// 而是「**角色本身速率信息**」——即每一个角色块显示其自身的信息。
-    /// ⇒ 文字随方块走（方块移，文字跟着移），方块与文字之间由**间距**而非边框表达归属。
+    /// 布局（<see cref="LayoutRoles"/>）与绘制（<see cref="DrawRoleInfo"/>）必须用同一个高度；
+    /// 否则会出现“行距按一个高度算、文字按另一个高度画”的重叠。
     /// </remarks>
-    /// <summary>角色信息块是否落在方块上方（与 <see cref="DrawRoleInfo"/> 共用同一判据）。</summary>
-    private static bool RoleInfoIsAbove(RoleBoxViewModel role, RoleBox box)
+    /// <param name="role">角色方块视图模型。</param>
+    public static double RoleInfoHeight(RoleBoxViewModel role)
     {
-        var lines = role.InfoLines.Where(line => line.Text.Length > 0).ToList();
-        if (lines.Count == 0)
+        var total = 0.0;
+        var count = 0;
+
+        foreach (var line in role.InfoLines)
         {
-            return true;
+            if (line.Text.Length == 0)
+            {
+                continue;
+            }
+
+            total += line.FontSize + RoleInfoLineGap;
+            count++;
         }
 
-        var blockHeight = lines.Sum(line => line.FontSize + RoleInfoLineGap) - RoleInfoLineGap;
-        return box.Box.Top - RoleInfoGap - blockHeight >= TopInfoBottom;
+        return count == 0 ? 0 : Math.Max(0, total - RoleInfoLineGap);
     }
 
+    /// <summary>
+    /// 画**角色自身的信息文字**（速率 / 口数 / 类型语义）——**不画文本框**，**恒在方块上方**。
+    /// </summary>
+    /// <remarks>
+    /// 布局（<see cref="LayoutRoles"/>）为每个角色预留了“信息带 + 方块”的槽位，因此这里不再做下方回退；
+    /// 回退会让同一模块内出现两种信息位置，并再次产生相邻方块遮挡。
+    /// </remarks>
     private void DrawRoleInfo(
         DrawingContext context,
         RoleBoxViewModel role,
         RoleBox box,
         double width,
-        double height,
         IBrush ink,
         IBrush muted)
     {
@@ -1217,16 +1305,11 @@ public sealed class ConnectionOverlay : Control
             .Select(l => (Text: Format(l.Text, l.FontSize, l.Primary ? ink : muted), l.FontSize))
             .ToList();
 
-        var blockHeight = formatted.Sum(f => f.FontSize + RoleInfoLineGap) - RoleInfoLineGap;
+        var blockHeight = RoleInfoHeight(role);
         var widest = formatted.Max(f => f.Text.Width);
 
-        // 默认放**上方**；上方空间不够（会压到左上信息区或出窗）⇒ 改放**下方**
-        var above = box.Box.Top - RoleInfoGap - blockHeight;
-        var below = box.Box.Bottom + RoleInfoGap;
-        var useAbove = above >= TopInfoBottom;
-        var top = useAbove
-            ? above
-            : Math.Min(below, Math.Max(TopInfoBottom, height - blockHeight - 4));
+        // 信息带由布局预留；这里始终从方块上边缘向上排。
+        var top = box.Box.Top - RoleInfoGap - blockHeight;
 
         // **左对齐**（用户第三十四轮裁定）：三行**起点同一个 X**——从方块左边缘起（越界时钳进安全区）
         var left = Math.Clamp(
@@ -1249,7 +1332,6 @@ public sealed class ConnectionOverlay : Control
         IReadOnlyList<RoleBoxViewModel> roles,
         Dictionary<string, RoleBox> byKey,
         double width,
-        double height,
         Color sendColor,
         Color receiveColor,
         IBrush ink,
@@ -1295,8 +1377,8 @@ public sealed class ConnectionOverlay : Control
             var counts = Format(role.RoleCountText, SmallFontSize, muted);
             context.DrawText(counts, new Point(box.Box.Center.X - (counts.Width / 2), top + titleHeight));
 
-            // 角色**自身的信息**（速率 / 口数 / 类型）——纯文字、左对齐，贴在方块上方（不画文本框）
-            DrawRoleInfo(context, role, box, width, height, ink, muted);
+            // 角色**自身的信息**（速率 / 口数 / 类型）——纯文字、左对齐，恒在方块上方（不画文本框）
+            DrawRoleInfo(context, role, box, width, ink, muted);
         }
     }
 

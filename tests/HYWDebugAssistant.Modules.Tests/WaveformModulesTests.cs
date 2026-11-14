@@ -486,6 +486,17 @@ public class WaveformModulesTests
         history.ReadTail(tail).ShouldBe(3);
         tail.ShouldBe([8997f, 8998f, 8999f]);
 
+        // 丢弃最旧 8500 个后跨过首块：保留 8500..8999，读头与索引仍正确。
+        history.DropOldest(8500);
+        history.Count.ShouldBe(500);
+        history.StartIndex.ShouldBe(8500);
+        float.IsNaN(history[8499]).ShouldBeTrue();
+        history[8500].ShouldBe(8500f);
+        history[8999].ShouldBe(8999f);
+
+        history.ReadTail(tail).ShouldBe(3);
+        tail.ShouldBe([8997f, 8998f, 8999f]);
+
         history.Clear();
         history.Count.ShouldBe(0);
         history.EstimatedBytes.ShouldBe(0);
@@ -1595,6 +1606,7 @@ public class WaveformModulesTests
         {
             KeepInactiveHistory = true,
             HistoryLimitSamples = 2,
+            FollowRangeSamples = 2,
         });
 
         var module = new WaveformDisplayModule();
@@ -1616,8 +1628,46 @@ public class WaveformModulesTests
 
         var snapshot = Snapshot(context).ShouldNotBeNull();
         snapshot.Channels.Count.ShouldBe(1);
-        snapshot.Channels[0].Values.ShouldBe([2f, 3f]);
-        snapshot.XRangeEnd.ShouldBe(1);
+        // 达到上限时丢弃最旧、保留最新：group2 的第 2 帧被丢，最后两帧仍在。
+        snapshot.Channels[0].Values.ShouldBe([3f, 4f]);
+        snapshot.XRangeEnd.ShouldBe(2);
+    }
+
+    [Fact]
+    public void 显示器_切换活动组时旧活动组按上限保留最新()
+    {
+        var context = new TestModuleContext();
+        SeedSettings(context, new DisplaySettings
+        {
+            KeepInactiveHistory = true,
+            HistoryLimitSamples = 2,
+            FollowRangeSamples = 2,
+        });
+
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        Deliver(context, groupId: 1, sequence: 0, values: [1f]);
+        Deliver(context, groupId: 1, sequence: 1, values: [2f]);
+        Deliver(context, groupId: 1, sequence: 2, values: [3f]);
+        Deliver(context, groupId: 1, sequence: 3, values: [4f]);
+        module.OnStep(context, StepReason.Data);
+
+        // 切到不存在的组：旧活动组立即变为非活动组，按上限裁到最新两帧。
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"selectGroup\",\"id\":2}");
+        module.PumpOnce(context);
+
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"selectGroup\",\"id\":1}");
+        module.PumpOnce(context);
+
+        var snapshot = Snapshot(context).ShouldNotBeNull();
+        snapshot.Channels[0].Values.ShouldBe([3f, 4f]);
+        snapshot.XRangeEnd.ShouldBe(3);
     }
 
     [Fact]

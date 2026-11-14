@@ -9,7 +9,7 @@
     "status.dropped": "发送失败丢弃 {0} 帧",
     "status.invalid": "参数不合法：请检查频率、周期、分辨率、占空比、调制参数或组ID",
     "status.rateUnsupported": "组帧率或总帧率超出上限，请减少组/通道或降低分辨率",
-    "status.structureStopped": "组/通道结构已变化，发送已停止",
+    "status.structureStopped": "组/通道结构发生变化，发送已停止",
     "status.ready": "就绪",
     "status.running": "发送中",
     "status.stopped": "已停止",

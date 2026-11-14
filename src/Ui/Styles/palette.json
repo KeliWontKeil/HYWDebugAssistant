@@ -31,6 +31,8 @@
   "tokens": [
     { "key": "BgWorkspace", "title": "工作区底色", "group": "background", "purpose": "工作区底色（模块窗口之间的底）" },
     { "key": "BgModule", "title": "模块底色", "group": "background", "purpose": "模块窗口与文本面的底" },
+    { "key": "SurfaceControlBrush", "title": "模块控件面", "group": "surface", "purpose": "文本输入、显示面、图表、页签与下拉的可透出表面；色随模块底，浓度再乘控件表面不透明度", "surface": true,
+      "derive": { "from": "BgModule", "mode": "tint" } },
     { "key": "BgChrome", "title": "外壳底色", "group": "background", "purpose": "外壳、工具栏与状态栏的底", "surface": true },
     { "key": "WallpaperVeil", "title": "壁纸遮罩", "group": "background", "purpose": "壁纸上的主题色柔化遮罩；浓度由设置的「壁纸遮罩浓度」全局控制" },
 

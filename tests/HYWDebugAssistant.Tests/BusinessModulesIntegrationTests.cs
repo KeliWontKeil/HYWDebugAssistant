@@ -2,6 +2,7 @@ using HYWDebugAssistant.Access;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Services;
+using HYWDebugAssistant.FrameworkUi.ViewModels;
 using Shouldly;
 using Xunit;
 
@@ -57,6 +58,11 @@ public class BusinessModulesIntegrationTests
         catalog.Select(c => c.ModuleId).ShouldContain(HexSenderId);
         catalog.Select(c => c.ModuleId).ShouldContain(MonitorId);
         catalog.Select(c => c.ModuleId).ShouldContain(ConverterId);
+
+        // 转换器不操作数据流 ⇒ 模块清单归“其他”，不再与真正的数据流转换器混淆。
+        var converterEntry = catalog.Single(c => c.ModuleId == ConverterId);
+        converterEntry.Tags.ShouldNotBeNull().ShouldContain("other");
+        ModuleCategories.FromTags(converterEntry.Tags).ShouldBe(ModuleCategories.Other);
 
         // ① 四个实例（含**零口零角色**的转换器 —— 它不进拓扑，但必须能装入并活动）
         services.AddModule("t1", TextSenderId).Succeeded.ShouldBeTrue();

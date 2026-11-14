@@ -1,7 +1,10 @@
 # HYWDebugAssistant
 
-模块化工程上位机平台（HYW 调试助手）。.NET 10 + Avalonia。发布目录里的 `HYWDebugAssistant.App.exe` 就是主应用，也是模块宿主。
+# 何译位串口调试助手v0.1.0 beta
+基于.NET 10的模块化工程上位机平台。项目正在前期开发中。
+项目未稳定，文档站暂未上线
 
+相关文档/release见以下目录
 - **对外文档站**：`docs/`（MkDocs 工程；中文内容在 `docs/zh/`，英文在 `docs/en/`）
 - **开发文档**：`dev/`（约束、工作流、状态、验收；不对外发布）
 - **构建与门禁**：`pwsh -File .\build.ps1`

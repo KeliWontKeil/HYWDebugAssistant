@@ -22,6 +22,8 @@
         <ResourceDictionary x:Key="Light">
             <SolidColorBrush x:Key="BgWorkspace" Color="#F3F4F6" />
             <SolidColorBrush x:Key="BgModule" Color="#FFFFFF" />
+            <!-- 模块内容控件的可透出表面：色随模块底，浓度再乘“控件表面不透明度”。 -->
+            <SolidColorBrush x:Key="SurfaceControlBrush" Color="#FFFFFF" Opacity="0.9" />
             <SolidColorBrush x:Key="BgChrome" Color="#FAFAFA" />
             <!-- 壁纸遮罩的底色（实际浓度由设置里的 wallpaperVeilOpacity 控制；这里只定色）。 -->
             <SolidColorBrush x:Key="WallpaperVeil" Color="#F8F4F6" />
@@ -110,6 +112,8 @@
         <ResourceDictionary x:Key="Dark">
             <SolidColorBrush x:Key="BgWorkspace" Color="#1E1E1E" />
             <SolidColorBrush x:Key="BgModule" Color="#252526" />
+            <!-- 模块内容控件的可透出表面：色随模块底，浓度再乘“控件表面不透明度”。 -->
+            <SolidColorBrush x:Key="SurfaceControlBrush" Color="#252526" Opacity="0.9" />
             <SolidColorBrush x:Key="BgChrome" Color="#252526" />
             <SolidColorBrush x:Key="WallpaperVeil" Color="#0B0E16" />
             <SolidColorBrush x:Key="BorderDefault" Color="#3F3F46" />

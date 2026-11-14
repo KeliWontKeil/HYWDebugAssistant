@@ -8,6 +8,9 @@ internal sealed class ChannelHistory
     private const int ChunkSize = 8192;
     private readonly List<float[]> _chunks = [];
 
+    /// <summary>最旧保留样本在分块存储中的物理位置（丢弃头部后前移）。</summary>
+    private long _head;
+
     /// <summary>有效样本数。</summary>
     public long Count { get; private set; }
 
@@ -29,14 +32,38 @@ internal sealed class ChannelHistory
     /// <summary>追加一个样本。</summary>
     public void Append(float value)
     {
-        var chunkIndex = (int)(Count / ChunkSize);
-        if (chunkIndex >= _chunks.Count)
+        var position = _head + Count;
+        var chunkIndex = (int)(position / ChunkSize);
+        while (chunkIndex >= _chunks.Count)
         {
             _chunks.Add(new float[ChunkSize]);
         }
 
-        _chunks[chunkIndex][(int)(Count % ChunkSize)] = value;
+        _chunks[chunkIndex][(int)(position % ChunkSize)] = value;
         Count++;
+    }
+
+    /// <summary>
+    /// **丢弃最旧的 N 个样本**：保留新样本，只移动读头；跨块后回收已无用的首块。
+    /// </summary>
+    /// <param name="count">要丢弃的样本数（超过现有数量时清空）。</param>
+    public void DropOldest(long count)
+    {
+        if (count <= 0 || Count == 0)
+        {
+            return;
+        }
+
+        var take = Math.Min(count, Count);
+        _head += take;
+        Count -= take;
+        StartIndex += take;
+
+        while (_head >= ChunkSize)
+        {
+            _chunks.RemoveAt(0);
+            _head -= ChunkSize;
+        }
     }
 
     /// <summary>按历史索引读样本；越界 = NaN。</summary>
@@ -49,8 +76,8 @@ internal sealed class ChannelHistory
                 return float.NaN;
             }
 
-            var local = index - StartIndex;
-            return _chunks[(int)(local / ChunkSize)][(int)(local % ChunkSize)];
+            var position = _head + (index - StartIndex);
+            return _chunks[(int)(position / ChunkSize)][(int)(position % ChunkSize)];
         }
     }
 
@@ -72,6 +99,7 @@ internal sealed class ChannelHistory
     public void Clear()
     {
         _chunks.Clear();
+        _head = 0;
         Count = 0;
         StartIndex = 0;
     }

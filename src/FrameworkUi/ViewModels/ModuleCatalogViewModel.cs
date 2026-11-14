@@ -61,26 +61,67 @@ public sealed record ModuleCatalogRowViewModel(
 }
 
 /// <summary>
+/// **模块清单的一行**：分类标题或可用模块。
+/// </summary>
+/// <param name="Key">稳定键：标题行与模块行不会互相覆盖。</param>
+/// <param name="Entry">模块行；标题行为 <see langword="null"/>。</param>
+/// <param name="Header">分类标题；模块行为 <see langword="null"/>。</param>
+/// <remarks>
+/// 标题必须是**独立列表项**，不能塞进模块行模板：否则 ListBox 的选中高亮会把标题一起框住，
+/// 且键盘/选择逻辑会把标题当成可选中对象。容器由 <c>ModuleCatalogListBox</c> 明确设为不可选。
+/// </remarks>
+public sealed record ModuleCatalogListItem(
+    string Key,
+    ModuleCatalogRowViewModel? Entry = null,
+    string? Header = null)
+{
+    /// <summary>是否分类标题行。</summary>
+    public bool IsHeader => Entry is null;
+
+    /// <summary>是否模块行。</summary>
+    public bool IsModule => Entry is not null;
+
+    /// <summary>模块展示名（标题行为空）。</summary>
+    public string DisplayName => Entry?.DisplayName ?? string.Empty;
+
+    /// <summary>模块来源标注（标题行为空）。</summary>
+    public string OriginNotice => Entry?.OriginNotice ?? string.Empty;
+
+    /// <summary>模块预览画刷（标题行为空）。</summary>
+    public ImageBrush? PreviewBrush => Entry?.PreviewBrush;
+
+    /// <summary>是否显示预览占位字形（标题行不显示）。</summary>
+    public bool ShowPreviewPlaceholder => Entry is { HasPreview: false };
+
+    /// <summary>整行悬停提示。</summary>
+    public string TooltipText => Entry?.TooltipText ?? Header ?? string.Empty;
+}
+
+/// <summary>
 /// **模块分类**：按模块**声明的标签**归类（不声明归"其他"）。
 /// </summary>
 /// <remarks>
 /// 分类是**界面组织方式**，不改机制；标签来自 `ModuleDefinitionAttribute.Tags`（模块作者声明）。
+/// 规范标签 `port/source/terminal/converter/other` 优先；旧的 `sender/monitor/...` 仍兼容。
 /// </remarks>
 public static class ModuleCategories
 {
     /// <summary>全部（不过滤）。</summary>
     public const string All = "all";
 
+    /// <summary>端口（串口 / TCP / UDP 等连接端点）。</summary>
+    public const string Port = "port";
+
     /// <summary>数据源（产生数据：发生器 / 手动发送器）。</summary>
     public const string Source = "source";
 
-    /// <summary>显示与接收（显示器 / 接收端）。</summary>
-    public const string Sink = "sink";
+    /// <summary>终端（接收并呈现数据：显示器 / 监视器）。</summary>
+    public const string Terminal = "terminal";
 
-    /// <summary>记录与断言（记录器 / 断言器）。</summary>
-    public const string Verify = "verify";
+    /// <summary>转换器（有端口、在数据流中转换数据）。</summary>
+    public const string Converter = "converter";
 
-    /// <summary>其他（未声明可识别标签）。</summary>
+    /// <summary>其他（不操作数据流的离线工具，或未声明可识别标签）。</summary>
     public const string Other = "other";
 
     /// <summary>分类目录（键 · 图标键 · 悬停说明）。</summary>
@@ -88,11 +129,34 @@ public static class ModuleCategories
     public static readonly IReadOnlyList<(string Key, string IconKey, string Title)> Definitions =
     [
         (All, ShellIcons.CatalogAll, CatalogText.Get("catalog.category.all")),
+        (Port, ShellIcons.CatalogPort, CatalogText.Get("catalog.category.port")),
         (Source, ShellIcons.CatalogSource, CatalogText.Get("catalog.category.source")),
-        (Sink, ShellIcons.CatalogSink, CatalogText.Get("catalog.category.sink")),
-        (Verify, ShellIcons.CatalogVerify, CatalogText.Get("catalog.category.verify")),
+        (Terminal, ShellIcons.CatalogTerminal, CatalogText.Get("catalog.category.terminal")),
+        (Converter, ShellIcons.CatalogConverter, CatalogText.Get("catalog.category.converter")),
         (Other, ShellIcons.CatalogOther, CatalogText.Get("catalog.category.other")),
     ];
+
+    /// <summary>分类在「全部模块」列表里的排列序号（越小越靠前）。</summary>
+    /// <param name="categoryKey">分类键。</param>
+    public static int Rank(string categoryKey)
+    {
+        for (var index = 1; index < Definitions.Count; index++)
+        {
+            if (string.Equals(Definitions[index].Key, categoryKey, StringComparison.Ordinal))
+            {
+                return index;
+            }
+        }
+
+        return Definitions.Count;
+    }
+
+    /// <summary>取分类标题（未知 → 其他）。</summary>
+    /// <param name="categoryKey">分类键。</param>
+    public static string Title(string categoryKey) =>
+        Definitions.FirstOrDefault(item =>
+            string.Equals(item.Key, categoryKey, StringComparison.Ordinal)).Title
+        ?? CatalogText.Get("catalog.category.other");
 
     /// <summary>按标签推导分类键（不识别 → <see cref="Other"/>）。</summary>
     /// <param name="tags">模块声明的标签。</param>
@@ -108,14 +172,20 @@ public static class ModuleCategories
             var value = tag.ToLowerInvariant();
             switch (value)
             {
+                case "port" or "serial" or "tcp" or "udp" or "io":
+                    return Port;
+
                 case "generator" or "sender" or "source" or "input" or "producer":
                     return Source;
 
-                case "monitor" or "display" or "view" or "sink" or "receiver" or "reader":
-                    return Sink;
+                case "terminal" or "monitor" or "display" or "view" or "sink" or "receiver" or "reader":
+                    return Terminal;
 
-                case "recorder" or "logger" or "asserter" or "assert" or "test":
-                    return Verify;
+                case "converter" or "protocol" or "transform" or "conversion":
+                    return Converter;
+
+                case "other" or "tool" or "recorder" or "logger" or "asserter" or "assert" or "test":
+                    return Other;
 
                 default:
                     break;
@@ -187,8 +257,8 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
         _command = command;
     }
 
-    /// <summary>可用模块目录（**已按分类 + 搜索过滤**）。</summary>
-    public ObservableCollection<ModuleCatalogRowViewModel> Catalog { get; } = [];
+    /// <summary>可用模块目录（**已按分类 + 搜索过滤**；标题行与模块行是独立列表项）。</summary>
+    public ObservableCollection<ModuleCatalogListItem> Catalog { get; } = [];
 
     /// <summary>分类按钮（横向；图标 + 悬停说明）。</summary>
     public ObservableCollection<ModuleCategoryViewModel> Categories { get; } = [];
@@ -228,26 +298,48 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
     {
         var category = SelectedCategory;
         var search = SearchText?.Trim();
+        var selectedModuleId = SelectedCatalogEntry?.ModuleId;
 
-        var filtered = _allModules.Where(row =>
-            (string.Equals(category, ModuleCategories.All, StringComparison.Ordinal)
-                || string.Equals(row.CategoryKey, category, StringComparison.Ordinal))
-            && (string.IsNullOrEmpty(search)
-                || row.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase)
-                || row.Description.Contains(search, StringComparison.OrdinalIgnoreCase)));
+        var filtered = _allModules
+            .Where(row =>
+                (string.Equals(category, ModuleCategories.All, StringComparison.Ordinal)
+                    || string.Equals(row.CategoryKey, category, StringComparison.Ordinal))
+                && (string.IsNullOrEmpty(search)
+                    || row.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase)
+                    || row.Description.Contains(search, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(row => ModuleCategories.Rank(row.CategoryKey))
+            .ThenBy(row => row.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
 
-        _ = CollectionSync.Sync(Catalog, [.. filtered]);
+        var items = new List<ModuleCatalogListItem>(filtered.Count + ModuleCategories.Definitions.Count);
+        var previousCategory = string.Empty;
+        foreach (var row in filtered)
+        {
+            if (string.Equals(category, ModuleCategories.All, StringComparison.Ordinal)
+                && !string.Equals(row.CategoryKey, previousCategory, StringComparison.Ordinal))
+            {
+                items.Add(new ModuleCatalogListItem(
+                    $"header:{row.CategoryKey}",
+                    Header: ModuleCategories.Title(row.CategoryKey)));
+            }
+
+            items.Add(new ModuleCatalogListItem($"module:{row.ModuleId}", Entry: row));
+            previousCategory = row.CategoryKey;
+        }
+
+        _ = CollectionSync.Sync(Catalog, items);
 
         foreach (var item in Categories)
         {
             item.IsSelected = string.Equals(item.Key, SelectedCategory, StringComparison.Ordinal);
         }
 
-        // 过滤后不再包含原选中项 → 清掉选择（避免"看不见却已选中"）
-        if (SelectedCatalogEntry is { } selected && !Catalog.Contains(selected))
-        {
-            SelectedCatalogEntry = null;
-        }
+        // **选中项按模块标识重绑**：列表增删/插入分类标题会让容器索引变化，不能只信旧引用。
+        // 过滤后不再包含原选中项 ⇒ 清掉选择（避免"看不见却已选中"）。
+        SelectedCatalogItem = selectedModuleId is { Length: > 0 }
+            ? Catalog.FirstOrDefault(item =>
+                string.Equals(item.Entry?.ModuleId, selectedModuleId, StringComparison.Ordinal))
+            : null;
     }
 
     /// <summary>重建分类按钮与其计数。</summary>
@@ -272,9 +364,28 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
     /// <summary>占位实例（可指定替代模块）。</summary>
     public ObservableCollection<PlaceholderRowViewModel> Placeholders { get; } = [];
 
-    /// <summary>选中的可用模块。</summary>
-    [ObservableProperty]
-    public partial ModuleCatalogRowViewModel? SelectedCatalogEntry { get; set; }
+    private ModuleCatalogListItem? _selectedCatalogItem;
+
+    /// <summary>选中的列表项（模块行；标题行不可选）。</summary>
+    /// <remarks>按引用判断：列表增量同步会重建等值项，只比较值会让 ListBox 继续指向旧对象。</remarks>
+    public ModuleCatalogListItem? SelectedCatalogItem
+    {
+        get => _selectedCatalogItem;
+        set
+        {
+            if (ReferenceEquals(_selectedCatalogItem, value))
+            {
+                return;
+            }
+
+            _selectedCatalogItem = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(SelectedCatalogEntry));
+        }
+    }
+
+    /// <summary>选中的可用模块（标题行 / 未选择时为 <see langword="null"/>）。</summary>
+    public ModuleCatalogRowViewModel? SelectedCatalogEntry => _selectedCatalogItem?.Entry;
 
     /// <summary>选中的占位实例。</summary>
     [ObservableProperty]
@@ -438,8 +549,6 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
         _lastCatalog = catalogEntries;
         _lastInstances = instances;
 
-        var selectedModuleId = SelectedCatalogEntry?.ModuleId;
-
         var catalog = catalogEntries
             .Select(entry => new ModuleCatalogRowViewModel(
                 entry.ModuleId,
@@ -460,12 +569,7 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
         RebuildCategories();
         ApplyFilter();
 
-        // 选中项：保持原选择；没有选择时不自动选中（避免「扫一眼列表就被选中」的错觉）
-        if (selectedModuleId is { Length: > 0 })
-        {
-            SelectedCatalogEntry = Catalog.FirstOrDefault(c => string.Equals(c.ModuleId, selectedModuleId, StringComparison.Ordinal));
-        }
-
+        // 选中项由 ApplyFilter 按模块标识重绑；没有选择时不自动选中（避免「扫一眼列表就被选中」的错觉）。
         var selectedPlaceholderId = SelectedPlaceholder?.InstanceId;
 
         var placeholders = instances

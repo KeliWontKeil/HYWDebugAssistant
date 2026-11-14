@@ -15,6 +15,7 @@ public class SettingsSurfaceExitTests
     {
         PaletteManifest.Find("BgChrome")!.Surface.ShouldBeTrue();
         PaletteManifest.Find("SurfaceButtonFaceBrush")!.Surface.ShouldBeTrue();
+        PaletteManifest.Find("SurfaceControlBrush")!.Surface.ShouldBeTrue();
         PaletteManifest.Find("BgModule")!.Surface.ShouldBeFalse();
         PaletteManifest.Find("TextPrimary")!.Surface.ShouldBeFalse();
     }

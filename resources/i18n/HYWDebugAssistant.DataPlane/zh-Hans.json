@@ -3,7 +3,7 @@
   "entries": {
     "dataplane.access.adapterFactoryReturnedNull": "标准 '{0}' 的适配件工厂返回空",
     "dataplane.access.adapterFailureNoReason": "适配件报告失败（原因未知）",
-    "dataplane.access.catalogMissing": "框架没有提供外部接入目录（无法按标准标识解析适配器与参数类型）",
+    "dataplane.access.catalogMissing": "框架没有提供外部接入目录，无法按标准标识解析适配器与参数类型",
     "dataplane.access.closeFailed": "关闭失败：{0}",
     "dataplane.access.closeFailedDetail": "关闭失败：{0} — {1}",
     "dataplane.access.createAdapterFailed": "创建标准 '{0}' 的适配件失败：{1} — {2}",
@@ -21,7 +21,7 @@
     "dataplane.access.unknownStandard": "未知外部标准标识 '{0}'（接入 '{1}'）",
     "dataplane.access.writeFailed": "写入失败：{0}",
     "dataplane.access.writeFailedDetail": "写入失败：{0} — {1}",
-    "dataplane.access.writePumpStuck": "写泵未在关闭等待内退出（驱动写可能卡住），已放弃该后台线程。",
+    "dataplane.access.writePumpStuck": "写泵未在关闭等待内退出，已放弃该后台线程。",
     "dataplane.access.writeTimeoutFailed": "写超时无法下发（{0}: {1}）；该会话仍按适配件自己的写超时运行",
     "dataplane.buffer.disposed": "该数据单元缓冲已归还，无法再访问其内容",
     "dataplane.carrier.alreadyExists": "实例已有传输通道：{0}",

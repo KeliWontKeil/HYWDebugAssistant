@@ -30,7 +30,7 @@ namespace HYWDebugAssistant.Modules.HexSender;
     "hex-sender",
     DisplayNameKey = HexSenderText.Title,
     DescriptionKey = HexSenderText.Description,
-    Tags = ["hex", "sender"],
+    Tags = ["source", "hex", "sender"],
     ParticipatesInDataFlow = true,
     ViewFactory = typeof(Views.HexSenderViewFactory))]
 public sealed class HexSenderModule : IModule, IActivitySource

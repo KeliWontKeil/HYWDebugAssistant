@@ -31,7 +31,7 @@ namespace HYWDebugAssistant.Modules.HexStringConverter;
     "hex-string-converter",
     DisplayNameKey = HexStringConverterText.Title,
     DescriptionKey = HexStringConverterText.Description,
-    Tags = ["hex", "tool"],
+    Tags = ["other", "hex", "tool"],
     ParticipatesInDataFlow = false,
     ViewFactory = typeof(Views.HexStringConverterViewFactory))]
 public sealed class HexStringConverterModule : IModule, IActivitySource

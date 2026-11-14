@@ -1,11 +1,14 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Templates;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.VisualTree;
+using HYWDebugAssistant.FrameworkUi.ViewModels;
+using HYWDebugAssistant.FrameworkUi.Views;
 using HYWDebugAssistant.Sdk.Ui.Controls;
 using Xunit;
 
@@ -78,6 +81,60 @@ public class ControlMechanismProbes
                     var bar = viewer.GetVisualDescendants().OfType<ScrollBar>().First();
                     Assert.False(bar.AllowAutoHide);
                     Assert.True(bar.Bounds.Width < 8, "滚动条应为细条，不得展开到默认宽条");
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task 模块清单列表_标题不可选且模块行可显示()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var header = new ModuleCatalogListItem("header:terminal", Header: "终端");
+                var module = new ModuleCatalogListItem(
+                    "module:waveform-display",
+                    Entry: new ModuleCatalogRowViewModel(
+                        "hyw/waveform-display",
+                        "波形显示器",
+                        string.Empty,
+                        string.Empty));
+
+                var list = new ModuleCatalogListBox
+                {
+                    Width = 240,
+                    Height = 120,
+                    ItemsSource = new[] { header, module },
+                    ItemTemplate = new FuncDataTemplate<ModuleCatalogListItem>((item, _) => new TextBlock
+                    {
+                        Height = 24,
+                        Text = item.IsHeader ? item.Header : item.DisplayName,
+                    }),
+                };
+
+                var window = new Window { Width = 260, Height = 160, Content = list };
+
+                try
+                {
+                    window.Show();
+                    SnapshotTool.Pump();
+
+                    var containers = list.GetVisualDescendants().OfType<ListBoxItem>().ToList();
+                    Assert.Equal(2, containers.Count);
+                    Assert.False(containers[0].IsEnabled);
+                    Assert.False(containers[0].Focusable);
+                    Assert.False(containers[0].IsHitTestVisible);
+                    Assert.True(containers[1].IsEnabled);
+
+                    list.SelectedItem = module;
+                    SnapshotTool.Pump();
+                    Assert.Same(module, list.SelectedItem);
+                    Assert.NotSame(header, list.SelectedItem);
                 }
                 finally
                 {

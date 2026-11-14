@@ -61,7 +61,7 @@
           <Grid>
             <Border Name="PART_Frame" Classes="module-text-frame"
                     BorderThickness="1" CornerRadius="2"
-                    Background="{DynamicResource BgModule}">
+                    Background="{DynamicResource SurfaceControlBrush}">
               <Grid>
                 <TextBox Name="PART_Input" Classes="module-text-editor chrome-bare"
                          BorderThickness="0" Background="Transparent"
@@ -229,7 +229,7 @@
   <Style Selector="ui|ModuleSegmentedControl">
     <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleSegmentedControl}}" />
     <Setter Property="Height" Value="24" />
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>
@@ -301,7 +301,7 @@
     <Setter Property="Width" Value="18" />
     <Setter Property="Height" Value="18" />
     <Setter Property="Padding" Value="0" />
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="2" />
@@ -466,7 +466,7 @@
     <!-- 派生自 TabControl：类型选择器只匹配精确类型，必须显式把默认页签主题指回来。 -->
     <Setter Property="Theme" Value="{DynamicResource {x:Type TabControl}}" />
     <Setter Property="ItemContainerTheme" Value="{DynamicResource ModuleTabItemTheme}" />
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="FontSize" Value="11" />
@@ -494,7 +494,7 @@
     内层 TextBox 固定无边框，Fluent 的悬停/聚焦边框就不会再和 frame 打架。
   -->
   <Style Selector="Border.module-text-frame">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="2" />
@@ -562,7 +562,7 @@
 
   <!-- 通用图表：只给默认观感；曲线色由调用方显式给出，缺省用主题强调色。 -->
   <Style Selector="ui|ChartSurface">
-    <Setter Property="PlotBackground" Value="{DynamicResource BgModule}" />
+    <Setter Property="PlotBackground" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="AxisBrush" Value="{DynamicResource BorderStrong}" />
     <Setter Property="GridBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="TextBrush" Value="{DynamicResource TextSecondary}" />
@@ -575,7 +575,7 @@
 
   <!-- 通用线性范围选择：轨道 / 范围带 / 手柄各一支 token。 -->
   <Style Selector="ui|RangeSelector">
-    <Setter Property="TrackBrush" Value="{DynamicResource BgModule}" />
+    <Setter Property="TrackBrush" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="RangeBrush" Value="{DynamicResource OverlaySelection}" />
     <Setter Property="HandleBrush" Value="{DynamicResource AccentPrimary}" />
     <Setter Property="FrameBrush" Value="{DynamicResource BorderDefault}" />
@@ -595,7 +595,7 @@
     <Setter Property="Padding" Value="2,0" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
   </Style>
 

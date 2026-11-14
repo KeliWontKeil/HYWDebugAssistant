@@ -7,7 +7,7 @@
     "save.filter.csv": "CSV 文件 (*.csv)|*.csv",
     "save.filter.png": "PNG 图片 (*.png)|*.png",
     "status.cleared": "已清空活动组数据",
-    "status.historyLimit": "已达到波形历史上限，停止写入新样本",
+    "status.historyLimit": "已达到数据上限，正在丢弃旧数据",
     "status.imageError": "图片保存失败：{0}",
     "status.imagePending": "正在生成图片…",
     "status.imageSaved": "图片已保存：{0}",

@@ -85,6 +85,20 @@ public class ModuleSizingTests
     }
 
     [Fact]
+    public void 宽高变化必须通知叠加层画布尺寸()
+    {
+        var module = Create();
+        var changed = new List<string?>();
+        module.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        module.Width = 700;
+        module.Height = 600;
+
+        changed.ShouldContain(nameof(ModuleViewViewModel.CanvasWidth));
+        changed.ShouldContain(nameof(ModuleViewViewModel.CanvasHeight));
+    }
+
+    [Fact]
     public void 设计预览不应伪造数据()
     {
         var context = new DesignModuleViewContext(

@@ -134,6 +134,7 @@ public partial class MyView : ModuleView, IModuleViewElement
 | 用途 | token |
 |---|---|
 | 模块底色 / 控件区底色 | `BgModule`、`BgChrome` |
+| 模块内容控件表面（文本输入、显示面、图表、页签、下拉） | `SurfaceControlBrush` |
 | 边框 | `BorderDefault`、`BorderStrong` |
 | 文字 | `TextPrimary`、`TextSecondary`、`TextMuted` |
 | 主题色 | `AccentPrimary`、`AccentSecondary`、`AccentStrong` |
@@ -233,6 +234,8 @@ public partial class App : Application
 
 **预览显示什么由视图声明决定**：输入框/读数/开关/下拉的初始值直接写在控件的 `Text` / `IsChecked` / `SelectedKey` 上；标签与不可见容器由框架附加虚线范围框；配置字段显示配置默认值。运行期数据到达后覆盖这些声明值。不要为了预览在视图代码里写一套默认值，也不要在设计环境调用 `Refresh`。
 
+**预览里的遮挡是有意为之**：预览不调用运行期 `Refresh`，XAML 默认全显；某些模块中运行期会隐藏的参数行/单元在预览里仍占位，可能与相邻控件重叠或互相遮挡。这样预览才能定位全部控件；不要把这种遮挡当作布局缺陷，也不要为了预览把这些控件改成 XAML 默认隐藏。实际布局以主应用运行期为准。
+
 配置字段在预览里没有运行时上下文，需要告诉预览器“从哪个配置类型反射”：
 
 ```csharp
@@ -250,6 +253,7 @@ public sealed partial class MyView : ModuleView { }
 | 文案显示成键名 | 预览器读不到文本表 | 工程里加上[项目与包布局](project-layout.md)中的 `Content` 项 |
 | 值编辑器只剩虚线框、看不到控件 | 视图缺设计数据：值不是配置字段，或视图没有登记初值/编辑器 | 配置字段视图加 `[ModuleViewDesignData(typeof(配置类型))]`；模块自有值给 `ModuleConfigField` 写 `Value`、`Editor`、`InitialValue` |
 | 参数控件在预览里消失 | XAML 默认 `IsVisible=False`，只靠运行时 `Refresh` 打开 | 结构控件常显，可选参数行 XAML 默认全显，运行期再按数据隐藏 |
+| 预览里控件互相遮挡 | 运行期会隐藏的参数行/单元在预览里仍全显 | 正常、有意为之；以主应用运行期为准，不要改成 XAML 默认隐藏 |
 | 预览期出现虚线范围框、运行期消失 | 范围框是设计期定位辅助，由 `ModuleView.IsDesignEnvironment` 决定 | 正常；运行期不创建、不参与布局、命中或 PNG 捕获 |
 | 某个装饰件只在预览期出现 | 使用了 `ui:PreviewOnly.IsEnabled="True"` | 正常；运行期自动隐藏 |
 | 命令按钮点了没反应 | 设计时上下文不执行命令 | 正常；命令只在主应用里生效 |

@@ -27,13 +27,16 @@ public partial class ModuleCatalogView : UserControl
     /// </remarks>
     private void OnCatalogDoubleTapped(object? sender, TappedEventArgs e)
     {
-        if (e.Source is not Visual source || source.FindAncestorOfType<ListBoxItem>() is null)
+        if (e.Source is not Visual source
+            || source.FindAncestorOfType<ListBoxItem>() is not { DataContext: ModuleCatalogListItem { Entry: not null } item })
         {
             return;
         }
 
         if (DataContext is ModuleCatalogViewModel catalog)
         {
+            // 分类标题行没有 Entry，不能双击加入；模块行先对齐选择，再走同一条加入路径。
+            catalog.SelectedCatalogItem = item;
             _ = catalog.AddSelected();
         }
     }

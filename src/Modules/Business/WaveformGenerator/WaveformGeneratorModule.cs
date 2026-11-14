@@ -25,7 +25,7 @@ namespace HYWDebugAssistant.Modules.WaveformGenerator;
     "waveform-generator",
     DisplayNameKey = WaveformGeneratorText.Title,
     DescriptionKey = WaveformGeneratorText.Description,
-    Tags = ["waveform", "generator"],
+    Tags = ["source", "waveform", "generator"],
     ParticipatesInDataFlow = true,
     ViewFactory = typeof(Views.WaveformGeneratorViewFactory))]
 public sealed class WaveformGeneratorModule : IModule, IActivitySource

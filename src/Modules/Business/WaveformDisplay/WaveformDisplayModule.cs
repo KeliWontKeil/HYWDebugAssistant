@@ -30,7 +30,7 @@ namespace HYWDebugAssistant.Modules.WaveformDisplay;
     "waveform-display",
     DisplayNameKey = WaveformDisplayText.Title,
     DescriptionKey = WaveformDisplayText.Description,
-    Tags = ["waveform", "display"],
+    Tags = ["terminal", "waveform", "display"],
     ParticipatesInDataFlow = true,
     ViewFactory = typeof(Views.WaveformDisplayViewFactory))]
 public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposable
@@ -765,7 +765,10 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                                 pair.Value.ClearHistory();
                             }
                         }
+
+                        _historyLimited = false;
                     }
+
                     PublishMeta(context);
                     PublishInputs(context);
                 }
@@ -777,6 +780,8 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                 {
                     _settings = _settings with { HistoryLimitSamples = limit };
                     _historyLimited = false;
+                    TrimInactiveHistory(context, incoming: 0);
+                    PublishValue(context, HistoryUsedSource, (ulong)InactiveSampleCount());
                     PublishMeta(context);
                     PublishInputs(context);
                     SetInputValidity(context, HistoryLimitSource, invalid: false);
@@ -1299,9 +1304,15 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         var active = group.GroupId == _activeGroupId;
 
         // 活动组永远保留（否则显示会自己冻住）；历史上限只约束非活动组。
-        var saving = active || (_settings.KeepInactiveHistory && !HistoryLimitReached(group));
+        // 非活动组达到上限时丢弃最旧样本、继续写入新样本，而不是停止接收。
+        var saving = active || _settings.KeepInactiveHistory;
         if (saving)
         {
+            if (!active)
+            {
+                TrimInactiveHistory(context, incoming: 1);
+            }
+
             group.Append(frame.Samples, frame.ValidMask, now);
         }
 
@@ -1401,33 +1412,79 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         {
             if (id != _activeGroupId)
             {
-                total += group.DisplayIndex;
+                total += group.RetainedFrames;
             }
         }
 
         return total;
     }
 
-    private bool HistoryLimitReached(DisplayGroupRuntime group)
+    /// <summary>
+    /// **按上限裁剪非活动组历史**：先丢最旧，再写入新样本；活动组永不裁剪。
+    /// </summary>
+    /// <param name="context">模块上下文（用于发布已用量与状态）。</param>
+    /// <param name="incoming">即将追加的帧数（调用方已确认要保存）。</param>
+    private void TrimInactiveHistory(IModuleContext context, int incoming)
     {
-        _ = group;
-        if (_settings.HistoryLimitSamples <= 0)
+        var limit = _settings.HistoryLimitSamples;
+        if (!_settings.KeepInactiveHistory || limit <= 0)
         {
-            return false;
+            _historyLimited = false;
+            return;
         }
 
-        if (InactiveSampleCount() < _settings.HistoryLimitSamples)
+        var total = InactiveSampleCount();
+        var overflow = total + incoming - limit;
+        var dropped = 0L;
+
+        while (overflow > 0)
         {
-            return false;
+            DisplayGroupRuntime? victim = null;
+            var oldest = long.MaxValue;
+
+            foreach (var id in _groupOrder)
+            {
+                if (id == _activeGroupId
+                    || !_groups.TryGetValue(id, out var candidate)
+                    || candidate.RetainedFrames == 0)
+                {
+                    continue;
+                }
+
+                var candidateOldest = candidate.DisplayIndex - candidate.RetainedFrames;
+                if (candidateOldest < oldest)
+                {
+                    oldest = candidateOldest;
+                    victim = candidate;
+                }
+            }
+
+            if (victim is null)
+            {
+                break;
+            }
+
+            var take = Math.Min(victim.RetainedFrames, overflow);
+            victim.DropOldestFrames(take);
+            dropped += take;
+            total -= take;
+            overflow -= take;
         }
 
-        if (!_historyLimited)
+        if (dropped > 0)
         {
-            _historyLimited = true;
-            PublishStatus(Tr("status.historyLimit"));
-        }
+            PublishValue(context, HistoryUsedSource, (ulong)InactiveSampleCount());
 
-        return true;
+            if (!_historyLimited)
+            {
+                _historyLimited = true;
+                PublishStatus(Tr("status.historyLimit"));
+            }
+        }
+        else if (total < limit)
+        {
+            _historyLimited = false;
+        }
     }
 
     private DisplayGroupRuntime GetOrCreateGroup(IModuleContext context, uint groupId)
@@ -1528,6 +1585,10 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         }
 
         _activeGroupId = groupId;
+
+        // 旧活动组刚变为非活动组：立即按上限保留最新一段，避免切组后历史继续膨胀。
+        TrimInactiveHistory(context, incoming: 0);
+
         var targetConfig = _groups.TryGetValue(groupId, out var targetGroup)
             ? targetGroup.Config
             : null;

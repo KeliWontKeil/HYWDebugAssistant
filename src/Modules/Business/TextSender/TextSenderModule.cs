@@ -33,7 +33,7 @@ namespace HYWDebugAssistant.Modules.TextSender;
     "text-sender",
     DisplayNameKey = TextSenderText.Title,
     DescriptionKey = TextSenderText.Description,
-    Tags = ["text", "sender"],
+    Tags = ["source", "text", "sender"],
     ParticipatesInDataFlow = true,
     ViewFactory = typeof(Views.TextSenderViewFactory))]
 public sealed class TextSenderModule : IModule, IActivitySource

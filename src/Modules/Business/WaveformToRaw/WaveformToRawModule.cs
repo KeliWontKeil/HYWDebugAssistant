@@ -27,7 +27,7 @@ namespace HYWDebugAssistant.Modules.WaveformToRaw;
     "waveform-to-raw",
     DisplayNameKey = WaveformToRawText.Title,
     DescriptionKey = WaveformToRawText.Description,
-    Tags = ["waveform", "protocol"],
+    Tags = ["converter", "waveform", "protocol"],
     ParticipatesInDataFlow = true,
     ViewFactory = typeof(Views.WaveformToRawViewFactory))]
 public sealed class WaveformToRawModule : IModule, IActivitySource

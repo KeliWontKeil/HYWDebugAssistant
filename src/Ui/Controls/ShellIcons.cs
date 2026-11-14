@@ -64,19 +64,22 @@ public static class ShellIcons
     /// <summary>图片。</summary>
     public const string Image = "icon.shell.image";
 
-    /// <summary>模块清单分类：校验类。</summary>
-    public const string CatalogVerify = "icon.catalog.verify";
-
     /// <summary>模块清单分类：其他。</summary>
     public const string CatalogOther = "icon.catalog.other";
 
     /// <summary>模块清单分类：全部（与 <see cref="Modules"/> 同一个键）。</summary>
     public const string CatalogAll = Modules;
 
-    /// <summary>模块清单分类：源（与 <see cref="Run"/> 同一个键）。</summary>
+    /// <summary>模块清单分类：端口（与 <see cref="Topology"/> 同一个键）。</summary>
+    public const string CatalogPort = Topology;
+
+    /// <summary>模块清单分类：数据源（与 <see cref="Run"/> 同一个键）。</summary>
     public const string CatalogSource = Run;
 
-    /// <summary>模块清单分类：宿（与 <see cref="Hide"/> 同一个键）。</summary>
-    public const string CatalogSink = Hide;
+    /// <summary>模块清单分类：终端（与 <see cref="Hide"/> 同一个键）。</summary>
+    public const string CatalogTerminal = Hide;
+
+    /// <summary>模块清单分类：转换器（与 <see cref="Reset"/> 同一个键）。</summary>
+    public const string CatalogConverter = Reset;
 }
 

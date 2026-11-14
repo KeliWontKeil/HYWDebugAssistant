@@ -29,7 +29,7 @@ namespace HYWDebugAssistant.Modules.Udp;
     "udp",
     DisplayNameKey = UdpText.Title,
     DescriptionKey = UdpText.Description,
-    Tags = ["udp", "io"],
+    Tags = ["port", "udp", "io"],
     Capabilities = ModuleCapability.Network,
     ParticipatesInDataFlow = true,
     ViewFactory = typeof(Views.UdpViewFactory))]

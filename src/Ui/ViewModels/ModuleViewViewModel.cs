@@ -568,6 +568,12 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <summary>**叠加层画布高（DIP）** = <see cref="Height"/>（口径见 <see cref="CanvasWidth"/>）。</summary>
     public double CanvasHeight => Height;
 
+    /// <summary>宽变化 ⇒ 叠加层画布宽也变了（否则自绘层会继续按旧宽度裁剪连线）。</summary>
+    partial void OnWidthChanged(double value) => OnPropertyChanged(nameof(CanvasWidth));
+
+    /// <summary>高变化 ⇒ 叠加层画布高也变了。</summary>
+    partial void OnHeightChanged(double value) => OnPropertyChanged(nameof(CanvasHeight));
+
     /// <summary>刷新实例状态（实例视图变化时调用；视图类型在实例生命周期内不变）。</summary>
     /// <remarks>
     /// **视图类型换了就重建**：本方法每次刷新都走，而视图只在实例的代码声明改变时才换。

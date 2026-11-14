@@ -196,6 +196,8 @@ public sealed class LevelBar : ModuleElement
 
 预览值写在控件的 `Text` / `IsChecked` / `SelectedKey` 等属性上；不要为预览在代码后置里写一套默认值。
 
+预览不调用运行期 `Refresh`，XAML 中的可选参数默认全显；运行期会隐藏的控件因此在预览里仍占位，可能与相邻控件重叠或遮挡。这是有意为之，不能据此判定布局缺陷，也不要把这些控件改成 XAML 默认隐藏。
+
 ## 相关
 
 - [界面](ui.md)：视图工厂、刷新、尺寸、布局与预览步骤

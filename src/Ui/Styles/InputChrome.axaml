@@ -15,12 +15,12 @@
   -->
 
   <!--
-    ① **TextBox**：常态用 `BorderDefault` 的细边框 + 小圆角 + `BgModule`；
+    ① **TextBox**：常态用 `BorderDefault` 的细边框 + 小圆角 + `SurfaceControlBrush`；
     聚焦 / 错误各加一圈环（焦点圈在下、错误圈在上），**边框厚度恒定** —— 文字不位移。
     指向态不改变任何东西（输入区不是按钮）。
   -->
   <Style Selector="TextBox">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="2" />
@@ -132,31 +132,31 @@
   </Style>
 
   <Style Selector="TextBox /template/ Border#PART_BorderElement">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>
 
   <Style Selector="TextBox:pointerover /template/ Border#PART_BorderElement">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>
 
   <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>
 
   <Style Selector="TextBox:error /template/ Border#PART_BorderElement">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>
 
   <Style Selector="TextBox:disabled /template/ Border#PART_BorderElement">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>
@@ -180,10 +180,10 @@
   <!--
     ② **ComboBox**：与 TextBox 同一套框与圈；Fluent 的 `HighlightBackground` 与
     "聚焦黑线"（`ComboBoxBackgroundBorderBrushFocused`）不再存在。箭头 `TextSecondary`；
-    弹层用 `BgModule` + `BorderDefault` 的细边框；指向态边框 `BorderStrong`。
+    弹层用不透明的 `BgModule` + `BorderDefault` 的细边框；输入框本身用 `SurfaceControlBrush`；指向态边框 `BorderStrong`。
   -->
   <Style Selector="ComboBox">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="2" />
@@ -312,31 +312,31 @@
   </Style>
 
   <Style Selector="ComboBox /template/ Border#PART_BorderElement">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>
 
   <Style Selector="ComboBox:pointerover /template/ Border#PART_BorderElement">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>
 
   <Style Selector="ComboBox:pressed /template/ Border#PART_BorderElement">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>
 
   <Style Selector="ComboBox:focus /template/ Border#PART_BorderElement">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>
 
   <Style Selector="ComboBox:disabled /template/ Border#PART_BorderElement">
-    <Setter Property="Background" Value="{DynamicResource BgModule}" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>

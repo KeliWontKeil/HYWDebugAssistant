@@ -29,7 +29,7 @@ namespace HYWDebugAssistant.Modules.TcpServer;
     "tcp-server",
     DisplayNameKey = TcpServerText.Title,
     DescriptionKey = TcpServerText.Description,
-    Tags = ["tcp", "server", "io"],
+    Tags = ["port", "tcp", "server", "io"],
     Capabilities = ModuleCapability.Network,
     ParticipatesInDataFlow = true,
     ViewFactory = typeof(Views.TcpServerViewFactory))]

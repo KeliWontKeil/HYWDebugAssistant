@@ -21,7 +21,7 @@ public sealed class MyModule : IModule { }
 | `Id`（构造参数） | `作者/模块名`：两段均为 `[a-z0-9-]`，不能为空、不能以 `-` 开头或结尾；必须与 `module.json` 的 `id` 一致 |
 | `DisplayName` / `DisplayNameKey` | 目录展示名；键命中时优先于字面量，键在本模块文本表中 |
 | `Description` / `DescriptionKey` | 目录描述；规则同上 |
-| `Tags` | 仅供检索与模块清单的分类筛选，不构成框架业务分类 |
+| `Tags` | 仅供检索与模块清单的分类筛选，不构成框架业务分类。分类标签为 `port` / `source` / `terminal` / `converter` / `other`；旧标签（`sender`、`monitor`、`protocol` 等）仍兼容 |
 | `Capabilities` | `Network` / `SerialPort` / `File` / `Process`，按位组合；加载时透明提示，不拦截（按实际访问的资源勾选） |
 | `DependsOn` | 依赖的模块标识；缺失时该模块不进入可加入列表并报 Issue |
 | `ParticipatesInDataFlow` | 是否参与数据流；`false` 用于纯界面/工具模块 |

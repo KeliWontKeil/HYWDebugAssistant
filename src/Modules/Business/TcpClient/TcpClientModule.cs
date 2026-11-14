@@ -28,7 +28,7 @@ namespace HYWDebugAssistant.Modules.TcpClient;
     "tcp-client",
     DisplayNameKey = TcpClientText.Title,
     DescriptionKey = TcpClientText.Description,
-    Tags = ["tcp", "client", "io"],
+    Tags = ["port", "tcp", "client", "io"],
     Capabilities = ModuleCapability.Network,
     ParticipatesInDataFlow = true,
     ViewFactory = typeof(Views.TcpClientViewFactory))]

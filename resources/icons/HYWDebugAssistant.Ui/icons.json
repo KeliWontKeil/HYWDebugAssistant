@@ -16,7 +16,6 @@
     "icon.shell.reset": "shell/reset.svg",
     "icon.shell.raise": "shell/raise.svg",
     "icon.shell.image": "shell/image.svg",
-    "icon.catalog.verify": "catalog/verify.svg",
     "icon.catalog.other": "catalog/other.svg"
   }
 }

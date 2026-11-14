@@ -5,6 +5,7 @@
              xmlns:views="using:HYWDebugAssistant.Ui.Views"
              xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
              xmlns:uc="using:HYWDebugAssistant.Ui.Controls"
+             xmlns:local="using:HYWDebugAssistant.FrameworkUi.Views"
              x:Class="HYWDebugAssistant.FrameworkUi.Views.ModuleCatalogView"
              x:DataType="vm:ModuleCatalogViewModel"
              xmlns:design="using:HYWDebugAssistant.FrameworkUi.Design"
@@ -39,7 +40,7 @@
             </Button>
         </Grid>
 
-        <!-- ② 横向分类标签（**固定宽度**：切换分类不会移动其它控件） -->
+        <!-- ② 横向分类标签（**固定宽度**：切换分类不会移动其它控件；全部分类在最小窗口宽度内仍放得下） -->
         <ItemsControl Grid.Row="1" ItemsSource="{Binding Categories}">
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
@@ -48,7 +49,7 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
                 <DataTemplate DataType="vm:ModuleCategoryViewModel">
-                    <Button Classes="tab" Width="64" Command="{Binding $parent[ItemsControl].((vm:ModuleCatalogViewModel)DataContext).SelectCategoryCommand}"
+                    <Button Classes="tab" Width="54" Command="{Binding $parent[ItemsControl].((vm:ModuleCatalogViewModel)DataContext).SelectCategoryCommand}"
                             CommandParameter="{Binding}"
                             Classes.active="{Binding IsSelected}"
                             ToolTip.Tip="{Binding Title}">
@@ -65,40 +66,60 @@
         <Border Grid.Row="2" Classes="pane" Padding="4" MinHeight="120">
             <Grid RowDefinitions="Auto,*,Auto">
                 <TextBlock Grid.Row="0" Classes="paneTitle" Margin="2,0,0,2" Text="{loc:Tr catalog.title}" />
-                <ListBox Grid.Row="1"
-                         Background="Transparent"
-                         BorderThickness="0"
-                         ItemsSource="{Binding Catalog}"
-                         DoubleTapped="OnCatalogDoubleTapped"
-                         SelectedItem="{Binding SelectedCatalogEntry, Mode=TwoWay}">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate DataType="vm:ModuleCatalogRowViewModel">
-                            <!-- 整行命中：条目根给透明背景，空白处也能出提示 -->
-                            <Grid ColumnDefinitions="72,*" Margin="0,2" Background="Transparent"
+                <local:ModuleCatalogListBox Grid.Row="1"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            ItemsSource="{Binding Catalog}"
+                                            DoubleTapped="OnCatalogDoubleTapped"
+                                            SelectedItem="{Binding SelectedCatalogItem, Mode=TwoWay}">
+                    <local:ModuleCatalogListBox.Styles>
+                        <!-- 标题行是不可选容器：不参与选择、键盘焦点与命中，也不显示禁用态灰度。 -->
+                        <Style Selector="ListBoxItem.catalogHeader">
+                            <Setter Property="MinHeight" Value="0" />
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Background" Value="Transparent" />
+                        </Style>
+                        <Style Selector="ListBoxItem.catalogHeader:disabled">
+                            <Setter Property="Opacity" Value="1" />
+                        </Style>
+                    </local:ModuleCatalogListBox.Styles>
+                    <local:ModuleCatalogListBox.ItemTemplate>
+                        <DataTemplate DataType="vm:ModuleCatalogListItem">
+                            <Grid Margin="0,2" Background="Transparent"
                                   ToolTip.Tip="{Binding TooltipText}">
-                                <Border Grid.Column="0" Classes="previewTile">
-                                    <Grid>
-                                        <Border Background="{Binding PreviewBrush}" />
-                                        <uc:Glyph Classes="icon previewGlyph"
-                                                  FontSize="18"
-                                                  IsVisible="{Binding !HasPreview}"
-                                                  Icon="{x:Static uc:ShellIcons.Modules}" />
-                                    </Grid>
-                                </Border>
+                                <!-- 分类标题：独立列表项，不进入模块行的选中区域。 -->
+                                <TextBlock Margin="2,6,0,2"
+                                           FontSize="10"
+                                           IsVisible="{Binding IsHeader}"
+                                           Foreground="{DynamicResource TextMuted}"
+                                           Text="{Binding Header}" />
 
-                                <StackPanel Grid.Column="1" Margin="8,0,0,0" Spacing="1" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding DisplayName}"
-                                               TextTrimming="CharacterEllipsis"
-                                               Foreground="{DynamicResource TextPrimary}" />
-                                    <TextBlock Text="{Binding OriginNotice}"
-                                               FontSize="10"
-                                               TextWrapping="Wrap"
-                                               Foreground="{DynamicResource TextMuted}" />
-                                </StackPanel>
+                                <!-- 模块行：整行命中；选中高亮只覆盖这一块。 -->
+                                <Grid ColumnDefinitions="72,*" IsVisible="{Binding IsModule}">
+                                    <Border Grid.Column="0" Classes="previewTile">
+                                        <Grid>
+                                            <Border Background="{Binding PreviewBrush}" />
+                                            <uc:Glyph Classes="icon previewGlyph"
+                                                      FontSize="18"
+                                                      IsVisible="{Binding ShowPreviewPlaceholder}"
+                                                      Icon="{x:Static uc:ShellIcons.Modules}" />
+                                        </Grid>
+                                    </Border>
+
+                                    <StackPanel Grid.Column="1" Margin="8,0,0,0" Spacing="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding DisplayName}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{DynamicResource TextPrimary}" />
+                                        <TextBlock Text="{Binding OriginNotice}"
+                                                   FontSize="10"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource TextMuted}" />
+                                    </StackPanel>
+                                </Grid>
                             </Grid>
                         </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                    </local:ModuleCatalogListBox.ItemTemplate>
+                </local:ModuleCatalogListBox>
 
                 <!-- 区域底行：左「加入现场」（页面级帮助在页面顶行，不在框内） -->
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="2,4,0,0">

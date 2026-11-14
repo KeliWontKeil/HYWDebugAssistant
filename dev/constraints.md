@@ -84,6 +84,7 @@
 - 控件不自带文字：开关只画轨道与圆钮，文字是独立 `ModuleLabel`，统一放在开关右侧。
 - 文字在标签矩形内的垂直对齐由 `ModuleTextElement.TextVerticalAlignment` 负责（默认居中）；不要用 `Padding` 或控件的 `VerticalAlignment` 代替——后者只决定控件在父容器里的位置。
 - 预览值/初值在 XAML 声明：可输入控件写初始值，只读控件写预览值；运行期数据覆盖。视图代码不写另一套预览默认值，设计环境不调 `Refresh`。
+- 预览里运行期会隐藏的控件仍全显；它们与相邻控件重叠/遮挡是有意为之，不以预览遮挡判定布局缺陷，也不为预览改成 XAML 默认隐藏。
 - **控件只绑值名，不碰后端**：可编辑控件用 `Value` + `CommitMode`，只经 `IModuleViewContext.ReadValue/CommitValue/RegisterViewDefault` 取/交值；不得直接读配置、读写视图状态、调用 `SubmitInput`/`UpdateField`，也不得自己解析/校验/生成字段错误。
 - **值没有配置/输入分类**：`ValueDeclaration` 只有编辑器、可选项、`Persistent`、`ResetWithModule`；初值只在 XAML。模块用 `context.Values.ReadText/AcceptText/Report`，提交时机是控件属性（`OnChange`/`OnExplicit`），失焦提交。
 - **一个值只有一个默认 owner：视图 XAML**。`ValueDeclaration` 不写默认值；XAML 初值由包加载器读取并在激活前播种，重置回到该初值。配置字段的 Schema 默认仍来自配置类型。

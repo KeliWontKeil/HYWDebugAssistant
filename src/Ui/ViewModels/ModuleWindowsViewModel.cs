@@ -1934,6 +1934,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         RefreshLayers();
+        RefreshOverlayLinks();
     }
 
     /// <summary>缩放手柄对应的边位标志（1 左 · 2 右 · 4 上 · 8 下）。</summary>
@@ -2180,6 +2181,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         module.ResizeEdges = 0;
         _ = _command.UpdateModuleLayout(module.ToLayout());
         RefreshLayers();
+        RefreshOverlayLinks();
     }
 
     /// <summary>把尺寸夹进"有效区间"（**两侧同为 DIP** ⇒ 不涉及缩放）。</summary>
@@ -3257,6 +3259,21 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         return $"{title} {number}";
+    }
+
+    /// <summary>
+    /// **手势结束后立即重算全部连线锚点**：拖动/缩放改变的是世界几何，而连线目标是按
+    /// “对端方块中心 − 本窗原点”缓存的；不重算会等到下一次 0.5 秒指标节拍才对齐。
+    /// </summary>
+    private void RefreshOverlayLinks()
+    {
+        foreach (var module in Modules)
+        {
+            if (module.IsViewVisible)
+            {
+                RefreshRoleLinks(module);
+            }
+        }
     }
 
     /// <summary>

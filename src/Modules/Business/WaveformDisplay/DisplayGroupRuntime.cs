@@ -31,6 +31,9 @@ internal sealed class DisplayGroupRuntime
     /// <summary>模块自己的数据编号（每收到一帧 +1；可清零）。</summary>
     public long DisplayIndex { get; private set; }
 
+    /// <summary>当前仍保留的样本帧数（丢弃最旧后减少；用于非活动组历史上限计量）。</summary>
+    public long RetainedFrames { get; private set; }
+
     /// <summary>当前 X 范围起点（样本索引；无范围时 &lt;0）。</summary>
     public long RangeStart { get; private set; } = -1;
 
@@ -177,7 +180,57 @@ internal sealed class DisplayGroupRuntime
         }
 
         DisplayIndex++;
+        RetainedFrames++;
         UpdateRate(nowMs);
+    }
+
+    /// <summary>
+    /// **丢弃最旧的若干帧**：保留新帧，并同步收紧各通道历史与已建立的 X 范围。
+    /// </summary>
+    /// <param name="frames">要丢弃的帧数（超过当前保留数时清到空）。</param>
+    public void DropOldestFrames(long frames)
+    {
+        var drop = Math.Clamp(frames, 0, RetainedFrames);
+        if (drop == 0)
+        {
+            return;
+        }
+
+        var oldest = DisplayIndex - RetainedFrames + drop;
+
+        foreach (var history in Histories)
+        {
+            if (history.Count > 0)
+            {
+                var keepFrom = Math.Max(history.StartIndex, oldest);
+                var remove = Math.Min(keepFrom - history.StartIndex, history.Count);
+                if (remove > 0)
+                {
+                    history.DropOldest(remove);
+                }
+            }
+
+            if (history.Count == 0)
+            {
+                history.StartAt(DisplayIndex);
+            }
+        }
+
+        RetainedFrames -= drop;
+
+        if (!HasRange)
+        {
+            return;
+        }
+
+        if (RangeEnd < oldest)
+        {
+            ResetRange();
+        }
+        else if (RangeStart < oldest)
+        {
+            RangeStart = oldest;
+        }
     }
 
     /// <summary>记录帧序号并累计缺口（不参与时间/位置）。</summary>
@@ -255,6 +308,7 @@ internal sealed class DisplayGroupRuntime
         }
 
         DisplayIndex = 0;
+        RetainedFrames = 0;
         ResetRange();
         ResetAutoY();
     }
