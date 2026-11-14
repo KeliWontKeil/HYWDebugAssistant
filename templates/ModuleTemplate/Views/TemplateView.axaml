@@ -7,8 +7,8 @@
                x:Class="HYWDebugAssistant.Template.MyModule.Views.TemplateView"
                x:CompileBindings="True"
                x:DataType="contracts:IModuleViewContext"
-               InitialWidth="360" InitialHeight="180"
-               MinWidth="360" MinHeight="180">
+               InitialWidth="402" InitialHeight="230"
+               MinWidth="402" MinHeight="230">
 
   <!-- 端口声明：位置与契约都在这里（名称/类型标识用模块常量，不写字面量）。 -->
   <ui:ModuleView.Ports>

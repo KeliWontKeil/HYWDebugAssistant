@@ -64,8 +64,8 @@ public partial class MyView : ModuleView, IModuleViewElement
                x:Class="MyModule.Views.MyView"
                x:CompileBindings="True"
                x:DataType="contracts:IModuleViewContext"
-               InitialWidth="360" InitialHeight="144"
-               MinWidth="360" MinHeight="144">
+               InitialWidth="402" InitialHeight="194"
+               MinWidth="402" MinHeight="194">
   <Grid RowDefinitions="*,Auto" Margin="12">
     <ui:ModuleLabel Grid.Row="1" Source="{x:Static local:MyModule.StateSource}" />
   </Grid>
@@ -81,18 +81,19 @@ public partial class MyView : ModuleView, IModuleViewElement
 视图根 `.axaml` 声明**两个独立尺寸**：
 
 ```xml
-<ui:ModuleView InitialWidth="360" InitialHeight="144"
-               MinWidth="360" MinHeight="144">
+<ui:ModuleView InitialWidth="402" InitialHeight="194"
+               MinWidth="402" MinHeight="194">
 ```
 
 | 属性 | 语义 |
 |---|---|
-| `InitialWidth/InitialHeight` | 新建/还原实例时的默认**内容**尺寸；低于最小尺寸时取最小尺寸 |
-| `MinWidth/MinHeight` | 运行期允许的最小**内容**尺寸 |
+| `InitialWidth/InitialHeight` | 新建/还原实例时的默认**窗口**尺寸（**含外框**，DIP）；低于最小尺寸时取最小尺寸 |
+| `MinWidth/MinHeight` | 运行期允许的最小**窗口**尺寸（**含外框**，DIP） |
 
-- 尺寸指内容区，不含外框：框架在内容区外再加左侧 20 / 顶部 22 / 右侧 20 / 底部 24 DIP 的端口预留带与 1 DIP 描边。窗口的实际最小尺寸还会被端口标记下限（160 DIP）托底。
+- 尺寸指**整个模块窗口**：包含左右各 1 DIP 描边与左 20 / 顶 22 / 右 20 / 底 24 DIP 的端口预留带。内容区尺寸 = 声明值 − 42（宽）/− 50（高）；不要把内容区尺寸写进根声明。
 - 用户拖过的尺寸随组合件保存；读回旧布局时夹到当前有效区间。
-- `InitialWidth/Height` 是唯一声明；`ModuleView` 在 setter 里把**内容尺寸 + 窗口外框**镜像给预览器的 `Design.Width/Height`（运行期 `InitialWidth` 仍是内容尺寸），不要再写 `d:DesignWidth/Height`。
+- `InitialWidth/Height` 是唯一声明；`ModuleView` 在 setter 里把**窗口尺寸**直接镜像给预览器的 `Design.Width/Height`，不要再写 `d:DesignWidth/Height`。
+- 运行期根控件的布局 `MinWidth/MinHeight` 会自动归一为**内容区下限**（声明值 − chrome），因此 402 的窗口下限不会撑破 360 的内容区；`ModuleView.DeclaredMinWidth/Height` 保留含外框的声明值供窗口模型读取。
 - 内容放不下时内容区滚动，窗口不按内容长高。
 - 最小尺寸要容得下端口标记，否则标记会被裁掉。
 
@@ -117,7 +118,7 @@ public partial class MyView : ModuleView, IModuleViewElement
 ## 布局
 
 - 内容区用 `Grid`：`*` 行/列吸收剩余空间，固定行放动作条与状态行。
-- **没有自适应需求的模块可以整块用一个 `Canvas`**（示例：串口、两个波形桥）：窗口尺寸 = 内容尺寸，`Min` 与 `Initial` 相等。共有输入（组号、采样率这类）保持绝对坐标；只有随协议变化的帧信息行放进固定起点的纵向堆叠（`StackPanel`）：行隐藏即折叠、不留占位；统计与状态按惯例固定在底部——统计一行，状态句单独贴底，不再为它们套第二层行列容器。
+- **没有自适应需求的模块可以整块用一个 `Canvas`**（示例：串口、两个波形桥）：XAML 声明的窗口尺寸固定，`Min` 与 `Initial` 相等；内容区 = 窗口 − 固定 chrome。共有输入（组号、采样率这类）保持绝对坐标；只有随协议变化的帧信息行放进固定起点的纵向堆叠（`StackPanel`）：行隐藏即折叠、不留占位；统计与状态按惯例固定在底部——统计一行，状态句单独贴底，不再为它们套第二层行列容器。
 - 固定控件集中放在一个 `Canvas` 中，用 `Canvas.Left/Top` 精确摆放；坐标只写在 XAML，代码不写位置、不按内容改行高。
 - `Canvas` 是“相对坐标容器”，不是窗口级绝对坐标：窗口变宽时由外层 `*` 区域吸收。
 - **结构常显，可选参数可隐藏**：组/通道/页签/动作等结构控件必须在 XAML 中常显；无选中项时用 `IsEnabled` 禁用。仅部分数据适用的参数行允许运行期用 `IsVisible` 隐藏，但 XAML 默认必须全显，保证预览器不调用 `Refresh` 时仍能定位全部控件。

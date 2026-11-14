@@ -1,14 +1,14 @@
 {
   "language": "zh-Hans",
   "entries": {
-    "module.description": "HEX文本与字符串转换小工具",
-    "module.title": "HEX ↔ 字符串转换器",
+    "module.description": "HEX与文本字符串转换小工具",
+    "module.title": "HEX-字符串转换器",
     "status.hex.nonHex": "「{0}」不是合法的十六进制字符 '{1}'（只接受 0-9 / A-F / a-f）",
     "status.hex.segmentLength": "「{0}」是 {1} 位；每段必须恰好两位（如 `0D 0A`）",
     "status.utf8Invalid": "不是合法的 UTF-8 字节序列（{0}）",
     "view.hexResultPreview": "48 65 6C 6C 6F",
-    "view.hexToText": "HEX → 文本",
-    "view.textToHex": "文本 → HEX",
+    "view.hexToText": "HEX→文本",
+    "view.textToHex": "文本→HEX",
     "view.charResultPreview": "Hello"
   }
 }

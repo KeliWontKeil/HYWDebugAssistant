@@ -7,8 +7,8 @@
                x:Class="HYWDebugAssistant.Modules.WaveformToRaw.Views.WaveformToRawView"
                x:CompileBindings="True"
                x:DataType="contracts:IModuleViewContext"
-               InitialWidth="360" InitialHeight="144"
-               MinWidth="360" MinHeight="144">
+               InitialWidth="400" InitialHeight="200"
+               MinWidth="400" MinHeight="190">
 
   <ui:ModuleView.Ports>
     <ui:ModulePort Name="{x:Static local:WaveformToRawModule.InPort}"
@@ -31,9 +31,9 @@
   -->
   <Canvas ClipToBounds="True">
 
-    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="24"
+    <ui:ModuleLabel Canvas.Left="0" Canvas.Top="10" Width="42" Height="24"
                     Classes="caption right" Field="{x:Static local:WaveformToRawModule.ProtocolField}" />
-    <ui:ModuleSelect Canvas.Left="44" Canvas.Top="0" Width="100" Height="24"
+    <ui:ModuleSelect Canvas.Left="44" Canvas.Top="10" Width="100" Height="24"
                      Value="{x:Static local:WaveformToRawModule.ProtocolField}"
                      SelectedKey="TextFrame">
       <ui:ModuleSelect.PreviewOptions>
@@ -43,16 +43,16 @@
       </ui:ModuleSelect.PreviewOptions>
     </ui:ModuleSelect>
 
-    <ui:ModuleLabel Canvas.Left="148" Canvas.Top="0" Width="30" Height="24"
+    <ui:ModuleLabel Canvas.Left="148" Canvas.Top="10" Width="30" Height="24"
                     Classes="caption right" Text="{loc:Tr view.groupShort}" />
-    <ui:ModuleTextSurface Canvas.Left="180" Canvas.Top="0" Width="36" Height="24" Mode="Input"
+    <ui:ModuleTextSurface Canvas.Left="180" Canvas.Top="10" Width="36" Height="24" Mode="Input"
                           Value="{x:Static local:WaveformToRawModule.GroupIdInput}"
                           Text="1" TextAlignment="Right"
                           CommitMode="OnChange" />
 
-    <ui:ModuleLabel Canvas.Left="220" Canvas.Top="0" Width="48" Height="24"
+    <ui:ModuleLabel Canvas.Left="220" Canvas.Top="10" Width="48" Height="24"
                     Classes="caption right" Text="{loc:Tr field.decimals}" />
-    <ui:ModuleTextSurface Canvas.Left="270" Canvas.Top="0" Width="48" Height="24" Mode="Input"
+    <ui:ModuleTextSurface Canvas.Left="270" Canvas.Top="10" Width="48" Height="24" Mode="Input"
                           Value="{x:Static local:WaveformToRawModule.DecimalsInput}"
                           Text="0" TextAlignment="Right"
                           CommitMode="OnChange" />
@@ -64,7 +64,7 @@
                     Classes="micro" Text="{loc:Tr proto.textFrame.sample}"
                     TextTrimming="CharacterEllipsis" ToolTip.Tip="{loc:Tr proto.textFrame.sample}" />
 
-    <StackPanel Name="ParamFlow" Canvas.Left="0" Canvas.Top="25" Width="356">
+    <StackPanel Name="ParamFlow" Canvas.Left="0" Canvas.Top="36" Width="356">
 
       <Canvas Name="TextParams" Width="356" Height="24">
         <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="24"

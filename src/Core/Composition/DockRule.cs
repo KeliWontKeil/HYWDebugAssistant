@@ -142,6 +142,7 @@ public static class DockRule
 
     /// <summary>
     /// 两模块是否**接触**；并给出接触面走向（<paramref name="horizontal"/> = true 表示左右相邻、接触面是竖直线）。
+    /// 正面积重合不算接触（边缘恰好相接仍算）。
     /// </summary>
     /// <param name="a">模块 A 矩形。</param>
     /// <param name="b">模块 B 矩形。</param>
@@ -156,6 +157,12 @@ public static class DockRule
         var aScale = ScaleOf(a);
         var bScale = ScaleOf(b);
         var tolerance = EdgeContactTolerance * Math.Min(aScale, bScale);
+
+        // 重合不是接触：窄模块/部分重叠时，反向外边也可能落在容差内。
+        if (OverlapsPhysical(a, aScale, b, bScale))
+        {
+            return false;
+        }
 
         // ① 左右相邻：A 在左、B 在右（或反之）
         var (left, right) = (a.X * aScale) <= (b.X * bScale) ? (a, b) : (b, a);
@@ -218,4 +225,12 @@ public static class DockRule
     /// <summary>两段区间在某一轴上的重叠长度。</summary>
     private static double Overlap(double startA, double lengthA, double startB, double lengthB) =>
         Math.Min(startA + lengthA, startB + lengthB) - Math.Max(startA, startB);
+
+    /// <summary>两个模块在物理像素空间是否有**正面积**重合；小于半像素的取整噪声不算。</summary>
+    private static bool OverlapsPhysical(ModuleLayoutView a, double aScale, ModuleLayoutView b, double bScale)
+    {
+        var width = Overlap(a.X * aScale, a.Width * aScale, b.X * bScale, b.Width * bScale);
+        var height = Overlap(a.Y * aScale, a.Height * aScale, b.Y * bScale, b.Height * bScale);
+        return width > 0.5 && height > 0.5;
+    }
 }

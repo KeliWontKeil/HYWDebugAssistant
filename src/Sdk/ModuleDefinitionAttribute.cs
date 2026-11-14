@@ -61,11 +61,11 @@ public sealed class ModuleDefinitionAttribute : Attribute
     public bool ParticipatesInDataFlow { get; init; } = true;
 
     /// <summary>
-    /// 旧窗口默认宽（DIP）。**已废弃**：尺寸唯一事实是视图根 `.axaml` 的 `MinWidth/MinHeight`（纯内容区）。
+    /// 旧窗口默认宽（DIP）。**已废弃**：尺寸唯一事实是视图根 `.axaml` 的 `MinWidth/MinHeight`（含外框的窗口尺寸）。
     /// </summary>
     /// <remarks>
     /// 保留属性只为二进制兼容；框架不再读取，内置模块不得声明。
-    /// 新模块请只在视图根声明内容尺寸，chrome 由框架加。
+    /// 新模块请只在视图根声明含外框的窗口尺寸，内容区由框架按固定 chrome 扣除。
     /// </remarks>
     public double WindowWidth { get; init; }
 

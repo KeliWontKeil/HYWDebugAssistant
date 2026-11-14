@@ -134,10 +134,10 @@ public sealed class ModuleSurfaceView : UserControl
             _frame.Child = view;
         }
 
-        if (view is Control content)
+        if (view is ModuleViewHost { Content: Control content })
         {
-            // 视图根同时声明运行期初始尺寸与最小尺寸；框架只负责加窗口 chrome。
-            _module?.SetContentSize(content);
+            // 视图根同时声明运行期初始尺寸与最小尺寸（含外框）；框架只按固定 chrome 让开内容区。
+            _module?.SetWindowSize(content);
         }
     }
 

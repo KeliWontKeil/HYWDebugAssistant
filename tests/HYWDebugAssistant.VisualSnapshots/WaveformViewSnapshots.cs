@@ -29,7 +29,7 @@ public class WaveformViewSnapshots
             new WaveformGeneratorViewFactory(),
             new GeneratorSnapshotContext(),
             1002,
-            368,
+            370,
             "modules/waveform-generator.png");
 
     [Fact]
@@ -38,7 +38,7 @@ public class WaveformViewSnapshots
             new WaveformGeneratorViewFactory(),
             new GeneratorSnapshotContext(groupSelected: true),
             1002,
-            368,
+            370,
             "modules/waveform-generator-group.png");
 
     [Fact]
@@ -47,7 +47,7 @@ public class WaveformViewSnapshots
             new WaveformGeneratorViewFactory(),
             new GeneratorSnapshotContext(kind: "spwm"),
             1002,
-            368,
+            370,
             "modules/waveform-generator-spwm.png");
 
     [Fact]
@@ -56,7 +56,7 @@ public class WaveformViewSnapshots
             new WaveformGeneratorViewFactory(),
             new GeneratorSnapshotContext(kind: "square"),
             1002,
-            368,
+            370,
             "modules/waveform-generator-square.png");
 
     [Fact]
@@ -65,7 +65,7 @@ public class WaveformViewSnapshots
             new WaveformGeneratorViewFactory(),
             new GeneratorSnapshotContext(),
             1002,
-            368,
+            370,
             "modules/waveform-generator-preview.png");
 
     [Fact]
@@ -74,7 +74,7 @@ public class WaveformViewSnapshots
             new WaveformDisplayViewFactory(),
             new DisplaySnapshotContext(),
             1002,
-            628,
+            630,
             "modules/waveform-display-preview.png");
 
     [Fact]
@@ -85,7 +85,7 @@ public class WaveformViewSnapshots
             {
                 var view = new WaveformGeneratorViewFactory().Create(new GeneratorSnapshotContext());
                 var host = new ModuleViewHost(new GeneratorSnapshotContext(), view);
-                var window = SnapshotWindow.CreateFramed(host, view as ModuleView, 960, 320);
+                var window = SnapshotWindow.CreateFramed(host, view as ModuleView, 1002, 370);
                 window.Show();
                 SnapshotTool.Pump();
 
@@ -140,7 +140,7 @@ public class WaveformViewSnapshots
         var context = new GeneratorSnapshotContext(kind, groupSelected);
         var view = new WaveformGeneratorViewFactory().Create(context);
         var host = new ModuleViewHost(context, view);
-        var window = SnapshotWindow.CreateFramed(host, view as ModuleView, 960, 320);
+        var window = SnapshotWindow.CreateFramed(host, view as ModuleView, 1002, 370);
 
         try
         {
@@ -167,7 +167,7 @@ public class WaveformViewSnapshots
             new WaveformDisplayViewFactory(),
             new DisplaySnapshotContext(),
             1002,
-            628,
+            630,
             "modules/waveform-display.png");
 
     [Fact]
@@ -176,7 +176,7 @@ public class WaveformViewSnapshots
             new WaveformDisplayViewFactory(),
             new DisplaySnapshotContext(empty: true),
             1002,
-            628,
+            630,
             "modules/waveform-display-empty.png");
 
     [Fact]
@@ -186,8 +186,8 @@ public class WaveformViewSnapshots
             () =>
             {
                 var view = new WaveformDisplayViewFactory().Create(new DisplaySnapshotContext());
-                Assert.Equal(960, Design.GetWidth(view));
-                Assert.Equal(580, Design.GetHeight(view));
+                Assert.Equal(1002, Design.GetWidth(view));
+                Assert.Equal(630, Design.GetHeight(view));
             },
             CancellationToken.None);
     }

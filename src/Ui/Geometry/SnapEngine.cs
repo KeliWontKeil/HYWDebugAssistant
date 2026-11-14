@@ -90,7 +90,8 @@ public readonly record struct SnapReferenceLine(bool IsVertical, double Position
 /// <param name="OtherCoordinate">对方端口在**该对齐轴**上的坐标。</param>
 /// <param name="Other">对方模块矩形（用于接近范围判定与辅助线长度）。</param>
 /// <param name="MovingOffset">被拖模块该端口在对齐轴上的**归一化位置**（0–1）。</param>
-public readonly record struct PortAnchorPair(bool AlignsX, double OtherCoordinate, CanvasRect Other, double MovingOffset);
+/// <param name="MovingIndex">组吸附时该端口所属成员在 <c>moving</c> 列表里的下标（单模块为 0）。</param>
+public readonly record struct PortAnchorPair(bool AlignsX, double OtherCoordinate, CanvasRect Other, double MovingOffset, int MovingIndex = 0);
 
 /// <summary>吸附结果（**纯函数**：只由"原始位置 + 参照线"决定，不含跨帧状态）。</summary>
 /// <param name="X">命中后的 X（未命中则等于输入）。</param>
@@ -196,7 +197,7 @@ public static class SnapEngine
         new(line.IsVertical, line.Position, line.Start, line.End, SnapLineSource.ShellEdge, default);
 
     /// <summary>
-    /// 把 <paramref name="moving"/> 吸附到给定参照线；返回吸附后的位置与辅助线。
+    /// 把单个矩形吸附到给定参照线；这是 <see cref="SnapGroup"/> 的单成员快捷入口。
     /// </summary>
     /// <param name="moving">被拖动模块的矩形（**原始位置**：指针推出来的位置）。</param>
     /// <param name="lines">参照线（由 <see cref="LinesOf"/> / <see cref="LineOf"/> 生成；**不含**同组成员）。</param>
@@ -204,6 +205,7 @@ public static class SnapEngine
     /// <param name="portAnchors">端口锚点对（可选）。</param>
     /// <param name="flushTolerance">贴合类容差（px）。</param>
     /// <param name="portReach">端口锚点的接近范围（px）。</param>
+    /// <param name="memory">上一帧的吸附记忆。</param>
     public static SnapResult Snap(
         CanvasRect moving,
         IReadOnlyList<SnapLine> lines,
@@ -211,21 +213,69 @@ public static class SnapEngine
         IReadOnlyList<PortAnchorPair>? portAnchors = null,
         double flushTolerance = FlushTolerance,
         double portReach = PortAlignReach,
+        SnapMemory memory = default) =>
+        SnapGroup([moving], 0, lines, tolerance, portAnchors, flushTolerance, portReach, obstacles: null, memory);
+
+    /// <summary>
+    /// 把一组**刚体平移**的矩形吸附到给定参照线：候选来自每个成员的边/中心/端口，整组共用同一个位移。
+    /// </summary>
+    /// <param name="moving">组内成员的矩形（**原始位置**：已按指针位移整体推过的位置）。</param>
+    /// <param name="anchorIndex">返回的 <see cref="SnapResult.X"/> / <see cref="SnapResult.Y"/> 以哪个成员为基准。</param>
+    /// <param name="lines">参照线（**不含**组内成员）。</param>
+    /// <param name="tolerance">对齐类容差（px）。</param>
+    /// <param name="portAnchors">端口锚点对（<see cref="PortAnchorPair.MovingIndex"/> 指向成员）。</param>
+    /// <param name="flushTolerance">贴合类容差（px）。</param>
+    /// <param name="portReach">端口锚点的接近范围（px）。</param>
+    /// <param name="obstacles">
+    /// 组外障碍矩形；若选中的平移会让任一成员与障碍重合，则本帧不吸附（返回原始位置）。
+    /// 这样吸附不会主动把模块/组叠到另一个模块上。
+    /// </param>
+    /// <param name="memory">上一帧的吸附记忆。</param>
+    /// <exception cref="ArgumentException"><paramref name="moving"/> 为空。</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="anchorIndex"/> 越界。</exception>
+    public static SnapResult SnapGroup(
+        IReadOnlyList<CanvasRect> moving,
+        int anchorIndex,
+        IReadOnlyList<SnapLine> lines,
+        double tolerance = DefaultTolerance,
+        IReadOnlyList<PortAnchorPair>? portAnchors = null,
+        double flushTolerance = FlushTolerance,
+        double portReach = PortAlignReach,
+        IReadOnlyList<CanvasRect>? obstacles = null,
         SnapMemory memory = default)
     {
+        ArgumentNullException.ThrowIfNull(moving);
         ArgumentNullException.ThrowIfNull(lines);
 
-        var xs = new List<Candidate>(lines.Count);
-        var ys = new List<Candidate>(lines.Count);
-
-        foreach (var line in lines)
+        if (moving.Count == 0)
         {
-            CollectLine(moving, line, xs, ys);
+            throw new ArgumentException("At least one moving rectangle is required.", nameof(moving));
+        }
+
+        if ((uint)anchorIndex >= (uint)moving.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(anchorIndex));
+        }
+
+        var xs = new List<Candidate>(Math.Max(lines.Count, 1) * moving.Count);
+        var ys = new List<Candidate>(Math.Max(lines.Count, 1) * moving.Count);
+
+        foreach (var rect in moving)
+        {
+            foreach (var line in lines)
+            {
+                CollectLine(rect, line, xs, ys);
+            }
         }
 
         foreach (var pair in portAnchors ?? [])
         {
-            CollectPortAnchor(moving, pair, xs, ys, portReach);
+            if ((uint)pair.MovingIndex >= (uint)moving.Count)
+            {
+                continue;
+            }
+
+            CollectPortAnchor(moving[pair.MovingIndex], pair, xs, ys, portReach);
         }
 
         var dedupedX = Deduplicate(xs);
@@ -235,9 +285,26 @@ public static class SnapEngine
         var chosenX = PreferMemory(Best(dedupedX, tolerance, flushTolerance), dedupedX, memory.XLine, release);
         var chosenY = PreferMemory(Best(dedupedY, tolerance, flushTolerance), dedupedY, memory.YLine, release);
 
-        var x = chosenX is { } cx ? moving.X + cx.Delta : moving.X;
-        var y = chosenY is { } cy ? moving.Y + cy.Delta : moving.Y;
-        var snapped = moving.At(x, y);
+        var deltaX = chosenX?.Delta ?? 0;
+        var deltaY = chosenY?.Delta ?? 0;
+
+        if (obstacles is { Count: > 0 })
+        {
+            foreach (var rect in moving)
+            {
+                var translated = rect.OffsetBy(deltaX, deltaY);
+                if (obstacles.Any(obstacle => RectsOverlap(translated, obstacle)))
+                {
+                    var raw = moving[anchorIndex];
+                    return new SnapResult(raw.X, raw.Y, false, false, null, null, []);
+                }
+            }
+        }
+
+        var anchor = moving[anchorIndex];
+        var x = anchor.X + deltaX;
+        var y = anchor.Y + deltaY;
+        var snapped = anchor.At(x, y);
 
         var guides = new List<GuideLine>(2);
         if (chosenX is { } gx)
@@ -269,6 +336,25 @@ public static class SnapEngine
             chosenX?.LineCoordinate,
             chosenY?.LineCoordinate);
     }
+
+    /// <summary>两个矩形是否存在**正面积**重合（边缘恰好相接不算）。</summary>
+    /// <param name="a">矩形 A。</param>
+    /// <param name="b">矩形 B。</param>
+    /// <param name="epsilon">取整噪声容差（px）；默认 <see cref="OverlapEpsilon"/>。</param>
+    public static bool RectsOverlap(CanvasRect a, CanvasRect b, double epsilon = OverlapEpsilon)
+    {
+        if (!a.IsValid || !b.IsValid)
+        {
+            return false;
+        }
+
+        var width = Math.Min(a.Right, b.Right) - Math.Max(a.Left, b.Left);
+        var height = Math.Min(a.Bottom, b.Bottom) - Math.Max(a.Top, b.Top);
+        return width > epsilon && height > epsilon;
+    }
+
+    /// <summary>取整噪声容差：小于它的“重叠”视为同一条边。</summary>
+    public const double OverlapEpsilon = 0.5;
 
     /// <summary>
     /// 吸附迟滞：上一帧的线仍在释放距离内时优先保持它，避免指针停在阈值附近时"吸/不吸"来回跳。
@@ -316,6 +402,12 @@ public static class SnapEngine
     public static bool AreJoined(CanvasRect a, CanvasRect b, double tolerance = FlushTolerance)
     {
         if (!a.IsValid || !b.IsValid)
+        {
+            return false;
+        }
+
+        // 重合不是贴合：窄模块/部分重叠时，反向外边也可能落在容差内。
+        if (RectsOverlap(a, b))
         {
             return false;
         }

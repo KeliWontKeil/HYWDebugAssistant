@@ -30,7 +30,6 @@ using HYWDebugAssistant.Sdk.Testing;
 using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
-using HYWDebugAssistant.Sdk.Ui.Geometry;
 using HYWDebugAssistant.Sdk.Views;
 using Xunit;
 
@@ -85,7 +84,7 @@ public class ModuleViewSnapshots
                 var view = factory.Create(context);
                 var host = new ModuleViewHost(context, view);
 
-                // 截图窗口 = 视图声明的初始内容尺寸 + 同一份 chrome；真实窗口也按这一份初始尺寸。
+                // 截图窗口 = 视图声明的实际窗口尺寸（含外框）；真实窗口按同一份尺寸。
                 var (width, height) = WindowSize(view);
 
                 var window = SnapshotWindow.CreateFramed(host, view as ModuleView, width, height);
@@ -165,21 +164,17 @@ public class ModuleViewSnapshots
             CancellationToken.None);
     }
 
-    /// <summary>截图窗口尺寸 = 视图声明的初始内容尺寸 + 同一份 chrome。</summary>
+    /// <summary>截图窗口尺寸 = 视图声明的实际窗口尺寸（含外框）。</summary>
     private static (double Width, double Height) WindowSize(Control view)
     {
-        var contentWidth = view is ModuleView moduleView && moduleView.InitialWidth > 0
+        var width = view is ModuleView moduleView && moduleView.InitialWidth > 0
             ? moduleView.InitialWidth
             : view.MinWidth > 0 ? view.MinWidth : 500;
-        var contentHeight = view is ModuleView moduleViewHeight && moduleViewHeight.InitialHeight > 0
+        var height = view is ModuleView moduleViewHeight && moduleViewHeight.InitialHeight > 0
             ? moduleViewHeight.InitialHeight
             : view.MinHeight > 0 ? view.MinHeight : 400;
 
-        return (
-            contentWidth + (2 * ModuleSurfaceMetrics.FrameBorder)
-                + ModuleSurfaceMetrics.InsetLeft + ModuleSurfaceMetrics.InsetRight,
-            contentHeight + (2 * ModuleSurfaceMetrics.FrameBorder)
-                + ModuleSurfaceMetrics.InsetTop + ModuleSurfaceMetrics.InsetBottom);
+        return (width, height);
     }
 
     /// <summary>从配置类型推出“每个字段长什么样”的替身（标题取声明该接入的模块的表，与运行时同一份）。</summary>

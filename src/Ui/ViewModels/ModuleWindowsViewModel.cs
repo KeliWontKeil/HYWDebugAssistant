@@ -141,7 +141,16 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     private bool _dragCommittedLive;
 
     private string? _draggingId;
-    private IReadOnlyList<string> _dragGroup = [];
+    private List<string> _dragGroup = [];
+
+    /// <summary>组内成员在**被拖窗口 DIP 坐标**下的起始矩形（组吸附的输入；顺序同 <see cref="_dragGroup"/>）。</summary>
+    private readonly List<CanvasRect> _dragStartDragRects = [];
+
+    /// <summary>组吸附的锚点成员下标（返回值以它为基准换算成整组位移）。</summary>
+    private int _dragAnchorIndex;
+
+    /// <summary>组外障碍矩形（同一 DIP 坐标；组吸附不允许把任何成员叠到它们上面）。</summary>
+    private IReadOnlyList<CanvasRect> _dragObstacles = [];
 
     /// <summary>手势按下时的指针位置（**整数物理像素**）——整组位移从它算起，不逐帧累加。</summary>
     private PixelPoint _dragStartPointer;
@@ -252,6 +261,14 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
     /// <summary>外壳**可见外框**的物理像素矩形（与 <see cref="ShellRect"/> 同一次探测发布）。</summary>
     public CanvasRect? ShellPhysicalRect { get; private set; }
+
+    /// <summary>
+    /// **实例 → 当前叠放序号的来源**（越大越靠上）；由窗口管理器注入，测试/设计期可为空。
+    /// </summary>
+    /// <remarks>
+    /// 层不是全局 z-order 序号，而是由该序号 + 重合关系派生的“叠放带”；见 <see cref="RefreshLayers"/>。
+    /// </remarks>
+    public Func<string, int>? ZOrderProvider { get; set; }
 
     /// <summary>外壳窗口的**物理位置**（<c>Window.Position</c>；绝对移动的目标必须用它，不能拿可见外框原点）。</summary>
     public PixelPoint? ShellWindowPosition { get; private set; }
@@ -750,6 +767,46 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     };
 
     /// <summary>
+    /// **按当前叠放顺序与几何重新派生模块层号**；返回是否有模块的层发生变化。
+    /// </summary>
+    /// <remarks>
+    /// 层号只用于吸附/成组过滤，不落盘；<see cref="ZOrderProvider"/> 为空时（无头测试/设计期）不规划。
+    /// 外壳作为最底实体参与重合判断，但不属于任何“同层”模块组。
+    /// </remarks>
+    public bool RefreshLayers()
+    {
+        if (ZOrderProvider is not { } zOrder)
+        {
+            return false;
+        }
+
+        var modules = Modules
+            .Where(module => module.IsViewVisible)
+            .Select(module => (module.InstanceId, module.PhysicalRect))
+            .ToList();
+
+        var layers = ModuleLayerPlanner.Plan(modules, ShellPhysicalRect, zOrder);
+        var changed = false;
+
+        foreach (var module in Modules)
+        {
+            var layer = module.IsViewVisible && layers.TryGetValue(module.InstanceId, out var resolved)
+                ? resolved
+                : 0;
+
+            if (module.Layer == layer)
+            {
+                continue;
+            }
+
+            module.Layer = layer;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    /// <summary>
     /// **类型颜色改了** ⇒ 让所有端口标记重读类型画刷（数据结构 → 颜色映射表）。
     /// </summary>
     /// <remarks>
@@ -1096,6 +1153,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             return false;
         }
 
+        RefreshLayers();
+
         _draggingId = instanceId;
         module.IsInteracting = true;
 
@@ -1107,14 +1166,37 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             ? [instanceId]
             : [.. GroupOfNode(instanceId).Where(id => Find(id) is not { IsLocked: true })];
 
+        // 外壳是跨层锚点：拖一个贴壳组时，外壳上其他层的贴壳组也必须一起走，否则会脱钩。
+        if (_dragGroup.Contains(ShellNodeId, StringComparer.Ordinal))
+        {
+            var expanded = _dragGroup.ToList();
+
+            foreach (var memberId in GroupOfNode(ShellNodeId))
+            {
+                if (Find(memberId) is not { IsLocked: false }
+                    || expanded.Contains(memberId, StringComparer.Ordinal))
+                {
+                    continue;
+                }
+
+                expanded.Add(memberId);
+            }
+
+            _dragGroup = expanded;
+        }
+
         // 拖动**起点**的几何（拖动中按 Ctrl 拆分时，把已经被带走的其他成员**放回原位** —— 见 DetachDrag）
         // **整数物理像素矩形是整组位移的唯一基准**：整组每帧从起点 + 同一个整数位移重算，
         // 不逐帧累加小数位移，窗口的独立取整就不会把公共边拉开。
         _dragStartRects.Clear();
         _dragStartPixels.Clear();
         _dragStartLayouts.Clear();
+        _dragStartDragRects.Clear();
+        _dragAnchorIndex = 0;
         _dragCommittedLive = false;
         _lastGroupDelta = null;
+
+        var dragScale = module.Scaling > 0 ? module.Scaling : 1;
         foreach (var memberId in _dragGroup)
         {
             if (Find(memberId) is { } member)
@@ -1122,8 +1204,16 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 _dragStartRects[memberId] = member.Rect;
                 _dragStartPixels[memberId] = member.PixelRect;
                 _dragStartLayouts[memberId] = member.ToLayout();
+                _dragStartDragRects.Add(ToDragDip(member.PhysicalRect, dragScale));
+
+                if (string.Equals(memberId, instanceId, StringComparison.Ordinal))
+                {
+                    _dragAnchorIndex = _dragStartDragRects.Count - 1;
+                }
             }
         }
+
+        _dragObstacles = BuildDragObstacles(dragScale, module.Layer);
 
         _dragStartPointer = new PixelPoint(ScreenPixels.ToPixel(pointerX), ScreenPixels.ToPixel(pointerY));
 
@@ -1217,8 +1307,14 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         // ③ 组收缩为"只有被拖的那个"。
         // **保留被拖成员的原始起点**（DIP / 整数像素 / 手势起点指针）：下一帧 DragTo 仍从
         // "手势起点 + 指针位移"重算，拆分瞬间不会跳。其余成员的起点随之丢弃。
+        var draggedStart = _dragAnchorIndex >= 0 && _dragAnchorIndex < _dragStartDragRects.Count
+            ? _dragStartDragRects[_dragAnchorIndex]
+            : ToDragDip(dragged.PhysicalRect, dragged.Scaling > 0 ? dragged.Scaling : 1);
         _dragGroup = [draggingId];
         dragged.IsInteracting = true;
+        _dragStartDragRects.Clear();
+        _dragStartDragRects.Add(draggedStart);
+        _dragAnchorIndex = 0;
         foreach (var memberId in _dragStartPixels.Keys
                      .Where(id => !string.Equals(id, draggingId, StringComparison.Ordinal))
                      .ToList())
@@ -1227,6 +1323,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         _lastGroupDelta = null;
+        _dragObstacles = BuildDragObstacles(dragged.Scaling > 0 ? dragged.Scaling : 1, dragged.Layer);
 
         // 组变小 ⇒ 被放回原位的成员重新成为参照线/端口锚点。
         _dragLines = CollectLines(draggingId);
@@ -1426,23 +1523,45 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             ? recordedPixels
             : module.PixelRect;
 
+        // 层是叠放顺序的派生值：每一帧先按当前几何/层序重算；若层变了，拖动期的缓存必须一起换。
+        if (RefreshLayers())
+        {
+            _dragLines = CollectLines(draggingId);
+            _dragAnchors = BuildPortAnchors(draggingId);
+            _dragObstacles = BuildDragObstacles(dragScale, module.Layer);
+        }
+
         var pointer = new PixelPoint(ScreenPixels.ToPixel(pointerX), ScreenPixels.ToPixel(pointerY));
         var rawDeltaX = pointer.X - _dragStartPointer.X;
         var rawDeltaY = pointer.Y - _dragStartPointer.Y;
-        var targetX = startRect.X + (rawDeltaX / dragScale);
-        var targetY = startRect.Y + (rawDeltaY / dragScale);
+        var rawOffsetX = rawDeltaX / dragScale;
+        var rawOffsetY = rawDeltaY / dragScale;
+        var targetX = startRect.X + rawOffsetX;
+        var targetY = startRect.Y + rawOffsetY;
 
         IReadOnlyList<GuideLine> guides = [];
         var snapping = snapEnabled ?? SnapEnabled;
 
         if (snapping)
         {
-            var snapped = SnapEngine.Snap(
-                new CanvasRect(targetX, targetY, startRect.Width, startRect.Height),
+            // 组吸附：候选来自组内**每个成员**，整组共用同一个平移；单模块就是只有一个成员的退化情形。
+            var anchorIndex = _dragStartDragRects.Count > 0
+                && _dragAnchorIndex >= 0
+                && _dragAnchorIndex < _dragStartDragRects.Count
+                ? _dragAnchorIndex
+                : 0;
+            var moving = _dragStartDragRects.Count > 0
+                ? _dragStartDragRects.Select(rect => rect.OffsetBy(rawOffsetX, rawOffsetY)).ToList()
+                : [new CanvasRect(targetX, targetY, startRect.Width, startRect.Height)];
+
+            var snapped = SnapEngine.SnapGroup(
+                moving,
+                anchorIndex,
                 _dragLines,
                 SnapDistance,                 // 对齐类容差 = 设置里的「吸附距离」
                 _dragAnchors,
                 SnapDistance * 2,             // 贴合类容差 = 2×（拼接是主用途，值得给宽容差）
+                obstacles: _dragObstacles,
                 memory: _snapMemory);
 
             targetX = snapped.X;
@@ -1802,6 +1921,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _dragStartRects.Clear();
         _dragStartPixels.Clear();
         _dragStartLayouts.Clear();
+        _dragStartDragRects.Clear();
+        _dragAnchorIndex = 0;
+        _dragObstacles = [];
         _lastGroupDelta = null;
         _dragCommittedLive = false;
         ClearDockPreview();
@@ -1810,6 +1932,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         {
             _ = _command.UpdateModuleLayouts(layouts);
         }
+
+        RefreshLayers();
     }
 
     /// <summary>缩放手柄对应的边位标志（1 左 · 2 右 · 4 上 · 8 下）。</summary>
@@ -1889,7 +2013,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _dragStartRects.Clear();
         _dragStartPixels.Clear();
         _dragStartLayouts.Clear();
+        _dragStartDragRects.Clear();
+        _dragAnchorIndex = 0;
+        _dragObstacles = [];
         CancelDockPreviewRetry();
+        RefreshLayers();
     }
 
     // ---------------------------------------------------------------- 缩放
@@ -2035,6 +2163,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         module.Width = width;
         module.Height = height;
         RaiseGeometry(module);
+        RefreshLayers();
     }
 
     /// <summary>结束缩放：一次 ChangeSet 提交几何。</summary>
@@ -2050,6 +2179,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         module.IsInteracting = false;
         module.ResizeEdges = 0;
         _ = _command.UpdateModuleLayout(module.ToLayout());
+        RefreshLayers();
     }
 
     /// <summary>把尺寸夹进"有效区间"（**两侧同为 DIP** ⇒ 不涉及缩放）。</summary>
@@ -2366,7 +2496,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// **还原模块**：回到实例化默认尺寸，可选连配置一起还原。
     /// </summary>
     /// <remarks>
-    /// 默认尺寸 = **视图根的 `InitialWidth/InitialHeight`（纯内容区）+ chrome**；
+    /// 默认尺寸 = **视图根的 `InitialWidth/InitialHeight`（含外框的实际窗口尺寸）**；
     /// 位置不变（只还原尺寸与配置，不动用户摆放的位置）。
     /// 还原值再夹进该模块的**运行期最小/最大**区间；初始尺寸与最小尺寸是两个独立事实。
     /// </remarks>
@@ -2454,7 +2584,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     ///   <item>一列到底（超出工作区下沿）就**换到右面一列**（X 挪"模块宽 + 间距"，Y 回到起点）；
     ///     工作区不可用时不换列（无限向下，仍保证不堆叠）。</item>
     /// </list>
-    /// 尺寸用**视图根 XAML 的内容 MinWidth/MinHeight + chrome**（由调用方先加载视图得到）。
+    /// 尺寸用**视图根 XAML 的窗口 MinWidth/MinHeight（含外框）**（由调用方先加载视图得到）。
     /// 有循环上限兜底，极端情况下宁可重叠也不死循环。
     /// </remarks>
     /// <summary>
@@ -2487,8 +2617,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                     return (x, y);
                 }
 
-                // 本列已到底 → 换右边一列。列宽不能只按声明宽度算：实际窗口宽 = 内容最小宽 + chrome，
-                // 若按声明宽度步进，实际只剩不到 PlaceGap 的缝，会被碰撞判定当成仍重叠，进而多跳一列。
+                // 本列已到底 → 换右边一列。列宽不能只按“内容最小宽”估：XAML 声明的是含外框的实际窗口宽，
+                // 若按内容宽步进，实际只剩不到 PlaceGap 的缝，会被碰撞判定当成仍重叠，进而多跳一列。
                 x = CurrentColumnRight(x, width) + PlaceGap;
                 y = baseY;
             }
@@ -2689,7 +2819,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             {
                 if (created.EnsureView()?.Content is Control content)
                 {
-                    created.SetContentSize(content);
+                    created.SetWindowSize(content);
                 }
 
                 created.Width = created.StartupWindowWidth;
@@ -3279,10 +3409,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>对端是否与本模块**拼接贴合**（按实例 ID 判；对端不在现场 ⇒ false ⇒ 末端画断口 + 标对端）。</summary>
+    /// <remarks>这是连线的几何邻接判断，不受模块层限制：命名网络可以跨层。</remarks>
     private bool IsPeerAdjacent(ModuleViewViewModel module, string peerInstanceId) =>
         Find(peerInstanceId) is { } peer
         && peer.Rect.IsValid
-        && AreNodesJoined((module.InstanceId, module.PhysicalRect), (peer.InstanceId, peer.PhysicalRect), GroupTolerance);
+        && SnapEngine.AreJoined(module.PhysicalRect, peer.PhysicalRect, GroupTolerance);
     /// <summary>
     /// **速率文本**（每秒字节数）：**如实显示**，不做"低于阈值就显示占位符"的模糊化。
     /// </summary>
@@ -3293,9 +3424,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
     private static string FormatBytes(long bytes) => ByteQuantity.Format(bytes);
 
-    /// <summary>成组判定用的模块矩形（**物理像素**；不同缩放屏上才有共同单位）。</summary>
-    private IReadOnlyList<(string Id, CanvasRect Rect)> ModuleRects() =>
-        [.. Modules.Where(m => m.IsViewVisible).Select(m => (m.InstanceId, m.PhysicalRect))];
+    /// <summary>成组判定用的模块矩形 + 层（**物理像素**；不同缩放屏上才有共同单位）。</summary>
+    private IReadOnlyList<(string Id, CanvasRect Rect, int Layer)> ModuleRects() =>
+        [.. Modules.Where(m => m.IsViewVisible).Select(m => (m.InstanceId, m.PhysicalRect, m.Layer))];
 
     /// <summary>外壳在**拼图图**里的节点 id（与实例 id 不会冲突）。</summary>
     public const string ShellNodeId = "#shell";
@@ -3304,7 +3435,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <param name="shellOverridePixels">
     /// 用指定的外壳**物理矩形**代替模型里的当前值（**分组判定要用移动前的几何**）。
     /// </param>
-    private List<(string Id, CanvasRect Rect)> TilingNodes(CanvasRect? shellOverridePixels = null)
+    private List<(string Id, CanvasRect Rect, int Layer)> TilingNodes(CanvasRect? shellOverridePixels = null)
     {
         var nodes = ModuleRects().ToList();
         var shell = shellOverridePixels ?? ShellPhysicalRect;
@@ -3318,7 +3449,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
         if (shell is { IsValid: true } validShell)
         {
-            nodes.Add((ShellNodeId, validShell));
+            nodes.Add((ShellNodeId, validShell, 0));
         }
 
         return nodes;
@@ -3329,9 +3460,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item>模块 ↔ 模块：沿用 <see cref="SnapEngine.AreJoined"/>（相邻边贴合 + 交叉轴有重叠）；</item>
+    ///   <item>模块 ↔ 模块：先要求**同层**，再沿用 <see cref="SnapEngine.AreJoined"/>（相邻边贴合 + 交叉轴有重叠）；</item>
     ///   <item><b>模块 ↔ 外壳：只有"模块左边缘贴外壳右边缘"算</b>（外壳只提供右边缘），
-    ///     不允许贴它的左/上/下边缘；</item>
+    ///     不允许贴它的左/上/下边缘；<b>外壳是跨层锚点，不做层相等检查</b>；</item>
     ///   <item><b>外壳用严格容差</b>（<see cref="ShellJoinTolerance"/>）：模块间用
     ///     <see cref="GroupTolerance"/>（贴合容差 8px，"差一点也算拼上"对拼装手感友好），但**外壳不能用它** ——
     ///     否则"停在离外壳 8px 处、根本没吸附"的模块也被判成已拼上，拖动主窗口时被一并带走，
@@ -3340,19 +3471,25 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// </list>
     /// </remarks>
     private static bool AreNodesJoined(
-        (string Id, CanvasRect Rect) a,
-        (string Id, CanvasRect Rect) b,
+        (string Id, CanvasRect Rect, int Layer) a,
+        (string Id, CanvasRect Rect, int Layer) b,
         double tolerance)
     {
         if (string.Equals(a.Id, ShellNodeId, StringComparison.Ordinal) || string.Equals(b.Id, ShellNodeId, StringComparison.Ordinal))
         {
             var (shell, module) = string.Equals(a.Id, ShellNodeId, StringComparison.Ordinal) ? (a.Rect, b.Rect) : (b.Rect, a.Rect);
+            if (SnapEngine.RectsOverlap(module, shell))
+            {
+                return false;   // 压在壳上不算贴壳
+            }
+
             var overlap = Math.Min(module.Bottom, shell.Bottom) - Math.Max(module.Top, shell.Top);
             return Math.Abs(module.Left - shell.Right) <= Math.Min(tolerance, ShellJoinTolerance)
                 && overlap > ShellJoinTolerance;
         }
 
-        return SnapEngine.AreJoined(a.Rect, b.Rect, tolerance);
+        return a.Layer == b.Layer
+            && SnapEngine.AreJoined(a.Rect, b.Rect, tolerance);
     }
 
     /// <summary>
@@ -3394,8 +3531,20 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <summary>某节点所在的**拼图组**（接触连通分量，含自身；外壳也参与）。</summary>
     /// <param name="nodeId">起始节点 id（外壳用 <see cref="ShellNodeId"/>）。</param>
     /// <param name="shellOverride">用指定的外壳矩形参与分组（**移动前的几何**）。</param>
-    private HashSet<string> GroupOfNode(string nodeId, CanvasRect? shellOverride = null)
+    /// <param name="layerFilter">
+    /// 只允许走到该层的模块；null = 从模块起点自动取它的层，从外壳起点（移动外壳）跨所有层。
+    /// 外壳本身不参与层比较，但经过外壳再往模块走时仍受此过滤。
+    /// </param>
+    private HashSet<string> GroupOfNode(string nodeId, CanvasRect? shellOverride = null, int? layerFilter = null)
     {
+        var filter = layerFilter;
+        if (filter is null
+            && !string.Equals(nodeId, ShellNodeId, StringComparison.Ordinal)
+            && Find(nodeId) is { } start)
+        {
+            filter = start.Layer;
+        }
+
         var nodes = TilingNodes(shellOverride);
         var group = new HashSet<string>(StringComparer.Ordinal) { nodeId };
         var queue = new Queue<string>();
@@ -3417,15 +3566,60 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                     continue;
                 }
 
-                if (AreNodesJoined(nodes[currentIndex], nodes[i], GroupTolerance))
+                if (!AreNodesJoined(nodes[currentIndex], nodes[i], GroupTolerance))
                 {
-                    _ = group.Add(nodes[i].Id);
-                    queue.Enqueue(nodes[i].Id);
+                    continue;
                 }
+
+                // 模块起点按层走；外壳是跨层锚点，本身不受层限制，但经它再往模块走仍受 filter 约束。
+                if (filter is { } layer
+                    && !string.Equals(nodes[i].Id, ShellNodeId, StringComparison.Ordinal)
+                    && nodes[i].Layer != layer)
+                {
+                    continue;
+                }
+
+                _ = group.Add(nodes[i].Id);
+                queue.Enqueue(nodes[i].Id);
             }
         }
 
         return group;
+    }
+
+    /// <summary>组吸附的障碍矩形（同层组外可见模块 + 外壳），统一换算到被拖窗口 DIP。</summary>
+    private List<CanvasRect> BuildDragObstacles(double dragScale, int dragLayer)
+    {
+        var obstacles = new List<CanvasRect>();
+
+        foreach (var module in Modules.Where(m => m.IsViewVisible
+            && m.Layer == dragLayer
+            && !_dragGroup.Contains(m.InstanceId, StringComparer.Ordinal)))
+        {
+            obstacles.Add(ToDragDip(module.PhysicalRect, dragScale));
+        }
+
+        // 外壳是跨层锚点：任何层都可以贴它，因此始终作为障碍（贴着但不重合才允许）。
+        if (!_dragGroup.Contains(ShellNodeId, StringComparer.Ordinal))
+        {
+            var shellPhysical = ShellPhysicalRect;
+            if (shellPhysical is not { IsValid: true } && ShellRect is { IsValid: true } dip)
+            {
+                var shellScale = ShellScaling > 0 ? ShellScaling : 1;
+                shellPhysical = new CanvasRect(
+                    dip.X * shellScale,
+                    dip.Y * shellScale,
+                    dip.Width * shellScale,
+                    dip.Height * shellScale);
+            }
+
+            if (shellPhysical is { IsValid: true } shell)
+            {
+                obstacles.Add(ToDragDip(shell, dragScale));
+            }
+        }
+
+        return obstacles;
     }
 
     /// <summary>
@@ -3439,19 +3633,24 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     private List<SnapLine> CollectLines(string draggingId)
     {
         var lines = new List<SnapLine>();
-        var dragScale = Find(draggingId)?.Scaling ?? 1.0;
+        var dragging = Find(draggingId);
+        var dragScale = dragging?.Scaling ?? 1.0;
         if (dragScale <= 0)
         {
             dragScale = 1.0;
         }
 
+        var dragLayer = dragging?.Layer ?? 0;
+
         foreach (var module in Modules.Where(m => m.IsViewVisible
+            && m.Layer == dragLayer
             && !_dragGroup.Contains(m.InstanceId, StringComparer.Ordinal)
             && !string.Equals(m.InstanceId, draggingId, StringComparison.Ordinal)))
         {
             lines.AddRange(SnapEngine.LinesOf(ToDragDip(module.PhysicalRect, dragScale)));
         }
 
+        // 外壳是跨层锚点：任何层都能贴它；只在它跟着本组走时不再作为参照线。
         if (!_dragGroup.Contains(ShellNodeId, StringComparer.Ordinal))
         {
             var shellPhysical = ShellPhysicalRect;
@@ -3506,43 +3705,54 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// </remarks>
     private List<PortAnchorPair> BuildPortAnchors(string draggingId)
     {
-        if (Find(draggingId) is not { } moving)
+        if (Find(draggingId) is not { } anchor)
         {
             return [];
         }
 
         var pairs = new List<PortAnchorPair>();
-        var dragScale = moving.Scaling > 0 ? moving.Scaling : 1.0;
+        var dragScale = anchor.Scaling > 0 ? anchor.Scaling : 1.0;
+        var memberIndex = -1;
 
-        foreach (var other in Modules.Where(m => m.IsViewVisible
-            && !_dragGroup.Contains(m.InstanceId, StringComparer.Ordinal)
-            && !string.Equals(m.InstanceId, draggingId, StringComparison.Ordinal)))
+        foreach (var memberId in _dragGroup)
         {
-            foreach (var mine in moving.Ports)
+            if (Find(memberId) is not { } moving)
             {
-                var facing = PortEdgeGeometry.Opposite(mine.Edge);
+                continue;
+            }
 
-                foreach (var theirs in other.Ports)
+            memberIndex++;
+
+            foreach (var other in Modules.Where(m => m.IsViewVisible
+                && m.Layer == moving.Layer
+                && !_dragGroup.Contains(m.InstanceId, StringComparer.Ordinal)))
+            {
+                foreach (var mine in moving.Ports)
                 {
-                    if (mine.IsSend == theirs.IsSend)
+                    var facing = PortEdgeGeometry.Opposite(mine.Edge);
+
+                    foreach (var theirs in other.Ports)
                     {
-                        continue;   // 只考虑"发送 ↔ 接收"
+                        if (mine.IsSend == theirs.IsSend)
+                        {
+                            continue;   // 只考虑"发送 ↔ 接收"
+                        }
+
+                        if (theirs.Edge != facing)
+                        {
+                            continue;   // **不是面对面** ⇒ 插不上，不产生对齐候选
+                        }
+
+                        // 端口的对齐轴 = 它所在的边：左/右边 → 约束 Y（横向参照线）；上/下边 → 约束 X。
+                        // 对端几何先换成"被拖窗口的 DIP"（跨屏缩放不同也成立）。
+                        var otherRect = ToDragDip(other.PhysicalRect, dragScale);
+                        var alignsX = !mine.IsVertical;
+                        var otherCoordinate = alignsX
+                            ? otherRect.X + (otherRect.Width * theirs.Offset)
+                            : otherRect.Y + (otherRect.Height * theirs.Offset);
+
+                        pairs.Add(new PortAnchorPair(alignsX, otherCoordinate, otherRect, mine.Offset, memberIndex));
                     }
-
-                    if (theirs.Edge != facing)
-                    {
-                        continue;   // **不是面对面** ⇒ 插不上，不产生对齐候选
-                    }
-
-                    // 端口的对齐轴 = 它所在的边：左/右边 → 约束 Y（横向参照线）；上/下边 → 约束 X。
-                    // 对端几何先换成"被拖窗口的 DIP"（跨屏缩放不同也成立）。
-                    var otherRect = ToDragDip(other.PhysicalRect, dragScale);
-                    var alignsX = !mine.IsVertical;
-                    var otherCoordinate = alignsX
-                        ? otherRect.X + (otherRect.Width * theirs.Offset)
-                        : otherRect.Y + (otherRect.Height * theirs.Offset);
-
-                    pairs.Add(new PortAnchorPair(alignsX, otherCoordinate, otherRect, mine.Offset));
                 }
             }
         }

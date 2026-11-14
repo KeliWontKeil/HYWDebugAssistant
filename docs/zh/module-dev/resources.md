@@ -33,8 +33,11 @@ resources/
 | 重复键 | 同一文件内重复 ⇒ 该文件整份跳过；分片与已有键重复 ⇒ 该分片整份跳过；都会报一条诊断 |
 | 回退链 | 精确 culture → `zh` → `zh-Hans` → 可见缺失标记 `⟦key⟧` |
 | 缺表/缺键 | 都不返回空白：缺表每个拥有者报一次，缺键在界面露出键名 |
+| 换行与字面 `\n` | 真正换行写 JSON 转义 `\n`；协议语法示例需要用户看见反斜杠+n 时写 `\\n`，并向资源审计登记该键 |
 | 体积 | 单文件上限 4 MB；超限整份跳过 |
 | 键名 | 按界面区域分段，如 `view.reset`、`state.ready`、`config.serial.portName`；同一区域聚在一起 |
+
+JSON 的 `\n` 在解析后就是换行；`TextCatalog` 不会二次反转义。要让界面显示反斜杠+n（例如协议帧的 `...\n` 结尾），源文件写 `\\n`，并在 `tools/audit-resources.ps1` 的 `$literalBackslashNewlineAllowed` 里登记该键。
 
 代码里取文案：
 

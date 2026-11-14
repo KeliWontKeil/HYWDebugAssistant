@@ -30,45 +30,41 @@ namespace HYWDebugAssistant.Ui.ViewModels;
 /// </remarks>
 public sealed partial class ModuleViewViewModel : ViewModelBase
 {
-    /// <summary>模块视图**自身声明**的内容最小宽（DIP；来自视图根 `MinWidth`）。</summary>
-    public double ContentMinWidth { get; private set; }
+    /// <summary>视图声明的**窗口最小宽**（DIP，含外框；来自视图根 `MinWidth`）。</summary>
+    public double DeclaredMinWidth { get; private set; }
 
-    /// <summary>模块视图**自身声明**的内容最小高（DIP；来自视图根 `MinHeight`）。</summary>
-    public double ContentMinHeight { get; private set; }
+    /// <summary>视图声明的**窗口最小高**（DIP，含外框；来自视图根 `MinHeight`）。</summary>
+    public double DeclaredMinHeight { get; private set; }
 
-    /// <summary>模块视图**自身声明**的内容初始宽（DIP；来自视图根 `InitialWidth`）。</summary>
-    public double ContentInitialWidth { get; private set; }
+    /// <summary>视图声明的**窗口初始宽**（DIP，含外框；来自视图根 `InitialWidth`）。</summary>
+    public double DeclaredInitialWidth { get; private set; }
 
-    /// <summary>模块视图**自身声明**的内容初始高（DIP；来自视图根 `InitialHeight`）。</summary>
-    public double ContentInitialHeight { get; private set; }
+    /// <summary>视图声明的**窗口初始高**（DIP，含外框；来自视图根 `InitialHeight`）。</summary>
+    public double DeclaredInitialHeight { get; private set; }
 
-    /// <summary>**有效最小宽**（DIP）= XAML 内容最小宽 + 窗口 chrome，且不低于框架地板。</summary>
+    /// <summary>**有效最小宽**（DIP）= XAML 声明的窗口最小宽，且不低于框架地板。</summary>
     /// <remarks>
-    /// 尺寸唯一事实是模块 `.axaml` 的视图根（<see cref="ContentMinWidth"/>）；
-    /// 框架只加窗口 chrome（描边 + 端口预留带）并守住端口标记地板。ModuleDefinition 尺寸不参与。
+    /// 尺寸唯一事实是模块 `.axaml` 的视图根；声明已经是**含外框**的窗口尺寸，
+    /// 框架不再额外加 chrome（chrome 只用于让视图内容区让开预留带）。
     /// </remarks>
     public double EffectiveMinWidth => Math.Max(
         PortMarkerMetrics.MinWindowExtent,
-        ContentMinWidth + (2 * ModuleSurfaceMetrics.FrameBorder)
-            + ModuleSurfaceMetrics.InsetLeft + ModuleSurfaceMetrics.InsetRight);
+        DeclaredMinWidth);
 
-    /// <summary>**有效最小高**（DIP）= XAML 内容最小高 + 窗口 chrome，且不低于框架地板。</summary>
+    /// <summary>**有效最小高**（DIP）= XAML 声明的窗口最小高，且不低于框架地板。</summary>
     public double EffectiveMinHeight => Math.Max(
         PortMarkerMetrics.MinWindowExtent,
-        ContentMinHeight + (2 * ModuleSurfaceMetrics.FrameBorder)
-            + ModuleSurfaceMetrics.InsetTop + ModuleSurfaceMetrics.InsetBottom);
+        DeclaredMinHeight);
 
-    /// <summary>**初始窗口宽**（DIP）= XAML 内容初始宽 + chrome；不含最小尺寸修正。</summary>
+    /// <summary>**初始窗口宽**（DIP）= XAML 声明的窗口初始宽；不含最小尺寸修正。</summary>
     public double InitialWindowWidth => Math.Max(
         PortMarkerMetrics.MinWindowExtent,
-        ContentInitialWidth + (2 * ModuleSurfaceMetrics.FrameBorder)
-            + ModuleSurfaceMetrics.InsetLeft + ModuleSurfaceMetrics.InsetRight);
+        DeclaredInitialWidth);
 
-    /// <summary>**初始窗口高**（DIP）= XAML 内容初始高 + chrome；不含最小尺寸修正。</summary>
+    /// <summary>**初始窗口高**（DIP）= XAML 声明的窗口初始高；不含最小尺寸修正。</summary>
     public double InitialWindowHeight => Math.Max(
         PortMarkerMetrics.MinWindowExtent,
-        ContentInitialHeight + (2 * ModuleSurfaceMetrics.FrameBorder)
-            + ModuleSurfaceMetrics.InsetTop + ModuleSurfaceMetrics.InsetBottom);
+        DeclaredInitialHeight);
 
     /// <summary>新建/还原时实际采用的窗口宽（初始尺寸不允许低于运行期下限）。</summary>
     public double StartupWindowWidth => Math.Max(InitialWindowWidth, EffectiveMinWidth);
@@ -76,12 +72,12 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <summary>新建/还原时实际采用的窗口高（初始尺寸不允许低于运行期下限）。</summary>
     public double StartupWindowHeight => Math.Max(InitialWindowHeight, EffectiveMinHeight);
 
-    /// <summary>视图根声明内容尺寸后回写；初始尺寸与最小尺寸独立保存。</summary>
-    /// <param name="width">内容最小宽。</param>
-    /// <param name="height">内容最小高。</param>
-    /// <param name="initialWidth">内容初始宽（0 = 回退最小宽）。</param>
-    /// <param name="initialHeight">内容初始高（0 = 回退最小高）。</param>
-    public void SetContentSize(double width, double height, double initialWidth, double initialHeight)
+    /// <summary>视图根声明窗口尺寸后回写；初始尺寸与最小尺寸独立保存。</summary>
+    /// <param name="width">窗口最小宽（DIP，含外框）。</param>
+    /// <param name="height">窗口最小高（DIP，含外框）。</param>
+    /// <param name="initialWidth">窗口初始宽（DIP，含外框；0 = 回退最小宽）。</param>
+    /// <param name="initialHeight">窗口初始高（DIP，含外框；0 = 回退最小高）。</param>
+    public void SetWindowSize(double width, double height, double initialWidth, double initialHeight)
     {
         var minWidth = double.IsFinite(width) && width > 0 ? width : 0;
         var minHeight = double.IsFinite(height) && height > 0 ? height : 0;
@@ -93,18 +89,18 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
             return;
         }
 
-        if (Math.Abs(ContentMinWidth - minWidth) < 0.01
-            && Math.Abs(ContentMinHeight - minHeight) < 0.01
-            && Math.Abs(ContentInitialWidth - initialW) < 0.01
-            && Math.Abs(ContentInitialHeight - initialH) < 0.01)
+        if (Math.Abs(DeclaredMinWidth - minWidth) < 0.01
+            && Math.Abs(DeclaredMinHeight - minHeight) < 0.01
+            && Math.Abs(DeclaredInitialWidth - initialW) < 0.01
+            && Math.Abs(DeclaredInitialHeight - initialH) < 0.01)
         {
             return;
         }
 
-        ContentMinWidth = Math.Max(0, minWidth);
-        ContentMinHeight = Math.Max(0, minHeight);
-        ContentInitialWidth = Math.Max(0, initialW);
-        ContentInitialHeight = Math.Max(0, initialH);
+        DeclaredMinWidth = Math.Max(0, minWidth);
+        DeclaredMinHeight = Math.Max(0, minHeight);
+        DeclaredInitialWidth = Math.Max(0, initialW);
+        DeclaredInitialHeight = Math.Max(0, initialH);
 
         if (!HasLayout)
         {
@@ -126,10 +122,10 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
             }
         }
 
-        OnPropertyChanged(nameof(ContentMinWidth));
-        OnPropertyChanged(nameof(ContentMinHeight));
-        OnPropertyChanged(nameof(ContentInitialWidth));
-        OnPropertyChanged(nameof(ContentInitialHeight));
+        OnPropertyChanged(nameof(DeclaredMinWidth));
+        OnPropertyChanged(nameof(DeclaredMinHeight));
+        OnPropertyChanged(nameof(DeclaredInitialWidth));
+        OnPropertyChanged(nameof(DeclaredInitialHeight));
         OnPropertyChanged(nameof(EffectiveMinWidth));
         OnPropertyChanged(nameof(EffectiveMinHeight));
         OnPropertyChanged(nameof(InitialWindowWidth));
@@ -139,26 +135,39 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     }
 
     /// <summary>兼容入口：只声明最小尺寸时，初始尺寸回退到最小尺寸。</summary>
-    /// <param name="width">内容最小宽。</param>
-    /// <param name="height">内容最小高。</param>
-    public void SetContentMinimum(double width, double height) =>
-        SetContentSize(width, height, ContentInitialWidth > 0 ? ContentInitialWidth : width,
-            ContentInitialHeight > 0 ? ContentInitialHeight : height);
+    /// <param name="width">窗口最小宽（DIP，含外框）。</param>
+    /// <param name="height">窗口最小高（DIP，含外框）。</param>
+    public void SetWindowMinimum(double width, double height) =>
+        SetWindowSize(width, height, DeclaredInitialWidth > 0 ? DeclaredInitialWidth : width,
+            DeclaredInitialHeight > 0 ? DeclaredInitialHeight : height);
 
-    /// <summary>从视图控件读取最小/初始内容尺寸；只认 <see cref="ModuleView"/> 的运行时初始尺寸。</summary>
+    /// <summary>从视图控件读取窗口尺寸；<see cref="ModuleView"/> 读取含外框声明，普通控件走旧内容语义兼容。</summary>
     /// <param name="content">模块视图根。</param>
-    public void SetContentSize(Control content)
+    public void SetWindowSize(Control content)
     {
         ArgumentNullException.ThrowIfNull(content);
 
-        var initialWidth = content is ModuleView moduleView && moduleView.InitialWidth > 0
-            ? moduleView.InitialWidth
-            : content.Width > 0 && double.IsFinite(content.Width) ? content.Width : content.MinWidth;
-        var initialHeight = content is ModuleView moduleViewHeight && moduleViewHeight.InitialHeight > 0
-            ? moduleViewHeight.InitialHeight
-            : content.Height > 0 && double.IsFinite(content.Height) ? content.Height : content.MinHeight;
+        var view = content as ModuleView
+            ?? (content as ContentControl)?.Content as ModuleView;
 
-        SetContentSize(content.MinWidth, content.MinHeight, initialWidth, initialHeight);
+        if (view is not null)
+        {
+            var minWidth = view.DeclaredMinWidth > 0 ? view.DeclaredMinWidth : 0;
+            var minHeight = view.DeclaredMinHeight > 0 ? view.DeclaredMinHeight : 0;
+            var initialWidth = view.InitialWidth > 0 ? view.InitialWidth : minWidth;
+            var initialHeight = view.InitialHeight > 0 ? view.InitialHeight : minHeight;
+            SetWindowSize(minWidth, minHeight, initialWidth, initialHeight);
+            return;
+        }
+
+        // 旧模块（普通 UserControl）仍按“内容尺寸”解释；内置模块与模板已统一到 ModuleView。
+        var legacyInitialWidth = content.Width > 0 && double.IsFinite(content.Width) ? content.Width : content.MinWidth;
+        var legacyInitialHeight = content.Height > 0 && double.IsFinite(content.Height) ? content.Height : content.MinHeight;
+        SetWindowSize(
+            content.MinWidth + ModuleSurfaceMetrics.HorizontalChrome,
+            content.MinHeight + ModuleSurfaceMetrics.VerticalChrome,
+            legacyInitialWidth + ModuleSurfaceMetrics.HorizontalChrome,
+            legacyInitialHeight + ModuleSurfaceMetrics.VerticalChrome);
     }
 
     /// <summary>**有效最大宽**（DIP；<see langword="null"/> = 无上限 = 声明面没给）。</summary>
@@ -237,8 +246,8 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         _command = command;
         _viewState = viewState;
         _colorPicker = colorPicker;
-        // 尺寸来自视图根 .axaml：InitialWidth/InitialHeight（实例化默认）与
-        // MinWidth/MinHeight（运行期下限）是两个独立事实；ModuleDefinition 尺寸不再读取。
+        // 尺寸来自视图根 .axaml：InitialWidth/InitialHeight（实例化默认窗口尺寸，含外框）与
+        // MinWidth/MinHeight（运行期下限，含外框）是两个独立事实；ModuleDefinition 尺寸不再读取。
         EffectiveMaxWidth = null;
         EffectiveMaxHeight = null;
 
@@ -290,6 +299,15 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
     /// <summary>实例 ID（工作现场内唯一、稳定；**不直接展示给用户**）。</summary>
     public string InstanceId { get; }
+
+    /// <summary>
+    /// **运行期派生的叠放层号**（0 = 最底；越大越靠上）。
+    /// </summary>
+    /// <remarks>
+    /// 不是用户配置、不写入布局/组合件；由 <c>ModuleLayerPlanner</c> 按叠放顺序与重合关系计算，
+    /// 只用于吸附/成组过滤。外壳不属于任何层，见 <c>ModuleWindowsViewModel</c> 的外壳分支。
+    /// </remarks>
+    public int Layer { get; set; }
 
     /// <summary>模块标识字面量（同一模块类型的所有实例共享；用于外部展示编号的分组）。</summary>
     public string ModuleId { get; }
@@ -670,7 +688,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         // **每个模块实例都有一个窗口**：声明了视图工厂就按它渲染；没有视图工厂的模块也照常开窗
         // （至少显示模块名行），不引入"无界面模块"这一例外概念。
         //
-        // **窗口尺寸不由内容计算**：默认尺寸来自模块的 `[ModuleDefinition]`，内容排不下时由内容区滚动。
+        // **窗口尺寸不由内容计算**：默认尺寸来自视图根 XAML（含外框），内容排不下时由内容区滚动。
     }
 
 

@@ -205,6 +205,10 @@ M2 = Gate C UX 原型 + 完整 UI（控件目录全集 19 项）· M3 = 首批�
 
 **本轮追加（主窗口—模块吸附 / 组拖动）**：根因是上一轮只把模块间的组位移改成“起点 + 绝对整数位移”，外壳路径仍按逐帧增量累加；`ApplyShellDelta` 还把 `Window.Position`（外层窗口左上角）当成 DWM 可见外框写回，且外壳在组内时旧参照线仍在参与吸附。修复：① 外壳位移改为绝对位移，目标 = 起点 + `groupDelta`，不再 `+=`；② 可见外框以拖动起点为基准整体平移，窗口位置只用于 `ShellMoveRequested`，`RestoreShellOrigin` 按起点外框还原；③ 外壳在拖动组内时不再提供参照线；④ `SnapEngine` 的 `ShellEdge` 只接受模块低侧边（竖线为左边缘），与成组判据同侧。新增 `ShellGroupDragTests`、`ShellSnapTests`。验证：主测试 **350** / 架构 21 / 模块 131 / 参考 16 全绿；W79–W82 待人工复核。
 
+**本轮追加（尺寸语义 / 组拼接 / 字面 `\n`）**：① 视图根的 `InitialWidth/InitialHeight` 与 `MinWidth/MinHeight` 改为**含外框的实际窗口尺寸**；每个现有视图按固定 chrome（+42/+50）更新声明值，实际窗口与内容区不变；`ModuleView` 运行期把根控件布局下限归一为内容区，`ModuleViewViewModel` 不再加 chrome；预览器与快照直接读实际值。② `SnapEngine.SnapGroup` 把吸附从单矩形推广为刚体组，候选来自每个成员；`ModuleWindowsViewModel` 用组起始矩形/组障碍/全体端口锚点接入；`SnapEngine.AreJoined`、`ModuleWindowsViewModel.AreNodesJoined` 与 `DockRule.TryGetContact` 统一拒绝正面积重合。③ FireWater 的 `proto.fireWater.def` / `proto.fireWater.sample` 改为 JSON `\\n`，资源审计白名单显式允许这两个键显示字面 `\n`。验证：架构 22 / 模块 143 / 主测试 358（工作树既有测试面；本轮未新增用例）/ 参考 16 / 截图 28；W83–W87 待人工复核。
+
+**本轮追加（叠放派生的模块层 / 主窗口跨层锚点）**：层不是手工数字，也不是全局 z-order 序号；`ModuleLayerPlanner` 按 `FloatingOrder` + 重合关系派生“叠放带”（同层两两不重合；压住下方实体则层号 = 下方最大层号 + 1）。`ModuleWindowsViewModel` 用 `ZOrderProvider`/`RefreshLayers` 写运行期 `Layer`；同层才吸附/成组；`CollectLines`/`BuildPortAnchors`/`BuildDragObstacles` 按层过滤。外壳是跨层锚点：任意层都能贴壳；`GroupOfNode` 从模块走按层、从外壳走跨层；`BeginDrag` 若含外壳则展开所有贴壳模块，移动外壳时跨层不脱钩；选中/抬升仍按本层。新增 `ModuleLayerPlannerTests`、`ModuleLayerIntegrationTests`。验证：主测试 **360** / 架构 22 / 模块 143 / 参考 16；W88–W93 待人工复核。
+
 压力测试（`Category=Pressure` / `Perf`）的“可删”登记位：**当前保留**（串口回环、过载响应性、分配测量）；数据面 / 外部接入相关功能收尾后由维护者删除并回写本行。
 本轮再追加（波形桥第二轮细化）：两端端口声明按仓库现行做法放到视图 XAML（`ModuleView.Ports`，包加载器与 `ModuleTestContext` 都从同一份 XAML 读）；`文本→波形` 的 FireWater 新增前缀过滤（留空任意前缀、填写只按同前缀行解析，不匹配的行计忽略而不是错误）；采样率字段右侧补 `Hz` 单位；帧信息（帧头帧尾、前缀）改为固定起点的流式行（`Auto` 行折叠 + 弹性行吸收空档），切换协议不再留整行空白；`波形→文本` 删掉只读通道组号（连同显示源与发布）。
  本轮再追加（底部排布收敛）：两个视图统一成「顶行三组输入 + 说明两行 + 参数纵向堆叠 + 统计一行 + 状态贴底」；参数行改用 `StackPanel` 折叠（隐藏即不留占位），统计与状态回到单层绝对坐标，不再套第二层行列容器；组号在窄行用短标签「组号」（完整名仍在配置字段与设置面板）；两个模块窗口高度收到 152。

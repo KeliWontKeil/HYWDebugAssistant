@@ -1,7 +1,6 @@
 using HYWDebugAssistant.Access.Parameters;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Ui.Controls;
-using HYWDebugAssistant.Sdk.Ui.Geometry;
 using HYWDebugAssistant.Ui.ViewModels;
 using NSubstitute;
 using Shouldly;
@@ -20,16 +19,16 @@ public class ModuleSizingTests
     {
         var module = Create();
 
-        module.SetContentSize(
-            width: 300,
-            height: 200,
+        module.SetWindowSize(
+            width: 402,
+            height: 338,
             initialWidth: 500,
             initialHeight: 400);
 
-        module.EffectiveMinWidth.ShouldBe(300 + ChromeWidth);
-        module.EffectiveMinHeight.ShouldBe(200 + ChromeHeight);
-        module.InitialWindowWidth.ShouldBe(500 + ChromeWidth);
-        module.InitialWindowHeight.ShouldBe(400 + ChromeHeight);
+        module.EffectiveMinWidth.ShouldBe(402);
+        module.EffectiveMinHeight.ShouldBe(338);
+        module.InitialWindowWidth.ShouldBe(500);
+        module.InitialWindowHeight.ShouldBe(400);
         module.StartupWindowWidth.ShouldBe(module.InitialWindowWidth);
         module.StartupWindowHeight.ShouldBe(module.InitialWindowHeight);
         module.Width.ShouldBe(module.StartupWindowWidth);
@@ -41,7 +40,7 @@ public class ModuleSizingTests
     {
         var module = Create();
 
-        module.SetContentSize(
+        module.SetWindowSize(
             width: 500,
             height: 400,
             initialWidth: 300,
@@ -57,9 +56,9 @@ public class ModuleSizingTests
     public void 旧布局小于最小尺寸时必须在ApplyLayout夹紧()
     {
         var module = Create();
-        module.SetContentSize(
-            width: 300,
-            height: 200,
+        module.SetWindowSize(
+            width: 402,
+            height: 338,
             initialWidth: 500,
             initialHeight: 400);
 
@@ -73,9 +72,9 @@ public class ModuleSizingTests
     public void 正常旧布局应保留而不被初始尺寸覆盖()
     {
         var module = Create();
-        module.SetContentSize(
-            width: 300,
-            height: 200,
+        module.SetWindowSize(
+            width: 402,
+            height: 338,
             initialWidth: 500,
             initialHeight: 400);
 
@@ -98,12 +97,6 @@ public class ModuleSizingTests
         context.ReadLatest("rate").ShouldBeNull();
         context.ReadText("status").Lines.ShouldBeEmpty();
     }
-
-    private const double ChromeWidth =
-        (2 * ModuleSurfaceMetrics.FrameBorder) + ModuleSurfaceMetrics.InsetLeft + ModuleSurfaceMetrics.InsetRight;
-
-    private const double ChromeHeight =
-        (2 * ModuleSurfaceMetrics.FrameBorder) + ModuleSurfaceMetrics.InsetTop + ModuleSurfaceMetrics.InsetBottom;
 
     private static ModuleViewViewModel Create()
     {

@@ -28,7 +28,7 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 public class ModuleView : UserControl
 {
     /// <summary>
-    /// **实例化默认内容宽**（DIP；0 = 未声明，回退到 <see cref="Avalonia.Layout.Layoutable.MinWidth"/>）。
+    /// **实例化默认窗口宽**（DIP，**含外框**；0 = 未声明，回退到 <see cref="Avalonia.Layout.Layoutable.MinWidth"/>）。
     /// </summary>
     /// <remarks>
     /// 它只用于“新建模块窗口/还原尺寸”的初始值，不参与运行期最小尺寸约束。
@@ -41,12 +41,12 @@ public class ModuleView : UserControl
         set
         {
             _initialWidth = value;
-            Design.SetWidth(this, WithPreviewChrome(value, ModuleSurfaceMetrics.HorizontalChrome));
+            Design.SetWidth(this, value);
         }
     }
 
     /// <summary>
-    /// **实例化默认内容高**（DIP；0 = 未声明，回退到 <see cref="Avalonia.Layout.Layoutable.MinHeight"/>）。
+    /// **实例化默认窗口高**（DIP，**含外框**；0 = 未声明，回退到 <see cref="Avalonia.Layout.Layoutable.MinHeight"/>）。
     /// </summary>
     /// <remarks>预览器所需的 `Design.Height` 由本 setter 镜像，避免第二个 XAML 尺寸事实。</remarks>
     public double InitialHeight
@@ -55,15 +55,71 @@ public class ModuleView : UserControl
         set
         {
             _initialHeight = value;
-            Design.SetHeight(this, WithPreviewChrome(value, ModuleSurfaceMetrics.VerticalChrome));
+            Design.SetHeight(this, value);
         }
     }
 
     /// <summary>
-    /// 预览器里根控件的设计尺寸 = 内容尺寸 + 窗口外壳；运行期仍返回内容尺寸。
+    /// XAML 声明的**窗口最小宽**（DIP，含外框）；运行期根控件的布局 `MinWidth` 是内容下限（声明值 − chrome）。
     /// </summary>
-    private static double WithPreviewChrome(double content, double chrome) =>
-        IsDesignEnvironment && content > 0 ? content + chrome : content;
+    /// <remarks>
+    /// 声明值必须保留：窗口模型与预览器要的是含外框尺寸；而模块视图本身位于 20/22/20/24 预留带内，
+    /// 若把外框下限直接留在根控件上，内容区会被撑破。这里只做同一份声明的派生，不产生第二尺寸源。
+    /// </remarks>
+    public double DeclaredMinWidth { get; private set; }
+
+    /// <summary>XAML 声明的**窗口最小高**（DIP，含外框）；布局 `MinHeight` 是内容下限。</summary>
+    public double DeclaredMinHeight { get; private set; }
+
+    private bool _normalizingMinimum;
+
+    /// <inheritdoc />
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        if (change.Property == MinWidthProperty)
+        {
+            ApplyDeclaredMinimum(change.GetNewValue<double>(), horizontal: true);
+        }
+        else if (change.Property == MinHeightProperty)
+        {
+            ApplyDeclaredMinimum(change.GetNewValue<double>(), horizontal: false);
+        }
+    }
+
+    private void ApplyDeclaredMinimum(double declared, bool horizontal)
+    {
+        if (_normalizingMinimum || !double.IsFinite(declared) || declared <= 0)
+        {
+            return;
+        }
+
+        if (horizontal)
+        {
+            DeclaredMinWidth = declared;
+            if (IsDesignEnvironment)
+            {
+                return;
+            }
+
+            _normalizingMinimum = true;
+            SetCurrentValue(MinWidthProperty, Math.Max(0, declared - ModuleSurfaceMetrics.HorizontalChrome));
+            _normalizingMinimum = false;
+        }
+        else
+        {
+            DeclaredMinHeight = declared;
+            if (IsDesignEnvironment)
+            {
+                return;
+            }
+
+            _normalizingMinimum = true;
+            SetCurrentValue(MinHeightProperty, Math.Max(0, declared - ModuleSurfaceMetrics.VerticalChrome));
+            _normalizingMinimum = false;
+        }
+    }
 
     private PreviewBoundsOverlay? _previewOverlay;
     private Panel? _previewInner;

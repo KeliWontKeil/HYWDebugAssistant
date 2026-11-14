@@ -39,9 +39,9 @@ public class DockRuleTests
         horizontal.ShouldBeTrue();
     }
 
-    /// <summary>**标记必须对齐**（沿接触面中心差 ≤ 12px），错开就不连 —— 与"接触"是两条独立条件。</summary>
+    /// <summary>**标记必须对齐**，且两个模块不能重合 —— 与“接触”是独立条件。</summary>
     [Fact]
-    public void 建网_标记未对齐时不得建网()
+    public void 建网_几何不满足时不得建网()
     {
         using var runtime = new ModuleRuntime();
         AddModule(runtime, "s", "sender", typeof(SenderModule));
@@ -58,6 +58,10 @@ public class DockRuleTests
         // 对齐之后建网（证明上一条不是"什么都不连"）
         SetPortOffset(runtime, "s", "out", 0.5);
         runtime.Content.Networks.ShouldHaveSingleItem();
+
+        // 1px 重叠：边仍在接触容差内、标记也对齐，但重合不是接触 ⇒ 不得建网。
+        Place(runtime, "r", 299, 0, 300, 200);
+        runtime.Content.Networks.ShouldBeEmpty("两个模块重合时不得建网");
     }
 
     /// <summary>

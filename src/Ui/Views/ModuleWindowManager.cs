@@ -51,6 +51,7 @@ public sealed class ModuleWindowManager : IDisposable
         _controller = controller;
         _shell = shell;
         WindowGroup = windowGroup ?? new AppWindowGroup(shell);
+        _controller.ZOrderProvider = ZOrderOf;
 
         _controller.GeometryChanged += OnGeometryChanged;
         _controller.VisibilityChanged += OnVisibilityChanged;
@@ -149,6 +150,8 @@ public sealed class ModuleWindowManager : IDisposable
                 CloseWindow(window);
             }
         }
+
+        _controller.RefreshLayers();
     }
 
     /// <summary>关闭当前全部模块窗口；不释放管理器（之后仍可继续同步/复用）。</summary>
@@ -159,6 +162,8 @@ public sealed class ModuleWindowManager : IDisposable
         {
             CloseWindow(window);
         }
+
+        _controller.RefreshLayers();
     }
 
     /// <inheritdoc />
@@ -229,7 +234,33 @@ public sealed class ModuleWindowManager : IDisposable
         {
             // 已有布局（用户拖过/缩过）→ 按模型应用；未摆放 → 也按模型（尺寸来自 json 的 window.default）
             ApplyGeometry(window, e, module);
+
+            // 几何变化可能让模块压到/离开更低实体；交互中由 DragTo 刷新，避免每成员一次全量规划。
+            if (!_controller.IsInteracting)
+            {
+                _controller.RefreshLayers();
+            }
         }
+    }
+
+    /// <summary>某模块窗口在浮动带中的叠放序号（越大越靠上）；找不到 = <see cref="int.MinValue"/>。</summary>
+    private int ZOrderOf(string instanceId)
+    {
+        if (!_windows.TryGetValue(instanceId, out var window))
+        {
+            return int.MinValue;
+        }
+
+        var order = WindowGroup.FloatingOrder;
+        for (var index = 0; index < order.Count; index++)
+        {
+            if (ReferenceEquals(order[index], window))
+            {
+                return index;
+            }
+        }
+
+        return int.MinValue;
     }
 
     private void OnVisibilityChanged(object? sender, ModuleWindowVisibilityChange e)
@@ -241,6 +272,7 @@ public sealed class ModuleWindowManager : IDisposable
                 EnsureWindow(module);
             }
 
+            _controller.RefreshLayers();
             return;
         }
 
@@ -248,6 +280,8 @@ public sealed class ModuleWindowManager : IDisposable
         {
             CloseWindow(window);
         }
+
+        _controller.RefreshLayers();
     }
 
     /// <summary>
@@ -272,6 +306,7 @@ public sealed class ModuleWindowManager : IDisposable
         }
 
         WindowGroup.RaiseFloatingGroup(windows);
+        _controller.RefreshLayers();
     }
 
     /// <summary>
@@ -304,6 +339,7 @@ public sealed class ModuleWindowManager : IDisposable
         }
 
         WindowGroup.RaiseFloatingGroup(windows);
+        _controller.RefreshLayers();
     }
 
     /// <summary>关闭窗口（视图摘除由窗口自己的 <c>Closed</c> 统一完成）。</summary>
@@ -349,11 +385,11 @@ public sealed class ModuleWindowManager : IDisposable
             }
         };
 
-        // 模块视图根自己声明内容初始/最小尺寸（.axaml 的 InitialWidth/InitialHeight 与 MinWidth/MinHeight）；
-        // 窗口 chrome 由框架加。视图是幂等懒加载的，先取到它才能定首次落位。
+        // 模块视图根自己声明**含外框的窗口**初始/最小尺寸（.axaml 的 InitialWidth/InitialHeight 与 MinWidth/MinHeight）；
+        // 视图是幂等懒加载的，先取到它才能定首次落位。
         if (module.EnsureView()?.Content is Control content)
         {
-            module.SetContentSize(content);
+            module.SetWindowSize(content);
         }
 
         // 新模块的初始尺寸由视图声明决定；已有布局则是用户拖过的尺寸，优先保留。
@@ -476,6 +512,7 @@ public sealed class ModuleWindowManager : IDisposable
             window,
             new ModuleWindowGeometryChange(module.InstanceId, module.X, module.Y, module.Width, module.Height),
             module);
+        _controller.RefreshLayers();
     }
 
     private static void OnWindowMoved(ModuleViewViewModel module, ModuleWindow window)
@@ -660,6 +697,7 @@ public sealed class ModuleWindowManager : IDisposable
         }
 
         _controller.TranslateShellGroup(current.X - previous.X, current.Y - previous.Y, previous);
+        _controller.RefreshLayers();
 
         // 静默 250ms ⇒ 这次拖动结束：解除分组冻结（下次拖动重新取组）
         _shellDragEndSubscription?.Dispose();

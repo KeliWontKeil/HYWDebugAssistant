@@ -8,8 +8,8 @@
              x:Class="HYWDebugAssistant.Modules.WaveformGenerator.Views.WaveformGeneratorView"
              x:CompileBindings="True"
              x:DataType="contracts:IModuleViewContext"
-             InitialWidth="960" InitialHeight="320"
-             MinWidth="960" MinHeight="320">
+             InitialWidth="960" InitialHeight="300"
+             MinWidth="960" MinHeight="300">
 
   <ui:ModuleView.Ports>
     <ui:ModulePort Name="{x:Static local:WaveformGeneratorModule.OutPort}"
@@ -42,7 +42,7 @@
 
       <Border Grid.Column="1" Margin="4,0" Padding="2" Background="{DynamicResource BgChrome}"
               BorderBrush="{DynamicResource BorderDefault}" BorderThickness="1" CornerRadius="2">
-        <Canvas Width="540" Height="288" ClipToBounds="True">
+        <Canvas Width="540" Height="225" ClipToBounds="True">
           <!-- 1. 组选择。 -->
           <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.channelGroup}" />
@@ -160,7 +160,7 @@
             5. 波形参数：固定宽度单元按行排列；XAML 默认全显（预览可定位），
             运行期由视图按当前波形隐藏不适用行/单元。行隐藏时由 StackPanel 收起，不留空行。
           -->
-          <StackPanel x:Name="ParameterRows" Canvas.Left="0" Canvas.Top="176" Width="540" Spacing="4">
+          <StackPanel x:Name="ParameterRows" Canvas.Left="0" Canvas.Top="172" Width="540" Spacing="4">
             <Grid x:Name="BaseParameterRow" Height="24" ColumnDefinitions="180,180,180">
               <Grid Grid.Column="0" Width="180" Height="24" ColumnDefinitions="72,64,44">
                 <ui:ModuleLabel Grid.Column="0" Classes="caption right" VerticalAlignment="Center"
@@ -232,7 +232,7 @@
       <Border Grid.Column="2" Background="{DynamicResource BgChrome}"
               BorderBrush="{DynamicResource BorderDefault}" BorderThickness="1" CornerRadius="2"
               Padding="3">
-        <Canvas Width="132" Height="294" ClipToBounds="True">
+        <Canvas Width="132" Height="230" ClipToBounds="True">
           <ui:ModuleLabel Canvas.Left="0" Canvas.Top="45" Width="58" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.periods}" />
           <ui:ModuleTextSurface x:Name="PeriodsInput" Canvas.Left="60" Canvas.Top="45" Width="50" Height="22"
