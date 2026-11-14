@@ -7,7 +7,7 @@
     版本 = 四段 `大.小.修订.轮次`（`M.m.p.r`）。事实源只有一个文件（`version.props`），
     本脚本是推荐的唯一写入口；其余位置一律由 MSBuild 派生。
 
-    · `r` = 该版本线的第几次构建，从 1 起；`-Round` 只加它；
+    · `r` = 该版本线的第几次构建，从 0 起（0 = 首次构建）；`-Round` 只加它；
     · 主 / 小 / 修订**只由人显式指定**（`-Major` / `-Minor` / `-Patch` / `-Set`）；
       构建、测试、门禁从不改版本；
     · 提交是**推荐**不是强制：手工提交、跨轮次 / 跨版本提交、中间态临时保存都允许，
@@ -16,8 +16,9 @@
 .EXAMPLE
     ./tools/version.ps1                     # 显示当前版本
     ./tools/version.ps1 -Value              # 只打印 M.m.p.r（供其他脚本取用）
+    ./tools/version.ps1 -PackageValue       # 只打印 NuGet 规范化包版本（末段 0 时省略）
     ./tools/version.ps1 -Round              # 轮次 +1
-    ./tools/version.ps1 -Minor              # 小版本 +1（修订归 0、轮次归 1）
+    ./tools/version.ps1 -Minor              # 小版本 +1（修订归 0、轮次归 0）
     ./tools/version.ps1 -Set M.m.p.r        # 显式设置四段（允许跨版本线）
     ./tools/version.ps1 -Commit "说明"      # 轮次 +1 并提交（标题 = 版本 + 空格 + 说明）
     ./tools/version.ps1 -Round -DryRun      # 只打印将要发生的变化
@@ -29,6 +30,9 @@ param(
 
     [Parameter(ParameterSetName = 'Value')]
     [switch]$Value,
+
+    [Parameter(ParameterSetName = 'PackageValue')]
+    [switch]$PackageValue,
 
     [Parameter(ParameterSetName = 'Round')]
     [switch]$Round,
@@ -90,6 +94,15 @@ function Format-Version($value) {
     return "$($value.Major).$($value.Minor).$($value.Patch).$($value.Round)"
 }
 
+function Format-PackageVersion($value) {
+    # NuGet 规范化：第四段为 0 时省略；其余情况仍保留四段。
+    if ($value.Round -eq 0) {
+        return "$($value.Major).$($value.Minor).$($value.Patch)"
+    }
+
+    return Format-Version $value
+}
+
 function Write-VersionFile($value) {
     $content = @"
 <Project>
@@ -124,6 +137,11 @@ if ($Value) {
     return
 }
 
+if ($PackageValue) {
+    Write-Output (Format-PackageVersion $current)
+    return
+}
+
 $next = [pscustomobject]@{
     Major = $current.Major
     Minor = $current.Minor
@@ -142,18 +160,18 @@ elseif ($Major) {
     $next.Major++
     $next.Minor = 0
     $next.Patch = 0
-    $next.Round = 1
+    $next.Round = 0
     $changed = $true
 }
 elseif ($Minor) {
     $next.Minor++
     $next.Patch = 0
-    $next.Round = 1
+    $next.Round = 0
     $changed = $true
 }
 elseif ($Patch) {
     $next.Patch++
-    $next.Round = 1
+    $next.Round = 0
     $changed = $true
 }
 elseif ($PSBoundParameters.ContainsKey('Set')) {

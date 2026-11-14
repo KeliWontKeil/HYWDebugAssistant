@@ -249,6 +249,17 @@ internal sealed class DisplayGroupRuntime
         HasSequence = true;
     }
 
+    /// <summary>
+    /// **暂停恢复**：不把暂停期间故意丢弃的序号算成丢帧，并从下一帧重新开始测速率。
+    /// </summary>
+    public void ResumeFromPause()
+    {
+        HasSequence = false;
+        ActualRateHz = 0;
+        _rateWindowStartMs = 0;
+        _rateWindowFrames = 0;
+    }
+
     /// <summary>更新实测帧率（500 ms 窗口，按到达帧数）。</summary>
     public void UpdateRate(long nowMs)
     {

@@ -22,6 +22,7 @@ internal static class WaveformDisplayText
 
     public const string Ready = "status.ready";
     public const string Receiving = "status.receiving";
+    public const string Paused = "status.paused";
     public const string Invalid = "status.invalid";
     public const string Cleared = "status.cleared";
 }

@@ -4,7 +4,7 @@
     打包模块作者要用的五个包到本地 NuGet 源（`artifacts/sdk-packages`）。
 
 .DESCRIPTION
-    产物只含五个包（包版本 = 产品四段版本，取自仓库根 `version.props`）：
+    产物只含五个包（包版本 = 产品四段版本的 NuGet 规范化形式，取自仓库根 `version.props`）：
       · HYWDebugAssistant.Sdk（运行时契约，随宿主）
       · HYWDebugAssistant.Sdk.Ui（依赖 Avalonia，随宿主）
       · HYWDebugAssistant.Sdk.AccessKit（依赖 Sdk，随宿主）
@@ -35,6 +35,11 @@ Set-Location $root
 $version = (& (Join-Path $PSScriptRoot 'version.ps1') -Value).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
     throw "无法从 version.props 取得四段版本（得到 '$version'）"
+}
+
+$packageVersion = (& (Join-Path $PSScriptRoot 'version.ps1') -PackageValue).Trim()
+if ($packageVersion -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') {
+    throw "无法从 version.props 取得 NuGet 包版本（得到 '$packageVersion'）"
 }
 
 foreach ($name in @('Platform', 'Platform(x86)')) {
@@ -92,7 +97,7 @@ function Test-SdkPackageName {
     param([string]$Name)
 
     foreach ($id in $packageIds) {
-        if ($Name -match ('^' + [regex]::Escape($id) + '\.\d+\.\d+\.\d+\.\d+\.nupkg$')) {
+        if ($Name -match ('^' + [regex]::Escape($id) + '\.\d+\.\d+\.\d+(\.\d+)?\.nupkg$')) {
             return $true
         }
     }
@@ -104,7 +109,7 @@ $produced = @(Get-ChildItem $output -File)
 
 $missing = @()
 foreach ($id in $packageIds) {
-    $expectedName = "$id.$version.nupkg"
+    $expectedName = "$id.$packageVersion.nupkg"
     $hit = @($produced | Where-Object { $_.Name -eq $expectedName })
     if ($hit.Count -ne 1) {
         $missing += "$expectedName（匹配到 $($hit.Count) 个）"
@@ -123,4 +128,4 @@ if ($extra.Count -gt 0) {
 $produced | Sort-Object Name |
     ForEach-Object { Write-Host ("[pack]   {0,-48} {1,8:N1} KB" -f $_.Name, ($_.Length / 1KB)) }
 
-Write-Host "[pack] 五个包已生成（$version，$Configuration）：$output" -ForegroundColor Green
+Write-Host "[pack] 五个包已生成（产品 $version / 包 $packageVersion，$Configuration）：$output" -ForegroundColor Green

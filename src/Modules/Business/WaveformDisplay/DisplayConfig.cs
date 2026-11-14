@@ -54,6 +54,9 @@ public sealed record DisplaySettings
     public bool Follow { get; init; } = true;
     public bool Cursors { get; init; } = true;
 
+    /// <summary>暂停接收全部通道组的新帧；已显示的历史与视图保持不动。</summary>
+    public bool Paused { get; init; }
+
     /// <summary>是否用本模块声明的频率代替数据帧的 rateHz。</summary>
     public bool UseCustomRate { get; init; }
 

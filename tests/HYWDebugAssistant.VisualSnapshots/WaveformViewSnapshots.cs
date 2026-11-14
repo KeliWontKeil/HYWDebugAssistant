@@ -412,10 +412,10 @@ public class WaveformViewSnapshots
         public DisplaySnapshotContext(bool empty = false) => _empty = empty;
 
         private const string Meta =
-            "{\"revision\":1,\"structureRevision\":1,\"activeGroupId\":1,\"activeChannelIndex\":0,\"groups\":[{\"id\":1,\"name\":\"组 1\",\"channels\":2,\"dataCount\":200,\"declaredRate\":1000,\"actualRate\":998,\"lost\":0,\"received\":200,\"bytes\":1600,\"active\":true,\"yAuto\":true,\"yMin\":-1,\"yMax\":1,\"yFitChannel\":-1},{\"id\":2,\"name\":\"组 2\",\"channels\":1,\"dataCount\":100,\"declaredRate\":500,\"actualRate\":500,\"lost\":2,\"received\":100,\"bytes\":400,\"active\":false,\"yAuto\":true,\"yMin\":-1,\"yMax\":1,\"yFitChannel\":-1}],\"channels\":[{\"index\":0,\"name\":\"CH1\",\"color\":null,\"visible\":true},{\"index\":1,\"name\":\"CH2\",\"color\":null,\"visible\":true}],\"settings\":{\"xAxisMode\":\"index\",\"xTick\":0,\"yTick\":0,\"follow\":true,\"followRange\":256,\"cursors\":true,\"keepInactive\":true,\"historyLimit\":0},\"badFrames\":0,\"historyLimited\":false}";
+            "{\"revision\":1,\"structureRevision\":1,\"activeGroupId\":1,\"activeChannelIndex\":0,\"groups\":[{\"id\":1,\"name\":\"组 1\",\"channels\":2,\"dataCount\":200,\"declaredRate\":1000,\"actualRate\":998,\"lost\":0,\"received\":200,\"bytes\":1600,\"active\":true,\"yAuto\":true,\"yMin\":-1,\"yMax\":1,\"yFitChannel\":-1},{\"id\":2,\"name\":\"组 2\",\"channels\":1,\"dataCount\":100,\"declaredRate\":500,\"actualRate\":500,\"lost\":2,\"received\":100,\"bytes\":400,\"active\":false,\"yAuto\":true,\"yMin\":-1,\"yMax\":1,\"yFitChannel\":-1}],\"channels\":[{\"index\":0,\"name\":\"CH1\",\"color\":null,\"visible\":true},{\"index\":1,\"name\":\"CH2\",\"color\":null,\"visible\":true}],\"settings\":{\"xAxisMode\":\"index\",\"xTick\":0,\"yTick\":0,\"follow\":true,\"followRange\":256,\"cursors\":true,\"paused\":false,\"keepInactive\":true,\"historyLimit\":0},\"badFrames\":0,\"historyLimited\":false}";
 
         private const string EmptyMeta =
-            "{\"revision\":1,\"structureRevision\":0,\"activeGroupId\":0,\"activeChannelIndex\":0,\"groups\":[],\"channels\":[],\"settings\":{\"xAxisMode\":\"index\",\"xTick\":0,\"yTick\":0,\"follow\":true,\"followRange\":256,\"cursors\":true,\"keepInactive\":true,\"historyLimit\":0},\"badFrames\":0,\"historyLimited\":false}";
+            "{\"revision\":1,\"structureRevision\":0,\"activeGroupId\":0,\"activeChannelIndex\":0,\"groups\":[],\"channels\":[],\"settings\":{\"xAxisMode\":\"index\",\"xTick\":0,\"yTick\":0,\"follow\":true,\"followRange\":256,\"cursors\":true,\"paused\":false,\"keepInactive\":true,\"historyLimit\":0},\"badFrames\":0,\"historyLimited\":false}";
 
         public override IModuleColorPicker? ColorPicker => WaveformViewSnapshots.ColorPicker;
 
@@ -464,8 +464,8 @@ public class WaveformViewSnapshots
                 1.2,
                 true,
                 [
-                    new SeriesWindowChannel(0, "CH1", null, first),
-                    new SeriesWindowChannel(1, "CH2", null, second),
+                    BuildChannel(0, "CH1", first),
+                    BuildChannel(1, "CH2", second),
                 ]);
         }
 
@@ -480,6 +480,28 @@ public class WaveformViewSnapshots
             WaveformDisplayViewKeys.YTick => new(["0"], 0, 20000, 1),
             WaveformDisplayViewKeys.ImageRequest => new([string.Empty], 0, 20000, 1),
             _ => base.ReadText(source),
+        };
+    }
+
+    private static SeriesWindowChannel BuildChannel(int index, string name, float[] values)
+    {
+        var min = float.PositiveInfinity;
+        var max = float.NegativeInfinity;
+        foreach (var value in values)
+        {
+            if (!float.IsFinite(value))
+            {
+                continue;
+            }
+
+            min = MathF.Min(min, value);
+            max = MathF.Max(max, value);
+        }
+
+        return new SeriesWindowChannel(index, name, null, values)
+        {
+            WindowMin = min <= max ? min : float.NaN,
+            WindowMax = min <= max ? max : float.NaN,
         };
     }
 

@@ -83,6 +83,9 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     /// <summary>游标显示输入。</summary>
     public const string CursorsSource = "cursors";
 
+    /// <summary>暂停接收全部通道组的新帧。</summary>
+    public const string PausedSource = "paused";
+
     /// <summary>X 轴模式输入。</summary>
     public const string XAxisModeSource = "xAxisMode";
 
@@ -237,6 +240,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         DeclareValue(context, FollowSource, ValueEditor.Boolean, persistent: true);
         DeclareValue(context, FollowRangeSource, ValueEditor.Number, persistent: true);
         DeclareValue(context, CursorsSource, ValueEditor.Boolean, persistent: true);
+        DeclareValue(context, PausedSource, ValueEditor.Boolean, persistent: true);
         DeclareValue(context, XAxisModeSource, ValueEditor.Enum, persistent: true, choices: [
             new ValueChoice("index", Tr("view.xIndex")),
             new ValueChoice("time", Tr("view.xTime")),
@@ -360,7 +364,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         _uiTimer?.Start();
         PublishMeta(context);
         PublishEmptySnapshot(context);
-        PublishStatus(Tr(WaveformDisplayText.Ready));
+        PublishStatus(Tr(_settings.Paused ? WaveformDisplayText.Paused : WaveformDisplayText.Ready));
     }
 
     private static DisplaySettings ReadSettings(IModuleContext context)
@@ -386,6 +390,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             Follow = ParseBool(context.Values.ReadText(FollowSource), defaults.Follow),
             FollowRangeSamples = followRange,
             Cursors = ParseBool(context.Values.ReadText(CursorsSource), defaults.Cursors),
+            Paused = ParseBool(context.Values.ReadText(PausedSource), defaults.Paused),
             UseCustomRate = ParseBool(context.Values.ReadText(UseCustomRateSource), defaults.UseCustomRate),
             CustomRateHz = customRate,
             XTickStep = xTick,
@@ -665,6 +670,13 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                     _settings = _settings with { Cursors = cursors };
                     PublishMeta(context);
                     PublishInputs(context);
+                }
+
+                break;
+            case PausedSource:
+                if (bool.TryParse(text.Trim(), out var paused))
+                {
+                    ApplyPaused(context, paused);
                 }
 
                 break;
@@ -971,6 +983,34 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         PublishInputs(context);
     }
 
+    /// <summary>
+    /// 暂停只切断接收门：端口继续排空，但帧不解析、不建组、不写历史；恢复时从下一帧继续。
+    /// </summary>
+    private void ApplyPaused(IModuleContext context, bool paused)
+    {
+        if (_settings.Paused == paused)
+        {
+            return;
+        }
+
+        _settings = _settings with { Paused = paused };
+        if (!paused)
+        {
+            foreach (var group in _groups.Values)
+            {
+                group.ResumeFromPause();
+            }
+        }
+
+        PublishMeta(context);
+        PublishInputs(context);
+        PublishStatus(Tr(paused
+            ? WaveformDisplayText.Paused
+            : ActiveGroup is { DisplayIndex: > 0 }
+                ? WaveformDisplayText.Receiving
+                : WaveformDisplayText.Ready));
+    }
+
     private void ApplyXAxisMode(IModuleContext context, string text)
     {
         var previous = _settings.XAxisMode;
@@ -1065,15 +1105,18 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                 case "setRange":
                     if (root.TryGetProperty("start", out var startElement)
                         && root.TryGetProperty("end", out var endElement)
-                        && startElement.TryGetInt64(out var rangeStart)
-                        && endElement.TryGetInt64(out var rangeEnd))
+                        && startElement.TryGetDouble(out var rangeStartAxis)
+                        && endElement.TryGetDouble(out var rangeEndAxis)
+                        && double.IsFinite(rangeStartAxis)
+                        && double.IsFinite(rangeEndAxis))
                     {
                         var startOnly = root.TryGetProperty("startOnly", out var startOnlyElement)
                             && startOnlyElement.ValueKind == JsonValueKind.True;
+                        var rate = EffectiveRate(ActiveGroup);
                         ApplyManualRange(
                             context,
-                            rangeStart,
-                            rangeEnd,
+                            DisplayAxisUnits.AxisToSamples(rangeStartAxis, _settings.XAxisMode, rate),
+                            DisplayAxisUnits.AxisToSamples(rangeEndAxis, _settings.XAxisMode, rate),
                             startOnly ? RangeEditIntent.Width : RangeEditIntent.Move);
                     }
 
@@ -1254,7 +1297,11 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         {
             try
             {
-                HandleFrame(context, buffer.Span);
+                // 暂停 = 收下即弃：仍排空端口，但既不校验也不建组/写历史。
+                if (!_settings.Paused)
+                {
+                    HandleFrame(context, buffer.Span);
+                }
             }
             finally
             {
@@ -1666,7 +1713,8 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         }
 
         // 显示设置回到默认；组/通道身份字段（名称、颜色、显隐）不在这里重置。
-        _settings = new DisplaySettings();
+        // 暂停是接收门，不是显示参数：清空/显示复位不擅自恢复数据流。
+        _settings = new DisplaySettings { Paused = _settings.Paused };
         _defaultRangeStart = 0;
         _defaultRangeEnd = _settings.FollowRangeSamples - 1;
         _defaultYAuto = true;
@@ -1921,6 +1969,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     /// 应用曲线区拖动产生的目标视口：X 为轴单位，Y 为数据值。
     /// </summary>
     /// <remarks>
+    /// 视图只提交轴单位；这里是曲线拖动 X 的**唯一**换算点，不得在视图或下游再乘一次速率。
     /// 平移关闭实际改变的轴（X ⇒ Follow，Y ⇒ YAuto）；右键缩放只改实际变化的轴。
     /// 跟踪开启时横向缩放保持跟踪并更新跟踪宽度，其余情况按目标范围精确应用。
     /// </remarks>
@@ -2179,16 +2228,29 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
             var values = new float[width];
             var history = group.Histories[index];
+            var min = float.PositiveInfinity;
+            var max = float.NegativeInfinity;
             for (var offset = 0; offset < width; offset++)
             {
-                values[offset] = history[start + offset];
+                var value = history[start + offset];
+                values[offset] = value;
+                if (float.IsFinite(value))
+                {
+                    min = MathF.Min(min, value);
+                    max = MathF.Max(max, value);
+                }
             }
 
+            var hasRange = min <= max;
             channels.Add(new SeriesWindowChannel(
                 index,
                 string.IsNullOrWhiteSpace(config?.Name) ? Tr(WaveformDisplayText.ChannelFallback, index + 1) : config!.Name,
                 config?.ColorArgb,
-                values));
+                values)
+            {
+                WindowMin = hasRange ? min : float.NaN,
+                WindowMax = hasRange ? max : float.NaN,
+            });
         }
 
         var (yMin, yMax) = EffectiveY(group);
@@ -2321,6 +2383,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                 follow = settings.Follow,
                 followRange = settings.FollowRangeSamples,
                 cursors = settings.Cursors,
+                paused = settings.Paused,
                 keepInactive = _settings.KeepInactiveHistory,
                 historyLimit = _settings.HistoryLimitSamples,
             },
@@ -2367,6 +2430,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         SetInput(context, YAutoSource, yAuto ? "true" : "false");
         SetInput(context, FollowSource, settings.Follow ? "true" : "false");
         SetInput(context, CursorsSource, settings.Cursors ? "true" : "false");
+        SetInput(context, PausedSource, settings.Paused ? "true" : "false");
         SetInput(context, XAxisModeSource, settings.XAxisMode == DisplayXAxisMode.Time ? "time" : "index");
         SetInput(context, UseCustomRateSource, settings.UseCustomRate ? "true" : "false");
         SetInput(context, CustomRateSource, Format(settings.CustomRateHz));

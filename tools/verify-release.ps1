@@ -51,8 +51,12 @@ foreach ($forbidden in @('sdk', 'samples', 'settings', 'workspace', 'logs', 'com
     if (Test-Path -LiteralPath $path) { Fail "产品目录出现禁止项：$forbidden" }
 }
 
+# 模块包内的 views/*.axaml 是运行期资源，不是待编译源码；其余 .cs/.axaml/工程文件一律拒绝。
 $sourceHits = @(Get-ChildItem -LiteralPath $product -Recurse -File |
-    Where-Object { $_.Extension -in @('.cs', '.axaml', '.csproj', '.sln', '.slnx') })
+    Where-Object {
+        $_.Extension -in @('.cs', '.csproj', '.sln', '.slnx') -or
+        ($_.Extension -eq '.axaml' -and $_.FullName -notmatch '[\\/]modules[\\/][^\\/]+[\\/]views[\\/][^\\/]+\.axaml$')
+    })
 if ($sourceHits.Count -gt 0) { Fail "产品目录包含源码：$($sourceHits[0].FullName)" }
 
 $devSymbols = @(Get-ChildItem -LiteralPath $product -Recurse -File |

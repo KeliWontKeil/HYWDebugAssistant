@@ -46,6 +46,11 @@ if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
     throw "无法从 version.props 取得四段版本：'$version'"
 }
 
+$packageVersion = (& (Join-Path $PSScriptRoot 'version.ps1') -PackageValue).Trim()
+if ($packageVersion -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') {
+    throw "无法从 version.props 取得 NuGet 包版本：'$packageVersion'"
+}
+
 $commit = (& git rev-parse HEAD 2>$null | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commit)) {
     throw '无法读取 git 提交号；发布必须能追溯到源码提交'
@@ -120,7 +125,7 @@ try {
 
         if ($file.Extension -in @('.csproj', '.config')) {
             $text = Get-Content -LiteralPath $file.FullName -Raw
-            $text = $text.Replace('Version="$(Version)"', ('Version="' + $version + '"'))
+            $text = $text.Replace('Version="$(Version)"', ('Version="' + $packageVersion + '"'))
             $text = $text.Replace('../../artifacts/sdk-packages', '..\..\packages')
             Set-Content -LiteralPath $destination -Value $text -Encoding utf8 -NoNewline
         }
@@ -211,7 +216,7 @@ try {
 
     Move-Item -LiteralPath $temp -Destination $target
     Write-Host "[sdk] SDK 发布完成：$target" -ForegroundColor Green
-    Write-Host "[sdk] version=$version packages=5 template=$($templateRecords.Count) files" -ForegroundColor Green
+    Write-Host "[sdk] version=$version packageVersion=$packageVersion packages=5 template=$($templateRecords.Count) files" -ForegroundColor Green
 }
 catch {
     if (Test-Path -LiteralPath $temp) {

@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     判据只看**产物**，不看源码（改源码不会让本脚本通过变绿）：
-      · 恰好五个包，名字与版本来自 `version.props`；
+      · 恰好五个包，名字与版本来自 `version.props`（NuGet 规范化包版本）；
       · 运行时契约包（`lib`）：含 `lib/net10.0/<包名>.dll` 与 `<包名>.xml`
         —— 模块作者拿不到框架源码，包内 XML 文档就是 API 的唯一语义来源；
       · 打包规则包（`build`）：含 `build/<包名>.props` 与 `build/<包名>.targets`；
@@ -38,6 +38,11 @@ if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
     throw "无法从 version.props 取得四段版本（得到 '$version'）"
 }
 
+$packageVersion = (& (Join-Path $PSScriptRoot 'version.ps1') -PackageValue).Trim()
+if ($packageVersion -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') {
+    throw "无法从 version.props 取得 NuGet 包版本（得到 '$packageVersion'）"
+}
+
 $packagesProps = Get-Content (Join-Path $root 'Directory.Packages.props') -Raw
 if ($packagesProps -notmatch '<PackageVersion Include="Avalonia" Version="([^"]+)"') {
     throw 'Directory.Packages.props 里没有 Avalonia 的版本条目'
@@ -58,7 +63,7 @@ if (-not (Test-Path -LiteralPath $Directory)) {
 }
 
 $produced = @(Get-ChildItem -LiteralPath $Directory -File)
-$expectedNames = @($expectations.Keys | ForEach-Object { "$_.$version.nupkg" })
+$expectedNames = @($expectations.Keys | ForEach-Object { "$_.$packageVersion.nupkg" })
 
 $missing = @($expectedNames | Where-Object { $name = $_; -not ($produced | Where-Object { $_.Name -eq $name }) })
 if ($missing.Count -gt 0) {
@@ -74,7 +79,7 @@ $errors = @()
 
 foreach ($id in $expectations.Keys) {
     $spec = $expectations[$id]
-    $packagePath = Join-Path $Directory "$id.$version.nupkg"
+    $packagePath = Join-Path $Directory "$id.$packageVersion.nupkg"
     $zip = [System.IO.Compression.ZipFile]::OpenRead($packagePath)
 
     try {
@@ -153,7 +158,7 @@ foreach ($id in $expectations.Keys) {
 
         foreach ($dependency in @($nuspec.package.metadata.dependencies.group.dependency)) {
             if (-not $dependency) { continue }
-            $expectedVersion = if ($dependency.id -eq 'Avalonia') { $avaloniaVersion } else { $version }
+            $expectedVersion = if ($dependency.id -eq 'Avalonia') { $avaloniaVersion } else { $packageVersion }
             if ($dependency.version -ne $expectedVersion) {
                 $errors += "$id：依赖 $($dependency.id) 的版本是 $($dependency.version)，应为 $expectedVersion"
             }
@@ -169,4 +174,4 @@ if ($errors.Count -gt 0) {
     throw "SDK 包产物校验未通过（$($errors.Count) 处）"
 }
 
-Write-Host "[verify] $($expectations.Count) 个包通过（$version）：内容与依赖组正确" -ForegroundColor Green
+Write-Host "[verify] $($expectations.Count) 个包通过（产品 $version / 包 $packageVersion）：内容与依赖组正确" -ForegroundColor Green

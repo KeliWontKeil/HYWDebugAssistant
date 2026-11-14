@@ -244,8 +244,12 @@ release.json 记录版本、源码提交与产物哈希。
         }
     }
 
+    # 模块包内的 views/*.axaml 是运行期资源，不是待编译源码；其余 .cs/.axaml/工程文件一律拒绝。
     $sourceFiles = Get-ChildItem -LiteralPath $temp -Recurse -File
-    $sourceHits = @($sourceFiles | Where-Object { $_.Extension -in @('.cs', '.axaml', '.csproj', '.sln', '.slnx') })
+    $sourceHits = @($sourceFiles | Where-Object {
+            $_.Extension -in @('.cs', '.csproj', '.sln', '.slnx') -or
+            ($_.Extension -eq '.axaml' -and $_.FullName -notmatch '[\\/]modules[\\/][^\\/]+[\\/]views[\\/][^\\/]+\.axaml$')
+        })
     if ($sourceHits.Count -gt 0) {
         throw "发布目录包含源码文件：$($sourceHits[0].FullName)"
     }

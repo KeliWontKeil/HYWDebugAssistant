@@ -6,7 +6,7 @@
 .DESCRIPTION
     判据（事实源与规则见 docs/zh/project/versioning.md）：
 
-      1. `version.props` 存在、四段都是 0..65535 的整数、轮次 >= 1；
+      1. `version.props` 存在、四段都是 0..65535 的整数、轮次 >= 0（0 = 该版本线首次构建）；
          `Directory.Build.props` 导入它，且**只**派生一个四段 `<Version>`。
       2. 工程 / props / targets 里不得出现版本属性元素
          （`AssemblyVersion` / `FileVersion` / `InformationalVersion` / `PackageVersion` /
@@ -101,10 +101,6 @@ else {
         }
 
         if ($numbers.Count -eq 4) {
-            if ($numbers['HywVersionRound'] -lt 1) {
-                Add-Problem 'version.props 的轮次必须 >= 1（0 只作“尚未构建”的占位）'
-            }
-
             $versionText = '{0}.{1}.{2}.{3}' -f $numbers['HywVersionMajor'],
                 $numbers['HywVersionMinor'], $numbers['HywVersionPatch'], $numbers['HywVersionRound']
             $versionParsed = $true

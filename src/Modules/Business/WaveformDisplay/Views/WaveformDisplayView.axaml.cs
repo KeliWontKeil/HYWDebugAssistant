@@ -409,7 +409,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         var row = new Grid
         {
             Height = 20,
-            ColumnDefinitions = new ColumnDefinitions("16,*,66,18,18,18"),
+            ColumnDefinitions = new ColumnDefinitions("16,*,72,18,18,18"),
             ClipToBounds = true,
             Background = channel.Index == _activeChannelIndex
                 ? FindBrush("SurfaceTabHoverBrush")
@@ -773,26 +773,29 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
 
     private void UpdateReadouts(SeriesWindowSnapshot snapshot)
     {
-        var count = snapshot.Channels.Count > 0 ? snapshot.Channels[0].Values.Length : 0;
         foreach (var row in _channelRows)
         {
             var info = _channels.Find(item => item.Index == row.Index);
             if (info is { Missing: true })
             {
                 row.Readout.Text = Tr("view.missingChannel");
+                ToolTip.SetTip(row.Readout, null);
                 continue;
             }
 
             var channel = FindChannel(snapshot, row.Index);
-            if (channel is null || count <= 0)
+            if (channel is null
+                || !float.IsFinite(channel.WindowMin)
+                || !float.IsFinite(channel.WindowMax))
             {
-                row.Readout.Text = "A - B -";
+                row.Readout.Text = "-~-";
+                ToolTip.SetTip(row.Readout, null);
                 continue;
             }
 
-            var a = Math.Clamp((int)Math.Round(_chart?.CursorAFraction ?? 0, MidpointRounding.AwayFromZero) * (count - 1), 0, count - 1);
-            var b = Math.Clamp((int)Math.Round(_chart?.CursorBFraction ?? 0, MidpointRounding.AwayFromZero) * (count - 1), 0, count - 1);
-            row.Readout.Text = "A " + FormatValue(channel.Values[a]) + " B " + FormatValue(channel.Values[b]);
+            var text = FormatValue(channel.WindowMin) + "~" + FormatValue(channel.WindowMax);
+            row.Readout.Text = text;
+            ToolTip.SetTip(row.Readout, text);
         }
     }
 
@@ -842,19 +845,12 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             return;
         }
 
-        var start = DisplayAxisUnits.AxisToSamples(_range.RangeStart, _xAxisMode, _rate);
-        var end = DisplayAxisUnits.AxisToSamples(_range.RangeEnd, _xAxisMode, _rate);
-        if (end < start)
-        {
-            (start, end) = (end, start);
-        }
-
-        // 意图由选择器给出：拖左端才是"只改宽度"，其余手势都是移动范围。
+        // 控件给的是轴单位；模块统一换算成样本。视图不得在这里再换算一次。
         SubmitAction(new
         {
             op = "setRange",
-            start,
-            end,
+            start = _range.RangeStart,
+            end = _range.RangeEnd,
             startOnly = _range.LastChangeKind == RangeChangeKind.Start,
         });
     }
@@ -866,7 +862,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         SubmitChartDrag("zoom", e);
 
     /// <summary>
-    /// 把控件给出的目标轴范围换算成样本，交给模块统一夹紧和决定跟踪/Y 自动。
+    /// 把控件给出的目标轴范围原样交给模块；模块统一换算成样本并夹紧。
     /// </summary>
     private void SubmitChartDrag(string mode, ChartDragEventArgs e)
     {
@@ -875,14 +871,12 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             return;
         }
 
-        var start = DisplayAxisUnits.AxisToSamples(e.XStart, _xAxisMode, _rate);
-        var end = DisplayAxisUnits.AxisToSamples(e.XEnd, _xAxisMode, _rate);
         SubmitAction(new
         {
             op = "dragView",
             mode,
-            xStart = start,
-            xEnd = end,
+            xStart = e.XStart,
+            xEnd = e.XEnd,
             yMin = e.YMin,
             yMax = e.YMax,
         });

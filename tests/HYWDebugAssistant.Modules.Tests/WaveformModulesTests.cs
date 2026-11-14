@@ -1253,6 +1253,119 @@ public class WaveformModulesTests
     }
 
     [Fact]
+    public void 显示器_时间模式范围动作应只换算一次()
+    {
+        var context = new TestModuleContext();
+        SeedSettings(context, new DisplaySettings
+        {
+            XAxisMode = DisplayXAxisMode.Time,
+            UseCustomRate = true,
+            CustomRateHz = 1000,
+            Follow = false,
+            FollowRangeSamples = 256,
+        });
+
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+        for (var index = 0; index < 1000; index++)
+        {
+            Deliver(context, 1, (uint)index, [index]);
+        }
+
+        module.OnStep(context, StepReason.Data);
+        var before = Snapshot(context).ShouldNotBeNull();
+
+        // 数据轴选择也提交轴单位；模块只换算一次。
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"setRange\",\"start\":0.2,\"end\":0.249}");
+        module.PumpOnce(context);
+
+        var selected = Snapshot(context).ShouldNotBeNull();
+        selected.XRangeStart.ShouldBe(200);
+        selected.XRangeEnd.ShouldBe(249);
+        selected.Channels[0].Values.Length.ShouldBe(50);
+
+        // 右键缩放由 ChartSurface 给轴单位，视图原样提交；模块只换算一次。
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"dragView\",\"mode\":\"zoom\",\"xStart\":0.3,\"xEnd\":0.349,"
+            + "\"yMin\":" + before.YMin.ToString(CultureInfo.InvariantCulture) + ","
+            + "\"yMax\":" + before.YMax.ToString(CultureInfo.InvariantCulture) + "}");
+        module.PumpOnce(context);
+
+        var zoomed = Snapshot(context).ShouldNotBeNull();
+        zoomed.XRangeStart.ShouldBe(300);
+        zoomed.XRangeEnd.ShouldBe(349);
+        zoomed.Channels[0].Values.Length.ShouldBe(50);
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowRangeSource).ShouldBe("0.05");
+    }
+
+    [Fact]
+    public void 显示器_通道行应发布窗口数据范围()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        Deliver(context, 1, 0, [1f, 10f]);
+        Deliver(context, 1, 1, [3f, float.NaN]);
+        Deliver(context, 1, 2, [-2f, 20f]);
+        module.OnStep(context, StepReason.Data);
+
+        var snapshot = Snapshot(context).ShouldNotBeNull();
+        var first = snapshot.Channels.Single(channel => channel.Index == 0);
+        first.WindowMin.ShouldBe(-2f);
+        first.WindowMax.ShouldBe(3f);
+
+        var second = snapshot.Channels.Single(channel => channel.Index == 1);
+        second.WindowMin.ShouldBe(10f);
+        second.WindowMax.ShouldBe(20f);
+    }
+
+    [Fact]
+    public void 显示器_暂停应冻结全部组且恢复不补帧不计丢帧()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        Deliver(context, 1, 0, [0f]);
+        Deliver(context, 1, 1, [1f]);
+        Deliver(context, 1, 2, [2f]);
+        module.OnStep(context, StepReason.Data);
+        var before = Snapshot(context).ShouldNotBeNull();
+
+        context.EnqueueInput(WaveformDisplayModule.PausedSource, "true");
+        module.PumpOnce(context);
+
+        // 暂停期间两个组都到达；端口排空，但不写历史、不发现新组。
+        Deliver(context, 1, 3, [3f]);
+        Deliver(context, 1, 4, [4f]);
+        Deliver(context, 2, 0, [99f]);
+        module.PumpOnce(context);
+
+        Snapshot(context).ShouldBeSameAs(before);
+        DisplayMeta(context).GetProperty("groups").GetArrayLength().ShouldBe(1);
+
+        context.EnqueueInput(WaveformDisplayModule.PausedSource, "false");
+        module.PumpOnce(context);
+        Deliver(context, 1, 7, [7f]);
+        Deliver(context, 2, 4, [99f]);
+        module.PumpOnce(context);
+        context.Timers.AdvanceTo(TimeSpan.FromMilliseconds(600));
+
+        var after = Snapshot(context).ShouldNotBeNull();
+        after.Channels.ShouldHaveSingleItem().Values.ShouldBe([0f, 1f, 2f, 7f]);
+        var groups = DisplayMeta(context).GetProperty("groups");
+        groups.GetArrayLength().ShouldBe(2);
+        groups[0].GetProperty("lost").GetInt64().ShouldBe(0);
+    }
+
+    [Fact]
     public void 显示器_无数据时应发布可调初始视口()
     {
         var context = new TestModuleContext();
@@ -1784,6 +1897,9 @@ public class WaveformModulesTests
             WaveformDisplayModule.FollowRangeSource,
             settings.FollowRangeSamples.ToString(CultureInfo.InvariantCulture));
         context.ViewState.SetInputText(WaveformDisplayModule.CursorsSource, settings.Cursors ? "true" : "false");
+        context.ViewState.SetInputText(
+            WaveformDisplayModule.PausedSource,
+            settings.Paused ? "true" : "false");
         context.ViewState.SetInputText(
             WaveformDisplayModule.UseCustomRateSource,
             settings.UseCustomRate ? "true" : "false");

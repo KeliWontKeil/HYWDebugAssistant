@@ -279,7 +279,7 @@ context.Configuration.Write(new MyConfig { Host = "10.0.0.2" });
 | `Display.IsFull(source)` | 自上次清空/替换以来是否因容量丢过内容 |
 | `Display.SetSeriesWindow(source, snapshot)` | 发布一个不可变整窗快照；发布后不得再改动其中的数组 |
 
-`SeriesWindowSnapshot(Version, XRangeStart, XRangeEnd, LatestIndex, RateHz, YMin, YMax, YAuto, Channels)`，通道为 `SeriesWindowChannel(Index, Name, ColorArgb, Values)`；`Values` 长度就是窗口宽度。
+`SeriesWindowSnapshot(Version, XRangeStart, XRangeEnd, LatestIndex, RateHz, YMin, YMax, YAuto, Channels)`，通道为 `SeriesWindowChannel(Index, Name, ColorArgb, Values)`；`Values` 长度就是窗口宽度。`WindowMin/WindowMax` 是窗口内有限样本的最小/最大值，无有效样本时为 `NaN`；它们来自通道自身，不依赖游标。
 
 ### 视图状态
 

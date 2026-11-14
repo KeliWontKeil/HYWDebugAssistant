@@ -71,7 +71,7 @@ RangeSelector（X 范围可视化） + x 输入 + y 输入 + 局部保存
 - 来源：显示器模块、发生器预览。
 - 形态：不可变对象，一次提供某个 X 范围的全部点；没有环形容量、没有 UI 降采样。
 - 类型 `SeriesWindowSnapshot`：版本、X 起止、latest、有效速率、有效 Y 起止、YAuto、通道列表。
-- 类型 `SeriesWindowChannel`：通道序号、显示名、颜色、`float[] Values`（长度 = X 范围宽度）。
+- 类型 `SeriesWindowChannel`：通道序号、显示名、颜色、`float[] Values`（长度 = X 范围宽度），以及 `WindowMin/WindowMax`（窗口内有限样本的最小/最大；无有效样本为 `NaN`）。
 - 写：模块 `IViewDisplayAccess.SetSeriesWindow`（实例线程，引用整体替换）。
 - 读：视图 `IModuleViewContext.ReadSeriesWindow`（UI 线程，只读）。
 - 发布后模块不得改数组；更新时构建新对象。
@@ -319,6 +319,13 @@ GeneratorChannelConfig
 - 曲线区左键拖动：按“抓住曲线”方向平移；X 实际变化关闭跟踪，Y 实际变化关闭 Y 自动，未变化的轴保持原自动状态。拖动后的 X 跨度写回跟踪宽度。
 - 曲线区右键拖动：以当前视口中心缩放；水平只改 X、垂直只改 Y，向右/向上放大。X 缩放实际变化时，跟踪开启则保持跟踪并更新宽度，关闭则精确应用目标范围；Y 缩放实际变化时关闭 Y 自动。
 
+**接收暂停**
+
+- `paused` 是模块全局门控：关闭接收时仍排空输入端口，但不解析帧、不建组、不写历史，也不推进 latest/序号统计。
+- 已显示历史、X/Y 范围、游标和数据轴保持不动；缩放/平移/切组/清空/复位/保存仍可用。
+- 恢复时从下一帧继续，不补发暂停期间的数据；各组清空序号基线并重置速率窗口，暂停缺口不计入 `lost`，也不会显示恢复瞬间的虚假低速率。
+- `paused` 是持久化值；清空/显示复位不改变它，必须由用户显式关闭。
+
 **Y 范围**
 
 - 每活动组配置 `YAuto/YMin/YMax/YFitChannel`；自动时由模块在当前 X 范围内的全部可见点计算有效值；手动时用配置。
@@ -331,6 +338,7 @@ GeneratorChannelConfig
 ### 7.2 快照与投影
 
 - 活动组、X 范围内每个**当前存在且未删除**通道的全部样本；`Values.Length = width`；不抽稀、不截断。
+- 同一复制循环统计每通道有限样本的 `WindowMin/WindowMax`，供右栏显示 `最小值~最大值`；无有效样本为 `NaN`。该统计不依赖图表游标。
 - 有效 Y 从同一范围计算；快照携带 Y 起止/YAuto。
 - 触发重建：X 范围、切组、清空/复位、通道显隐/缺失/删除/新增、历史、Y 设置、跟踪范围。
 - 跟随：小范围逐帧重建；大范围按约 20 Hz 重建（每次仍是完整范围），状态显示点数/更新率。
@@ -351,11 +359,11 @@ GeneratorChannelConfig
 | `historyUsed` | Value U64 | 非活动组当前保留的样本帧合计 |
 | `imageRequest` | Text | PNG 保存路径/请求号 |
 
-输入：`xStart`、`xEnd`、`yMin`、`yMax`、`yAuto`、`follow`、`followRange`、`cursors`、`xAxisMode`、`useCustomRate`、`customRate`、`xTick`、`yTick`、`keepInactive`、`historyLimit`、`readableTickLimits`、`action`、`savePath`、`imageResult`。
+输入：`xStart`、`xEnd`、`yMin`、`yMax`、`yAuto`、`follow`、`followRange`、`cursors`、`paused`、`xAxisMode`、`useCustomRate`、`customRate`、`xTick`、`yTick`、`keepInactive`、`historyLimit`、`readableTickLimits`、`action`、`savePath`、`imageResult`。
 
 - 文本输入逐键写入视图状态；模块在 Input step 回读，变化即应用（HEX 转换器模型），不依赖 Enter/失焦。
 - `readableTickLimits` 是视图按实际控件尺寸、字号和格式化文本测量出的可读刻度上限（图表 X/Y、数据轴 X 各自一份）；模块据此判断红框，视图据此自动回退。
-- `action` 支持 `selectGroup`、`selectChannel`、`setRange`、`renameGroup`、`renameChannel`、`setColor`、`resetColor`、`setVisible`、`fitY`、`deleteChannel`。
+- `action` 支持 `selectGroup`、`selectChannel`、`setRange`、`dragView`、`renameGroup`、`renameChannel`、`setColor`、`resetColor`、`setVisible`、`fitY`、`deleteChannel`。其中 `setRange` / `dragView` 的 X 值都是**当前 X 轴单位**；模块是唯一换算成样本的地方，视图不得二次换算。
 - 模块夹紧/交换/回退后写回输入状态；值未变不写，避免回读回声。
 - 时间基：`rate = useCustomRate && customRate > 0 ? customRate : 活动组声明速率`；自定义频率是模块全局设置，不按组保存。
 - X 轴单位只由 `xAxisMode` 决定：Index 为样本个数，Time 为秒。X 起/止/刻度/跟踪范围都按此单位显示和解析；历史上限仍是样本个数。
@@ -373,10 +381,10 @@ GeneratorChannelConfig
 ### 7.5 布局与交互
 
 - 内容尺寸 960×580（XAML Initial/Min，两个独立事实；外框 chrome 另加）；无顶行标题；主区：图表 `*` + 右栏组标题列表（200）；图表下方数据轴（32）；底部功能栏固定 86 高 `Canvas`（3 行）；状态行 14。
-- 右栏：组标题栏（编号/名称粗体/数据个数/实际声明帧率/展开箭头）；活动组 U 凸起，同时只展开活动组；组名可编辑；通道行 20（颜色、可编辑名称、A/B 读数、隐藏、Y 自适应、删除三个 18×18 行内按钮）；缺失行显示“缺失”并禁用隐藏/Y 自适应，删除仍可用；内部滚动。
+- 右栏：组标题栏（编号/名称粗体/数据个数/实际声明帧率/展开箭头）；活动组 U 凸起，同时只展开活动组；组名可编辑；通道行 20（颜色、可编辑名称、当前窗口 `最小值~最大值`、隐藏、Y 自适应、删除三个 18×18 行内按钮）；缺失行显示“缺失”并禁用隐藏/Y 自适应，删除仍可用；内部滚动。
 - 数据轴：`RangeSelector` 单 X 范围；轨道占满自身控件宽度（仅 1 DIP 描边内缩），不复制图表 `PlotInset.Left` 的 Y 轴预留；1 px 选择边界 + 半透明填充 + 主/次刻度 + 主刻度数字；不再画粗手柄。轨道/刻度/数字全用主题 token（浅色主题近白底、深色主题随主题），不写死白/黑。
 - 功能栏 86、固定坐标 `Canvas`、3 行：
-  - X 行：X 轴模式、X 刻度、X 起、X 止、跟踪、跟踪范围、自定义频率开关+输入。
+  - X 行：X 轴模式、X 刻度、X 起、X 止、跟踪、跟踪范围、自定义频率开关+输入、暂停开关。
   - Y 行：Y 刻度、Y 最小/最大、Y 自动；右侧保存按钮。
   - 第三行：复位、清空、游标、保留非活动组历史、历史上限、已用数量。
 - X 轴相关输入不再有独立单位标签；`AxisModeSelect` 的“数据个数/时间(s)”就是单位提示。历史上限仍按样本个数，去掉单独“个”标签。
@@ -413,8 +421,8 @@ GeneratorChannelConfig
 
 - **契约**：两模块同类型/同形状/golden/280 B；`ModuleContract.Probe` 无 Problems/Advisories。
 - **帧往返**：写入→读取；1/64 通道、mask、rate=0、sequence 回绕；畸形帧拒绝。
-- **快照**：X 范围宽度 = `Values.Length`；首/中/末值对应历史索引；无 256/抽稀；Y 有效值与范围一致；局部保存只含 X 范围；全部保存含历史；Y 不参与。
-- **范围**：夹紧/交换/最小跨度；宽度意图保持跟踪，移动意图关闭跟踪；跟踪开关是唯一显式状态设置；切组/清空/复位同步；活动组不抢占。
+- **快照**：X 范围宽度 = `Values.Length`；首/中/末值对应历史索引；无 256/抽稀；Y 有效值与范围一致；`WindowMin/WindowMax` 等于窗口内有限样本范围；局部保存只含 X 范围；全部保存含历史；Y 不参与。
+- **范围/暂停**：夹紧/交换/最小跨度；宽度意图保持跟踪，移动意图关闭跟踪；跟踪开关是唯一显式状态设置；切组/清空/复位同步；活动组不抢占；Index/Time 下同一轴范围事件只换算一次；暂停冻结全部组、恢复不补帧且不把缺口算丢帧。
 - **单位/速率**：Index/Time 切换时 X 起止/刻度/跟踪范围协同换算；自定义频率全局覆盖帧声明速率，关闭后回落；CSV 使用同一有效速率。
 - **发生器**：组帧率/一次性帧数；重复一次性从相位 0；序号继续；结构变化停止；禁用组不发送；Nyquist 拒绝并说明；SPWM/SVPWM 每个参数改变输出；连续按钮启动/停止；组选中 `activeChannelIndex=-1`；组/通道 chips 加删。
 - **显示器交互**：双通道默认全部可见、隐藏/恢复；Y 自动只增不减，`fitY` 才缩；颜色首次自动分配、重置后重新分配；隐藏按钮读取当前状态而非旧闭包。

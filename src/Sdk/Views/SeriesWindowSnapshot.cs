@@ -46,4 +46,12 @@ public sealed record SeriesWindowChannel(
     int Index,
     string Name,
     uint? ColorArgb,
-    float[] Values);
+    float[] Values)
+{
+    /// <summary>窗口内有限样本的最小值；没有有效样本时为 <see cref="float.NaN"/>。</summary>
+    /// <remarks>这是通道自身的窗口统计，不依赖游标位置；发布者可在复制样本时同步计算。</remarks>
+    public float WindowMin { get; init; } = float.NaN;
+
+    /// <summary>窗口内有限样本的最大值；没有有效样本时为 <see cref="float.NaN"/>。</summary>
+    public float WindowMax { get; init; } = float.NaN;
+}
