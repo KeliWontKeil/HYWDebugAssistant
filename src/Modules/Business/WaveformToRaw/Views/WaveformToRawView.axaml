@@ -70,13 +70,15 @@
         <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="24"
                         Classes="caption right" Text="{loc:Tr field.header}" />
         <ui:ModuleTextSurface Canvas.Left="44" Canvas.Top="0" Width="88" Height="24" Mode="Input"
-                              Value="{x:Static local:WaveformToRawModule.HeaderInput}"
-                              Text="ab" CommitMode="OnChange" />
+                              Value="{x:Static local:WaveformToRawModule.HeaderHexInput}"
+                              Text="{x:Static local:WaveformToRawModule.DefaultHeaderHex}" CommitMode="OnChange"
+                              ToolTip.Tip="{loc:Tr view.hexHint}" />
         <ui:ModuleLabel Canvas.Left="134" Canvas.Top="0" Width="42" Height="24"
                         Classes="caption right" Text="{loc:Tr field.footer}" />
         <ui:ModuleTextSurface Canvas.Left="178" Canvas.Top="0" Width="88" Height="24" Mode="Input"
-                              Value="{x:Static local:WaveformToRawModule.FooterInput}"
-                              Text="cd" CommitMode="OnChange" />
+                              Value="{x:Static local:WaveformToRawModule.FooterHexInput}"
+                              Text="{x:Static local:WaveformToRawModule.DefaultFooterHex}" CommitMode="OnChange"
+                              ToolTip.Tip="{loc:Tr view.hexHint}" />
       </Canvas>
 
       <Canvas Name="FireWaterParams" Width="356" Height="24">

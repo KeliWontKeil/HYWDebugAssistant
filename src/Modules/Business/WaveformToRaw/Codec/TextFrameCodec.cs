@@ -7,56 +7,68 @@ namespace HYWDebugAssistant.Modules.WaveformToRaw.Codec;
 /// </summary>
 internal static class TextFrameCodec
 {
-    /// <summary>单帧字符上界：64 个数值的最长表示 + 帧头帧尾。</summary>
+    /// <summary>单帧字符上界（FireWater 复用同一缓冲；文本帧按字节直接写）。</summary>
     public const int MaxChars = 2048;
 
-    /// <summary>把一帧写入目标字符区间，返回写入字符数；返回负数表示目标过小。</summary>
+    /// <summary>把一帧写入目标**字节**区间，返回写入字节数；返回负数表示目标过小。</summary>
+    /// <remarks>
+    /// 帧头/帧尾是**字节**，数值按 ASCII 写入：<c>[帧头字节][空格][值 空格 值…][空格][帧尾字节]</c>。
+    /// 这样帧头可以包含任意不可输入的字节（如 <c>00 FF</c>）。
+    /// </remarks>
     public static int Write(
-        Span<char> destination,
+        Span<byte> destination,
         ReadOnlySpan<float> values,
-        string header,
-        string footer,
+        ReadOnlySpan<byte> header,
+        ReadOnlySpan<byte> footer,
         int decimals)
     {
+        Span<char> number = stackalloc char[32];
         var position = 0;
-        if (!string.IsNullOrEmpty(header))
+
+        if (!header.IsEmpty)
         {
-            header.AsSpan().CopyTo(destination);
+            if (position + header.Length > destination.Length)
+            {
+                return -1;
+            }
+
+            header.CopyTo(destination);
             position += header.Length;
-            destination[position++] = ' ';
+            destination[position++] = (byte)' ';
         }
 
         for (var i = 0; i < values.Length; i++)
         {
             if (i > 0)
             {
-                destination[position++] = ' ';
+                destination[position++] = (byte)' ';
             }
 
-            if (!ValueFormat.TryFormat(values[i], decimals, destination[position..], out var written))
+            if (!ValueFormat.TryFormat(values[i], decimals, number, out var written)
+                || position + written > destination.Length)
             {
                 return -1;
             }
 
-            position += written;
+            for (var index = 0; index < written; index++)
+            {
+                destination[position++] = (byte)number[index];
+            }
         }
 
-        if (!string.IsNullOrEmpty(footer))
+        if (!footer.IsEmpty)
         {
-            destination[position++] = ' ';
-            footer.AsSpan().CopyTo(destination[position..]);
+            if (position + 1 + footer.Length > destination.Length)
+            {
+                return -1;
+            }
+
+            destination[position++] = (byte)' ';
+            footer.CopyTo(destination[position..]);
             position += footer.Length;
         }
 
         return position;
-    }
-
-    /// <summary>编码一帧为字符串（测试与文档示例用；热路径用 <see cref="Write"/>）。</summary>
-    public static string Encode(ReadOnlySpan<float> values, string header, string footer, int decimals)
-    {
-        Span<char> buffer = stackalloc char[MaxChars];
-        var written = Write(buffer, values, header, footer, decimals);
-        return written < 0 ? string.Empty : new string(buffer[..written]);
     }
 }
 

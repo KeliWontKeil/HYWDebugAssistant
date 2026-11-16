@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -96,13 +97,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         Composites = new CompositePageViewModel(query, command, Windows);
 
         // 模块窗口发出的**面向用户提示**（建网/端口标签结果）→ 状态栏
-        Windows.NoticeRaised += (_, notice) =>
-        {
-            StatusNotice = notice.Message;
-            StatusNoticeIsError = notice.IsError;
-            _statusNoticeRaisedAt = Stopwatch.GetTimestamp();
-            UpdateStatus();
-        };
+        Windows.NoticeRaised += (_, notice) => RaiseNotice(notice.Message, notice.IsError);
         Catalog = new ModuleCatalogViewModel(query, command);
         Catalog.RestartRequested += (_, _) => RestartRequested?.Invoke(this, EventArgs.Empty);
         Issues = new IssuesPanelViewModel(query, command);
@@ -319,6 +314,62 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
     /// <summary>请求打开某个弹窗（由视图创建/显示窗口）。</summary>
     public event EventHandler<DialogKind>? DialogRequested;
+
+    /// <summary>
+    /// **按外部路径导入**（拖放入口）：识别模块包/组合包并交给对应页面，结果写页面操作状态。
+    /// </summary>
+    /// <param name="path">外部文件或文件夹路径。</param>
+    /// <remarks>
+    /// 识别由框架查询面统一回答，UI 不写清单文件名字面量；普通目录交给批量导入（2–3 层），
+    /// 无法识别的内容写页面状态，**不再写应用底部状态栏**（那里只留窗口级提示）。
+    /// </remarks>
+    public void ImportPath(string path)
+    {
+        switch (_query.ClassifyImportPath(path))
+        {
+            case ImportPathKind.ModulePackage:
+                ShowImportPage(ShellPages.Catalog);
+                Catalog.ImportDirectory(path);
+                break;
+
+            case ImportPathKind.CompositePackage:
+                ShowImportPage(ShellPages.Composite);
+                Composites.ImportComposite(path);
+                break;
+
+            default:
+                ShowImportPage(ShellPages.Catalog);
+
+                if (Directory.Exists(path))
+                {
+                    Catalog.ImportFolder(path);
+                }
+                else
+                {
+                    Catalog.ReportImportError(Loc("shell.drop.unsupported"));
+                }
+
+                break;
+        }
+    }
+
+    /// <summary>切到拥有导入结果的页面，让页面底部的操作状态可见。</summary>
+    private void ShowImportPage(string page)
+    {
+        if (!string.Equals(ActivePage, page, StringComparison.Ordinal))
+        {
+            ActivePage = page;
+        }
+    }
+
+    /// <summary>写状态栏临时提示（窗口提示事件与直接调用共用同一落点）。</summary>
+    private void RaiseNotice(string message, bool isError)
+    {
+        StatusNotice = message;
+        StatusNoticeIsError = isError;
+        _statusNoticeRaisedAt = Stopwatch.GetTimestamp();
+        UpdateStatus();
+    }
 
     /// <summary>请求“保存现场并重启应用”（由主窗口执行进程重启）。</summary>
     public event EventHandler? RestartRequested;

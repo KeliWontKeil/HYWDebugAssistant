@@ -80,12 +80,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// </summary>
     public double SnapDistance { get; private set; } = SnapEngine.DefaultTolerance;
 
-    /// <summary>新模块默认摆放的起始偏移与步长（物理像素；外壳有效时以**外壳右侧**为起点）。</summary>
-    private const double PlaceOrigin = 48;
-
-    /// <summary>新模块与外壳/同列模块之间的间距（物理像素）。</summary>
-    private const double PlaceGap = 12;
-
     private readonly IRuntimeQuery _query;
     private readonly IRuntimeCommand _command;
     private readonly Dictionary<(string InstanceId, string Source), SubscriptionSourceView> _sources = [];
@@ -312,6 +306,24 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     [ObservableProperty]
     public partial string MultilineSubmitKey { get; set; } = "CtrlEnter";
 
+    /// <summary>波形曲线区滚轮每格的缩放系数——应用设置 `wheelZoomStep` 的镜像（1.05–2.00）。</summary>
+    public double WheelZoomStep
+    {
+        get => _wheelZoomStep;
+        set
+        {
+            if (Math.Abs(_wheelZoomStep - value) < 1e-9)
+            {
+                return;
+            }
+
+            _wheelZoomStep = value;
+            OnPropertyChanged();
+        }
+    }
+
+    private double _wheelZoomStep = 1.2;
+
     /// <summary>当前选中的模块实例（**锚点**；多选时 = 第一个选中的那一个）。</summary>
     [ObservableProperty]
     public partial string? SelectedInstanceId { get; set; }
@@ -327,15 +339,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
     /// <summary>选择集变化（组合页/状态展示订阅）。</summary>
     public event EventHandler? SelectionChanged;
-
-    /// <summary>
-    /// **窗口点击**要求把整组抬到应用内最前（组内 primary 最后抬 ⇒ 在最上）。
-    /// </summary>
-    /// <remarks>
-    /// 只在窗口点击路径触发（<see cref="SelectGroup"/>）；<see cref="Select"/> / <see cref="SetSelection"/> /
-    /// <see cref="ToggleSelection"/> 不触发 —— 组合页勾选不联动抬窗。
-    /// </remarks>
-    public event EventHandler<ModuleGroupRaiseRequest>? GroupRaiseRequested;
 
     private readonly List<string> _selectedInstanceIds = [];
 
@@ -458,7 +461,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// **普通点击已拼接模块**：选中整组（锚点 = 被点者）并请求把整组抬到最前。
+    /// 选中整组（仅选择与锚点；窗口层级由窗口组按激活序处理，选择本身不抬窗）。
     /// </summary>
     /// <param name="instanceId">被点击的实例 ID。</param>
     /// <remarks>
@@ -485,7 +488,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
 
         SetSelection(group, primary: instanceId);
-        GroupRaiseRequested?.Invoke(this, new ModuleGroupRaiseRequest(group, instanceId));
     }
 
     /// <summary>若模块未选中则单选它；已选中则只把锚点移过去（保留多选）。</summary>
@@ -683,6 +685,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         RefreshRateHz = _settings.UiRefreshRateHz;
         SnapDistance = Math.Clamp(_settings.SnapDistance, 2, 8);
         MultilineSubmitKey = _settings.MultilineSubmitKey;
+        WheelZoomStep = Math.Clamp(_settings.WheelZoomStep, 1.05, 2.0);
     }
 
     /// <summary>
@@ -700,6 +703,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         {
             module.ShowInfoOverlay = ShowInfoOverlay;
             module.MultilineSubmitKey = MultilineSubmitKey;
+            module.WheelZoomStep = WheelZoomStep;
         }
 
         if (!_structureChanged && !_peersDirty)
@@ -2574,157 +2578,31 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             this,
             new ModuleWindowGeometryChange(module.InstanceId, module.X, module.Y, module.Width, module.Height));
 
-    /// <summary>
-    /// 新模块的摆放位置（物理像素）：**从外壳右侧开始、竖着一列排开，互不堆叠**。
-    /// </summary>
-    /// <remarks>
-    /// 新模块若都落在左上角（`48,48` 起、每 40px 斜叠）⇒ **压在主窗口上、彼此重叠**。
-    /// 故规则（纯几何、可单测）：
-    /// <list type="number">
-    ///   <item>起点 X = **外壳右边缘 + 间距**（外壳不可用时回退到 <see cref="PlaceOrigin"/>），起点 Y = 外壳上边缘（同回退）；</item>
-    ///   <item>**已有的模块**逐个检查：与候选矩形相交就让位（向下挪一个"模块高 + 间距"）；</item>
-    ///   <item>一列到底（超出工作区下沿）就**换到右面一列**（X 挪"模块宽 + 间距"，Y 回到起点）；
-    ///     工作区不可用时不换列（无限向下，仍保证不堆叠）。</item>
-    /// </list>
-    /// 尺寸用**视图根 XAML 的窗口 MinWidth/MinHeight（含外框）**（由调用方先加载视图得到）。
-    /// 有循环上限兜底，极端情况下宁可重叠也不死循环。
-    /// </remarks>
-    /// <summary>
-    /// 按给定尺寸找空闲摆放位置（DIP）：**按现有模块的真实下沿 + 间距**向下让位，
-    /// 不再按“候选模块声明高度”整块跳过（旧实现会在矮模块之间留下过大的 Y 空隙）。
-    /// </summary>
+    /// <summary>当前可见模块的占用矩形（DIP）。</summary>
+    private List<CanvasRect> OccupiedModuleRects()
+    {
+        var occupied = new List<CanvasRect>(Modules.Count);
+
+        foreach (var module in Modules)
+        {
+            var rect = module.Rect;
+            if (module.IsViewVisible && rect.IsValid)
+            {
+                occupied.Add(rect);
+            }
+        }
+
+        return occupied;
+    }
+
+    /// <summary>按给定尺寸找落位（DIP）：空位优先，当前屏排满后在工作区内堆叠。</summary>
     private (double X, double Y) NextPlacementForSize(double width, double height)
     {
-        var shell = ShellRect is { IsValid: true } rect ? rect : (CanvasRect?)null;
-        var baseX = shell is { } s ? s.Right + PlaceGap : PlaceOrigin;
-        var baseY = shell is { } s2 ? s2.Y : PlaceOrigin;
-        var work = WorkArea is { IsValid: true } area ? area : (CanvasRect?)null;
+        var work = ModulePlacement.ChooseWorkArea(ShellRect, WorkAreas)
+            ?? (WorkArea is { IsValid: true } area ? area : null);
 
-        // 外壳靠近工作区下沿时，按外壳上沿起排会把模块放到屏幕外；先夹到还能容纳一行的高度。
-        if (work is { } workArea && baseY + height > workArea.Bottom)
-        {
-            baseY = Math.Max(workArea.Top, workArea.Bottom - height);
-        }
-
-        var x = baseX;
-        var y = baseY;
-
-        for (var guard = 0; guard < 256; guard++)
-        {
-            if (work is { } area2 && y + height > area2.Bottom)
-            {
-                // 起始行本身就放不下 ⇒ 换列也不会变好；继续加 X 只会在屏幕上横向跑出巨大间隔。
-                if (y <= baseY + 0.5)
-                {
-                    return (x, y);
-                }
-
-                // 本列已到底 → 换右边一列。列宽不能只按“内容最小宽”估：XAML 声明的是含外框的实际窗口宽，
-                // 若按内容宽步进，实际只剩不到 PlaceGap 的缝，会被碰撞判定当成仍重叠，进而多跳一列。
-                x = CurrentColumnRight(x, width) + PlaceGap;
-                y = baseY;
-            }
-
-            if (LowestOverlappingBottom(x, y, width, height) is not { } bottom)
-            {
-                return (x, y);
-            }
-
-            // **贴住最低障碍物的下沿 + 呼吸间距**：不按候选高度整块跳，避免过大空档。
-            y = bottom + PlaceGap;
-        }
-
-        return (x, y);
-    }
-
-    /// <summary>
-    /// 当前列实际占用的右边界：取候选宽与**本列已有模块真实宽度**的较大者。
-    /// </summary>
-    /// <param name="columnLeft">列左边界（DIP）。</param>
-    /// <param name="nominalWidth">候选模块声明宽度（DIP）。</param>
-    /// <returns>本列右边界（DIP）。</returns>
-    private double CurrentColumnRight(double columnLeft, double nominalWidth)
-    {
-        var right = columnLeft + Math.Max(1, nominalWidth);
-
-        foreach (var module in Modules)
-        {
-            var moduleWidth = module.Width > 0 ? module.Width : module.StartupWindowWidth;
-            if (moduleWidth <= 0)
-            {
-                continue;
-            }
-
-            var moduleRight = module.X + moduleWidth;
-
-            // 只吸收与本列横向相交的模块；右侧后续列不参与本次列宽。
-            if (module.X < right + PlaceGap && moduleRight > right)
-            {
-                right = moduleRight;
-            }
-        }
-
-        return right;
-    }
-
-    /// <summary>候选矩形与现有模块相交时，返回最低的相交下沿；不相交 = null。</summary>
-    private double? LowestOverlappingBottom(double x, double y, double width, double height)
-    {
-        double? lowest = null;
-        var right = x + width;
-        var bottom = y + height;
-
-        foreach (var module in Modules)
-        {
-            var moduleWidth = module.Width > 0 ? module.Width : module.StartupWindowWidth;
-            var moduleHeight = module.Height > 0 ? module.Height : module.StartupWindowHeight;
-            if (moduleWidth <= 0 || moduleHeight <= 0)
-            {
-                continue;
-            }
-
-            var moduleRight = module.X + moduleWidth;
-            var moduleBottom = module.Y + moduleHeight;
-            if (x < moduleRight + PlaceGap && right + PlaceGap > module.X
-                && y < moduleBottom + PlaceGap && bottom + PlaceGap > module.Y)
-            {
-                lowest = lowest is { } current ? Math.Max(current, moduleBottom) : moduleBottom;
-            }
-        }
-
-        return lowest;
-    }
-
-    /// <summary>候选矩形是否与**已有模块**相交（留 <see cref="PlaceGap"/> 的呼吸间距）。全程 DIP。</summary>
-    private bool OverlapsAnyModule(double x, double y, double width, double height)
-    {
-        var right = x + width;
-        var bottom = y + height;
-
-        foreach (var module in Modules)
-        {
-            if (module.Width <= 0 || module.Height <= 0)
-            {
-                // 尺寸还没读回来（窗口未打开）→ 用视图声明的初始尺寸估（同为 DIP）
-                var w = module.StartupWindowWidth;
-                var h = module.StartupWindowHeight;
-                if (x < module.X + w + PlaceGap && right + PlaceGap > module.X
-                    && y < module.Y + h + PlaceGap && bottom + PlaceGap > module.Y)
-                {
-                    return true;
-                }
-
-                continue;
-            }
-
-            if (x < module.Rect.Right + PlaceGap && right + PlaceGap > module.Rect.Left
-                && y < module.Rect.Bottom + PlaceGap && bottom + PlaceGap > module.Rect.Top)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        var result = ModulePlacement.Next(ShellRect, work, OccupiedModuleRects(), width, height);
+        return (result.X, result.Y);
     }
 
     private void SyncModules()
@@ -2778,7 +2656,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 var width = Math.Max(1, maxX - minX);
                 var height = Math.Max(1, maxY - minY);
 
-                if (OverlapsAnyModule(minX, minY, width, height))
+                if (ModulePlacement.Overlaps(new CanvasRect(minX, minY, width, height), OccupiedModuleRects()))
                 {
                     var placement = NextPlacementForSize(width, height);
                     var dx = placement.X - minX;
@@ -3684,11 +3562,34 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             if (shellPhysical is { IsValid: true } shell)
             {
                 var shellRect = ToDragDip(shell, dragScale);
+
+                // 右侧：唯一的拼合边（模块左边缘贴上去即同组）。
                 lines.Add(SnapEngine.LineOf(new SnapReferenceLine(
                     true,
-                    shellRect.X + shellRect.Width,
-                    shellRect.Y,
-                    shellRect.Y + shellRect.Height)));
+                    shellRect.Right,
+                    shellRect.Top,
+                    shellRect.Bottom,
+                    ShellLineRole.Join)));
+
+                // 左/上/下：只做边对齐，不参与成组。
+                lines.Add(SnapEngine.LineOf(new SnapReferenceLine(
+                    true,
+                    shellRect.Left,
+                    shellRect.Top,
+                    shellRect.Bottom,
+                    ShellLineRole.Align)));
+                lines.Add(SnapEngine.LineOf(new SnapReferenceLine(
+                    false,
+                    shellRect.Top,
+                    shellRect.Left,
+                    shellRect.Right,
+                    ShellLineRole.Align)));
+                lines.Add(SnapEngine.LineOf(new SnapReferenceLine(
+                    false,
+                    shellRect.Bottom,
+                    shellRect.Left,
+                    shellRect.Right,
+                    ShellLineRole.Align)));
             }
         }
 
@@ -3790,8 +3691,3 @@ public sealed record ModuleWindowGeometryChange(string InstanceId, double X, dou
 /// <param name="InstanceId">实例 ID。</param>
 /// <param name="IsVisible">是否应显示。</param>
 public sealed record ModuleWindowVisibilityChange(string InstanceId, bool IsVisible);
-
-/// <summary>窗口点击要求抬起的整组（<paramref name="Primary"/> 最后抬、在最上）。</summary>
-/// <param name="InstanceIds">组内实例 ID（抬升顺序）。</param>
-/// <param name="Primary">被点击的锚点。</param>
-public sealed record ModuleGroupRaiseRequest(IReadOnlyList<string> InstanceIds, string Primary);

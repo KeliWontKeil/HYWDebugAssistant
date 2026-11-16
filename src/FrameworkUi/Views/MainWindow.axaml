@@ -84,7 +84,7 @@
     </Window.Styles>
 
     <!-- 按钮的指针 / 按下态：必须挂在窗口 Resources 上才被 Fluent 的按钮模板读到（见该文件说明） -->
-<Grid ColumnDefinitions="44,*" RowDefinitions="*,Auto">
+<Grid ColumnDefinitions="44,*,2" RowDefinitions="*,Auto">
         <!--
           **主窗口壁纸**：属于当前主题（浅色/深色默认无，樱色与自定义主题可带）。
           壁纸画刷在 ShellViewModel 里按主题解析并居中裁切；上面叠一层主题色 veil，
@@ -264,5 +264,14 @@
                            Text="{Binding StatusNotice}" />
             </Grid>
         </Border>
+
+        <!--
+          右边缘提示：只有这一侧是模块的拼合边（模块左边缘贴上来即同组）。
+          一条很细的主题色竖条，不参与命中，也不改变几何；只是让"这条边不一样"看得见。
+        -->
+        <Border Grid.Row="0" Grid.RowSpan="2" Grid.Column="2"
+                Background="{DynamicResource AccentPrimary}"
+                Opacity="0.55"
+                IsHitTestVisible="False" />
     </Grid>
 </Window>

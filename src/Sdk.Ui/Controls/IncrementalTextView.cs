@@ -45,6 +45,14 @@ public sealed class IncrementalTextView : TemplatedControl
     public static readonly StyledProperty<bool> ShowNewlineMarksProperty =
         AvaloniaProperty.Register<IncrementalTextView, bool>(nameof(ShowNewlineMarks), defaultValue: true);
 
+    /// <summary>不可显示字符标记 `⟨XX⟩` 的颜色；null = 与正文同色。</summary>
+    public static readonly StyledProperty<IBrush?> MarkerBrushProperty =
+        AvaloniaProperty.Register<IncrementalTextView, IBrush?>(nameof(MarkerBrush));
+
+    /// <summary>行末换行标记的颜色；null = 主题的 TextMuted，再退到灰色。</summary>
+    public static readonly StyledProperty<IBrush?> NewlineMarkBrushProperty =
+        AvaloniaProperty.Register<IncrementalTextView, IBrush?>(nameof(NewlineMarkBrush));
+
     /// <summary>追加内容后是否自动滚到尾部。</summary>
     public static readonly StyledProperty<bool> AutoScrollProperty =
         AvaloniaProperty.Register<IncrementalTextView, bool>(nameof(AutoScroll), defaultValue: true);
@@ -76,8 +84,8 @@ public sealed class IncrementalTextView : TemplatedControl
     private int _selectionAnchor;
     private bool _selecting;
     private ScrollViewer? _scroll;
-    private FormattedText? _markText;
-    private double _markFontSize;
+    private readonly Dictionary<string, FormattedText> _newlineMarks = [];
+    private readonly Dictionary<string, FormattedText> _markerTexts = [];
     private int _layoutBuildCount;
 
     /// <summary>
@@ -148,6 +156,20 @@ public sealed class IncrementalTextView : TemplatedControl
     {
         get => GetValue(ShowNewlineMarksProperty);
         set => SetValue(ShowNewlineMarksProperty, value);
+    }
+
+    /// <summary>不可显示字符标记 `⟨XX⟩` 的绘制颜色。</summary>
+    public IBrush? MarkerBrush
+    {
+        get => GetValue(MarkerBrushProperty);
+        set => SetValue(MarkerBrushProperty, value);
+    }
+
+    /// <summary>行末换行标记的绘制颜色；默认跟随 TextMuted。</summary>
+    public IBrush? NewlineMarkBrush
+    {
+        get => GetValue(NewlineMarkBrushProperty);
+        set => SetValue(NewlineMarkBrushProperty, value);
     }
 
     /// <summary>追加内容后是否自动滚到尾部。</summary>
@@ -492,7 +514,8 @@ public sealed class IncrementalTextView : TemplatedControl
             || change.Property == FontWeightProperty
             || change.Property == FontStyleProperty)
         {
-            _markText = null;
+            _newlineMarks.Clear();
+            _markerTexts.Clear();
             _lineHeight = 0;
             _relayoutPending = true;
             InvalidateMeasure();
@@ -500,10 +523,24 @@ public sealed class IncrementalTextView : TemplatedControl
             return;
         }
 
+        if (change.Property == MarkerBrushProperty)
+        {
+            _markerTexts.Clear();
+            InvalidateVisual();
+            return;
+        }
+
+        if (change.Property == NewlineMarkBrushProperty)
+        {
+            _newlineMarks.Clear();
+            InvalidateVisual();
+            return;
+        }
+
         if (change.Property == ForegroundProperty)
         {
             // 换色只影响"画出来的颜色"：布局对象里烤着画笔，所以要丢缓存，但折行位置没变。
-            _markText = null;
+            _newlineMarks.Clear();
             ReleaseAllLayouts();
             InvalidateVisual();
             return;
@@ -541,6 +578,18 @@ public sealed class IncrementalTextView : TemplatedControl
         var brush = Foreground ?? Brushes.Black;
         // 绝对色：主题缺失时的兜底选择色；正常路径由 SelectionBrush（OverlaySelection）提供。
         var selection = SelectionBrush ?? Brushes.LightBlue;
+        var markerBrush = MarkerBrush;
+        var newlineBrush = NewlineMarkBrush;
+
+        if (newlineBrush is null
+            && ResourceNodeExtensions.TryFindResource(this, "TextMuted", out var muted)
+            && muted is IBrush themedMuted)
+        {
+            newlineBrush = themedMuted;
+        }
+
+        // 绝对色：主题缺失时的兜底灰色；正常路径由 TextMuted 提供。
+        newlineBrush ??= Brushes.Gray;
         var selStart = Math.Min(_selectionStart, _selectionEnd);
         var selEnd = Math.Max(_selectionStart, _selectionEnd);
 
@@ -571,13 +620,23 @@ public sealed class IncrementalTextView : TemplatedControl
                 DrawSelection(context, visual, line, x, y, selection, selStart, selEnd);
                 line.Draw(context, new Point(x, y));
 
+                if (markerBrush is not null)
+                {
+                    DrawMarkers(context, visual, line, x, y, markerBrush);
+                }
+
                 if (ShowNewlineMarks && visual.Owner.RealBreak && ReferenceEquals(visual, visual.Owner.Visuals[^1]))
                 {
-                    DrawMark(
-                        context,
-                        x + line.Width + 2,
-                        y + ((line.Height - MarkFormatted(brush).Height) / 2),
-                        brush);
+                    var mark = NewlineEncoding.MarkOf(visual.Owner.BreakKind);
+                    if (mark.Length > 0)
+                    {
+                        DrawMark(
+                            context,
+                            x + line.Width + 2,
+                            y + ((line.Height - MarkFormatted(newlineBrush, mark).Height) / 2),
+                            newlineBrush,
+                            mark);
+                    }
                 }
             }
 
@@ -754,7 +813,8 @@ public sealed class IncrementalTextView : TemplatedControl
         // 这时候重排看不见的内容既没意义又会让关闭卡顿。
         _relayoutPending = false;
         ReleaseAllLayouts();
-        _markText = null;
+        _newlineMarks.Clear();
+        _markerTexts.Clear();
     }
 
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e) => InvalidateVisual();
@@ -854,31 +914,41 @@ public sealed class IncrementalTextView : TemplatedControl
             }
 
             var length = i - start;
-            if (length > 0 && text[i - 1] == '\r')
+            var kind = NewlineKind.Lf;
+
+            if (length > 0 && NewlineEncoding.IsSentinel(text[i - 1]))
             {
+                kind = NewlineEncoding.KindOf(text[i - 1]);
+                length--;
+            }
+            else if (length > 0 && text[i - 1] == '\r')
+            {
+                kind = NewlineKind.CrLf;
                 length--;
             }
 
-            AddDisplayLine(raw, start, length, realBreak: true);
+            AddDisplayLine(raw, start, length, realBreak: true, kind);
             start = i + 1;
         }
 
         var tailLength = text.Length - start;
-        if (tailLength > 0 && text[^1] == '\r')
+        while (tailLength > 0
+               && (NewlineEncoding.IsSentinel(text[start + tailLength - 1]) || text[start + tailLength - 1] == '\r'))
         {
             tailLength--;
         }
 
-        AddDisplayLine(raw, start, tailLength, realBreak: false);
+        AddDisplayLine(raw, start, tailLength, realBreak: false, NewlineKind.None);
     }
 
-    private void AddDisplayLine(RawLine raw, int startInRaw, int length, bool realBreak)
+    private void AddDisplayLine(RawLine raw, int startInRaw, int length, bool realBreak, NewlineKind kind)
     {
         var line = new DisplayLine
         {
             StartInRaw = startInRaw,
             Length = length,
             RealBreak = realBreak,
+            BreakKind = kind,
             Owner = raw,
         };
 
@@ -986,11 +1056,13 @@ public sealed class IncrementalTextView : TemplatedControl
 
         if (last is null)
         {
-            AddDisplayLine(raw, 0, 0, realBreak: false);
+            AddDisplayLine(raw, 0, 0, realBreak: false, NewlineKind.None);
             last = raw.Segments[^1];
         }
 
         var start = 0;
+        var rawText = baseOffset > 0 ? raw.GetText() : string.Empty;
+
         for (var i = 0; i < suffix.Length; i++)
         {
             if (suffix[i] != '\n')
@@ -999,13 +1071,36 @@ public sealed class IncrementalTextView : TemplatedControl
             }
 
             var length = i - start;
-            if (length > 0 && suffix[i - 1] == '\r')
+            var kind = NewlineKind.Lf;
+
+            if (i > 0 && NewlineEncoding.IsSentinel(suffix[i - 1]))
             {
+                kind = NewlineEncoding.KindOf(suffix[i - 1]);
                 length--;
+            }
+            else if (i > 0 && suffix[i - 1] == '\r')
+            {
+                kind = NewlineKind.CrLf;
+                length--;
+            }
+            else if (i == 0
+                     && baseOffset > 0
+                     && baseOffset - 1 < rawText.Length
+                     && NewlineEncoding.IsSentinel(rawText[baseOffset - 1]))
+            {
+                kind = NewlineEncoding.KindOf(rawText[baseOffset - 1]);
+            }
+            else if (i == 0
+                     && baseOffset > 0
+                     && baseOffset - 1 < rawText.Length
+                     && rawText[baseOffset - 1] == '\r')
+            {
+                kind = NewlineKind.CrLf;
             }
 
             AppendToDisplayLine(last, length);
             last.RealBreak = true;
+            last.BreakKind = kind;
             last.ChannelBreak = false;
 
             last = new DisplayLine
@@ -1021,7 +1116,9 @@ public sealed class IncrementalTextView : TemplatedControl
         }
 
         var tailLength = suffix.Length - start;
-        if (tailLength > 0 && suffix[^1] == '\r')
+        while (tailLength > 0
+               && (NewlineEncoding.IsSentinel(suffix[start + tailLength - 1])
+                   || suffix[start + tailLength - 1] == '\r'))
         {
             tailLength--;
         }
@@ -1038,6 +1135,7 @@ public sealed class IncrementalTextView : TemplatedControl
 
         line.Length += length;
         line.RealBreak = false;
+        line.BreakKind = NewlineKind.None;
         line.ChannelBreak = false;
         LayoutLine(line, append: true);
     }
@@ -1455,31 +1553,90 @@ public sealed class IncrementalTextView : TemplatedControl
         }
     }
 
-    private void DrawMark(DrawingContext context, double x, double y, IBrush brush)
+    private void DrawMark(DrawingContext context, double x, double y, IBrush brush, string text)
     {
-        var mark = MarkFormatted(brush);
+        var mark = MarkFormatted(brush, text);
         context.DrawText(mark, new Point(x, y));
     }
 
-    private FormattedText MarkFormatted(IBrush brush)
+    /// <summary>把可视行里的 `⟨XX⟩` 标记用 MarkerBrush 叠画一遍。</summary>
+    private void DrawMarkers(
+        DrawingContext context,
+        VisualLine visual,
+        TextLine line,
+        double x,
+        double y,
+        IBrush brush)
+    {
+        if (visual.Length == 0)
+        {
+            return;
+        }
+
+        var text = visual.Owner.GetText(visual.StartInLine, visual.Length);
+        if (text.IndexOf('⟨') < 0)
+        {
+            return;
+        }
+
+        foreach (var span in MarkerText.FindSpans(text))
+        {
+            var marker = text.Substring(span.Start, span.Length);
+            var formatted = MarkerFormatted(marker, brush);
+
+            try
+            {
+                var bounds = line.GetTextBounds(span.Start, span.Length);
+                foreach (var glyph in bounds)
+                {
+                    context.DrawText(formatted, new Point(x + glyph.Rectangle.Left, y));
+                }
+            }
+            catch (ArgumentException)
+            {
+                // 极端布局边界：宁可少画一段标记色，不让界面崩。
+            }
+        }
+    }
+
+    private FormattedText MarkerFormatted(string text, IBrush brush)
+    {
+        if (_markerTexts.TryGetValue(text, out var cached))
+        {
+            return cached;
+        }
+
+        var formatted = new FormattedText(
+            text,
+            CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            new Typeface(FontFamily, FontStyle, FontWeight),
+            FontSize,
+            brush);
+
+        _markerTexts[text] = formatted;
+        return formatted;
+    }
+
+    private FormattedText MarkFormatted(IBrush brush, string text)
     {
         var size = Math.Max(1, FontSize * 0.85);
 
-        if (_markText is not null && Math.Abs(_markFontSize - size) < 0.01)
+        if (_newlineMarks.TryGetValue(text, out var cached))
         {
-            return _markText;
+            return cached;
         }
 
-        _markFontSize = size;
-        _markText = new FormattedText(
-            "↵",
+        var formatted = new FormattedText(
+            text,
             CultureInfo.CurrentCulture,
             FlowDirection.LeftToRight,
             new Typeface(FontFamily, FontStyle, FontWeight),
             size,
             brush);
 
-        return _markText;
+        _newlineMarks[text] = formatted;
+        return formatted;
     }
 
     private double AlignmentOffset(double width, double lineWidth) => TextAlignment switch
@@ -1596,6 +1753,8 @@ public sealed class IncrementalTextView : TemplatedControl
         public int Length;
 
         public bool RealBreak;
+
+        public NewlineKind BreakKind;
 
         public bool ChannelBreak;
 

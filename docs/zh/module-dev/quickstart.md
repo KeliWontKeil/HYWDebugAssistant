@@ -111,7 +111,7 @@ probe.Problems.ShouldBeEmpty(string.Join("；", probe.Problems));
 
 1. 启动主应用（`HYWDebugAssistant.App.exe`）；
 2. 活动栏「模块清单」→「导入模块…」→ 选择 `bin/module-package/Release/TemplateModule` 这一层目录；
-3. 列表里出现来源为「外部」的模块；若提示需重启，点「重新加载」；
+3. 列表里出现来源为「外部」的模块；若提示需重启，点「重新扫描」，在确认框里确认重启；
 4. 选中后点「加入工作区」，桌面出现模块窗口。
 
 验证三件事：窗口出现、端口标记在边缘显示、与另一个模块同名端口能连上并看到数据。连法见[连接与组网](../guides/connect.md)。预览宿主只能看 XAML 设计面，**不能代替这一步**；预览通过也不等于可装载。

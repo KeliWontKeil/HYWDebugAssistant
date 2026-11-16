@@ -47,7 +47,7 @@ public sealed class NewlineMarkOverlay : Control
     private HashSet<int>? _unmarked;
     private Control? _subscribed;
     private ScrollViewer? _scrollViewer;
-    private FormattedText? _mark;
+    private readonly Dictionary<NewlineKind, FormattedText> _markTexts = [];
     private double _markFontSize;
 
     /// <summary>创建绘制层（不参与命中、不参与布局输入）。</summary>
@@ -126,7 +126,6 @@ public sealed class NewlineMarkOverlay : Control
             return;
         }
 
-        var font = MarkFormatted(target);
         var marks = MarkLines(layout, text, _unmarked);
         var top = origin.Y;
 
@@ -135,18 +134,20 @@ public sealed class NewlineMarkOverlay : Control
             var line = layout.TextLines[index];
             var height = line.Height;
 
-            if (marks.TryGetValue(index, out var count))
+            if (marks.TryGetValue(index, out var kinds))
             {
                 var x = origin.X + line.Width + MarkGap;
-                var y = top + ((height - font.Height) / 2);
 
-                if (y + font.Height >= 0 && y <= Bounds.Height)
+                foreach (var kind in kinds)
                 {
-                    context.DrawText(font, new Point(x, y));
+                    var font = MarkFormatted(target, kind);
+                    var y = top + ((height - font.Height) / 2);
 
-                    for (var i = 0; i < count; i++)
+                    if (y + font.Height >= 0 && y <= Bounds.Height)
                     {
-                        _marks.Add((new Point(x + (i * font.Width), y), NewlineMark));
+                        context.DrawText(font, new Point(x, y));
+                        _marks.Add((new Point(x, y), NewlineEncoding.MarkOf(kind)));
+                        x += font.Width;
                     }
                 }
             }
@@ -221,13 +222,13 @@ public sealed class NewlineMarkOverlay : Control
         return target.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
     }
 
-    private FormattedText MarkFormatted(Control target)
+    private FormattedText MarkFormatted(Control target, NewlineKind kind)
     {
         var size = Math.Max(1, FontSizeOf(target) * MarkFontScale);
 
-        if (_mark is not null && Math.Abs(_markFontSize - size) < 0.01)
+        if (_markTexts.TryGetValue(kind, out var cached) && Math.Abs(_markFontSize - size) < 0.01)
         {
-            return _mark;
+            return cached;
         }
 
         _markFontSize = size;
@@ -238,24 +239,25 @@ public sealed class NewlineMarkOverlay : Control
 
         var family = target is TextBlock block ? block.FontFamily : FontFamilyOf(target);
 
-        _mark = new FormattedText(
-            NewlineMark,
+        var mark = new FormattedText(
+            NewlineEncoding.MarkOf(kind),
             CultureInfo.CurrentCulture,
             FlowDirection.LeftToRight,
             new Typeface(family),
             size,
             ink);
 
-        return _mark;
+        _markTexts[kind] = mark;
+        return mark;
     }
 
-    /// <summary>逐视觉行算“每行该画几个 ↵”。</summary>
-    private static Dictionary<int, int> MarkLines(
+    /// <summary>逐视觉行算“该画哪种换行标记”。</summary>
+    private static Dictionary<int, List<NewlineKind>> MarkLines(
         Avalonia.Media.TextFormatting.TextLayout layout,
         string text,
         HashSet<int>? unmarked)
     {
-        var marks = new Dictionary<int, int>();
+        var marks = new Dictionary<int, List<NewlineKind>>();
         var offset = 0;
 
         for (var index = 0; index < layout.TextLines.Count; index++)
@@ -271,22 +273,48 @@ public sealed class NewlineMarkOverlay : Control
             var slice = text[offset..end];
             offset = end;
 
-            if (!slice.EndsWith('\n'))
+            NewlineKind kind;
+            int newlineIndex;
+
+            if (slice.EndsWith('\n'))
+            {
+                newlineIndex = end - 1;
+                kind = slice.Length >= 2
+                    ? slice[^2] switch
+                    {
+                        NewlineEncoding.CrLfSentinel => NewlineKind.CrLf,
+                        NewlineEncoding.CrSentinel => NewlineKind.Cr,
+                        NewlineEncoding.LfSentinel => NewlineKind.Lf,
+                        '\r' => NewlineKind.CrLf,
+                        _ => NewlineKind.Lf,
+                    }
+                    : NewlineKind.Lf;
+            }
+            else if (slice.EndsWith('\r'))
+            {
+                newlineIndex = end - 1;
+                kind = NewlineKind.Cr;
+            }
+            else
             {
                 continue;
             }
 
-            if (unmarked is not null && unmarked.Contains(end - 1))
+            if (unmarked is not null && unmarked.Contains(newlineIndex))
             {
                 continue;
             }
 
-            Add(index);
+            if (!marks.TryGetValue(index, out var kinds))
+            {
+                kinds = [];
+                marks[index] = kinds;
+            }
+
+            kinds.Add(kind);
         }
 
         return marks;
-
-        void Add(int line) => marks[line] = marks.TryGetValue(line, out var count) ? count + 1 : 1;
     }
 
     private static double FontSizeOf(Control target) =>

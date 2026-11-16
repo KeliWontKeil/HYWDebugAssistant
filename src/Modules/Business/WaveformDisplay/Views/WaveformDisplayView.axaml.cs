@@ -44,6 +44,22 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
     private readonly HashSet<(uint GroupId, int Index)> _autoColorAssigned = [];
     private readonly Dictionary<(uint GroupId, int Index), uint> _autoColorByKey = [];
 
+    /// <summary>波形自动色：7 档固定色，避免与游标色重复。</summary>
+    // 绝对色：自动色是用户指定的数据配色，必须与界面主题解耦。
+    private static readonly uint[] AutoColors =
+    [
+        0xFF0073BD,
+        // 绝对色：自动色 2–3。
+        0xFFD9541A,
+        0xFFEDB021,
+        // 绝对色：自动色 4–6。
+        0xFF7D2E8F,
+        0xFF78AB30,
+        0xFF4DBFED,
+        // 绝对色：自动色 7。
+        0xFFA3142E,
+    ];
+
     // 绝对色：设计时/主题缺失时的文字与边框兜底（静态色，不是主题色）。
     private static readonly IBrush FallbackText = new SolidColorBrush(Colors.Gray);
     private static readonly IBrush FallbackBorder = new SolidColorBrush(Colors.Gray);
@@ -98,6 +114,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             _chart.Series = _series;
             _chart.PanRequested += OnChartPanRequested;
             _chart.ZoomRequested += OnChartZoomRequested;
+            _chart.WheelZoomRequested += OnChartWheelZoomRequested;
         }
 
         if (_range is not null)
@@ -113,6 +130,12 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
     public void Refresh(IModuleViewContext context)
     {
         _context = context;
+
+        if (_chart is not null)
+        {
+            _chart.WheelZoomStep = context.WheelZoomStep;
+        }
+
         ReadMeta(context);
         ReadSnapshot(context);
         UpdateSettingInputs();
@@ -861,6 +884,9 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
     private void OnChartZoomRequested(object? sender, ChartDragEventArgs e) =>
         SubmitChartDrag("zoom", e);
 
+    private void OnChartWheelZoomRequested(object? sender, ChartDragEventArgs e) =>
+        SubmitChartDrag("wheel", e);
+
     /// <summary>
     /// 把控件给出的目标轴范围原样交给模块；模块统一换算成样本并夹紧。
     /// </summary>
@@ -926,7 +952,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
 
     private async void OpenColorPicker(Button anchor, ChannelInfo channel)
     {
-        if (_context?.ColorPicker is not { } picker || picker.SuggestedColors.Count == 0)
+        if (_context?.ColorPicker is not { } picker)
         {
             return;
         }
@@ -934,7 +960,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         var key = (_activeGroupId, channel.Index);
         var initial = channel.Color
             ?? AutoColorFor(channel.Index)
-            ?? picker.SuggestedColors[channel.Index % picker.SuggestedColors.Count];
+            ?? AutoColors[channel.Index % AutoColors.Length];
         var owner = TopLevel.GetTopLevel(this) as Window;
 
         ModuleColorPickResult result;
@@ -977,11 +1003,6 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
 
     private void EnsureAutoColors(IReadOnlyList<SeriesWindowChannel> channels)
     {
-        if (_context?.ColorPicker is not { } picker || picker.SuggestedColors.Count == 0)
-        {
-            return;
-        }
-
         foreach (var channel in channels)
         {
             if (channel.ColorArgb is not null)
@@ -995,7 +1016,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
                 continue;
             }
 
-            var color = picker.SuggestedColors[channel.Index % picker.SuggestedColors.Count];
+            var color = AutoColors[channel.Index % AutoColors.Length];
             _autoColorByKey[key] = color;
             if (!SubmitAction(new
                 {
@@ -1018,9 +1039,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             return color;
         }
 
-        return _context?.ColorPicker is { SuggestedColors.Count: > 0 } picker
-            ? picker.SuggestedColors[index % picker.SuggestedColors.Count]
-            : null;
+        return AutoColors[index % AutoColors.Length];
     }
 
     private IBrush ResolveChannelBrush(ChannelInfo channel)

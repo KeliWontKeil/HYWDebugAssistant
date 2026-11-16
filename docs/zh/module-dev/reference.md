@@ -335,6 +335,7 @@ public sealed class MyViewFactory : IModuleViewFactory
 | `RegisterViewDefault(name, value)` | 登记 XAML 初值；正常由加载期播种，设计期/自定义上下文作后备 |
 | `SelectedPage(stateKey)` / `SetSelectedPage(stateKey, page)` | 页签选中页 |
 | `MultilineSubmitKey` | 当前多行提交键档位（`CtrlEnter`/`Enter`/`None`） |
+| `WheelZoomStep` | 波形曲线区每格滚轮缩放系数（应用设置，默认 1.2） |
 | `ColorPicker` | 框架调色窗口（可空）；`SuggestedColors` + `PickAsync` |
 
 自定义元件：继承 `ModuleElement`（或实现 `IModuleViewElement`），框架每帧调用 `Refresh(context)`；值没变就不要碰视觉，刷新不要重建控件树。`ModuleViewHost` 先落外观、再调刷新。

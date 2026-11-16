@@ -39,6 +39,7 @@
     { "key": "AccentPrimary", "title": "主题色", "group": "accent", "purpose": "主题色（选中 / 聚焦 / 活动、开关 ON 轨道、命令按钮指向边）", "roles": ["accent"] },
     { "key": "AccentSecondary", "title": "邻近色", "group": "accent", "purpose": "邻近色（曲线线色、叠加层连线）—— 色相随主题色平移", "roles": ["accentSecondary"],
       "derive": { "from": "AccentPrimary", "mode": "shift" } },
+    { "key": "ChartCursor", "title": "波形游标", "group": "direction", "purpose": "波形显示器 X/Y 游标线与标签；选洋红系，避开自动色" },
     { "key": "AccentStrong", "title": "强调重色", "group": "accent", "purpose": "更重一档的主题色（模块内容区里的指向 / 悬停）—— 比主题色更实", "roles": ["accentStrong"],
       "derive": { "from": "AccentPrimary", "mode": "darken", "amount": 0.18 } },
 
@@ -68,6 +69,10 @@
     { "key": "SurfaceButtonFaceHoverBrush", "title": "按钮指向面", "group": "surface", "purpose": "命令按钮指向面 —— 主题色的淡底（浓度 = 内置不透明度）", "derive": { "from": "AccentPrimary", "mode": "tint" } },
     { "key": "SurfaceButtonFacePressedBrush", "title": "按钮按下底", "group": "surface", "purpose": "命令按钮按下 —— 主题色的淡底，比指向更实", "derive": { "from": "AccentPrimary", "mode": "tint" } },
     { "key": "SurfaceButtonEdgeBrush", "title": "按钮边", "group": "surface", "purpose": "命令按钮常态边" },
+    { "key": "TextOnAccent", "title": "强调按钮文字", "group": "surface", "purpose": "主题色强调按钮与删除红按钮上的文字（两套主题都为白）" },
+    { "key": "ButtonAccentFacePressedBrush", "title": "强调按钮按下底", "group": "surface", "purpose": "主题色强调按钮按下 —— 主题色再变深一档", "derive": { "from": "AccentPrimary", "mode": "darken", "amount": 0.3 } },
+    { "key": "ButtonDangerFaceHoverBrush", "title": "删除按钮指向底", "group": "surface", "purpose": "删除红按钮悬停 —— 失败色变深一档", "derive": { "from": "SemanticError", "mode": "darken", "amount": 0.12 } },
+    { "key": "ButtonDangerFacePressedBrush", "title": "删除按钮按下底", "group": "surface", "purpose": "删除红按钮按下 —— 失败色再变深", "derive": { "from": "SemanticError", "mode": "darken", "amount": 0.25 } },
     { "key": "SurfaceToggleTrackOffBrush", "title": "开关 OFF 轨道", "group": "surface", "purpose": "开关 OFF 轨道", "surface": true },
     { "key": "SurfaceToggleTrackOffHoverBrush", "title": "开关 OFF 指向轨道", "group": "surface", "purpose": "开关 OFF 轨道（指向）", "surface": true },
     { "key": "SurfaceToggleKnobBrush", "title": "开关圆钮", "group": "surface", "purpose": "开关圆钮（浅色下与模块底同色，故必须单独一支）" },

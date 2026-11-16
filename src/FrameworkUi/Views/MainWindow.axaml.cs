@@ -42,6 +42,9 @@ public partial class MainWindow : Window, IExitPrompt, IExitSaver, IExitPolicy
 
         Opened += (_, _) =>
         {
+            // 主窗口被抬到最上时会出现系统窗口阴影；这里去掉这一圈（仅 Windows，失败不影响功能）。
+            WindowShadow.Suppress(this);
+
             // 启动位置是**程序性放置**，不是用户拖动外壳：期间禁止 TranslateShellGroup。
             // 否则已按保存位置恢复的自动加载模块会再被平移一次（只有启动模块会命中的错位分支）。
             WindowManager?.BeginStartupPlacement();
@@ -63,10 +66,25 @@ public partial class MainWindow : Window, IExitPrompt, IExitSaver, IExitPolicy
                     manager.HotkeyAttached += (_, window) => shell.Hotkeys.Attach(window);
 
                     // 新窗口统一由窗口组通知；与模块管理器事件并存是为了兼容既有调用点。
-                    manager.WindowGroup.WindowTracked += (_, window) => shell.Hotkeys.Attach(window);
+                    manager.WindowGroup.WindowTracked += (_, window) =>
+                    {
+                        shell.Hotkeys.Attach(window);
+
+                        // 拖入导入只挂外壳与模块窗；面板/模态窗不参与。
+                        if (manager.WindowGroup.LayerOf(window) is AppWindowLayer.Shell or AppWindowLayer.Module)
+                        {
+                            FileDropImport.Attach(window, shell);
+                        }
+                    };
 
                     // 兜底：刷新前已经存在的窗口（工作区恢复/测试宿主）也补挂。
-                    manager.AttachExistingWindows(shell.Hotkeys.Attach);
+                    manager.AttachExistingWindows(window =>
+                    {
+                        shell.Hotkeys.Attach(window);
+                        FileDropImport.Attach(window, shell);
+                    });
+
+                    FileDropImport.Attach(this, shell);
                 }
             }
 

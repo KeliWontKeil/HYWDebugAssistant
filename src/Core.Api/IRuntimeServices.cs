@@ -24,6 +24,19 @@ public readonly record struct CommandResult(
     public static CommandResult Fail(IReadOnlyList<string> failures) => new(false, failures, []);
 }
 
+/// <summary>一个外部路径可能被导入成的形态。</summary>
+public enum ImportPathKind
+{
+    /// <summary>不认识（不导入）。</summary>
+    None = 0,
+
+    /// <summary>模块包（目录自身或直接子目录含 <c>module.json</c>）。</summary>
+    ModulePackage = 1,
+
+    /// <summary>组合包（目录含 <c>composite.json</c>，或路径就是该文件）。</summary>
+    CompositePackage = 2,
+}
+
 /// <summary>
 /// 查询面：UI 读取框架状态的**唯一通道**（Q1-4/C4-4）。
 /// </summary>
@@ -172,6 +185,10 @@ public interface IRuntimeQuery
     /// <summary>默认组合目录中的文件（供“加载组合”列表；按修改时间倒序）。</summary>
     IReadOnlyList<CompositeFileView> GetCompositeFiles();
 
+    /// <summary>把一个外部路径分类为可导入的包类型（只读，不修改任何文件）。</summary>
+    /// <param name="path">外部文件或文件夹路径。</param>
+    ImportPathKind ClassifyImportPath(string path);
+
     /// <summary>模块视图布局（位置/尺寸/视图开关）；**未摆放过的实例**不在结果中（UI 自行取默认位）。</summary>
     IReadOnlyList<ModuleLayoutView> GetLayout();
 
@@ -298,11 +315,19 @@ public interface IRuntimeCommand
     /// <summary>加载并注册一个模块包（显式加载）。</summary>
     CommandResult InstallModulePackage(string packageDirectory);
 
-    /// <summary>
-    /// **导入外部模块目录**：扫描目录中的模块包，校验后复制到默认外部目录，再重扫。
-    /// </summary>
+    /// <summary>导入外部模块目录（扫描目录自身或 2–3 层内的模块包）。</summary>
     /// <param name="sourceDirectory">外部包目录或包含多个包目录的上级目录。</param>
     CommandResult ImportModuleDirectory(string sourceDirectory);
+
+    /// <summary>
+    /// **导入一个外层文件夹**：向下最多 3 层扫描模块包与组合包，逐个导入并汇总结果。
+    /// </summary>
+    /// <remarks>
+    /// 包边界优先组合包（含 <c>composite.json</c> 即不再下钻），其次模块包（含 <c>module.json</c>）。
+    /// 单个包失败不中断其余；隐藏/系统/重解析点目录跳过，超过上限即停止并报告。
+    /// </remarks>
+    /// <param name="sourceDirectory">外层文件夹。</param>
+    FolderImportResult ImportFolder(string sourceDirectory);
 
     /// <summary>
     /// **重扫模块来源根**：按设置里的根列表（内置目录在首位）重新扫描，
@@ -424,10 +449,11 @@ public interface IRuntimeCommand
     CommandResult SaveComposite(string filePath, string? name = null, IReadOnlyList<string>? instanceIds = null);
 
     /// <summary>
-    /// **导入外部组合文件**：检查可读后复制到默认目录（同名内容相同则复用，不同则唯一命名）。
+    /// **导入外部组合**：源路径可以是**组合文件夹**（含 <c>composite.json</c>）或该文件本身；
+    /// 检查可读后复制到默认目录（同名内容相同则复用，不同则唯一命名）。
     /// </summary>
-    /// <param name="sourceFile">外部组合文件路径。</param>
-    CompositeImportResult ImportCompositeFile(string sourceFile);
+    /// <param name="sourcePath">外部组合文件夹或组合文件路径。</param>
+    CompositeImportResult ImportComposite(string sourcePath);
 
     /// <summary>
     /// **删除默认目录中的一个组合文件**（只删文件，不移除当前现场模块）。

@@ -35,8 +35,7 @@ public partial class InteractionView : UserControl
             owner,
             row.CurrentColor,
             TextCatalog.Get(typeof(InteractionView).Assembly, "interaction.colorDialog.title", row.TypeKey),
-            resetText: TextCatalog.Get(typeof(InteractionView).Assembly, "interaction.colorDialog.reset"),
-            hint: TextCatalog.Get(typeof(InteractionView).Assembly, "interaction.colorDialog.hint"));
+            resetText: TextCatalog.Get(typeof(InteractionView).Assembly, "interaction.colorDialog.reset"));
 
         if (!result.Confirmed)
         {

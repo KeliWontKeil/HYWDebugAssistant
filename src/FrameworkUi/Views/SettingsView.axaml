@@ -619,6 +619,14 @@
 
                         <Grid ColumnDefinitions="170,190,*">
                             <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr settings.interaction.wheelZoom.tip}"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr settings.interaction.wheelZoom.label}" />
+                            <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
+                                     Text="{Binding WheelZoomStep, Mode=TwoWay}" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="170,190,*">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                        ToolTip.Tip="{loc:Tr settings.interaction.multiline.tip}"
                                        Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr settings.interaction.multiline.label}" />
                             <ComboBox Grid.Column="1" ItemsSource="{Binding MultilineSubmitKeyOptions}"

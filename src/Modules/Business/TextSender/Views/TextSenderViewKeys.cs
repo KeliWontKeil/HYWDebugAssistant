@@ -10,6 +10,13 @@ public static class TextSenderViewKeys
     public const string Text5 = TextSenderModule.Text5;
     public const string Continuous = TextSenderModule.ContinuousSource;
     public const string Interval = TextSenderModule.IntervalSource;
+    public const string Escape = TextSenderModule.EscapeSource;
+    public const string NewlineCr = TextSenderModule.NewlineCrSource;
+    public const string NewlineLf = TextSenderModule.NewlineLfSource;
+    public const string SubmitKey = TextSenderModule.SubmitKeySource;
+
+    /// <summary>回车写入哪种换行（由 CR/LF 勾选派生）。</summary>
+    public const string EnterNewline = TextSenderModule.EnterNewlineSource;
     public const string Sent = TextSenderModule.SentSource;
     public const string Status = TextSenderModule.StatusSource;
     public const string Send = TextSenderModule.SendCommand;

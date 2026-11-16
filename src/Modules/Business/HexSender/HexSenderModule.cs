@@ -88,6 +88,9 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// <summary>输入源 / 数据源：发送间隔（毫秒）。</summary>
     public const string IntervalSource = "interval";
 
+    /// <summary>发送按钮菜单的值：回车发送档位（`Enter` / `CtrlEnter`）。</summary>
+    public const string SubmitKeySource = "submitKey";
+
     /// <summary>数据源：已发送计数。</summary>
     public const string SentSource = "sent";
 
@@ -174,6 +177,19 @@ public sealed class HexSenderModule : IModule, IActivitySource
         {
             Editor = ValueEditor.Number,
             Persistent = true,
+        });
+
+        // 每实例可覆盖的提交档位：第一次由视图从框架设置播种，之后随组合件保存。
+        context.Declaration.DeclareValue(new ValueDeclaration(SubmitKeySource)
+        {
+            Editor = ValueEditor.Enum,
+            Choices =
+            [
+                new ValueChoice("Enter", Tr(HexSenderText.SubmitKeyEnter)),
+                new ValueChoice("CtrlEnter", Tr(HexSenderText.SubmitKeyCtrlEnter)),
+            ],
+            Persistent = true,
+            ResetWithModule = true,
         });
 
         context.Declaration.DeclareCommand(SendCommand, Tr(HexSenderText.Send));

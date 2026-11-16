@@ -110,6 +110,18 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     /// <summary>显示源：HEX→char 的结果区。</summary>
     public const string CharResultSource = "charResult";
 
+    /// <summary>文本→HEX 的 C 风格转义开关。</summary>
+    public const string EscapeSource = "escape";
+
+    /// <summary>换行 CR 勾选。</summary>
+    public const string NewlineCrSource = "newlineCr";
+
+    /// <summary>换行 LF 勾选。</summary>
+    public const string NewlineLfSource = "newlineLf";
+
+    /// <summary>派生值：输入面按 Enter 写入的换行档。</summary>
+    public const string EnterNewlineSource = "enterNewline";
+
     /// <summary>
     /// 模块自己挑的**提示角色**（**相对色**）—— 框架只提供"设边框色"这个能力，不认识"红 = 失败"。
     /// </summary>
@@ -158,6 +170,31 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
 
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(HexResultSource, ViewDataSourceKind.Text));
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(CharResultSource, ViewDataSourceKind.Text));
+
+        context.Declaration.DeclareValue(new ValueDeclaration(EscapeSource)
+        {
+            Editor = ValueEditor.Boolean,
+            Persistent = true,
+            ResetWithModule = false,
+        });
+        context.Declaration.DeclareValue(new ValueDeclaration(NewlineCrSource)
+        {
+            Editor = ValueEditor.Boolean,
+            Persistent = true,
+            ResetWithModule = false,
+        });
+        context.Declaration.DeclareValue(new ValueDeclaration(NewlineLfSource)
+        {
+            Editor = ValueEditor.Boolean,
+            Persistent = true,
+            ResetWithModule = false,
+        });
+        context.Declaration.DeclareValue(new ValueDeclaration(EnterNewlineSource)
+        {
+            Editor = ValueEditor.Text,
+            Persistent = false,
+            ResetWithModule = false,
+        });
     }
 
     // ---------------------------------------------------------------- ③ 钩子块
@@ -195,6 +232,9 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     /// </remarks>
     private readonly Dictionary<bool, (string Source, string Text)> _published = new();
 
+    private (bool Escape, NewlineMode Mode) _format = (false, NewlineMode.CrLf);
+    private bool _formatInitialized;
+
     /// <summary>
     /// **看一眼两个方向、该转就转**（step 的单步；模块测试可直接调用）。
     /// </summary>
@@ -206,6 +246,16 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     public void Poll(IModuleContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+
+        var format = ReadFormat(context);
+        if (!_formatInitialized || format != _format)
+        {
+            _format = format;
+            _formatInitialized = true;
+            _published.Clear();
+        }
+
+        PublishEnterNewline(context);
 
         Refresh(context, toHex: true);
         Refresh(context, toHex: false);
@@ -229,7 +279,7 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
 
         _published[toHex] = (source, text);
 
-        Convert(context, text, toHex, source);
+        ConvertCore(context, text, toHex, source, _format.Escape, _format.Mode);
     }
 
     /// <summary>转换一段文本（**模块级测试可直接调用**，无需线程）。</summary>
@@ -241,10 +291,21 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     public bool Convert(IModuleContext context, string? text, bool toHex, string source)
     {
         ArgumentNullException.ThrowIfNull(context);
+        var format = ReadFormat(context);
+        return ConvertCore(context, text, toHex, source, format.Escape, format.Mode);
+    }
 
+    private bool ConvertCore(
+        IModuleContext context,
+        string? text,
+        bool toHex,
+        string source,
+        bool escape,
+        NewlineMode mode)
+    {
         var ok = toHex
-            ? ConverterCodec.TryToHex(text, out var result, out var failure)
-            : ConverterCodec.TryToText(text, out result, out failure);
+            ? ConverterCodec.TryToHex(text, escape, mode, out var result, out var failure)
+            : ConverterCodec.TryToText(text, mode, out result, out failure);
 
         if (!ok)
         {
@@ -272,6 +333,33 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
         // **成功 ⇒ 清掉标色**（回到主题给的边框）。
         context.Appearance.SetOutlineColor(source, null);
         return true;
+    }
+
+    /// <summary>当前两个方向的格式：转义只作用于文本→HEX，换行两个方向共用。</summary>
+    private static (bool Escape, NewlineMode Mode) ReadFormat(IModuleContext context)
+    {
+        var escape = IsTrue(context.Values.ReadText(EscapeSource));
+        var cr = IsTrueOrUnset(context.Values.ReadText(NewlineCrSource));
+        var lf = IsTrueOrUnset(context.Values.ReadText(NewlineLfSource));
+        return (escape, TextNewlines.FromCheckboxes(cr, lf));
+    }
+
+    private static bool IsTrue(string? text) =>
+        string.Equals(text, "true", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsTrueOrUnset(string? text) =>
+        string.IsNullOrEmpty(text) || string.Equals(text, "true", StringComparison.OrdinalIgnoreCase);
+
+    private static void PublishEnterNewline(IModuleContext context)
+    {
+        var cr = IsTrueOrUnset(context.Values.ReadText(NewlineCrSource));
+        var lf = IsTrueOrUnset(context.Values.ReadText(NewlineLfSource));
+        var choice = TextNewlines.ChoiceOf(TextNewlines.FromCheckboxes(cr, lf));
+
+        if (!string.Equals(context.Values.ReadText(EnterNewlineSource), choice, StringComparison.Ordinal))
+        {
+            context.Values.AcceptText(EnterNewlineSource, choice);
+        }
     }
 
     /// <summary>把结果落到**界面**（显示缓冲）—— 与输入框同一条"文本面"机制。</summary>

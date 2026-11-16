@@ -383,6 +383,31 @@ public class WaveformModulesTests
     }
 
     [Fact]
+    public void 显示器_自动按钮按数据量设置跟踪窗口并开启自适应()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        for (var index = 0; index < 600; index++)
+        {
+            Deliver(context, groupId: 9, sequence: (uint)index, values: [index]);
+        }
+
+        module.OnStep(context, StepReason.Data);
+
+        context.EnqueueCommand(WaveformDisplayModule.AutoCommand);
+        module.PumpOnce(context);
+
+        var snapshot = Snapshot(context).ShouldNotBeNull();
+        (snapshot.XRangeEnd - snapshot.XRangeStart + 1).ShouldBe(300, "600 个样本按一半设置跟踪窗口");
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowSource).ShouldBe("true");
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowRangeSource).ShouldBe("300");
+        context.ViewState.GetInputText(WaveformDisplayModule.YAutoSource).ShouldBe("true");
+    }
+
+    [Fact]
     public void 显示器_选择范围应改变快照与局部保存而不影响全部保存()
     {
         var context = new TestModuleContext();
@@ -1300,6 +1325,128 @@ public class WaveformModulesTests
         zoomed.XRangeEnd.ShouldBe(349);
         zoomed.Channels[0].Values.Length.ShouldBe(50);
         context.ViewState.GetInputText(WaveformDisplayModule.FollowRangeSource).ShouldBe("0.05");
+    }
+
+    [Fact]
+    public void 显示器_左键平移到数据边界应停住而不是缩小范围()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+        for (var index = 0; index < 100; index++)
+        {
+            Deliver(context, 1, (uint)index, [index]);
+        }
+
+        module.OnStep(context, StepReason.Data);
+        context.EnqueueInput(WaveformDisplayModule.ActionSource, "{\"op\":\"setRange\",\"start\":10,\"end\":20}");
+        module.PumpOnce(context);
+        var before = Snapshot(context).ShouldNotBeNull();
+
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"dragView\",\"mode\":\"pan\",\"xStart\":-10,\"xEnd\":0,"
+            + "\"yMin\":" + before.YMin.ToString(CultureInfo.InvariantCulture) + ","
+            + "\"yMax\":" + before.YMax.ToString(CultureInfo.InvariantCulture) + "}");
+        module.PumpOnce(context);
+
+        var panned = Snapshot(context).ShouldNotBeNull();
+        panned.XRangeStart.ShouldBe(0);
+        panned.XRangeEnd.ShouldBe(10, "平移到边界只应停住，宽度保持 11 个样本");
+    }
+
+    [Fact]
+    public void 显示器_滚轮同时缩放XY并关闭跟随()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+        for (var index = 0; index < 100; index++)
+        {
+            Deliver(context, 1, (uint)index, [index]);
+        }
+
+        module.OnStep(context, StepReason.Data);
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"dragView\",\"mode\":\"wheel\",\"xStart\":20,\"xEnd\":70,\"yMin\":-2,\"yMax\":2}");
+        module.PumpOnce(context);
+
+        var zoomed = Snapshot(context).ShouldNotBeNull();
+        zoomed.XRangeStart.ShouldBe(20);
+        zoomed.XRangeEnd.ShouldBe(70);
+        zoomed.YMin.ShouldBe(-2);
+        zoomed.YMax.ShouldBe(2);
+        context.ViewState.GetInputText(WaveformDisplayModule.FollowSource).ShouldBe("false");
+        context.ViewState.GetInputText(WaveformDisplayModule.YAutoSource).ShouldBe("false");
+    }
+
+    [Fact]
+    public void 显示器_滚轮任一轴触界时两轴都不变()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+        for (var index = 0; index < 100; index++)
+        {
+            Deliver(context, 1, (uint)index, [index]);
+        }
+
+        module.OnStep(context, StepReason.Data);
+        var before = Snapshot(context).ShouldNotBeNull();
+
+        // X 起点越过 0：整次滚轮作废，不能出现"X 不动、Y 继续缩放"。
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"dragView\",\"mode\":\"wheel\",\"xStart\":-5,\"xEnd\":45,\"yMin\":-2,\"yMax\":2}");
+        module.PumpOnce(context);
+
+        var after = Snapshot(context).ShouldNotBeNull();
+        after.XRangeStart.ShouldBe(before.XRangeStart);
+        after.XRangeEnd.ShouldBe(before.XRangeEnd);
+        after.YMin.ShouldBe(before.YMin);
+        after.YMax.ShouldBe(before.YMax);
+    }
+
+    [Fact]
+    public void 显示器_右键缩放后自适应第一次按下即选中该通道()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+        Deliver(context, 1, 0, [1f, 10f]);
+        Deliver(context, 1, 1, [2f, 20f]);
+        module.OnStep(context, StepReason.Data);
+
+        context.EnqueueInput(WaveformDisplayModule.ActionSource, "{\"op\":\"fitY\",\"index\":0}");
+        module.PumpOnce(context);
+        var fitted = DisplayMeta(context).GetProperty("groups")[0];
+        fitted.GetProperty("yAuto").GetBoolean().ShouldBeTrue();
+        fitted.GetProperty("yFitChannel").GetInt32().ShouldBe(0);
+
+        // 右键竖向缩放关闭 Y 自动，并应清掉旧的自适应通道。
+        var before = Snapshot(context).ShouldNotBeNull();
+        context.EnqueueInput(
+            WaveformDisplayModule.ActionSource,
+            "{\"op\":\"dragView\",\"mode\":\"zoom\","
+            + "\"xStart\":" + before.XRangeStart.ToString(CultureInfo.InvariantCulture) + ","
+            + "\"xEnd\":" + before.XRangeEnd.ToString(CultureInfo.InvariantCulture) + ","
+            + "\"yMin\":-5,\"yMax\":5}");
+        module.PumpOnce(context);
+
+        var manual = DisplayMeta(context).GetProperty("groups")[0];
+        manual.GetProperty("yAuto").GetBoolean().ShouldBeFalse();
+        manual.GetProperty("yFitChannel").GetInt32().ShouldBe(-1);
+
+        context.EnqueueInput(WaveformDisplayModule.ActionSource, "{\"op\":\"fitY\",\"index\":0}");
+        module.PumpOnce(context);
+        var refitted = DisplayMeta(context).GetProperty("groups")[0];
+        refitted.GetProperty("yAuto").GetBoolean().ShouldBeTrue();
+        refitted.GetProperty("yFitChannel").GetInt32().ShouldBe(0, "第一次按下就应选中该通道");
     }
 
     [Fact]

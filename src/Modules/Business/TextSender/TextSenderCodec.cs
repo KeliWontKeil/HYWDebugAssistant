@@ -1,4 +1,5 @@
 using System.Text;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Modules.TextSender;
 
@@ -74,6 +75,13 @@ internal static class TextSenderCodec
         Encoding.UTF8.GetBytes(text.AsSpan(start, charCount), destination);
 
 
+    /// <summary>
+    /// 按 C 风格转义规范化文本；详细规则见 <see cref="TextEscapes"/>。
+    /// </summary>
+    /// <param name="text">输入文本。</param>
+    /// <param name="escape">是否解释字面反斜杠序列。</param>
+    /// <returns>规范化后的文本；无需改动时尽量返回原引用。</returns>
+    public static string Normalize(string? text, bool escape) => TextEscapes.Normalize(text, escape);
     /// <summary>
     /// 解析「间隔」输入（毫秒）。范围 <c>0 … MaxIntervalMs</c>。
     /// </summary>

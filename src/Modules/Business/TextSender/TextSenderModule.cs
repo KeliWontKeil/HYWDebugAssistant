@@ -103,6 +103,21 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// <summary>输入源 / 数据源：发送间隔（毫秒，数值输入 + 框外单位标签）。</summary>
     public const string IntervalSource = "interval";
 
+    /// <summary>输入源：转义字面反斜杠序列（默认关）。</summary>
+    public const string EscapeSource = "escape";
+
+    /// <summary>输入源：真实回车是否输出 CR（默认开）。</summary>
+    public const string NewlineCrSource = "newlineCr";
+
+    /// <summary>输入源：真实回车是否输出 LF（默认开）。</summary>
+    public const string NewlineLfSource = "newlineLf";
+
+    /// <summary>派生值：按 Enter 写入的换行档位（crlf / cr / lf / none）。</summary>
+    public const string EnterNewlineSource = "enterNewline";
+
+    /// <summary>发送按钮菜单的值：回车发送档位（`Enter` / `CtrlEnter`）。</summary>
+    public const string SubmitKeySource = "submitKey";
+
     /// <summary>数据源：已发送计数。</summary>
     public const string SentSource = "sent";
 
@@ -249,6 +264,45 @@ public sealed class TextSenderModule : IModule, IActivitySource
             Persistent = true,
         });
 
+        // 发送格式：转义只作用于字面反斜杠序列；CR/LF 只作用于真实回车，两者互不影响。
+        context.Declaration.DeclareValue(new ValueDeclaration(EscapeSource)
+        {
+            Editor = ValueEditor.Boolean,
+            Persistent = true,
+            ResetWithModule = false,
+        });
+        context.Declaration.DeclareValue(new ValueDeclaration(NewlineCrSource)
+        {
+            Editor = ValueEditor.Boolean,
+            Persistent = true,
+            ResetWithModule = false,
+        });
+        context.Declaration.DeclareValue(new ValueDeclaration(NewlineLfSource)
+        {
+            Editor = ValueEditor.Boolean,
+            Persistent = true,
+            ResetWithModule = false,
+        });
+        context.Declaration.DeclareValue(new ValueDeclaration(EnterNewlineSource)
+        {
+            Editor = ValueEditor.Text,
+            Persistent = false,
+            ResetWithModule = false,
+        });
+
+        // 每实例可覆盖的提交档位：第一次由视图从框架设置播种，之后随组合件保存。
+        context.Declaration.DeclareValue(new ValueDeclaration(SubmitKeySource)
+        {
+            Editor = ValueEditor.Enum,
+            Choices =
+            [
+                new ValueChoice("Enter", Tr(TextSenderText.SubmitKeyEnter)),
+                new ValueChoice("CtrlEnter", Tr(TextSenderText.SubmitKeyCtrlEnter)),
+            ],
+            Persistent = true,
+            ResetWithModule = true,
+        });
+
         context.Declaration.DeclareCommand(SendCommand, Tr(TextSenderText.Send));
     }
 
@@ -262,6 +316,8 @@ public sealed class TextSenderModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
         _context = context;
+
+        PublishEnterNewline(context);
 
         if (reason.HasFlag(StepReason.Start))
         {
@@ -537,6 +593,9 @@ public sealed class TextSenderModule : IModule, IActivitySource
             ? submittedText ?? string.Empty
             : context.Values.ReadText(TextSourceOf(senderPage)) ?? string.Empty;
 
+        // 发送格式在**一拍内只规范化一次**：长度判定、判据与真正发送用同一份文本。
+        outgoing = NormalizeOutgoing(context, outgoing);
+
         // **"按了发送而这一页是空的"⇒ 记下"这一页被拦下过"**（红按页粘住，补上内容才消失）。
         // 只认"按发送"，不认"连续发送当前页空" —— 后者每拍都成立，会把一整列格子永久染红。
         if (sendPage is not null && outgoing.Length == 0)
@@ -609,7 +668,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
         // ⑦ 该发就发（判定说不发就不发）
         if ((pending || (shouldSend && _continuous)) && verdict.CanSend && outgoing.Length > 0)
         {
-            _ = Send(context, outgoing, out _);
+            _ = SendNormalized(context, outgoing, out _);
 
             // 发出去 ⇒ 这一页"被拦下过"这一笔可以销掉（内容非空时它就不该红）
             _pageBlockedBySend[Math.Clamp(senderPage, 0, PageCount - 1)] = false;
@@ -953,14 +1012,20 @@ public sealed class TextSenderModule : IModule, IActivitySource
         var page = context.ViewState.GetSelectedPage(PagesStateKey) ?? 0;
         return context.Values.ReadText(TextSourceOf(page)) ?? string.Empty;
     }
-    /// <summary>发送一段文本（**模块级测试可直接调用**，无需线程）。</summary>
+    /// <summary>按当前发送格式规范化文本后发送（模块级测试可直接调用）。</summary>
     /// <param name="context">模块上下文。</param>
-    /// <param name="text">要发送的文本（原样，不做规范化）。</param>
+    /// <param name="text">要发送的原文。</param>
     /// <param name="packets">实际投递的数据包个数。</param>
-    /// <returns>是否真的发了（**空文本 ⇒ false 且什么都不做**）。</returns>
+    /// <returns>是否真的发了（**规范化后为空 ⇒ false**）。</returns>
     public bool Send(IModuleContext context, string text, out int packets)
     {
         ArgumentNullException.ThrowIfNull(context);
+        return SendNormalized(context, NormalizeOutgoing(context, text), out packets);
+    }
+
+    /// <summary>发送已经规范化过的文本（一拍内只规范化一次）。</summary>
+    private bool SendNormalized(IModuleContext context, string text, out int packets)
+    {
         packets = 0;
 
         // **空内容静默不发**（T11："窗口为空这在各个层级的意义都是一致的：没东西，不发即可"）
@@ -1029,6 +1094,32 @@ public sealed class TextSenderModule : IModule, IActivitySource
 
         return packets > 0;
     }
+
+    /// <summary>按当前发送格式（C 风格转义）规范化一次。</summary>
+    private static string NormalizeOutgoing(IModuleContext context, string? text)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        return TextSenderCodec.Normalize(
+            text ?? string.Empty,
+            ReadBool(context, EscapeSource, fallback: false));
+    }
+
+    /// <summary>把 CR/LF 勾选派生为输入控件读取的回车换行档。</summary>
+    private static void PublishEnterNewline(IModuleContext context)
+    {
+        var cr = ReadBool(context, NewlineCrSource, fallback: true);
+        var lf = ReadBool(context, NewlineLfSource, fallback: true);
+        var choice = TextNewlines.ChoiceOf(TextNewlines.FromCheckboxes(cr, lf));
+
+        if (!string.Equals(context.Values.ReadText(EnterNewlineSource), choice, StringComparison.Ordinal))
+        {
+            context.Values.AcceptText(EnterNewlineSource, choice);
+        }
+    }
+
+    private static bool ReadBool(IModuleContext context, string name, bool fallback) =>
+        bool.TryParse(context.Values.ReadText(name), out var value) ? value : fallback;
 
     private static bool IsTextSource(string source, out int page)
     {

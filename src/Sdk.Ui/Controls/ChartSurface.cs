@@ -86,6 +86,10 @@ public sealed class ChartSurface : Control
     public static readonly StyledProperty<double> YTickStepProperty =
         AvaloniaProperty.Register<ChartSurface, double>(nameof(YTickStep));
 
+    /// <summary>滚轮每格的缩放系数（&gt;1；默认 1.2）。</summary>
+    public static readonly StyledProperty<double> WheelZoomStepProperty =
+        AvaloniaProperty.Register<ChartSurface, double>(nameof(WheelZoomStep), 1.2);
+
     /// <summary>是否显示游标。</summary>
     public static readonly StyledProperty<bool> ShowCursorsProperty =
         AvaloniaProperty.Register<ChartSurface, bool>(nameof(ShowCursors));
@@ -327,6 +331,13 @@ public sealed class ChartSurface : Control
         set => SetValue(YTickStepProperty, value);
     }
 
+    /// <summary>滚轮每格的缩放系数（&gt;1；≤1 时按 1.2）。</summary>
+    public double WheelZoomStep
+    {
+        get => GetValue(WheelZoomStepProperty);
+        set => SetValue(WheelZoomStepProperty, value);
+    }
+
     /// <summary>是否显示游标。</summary>
     public bool ShowCursors
     {
@@ -525,6 +536,14 @@ public sealed class ChartSurface : Control
     /// </remarks>
     public event EventHandler<ChartDragEventArgs>? ZoomRequested;
 
+    /// <summary>
+    /// **滚轮在绘图区滚动**产生的目标视口范围；X/Y 始终同时缩放（修饰键不改变这一规则）。
+    /// </summary>
+    /// <remarks>
+    /// 与拖动一样由订阅者决定是否应用；没有订阅者时控件不接管滚轮，页面仍可正常滚动。
+    /// </remarks>
+    public event EventHandler<ChartDragEventArgs>? WheelZoomRequested;
+
     /// <inheritdoc />
     protected override Size ArrangeOverride(Size finalSize)
     {
@@ -640,11 +659,11 @@ public sealed class ChartSurface : Control
             {
                 var ya = plot.Top + (YCursorAFraction * plot.Height);
                 var yb = plot.Top + (YCursorBFraction * plot.Height);
-                if (_cursorYLabelA.Contains(point) || Math.Abs(point.Y - ya) <= 5 && point.X <= plot.Left + 8)
+                if (_cursorYLabelA.Contains(point) || Math.Abs(point.Y - ya) <= 5 && point.X >= plot.Right - 8)
                 {
                     _draggingYCursor = 1;
                 }
-                else if (_cursorYLabelB.Contains(point) || Math.Abs(point.Y - yb) <= 5 && point.X <= plot.Left + 8)
+                else if (_cursorYLabelB.Contains(point) || Math.Abs(point.Y - yb) <= 5 && point.X >= plot.Right - 8)
                 {
                     _draggingYCursor = 2;
                 }
@@ -676,6 +695,60 @@ public sealed class ChartSurface : Control
             e.Pointer.Capture(this);
             e.Handled = true;
         }
+    }
+
+    /// <inheritdoc />
+    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+    {
+        base.OnPointerWheelChanged(e);
+
+        if (WheelZoomRequested is null)
+        {
+            return;
+        }
+
+        var plot = _plotArea;
+        if (plot.Width <= 1 || plot.Height <= 1)
+        {
+            return;
+        }
+
+        var point = e.GetPosition(this);
+        if (!plot.Contains(point) || !double.IsFinite(e.Delta.Y) || Math.Abs(e.Delta.Y) < 1e-9)
+        {
+            return;
+        }
+
+        var step = WheelZoomStep > 1 && double.IsFinite(WheelZoomStep) ? WheelZoomStep : 1.2;
+        var factor = Math.Pow(step, ChartScale.Clamp(e.Delta.Y, -3, 3));
+
+        var stepX = XStep > 0 && double.IsFinite(XStep) ? XStep : 1;
+        var xMin = XStart;
+        var xMax = ResolveXEnd(stepX, VisiblePointCount());
+        var yMin = YMin;
+        var yMax = YMax;
+
+        if (!double.IsFinite(xMin) || !double.IsFinite(xMax) || xMax <= xMin
+            || !double.IsFinite(yMin) || !double.IsFinite(yMax) || yMax <= yMin)
+        {
+            return;
+        }
+
+        // 普通滚轮与 Ctrl+滚轮都按同一规则：X/Y 同倍率围绕指针缩放。
+        var anchorX = xMin + (ChartScale.Clamp((point.X - plot.Left) / plot.Width, 0, 1) * (xMax - xMin));
+        (xMin, xMax) = ChartScale.ZoomAt(xMin, xMax, anchorX, factor);
+
+        var anchorY = yMax - (ChartScale.Clamp((point.Y - plot.Top) / plot.Height, 0, 1) * (yMax - yMin));
+        (yMin, yMax) = ChartScale.ZoomAt(yMin, yMax, anchorY, factor);
+
+        if (!double.IsFinite(xMin) || !double.IsFinite(xMax) || xMax <= xMin
+            || !double.IsFinite(yMin) || !double.IsFinite(yMax) || yMax <= yMin)
+        {
+            return;
+        }
+
+        WheelZoomRequested.Invoke(this, new ChartDragEventArgs(xMin, xMax, yMin, yMax));
+        e.Handled = true;
     }
 
     /// <inheritdoc />
@@ -1273,8 +1346,8 @@ public sealed class ChartSurface : Control
         var formatted = Format(text, textBrush);
         var width = formatted.Width + 8;
         var height = formatted.Height + 4;
-        // 游标标签放在绘图区外左侧；允许覆盖 y 轴刻度文字（用户明确接受）。
-        var left = Math.Max(0, plot.Left - width - 2);
+        // 游标标签放在绘图区**右侧**：不遮挡 Y 轴刻度文字；右侧预留不足时向左夹回控件内。
+        var left = Math.Clamp(plot.Right + 2, 0, Math.Max(0, Bounds.Width - width));
         var top = ChartScale.Clamp(y - (height / 2), 0, Math.Max(0, Bounds.Height - height));
         var rect = new Rect(left, top, width, height);
         context.DrawRectangle(background, new Pen(border, 1), rect, 2, 2);

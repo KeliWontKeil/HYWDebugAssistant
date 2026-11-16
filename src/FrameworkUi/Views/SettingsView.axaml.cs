@@ -169,8 +169,7 @@ public partial class SettingsView : UserControl
             owner,
             initial,
             Loc("palette.dialog.title", row.Title),
-            resetText: row.Cell.IsOverridden ? Loc("palette.dialog.reset") : null,
-            hint: Loc("palette.dialog.hint"));
+            resetText: row.Cell.IsOverridden ? Loc("palette.dialog.reset") : null);
 
         if (result.Confirmed)
         {

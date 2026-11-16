@@ -49,6 +49,44 @@ public class BusinessModulesBehaviorTests
     }
 
     [Fact]
+    public void 文本发送器_转义与真实回车按各自开关输出()
+    {
+        var context = new TestModuleContext();
+        var module = new TextSenderModule();
+        module.OnRegistered(context);
+
+        context.ViewState.SetInputText(TextSenderModule.EscapeSource, "true");
+        context.ViewState.SetInputText(TextSenderModule.NewlineCrSource, "true");
+        context.ViewState.SetInputText(TextSenderModule.NewlineLfSource, "false");
+
+        // 真实换行由输入面的回车档决定，发送时原样保留；转义只解释字面反斜杠。
+        module.Send(context, "12\\r3456\\n\n1234\n", out _).ShouldBeTrue();
+        SentText(context.Sent[^1].Payload).ShouldBe("12\r3456\n\n1234\n");
+
+        // CR/LF 勾选不再裁剪真实换行。
+        context.ViewState.SetInputText(TextSenderModule.NewlineCrSource, "false");
+        context.ViewState.SetInputText(TextSenderModule.NewlineLfSource, "false");
+        module.Send(context, "12\\r3456\\n\n1234\n", out _).ShouldBeTrue();
+        SentText(context.Sent[^1].Payload).ShouldBe("12\r3456\n\n1234\n");
+
+        // 转义关：字面反斜杠原样；真实换行仍保留。
+        context.ViewState.SetInputText(TextSenderModule.EscapeSource, "false");
+        module.Send(context, "12\\r3456\\n\n1234\n", out _).ShouldBeTrue();
+        SentText(context.Sent[^1].Payload).ShouldBe("12\\r3456\\n\n1234\n");
+
+        // C 风格十六进制/八进制/控制转义。
+        context.ViewState.SetInputText(TextSenderModule.EscapeSource, "true");
+        module.Send(context, "\\x41\\101\\v\\?\\a\\b\\f\\t", out _).ShouldBeTrue();
+        SentText(context.Sent[^1].Payload).ShouldBe("AA\v?\a\b\f\t");
+
+        static string SentText(byte[] payload)
+        {
+            var length = (int)System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(payload);
+            return Encoding.UTF8.GetString(payload.AsSpan(2, length));
+        }
+    }
+
+    [Fact]
     public void 文本发送器_中文应按UTF8占3字节_且拆包只切在字符边界()
     {
         var context = new TestModuleContext();
@@ -522,6 +560,48 @@ public class BusinessModulesBehaviorTests
         // **结果区被清掉**：留着旧结果会让屏幕上同时有"新输入 + 旧结果"，
         // 而旧结果看起来像是这次算出来的 —— 那是最容易骗到自己的一种状态。
         ScreenOf(context, HexStringConverterModule.CharResultSource).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void 转换器_换行档与转义应同时作用于两个方向()
+    {
+        var context = new TestModuleContext();
+        var module = new HexStringConverterModule();
+        module.OnRegistered(context);
+
+        context.ViewState.SetInputText(HexStringConverterModule.EscapeSource, "true");
+        context.ViewState.SetInputText(HexStringConverterModule.NewlineCrSource, "true");
+        context.ViewState.SetInputText(HexStringConverterModule.NewlineLfSource, "true");
+
+        module.Convert(context, "A\\nB", toHex: true, HexStringConverterModule.CharSourceOf(0))
+            .ShouldBeTrue();
+        module.LastHexResult.ShouldBe("41 0D 0A 42");
+
+        module.Convert(context, "41 0D 0A 42", toHex: false, HexStringConverterModule.HexSourceOf(0))
+            .ShouldBeTrue();
+        module.LastCharResult.ShouldBe("A\r\nB");
+
+        context.ViewState.SetInputText(HexStringConverterModule.NewlineCrSource, "false");
+        context.ViewState.SetInputText(HexStringConverterModule.NewlineLfSource, "true");
+
+        module.Convert(context, "A\\nB", toHex: true, HexStringConverterModule.CharSourceOf(0))
+            .ShouldBeTrue();
+        module.LastHexResult.ShouldBe("41 0A 42");
+
+        module.Convert(context, "41 0D 0A 42", toHex: false, HexStringConverterModule.HexSourceOf(0))
+            .ShouldBeTrue();
+        module.LastCharResult.ShouldBe("A\nB");
+
+        context.ViewState.SetInputText(HexStringConverterModule.NewlineCrSource, "false");
+        context.ViewState.SetInputText(HexStringConverterModule.NewlineLfSource, "false");
+
+        module.Convert(context, "A\\nB", toHex: true, HexStringConverterModule.CharSourceOf(0))
+            .ShouldBeTrue();
+        module.LastHexResult.ShouldBe("41 42");
+
+        module.Convert(context, "41 0D 0A 42", toHex: false, HexStringConverterModule.HexSourceOf(0))
+            .ShouldBeTrue();
+        module.LastCharResult.ShouldBe("AB");
     }
 
     /// <summary>**界面上现在显示的那句话**（模块写的最后一条消息）。</summary>

@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Globalization;
+using System.Text;
 using HYWDebugAssistant.Modules.RawToWaveform.Codec;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Contracts;
@@ -76,10 +77,16 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     /// <summary>输入：采样率（Hz）。</summary>
     public const string RateInput = "rateHz";
 
-    /// <summary>输入：文本帧帧头。</summary>
+    /// <summary>输入：文本帧帧头（十六进制字节串，如 <c>61 62</c>）。</summary>
+    public const string HeaderHexInput = "headerHex";
+
+    /// <summary>输入：文本帧帧尾（十六进制字节串，如 <c>63 64</c>）。</summary>
+    public const string FooterHexInput = "footerHex";
+
+    /// <summary>文本帧帧头的迁移源：只在新值为空时读取一次，不绑定界面。</summary>
     public const string HeaderInput = "header";
 
-    /// <summary>输入：文本帧帧尾。</summary>
+    /// <summary>文本帧帧尾的迁移源：只在新值为空时读取一次，不绑定界面。</summary>
     public const string FooterInput = "footer";
 
     /// <summary>输入：FireWater 前缀过滤（空 = 任意前缀）。</summary>
@@ -88,12 +95,18 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     private const int DefaultGroupId = 1;
     private const double DefaultRateHz = 1000;
 
+    /// <summary>帧头的 XAML 初值（迁移时用它区分"用户值"与"播种值"）。</summary>
+    public const string DefaultHeaderHex = "61 62";
+
+    /// <summary>帧尾的 XAML 初值。</summary>
+    public const string DefaultFooterHex = "63 64";
+
 
     private IModuleContext? _context;
     private Settings _settings = new(
         RawToWaveformProtocol.TextFrame,
-        string.Empty,
-        string.Empty,
+        [],
+        [],
         string.Empty,
         DefaultGroupId,
         DefaultRateHz);
@@ -105,6 +118,16 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     private uint _sequence;
     private ushort _lastChannelCount;
     private string _lastStatus = string.Empty;
+
+    /// <summary>旧文本帧头/帧尾是否已经迁移过（一次性；迁移后清空旧值）。</summary>
+    private bool _legacyInputsMigrated;
+
+    /// <summary>已标红的输入（避免每拍重复写外观）。</summary>
+    private readonly HashSet<string> _alertedInputs = new(StringComparer.Ordinal);
+
+    /// <summary>本拍帧头/帧尾是否非法（保留上一次有效值）。</summary>
+    private bool _headerInvalid;
+    private bool _footerInvalid;
 
     /// <inheritdoc />
     public ReceiveMode Receive => ReceiveMode.Push;
@@ -171,14 +194,28 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
 
         DeclareValue(context, GroupIdInput, ValueEditor.Number);
         DeclareValue(context, RateInput, ValueEditor.Number);
-        DeclareValue(context, HeaderInput, ValueEditor.Text);
-        DeclareValue(context, FooterInput, ValueEditor.Text);
+        DeclareValue(context, HeaderHexInput, ValueEditor.Text);
+        DeclareValue(context, FooterHexInput, ValueEditor.Text);
         DeclareValue(context, PrefixInput, ValueEditor.Text);
+
+        // 旧文本帧头/帧尾：只作一次性迁移源（不绑定界面、不再声明显示源）。
+        context.Declaration.DeclareValue(new ValueDeclaration(HeaderInput)
+        {
+            Editor = ValueEditor.Text,
+            Persistent = true,
+            ResetWithModule = false,
+        });
+        context.Declaration.DeclareValue(new ValueDeclaration(FooterInput)
+        {
+            Editor = ValueEditor.Text,
+            Persistent = true,
+            ResetWithModule = false,
+        });
 
         context.Declaration.DeclareCommand(ResetCommand, RawToWaveformText.Get(RawToWaveformText.Reset));
 
         context.Ports.SetReceiveHandler(InPort, OnRaw);
-        _settings = ReadSettings(context);
+        _settings = ReadSettings(context, reportAlerts: false);
     }
 
     /// <inheritdoc />
@@ -189,12 +226,12 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
             return;
         }
 
-        // 激活发生在 XAML 初值播种之后：这时才按当前值建立解码器/状态句。
+        // 激活发生在 XAML 初值与组合件值恢复之后：先做旧文本帧头的一次性迁移，
+        // 再按当前值建立解码器/状态句。
+        MigrateLegacyInputs(context);
         _settings = ReadSettings(context);
         BuildDecoder(context);
-        SetStatus(context, IsTextFrameUsable(_settings)
-            ? RawToWaveformText.Get(RawToWaveformText.Ready)
-            : RawToWaveformText.Get(RawToWaveformText.BadConfig));
+        SetStatus(context, StatusForSettings());
         PublishCounters(context);
     }
 
@@ -214,6 +251,7 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        MigrateLegacyInputs(context);
         ApplySettings(context);
 
         while (context.Inbox.TryDequeueCommand(out var command))
@@ -260,7 +298,7 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     }
 
     /// <summary>读一次输入与协议，得到"此刻应该生效"的一组值。</summary>
-    private Settings ReadSettings(IModuleContext context)
+    private Settings ReadSettings(IModuleContext context, bool reportAlerts = true)
     {
         var protocol = Enum.TryParse<RawToWaveformProtocol>(
                 context.Values.ReadText(ProtocolField),
@@ -270,9 +308,18 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
                 ? parsed
                 : _settings.Protocol;
 
-        // 空串对帧头/帧尾是非法值 ⇒ 保持上一次的有效值；前缀空串是合法值（= 不过滤）。
-        var header = ReadText(context, HeaderInput, _settings.Header);
-        var footer = ReadText(context, FooterInput, _settings.Footer);
+        // 帧头/帧尾是**十六进制字节串**；空/非法 ⇒ 保持上一次有效字节并标红。
+        var header = ReadHex(context, HeaderHexInput, _settings.Header, out var headerInvalid);
+        var footer = ReadHex(context, FooterHexInput, _settings.Footer, out var footerInvalid);
+        _headerInvalid = headerInvalid;
+        _footerInvalid = footerInvalid;
+
+        if (reportAlerts)
+        {
+            SetInputAlert(context, HeaderHexInput, headerInvalid);
+            SetInputAlert(context, FooterHexInput, footerInvalid);
+        }
+
         var prefix = context.Values.ReadText(PrefixInput) ?? string.Empty;
         var groupId = ReadInt(context, GroupIdInput, _settings.GroupId, 1, int.MaxValue);
         var rateHz = ReadRate(context, RateInput, _settings.RateHz);
@@ -280,19 +327,114 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
         return new Settings(protocol, header, footer, prefix, groupId, rateHz);
     }
 
+    private static byte[] ReadHex(IModuleContext context, string name, byte[] fallback, out bool invalid)
+    {
+        if (!HexInput.TryParse(context.Values.ReadText(name), out var bytes))
+        {
+            invalid = true;
+            return fallback;
+        }
+
+        invalid = false;
+        return bytes;
+    }
+
+    /// <summary>把某一格的"格式无效"落到外观（只在该格状态变化时写一次）。</summary>
+    private void SetInputAlert(IModuleContext context, string source, bool alert)
+    {
+        if (alert)
+        {
+            if (_alertedInputs.Add(source))
+            {
+                context.Appearance.SetOutlineRole(source, ViewInkRoles.Danger);
+            }
+
+            return;
+        }
+
+        if (_alertedInputs.Remove(source))
+        {
+            context.Appearance.SetOutlineRole(source, null);
+        }
+    }
+
+    /// <summary>旧文本帧头/帧尾 → 十六进制串（一次性；迁移后清空旧值，避免清空新值后旧值复活）。</summary>
+    private void MigrateLegacyInputs(IModuleContext context)
+    {
+        if (_legacyInputsMigrated)
+        {
+            return;
+        }
+
+        _legacyInputsMigrated = true;
+        Migrate(HeaderInput, HeaderHexInput, DefaultHeaderHex);
+        Migrate(FooterInput, FooterHexInput, DefaultFooterHex);
+
+        void Migrate(string legacyName, string hexName, string initial)
+        {
+            if (context.Values.ReadText(legacyName) is not { Length: > 0 } legacy)
+            {
+                return;
+            }
+
+            var migrated = ToHex(Encoding.UTF8.GetBytes(legacy));
+            var current = context.Values.ReadText(hexName);
+
+            // 升级时新值还没有事实，XAML 初值会在激活前先播种成 initial；
+            // 只有"空 / 仍是初值 / 已是同一个迁移结果"三种情况可以写，避免覆盖用户后来改的新值。
+            if (!string.IsNullOrEmpty(current)
+                && !string.Equals(current, initial, StringComparison.Ordinal)
+                && !string.Equals(current, migrated, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            context.Values.AcceptText(hexName, migrated);
+            context.Values.AcceptText(legacyName, string.Empty);
+        }
+    }
+
+    /// <summary>字节 → 大写两位、空格分隔的十六进制串。</summary>
+    private static string ToHex(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.IsEmpty)
+        {
+            return string.Empty;
+        }
+
+        var chars = new char[(bytes.Length * 3) - 1];
+        var position = 0;
+
+        for (var index = 0; index < bytes.Length; index++)
+        {
+            if (index > 0)
+            {
+                chars[position++] = ' ';
+            }
+
+            var value = bytes[index];
+            chars[position++] = ToHexChar(value >> 4);
+            chars[position++] = ToHexChar(value & 0xF);
+        }
+
+        return new string(chars);
+    }
+
+    private static char ToHexChar(int value) => (char)(value < 10 ? '0' + value : 'A' + value - 10);
+
     /// <summary>值没变就什么都不做；变了才重建解码器并刷新状态句。</summary>
     private void ApplySettings(IModuleContext context)
     {
         var next = ReadSettings(context);
-        if (next == _settings)
+        if (SameSettings(next, _settings))
         {
             return;
         }
 
         var decoderChanged =
             next.Protocol != _settings.Protocol
-            || !string.Equals(next.Header, _settings.Header, StringComparison.Ordinal)
-            || !string.Equals(next.Footer, _settings.Footer, StringComparison.Ordinal)
+            || !next.Header.AsSpan().SequenceEqual(_settings.Header)
+            || !next.Footer.AsSpan().SequenceEqual(_settings.Footer)
             || !string.Equals(next.Prefix, _settings.Prefix, StringComparison.Ordinal);
 
         _settings = next;
@@ -302,19 +444,33 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
             BuildDecoder(context);
         }
 
-        SetStatus(context, IsTextFrameUsable(_settings)
-            ? RawToWaveformText.Get(RawToWaveformText.Ready)
-            : RawToWaveformText.Get(RawToWaveformText.BadConfig));
+        SetStatus(context, StatusForSettings());
     }
 
-    private static bool IsTextFrameUsable(Settings settings) =>
-        settings.Protocol is not RawToWaveformProtocol.TextFrame
-        || (!string.IsNullOrEmpty(settings.Header) && !string.IsNullOrEmpty(settings.Footer));
+    private static bool SameSettings(Settings left, Settings right) =>
+        left.Protocol == right.Protocol
+        && left.Header.AsSpan().SequenceEqual(right.Header)
+        && left.Footer.AsSpan().SequenceEqual(right.Footer)
+        && string.Equals(left.Prefix, right.Prefix, StringComparison.Ordinal)
+        && left.GroupId == right.GroupId
+        && left.RateHz.Equals(right.RateHz);
 
-    private static string ReadText(IModuleContext context, string name, string fallback)
+    /// <summary>当前配置对应的状态句（无有效帧头/帧尾 → 配置错误；有但非法 → 仍用上次有效值）。</summary>
+    private string StatusForSettings()
     {
-        var text = context.Values.ReadText(name);
-        return string.IsNullOrEmpty(text) ? fallback : text;
+        if (_settings.Protocol is not RawToWaveformProtocol.TextFrame)
+        {
+            return RawToWaveformText.Get(RawToWaveformText.Ready);
+        }
+
+        if (_settings.Header.Length == 0 || _settings.Footer.Length == 0)
+        {
+            return RawToWaveformText.Get(RawToWaveformText.BadHex);
+        }
+
+        return _headerInvalid || _footerInvalid
+            ? RawToWaveformText.Get(RawToWaveformText.BadHexKept)
+            : RawToWaveformText.Get(RawToWaveformText.Ready);
     }
 
     private static int ReadInt(IModuleContext context, string name, int fallback, int minimum, int maximum)
@@ -344,13 +500,13 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
         switch (_settings.Protocol)
         {
             case RawToWaveformProtocol.TextFrame:
-                if (string.IsNullOrEmpty(_settings.Header) || string.IsNullOrEmpty(_settings.Footer))
+                if (_settings.Header.Length == 0 || _settings.Footer.Length == 0)
                 {
                     context.Issues.Report(new IssueReport(
                         IssueCategory.ConfigurationError,
                         IssueSeverity.Warning,
-                        RawToWaveformText.Get(RawToWaveformText.BadConfig),
-                        HeaderInput));
+                        RawToWaveformText.Get(RawToWaveformText.BadHex),
+                        HeaderHexInput));
                     return;
                 }
 
@@ -498,8 +654,8 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     /// <summary>此刻生效的一组值（协议 + 运行期参数）。</summary>
     private sealed record Settings(
         RawToWaveformProtocol Protocol,
-        string Header,
-        string Footer,
+        byte[] Header,
+        byte[] Footer,
         string Prefix,
         int GroupId,
         double RateHz);

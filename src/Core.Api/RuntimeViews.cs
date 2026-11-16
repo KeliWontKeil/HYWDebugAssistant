@@ -915,6 +915,24 @@ public readonly record struct CompositeImportResult(
     IReadOnlyList<string> Notices,
     IReadOnlyList<string> Failures);
 
+/// <summary>外层文件夹批量导入的汇总结果。</summary>
+/// <param name="ModuleCount">成功导入的模块包数。</param>
+/// <param name="CompositeCount">成功导入的组合包数。</param>
+/// <param name="Notices">逐包成功/重扫提示。</param>
+/// <param name="Failures">逐包失败原因。</param>
+public readonly record struct FolderImportResult(
+    int ModuleCount,
+    int CompositeCount,
+    IReadOnlyList<string> Notices,
+    IReadOnlyList<string> Failures)
+{
+    /// <summary>成功导入的包总数。</summary>
+    public int ImportedCount => ModuleCount + CompositeCount;
+
+    /// <summary>是否有失败项。</summary>
+    public bool HasFailures => Failures.Count > 0;
+}
+
 /// <summary>组合文件重命名结果。</summary>
 /// <param name="Succeeded">是否成功。</param>
 /// <param name="TargetPath">新文件路径（失败时为空）。</param>

@@ -18,6 +18,8 @@
     "status.unknownCommand": "未知命令：{0}",
     "view.roleSend": "发送",
     "view.send": "发送",
+    "view.submitKey.ctrlEnter": "按 Ctrl+Enter 键发送",
+    "view.submitKey.enter": "按 Enter 键发送",
     "view.sentTitle": "已发送",
     "view.statusPreview": "就绪",
     "view.sentUnit": "条"

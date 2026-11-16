@@ -1,5 +1,6 @@
 <Styles xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls">
   <!--
     按钮的壳与五态（全应用）。
 
@@ -65,6 +66,63 @@
         </ControlTemplate>
       </Setter>
     </ControlTheme>
+
+    <!--
+      **模块命令按钮**：在通用按钮壳之外多一条"右侧菜单箭头"的模板。
+      视觉结构住在 XAML 里（控件代码只处理行为：找 PART_MenuHost、打开菜单、提交值）。
+    -->
+    <ControlTheme x:Key="{x:Type ui:ModuleButton}" TargetType="ui:ModuleButton">
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="6,0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="FocusAdorner" Value="{x:Null}" />
+
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border
+            Name="Chrome"
+            Background="{TemplateBinding Background}"
+            BorderBrush="{TemplateBinding BorderBrush}"
+            BorderThickness="{TemplateBinding BorderThickness}"
+            CornerRadius="{TemplateBinding CornerRadius}"
+            Padding="{TemplateBinding Padding}">
+            <Grid ColumnDefinitions="*,Auto">
+              <ContentPresenter
+                Name="PART_ContentPresenter"
+                Grid.Column="0"
+                Background="Transparent"
+                Content="{TemplateBinding Content}"
+                ContentTemplate="{TemplateBinding ContentTemplate}"
+                Foreground="{TemplateBinding Foreground}"
+                HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                RecognizesAccessKey="True" />
+
+              <!-- 菜单箭头：无菜单值时由下面的样式整块隐藏。 -->
+              <Border Name="PART_MenuHost"
+                      Grid.Column="1"
+                      CornerRadius="0,4,4,0"
+                      Cursor="Hand"
+                      VerticalAlignment="Stretch">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                  <Rectangle Width="1" Height="16" Margin="5,0"
+                             VerticalAlignment="Center"
+                             Fill="{TemplateBinding Foreground}" Opacity="0.65" />
+                  <Path Data="M 0,0 L 4,4 L 8,0"
+                        Margin="4,0,3,0"
+                        Stroke="{TemplateBinding Foreground}"
+                        StrokeThickness="1.4"
+                        StrokeLineCap="Round"
+                        StrokeJoin="Round"
+                        VerticalAlignment="Center" />
+                </StackPanel>
+              </Border>
+            </Grid>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
   </Styles.Resources>
 
   <!--
@@ -77,8 +135,34 @@
     `:not(:is(CheckBox))` / `:not(:is(RadioButton))` 是冗余保险：即使 `:is(ToggleButton)`
     在某版本的选择器实现里不匹配派生类型，也不会再把这两类卷进来。
   -->
-  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton))">
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(:is(ui|ModuleButton))">
     <Setter Property="Theme" Value="{DynamicResource {x:Type Button}}" />
+  </Style>
+
+  <!-- 没有菜单值的模块按钮：整块箭头（含分隔线）隐藏。 -->
+  <Style Selector="ui|ModuleButton:not(.menu) /template/ Border#PART_MenuHost">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+
+  <!-- 菜单区自己的悬停/按下态：主体与箭头是两个可感知的区域。 -->
+  <Style Selector="ui|ModuleButton /template/ Border#PART_MenuHost">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton /template/ Border#PART_MenuHost:pointerover">
+    <Setter Property="Background" Value="{DynamicResource OverlayHighlight}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton /template/ Border#PART_MenuHost:pressed">
+    <Setter Property="Background" Value="{DynamicResource OverlaySelection}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.accent /template/ Border#PART_MenuHost:pointerover">
+    <Setter Property="Background" Value="{DynamicResource AccentStrong}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.accent /template/ Border#PART_MenuHost:pressed">
+    <Setter Property="Background" Value="{DynamicResource ButtonAccentFacePressedBrush}" />
   </Style>
 
   <!--
@@ -136,5 +220,54 @@
 
   <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):disabled">
     <Setter Property="Opacity" Value="0.5" />
+  </Style>
+
+  <!--
+    **按钮外观档位**（模块按钮 `Appearance` 的落点）：常规、主题色强调、删除红。
+    选择器在通用壳选择器上再加一个类 ⇒ 比通用五态更具体，且排在其后；
+    颜色只来自色板 token（主题色/失败色的派生支），这里不写任何色值。
+  -->
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.helpIcon).accent">
+    <Setter Property="Background" Value="{DynamicResource AccentPrimary}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextOnAccent}" />
+  </Style>
+
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.helpIcon).accent:pointerover">
+    <Setter Property="Background" Value="{DynamicResource AccentStrong}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentStrong}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextOnAccent}" />
+  </Style>
+
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.helpIcon).accent:pressed">
+    <Setter Property="Background" Value="{DynamicResource ButtonAccentFacePressedBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ButtonAccentFacePressedBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextOnAccent}" />
+  </Style>
+
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.helpIcon).accent:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource TextOnAccent}" />
+  </Style>
+
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.helpIcon).danger">
+    <Setter Property="Background" Value="{DynamicResource SemanticError}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource SemanticError}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextOnAccent}" />
+  </Style>
+
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.helpIcon).danger:pointerover">
+    <Setter Property="Background" Value="{DynamicResource ButtonDangerFaceHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ButtonDangerFaceHoverBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextOnAccent}" />
+  </Style>
+
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.helpIcon).danger:pressed">
+    <Setter Property="Background" Value="{DynamicResource ButtonDangerFacePressedBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ButtonDangerFacePressedBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextOnAccent}" />
+  </Style>
+
+  <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.helpIcon).danger:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource TextOnAccent}" />
   </Style>
 </Styles>

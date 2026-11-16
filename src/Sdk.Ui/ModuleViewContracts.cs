@@ -326,4 +326,7 @@ public interface IModuleViewContext
 
     /// <summary>多行文本框的提交键档位（框架设置里那一项：<c>CtrlEnter</c> / <c>Enter</c> / <c>None</c>）。</summary>
     string MultilineSubmitKey { get; }
+
+    /// <summary>波形曲线区滚轮每格的缩放系数（应用设置 <c>wheelZoomStep</c>；默认 1.2）。</summary>
+    double WheelZoomStep { get; }
 }

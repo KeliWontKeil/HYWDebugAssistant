@@ -21,6 +21,15 @@ internal static class RawToWaveformText
     public const string ResetDone = "state.reset";
     public const string BadConfig = "state.bad-config";
 
+    /// <summary>帧头/帧尾没有可用的十六进制值。</summary>
+    public const string BadHex = "state.bad-hex";
+
+    /// <summary>帧头/帧尾格式无效，但仍在用上一次有效值。</summary>
+    public const string BadHexKept = "state.bad-hex-kept";
+
+    /// <summary>帧头/帧尾输入框的悬停提示。</summary>
+    public const string HexHint = "view.hexHint";
+
     /// <summary>配置字段标题：协议。</summary>
     public const string FieldProtocol = "field.protocol";
 

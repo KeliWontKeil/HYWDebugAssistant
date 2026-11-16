@@ -37,4 +37,5 @@ public static class WaveformDisplayViewKeys
     public const string SaveSelection = WaveformDisplayModule.SaveSelectionCommand;
     public const string SaveAll = WaveformDisplayModule.SaveAllCommand;
     public const string SaveImage = WaveformDisplayModule.SaveImageCommand;
+    public const string Auto = WaveformDisplayModule.AutoCommand;
 }

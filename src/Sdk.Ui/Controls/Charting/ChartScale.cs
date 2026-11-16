@@ -107,6 +107,28 @@ internal static class ChartScale
         return (center + ((min - center) / factor), center + ((max - center) / factor));
     }
 
+    /// <summary>围绕给定锚点缩放：<paramref name="factor"/> 大于 1 表示放大（跨度变小）。</summary>
+    /// <param name="min">原范围下限。</param>
+    /// <param name="max">原范围上限。</param>
+    /// <param name="anchor">缩放锚点（轴单位）；超出范围时夹到端部。</param>
+    /// <param name="factor">缩放倍数；&gt;1 放大，0–1 缩小。</param>
+    /// <returns>缩放后的范围；非法输入返回原范围。</returns>
+    public static (double Min, double Max) ZoomAt(double min, double max, double anchor, double factor)
+    {
+        if (!double.IsFinite(min)
+            || !double.IsFinite(max)
+            || !double.IsFinite(anchor)
+            || !double.IsFinite(factor)
+            || max <= min
+            || factor <= 0)
+        {
+            return (min, max);
+        }
+
+        var center = Math.Clamp(anchor, min, max);
+        return (center + ((min - center) / factor), center + ((max - center) / factor));
+    }
+
     /// <summary>夹紧到闭区间；上下界反了时自动交换。</summary>
     public static double Clamp(double value, double min, double max)
     {

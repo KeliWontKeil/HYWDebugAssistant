@@ -258,6 +258,8 @@ public class ModuleViewSnapshots
 
         public string MultilineSubmitKey => "CtrlEnter";
 
+        public double WheelZoomStep => 1.2;
+
         public double? ReadLatest(string source) => 42;
 
         public IReadOnlyList<double> ReadSeries(string source) => [42];

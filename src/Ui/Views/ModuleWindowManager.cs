@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Threading;
 using HYWDebugAssistant.Ui.Controls;
 using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.ViewModels;
@@ -37,6 +38,8 @@ public sealed class ModuleWindowManager : IDisposable
     private bool _disposed;
     private bool _shellFrameReady;
     private bool _syncPending;
+    private bool _syncScheduled;
+    private bool _batchClosing;
     private bool _suppressShellFollow;
 
     /// <summary>创建窗口管理器。</summary>
@@ -55,9 +58,8 @@ public sealed class ModuleWindowManager : IDisposable
 
         _controller.GeometryChanged += OnGeometryChanged;
         _controller.VisibilityChanged += OnVisibilityChanged;
-        _controller.GroupRaiseRequested += OnGroupRaiseRequested;
         _controller.WindowActivationRequested += OnWindowActivationRequested;
-        _controller.Modules.CollectionChanged += (_, _) => SyncAll();
+        _controller.Modules.CollectionChanged += (_, _) => ScheduleSync();
 
         // 外壳移动 → ① 刷新吸附参照矩形 ② **平移与外壳拼成一体的那一组**（用户第十二轮第四轮反馈）
         _shell.PositionChanged += (_, _) => OnShellMoved();
@@ -66,6 +68,9 @@ public sealed class ModuleWindowManager : IDisposable
             PublishShellFrame();
             _ = _controller.CommitSceneTranslation();
         };
+
+        // 外壳最小化/恢复镜像到模块窗：模块不再以外壳为 Owner，生命周期要显式跟随。
+        _shell.PropertyChanged += OnShellPropertyChanged;
 
         // 外壳自己的缩放是"它所在屏"的事实；换屏后 DIP 矩形与物理外框都要重发（不能只改缩放）。
         _shell.ScalingChanged += (_, _) =>
@@ -130,6 +135,10 @@ public sealed class ModuleWindowManager : IDisposable
             return;
         }
 
+        _syncScheduled = false;
+        using var update = WindowGroup.BeginUpdate();
+        var closing = new List<ModuleWindow>();
+
         foreach (var module in _controller.Modules)
         {
             if (module.IsViewVisible)
@@ -138,7 +147,7 @@ public sealed class ModuleWindowManager : IDisposable
             }
             else if (_windows.TryGetValue(module.InstanceId, out var hidden))
             {
-                CloseWindow(hidden);
+                closing.Add(hidden);
                 _ = _windows.Remove(module.InstanceId);
             }
         }
@@ -147,20 +156,72 @@ public sealed class ModuleWindowManager : IDisposable
         {
             if (_windows.Remove(staleId, out var window))
             {
-                CloseWindow(window);
+                closing.Add(window);
+            }
+        }
+
+        if (closing.Count > 0)
+        {
+            _batchClosing = true;
+
+            try
+            {
+                WindowGroup.PrepareCloseBatch([.. closing.Cast<Window>()]);
+                foreach (var window in closing)
+                {
+                    CloseWindow(window);
+                }
+            }
+            finally
+            {
+                _batchClosing = false;
             }
         }
 
         _controller.RefreshLayers();
     }
 
+    private void ScheduleSync()
+    {
+        if (_disposed || _syncScheduled)
+        {
+            return;
+        }
+
+        _syncScheduled = true;
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                _syncScheduled = false;
+                SyncAll();
+            },
+            DispatcherPriority.Background);
+    }
+
     /// <summary>关闭当前全部模块窗口；不释放管理器（之后仍可继续同步/复用）。</summary>
     public void CloseAll()
     {
-        // 快照遍历：`Close` 会同步触发窗口的 `Closed`，处理器会从 `_windows` 里移除自己。
-        foreach (var window in _windows.Values.ToList())
+        using var closeBatch = WindowGroup.BeginCloseBatch();
+        using var update = WindowGroup.BeginUpdate();
+
+        _batchClosing = true;
+
+        try
         {
-            CloseWindow(window);
+            // 快照遍历：`Close` 会同步触发窗口的 `Closed`，处理器会从 `_windows` 里移除自己。
+            foreach (var window in _windows.Values.ToList())
+            {
+                CloseWindow(window);
+            }
+        }
+        finally
+        {
+            _batchClosing = false;
         }
 
         _controller.RefreshLayers();
@@ -175,9 +236,9 @@ public sealed class ModuleWindowManager : IDisposable
         }
 
         _disposed = true;
+        _shell.PropertyChanged -= OnShellPropertyChanged;
         _controller.GeometryChanged -= OnGeometryChanged;
         _controller.VisibilityChanged -= OnVisibilityChanged;
-        _controller.GroupRaiseRequested -= OnGroupRaiseRequested;
         _controller.WindowActivationRequested -= OnWindowActivationRequested;
         _controller.ShellMoveRequested -= OnShellMoveRequested;
 
@@ -265,6 +326,13 @@ public sealed class ModuleWindowManager : IDisposable
 
     private void OnVisibilityChanged(object? sender, ModuleWindowVisibilityChange e)
     {
+        if (_syncScheduled || _disposed)
+        {
+            return;
+        }
+
+        using var update = WindowGroup.BeginUpdate();
+
         if (e.IsVisible)
         {
             if (_controller.Modules.FirstOrDefault(m => string.Equals(m.InstanceId, e.InstanceId, StringComparison.Ordinal)) is { } module)
@@ -281,31 +349,6 @@ public sealed class ModuleWindowManager : IDisposable
             CloseWindow(window);
         }
 
-        _controller.RefreshLayers();
-    }
-
-    /// <summary>
-    /// 窗口点击要求把**整组**抬到应用内最前：组内 primary 最后抬（在最上）。
-    /// </summary>
-    /// <remarks>
-    /// **不激活、不改焦点**：抬升只改层级；非 Windows / 平台不支持时门面自动无操作。
-    /// 与 <see cref="AppWindowGroup.RaiseAll"/>（全体置顶）不是同一条路径。
-    /// </remarks>
-    private void OnGroupRaiseRequested(object? sender, ModuleGroupRaiseRequest request)
-    {
-        var windows = new List<Window>(request.InstanceIds.Count);
-
-        foreach (var instanceId in request.InstanceIds
-                     .Where(id => !string.Equals(id, request.Primary, StringComparison.Ordinal))
-                     .Append(request.Primary))
-        {
-            if (_windows.TryGetValue(instanceId, out var window))
-            {
-                windows.Add(window);
-            }
-        }
-
-        WindowGroup.RaiseFloatingGroup(windows);
         _controller.RefreshLayers();
     }
 
@@ -355,7 +398,8 @@ public sealed class ModuleWindowManager : IDisposable
         {
             if (!existing.IsVisible)
             {
-                existing.Show(_shell);
+                existing.Show();
+                ApplyShellMinimized(existing);
             }
 
             return;
@@ -373,6 +417,14 @@ public sealed class ModuleWindowManager : IDisposable
 
         // **记住关闭**：表里留着已关闭的窗口，下一次同步就会对它 `Show`（已关闭的窗口不能重新显示），
         // 而模块仍然可见 ⇒ 必须由新窗口接管。移除前比对引用，避免误删同 id 的新窗口。
+        window.Closing += (_, _) =>
+        {
+            if (!_batchClosing)
+            {
+                WindowGroup.PrepareCloseBatch([window]);
+            }
+        };
+
         window.Closed += (_, _) =>
         {
             window.Activated -= OnModuleActivated;
@@ -435,11 +487,14 @@ public sealed class ModuleWindowManager : IDisposable
 
         window.Opened += OnOpened;
 
-        // **从属于外壳**：外壳永在模块窗口之下（点外壳不再把模块压下去）；最小化/恢复随外壳
-        window.Show(_shell);
-
-        // 纳入应用窗口组：层级统一（激活任一窗口 → 其余一并抬升；"全体置顶"一起生效）
+        // 先纳入应用窗口组再显示：Show 触发的首次激活也要被"激活序"接住。
         WindowGroup.Track(window);
+
+        // **从属于外壳的生命周期，但不依赖 Owner**：外壳永在模块窗口之下不再由平台保证，
+        // 层级由 AppWindowGroup 的激活序统一管理；最小化/恢复用显式镜像跟随。
+        window.Show();
+        ApplyShellMinimized(window);
+
         window.Activated += OnModuleActivated;
         HotkeyAttached?.Invoke(this, window);
     }
@@ -614,6 +669,40 @@ public sealed class ModuleWindowManager : IDisposable
         return max is { } upper ? Math.Min(value, upper) : value;
     }
 
+    /// <summary>
+    /// 外壳窗口状态变化：最小化/恢复镜像到全部模块窗。
+    /// </summary>
+    private void OnShellPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property != Window.WindowStateProperty)
+        {
+            return;
+        }
+
+        var minimized = _shell.WindowState == WindowState.Minimized;
+
+        foreach (var window in _windows.Values)
+        {
+            if (minimized)
+            {
+                if (window.WindowState != WindowState.Minimized)
+                {
+                    window.WindowState = WindowState.Minimized;
+                }
+            }
+            else if (window.WindowState == WindowState.Minimized)
+            {
+                window.WindowState = WindowState.Normal;
+            }
+        }
+    }
+
+    /// <summary>模块窗刚显示时若外壳已最小化，直接跟随最小化。</summary>
+    private void ApplyShellMinimized(Window window) =>
+        window.WindowState = _shell.WindowState == WindowState.Minimized
+            ? WindowState.Minimized
+            : window.WindowState;
+
     private void PublishWorkAreas()
     {
         var areas = new List<CanvasRect>(_shell.Screens.All.Count);
@@ -652,10 +741,14 @@ public sealed class ModuleWindowManager : IDisposable
         {
             if (!window.IsVisible)
             {
-                window.Show(_shell);
+                window.Show();
+                ApplyShellMinimized(window);
             }
 
-            window.Activate();
+            if (!window.IsActive)
+            {
+                window.Activate();
+            }
         }
     }
 
@@ -696,10 +789,21 @@ public sealed class ModuleWindowManager : IDisposable
             return;
         }
 
-        _controller.TranslateShellGroup(current.X - previous.X, current.Y - previous.Y, previous);
-        _controller.RefreshLayers();
+        // 按住 Ctrl 拖动外壳 = 把外壳从拼组里拖开：本次拖动内不再带着模块走，
+        // 即使随后松开 Ctrl 也不重新粘回（与模块的"拖动中按 Ctrl 拆分"同一条规则）。
+        if (_shellDragDetached || KeyStateProbe.IsControlDown())
+        {
+            _shellDragDetached = true;
+            _controller.RefreshLayers();
+        }
+        else
+        {
+            _controller.TranslateShellGroup(current.X - previous.X, current.Y - previous.Y, previous);
+            _controller.RefreshLayers();
+        }
 
-        // 静默 250ms ⇒ 这次拖动结束：解除分组冻结（下次拖动重新取组）
+        // **无论本次是否拆开，都要安排"拖动结束"**：拆开分支若直接返回，
+        // `_shellDragDetached` 会永久保持 true，后续不带 Ctrl 的拖动也再不会跟随模块。
         _shellDragEndSubscription?.Dispose();
         _shellDragEndSubscription = UiFrameClock.ScheduleOnce(
             TimeSpan.FromMilliseconds(250),
@@ -717,8 +821,12 @@ public sealed class ModuleWindowManager : IDisposable
     {
         _shellDragEndSubscription?.Dispose();
         _shellDragEndSubscription = null;
+        _shellDragDetached = false;
         _controller.EndShellDragGesture();
     }
+
+    /// <summary>本次外壳拖动是否已按 Ctrl 拖开（一次性；拖动结束后复位）。</summary>
+    private bool _shellDragDetached;
 
     /// <summary>防抖到期：把整体平移合并落盘。</summary>
     private void OnFollowCommit()

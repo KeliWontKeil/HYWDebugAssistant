@@ -6,6 +6,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>组合件包：per-composite 文件夹、固定封面名、模块壁纸资产。</summary>
+[Collection(nameof(FileSystemImportTests))]
 public class CompositePackageTests
 {
     [Fact]

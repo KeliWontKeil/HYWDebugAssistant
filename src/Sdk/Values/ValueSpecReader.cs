@@ -70,6 +70,7 @@ public static class ValueSpecReader
     {
         "ModuleTextSurface",
         "ModuleToggle",
+        "ModuleCheckBox",
         "ModuleSelect",
         "ModuleSegmentedControl",
         "ModuleConfigField",
@@ -175,7 +176,7 @@ public static class ValueSpecReader
         var (attributeName, fallback) = controlName switch
         {
             "ModuleTextSurface" => ("Text", string.Empty),
-            "ModuleToggle" => ("IsChecked", "false"),
+            "ModuleToggle" or "ModuleCheckBox" => ("IsChecked", "false"),
             "ModuleSelect" or "ModuleSegmentedControl" => ("SelectedKey", string.Empty),
             "ModuleConfigField" => ("InitialValue", string.Empty),
             _ => (string.Empty, string.Empty),

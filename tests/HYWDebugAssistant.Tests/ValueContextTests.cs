@@ -27,6 +27,7 @@ public class ValueContextTests
                                xmlns:local="using:HYWDebugAssistant.Tests">
                   <ui:ModuleTextSurface Value="{x:Static local:ValueSpecTestConstants.Text}" Text="ab" />
                   <ui:ModuleToggle Value="{x:Static local:ValueSpecTestConstants.Flag}" IsChecked="True" />
+                  <ui:ModuleCheckBox Value="{x:Static local:ValueSpecTestConstants.Check}" IsChecked="False" />
                   <ui:ModuleConfigField Value="{x:Static local:ValueSpecTestConstants.Interval}" InitialValue="500" />
                   <ui:ModuleTextSurface Mode="Display" Source="{x:Static local:ValueSpecTestConstants.Display}" />
                 </ui:ModuleView>
@@ -39,6 +40,7 @@ public class ValueContextTests
             [
                 ("text", "ab"),
                 ("flag", "true"),
+                ("check", "false"),
                 ("interval", "500"),
             ]);
         }
@@ -276,6 +278,7 @@ public static class ValueSpecTestConstants
 {
     public const string Text = "text";
     public const string Flag = "flag";
+    public const string Check = "check";
     public const string Interval = "interval";
     public const string Display = "display";
 }

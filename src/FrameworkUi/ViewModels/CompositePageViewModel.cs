@@ -324,11 +324,13 @@ public sealed partial class CompositePageViewModel : ViewModelBase
         Load(file.Path);
     }
 
-    /// <summary>导入外部组合文件：校验后复制到默认目录并选中。</summary>
-    public void ImportComposite(string sourceFile)
+    /// <summary>导入外部组合：源是组合文件夹或组合文件；校验后复制到默认目录并选中。</summary>
+    public void ImportComposite(string sourcePath)
     {
-        var result = _command.ImportCompositeFile(sourceFile);
-        var name = Path.GetFileNameWithoutExtension(sourceFile);
+        var result = _command.ImportComposite(sourcePath);
+        var name = Directory.Exists(sourcePath)
+            ? Path.GetFileName(Path.TrimEndingDirectorySeparator(sourcePath))
+            : Path.GetFileNameWithoutExtension(sourcePath);
         SetStatus(
             result.Succeeded,
             result.Succeeded

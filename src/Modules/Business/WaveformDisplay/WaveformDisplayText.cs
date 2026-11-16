@@ -20,6 +20,12 @@ internal static class WaveformDisplayText
     public const string SaveAll = "view.saveAll";
     public const string SaveImage = "view.saveImage";
 
+    /// <summary>Auto 按钮。</summary>
+    public const string Auto = "view.auto";
+
+    /// <summary>Auto 按钮的悬停提示。</summary>
+    public const string AutoTip = "view.auto.tip";
+
     public const string Ready = "status.ready";
     public const string Receiving = "status.receiving";
     public const string Paused = "status.paused";

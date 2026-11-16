@@ -22,10 +22,17 @@ internal static class ConverterCodec
 {
     /// <summary>字符 → HEX（两位大写、空格分隔；空文本 ⇒ 失败原因置空、结果为"无动作"）。</summary>
     /// <param name="text">输入文本（原样，不做规范化）。</param>
+    /// <param name="escape">是否解释字面 C 转义。</param>
+    /// <param name="mode">换行归一档。</param>
     /// <param name="hex">结果（形如 <c>41 42</c>）。</param>
     /// <param name="failure">失败原因（成功为 <see langword="null"/>）。</param>
     /// <returns>成功为 <see langword="true"/>（空输入也算成功，但 <paramref name="hex"/> 为空串 ⇒ 调用方无动作）。</returns>
-    public static bool TryToHex(string? text, out string hex, out string? failure)
+    public static bool TryToHex(
+        string? text,
+        bool escape,
+        NewlineMode mode,
+        out string hex,
+        out string? failure)
     {
         hex = string.Empty;
         failure = null;
@@ -35,7 +42,8 @@ internal static class ConverterCodec
             return true;    // 空 ⇒ 无动作（不报错）
         }
 
-        var bytes = Encoding.UTF8.GetBytes(text);
+        var normalized = TextNewlines.Normalize(TextEscapes.Normalize(text, escape), mode);
+        var bytes = Encoding.UTF8.GetBytes(normalized);
         var builder = new StringBuilder(bytes.Length * 3);
 
         for (var i = 0; i < bytes.Length; i++)
@@ -54,10 +62,15 @@ internal static class ConverterCodec
 
     /// <summary>HEX → 字符（空白忽略、每字节两位、按 UTF-8 解码；非法序列**明确报错**）。</summary>
     /// <param name="text">输入的十六进制文本。</param>
+    /// <param name="mode">解码结果换行归一档。</param>
     /// <param name="value">结果文本。</param>
     /// <param name="failure">失败原因（成功为 <see langword="null"/>）。</param>
     /// <returns>成功为 <see langword="true"/>（空输入也算成功，但 <paramref name="value"/> 为空串 ⇒ 调用方无动作）。</returns>
-    public static bool TryToText(string? text, out string value, out string? failure)
+    public static bool TryToText(
+        string? text,
+        NewlineMode mode,
+        out string value,
+        out string? failure)
     {
         value = string.Empty;
         failure = null;
@@ -116,7 +129,7 @@ internal static class ConverterCodec
 
         try
         {
-            value = strict.GetString(bytes);
+            value = TextNewlines.Normalize(strict.GetString(bytes), mode);
             return true;
         }
         catch (DecoderFallbackException ex)

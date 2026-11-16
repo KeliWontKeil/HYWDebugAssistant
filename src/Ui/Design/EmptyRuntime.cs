@@ -182,6 +182,9 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     /// <inheritdoc />
     public IReadOnlyList<CompositeFileView> GetCompositeFiles() => [];
 
+    /// <inheritdoc />
+    public ImportPathKind ClassifyImportPath(string path) => ImportPathKind.None;
+
     public IReadOnlyList<ModuleSourceView> GetModuleSources() =>
     [
         new(Path.Combine(AppContext.BaseDirectory, "modules"), Exists: true, PackagesFound: 4, SkippedDirectories: 0, FailedPackages: 0, Messages: []),
@@ -289,6 +292,9 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     public CommandResult ImportModuleDirectory(string sourceDirectory) => CommandResult.Ok();
 
     /// <inheritdoc />
+    public FolderImportResult ImportFolder(string sourceDirectory) => new(0, 0, [], []);
+
+    /// <inheritdoc />
     public CommandResult RescanModuleSources() => CommandResult.Ok();
 
     /// <inheritdoc />
@@ -350,7 +356,7 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
         CommandResult.Ok();
 
     /// <inheritdoc />
-    public CompositeImportResult ImportCompositeFile(string sourceFile) =>
+    public CompositeImportResult ImportComposite(string sourcePath) =>
         new(false, null, [], ["设计时不可导入"]);
 
     /// <inheritdoc />

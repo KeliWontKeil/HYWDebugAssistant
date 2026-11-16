@@ -95,8 +95,8 @@ public class HostingPackageTests
         added.Applied.ShouldBeTrue(string.Join("；", added.Failures));
 
         runtime.Content.TryGetInstance("raw-xaml-defaults", out var instance).ShouldBeTrue();
-        instance!.Context.Values.ReadText("header").ShouldBe("ab");
-        instance.Context.Values.ReadText("footer").ShouldBe("cd");
+        instance!.Context.Values.ReadText("headerHex").ShouldBe("61 62");
+        instance.Context.Values.ReadText("footerHex").ShouldBe("63 64");
         instance.Context.Values.ReadText("groupId").ShouldBe("1");
         instance.Context.Values.ReadText("rateHz").ShouldBe("1000");
     }

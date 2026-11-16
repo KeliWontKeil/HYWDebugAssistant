@@ -33,6 +33,7 @@ internal sealed class ModuleViewContext : IModuleViewContext
     private readonly IRuntimeCommand _command;
     private readonly IViewStateAccess? _viewState;
     private readonly Func<string>? _multilineSubmitKey;
+    private readonly Func<double>? _wheelZoomStep;
     private readonly IModuleColorPicker? _colorPicker;
     private readonly SurfaceSourceReader _reader;
     private readonly Dictionary<string, ViewAppearance> _appearances = new(StringComparer.Ordinal);
@@ -47,13 +48,15 @@ internal sealed class ModuleViewContext : IModuleViewContext
     /// <param name="command">运行期命令面。</param>
     /// <param name="viewState">视图状态（无 ⇒ 未提交文本与页面状态只记在本地）。</param>
     /// <param name="multilineSubmitKey">多行提交键档位提供者（设置随时会变，故传取值函数）。</param>
+    /// <param name="wheelZoomStep">滚轮缩放系数提供者（设置随时会变，故传取值函数）。</param>
     internal ModuleViewContext(
         string instanceId,
         IRuntimeQuery query,
         IRuntimeCommand command,
         IViewStateAccess? viewState,
         Func<string>? multilineSubmitKey,
-        IModuleColorPicker? colorPicker = null)
+        IModuleColorPicker? colorPicker = null,
+        Func<double>? wheelZoomStep = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(instanceId);
         ArgumentNullException.ThrowIfNull(query);
@@ -64,6 +67,7 @@ internal sealed class ModuleViewContext : IModuleViewContext
         _command = command;
         _viewState = viewState;
         _multilineSubmitKey = multilineSubmitKey;
+        _wheelZoomStep = wheelZoomStep;
         _colorPicker = colorPicker;
         _reader = new SurfaceSourceReader(query, viewState);
         _values = new ModuleValuePresenter(instanceId, ReadField, Appearance, query, command, viewState);
@@ -77,6 +81,9 @@ internal sealed class ModuleViewContext : IModuleViewContext
 
     /// <inheritdoc />
     public string MultilineSubmitKey => _multilineSubmitKey?.Invoke() ?? "CtrlEnter";
+
+    /// <inheritdoc />
+    public double WheelZoomStep => _wheelZoomStep?.Invoke() ?? 1.2;
 
     /// <summary>
     /// 每帧开头刷新一次数据源快照（数据源视图对象是每帧重建的，不能跨帧持有），

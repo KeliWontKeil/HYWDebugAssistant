@@ -31,11 +31,6 @@ public partial class CompositePageView : UserControl
     private static string Loc(string key, params object?[] args) =>
         TextCatalog.Get(typeof(CompositePageView).Assembly, key, args);
 
-    private static readonly FilePickerFileType CompositeFileType = new(Loc("composite.fileType"))
-    {
-        Patterns = ["*.json"],
-    };
-
     private static readonly FilePickerFileType ImageFileType = new(Loc("composite.imageFileType"))
     {
         Patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp"],
@@ -119,15 +114,14 @@ public partial class CompositePageView : UserControl
         try
         {
             var start = await storage.TryGetFolderFromPathAsync(viewModel.DefaultCompositeDirectory);
-            var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
+            var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
             {
                 Title = Loc("composite.import.title"),
                 AllowMultiple = false,
-                FileTypeFilter = [CompositeFileType],
                 SuggestedStartLocation = start,
             });
 
-            if (files.Count > 0 && files[0].TryGetLocalPath() is { Length: > 0 } path)
+            if (folders.Count > 0 && folders[0].TryGetLocalPath() is { Length: > 0 } path)
             {
                 viewModel.ImportComposite(path);
             }

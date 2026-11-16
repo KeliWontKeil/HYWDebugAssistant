@@ -21,4 +21,10 @@ public static class HexSenderText
     public const string StatusHexNonHex = "status.hex.nonHex";
     public const string StatusUnknownCommand = "status.unknownCommand";
     public const string StatusSplitPackets = "status.splitPackets";
+
+    /// <summary>发送按钮菜单：回车发送。</summary>
+    public const string SubmitKeyEnter = "view.submitKey.enter";
+
+    /// <summary>发送按钮菜单：Ctrl+Enter 发送。</summary>
+    public const string SubmitKeyCtrlEnter = "view.submitKey.ctrlEnter";
 }

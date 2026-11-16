@@ -63,6 +63,15 @@ public sealed class ApplicationSettings
     public double SnapDistance { get; set; } = 4;
 
     /// <summary>
+    /// **波形曲线区滚轮每格的缩放系数**（默认 1.20，范围 1.05–2.00）。
+    /// </summary>
+    /// <remarks>
+    /// 只影响图表控件的滚轮手势：`factor = step^档数`，档数按 ±3 夹紧。
+    /// JSON 键 <c>wheelZoomStep</c>。
+    /// </remarks>
+    public double WheelZoomStep { get; set; } = 1.2;
+
+    /// <summary>
     /// **叠加信息层开关**（**默认关闭**）。
     /// </summary>
     /// <remarks>
@@ -176,6 +185,7 @@ public sealed class ApplicationSettings
         ShowPerformanceMonitor = ShowPerformanceMonitor,
         AlignAutoNetworkEnabled = AlignAutoNetworkEnabled,
         SnapDistance = SnapDistance,
+        WheelZoomStep = WheelZoomStep,
         ShowInfoOverlay = ShowInfoOverlay,
         // **外观块要深拷**：它自己持两层字典（按主题分层的覆盖），浅拷会让"改一份影响另一份"。
         // 纪律：`Clone` 必须与**全部可持久化属性**一一对应 —— `SettingsServiceTests` 有一条反射式用例钉住它。

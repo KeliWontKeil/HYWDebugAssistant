@@ -61,6 +61,9 @@ public sealed class DesignModuleViewContext : IModuleViewContext
     public string MultilineSubmitKey => "CtrlEnter";
 
     /// <inheritdoc />
+    public double WheelZoomStep => 1.2;
+
+    /// <inheritdoc />
     /// <remarks>预览值由视图在 XAML 里声明；设计上下文不再伪造数据。</remarks>
     public double? ReadLatest(string source) => null;
 

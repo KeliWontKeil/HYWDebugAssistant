@@ -504,15 +504,81 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             return CommandResult.Fail([CoreText.Get("core.services.directoryMissing", sourceDirectory)]);
         }
 
-        var packages = FindImportPackages(sourceDirectory);
+        var packages = FolderImportScanner.Scan(sourceDirectory).ModuleDirectories;
         if (packages.Count == 0)
         {
             return CommandResult.Fail([CoreText.Get("core.services.noModulePackagesInDirectory")]);
         }
 
+        var (imported, notices, failures) = ImportModulePackages(packages);
+
+        return imported > 0
+            ? new CommandResult(true, failures, notices)
+            : failures.Count > 0
+                ? CommandResult.Fail(failures)
+                : CommandResult.Ok(notices);
+    }
+
+    /// <inheritdoc />
+    public FolderImportResult ImportFolder(string sourceDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(sourceDirectory) || !Directory.Exists(sourceDirectory))
+        {
+            return new FolderImportResult(
+                0,
+                0,
+                [],
+                [CoreText.Get("core.services.directoryMissing", sourceDirectory ?? string.Empty)]);
+        }
+
+        var scan = FolderImportScanner.Scan(sourceDirectory);
+        var notices = new List<string>();
+        var failures = new List<string>();
+        var moduleCount = 0;
+
+        if (scan.ModuleDirectories.Count > 0)
+        {
+            var (imported, moduleNotices, moduleFailures) = ImportModulePackages(scan.ModuleDirectories);
+            moduleCount = imported;
+            notices.AddRange(moduleNotices);
+            failures.AddRange(moduleFailures);
+        }
+
+        var compositeCount = 0;
+        foreach (var directory in scan.CompositeDirectories)
+        {
+            var result = ImportComposite(directory);
+            if (result.Succeeded)
+            {
+                compositeCount++;
+                notices.AddRange(result.Notices);
+            }
+            else
+            {
+                failures.AddRange(result.Failures);
+            }
+        }
+
+        if (scan.LimitReached)
+        {
+            failures.Add(CoreText.Get("core.services.import.folderLimit", FolderImportScanner.MaxPackages));
+        }
+
+        return new FolderImportResult(moduleCount, compositeCount, notices, failures);
+    }
+
+    /// <summary>导入一批已发现的模块包目录；失败项不中断其余。</summary>
+    private (int Imported, List<string> Notices, List<string> Failures) ImportModulePackages(
+        IReadOnlyList<string> packages)
+    {
         var notices = new List<string>();
         var failures = new List<string>();
         var imported = 0;
+
+        if (string.IsNullOrWhiteSpace(ExternalModuleDirectory))
+        {
+            return (0, notices, [CoreText.Get("core.services.externalDirectoryNotConfigured")]);
+        }
 
         _ = Directory.CreateDirectory(ExternalModuleDirectory);
 
@@ -572,24 +638,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 IssueCategory.ModuleError, IssueSeverity.Error, failure));
         }
 
-        return imported > 0
-            ? new CommandResult(true, failures, notices)
-            : failures.Count > 0
-                ? CommandResult.Fail(failures)
-                : CommandResult.Ok(notices);
-    }
-
-    /// <summary>外部导入时扫描：目录自身是包，或取直接子目录中的包。</summary>
-    private static List<string> FindImportPackages(string sourceDirectory)
-    {
-        if (File.Exists(Path.Combine(sourceDirectory, "module.json")))
-        {
-            return [Path.GetFullPath(sourceDirectory)];
-        }
-
-        return [.. Directory.EnumerateDirectories(sourceDirectory)
-            .Where(directory => File.Exists(Path.Combine(directory, "module.json")))
-            .Select(Path.GetFullPath)];
+        return (imported, notices, failures);
     }
 
     private static string CreateUniqueDirectory(string root, string name)
@@ -820,14 +869,19 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             : _composites.SavePackage(filePath, name, instanceIds);
 
     /// <inheritdoc />
-    public CompositeImportResult ImportCompositeFile(string sourceFile)
+    public CompositeImportResult ImportComposite(string sourcePath)
     {
-        if (string.IsNullOrWhiteSpace(sourceFile) || !File.Exists(sourceFile))
+        if (string.IsNullOrWhiteSpace(sourcePath))
         {
             return FailCompositeImport(CoreText.Get("core.services.composite.fileMissing"));
         }
 
-        var inspection = _composites.Inspect(sourceFile);
+        if (ResolveCompositeDocument(sourcePath) is not { } document)
+        {
+            return FailCompositeImport(CoreText.Get("core.services.composite.fileMissing"));
+        }
+
+        var inspection = _composites.Inspect(document);
         if (inspection.Error is { Length: > 0 } error)
         {
             return FailCompositeImport(CoreText.Get("core.services.composite.importFailed", error));
@@ -838,9 +892,9 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             var root = StoragePaths.CompositesRoot;
             _ = Directory.CreateDirectory(root);
 
-            var sourcePath = Path.GetFullPath(sourceFile);
-            var sourceDirectory = Path.GetDirectoryName(sourcePath);
-            var isPackage = string.Equals(Path.GetFileName(sourcePath), StoragePaths.CompositeDocumentFileName, StringComparison.OrdinalIgnoreCase)
+            var sourceDocument = Path.GetFullPath(document);
+            var sourceDirectory = Path.GetDirectoryName(sourceDocument);
+            var isPackage = string.Equals(Path.GetFileName(sourceDocument), StoragePaths.CompositeDocumentFileName, StringComparison.OrdinalIgnoreCase)
                 && sourceDirectory is { Length: > 0 };
 
             if (isPackage)
@@ -858,17 +912,17 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 return new CompositeImportResult(true, targetDocument, packageNotices, []);
             }
 
-            var name = Path.GetFileName(sourcePath);
+            var name = Path.GetFileName(sourceDocument);
             var target = Path.Combine(root, name);
 
-            if (string.Equals(sourcePath, Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(sourceDocument, Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
             {
                 return new CompositeImportResult(true, target, [CoreText.Get("core.services.composite.inDefaultDirectory")], []);
             }
 
             if (File.Exists(target))
             {
-                if (FilesEqual(sourcePath, target))
+                if (FilesEqual(sourceDocument, target))
                 {
                     return new CompositeImportResult(true, target, [CoreText.Get("core.services.composite.defaultDirectoryReused")], []);
                 }
@@ -876,10 +930,10 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 target = UniqueCompositePath(root, name);
             }
 
-            File.Copy(sourcePath, target, overwrite: false);
+            File.Copy(sourceDocument, target, overwrite: false);
 
             // 外部组合若带同名 `.preview.png` 封面，一并复制到默认目录。
-            var sourceCover = CompositeFileStore.CoverPathFor(sourcePath);
+            var sourceCover = CompositeFileStore.CoverPathFor(sourceDocument);
             if (File.Exists(sourceCover))
             {
                 File.Copy(sourceCover, CompositeFileStore.CoverPathFor(target), overwrite: true);
@@ -897,6 +951,20 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         {
             return FailCompositeImport(CoreText.Get("core.services.composite.copyFailed", ex.Message));
         }
+    }
+
+    /// <summary>把"组合文件夹或组合文档"收敛到唯一入口：文件夹取其中的 <c>composite.json</c>。</summary>
+    /// <param name="sourcePath">外部路径。</param>
+    /// <returns>可读的组合文档路径；不存在或文件夹缺文档 ⇒ <see langword="null"/>。</returns>
+    private static string? ResolveCompositeDocument(string sourcePath)
+    {
+        if (Directory.Exists(sourcePath))
+        {
+            var candidate = Path.Combine(sourcePath, StoragePaths.CompositeDocumentFileName);
+            return File.Exists(candidate) ? candidate : null;
+        }
+
+        return File.Exists(sourcePath) ? sourcePath : null;
     }
 
     private CompositeImportResult FailCompositeImport(string reason)
@@ -1957,6 +2025,45 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 return file with { ReadError = CoreText.Get("core.services.composite.readFailed", ex.Message) };
             }
         })];
+
+    /// <inheritdoc />
+    public ImportPathKind ClassifyImportPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return ImportPathKind.None;
+        }
+
+        if (Directory.Exists(path))
+        {
+            if (File.Exists(Path.Combine(path, StoragePaths.CompositeDocumentFileName)))
+            {
+                return ImportPathKind.CompositePackage;
+            }
+
+            if (File.Exists(Path.Combine(path, ModuleManifestReader.FileName)))
+            {
+                return ImportPathKind.ModulePackage;
+            }
+
+            try
+            {
+                return Directory.EnumerateDirectories(path)
+                    .Any(directory => File.Exists(Path.Combine(directory, ModuleManifestReader.FileName)))
+                        ? ImportPathKind.ModulePackage
+                        : ImportPathKind.None;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return ImportPathKind.None;
+            }
+        }
+
+        return File.Exists(path)
+            && string.Equals(Path.GetFileName(path), StoragePaths.CompositeDocumentFileName, StringComparison.OrdinalIgnoreCase)
+                ? ImportPathKind.CompositePackage
+                : ImportPathKind.None;
+    }
 
     /// <inheritdoc />
     public IReadOnlyList<SubscriptionSourceView> GetSubscriptionSources()

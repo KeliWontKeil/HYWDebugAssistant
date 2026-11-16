@@ -504,6 +504,12 @@ public sealed class SettingsService
             failures.Add(CoreText.Get("core.settings.snapDistance", settings.SnapDistance));
         }
 
+        // 滚轮缩放系数：1.05–2.00（每格的缩放比例）
+        if (settings.WheelZoomStep is < 1.05 or > 2.0)
+        {
+            failures.Add(CoreText.Get("core.settings.wheelZoomStep", settings.WheelZoomStep));
+        }
+
         if (flow.StatusBacklogEnterDepth is < FlowDefaults.StatusBacklogEnterDepthMin or > FlowDefaults.StatusBacklogEnterDepthMax)
         {
             failures.Add(CoreText.Get("core.settings.flowStatusEnter", flow.StatusBacklogEnterDepth));
@@ -580,6 +586,7 @@ public sealed class SettingsService
 
         // 交互：吸附距离（缺失即默认 4；非法值由值域校验拦下并回退默认）
         settings.SnapDistance = ReadDouble(root, "snapDistance", settings.SnapDistance);
+        settings.WheelZoomStep = Math.Clamp(ReadDouble(root, "wheelZoomStep", settings.WheelZoomStep), 1.05, 2.0);
 
         // 窗口：应用整体置顶（界面可即时切换；必须落盘，否则重启回 false）
         settings.AppTopmost = ReadBool(root, "appTopmost", settings.AppTopmost);
@@ -701,6 +708,7 @@ public sealed class SettingsService
         root["shellFixedSize"] = settings.ShellFixedSize;
         root["workspaceExitBehavior"] = NormalizeExitBehavior(settings.WorkspaceExitBehavior);
         root["snapDistance"] = settings.SnapDistance;
+        root["wheelZoomStep"] = settings.WheelZoomStep;
 
 
         root["logLevel"] = settings.LogLevel;

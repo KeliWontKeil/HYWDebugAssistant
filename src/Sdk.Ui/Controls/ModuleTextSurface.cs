@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.VisualTree;
@@ -65,6 +66,7 @@ public sealed class ModuleTextSurface : ModuleElement
     private bool _showNewlineMarks = true;
     private bool _valueRegistered;
     private string _committedValue = string.Empty;
+    private NewlineMode? _lastNewlineMode;
     private object? _baseToolTip;
     private bool _noticeToolTipActive;
     private bool _followTail;
@@ -97,6 +99,33 @@ public sealed class ModuleTextSurface : ModuleElement
 
     /// <summary>用户修改交出去的时机（仅值通道）。</summary>
     public ValueCommitMode CommitMode { get; set; } = ValueCommitMode.OnExplicit;
+
+    /// <summary>
+    /// **提交键的值名**（可选）：非空时从该值读取 <c>Enter</c> / <c>CtrlEnter</c> 档位。
+    /// </summary>
+    /// <remarks>
+    /// 值未知/为空时回退到框架设置（<see cref="IModuleViewContext.MultilineSubmitKey"/>）。
+    /// 模块因此可以持有自己的可覆盖档位，控件仍只认值名。
+    /// </remarks>
+    public string SubmitKeyValue { get; set; } = string.Empty;
+
+    /// <summary>
+    /// **回车提交时触发的命令名**（可选）：非空时按提交档位触发该命令。
+    /// </summary>
+    /// <remarks>
+    /// 先交值再触发命令（模块的回读因此总能拿到最新编辑）；空 = 保持旧的"只交值"行为。
+    /// </remarks>
+    public string SubmitCommandName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// **回车写入哪种换行**的值名（可选）：值取 <c>crlf</c> / <c>cr</c> / <c>lf</c> / <c>none</c>；
+    /// 空/未知 ⇒ <c>crlf</c>。
+    /// </summary>
+    /// <remarks>
+    /// 单行输入不处理换行；多行输入按 Enter 时由控件把这段文本插入光标处，
+    /// 不再交给原生 TextBox 插入统一的 `\n`。
+    /// </remarks>
+    public string EnterNewlineValue { get; set; } = string.Empty;
 
     /// <summary>值通道用值名寻址外观；显示模式仍用显示源名。</summary>
     protected override string AppearanceKey => Value.Length > 0 ? Value : base.AppearanceKey;
@@ -274,7 +303,18 @@ public sealed class ModuleTextSurface : ModuleElement
             context.RegisterViewDefault(Value, Text);
         }
 
+        var normalized = NormalizeNewlinesForChoice(context);
+
         var state = context.ReadValue(Value);
+
+        if (normalized
+            && !_input.IsKeyboardFocusWithin
+            && !string.Equals(state.Value, _input.Text, StringComparison.Ordinal))
+        {
+            // 值层若还没回显这次归一，本帧先用输入框的新文本；下一帧再接受值层。
+            ApplyValueNotice(state.Notice);
+            return;
+        }
 
         if (!state.IsKnown)
         {
@@ -298,7 +338,57 @@ public sealed class ModuleTextSurface : ModuleElement
         ApplyValueNotice(state.Notice);
     }
 
-    /// <summary>把值层的结论画成外圈/提示；控件不判断结论是什么。</summary>
+    /// <summary>
+    /// 换行档变化时，把当前输入框里的全部换行替换成目标换行（或删除）。
+    /// </summary>
+    /// <returns>本次是否改写了文本。</returns>
+    /// <remarks>
+    /// 只处理带 <see cref="EnterNewlineValue"/> 的多行可编辑面；单行、只读和没有换行档的输入不参与。
+    /// 值首次出现时也归一一次，避免旧持久化内容继续混着三种换行。
+    /// </remarks>
+    private bool NormalizeNewlinesForChoice(IModuleViewContext context)
+    {
+        if (EnterNewlineValue.Length == 0
+            || _input is null
+            || !Multiline
+            || IsReadOnlyEffective
+            || Value.Length == 0)
+        {
+            return false;
+        }
+
+        var state = context.ReadValue(EnterNewlineValue);
+        if (!state.IsKnown)
+        {
+            return false;
+        }
+
+        var mode = TextNewlines.ParseChoice(state.Value);
+        if (_lastNewlineMode == mode)
+        {
+            return false;
+        }
+
+        _lastNewlineMode = mode;
+
+        var text = _input.Text ?? string.Empty;
+        var normalized = TextNewlines.Normalize(text, mode);
+        if (string.Equals(text, normalized, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var caret = Math.Clamp(_input.CaretIndex, 0, normalized.Length);
+        _input.Text = normalized;
+        _input.CaretIndex = caret;
+
+        // TextChanged 在 Avalonia 12 是 Dispatcher.Post；不能等它，否则同一帧后面的
+        // RefreshValue 会用旧值把刚归一好的文本覆盖回去。这里直接交值并前移本地基线。
+        _context?.CommitValue(Value, normalized);
+        _committedValue = normalized;
+        _textValue = normalized;
+        return true;
+    }
     private void ApplyValueNotice(ValueNotice? notice)
     {
         // 外观通道先于本方法执行：Notice 为空时不清圈，否则模块刚设的红框会被本控件擦掉。
@@ -390,7 +480,10 @@ public sealed class ModuleTextSurface : ModuleElement
         _input.TextChanged += OnInputTextChanged;
         _input.LostFocus += OnInputLostFocus;
         _input.GotFocus += OnInputGotFocus;
-        _input.KeyDown += OnInputKeyDown;
+
+        // **Tunnel** 才能抢在 TextBox 自己处理 Enter（插入 `\n`）之前；
+        // 冒泡阶段它已经标了 Handled，提交档位永远收不到回车。
+        _input.AddHandler(KeyDownEvent, OnInputKeyDown, RoutingStrategies.Tunnel);
     }
 
     private void UnhookInput()
@@ -403,7 +496,7 @@ public sealed class ModuleTextSurface : ModuleElement
         _input.TextChanged -= OnInputTextChanged;
         _input.LostFocus -= OnInputLostFocus;
         _input.GotFocus -= OnInputGotFocus;
-        _input.KeyDown -= OnInputKeyDown;
+        _input.RemoveHandler(KeyDownEvent, OnInputKeyDown);
     }
 
     private void ApplyPresentation()
@@ -601,25 +694,18 @@ public sealed class ModuleTextSurface : ModuleElement
         if (!Multiline)
         {
             args.Handled = true;
-            Commit();
+            Submit();
             return;
         }
 
-        var submitKey = _context?.MultilineSubmitKey ?? "CtrlEnter";
+        var submitKey = ResolveSubmitKey();
+        var newline = ResolveEnterNewline();
 
-        if (string.Equals(submitKey, "None", StringComparison.Ordinal))
+        if (string.Equals(submitKey, "Enter", StringComparison.Ordinal)
+            && (args.KeyModifiers & KeyModifiers.Shift) == 0)
         {
-            return;
-        }
-
-        if (string.Equals(submitKey, "Enter", StringComparison.Ordinal))
-        {
-            if ((args.KeyModifiers & KeyModifiers.Shift) == 0)
-            {
-                args.Handled = true;
-                Commit();
-            }
-
+            args.Handled = true;
+            Submit();
             return;
         }
 
@@ -627,8 +713,68 @@ public sealed class ModuleTextSurface : ModuleElement
             && (args.KeyModifiers & KeyModifiers.Control) != 0)
         {
             args.Handled = true;
-            Commit();
+            Submit();
+            return;
         }
+
+        // 其余情况（含 SubmitKey=None / Shift+Enter / Ctrl+Enter 档的普通 Enter）
+        // 都是"输入换行"：由模块的档位决定写入 \r\n / \r / \n，或什么都不写。
+        args.Handled = true;
+
+        if (newline.Length > 0)
+        {
+            var caret = _input.SelectionStart;
+            _input.SelectedText = newline;
+            _input.CaretIndex = caret + newline.Length;
+        }
+    }
+
+    /// <summary>当前生效的回车换行序列；空值 / 未知档位回到平台默认 <c>\r\n</c>。</summary>
+    private string ResolveEnterNewline()
+    {
+        var choice = "crlf";
+
+        if (EnterNewlineValue.Length > 0 && _context is { } context)
+        {
+            var state = context.ReadValue(EnterNewlineValue);
+            if (state.IsKnown && state.Value.Length > 0)
+            {
+                choice = state.Value;
+            }
+        }
+
+        return choice switch
+        {
+            "cr" => "\r",
+            "lf" => "\n",
+            "none" => string.Empty,
+            _ => "\r\n",
+        };
+    }
+    /// <summary>按提交档位交值；配置了命令时再触发命令（先值后命令）。</summary>
+    private void Submit()
+    {
+        Commit();
+
+        if (SubmitCommandName.Length > 0 && _context is { } context)
+        {
+            _ = context.InvokeCommand(SubmitCommandName);
+        }
+    }
+
+    /// <summary>当前生效的提交档位：模块值优先，空/未知时回退框架设置。</summary>
+    private string ResolveSubmitKey()
+    {
+        if (SubmitKeyValue.Length > 0 && _context is { } context)
+        {
+            var state = context.ReadValue(SubmitKeyValue);
+            if (state.IsKnown && state.Value.Length > 0)
+            {
+                return state.Value;
+            }
+        }
+
+        return _context?.MultilineSubmitKey ?? "CtrlEnter";
     }
 
     private void RefreshDisplay(IModuleViewContext context)

@@ -9,6 +9,7 @@ namespace HYWDebugAssistant.Tests;
 /// <summary>
 /// 组合文件检查/导入：默认目录扫描、缺失模块标注、导入复制与同名唯一化。
 /// </summary>
+[Collection(nameof(FileSystemImportTests))]
 public class CompositeImportTests
 {
     [Fact]
@@ -61,18 +62,18 @@ public class CompositeImportTests
             services.SaveComposite(firstSource, "same", ["s1"]).Succeeded.ShouldBeTrue();
             services.SaveComposite(secondSource, "same", ["s1"]).Succeeded.ShouldBeTrue();
 
-            var first = services.ImportCompositeFile(firstSource);
+            var first = services.ImportComposite(firstSource);
             first.Succeeded.ShouldBeTrue(string.Join("；", first.Failures));
             target = first.TargetPath;
             target.ShouldNotBeNull();
             Path.GetDirectoryName(target!).ShouldBe(Path.GetFullPath(StoragePaths.CompositesRoot));
             File.Exists(target).ShouldBeTrue();
 
-            var duplicate = services.ImportCompositeFile(firstSource);
+            var duplicate = services.ImportComposite(firstSource);
             duplicate.Succeeded.ShouldBeTrue();
             duplicate.TargetPath.ShouldBe(target, "内容相同应复用，不生成副本");
 
-            var different = services.ImportCompositeFile(secondSource);
+            var different = services.ImportComposite(secondSource);
             different.Succeeded.ShouldBeTrue(string.Join("；", different.Failures));
             secondTarget = different.TargetPath;
             secondTarget.ShouldNotBeNull();
@@ -85,6 +86,54 @@ public class CompositeImportTests
             TryDelete(secondSource);
             TryDelete(target);
             TryDelete(secondTarget);
+        }
+    }
+
+    [Fact]
+    public void 导入_接受组合文件夹()
+    {
+        using var runtime = new ModuleRuntime();
+        var services = new RuntimeServices(runtime);
+        CoreRuntimeTests.AddModule(runtime, "s1", "sender", typeof(CoreRuntimeTests.SenderModule));
+
+        var root = Path.Combine(Path.GetTempPath(), "hyw-import-dir-" + Guid.NewGuid().ToString("N"));
+        var package = Path.Combine(root, "pkg");
+        _ = Directory.CreateDirectory(package);
+
+        string? target = null;
+        try
+        {
+            services.SaveComposite(package, "pkg", ["s1"]).Succeeded.ShouldBeTrue();
+
+            var result = services.ImportComposite(package);
+            result.Succeeded.ShouldBeTrue(string.Join("；", result.Failures));
+            target = result.TargetPath;
+            target.ShouldNotBeNull();
+            File.Exists(target).ShouldBeTrue();
+            Path.GetFileName(target).ShouldBe(StoragePaths.CompositeDocumentFileName);
+        }
+        finally
+        {
+            if (target is { Length: > 0 } && Path.GetDirectoryName(target) is { Length: > 0 } directory)
+            {
+                TryDeleteDirectory(directory);
+            }
+
+            TryDeleteDirectory(root);
+        }
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
         }
     }
 

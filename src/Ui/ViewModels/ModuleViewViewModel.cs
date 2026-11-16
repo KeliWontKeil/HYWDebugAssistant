@@ -210,6 +210,9 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
     private string _multilineSubmitKey = "CtrlEnter";
 
+    /// <summary>波形曲线区滚轮每格的缩放系数（应用设置的镜像；视图每帧现读）。</summary>
+    public double WheelZoomStep { get; set; } = 1.2;
+
     /// <summary>创建模块视图视图模型。</summary>
     /// <param name="view">实例视图（声明来源）。</param>
     /// <param name="layout">布局（可为空 = 未摆放）。</param>
@@ -737,7 +740,8 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
             _command,
             _viewState,
             () => MultilineSubmitKey,
-            _colorPicker);
+            _colorPicker,
+            () => WheelZoomStep);
 
         try
         {

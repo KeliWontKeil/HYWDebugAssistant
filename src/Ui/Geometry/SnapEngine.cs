@@ -44,8 +44,21 @@ public enum SnapLineSource
     /// <summary>**端口/网络标签锚点**：网络标签是外框上的一个点，对齐轴由它所在的边决定。</summary>
     PortAnchor,
 
-    /// <summary>**外壳边**（只暴露右边缘）：只接受被拖模块的**低侧边**（竖线为左边缘）贴上去。</summary>
+    /// <summary>**外壳边**（右侧拼合边）：只接受被拖模块的**低侧边**（竖线为左边缘）贴上去。</summary>
     ShellEdge,
+
+    /// <summary>**外壳对齐边**（左/上/下）：两侧边都可用于对齐，但不产生贴合（不成组）。</summary>
+    ShellAlign,
+}
+
+/// <summary>外壳参照线的角色：拼合边 vs 纯对齐边。</summary>
+public enum ShellLineRole
+{
+    /// <summary>右侧拼合边：模块左边缘贴上去即拼上（可产生 Flush）。</summary>
+    Join = 0,
+
+    /// <summary>其它边：只做边对齐，不参与成组。</summary>
+    Align = 1,
 }
 
 /// <summary>
@@ -81,7 +94,12 @@ public readonly record struct SnapLine(
 /// 与 `AreNodesJoined` 的"模块左边缘贴外壳右边缘"保持同一侧。
 /// 之所以不复用矩形：零宽矩形会被 <see cref="CanvasRect.IsValid"/>（要求正尺寸）过滤掉（P25）。
 /// </remarks>
-public readonly record struct SnapReferenceLine(bool IsVertical, double Position, double Start, double End);
+public readonly record struct SnapReferenceLine(
+    bool IsVertical,
+    double Position,
+    double Start,
+    double End,
+    ShellLineRole Role = ShellLineRole.Join);
 
 /// <summary>
 /// **端口锚点对**：被拖模块的某个口 ↔ 对方某个口。
@@ -127,7 +145,7 @@ public readonly record struct SnapMemory(double? XLine, double? YLine);
 /// <list type="bullet">
 ///   <item><b>唯一判据</b>：一切吸附 = 把**模块外框的锚点**（左/中心/右 · 上/中心/下）吸到**某条参照线**上；</item>
 ///   <item><b>参照线只有两个来源</b>（<see cref="SnapLineSource"/>）：其他模块的外框（4 边 + 中心线）与端口锚点；
-///     **外壳 = 只暴露一条边的对象**（不是特殊通道，同样进线表）；</item>
+///     **外壳 = 右侧拼合边 + 其它三条对齐边**（不是特殊通道，同样进线表）；</item>
 ///   <item><b>级别由「线来源 + 交叉轴条件」派生</b>：贴合 &gt; 端口锚点 &gt; 中心线 &gt; 边缘对齐；</item>
 ///   <item><b>同坐标候选去重</b>：两条候选位置相差 ≤1px 时只保留级别最高的 ——
 ///     消除"端口在 0.5 与模块中心线"这类**重复登记**（同一坐标只登记一次，级别最高的那条胜出）；</item>
@@ -190,11 +208,17 @@ public static class SnapEngine
         ];
     }
 
-    /// <summary>由**外壳参照线**生成（外壳只暴露一条边）。</summary>
-    /// <param name="line">外壳边（竖线或横线 + 线段范围）。</param>
-    /// <returns>一条 <see cref="SnapLineSource.ShellEdge"/> 参照线。</returns>
+    /// <summary>由**外壳参照线**生成（右侧拼合边 / 其它对齐边）。</summary>
+    /// <param name="line">外壳边（竖线或横线 + 线段范围 + 角色）。</param>
+    /// <returns>一条 <see cref="SnapLineSource.ShellEdge"/> 或 <see cref="SnapLineSource.ShellAlign"/> 参照线。</returns>
     public static SnapLine LineOf(SnapReferenceLine line) =>
-        new(line.IsVertical, line.Position, line.Start, line.End, SnapLineSource.ShellEdge, default);
+        new(
+            line.IsVertical,
+            line.Position,
+            line.Start,
+            line.End,
+            line.Role == ShellLineRole.Align ? SnapLineSource.ShellAlign : SnapLineSource.ShellEdge,
+            default);
 
     /// <summary>
     /// 把单个矩形吸附到给定参照线；这是 <see cref="SnapGroup"/> 的单成员快捷入口。
@@ -528,12 +552,20 @@ public static class SnapEngine
 
             case SnapLineSource.ShellEdge:
             {
-                // 外壳是一侧锚点：只有被拖模块的**低侧边（竖线的左边缘 / 横线的上边缘）**能贴上去。
+                // 外壳右侧是拼合边：只有被拖模块的**低侧边（竖线的左边缘 / 横线的上边缘）**能贴上去。
                 // 另一侧若也参与，模块会以右边缘吸到外壳右边缘 —— 视觉上压在壳上，却不符合
                 // `AreNodesJoined` 的"模块左边缘贴外壳右边缘"成组判据。
                 var overlap = LineOverlap(moving, line);
                 var kind = overlap > MinOverlap ? SnapKind.Flush : SnapKind.Edge;
                 Add(0, kind, line, origin, size, target);
+                break;
+            }
+
+            case SnapLineSource.ShellAlign:
+            {
+                // 外壳的其它边只是对齐参照：两侧边都可以吸齐，但永远不产生贴合（不对齐成组判据）。
+                Add(0, SnapKind.Edge, line, origin, size, target);
+                Add(1, SnapKind.Edge, line, origin, size, target);
                 break;
             }
 

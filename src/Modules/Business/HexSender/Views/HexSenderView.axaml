@@ -21,25 +21,42 @@
   <!--
     HEX 发送器：多页输入区自适应；动作/状态条的高度只由它自己的 Canvas 声明。
     动作条里的元素仍是绝对坐标：间隔单位 `ms` 与「已发送」的单位 `条` 都是普通文本标签。
+    发送按钮的小箭头切换回车发送档位（每实例可覆盖，首次取框架设置）。
   -->
   <Grid RowDefinitions="Auto,*,Auto">
 
     <ui:ModuleLabel Grid.Row="0" Classes="caption" Text="{loc:Tr view.inputLabel}" />
 
     <ui:ModuleTabs Grid.Row="1" StateKey="{x:Static views:HexSenderViewKeys.PagesStateKey}">
-      <TabItem Header="1"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexSenderViewKeys.Hex1}" Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" /></TabItem>
-      <TabItem Header="2"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexSenderViewKeys.Hex2}" Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" /></TabItem>
-      <TabItem Header="3"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexSenderViewKeys.Hex3}" Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" /></TabItem>
-      <TabItem Header="4"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexSenderViewKeys.Hex4}" Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" /></TabItem>
-      <TabItem Header="5"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexSenderViewKeys.Hex5}" Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" /></TabItem>
+      <TabItem Header="1"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexSenderViewKeys.Hex1}"
+                                                SubmitKeyValue="{x:Static views:HexSenderViewKeys.SubmitKey}"
+                                                SubmitCommandName="{x:Static views:HexSenderViewKeys.Send}"
+                                                Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" /></TabItem>
+      <TabItem Header="2"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexSenderViewKeys.Hex2}"
+                                                SubmitKeyValue="{x:Static views:HexSenderViewKeys.SubmitKey}"
+                                                SubmitCommandName="{x:Static views:HexSenderViewKeys.Send}"
+                                                Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" /></TabItem>
+      <TabItem Header="3"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexSenderViewKeys.Hex3}"
+                                                SubmitKeyValue="{x:Static views:HexSenderViewKeys.SubmitKey}"
+                                                SubmitCommandName="{x:Static views:HexSenderViewKeys.Send}"
+                                                Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" /></TabItem>
+      <TabItem Header="4"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexSenderViewKeys.Hex4}"
+                                                SubmitKeyValue="{x:Static views:HexSenderViewKeys.SubmitKey}"
+                                                SubmitCommandName="{x:Static views:HexSenderViewKeys.Send}"
+                                                Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" /></TabItem>
+      <TabItem Header="5"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexSenderViewKeys.Hex5}"
+                                                SubmitKeyValue="{x:Static views:HexSenderViewKeys.SubmitKey}"
+                                                SubmitCommandName="{x:Static views:HexSenderViewKeys.Send}"
+                                                Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" /></TabItem>
     </ui:ModuleTabs>
 
     <Canvas Grid.Row="2" Height="52" ClipToBounds="True">
-      <ui:ModuleButton Canvas.Left="0" Canvas.Top="4" Width="64" Height="27"
+      <ui:ModuleButton Canvas.Left="0" Canvas.Top="4" Width="84" Height="27"
+                       MenuValue="{x:Static views:HexSenderViewKeys.SubmitKey}"
                        CommandName="{x:Static views:HexSenderViewKeys.Send}" Content="{loc:Tr view.send}" />
-      <ui:ModuleToggle Canvas.Left="82" Canvas.Top="5" Width="36" Height="24"
+      <ui:ModuleToggle Canvas.Left="96" Canvas.Top="4" Width="36" Height="24"
                        Value="{x:Static views:HexSenderViewKeys.Continuous}" />
-      <ui:ModuleLabel Canvas.Left="122" Canvas.Top="5" Width="52" Height="24" Classes="caption"
+      <ui:ModuleLabel Canvas.Left="135" Canvas.Top="4" Width="52" Height="24" Classes="caption"
                       VerticalAlignment="Center" Text="{loc:Tr view.continuous}" />
 
       <!-- 间隔：输入框一条矩形，单位 `ms` 是紧挨着的普通标签。 -->

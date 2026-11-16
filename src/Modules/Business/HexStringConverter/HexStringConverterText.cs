@@ -7,6 +7,11 @@ public static class HexStringConverterText
     public const string Description = "module.description";
     public const string TextToHex = "view.textToHex";
     public const string HexToText = "view.hexToText";
+    public const string Escape = "view.escape";
+    public const string Newline = "view.newline";
+    public const string NewlineCr = "view.newlineCr";
+    public const string NewlineLf = "view.newlineLf";
+    public const string OptionsTip = "view.options.tip";
     public const string StatusUtf8Invalid = "status.utf8Invalid";
     public const string StatusHexSegmentLength = "status.hex.segmentLength";
     public const string StatusHexNonHex = "status.hex.nonHex";

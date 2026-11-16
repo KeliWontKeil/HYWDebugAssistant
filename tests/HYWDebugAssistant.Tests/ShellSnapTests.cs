@@ -37,4 +37,26 @@ public class ShellSnapTests
         attaching.SnappedX.ShouldBeTrue();
         attaching.X.ShouldBe(100);
     }
+
+    [Fact]
+    public void 外壳对齐线允许模块高侧边()
+    {
+        var line = SnapEngine.LineOf(new SnapReferenceLine(
+            IsVertical: true,
+            Position: 100,
+            Start: 0,
+            End: 300,
+            Role: ShellLineRole.Align));
+
+        // 模块右边缘贴线：对齐线允许高侧边参与（但不产生贴合/成组）。
+        var rightSide = SnapEngine.Snap(
+            new CanvasRect(0, 100, 100, 100),
+            [line],
+            tolerance: 4,
+            flushTolerance: 8);
+
+        rightSide.SnappedX.ShouldBeTrue();
+        rightSide.X.ShouldBe(0);
+        rightSide.XKind.ShouldNotBe(SnapKind.Flush);
+    }
 }

@@ -34,6 +34,7 @@
             <SolidColorBrush x:Key="TextMuted" Color="#A1A1AA" />
             <SolidColorBrush x:Key="AccentPrimary" Color="#2563EB" />
             <SolidColorBrush x:Key="AccentSecondary" Color="#0891B2" />
+            <SolidColorBrush x:Key="ChartCursor" Color="#D946EF" />
 
             <!--
               **更重一档的主题色**：由主题色派生（向黑 18%，见 `PaletteDerivation`）。
@@ -86,6 +87,11 @@
             <SolidColorBrush x:Key="SurfaceButtonFaceHoverBrush" Color="#2563EB" Opacity="0.13" />
             <SolidColorBrush x:Key="SurfaceButtonFacePressedBrush" Color="#2563EB" Opacity="0.24" />
             <SolidColorBrush x:Key="SurfaceButtonEdgeBrush" Color="#A1A1AA" />
+            <!-- 按钮外观档位：强调/删除红的面与文字（文字两套主题都为白）。 -->
+            <SolidColorBrush x:Key="TextOnAccent" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ButtonAccentFacePressedBrush" Color="#1A45A4" />
+            <SolidColorBrush x:Key="ButtonDangerFaceHoverBrush" Color="#D23C3C" />
+            <SolidColorBrush x:Key="ButtonDangerFacePressedBrush" Color="#B33333" />
 
             <!--
               **模块内容区专有的那几支**（分区：模块表面）。
@@ -123,6 +129,7 @@
             <SolidColorBrush x:Key="TextMuted" Color="#71717A" />
             <SolidColorBrush x:Key="AccentPrimary" Color="#3B82F6" />
             <SolidColorBrush x:Key="AccentSecondary" Color="#22D3EE" />
+            <SolidColorBrush x:Key="ChartCursor" Color="#E879F9" />
 
             <!-- 更重一档的主题色（派生色，说明见浅色分支）：内置值 = 公式在深色默认主题色上的结果。 -->
             <SolidColorBrush x:Key="AccentStrong" Color="#306AC9" />
@@ -150,6 +157,11 @@
             <SolidColorBrush x:Key="SurfaceButtonFaceHoverBrush" Color="#3B82F6" Opacity="0.25" />
             <SolidColorBrush x:Key="SurfaceButtonFacePressedBrush" Color="#3B82F6" Opacity="0.40" />
             <SolidColorBrush x:Key="SurfaceButtonEdgeBrush" Color="#52525B" />
+            <!-- 按钮外观档位：强调/删除红的面与文字（说明见浅色分支）。 -->
+            <SolidColorBrush x:Key="TextOnAccent" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ButtonAccentFacePressedBrush" Color="#295BAC" />
+            <SolidColorBrush x:Key="ButtonDangerFaceHoverBrush" Color="#D23C3C" />
+            <SolidColorBrush x:Key="ButtonDangerFacePressedBrush" Color="#B33333" />
 
             <!-- 模块内容区专有的那几支（说明见浅色分支） -->
             <SolidColorBrush x:Key="SurfaceToggleTrackOffBrush" Color="#3F3F46" />

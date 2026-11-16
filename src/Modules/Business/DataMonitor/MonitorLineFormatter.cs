@@ -34,6 +34,9 @@ internal sealed class MonitorLineFormatter(MonitorFormat format)
 {
     private const string HexDigits = "0123456789ABCDEF";
 
+    // 跨包的 CRLF 可能被拆在两次数据里：末尾 CR 先不落标记，等下一包首字节决定 CRLF/CR。
+    private bool _pendingCarriageReturn;
+
     /// <summary>
     /// 本包文本之后，换行是否**由通道**补（= 「数据包换行」或「时间戳」开着）。
     /// </summary>
@@ -128,9 +131,24 @@ internal sealed class MonitorLineFormatter(MonitorFormat format)
     /// "这里有一个换行字符"，自动折行不会画它。保存的 `.txt` 里对应位置也是真实换行。
     /// </para>
     /// </remarks>
-    private static void AppendDecoded(StringBuilder builder, ReadOnlySpan<byte> chunk)
+    private void AppendDecoded(StringBuilder builder, ReadOnlySpan<byte> chunk)
     {
         var index = 0;
+
+        if (_pendingCarriageReturn)
+        {
+            _pendingCarriageReturn = false;
+
+            if (chunk.Length > 0 && chunk[0] == (byte)'\n')
+            {
+                _ = builder.Append('\uF000').Append('\n');
+                index = 1;
+            }
+            else
+            {
+                _ = builder.Append('\uF001').Append('\n');
+            }
+        }
 
         while (index < chunk.Length)
         {
@@ -138,16 +156,32 @@ internal sealed class MonitorLineFormatter(MonitorFormat format)
 
             if (status == System.Buffers.OperationStatus.Done && rune.Value is '\n' or '\r')
             {
-                // CRLF 只产出一个换行；孤立的 CR 也按换行处理。
-                if (rune.Value == '\r'
-                    && index + consumed < chunk.Length
-                    && chunk[index + consumed] == (byte)'\n')
+                if (rune.Value == '\r')
                 {
+                    if (index + consumed < chunk.Length && chunk[index + consumed] == (byte)'\n')
+                    {
+                        // CRLF：一个换行，标记仍用原来的 ↵。
+                        _ = builder.Append('\uF000').Append('\n');
+                        index += consumed + 1;
+                        continue;
+                    }
+
+                    if (index + consumed >= chunk.Length)
+                    {
+                        // CR 落在包尾：可能是下一包 CRLF 的前半，先挂起。
+                        _pendingCarriageReturn = true;
+                        index += consumed;
+                        continue;
+                    }
+
+                    // 单独 CR：向下箭头。
+                    _ = builder.Append('\uF001').Append('\n');
                     index += consumed;
                     continue;
                 }
 
-                _ = builder.Append('\n');
+                // 单独 LF：向右箭头。
+                _ = builder.Append('\uF002').Append('\n');
                 index += consumed;
                 continue;
             }

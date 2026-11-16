@@ -304,6 +304,10 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     [ObservableProperty]
     public partial double SnapDistance { get; set; } = 4;
 
+    /// <summary>**波形曲线区滚轮每格的缩放系数**（1.05–2.00，默认 1.20）。</summary>
+    [ObservableProperty]
+    public partial double WheelZoomStep { get; set; } = 1.2;
+
     /// <summary>
     /// 设置页草稿：是否显示**叠加信息层**（应用/确认后落到运行时；交互页的直接开关是另一入口）。
     /// </summary>
@@ -1355,6 +1359,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         UiRefreshRateHz = settings.UiRefreshRateHz;
         ShowPerformanceMonitor = settings.ShowPerformanceMonitor;
         SnapDistance = settings.SnapDistance;
+        WheelZoomStep = settings.WheelZoomStep;
         MultilineSubmitKey = settings.MultilineSubmitKey;
         ShowInfoOverlay = settings.ShowInfoOverlay;
         AppTopmost = settings.AppTopmost;
@@ -1544,6 +1549,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         UiRefreshRateHz = defaults.UiRefreshRateHz;
         ShowPerformanceMonitor = defaults.ShowPerformanceMonitor;
         SnapDistance = defaults.SnapDistance;
+        WheelZoomStep = defaults.WheelZoomStep;
         MultilineSubmitKey = NormalizeSubmitKey(defaults.MultilineSubmitKey);
         ShowInfoOverlay = defaults.ShowInfoOverlay;
         AppTopmost = defaults.AppTopmost;
@@ -1657,6 +1663,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         settings.UiRefreshRateHz = UiRefreshRateHz;
         settings.ShowPerformanceMonitor = ShowPerformanceMonitor;
         settings.SnapDistance = Math.Clamp(SnapDistance, 2, 8);
+        settings.WheelZoomStep = Math.Clamp(WheelZoomStep, 1.05, 2.0);
         settings.MultilineSubmitKey = NormalizeSubmitKey(MultilineSubmitKey);
         settings.ShowInfoOverlay = ShowInfoOverlay;
         settings.ShellAspect = ShellLayout.Normalize(ShellAspect);

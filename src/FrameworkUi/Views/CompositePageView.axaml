@@ -56,8 +56,8 @@
                              DoubleTapped="OnCompositeFileDoubleTapped">
                         <ListBox.ItemTemplate>
                             <DataTemplate DataType="vm:CompositeFileRowViewModel">
-                                <!-- 整行命中：条目根给透明背景，空白处也能出提示 -->
-                                <Grid ColumnDefinitions="72,*" Margin="0,2" Background="Transparent"
+                                <!-- 整行命中：底色与外框由 ListBoxItem 容器统一提供，行占满列表宽度。 -->
+                                <Grid ColumnDefinitions="72,*" Background="Transparent"
                                       ToolTip.Tip="{Binding TooltipText}">
                                     <Border Grid.Column="0" Classes="previewTile">
                                         <Grid>

@@ -626,7 +626,10 @@ public sealed class DataMonitorModule : IModule, IActivitySource
         try
         {
             // **回读显示缓冲**（框架侧已把"还没被 UI 取走的追加"叠进快照 ⇒ 不会丢尾巴）
-            var lines = new List<string>(context.ViewState.GetDisplayLines(LogSource));
+            // 显示层在数据换行前放了私有哨兵（只用于画箭头），落盘前必须剥离。
+            var lines = context.ViewState.GetDisplayLines(LogSource)
+                .Select(HYWDebugAssistant.Sdk.Ui.Controls.NewlineEncoding.Strip)
+                .ToList();
 
             File.WriteAllLines(path, lines, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 

@@ -408,7 +408,7 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
 
     partial void OnStatusIsOkChanged(bool value) => OnPropertyChanged(nameof(StatusIsError));
 
-    /// <summary>请求**保存现场并重启应用**（“重新加载”）；由外壳/主窗口执行。</summary>
+    /// <summary>请求**保存现场并重启应用**（重扫发现需重启的包时）；由外壳/主窗口执行。</summary>
     public event EventHandler? RestartRequested;
 
     /// <summary>本次扫描发现的“需重启”的包数。</summary>
@@ -505,6 +505,56 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
         Refresh();
     }
 
+    /// <summary>把拖入无法识别内容的原因写进页面操作状态（不走应用底部提示）。</summary>
+    /// <param name="message">完整原因。</param>
+    public void ReportImportError(string message) => SetStatus(false, message, message);
+
+    /// <summary>
+    /// 导入一个外层文件夹：向下最多 3 层找模块包与组合包，逐个导入并汇总到页面状态。
+    /// </summary>
+    /// <param name="directory">外层文件夹。</param>
+    public void ImportFolder(string directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return;
+        }
+
+        var result = _command.ImportFolder(directory);
+        var detail = string.Join(Environment.NewLine, result.Failures.Concat(result.Notices));
+
+        if (result.ImportedCount == 0 && !result.HasFailures)
+        {
+            SetStatus(false, CatalogText.Get("catalog.status.importFolderNone"));
+        }
+        else if (result.ImportedCount == 0)
+        {
+            SetStatus(false, CatalogText.Get("catalog.status.importFailed"), detail);
+        }
+        else if (result.HasFailures)
+        {
+            SetStatus(
+                false,
+                CatalogText.Get(
+                    "catalog.status.importFolderPartial",
+                    result.ImportedCount,
+                    result.Failures.Count),
+                detail);
+        }
+        else
+        {
+            SetStatus(
+                true,
+                CatalogText.Get(
+                    "catalog.status.importFolder",
+                    result.ModuleCount,
+                    result.CompositeCount),
+                string.Join(Environment.NewLine, result.Notices));
+        }
+
+        Refresh();
+    }
+
     /// <summary>
     /// **立刻重扫**默认模块目录：装入新增的模块包（改过代码的包需重启应用才生效）。
     /// </summary>
@@ -522,11 +572,13 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
             result.Succeeded
                 ? string.Join(Environment.NewLine, result.Notices)
                 : string.Join(Environment.NewLine, result.Failures));
-    }
 
-    /// <summary>保存现场并重启应用（完整重新加载全部模块）。</summary>
-    [RelayCommand]
-    private void Reload() => RestartRequested?.Invoke(this, EventArgs.Empty);
+        // 扫描发现"本次启动后重新构建过"的包：只弹一次重启确认（由外壳复用现有重启对话框）。
+        if (result.Succeeded && HasNeedsRestart)
+        {
+            RestartRequested?.Invoke(this, EventArgs.Empty);
+        }
+    }
 
     /// <summary>
     /// 按刷新节拍同步目录与清单（保持选中项）。

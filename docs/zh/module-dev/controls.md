@@ -21,14 +21,15 @@
 | `ModuleLabel` | 一句话：静态文字、配置字段标题、文本显示源 | `Text`、`Field`、`Source`、`TextVerticalAlignment`；样式类 `caption` / `hint` / `micro` / `right` / `wrap` |
 | `ModuleNumeric` | 数值读数 | `Source`、`Quantity`（`None` / `Bytes`）、`Text`（预览值） |
 | `ModuleStatusLight` | 状态灯：底色来自模块设的**角色词** | `Source`；配合 `Appearance.SetOutlineRole(Source, role)` |
-| `ModuleTextSurface` | 文本面：日志显示或可编辑值 | `Mode`、`Value`、`CommitMode`、`Source`（仅显示）、`Text`、`Multiline`、`IsReadOnly`、`ShowNewlineMarks`、`TextAlignment`、`MinEditorHeight`、`Commit()` |
-| `ModuleButton` | 命令按钮 | `CommandName`、`Content`、`Icon` |
+| `ModuleTextSurface` | 文本面：日志显示或可编辑值 | `Mode`、`Value`、`CommitMode`、`Source`（仅显示）、`Text`、`Multiline`、`IsReadOnly`、`ShowNewlineMarks`、`TextAlignment`、`MinEditorHeight`、`Commit()`、`SubmitKeyValue`、`SubmitCommandName`、`EnterNewlineValue` |
+| `ModuleButton` | 命令按钮（可选右侧小箭头菜单） | `CommandName`、`Content`、`Icon`、`Appearance`、`MenuValue` |
 | `ModuleToggle` | 开关：勾选提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`CheckedChanged`（程序写回也触发） |
+| `ModuleCheckBox` | 勾选框：方框 + 勾形 + 右侧文字，提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`Content`、`CheckedChanged` |
 | `ModuleConfigField` | 值编辑器（文本/数字/布尔/枚举） | `Value`（标题另用 `ModuleLabel`） |
 | `ModuleTabs` | 页签容器，选中页写入视图状态 | `StateKey`、`TabItem` 子项 |
 | `ModuleSelect` | 紧凑下拉 | `Value`、`CommitMode`、`SelectedKey`、`PreviewOptions`；旧 `Options`/`OptionSelected` 仅供结构选择 |
 | `ModuleSegmentedControl` | 互斥分段选择（文字/图标，可禁用） | `Value`、`CommitMode`、`SelectedKey`、`PreviewOptions`、`ShowLabels`、`IconSize`；旧 `Options`/`OptionSelected` 供结构选择 |
-| `ChartSurface` | 通用多序列绘图（全量点、X/Y 游标、参考线、PNG、左键平移/右键缩放） | `Series`、`DataVersion`、`XStart`、`XEnd`、`XStep`、`XAxisKind`、`YMin/Max`、`XTickStep/YTickStep`、`PlotInset`、`ReferenceLines`、`ShowCursors`、`ShowYCursors`、`CapturePng()`、`PanRequested`、`ZoomRequested` |
+| `ChartSurface` | 通用多序列绘图（全量点、X/Y 游标、参考线、PNG、左键平移/右键缩放/滚轮缩放） | `Series`、`DataVersion`、`XStart`、`XEnd`、`XStep`、`XAxisKind`、`YMin/Max`、`XTickStep/YTickStep`、`PlotInset`、`ReferenceLines`、`ShowCursors`、`ShowYCursors`、`WheelZoomStep`、`CapturePng()`、`PanRequested`、`ZoomRequested`、`WheelZoomRequested`；有无 Ctrl 都同时缩放 X/Y（模块负责在任一轴触界时整次拒绝） |
 | `RangeSelector` | 通用线性范围可视化/拖动 | `Minimum`、`Maximum`、`RangeStart/End`、`MinimumRangeSpan`、`TickStep`、`ShowTicks`、`ShowTickLabels`、`MinorTickStep`、`XAxisKind`、`HandleWidth`、`RangeChanged`、`LastChangeKind` |
 | `Icon` | 模块图标 | `IconKey`、`Owner` |
 | `ModuleView` | 视图根（推荐） | 继承 `UserControl`；`InitialWidth/Height`、`MinWidth/Height`（均含外框的实际窗口尺寸）；自动带控件主题 |
@@ -60,9 +61,11 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 ## 文本面
 
 `ModuleTextSurface` 有两种模式：
-
-- `Display`：只读、跟随尾部，适合日志与结果。`Source` 是显示源名，`ShowNewlineMarks` 决定是否画出数据里的换行字符；`Text` 是预览文本。
+- `Display`：只读、跟随尾部，适合日志与结果。`Source` 是显示源名，`ShowNewlineMarks` 决定是否画出数据里的换行字符；`Text` 是预览文本。只读文本里的 `⟨XX⟩` 标记由主题 `IncrementalTextView.MarkerBrush`（默认警示色）着色，模块不逐段上色。
 - `Input`：可编辑值。`Value` 是值名，`CommitMode` 决定交值时机；`Multiline` 控制多行，提交键由应用设置里的“多行输入提交键”决定（`Ctrl+Enter` / `Enter` / `None`）；`Commit()` 可主动交值（例如按钮点击时取当前编辑内容）。
+- **回车写入哪种换行**：`EnterNewlineValue` 指定一个值名（`crlf` / `cr` / `lf` / `none`），不指定或未知时默认 `crlf`（写 `\r\n`）。TextSender 与转换器用它把 CR/LF 勾选框映射为回车档；单行输入不处理换行。回车事件在输入框的**隧道**阶段处理，避免 TextBox 抢先插入 `\n` 或吃掉提交档。
+- **已有换行的归一**：只要输入面设置了 `EnterNewlineValue`，换行档变化时控件会把当前输入框里的全部 `\r\n`/`\r`/`\n` 替换成目标序列；`none` 删除全部换行，并立即交值。首次显示持久化内容时也归一；没有该值名的输入面不参与（例如 HEX 十六进制输入）。
+- **换行标记**：只读面与输入覆盖层对数据换行区分 `\r\n`=`↵`、单独 `\r`=`←`、单独 `\n`=`↓`；统一使用 `TextMuted`（可通过 `NewlineMarkBrush` 覆盖）。显示缓冲的内部哨兵不会进入复制/保存文本。
 
 规则：
 
@@ -75,9 +78,12 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 ## 按钮与开关
 
 - `ModuleButton` 的 `CommandName` 必须是声明过的命令；`Content` 是文案，`Icon` 是图标键（图标按钮加 `Classes="icon"` 并给尺寸）。
+- `ModuleButton.Appearance`：`Normal` / `Accent` / `Danger`。模块只选档位，具体色板在宿主按钮壳里。
+- `ModuleButton.MenuValue`：非空时按钮右侧出现小箭头；菜单选项来自该值的声明（必须是带 `Choices` 的枚举），当前值打勾，点选**只提交值**、不触发 `CommandName`。
 - `ModuleToggle` 绑定一个值：用户拨动后按 `CommitMode` 交值；显示值来自 `ReadValue`，不是显示源。
 - `CheckedChanged` 在用户拨动和程序写回时都会触发；需要区分时自行用标志。
 - 开关文字是独立的 `ModuleLabel`，放在轨道右侧。
+- `ModuleCheckBox` 与 `ModuleToggle` 是同一值语义的两种外观：勾选框把文字放在方框右侧（`Content`），适合需要更接近表单勾选观感的设置；文本发送器的转义/CR/LF 使用它。
 
 ## 值编辑器
 
@@ -91,6 +97,7 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 - 值可以是配置字段，也可以是模块声明的值；控件只按名字取 `ValueState`。
 - 支持的编辑器：布尔、整数、实数、文本、枚举（含动态选项下拉）。
 - **提交时机**：布尔与枚举点一下即交；文本 / 数字在回车、显式动作或失焦时交。需要"逐键生效"的内容改用 `ModuleTextSurface CommitMode="OnChange"`。
+- **提交键**：`SubmitKeyValue` 指定保存提交键档位的值名（`Enter` / `CtrlEnter`），`SubmitCommandName` 指定提交后要调的命令；没有 `SubmitKeyValue` 时现读 `context.MultilineSubmitKey`。要让本实例持久化，声明该值并在视图 `Refresh` 里调用 `ModuleViewDefaults.EnsureSubmitKey(context, 值名)`：只有值未知/为空时才从框架默认档位播种一次。
 - 值的持久化、可选项与错误由值声明/框架决定，初值由 XAML 声明；控件不直接读写配置或视图状态。
 - 标题与说明用配置类型上的 `[ConfigurationField]` / 文本表，不在视图重复。
 - **没有自动生成的配置表单**：字段只有视图里画了控件才出现；不声明视图工厂的模块窗口只显示身份与状态。
@@ -126,7 +133,6 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 ## 图表
 
 `ChartSurface` 画模块给的全部点，不做降采样、不读业务语义：
-
 ```csharp
 var series = new ChartSeries { Name = "ch0", Count = values.Length, Values = values };
 surface.Series = [series];
@@ -141,6 +147,7 @@ surface.DataVersion++;          // 改了 Values/Count 后抬版本号才会重�
 - `PlotInset` 是绘图区四边内缩的唯一来源（左/上/右/下，DIP）；刻度文字、游标标签都算在内。
 - `ShowCursors` / `ShowYCursors` 控制 X/Y 游标；`ReferenceLines` 画竖向参考线；`CapturePng()` 返回当前图表 PNG。
 - 左键拖动绘图区产生 `PanRequested`，右键产生 `ZoomRequested`，事件携带目标轴范围；控件不自己夹紧、不决定跟踪。没有订阅者时对应按键不被接管。
+- 滚轮产生 `WheelZoomRequested`：有无 Ctrl 都同时缩放 X/Y；模块负责在任一轴触界时整次拒绝。每格系数由 `WheelZoomStep` 给（模块视图从 `context.WheelZoomStep` 取，默认 1.2）。
 - 曲线颜色由调用方显式给 `ChartSeries.Color`；缺省用主题强调色。
 
 `RangeSelector` 是独立的范围可视化控件：拖两端/中间触发 `RangeChanged`，`LastChangeKind` 标识 `Start/End/Body/New`；轨道占满自身宽度，不接收图表 inset。

@@ -131,6 +131,9 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     /// <summary>轻量复位活动组显示（保留历史、组/通道身份）。</summary>
     public const string ResetGroupCommand = "resetGroup";
 
+    /// <summary>Auto：按当前数据量设置跟踪窗口、开跟踪、开 Y 自适应（一次性）。</summary>
+    public const string AutoCommand = "auto";
+
     /// <summary>保存当前 X 范围。</summary>
     public const string SaveSelectionCommand = "saveSelection";
 
@@ -143,6 +146,9 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     private const int DefaultFollowRangeSamples = 256;
     private const int MinimumRangeSamples = 2;
     private const int MaximumFollowRangeSamples = 1_000_000;
+
+    /// <summary>Auto 的跟踪窗口占当前数据量的比例（数据量小于最小窗口时仍用最小窗口）。</summary>
+    private const double AutoWindowRatio = 0.5;
     private const int LargeRangeFrameThreshold = 2048;
     private const int LargeRangeBuildIntervalMs = 50;
 
@@ -259,6 +265,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
         context.Declaration.DeclareCommand(ClearCommand, Tr(WaveformDisplayText.Clear));
         context.Declaration.DeclareCommand(ResetGroupCommand, Tr(WaveformDisplayText.Reset));
+        context.Declaration.DeclareCommand(AutoCommand, Tr(WaveformDisplayText.Auto));
         context.Declaration.DeclareCommand(SaveSelectionCommand, Tr(WaveformDisplayText.SaveSelection));
         context.Declaration.DeclareCommand(SaveAllCommand, Tr(WaveformDisplayText.SaveAll));
         context.Declaration.DeclareCommand(SaveImageCommand, Tr(WaveformDisplayText.SaveImage));
@@ -622,6 +629,9 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             case ResetGroupCommand:
                 ResetActiveGroup(context);
                 break;
+            case AutoCommand:
+                ApplyAuto(context);
+                break;
             case SaveSelectionCommand:
                 RequestCsv(context, selection: true);
                 break;
@@ -884,6 +894,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                     YAuto = false,
                     YMin = yMin,
                     YMax = yMax,
+                    YFitChannel = -1,
                 });
             }
 
@@ -910,6 +921,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             YAuto = false,
             YMin = nextMin,
             YMax = nextMax,
+            YFitChannel = -1,
         });
         BuildSnapshot(context);
         PublishMeta(context);
@@ -936,6 +948,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                     YAuto = auto,
                     YMin = auto ? group.Config.YMin : _defaultYMin,
                     YMax = auto ? group.Config.YMax : _defaultYMax,
+                    YFitChannel = -1,
                 });
             }
 
@@ -956,6 +969,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             YAuto = auto,
             YMin = auto ? group.Config.YMin : effectiveMin,
             YMax = auto ? group.Config.YMax : effectiveMax,
+            YFitChannel = -1,
         };
 
         UpdateGroupConfig(context, group, config);
@@ -1126,7 +1140,8 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                     if (root.TryGetProperty("mode", out var modeElement)
                         && modeElement.GetString() is { } mode
                         && (string.Equals(mode, "pan", StringComparison.Ordinal)
-                            || string.Equals(mode, "zoom", StringComparison.Ordinal))
+                            || string.Equals(mode, "zoom", StringComparison.Ordinal)
+                            || string.Equals(mode, "wheel", StringComparison.Ordinal))
                         && root.TryGetProperty("xStart", out var dragXStart)
                         && root.TryGetProperty("xEnd", out var dragXEnd)
                         && root.TryGetProperty("yMin", out var dragYMin)
@@ -1139,6 +1154,8 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                         ApplyDragView(
                             context,
                             zoom: string.Equals(mode, "zoom", StringComparison.Ordinal),
+                            keepFollow: string.Equals(mode, "zoom", StringComparison.Ordinal),
+                            wheel: string.Equals(mode, "wheel", StringComparison.Ordinal),
                             dragStart,
                             dragEnd,
                             yMin,
@@ -1238,8 +1255,8 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                     if (root.TryGetProperty("index", out var fitIndex) && ActiveGroup is { } fitGroup)
                     {
                         var index = fitIndex.GetInt32();
-                        var next = fitGroup.IsDisplayable(index)
-                            && fitGroup.Config.YFitChannel != index
+                        var already = fitGroup.Config.YAuto && fitGroup.Config.YFitChannel == index;
+                        var next = fitGroup.IsDisplayable(index) && !already
                             ? index
                             : -1;
                         // 显式"适应"允许重新缩小到当前通道/全部数据。
@@ -1680,6 +1697,56 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         PublishStatus(Tr(WaveformDisplayText.Cleared));
     }
 
+    /// <summary>
+    /// **Auto**：按当前数据量设置跟踪窗口（数据少用最小窗口，多则按比例），开跟踪、开 Y 自适应。
+    /// </summary>
+    /// <remarks>一次性动作：只设置一次当前值，之后仍按用户的范围操作规则走（不会被反复拉回）。</remarks>
+    private void ApplyAuto(IModuleContext context)
+    {
+        var group = ActiveGroup;
+        var hasData = group is { DisplayIndex: > 0 };
+        var count = hasData ? group!.DisplayIndex : 0;
+
+        var window = hasData
+            ? Math.Clamp(
+                Math.Max(DefaultFollowRangeSamples, (int)Math.Round(count * AutoWindowRatio)),
+                MinimumRangeSamples,
+                MaximumFollowRangeSamples)
+            : DefaultFollowRangeSamples;
+
+        _settings = _settings with
+        {
+            Follow = true,
+            FollowRangeSamples = window,
+        };
+
+        if (group is { DisplayIndex: > 0 })
+        {
+            // 显式 Auto 允许重新缩小到当前数据：先清自适应锁存，再按全通道自适应。
+            group.ResetAutoY();
+            UpdateGroupConfig(context, group, group.Config with
+            {
+                YAuto = true,
+                YFitChannel = -1,
+            });
+            UpdateFollowRange(group);
+            BuildSnapshot(context);
+        }
+        else
+        {
+            _defaultYAuto = true;
+            _defaultYMin = -1;
+            _defaultYMax = 1;
+            _defaultRangeStart = 0;
+            _defaultRangeEnd = window - 1;
+            _defaultRangeEdited = true;
+            PublishEmptySnapshot(context);
+        }
+
+        PublishMeta(context);
+        PublishInputs(context);
+    }
+
     private void ResetActiveGroup(IModuleContext context)
     {
         var active = ActiveGroup;
@@ -1971,11 +2038,14 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     /// <remarks>
     /// 视图只提交轴单位；这里是曲线拖动 X 的**唯一**换算点，不得在视图或下游再乘一次速率。
     /// 平移关闭实际改变的轴（X ⇒ Follow，Y ⇒ YAuto）；右键缩放只改实际变化的轴。
+    /// 滚轮是手动视口操作：X 改变时也关闭 Follow，保证指针位置不漂移。
     /// 跟踪开启时横向缩放保持跟踪并更新跟踪宽度，其余情况按目标范围精确应用。
     /// </remarks>
     private void ApplyDragView(
         IModuleContext context,
         bool zoom,
+        bool keepFollow,
+        bool wheel,
         double xStartAxis,
         double xEndAxis,
         double yMin,
@@ -2006,7 +2076,17 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         if (hasData)
         {
             var latest = group!.DisplayIndex - 1;
-            var target = ClampRange(targetStart, targetEnd, latest);
+
+            // 滚轮是"整次缩放"：任意一轴触界就不应只缩放另一轴。
+            if (wheel
+                && (targetStart < 0
+                    || targetEnd > latest
+                    || targetEnd - targetStart + 1 < MinimumRangeSamples))
+            {
+                return;
+            }
+
+            var target = ClampDragRangePreservingWidth(targetStart, targetEnd, latest);
             targetXStart = target.Start;
             targetXEnd = target.End;
             xChanged = targetXStart != group.RangeStart || targetXEnd != group.RangeEnd;
@@ -2050,7 +2130,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
             settings = settings with
             {
-                Follow = zoom ? settings.Follow : false,
+                Follow = keepFollow ? settings.Follow : false,
                 FollowRangeSamples = width,
             };
         }
@@ -2064,6 +2144,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                     YAuto = false,
                     YMin = yMin,
                     YMax = yMax,
+                    YFitChannel = -1,
                 };
             }
             else
@@ -2117,6 +2198,29 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         }
 
         return (start, end);
+    }
+
+    /// <summary>
+    /// **拖动视口用的夹紧**：先保住目标宽度，再整体平移进数据范围。
+    /// </summary>
+    /// <remarks>
+    /// 平移到边界时只应该"停住"，不能因为 start/end 分别夹紧而把宽度压小（那会看起来像缩放）。
+    /// </remarks>
+    private static (long Start, long End) ClampDragRangePreservingWidth(long start, long end, long latest)
+    {
+        if (latest <= 0)
+        {
+            return (0, 0);
+        }
+
+        if (start > end)
+        {
+            (start, end) = (end, start);
+        }
+
+        var width = Math.Clamp(end - start + 1, MinimumRangeSamples, latest + 1);
+        start = Math.Clamp(start, 0, latest + 1 - width);
+        return (start, start + width - 1);
     }
 
     private static (double Min, double Max) EffectiveY(DisplayGroupRuntime group)

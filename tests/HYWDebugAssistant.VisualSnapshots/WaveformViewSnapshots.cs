@@ -257,6 +257,8 @@ public class WaveformViewSnapshots
 
         public string MultilineSubmitKey => "CtrlEnter";
 
+        public double WheelZoomStep => 1.2;
+
         public virtual double? ReadLatest(string source) => source switch
         {
             "latestIndex" => 199,

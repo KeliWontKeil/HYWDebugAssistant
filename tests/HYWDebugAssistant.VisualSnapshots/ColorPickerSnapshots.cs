@@ -4,6 +4,7 @@ using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.VisualTree;
+using HYWDebugAssistant.FrameworkUi.Controls;
 using HYWDebugAssistant.FrameworkUi.Views;
 using Xunit;
 
@@ -31,6 +32,14 @@ public class ColorPickerSnapshots
                 var dialog = new ColorPickerDialog { Color = Colors.DodgerBlue };
                 dialog.Show();
                 SnapshotTool.Pump();
+                // ColorSpectrum 的平面位图是异步生成的；等它完成后再截图，否则会拍到白色平面。
+                Thread.Sleep(200);
+                SnapshotTool.Pump();
+
+                Assert.Equal(Colors.DodgerBlue, dialog.Color);
+                Assert.Contains(dialog.GetVisualDescendants(), control => control.Name == "HueBar");
+                Assert.Contains(dialog.GetVisualDescendants(), control => control.Name == "ValueBar");
+                Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<Slider>(), _ => true);
 
                 SnapshotTool.Save(dialog, "color-picker.png");
 

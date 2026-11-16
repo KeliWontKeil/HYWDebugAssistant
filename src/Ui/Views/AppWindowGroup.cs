@@ -1,15 +1,16 @@
 using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Threading;
 
 namespace HYWDebugAssistant.Ui.Views;
 
 /// <summary>
-/// **应用窗口层**：外壳固定底带；模块与功能面板同属浮动带（按最近激活排序）；模态弹窗固定顶带。
+/// **应用窗口层**：外壳、模块与功能面板同属浮动带（按最近激活排序）；模态弹窗固定顶带。
 /// </summary>
 public enum AppWindowLayer
 {
-    /// <summary>外壳（固定底带）。</summary>
+    /// <summary>外壳（浮动带成员；只用于标识窗口，不再固定最底）。</summary>
     Shell = 0,
 
     /// <summary>模块窗口（浮动带）。</summary>
@@ -27,14 +28,13 @@ public enum AppWindowLayer
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>应用内</b>：模块窗口以**外壳为 Owner**（外壳永在模块窗口之下；最小化/恢复随外壳），
-///     弹窗同样以外壳为 Owner；模块与功能面板同属**浮动带**，最近激活者在上；确认/消息这类模态弹窗
-///     在固定顶带，打开时禁用低带窗口；</item>
+///   <item><b>应用内</b>：外壳、模块窗口与功能面板同属**浮动带**（最近激活者在上）；
+///     确认/消息这类模态弹窗在固定顶带，打开时禁用低带窗口；</item>
 ///   <item><b>应用整体（相对其他应用）只有两种统一状态</b>：
-///     <b>普通</b> —— 任一本应用窗口被激活时，把低带窗口（含外壳/浮动带）**一并抬到最前**
-///     （不抢焦点、保持内部次序）；<b>全体置顶</b> —— 本组所有窗口一起 <see cref="Window.Topmost"/>
-///     （含之后新开的窗口），**不提供"单窗口置顶"**；</item>
-///   <item><b>平台代价</b>：普通状态下的"低带抬升"需要 <c>SetWindowPos(HWND_TOP, SWP_NOACTIVATE)</c>
+///     <b>普通</b> —— 从其它应用回到本应用时，把本应用全部窗口按最近激活顺序**一并抬到最前**
+///     （不抢焦点、保持内部次序）；**全体置顶** —— 本组所有窗口一起
+///     <see cref="Window.Topmost"/>（含之后新开的窗口），**不提供"单窗口置顶"**；</item>
+///   <item><b>平台代价</b>：普通状态下的"组抬升"需要 <c>SetWindowPos(HWND_TOP, SWP_NOACTIVATE)</c>
 ///     （Avalonia 未提供"抬升但不激活"的 API）；非 Windows 平台自动降级为不做组抬升。</item>
 /// </list>
 /// </remarks>
@@ -47,6 +47,14 @@ public sealed class AppWindowGroup : IDisposable
     private readonly Window _shell;
     private int _modalDepth;
     private bool _disposed;
+    private bool _appActive;
+    private Window? _lastActive;
+    private bool _activationCheckPending;
+    private int _updateDepth;
+    private bool _orderApplyPending;
+    private bool _raiseAllPending;
+    private int _closeBatchDepth;
+    private readonly List<Window> _pendingRaise = [];
 
     /// <summary>创建窗口组（外壳窗口必须在首位）。</summary>
     /// <param name="shell">外壳窗口。</param>
@@ -106,11 +114,10 @@ public sealed class AppWindowGroup : IDisposable
 
         foreach (var window in ordered)
         {
-            WindowZOrder.RaiseWithoutActivating(window);
+            EnqueueRaise(window);
         }
 
-        // 浮动组抬升不能把模块压到模态之上；模态永远最后抬。
-        RaiseModals();
+        RequestApplyOrder();
     }
 
     /// <summary>新窗口纳入本组后触发（便于宿主给所有窗口挂统一能力，如快捷键）。</summary>
@@ -143,6 +150,7 @@ public sealed class AppWindowGroup : IDisposable
         _layers[window] = layer;
         SyncFloatingOrder(window, layer);
         window.Activated += OnAnyWindowActivated;
+        window.Deactivated += OnWindowDeactivated;
         window.Closed += OnWindowClosed;
         window.Topmost = Topmost;
 
@@ -182,10 +190,76 @@ public sealed class AppWindowGroup : IDisposable
     /// <summary>把本组全部窗口抬到最前（不改变焦点；低带在前，模态最后）。</summary>
     public void RaiseAll()
     {
-        foreach (var window in RaiseOrder())
+        if (_disposed)
         {
-            WindowZOrder.RaiseWithoutActivating(window);
+            return;
         }
+
+        _raiseAllPending = true;
+        RequestApplyOrder();
+    }
+
+    /// <summary>
+    /// **结构变更事务**：期间只更新 MRU/顺序，不应用 z 序；结束后只应用一次。
+    /// </summary>
+    /// <remarks>
+    /// 多模块创建、批量关闭、恢复等都必须包在这里面，避免每次 `Show`/`Close` 都触发一轮抬窗。
+    /// </remarks>
+    public IDisposable BeginUpdate()
+    {
+        _updateDepth++;
+        return new UpdateScope(this);
+    }
+
+    /// <summary>
+    /// **批量关闭前接管**：如果活动窗口在关闭集合里，先激活一个保留窗口，再让调用方关闭。
+    /// </summary>
+    /// <param name="closing">即将关闭的窗口。</param>
+    /// <remarks>
+    /// 这是关闭路径取代“关闭后再 shell.Activate + RaiseAll”的唯一入口；
+    /// 批量退出时可再套 <see cref="BeginCloseBatch"/> 禁止接管。
+    /// </remarks>
+    public void PrepareCloseBatch(IReadOnlyList<Window> closing)
+    {
+        ArgumentNullException.ThrowIfNull(closing);
+
+        if (_disposed || Topmost || _closeBatchDepth > 0 || closing.Count == 0)
+        {
+            return;
+        }
+
+        var closingSet = new HashSet<Window>(closing);
+        if (!_appActive || _lastActive is null || !closingSet.Contains(_lastActive))
+        {
+            return;
+        }
+
+        var fallback = _floatingOrder
+            .AsEnumerable()
+            .Reverse()
+            .FirstOrDefault(window => !closingSet.Contains(window)
+                && window.IsVisible
+                && window.WindowState != WindowState.Minimized);
+
+        fallback ??= _shell is { IsVisible: true } shell
+            && !closingSet.Contains(shell)
+            && shell.WindowState != WindowState.Minimized
+            ? shell
+            : null;
+
+        if (fallback is not null && !fallback.IsActive)
+        {
+            _appActive = true;
+            _lastActive = fallback;
+            fallback.Activate();
+        }
+    }
+
+    /// <summary>应用退出时禁止关闭前接管，避免退出过程中把窗口重新激活。</summary>
+    public IDisposable BeginCloseBatch()
+    {
+        _closeBatchDepth++;
+        return new CloseBatchScope(this);
     }
 
     /// <summary>
@@ -242,8 +316,12 @@ public sealed class AppWindowGroup : IDisposable
     }
 
     /// <summary>
-    /// 任一本应用窗口被激活 → 把**低于它的带**抬前：外壳固定底、浮动带按最近激活、模态固定顶。
+    /// 本应用内部窗口被激活：更新 MRU；只有从其它应用回到本应用时才请求一次整组前置。
     /// </summary>
+    /// <remarks>
+    /// 内部换窗时 OS 已经把被激活窗口抬到本应用最上，不再把所有窗口重抬一遍；
+    /// 这正是"每次激活都 RaiseAll"导致闪烁的根因。
+    /// </remarks>
     private void OnAnyWindowActivated(object? sender, EventArgs e)
     {
         if (_disposed || sender is not Window activated)
@@ -251,19 +329,113 @@ public sealed class AppWindowGroup : IDisposable
             return;
         }
 
+        var wasActive = _appActive;
+        _appActive = true;
+        _lastActive = activated;
+
         var layer = LayerOf(activated);
         if (Band(layer) == 1)
         {
             MoveFloatingToEnd(activated);
         }
 
-        var activeBand = Band(layer);
-        foreach (var window in RaiseOrder().Where(window => Band(LayerOf(window)) < activeBand))
+        // 内部换窗（本应用已经有窗口在前台）时，OS 已经把被激活窗口抬到本应用最上；
+        // 不再把全部窗口重抬一遍。只有从其它应用切回来时才需要整组前置。
+        if (!wasActive && !Topmost)
         {
-            WindowZOrder.RaiseWithoutActivating(window);
+            _raiseAllPending = true;
         }
 
-        RaiseModals();
+        RequestApplyOrder();
+    }
+
+    /// <summary>
+    /// 所有窗口都失去激活后，延迟一拍确认是否整个应用已经不在前台。
+    /// </summary>
+    /// <remarks>
+    /// 内部从 A 窗切到 B 窗时，A 的 Deactivated 与 B 的 Activated 可能相邻；
+    /// 用 dispatcher 复核可以避免把这次内部换窗误判为“离开应用”而触发全量抬升。
+    /// </remarks>
+    private void OnWindowDeactivated(object? sender, EventArgs e)
+    {
+        if (_disposed || _activationCheckPending)
+        {
+            return;
+        }
+
+        _activationCheckPending = true;
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                _activationCheckPending = false;
+
+                if (!_disposed && !_windows.Any(window => window.IsActive))
+                {
+                    _appActive = false;
+                }
+            },
+            DispatcherPriority.Background);
+    }
+
+    private void RequestApplyOrder()
+    {
+        if (_disposed || _updateDepth > 0 || _orderApplyPending)
+        {
+            return;
+        }
+
+        _orderApplyPending = true;
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                _orderApplyPending = false;
+                ApplyOrder();
+            },
+            DispatcherPriority.Background);
+    }
+
+    private void ApplyOrder()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (_raiseAllPending)
+        {
+            _raiseAllPending = false;
+            _pendingRaise.Clear();
+
+            foreach (var window in RaiseOrder())
+            {
+                WindowZOrder.RaiseWithoutActivating(window);
+            }
+        }
+        else if (_pendingRaise.Count > 0)
+        {
+            var order = _floatingOrder;
+            foreach (var window in _pendingRaise
+                         .Distinct()
+                         .OrderBy(window => order.IndexOf(window)))
+            {
+                WindowZOrder.RaiseWithoutActivating(window);
+            }
+
+            _pendingRaise.Clear();
+        }
+
+        if (_modalDepth > 0)
+        {
+            RaiseModals();
+        }
+    }
+
+    private void EnqueueRaise(Window window)
+    {
+        if (!_pendingRaise.Contains(window))
+        {
+            _pendingRaise.Add(window);
+        }
     }
 
     /// <summary>把本组全部模态窗口按进入顺序抬到最上（不抢焦点）。</summary>
@@ -305,7 +477,8 @@ public sealed class AppWindowGroup : IDisposable
 
     private static int Band(AppWindowLayer layer) => layer switch
     {
-        AppWindowLayer.Shell => 0,
+        // 外壳是浮动带的普通成员：激活外壳时它能压住模块；模块之间仍按最近激活排序。
+        AppWindowLayer.Shell => 1,
         AppWindowLayer.Modal => 2,
         _ => 1,
     };
@@ -315,11 +488,21 @@ public sealed class AppWindowGroup : IDisposable
         if (sender is Window window)
         {
             window.Activated -= OnAnyWindowActivated;
+            window.Deactivated -= OnWindowDeactivated;
             window.Closed -= OnWindowClosed;
             _ = _windows.Remove(window);
             _ = _layers.Remove(window);
             _ = _floatingOrder.Remove(window);
+            _ = _pendingRaise.Remove(window);
             _ = Registry.Remove(window);
+
+            if (ReferenceEquals(_lastActive, window))
+            {
+                _lastActive = null;
+            }
+
+            // 关闭前已经由 PrepareCloseBatch 选择并激活了保留窗口；
+            // 这里绝不再事后 Activate/RaiseAll，否则就是“关掉后再把整体闪一下”。
         }
     }
 
@@ -336,6 +519,7 @@ public sealed class AppWindowGroup : IDisposable
         foreach (var window in _windows)
         {
             window.Activated -= OnAnyWindowActivated;
+            window.Deactivated -= OnWindowDeactivated;
             window.Closed -= OnWindowClosed;
             _ = Registry.Remove(window);
         }
@@ -343,7 +527,49 @@ public sealed class AppWindowGroup : IDisposable
         _windows.Clear();
         _layers.Clear();
         _floatingOrder.Clear();
+        _pendingRaise.Clear();
+        _raiseAllPending = false;
         _ = _shell;
+    }
+
+    private sealed class UpdateScope(AppWindowGroup owner) : IDisposable
+    {
+        private readonly AppWindowGroup _owner = owner;
+        private bool _disposed;
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _owner._updateDepth = Math.Max(0, _owner._updateDepth - 1);
+
+            if (_owner._updateDepth == 0 && !_owner._disposed)
+            {
+                _owner._orderApplyPending = false;
+                _owner.ApplyOrder();
+            }
+        }
+    }
+
+    private sealed class CloseBatchScope(AppWindowGroup owner) : IDisposable
+    {
+        private readonly AppWindowGroup _owner = owner;
+        private bool _disposed;
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _owner._closeBatchDepth = Math.Max(0, _owner._closeBatchDepth - 1);
+        }
     }
 
     /// <summary>模态作用域：恢复"进入时确实由本作用域禁用"的窗口与模态自身的 Topmost。</summary>

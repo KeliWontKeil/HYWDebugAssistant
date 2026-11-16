@@ -27,7 +27,8 @@
     <Grid Grid.Row="0" ColumnDefinitions="*,200" Margin="0,2,0,0">
       <Grid Grid.Column="0" RowDefinitions="*,32">
         <Panel Grid.Row="0">
-          <ui:ChartSurface x:Name="Chart" Margin="2" PlotInset="50,20,4,20"
+          <ui:ChartSurface x:Name="Chart" Margin="2" PlotInset="50,20,56,20"
+                           CursorBrush="{DynamicResource ChartCursor}"
                            ShowCursors="True" ShowYCursors="True"
                            YCursorALabel="m" YCursorBLabel="n"
                            XStart="0" XEnd="255" XStep="1" XAxisKind="Index"
@@ -140,6 +141,11 @@
                        ToolTip.Tip="{loc:Tr view.customRateTip}" />
       <ui:ModuleLabel Canvas.Left="498" Canvas.Top="0" Width="90" Height="24" Classes="caption"
                       Text="{loc:Tr view.useCustomRate}" />
+
+      <ui:ModuleButton Canvas.Left="594" Canvas.Top="0" Width="62" Height="22"
+                       CommandName="{x:Static views:WaveformDisplayViewKeys.Auto}"
+                       Content="{loc:Tr view.auto}"
+                       ToolTip.Tip="{loc:Tr view.auto.tip}" />
 
       <ui:ModuleToggle x:Name="KeepInactiveToggle" Canvas.Left="662" Canvas.Top="29" Width="36" Height="22"
                        IsChecked="True"

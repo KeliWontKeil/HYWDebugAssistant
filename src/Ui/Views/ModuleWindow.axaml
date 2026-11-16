@@ -207,6 +207,24 @@
                                      PointerPressed="OnContentPressed" />
 
             <!--
+              选中时的模块名称：左上角、主题色文字 + 半透明模块底，不命中、不改变布局。
+              只在这一块窗口被选中时出现，用来回答"这是什么模块"。
+            -->
+            <Border Name="NameBadge"
+                    HorizontalAlignment="Left" VerticalAlignment="Top"
+                    Margin="8,6,0,0" Padding="5,1"
+                    CornerRadius="2"
+                    Background="{DynamicResource BgModule}" Opacity="0.92"
+                    IsHitTestVisible="False"
+                    IsVisible="{Binding IsSelected}">
+                <TextBlock Text="{Binding Title}"
+                           FontSize="10"
+                           MaxWidth="180"
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource AccentPrimary}" />
+            </Border>
+
+            <!--
               交互带（叠在内容之上，覆盖完整交互环；不遮挡内容区事件）。
               **角点不留空**：四条带在四角相接，未选中时点角点先选中（手柄此时不可命中），
               选中后同一位置的手柄在上层接管缩放。

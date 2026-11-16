@@ -1,7 +1,4 @@
-using System.Text;
-
 namespace HYWDebugAssistant.Modules.RawToWaveform.Codec;
-
 /// <summary>
 /// 自定义文本帧编解码：<c>[帧头][空格][数据一][空格]…[空格][帧尾]</c>，例 <c>"ab 1.2 4.35 3.6 cd"</c>。
 /// </summary>
@@ -69,13 +66,20 @@ internal sealed class TextFrameDecoder
     private long _discarded;
 
     /// <summary>创建解码器。<paramref name="header"/> 与 <paramref name="footer"/> 不得为空。</summary>
-    public TextFrameDecoder(string header, string footer, int capacityBytes = 8192)
+    public TextFrameDecoder(ReadOnlySpan<byte> header, ReadOnlySpan<byte> footer, int capacityBytes = 8192)
     {
-        ArgumentException.ThrowIfNullOrEmpty(header);
-        ArgumentException.ThrowIfNullOrEmpty(footer);
+        if (header.IsEmpty)
+        {
+            throw new ArgumentException("Header must not be empty.", nameof(header));
+        }
 
-        _header = Encoding.UTF8.GetBytes(header);
-        _footer = Encoding.UTF8.GetBytes(footer);
+        if (footer.IsEmpty)
+        {
+            throw new ArgumentException("Footer must not be empty.", nameof(footer));
+        }
+
+        _header = header.ToArray();
+        _footer = footer.ToArray();
         _buffer = new FrameBuffer(capacityBytes);
     }
 

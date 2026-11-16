@@ -10,6 +10,7 @@ public static class HexSenderViewKeys
     public const string Hex5 = HexSenderModule.Hex5;
     public const string Continuous = HexSenderModule.ContinuousSource;
     public const string Interval = HexSenderModule.IntervalSource;
+    public const string SubmitKey = HexSenderModule.SubmitKeySource;
     public const string Sent = HexSenderModule.SentSource;
     public const string Status = HexSenderModule.StatusSource;
     public const string Send = HexSenderModule.SendCommand;

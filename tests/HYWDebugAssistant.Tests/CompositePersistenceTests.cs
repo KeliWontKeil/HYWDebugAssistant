@@ -20,6 +20,7 @@ namespace HYWDebugAssistant.Tests;
 /// T4（M1-8）：组合件持久化——round-trip 无损、未知字段保真、缺失/损坏/拒绝加载、
 /// 重锚与悬空、活动面与布局、配置恢复次序。
 /// </summary>
+[Collection(nameof(FileSystemImportTests))]
 public class CompositePersistenceTests
 {
     /// <summary>配置类型在文件中的键（= 配置类型完整名）。</summary>
