@@ -48,7 +48,7 @@
     "palette.preset.red": "红",
     "picker.cancel": "取消",
     "picker.confirm": "确定",
-    "picker.current": "当前颜色",
+    "picker.current": "自定义",
     "picker.dialog.title": "选择图片",
     "picker.hint": "目标比例 {0}:1；拖动或滚轮以调整选取范围",
     "picker.note": "拖动或滚轮以调整选取范围",

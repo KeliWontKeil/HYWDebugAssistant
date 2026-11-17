@@ -13,7 +13,8 @@ namespace HYWDebugAssistant.Modules.HexStringConverter;
 ///   <item><b>字符 → HEX</b>：文本按 **UTF-8** 编码成字节 ⇒ 每字节**两位大写十六进制**、**空格分隔**
 ///     （与 `hyw/hex-sender` 的输入格式**互为逆运算** ⇒ 结果可直接复制回去再转回来）；</item>
 ///   <item><b>HEX → 字符</b>：空白（空格/换行/制表）**仅排版**、一律忽略；**每字节两位** ⇒
-///     奇数个半字节 **失败**；再按 **UTF-8** 解码，**非法 / 被截断的序列明确报错**（不静默替换成 `�`）；</item>
+///     奇数个半字节 **失败**；再按 **UTF-8** 解码，**非法 / 被截断的序列明确报错**（不静默替换成 `�`）。
+///     解码结果**不归一换行**：`0A` 是 LF、`0D` 是 CR、`0D0A` 是 CRLF；</item>
 ///   <item><b>空输入</b> ⇒ **静默无动作**（空在各层意义一致 —— 不报错、不提示、不改结果）；</item>
 ///   <item><b>失败</b> ⇒ 由调用方回报到**对应输入框**（G3 红框），**不改动结果区**。</item>
 /// </list>
@@ -62,13 +63,11 @@ internal static class ConverterCodec
 
     /// <summary>HEX → 字符（空白忽略、每字节两位、按 UTF-8 解码；非法序列**明确报错**）。</summary>
     /// <param name="text">输入的十六进制文本。</param>
-    /// <param name="mode">解码结果换行归一档。</param>
-    /// <param name="value">结果文本。</param>
+    /// <param name="value">结果文本（**按字节原样解码，不归一换行**）。</param>
     /// <param name="failure">失败原因（成功为 <see langword="null"/>）。</param>
     /// <returns>成功为 <see langword="true"/>（空输入也算成功，但 <paramref name="value"/> 为空串 ⇒ 调用方无动作）。</returns>
     public static bool TryToText(
         string? text,
-        NewlineMode mode,
         out string value,
         out string? failure)
     {
@@ -129,7 +128,9 @@ internal static class ConverterCodec
 
         try
         {
-            value = TextNewlines.Normalize(strict.GetString(bytes), mode);
+            // HEX→文本是“看字节原本是什么”：0A 就是 LF、0D 就是 CR、0D0A 就是 CRLF。
+            // 顶部 CR/LF 勾选框只服务文本→HEX（以及文本输入面的回车档），绝不改写这里的结果。
+            value = strict.GetString(bytes);
             return true;
         }
         catch (DecoderFallbackException ex)

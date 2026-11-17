@@ -295,7 +295,7 @@ public class ModuleView : UserControl
         Content = ModulePreviewChrome.Create(panel, Ports);
     }
 
-    /// <summary>把一个控件加入预览框目标（标签、读数与不可见的布局容器）。</summary>
+    /// <summary>把一个控件加入预览框目标（标签、读数、勾选框与不可见的布局容器）。</summary>
     /// <param name="control">候选控件。</param>
     /// <param name="targets">目标表。</param>
     private static void AddPreviewTarget(Control control, List<Control> targets)
@@ -305,7 +305,9 @@ public class ModuleView : UserControl
             return;
         }
 
-        if (control is ModuleLabel or ModuleNumeric)
+        // 勾选框的小方框只表达勾选态，不表达它的布局/命中矩形：
+        // 预览框必须覆盖“方框 + 文字”整个控件，而不是只框住那个小方框。
+        if (control is ModuleLabel or ModuleNumeric or ModuleCheckBox)
         {
             targets.Add(control);
             return;

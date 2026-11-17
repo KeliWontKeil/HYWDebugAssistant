@@ -43,6 +43,34 @@ public class ColorPickerSnapshots
 
                 SnapshotTool.Save(dialog, "color-picker.png");
 
+                // 推荐色选中态：第一位“自定义”必须保持原色。
+                var candidates = dialog.GetVisualDescendants()
+                    .OfType<Button>()
+                    .Where(button => button.Classes.Contains("candidate"))
+                    .ToList();
+                if (candidates.Count > 4)
+                {
+                    candidates[4].RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                    SnapshotTool.Pump();
+                    SnapshotTool.Save(dialog, "color-picker-candidate.png");
+                    candidates[0].RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                    SnapshotTool.Pump();
+                }
+
+                // 明度联动：平面随 V 变暗，Value 条在中间，便于人眼复核方向。
+                var valueBar = dialog.FindControl<GradientBar>("ValueBar");
+                if (valueBar is not null)
+                {
+                    valueBar.Value = 50;
+                    SnapshotTool.Pump();
+                    SnapshotTool.Save(dialog, "color-picker-value.png");
+                    valueBar.Value = 0;
+                    SnapshotTool.Pump();
+                    SnapshotTool.Save(dialog, "color-picker-value-zero.png");
+                    valueBar.Value = 100;
+                    SnapshotTool.Pump();
+                }
+
                 // 页签里含十六进制输入的那一个 = 分量页（十六进制改色的唯一入口）
                 var tab = FindTabWithHexInput(dialog);
                 if (tab >= 0)

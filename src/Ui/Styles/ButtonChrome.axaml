@@ -68,8 +68,12 @@
     </ControlTheme>
 
     <!--
-      **模块命令按钮**：在通用按钮壳之外多一条"右侧菜单箭头"的模板。
-      视觉结构住在 XAML 里（控件代码只处理行为：找 PART_MenuHost、打开菜单、提交值）。
+      **模块命令按钮**：通用按钮壳 + 可选的右侧菜单段。
+
+      它是两段式按钮，但**只有一个状态写入者**：控件代码按实际指针位置给
+      `PART_BodyHost` / `PART_MenuHost` 加 `segment-*` 类；模板和样式不再让父按钮
+      与箭头区各自响应 `:pointerover`（那正是“指示区对不上、还会闪”的来源）。
+      箭头段贴右缘、占满内高；命中区由这个模板部件的实际 Bounds 导出，代码里不重复宽度。
     -->
     <ControlTheme x:Key="{x:Type ui:ModuleButton}" TargetType="ui:ModuleButton">
       <Setter Property="CornerRadius" Value="4" />
@@ -86,37 +90,43 @@
             BorderBrush="{TemplateBinding BorderBrush}"
             BorderThickness="{TemplateBinding BorderThickness}"
             CornerRadius="{TemplateBinding CornerRadius}"
-            Padding="{TemplateBinding Padding}">
+            ClipToBounds="True">
             <Grid ColumnDefinitions="*,Auto">
-              <ContentPresenter
-                Name="PART_ContentPresenter"
-                Grid.Column="0"
-                Background="Transparent"
-                Content="{TemplateBinding Content}"
-                ContentTemplate="{TemplateBinding ContentTemplate}"
-                Foreground="{TemplateBinding Foreground}"
-                HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
-                RecognizesAccessKey="True" />
+              <Border Name="PART_BodyHost"
+                      Grid.Column="0"
+                      Padding="{TemplateBinding Padding}">
+                <ContentPresenter
+                  Name="PART_ContentPresenter"
+                  Background="Transparent"
+                  Content="{TemplateBinding Content}"
+                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                  Foreground="{TemplateBinding Foreground}"
+                  HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                  VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                  RecognizesAccessKey="True" />
+              </Border>
 
-              <!-- 菜单箭头：无菜单值时由下面的样式整块隐藏。 -->
+              <!-- 菜单段：无菜单值时由下面的样式整块隐藏。 -->
               <Border Name="PART_MenuHost"
                       Grid.Column="1"
-                      CornerRadius="0,4,4,0"
-                      Cursor="Hand"
-                      VerticalAlignment="Stretch">
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                  <Rectangle Width="1" Height="16" Margin="5,0"
+                      Width="24"
+                      Cursor="Hand">
+                <Grid ColumnDefinitions="Auto,*">
+                  <Rectangle Grid.Column="0"
+                             Width="1" Height="16"
+                             Margin="0,0,6,0"
                              VerticalAlignment="Center"
                              Fill="{TemplateBinding Foreground}" Opacity="0.65" />
-                  <Path Data="M 0,0 L 4,4 L 8,0"
-                        Margin="4,0,3,0"
+                  <Path Grid.Column="1"
+                        Data="M 0,0 L 4,4 L 8,0"
+                        Margin="0,0,5,0"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
                         Stroke="{TemplateBinding Foreground}"
                         StrokeThickness="1.4"
                         StrokeLineCap="Round"
-                        StrokeJoin="Round"
-                        VerticalAlignment="Center" />
-                </StackPanel>
+                        StrokeJoin="Round" />
+                </Grid>
               </Border>
             </Grid>
           </Border>
@@ -137,32 +147,6 @@
   -->
   <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(:is(ui|ModuleButton))">
     <Setter Property="Theme" Value="{DynamicResource {x:Type Button}}" />
-  </Style>
-
-  <!-- 没有菜单值的模块按钮：整块箭头（含分隔线）隐藏。 -->
-  <Style Selector="ui|ModuleButton:not(.menu) /template/ Border#PART_MenuHost">
-    <Setter Property="IsVisible" Value="False" />
-  </Style>
-
-  <!-- 菜单区自己的悬停/按下态：主体与箭头是两个可感知的区域。 -->
-  <Style Selector="ui|ModuleButton /template/ Border#PART_MenuHost">
-    <Setter Property="Background" Value="Transparent" />
-  </Style>
-
-  <Style Selector="ui|ModuleButton /template/ Border#PART_MenuHost:pointerover">
-    <Setter Property="Background" Value="{DynamicResource OverlayHighlight}" />
-  </Style>
-
-  <Style Selector="ui|ModuleButton /template/ Border#PART_MenuHost:pressed">
-    <Setter Property="Background" Value="{DynamicResource OverlaySelection}" />
-  </Style>
-
-  <Style Selector="ui|ModuleButton.accent /template/ Border#PART_MenuHost:pointerover">
-    <Setter Property="Background" Value="{DynamicResource AccentStrong}" />
-  </Style>
-
-  <Style Selector="ui|ModuleButton.accent /template/ Border#PART_MenuHost:pressed">
-    <Setter Property="Background" Value="{DynamicResource ButtonAccentFacePressedBrush}" />
   </Style>
 
   <!--
@@ -268,6 +252,139 @@
   </Style>
 
   <Style Selector=":is(Button):not(:is(ToggleButton)):not(:is(CheckBox)):not(:is(RadioButton)):not(.tab):not(.rail):not(.helpIcon).danger:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource TextOnAccent}" />
+  </Style>
+
+  <!--
+    **模块按钮**：普通按钮直接使用外层 Button 的原生五态（与主窗口按钮同一套面与边框）；
+    只有带菜单的 `.menu` 才由两个模板段接管段内底色。
+    外框边框不在这里收回：悬停时仍由通用按钮规则给主题色，保持全应用一致。
+  -->
+  <Style Selector="ui|ModuleButton">
+    <Setter Property="BorderBrush" Value="{DynamicResource SurfaceButtonEdgeBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.accent">
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.danger">
+    <Setter Property="BorderBrush" Value="{DynamicResource SemanticError}" />
+  </Style>
+
+  <!--
+    两个段的常态面只在**有菜单**时接管底色；无菜单的普通按钮保持主体段透明，
+    让外层 Button 的原生底/悬停/按下态直接透出。
+  -->
+  <Style Selector="ui|ModuleButton.menu /template/ Border#PART_BodyHost">
+    <Setter Property="Background" Value="{DynamicResource SurfaceButtonFaceBrush}" />
+    <Setter Property="CornerRadius" Value="3,0,0,3" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu /template/ Border#PART_MenuHost">
+    <Setter Property="Background" Value="{DynamicResource SurfaceButtonFaceBrush}" />
+    <Setter Property="CornerRadius" Value="0,3,3,0" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu.accent /template/ Border#PART_BodyHost">
+    <Setter Property="Background" Value="{DynamicResource AccentPrimary}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu.accent /template/ Border#PART_MenuHost">
+    <Setter Property="Background" Value="{DynamicResource AccentPrimary}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu.danger /template/ Border#PART_BodyHost">
+    <Setter Property="Background" Value="{DynamicResource SemanticError}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu.danger /template/ Border#PART_MenuHost">
+    <Setter Property="Background" Value="{DynamicResource SemanticError}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton:not(.menu) /template/ Border#PART_MenuHost">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton:not(.menu) /template/ Border#PART_BodyHost">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="CornerRadius" Value="3" />
+  </Style>
+
+  <!-- 悬停：只覆盖指针所在的那一段。 -->
+  <Style Selector="ui|ModuleButton.menu /template/ Border#PART_BodyHost.segment-hover">
+    <Setter Property="Background" Value="{DynamicResource SurfaceButtonFaceHoverBrush}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu /template/ Border#PART_MenuHost.segment-hover">
+    <Setter Property="Background" Value="{DynamicResource SurfaceButtonFaceHoverBrush}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu.accent /template/ Border#PART_BodyHost.segment-hover">
+    <Setter Property="Background" Value="{DynamicResource AccentStrong}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu.accent /template/ Border#PART_MenuHost.segment-hover">
+    <Setter Property="Background" Value="{DynamicResource AccentStrong}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu.danger /template/ Border#PART_BodyHost.segment-hover">
+    <Setter Property="Background" Value="{DynamicResource ButtonDangerFaceHoverBrush}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu.danger /template/ Border#PART_MenuHost.segment-hover">
+    <Setter Property="Background" Value="{DynamicResource ButtonDangerFaceHoverBrush}" />
+  </Style>
+
+  <!-- 按下：同样只作用于按下时指针所在的那一段。 -->
+  <Style Selector="ui|ModuleButton.menu /template/ Border#PART_BodyHost.segment-pressed">
+    <Setter Property="Background" Value="{DynamicResource SurfaceButtonFacePressedBrush}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu /template/ Border#PART_MenuHost.segment-pressed">
+    <Setter Property="Background" Value="{DynamicResource SurfaceButtonFacePressedBrush}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu.accent /template/ Border#PART_BodyHost.segment-pressed">
+    <Setter Property="Background" Value="{DynamicResource ButtonAccentFacePressedBrush}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu.accent /template/ Border#PART_MenuHost.segment-pressed">
+    <Setter Property="Background" Value="{DynamicResource ButtonAccentFacePressedBrush}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu.danger /template/ Border#PART_BodyHost.segment-pressed">
+    <Setter Property="Background" Value="{DynamicResource ButtonDangerFacePressedBrush}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu.danger /template/ Border#PART_MenuHost.segment-pressed">
+    <Setter Property="Background" Value="{DynamicResource ButtonDangerFacePressedBrush}" />
+  </Style>
+
+  <!-- 菜单打开：箭头段保持“按下”观感，关闭后按指针位置恢复。 -->
+  <Style Selector="ui|ModuleButton.menu /template/ Border#PART_MenuHost.segment-open">
+    <Setter Property="Background" Value="{DynamicResource SurfaceButtonFacePressedBrush}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu.accent /template/ Border#PART_MenuHost.segment-open">
+    <Setter Property="Background" Value="{DynamicResource ButtonAccentFacePressedBrush}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.menu.danger /template/ Border#PART_MenuHost.segment-open">
+    <Setter Property="Background" Value="{DynamicResource ButtonDangerFacePressedBrush}" />
+  </Style>
+
+  <!-- 焦点只改外框，不改厚度；两段底色仍由各自状态决定。 -->
+  <Style Selector="ui|ModuleButton:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.accent:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource TextOnAccent}" />
+  </Style>
+
+  <Style Selector="ui|ModuleButton.danger:focus-visible">
     <Setter Property="BorderBrush" Value="{DynamicResource TextOnAccent}" />
   </Style>
 </Styles>

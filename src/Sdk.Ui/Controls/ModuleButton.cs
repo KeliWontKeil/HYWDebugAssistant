@@ -3,7 +3,6 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
-using Avalonia.Threading;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Sdk.Resources;
 using HYWDebugAssistant.Sdk.Values;
@@ -43,7 +42,9 @@ public enum ModuleButtonAppearance
 /// <para>
 /// <b>小箭头菜单</b>：<see cref="MenuValue"/> 非空时，模板右侧的分隔与箭头可见（模板住在宿主按钮壳里）；
 /// 点箭头打开一个单选菜单，选项来自该**值声明的 Choices**，当前值打勾，点选即提交。
-/// 箭头只改值，不触发 <see cref="CommandName"/>。
+/// 箭头只改值，不触发 <see cref="CommandName"/>：它是**独立命中段**，按下时不会交给 Button 基类，
+/// 因此不存在“先触发外层 Click、再靠标志吞掉”的状态竞争。菜单段与主体段的悬停/按下态
+/// 由控件代码按实际指针位置写入 `segment-*` 类，模板不再让两段各自响应 `:pointerover`。
 /// </para>
 /// </remarks>
 public sealed class ModuleButton : Button, IModuleViewElement
@@ -53,25 +54,28 @@ public sealed class ModuleButton : Button, IModuleViewElement
     private bool _hasVisualAncestor;
     private string _menuValue = string.Empty;
     private ModuleButtonAppearance _appearance;
+    private Border? _bodyHost;
     private Border? _menuHost;
-    private bool _suppressClick;
+    private MenuFlyout? _openFlyout;
+    private ButtonSegment _hoverSegment;
+    private ButtonSegment _pressedSegment;
+    private bool _menuOpen;
+    private bool _pointerInside;
+    private Point _lastPointerPoint;
+
+    private enum ButtonSegment
+    {
+        None,
+        Body,
+        Menu,
+    }
 
     /// <summary>造一个命令按钮。</summary>
     public ModuleButton()
     {
         HorizontalAlignment = HorizontalAlignment.Stretch;
         VerticalAlignment = VerticalAlignment.Stretch;
-        Click += (_, _) =>
-        {
-            // 箭头按下时外层按钮也可能收到一次 Click：那一次只用来消费，不触发命令。
-            if (_suppressClick)
-            {
-                _suppressClick = false;
-                return;
-            }
-
-            Invoke();
-        };
+        Click += (_, _) => Invoke();
     }
 
     /// <summary>本按钮触发的命令名（模块在 <c>OnRegistered</c> 里声明过）。</summary>
@@ -101,6 +105,17 @@ public sealed class ModuleButton : Button, IModuleViewElement
 
             _menuValue = normalized;
             SetClass("menu", normalized.Length > 0);
+
+            if (normalized.Length == 0)
+            {
+                CloseMenu();
+                _hoverSegment = ButtonSegment.None;
+                UpdateSegmentVisuals();
+            }
+            else if (_openFlyout is not null)
+            {
+                CloseMenu();
+            }
         }
     }
 
@@ -177,7 +192,14 @@ public sealed class ModuleButton : Button, IModuleViewElement
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
+
+        CloseMenu();
         _hasVisualAncestor = false;
+        _bodyHost = null;
+        _menuHost = null;
+        _hoverSegment = ButtonSegment.None;
+        _pressedSegment = ButtonSegment.None;
+        _pointerInside = false;
     }
 
     /// <inheritdoc />
@@ -185,16 +207,117 @@ public sealed class ModuleButton : Button, IModuleViewElement
     {
         base.OnApplyTemplate(e);
 
-        if (_menuHost is not null)
+        _bodyHost = e.NameScope.Find<Border>("PART_BodyHost");
+        _menuHost = e.NameScope.Find<Border>("PART_MenuHost");
+        _hoverSegment = ButtonSegment.None;
+        _pressedSegment = ButtonSegment.None;
+        _pointerInside = false;
+        UpdateSegmentVisuals();
+    }
+
+    /// <inheritdoc />
+    protected override void OnPointerEntered(PointerEventArgs e)
+    {
+        base.OnPointerEntered(e);
+        UpdatePointer(e.GetPosition(this));
+    }
+
+    /// <inheritdoc />
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        base.OnPointerMoved(e);
+        UpdatePointer(e.GetPosition(this));
+    }
+
+    /// <inheritdoc />
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+
+        _pointerInside = false;
+        _hoverSegment = ButtonSegment.None;
+        UpdateSegmentVisuals();
+    }
+
+    /// <inheritdoc />
+    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    {
+        if (!IsEnabled || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
-            _menuHost.PointerPressed -= OnMenuPressed;
+            base.OnPointerPressed(e);
+            return;
         }
 
-        _menuHost = e.NameScope.Find<Border>("PART_MenuHost");
+        var point = e.GetPosition(this);
+        _pointerInside = true;
+        _lastPointerPoint = point;
 
-        if (_menuHost is not null)
+        if (SegmentAt(point) == ButtonSegment.Menu)
         {
-            _menuHost.PointerPressed += OnMenuPressed;
+            // 箭头段不交给 Button 基类：它既不该被按下，也不该产生 Click。
+            _pressedSegment = ButtonSegment.Menu;
+            _hoverSegment = ButtonSegment.Menu;
+            UpdateSegmentVisuals();
+            OpenMenu();
+            _pressedSegment = ButtonSegment.None;
+            UpdateSegmentVisuals();
+            e.Handled = true;
+            return;
+        }
+
+        _pressedSegment = ButtonSegment.Body;
+        _hoverSegment = ButtonSegment.Body;
+        UpdateSegmentVisuals();
+        base.OnPointerPressed(e);
+    }
+
+    /// <inheritdoc />
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    {
+        base.OnPointerReleased(e);
+
+        _pressedSegment = ButtonSegment.None;
+        UpdateSegmentVisuals();
+    }
+
+    /// <inheritdoc />
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+
+        _pressedSegment = ButtonSegment.None;
+        _pointerInside = Bounds.Contains(_lastPointerPoint);
+        _hoverSegment = _pointerInside ? SegmentAt(_lastPointerPoint) : ButtonSegment.None;
+        UpdateSegmentVisuals();
+    }
+
+    /// <inheritdoc />
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (IsEnabled
+            && _menuValue.Length > 0
+            && (e.Key == Key.F4 || (e.Key == Key.Down && e.KeyModifiers.HasFlag(KeyModifiers.Alt))))
+        {
+            OpenMenu();
+            e.Handled = true;
+            return;
+        }
+
+        base.OnKeyDown(e);
+    }
+
+    /// <inheritdoc />
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        if (change.Property == IsEnabledProperty && !IsEnabled)
+        {
+            _pressedSegment = ButtonSegment.None;
+            _hoverSegment = ButtonSegment.None;
+            _pointerInside = false;
+            CloseMenu();
+            UpdateSegmentVisuals();
         }
     }
 
@@ -267,18 +390,81 @@ public sealed class ModuleButton : Button, IModuleViewElement
         };
     }
 
-    /// <summary>箭头按下：打开值菜单；本次外层 Click 只消费、不触发命令。</summary>
-    private void OnMenuPressed(object? sender, PointerPressedEventArgs e)
+    /// <summary>指针位置对应的段；菜单段几何直接取模板部件的实际 Bounds。</summary>
+    private ButtonSegment SegmentAt(Point point)
     {
-        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        if (_menuValue.Length == 0
+            || _menuHost is not { IsVisible: true } menu
+            || menu.Bounds.Width <= 0)
+        {
+            return ButtonSegment.Body;
+        }
+
+        if (menu.TranslatePoint(default, this) is not { } origin)
+        {
+            return ButtonSegment.Body;
+        }
+
+        return point.X >= origin.X && point.X < origin.X + menu.Bounds.Width
+            ? ButtonSegment.Menu
+            : ButtonSegment.Body;
+    }
+
+    /// <summary>更新指针悬停段；只在段确实变化时写类，避免每帧重刷视觉。</summary>
+    private void UpdatePointer(Point point)
+    {
+        _lastPointerPoint = point;
+        _pointerInside = Bounds.Contains(point);
+
+        var segment = _pointerInside ? SegmentAt(point) : ButtonSegment.None;
+        if (segment == _hoverSegment)
         {
             return;
         }
 
-        _suppressClick = true;
-        Dispatcher.UIThread.Post(() => _suppressClick = false, DispatcherPriority.Background);
-        OpenMenu();
-        e.Handled = true;
+        _hoverSegment = segment;
+        UpdateSegmentVisuals();
+    }
+
+    /// <summary>把当前段状态写到两个模板部件上；这是唯一的视觉状态写入点。</summary>
+    private void UpdateSegmentVisuals()
+    {
+        if (_menuValue.Length == 0)
+        {
+            // 普通按钮完全交给外层 Button 的原生五态；段类必须清干净，避免残留底色盖住悬停。
+            SetSegmentClass(_bodyHost, "segment-hover", false);
+            SetSegmentClass(_menuHost, "segment-hover", false);
+            SetSegmentClass(_bodyHost, "segment-pressed", false);
+            SetSegmentClass(_menuHost, "segment-pressed", false);
+            SetSegmentClass(_menuHost, "segment-open", false);
+            return;
+        }
+
+        SetSegmentClass(_bodyHost, "segment-hover", _hoverSegment == ButtonSegment.Body);
+        SetSegmentClass(_menuHost, "segment-hover", _hoverSegment == ButtonSegment.Menu);
+        SetSegmentClass(_bodyHost, "segment-pressed", _pressedSegment == ButtonSegment.Body);
+        SetSegmentClass(_menuHost, "segment-pressed", _pressedSegment == ButtonSegment.Menu);
+        SetSegmentClass(_menuHost, "segment-open", _menuOpen);
+    }
+
+    private static void SetSegmentClass(Border? host, string name, bool on)
+    {
+        if (host is null)
+        {
+            return;
+        }
+
+        if (on)
+        {
+            if (!host.Classes.Contains(name))
+            {
+                host.Classes.Add(name);
+            }
+        }
+        else
+        {
+            _ = host.Classes.Remove(name);
+        }
     }
 
     /// <summary>
@@ -291,6 +477,12 @@ public sealed class ModuleButton : Button, IModuleViewElement
             return;
         }
 
+        if (_openFlyout is { IsOpen: true } alreadyOpen)
+        {
+            alreadyOpen.Hide();
+            return;
+        }
+
         var valueName = _menuValue;
         var state = _context.ReadValue(valueName);
         if (state.Choices is not { Count: > 0 } choices)
@@ -298,7 +490,10 @@ public sealed class ModuleButton : Button, IModuleViewElement
             return;
         }
 
-        var flyout = new MenuFlyout();
+        var flyout = new MenuFlyout
+        {
+            Placement = PlacementMode.BottomEdgeAlignedRight,
+        };
 
         foreach (var choice in choices)
         {
@@ -315,6 +510,41 @@ public sealed class ModuleButton : Button, IModuleViewElement
             flyout.Items.Add(item);
         }
 
+        flyout.Closed += (_, _) =>
+        {
+            if (!ReferenceEquals(_openFlyout, flyout))
+            {
+                return;
+            }
+
+            _openFlyout = null;
+            _menuOpen = false;
+            UpdateSegmentVisuals();
+
+            if (_pointerInside)
+            {
+                UpdatePointer(_lastPointerPoint);
+            }
+        };
+
+        _openFlyout = flyout;
+        _menuOpen = true;
+        UpdateSegmentVisuals();
         flyout.ShowAt(this);
+    }
+
+    /// <summary>关闭值菜单并把箭头段恢复为未打开态。</summary>
+    private void CloseMenu()
+    {
+        var flyout = _openFlyout;
+        _openFlyout = null;
+        _menuOpen = false;
+
+        if (flyout is { IsOpen: true })
+        {
+            flyout.Hide();
+        }
+
+        UpdateSegmentVisuals();
     }
 }

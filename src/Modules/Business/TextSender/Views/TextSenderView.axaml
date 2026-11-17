@@ -86,16 +86,16 @@
       </Grid>
 
       <!-- 发送格式：转义 / 真实回车的 CR、LF（勾选框自带文字）。 -->
-      <ui:ModuleCheckBox Canvas.Left="8" Canvas.Top="32" Width="90" Height="24" IsChecked="False"
+      <ui:ModuleCheckBox Canvas.Left="8" Canvas.Top="32" Width="72" Height="24" IsChecked="False"
                          Value="{x:Static views:TextSenderViewKeys.Escape}"
                          Content="{loc:Tr view.escape}" />
 
       <ui:ModuleLabel Canvas.Left="96" Canvas.Top="32" Width="54" Height="24" Classes="caption right"
                       VerticalAlignment="Center" Text="{loc:Tr view.newline}" />
-      <ui:ModuleCheckBox Canvas.Left="154" Canvas.Top="32" Width="58" Height="24" IsChecked="True"
+      <ui:ModuleCheckBox Canvas.Left="154" Canvas.Top="32" Width="34" Height="24" IsChecked="True"
                          Value="{x:Static views:TextSenderViewKeys.NewlineCr}"
                          Content="{loc:Tr view.newlineCr}" />
-      <ui:ModuleCheckBox Canvas.Left="190" Canvas.Top="32" Width="58" Height="24" IsChecked="True"
+      <ui:ModuleCheckBox Canvas.Left="190" Canvas.Top="32" Width="34" Height="24" IsChecked="True"
                          Value="{x:Static views:TextSenderViewKeys.NewlineLf}"
                          Content="{loc:Tr view.newlineLf}" />
 

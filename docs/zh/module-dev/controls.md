@@ -11,6 +11,7 @@
 - 控件由 `ModuleViewHost` 每帧驱动：**值没变就不碰视觉**，视图不自己起定时器、不在 `Refresh` 里重建控件树。
 - **模块文字只有一套实现**：`ModuleLabel` 与 `ModuleNumeric` 都是 `TextBlock` 派生，直接继承换行、对齐、字号等属性；模块视图里不再用裸 `TextBlock` 显示文字。
 - **开关不自带文字**：`ModuleToggle` 只画轨道与圆钮；标签是独立的 `ModuleLabel`，放在右侧。
+- **勾选框自带文字**：`ModuleCheckBox` 的方框与文字间距固定 2 DIP，文字走 `Content`，不再另加 `ModuleLabel`；控件宽度按内容声明，不要用透明留白占位。
 - **预览值写在 XAML**：可输入控件的初始值、只读控件的预览值直接写在控件自己的值属性上；运行期数据到达后覆盖。
 - **文字在控件矩形内的垂直对齐**由 `TextVerticalAlignment` 决定（`Top` / `Center` / `Bottom`，默认 `Center`）；它与控件自身的 `VerticalAlignment` 是两个维度。
 
@@ -24,7 +25,7 @@
 | `ModuleTextSurface` | 文本面：日志显示或可编辑值 | `Mode`、`Value`、`CommitMode`、`Source`（仅显示）、`Text`、`Multiline`、`IsReadOnly`、`ShowNewlineMarks`、`TextAlignment`、`MinEditorHeight`、`Commit()`、`SubmitKeyValue`、`SubmitCommandName`、`EnterNewlineValue` |
 | `ModuleButton` | 命令按钮（可选右侧小箭头菜单） | `CommandName`、`Content`、`Icon`、`Appearance`、`MenuValue` |
 | `ModuleToggle` | 开关：勾选提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`CheckedChanged`（程序写回也触发） |
-| `ModuleCheckBox` | 勾选框：方框 + 勾形 + 右侧文字，提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`Content`、`CheckedChanged` |
+| `ModuleCheckBox` | 勾选框：方框 + 勾形 + 右侧文字（间距 2 DIP），提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`Content`、`CheckedChanged` |
 | `ModuleConfigField` | 值编辑器（文本/数字/布尔/枚举） | `Value`（标题另用 `ModuleLabel`） |
 | `ModuleTabs` | 页签容器，选中页写入视图状态 | `StateKey`、`TabItem` 子项 |
 | `ModuleSelect` | 紧凑下拉 | `Value`、`CommitMode`、`SelectedKey`、`PreviewOptions`；旧 `Options`/`OptionSelected` 仅供结构选择 |
@@ -80,6 +81,7 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 - `ModuleButton` 的 `CommandName` 必须是声明过的命令；`Content` 是文案，`Icon` 是图标键（图标按钮加 `Classes="icon"` 并给尺寸）。
 - `ModuleButton.Appearance`：`Normal` / `Accent` / `Danger`。模块只选档位，具体色板在宿主按钮壳里。
 - `ModuleButton.MenuValue`：非空时按钮右侧出现小箭头；菜单选项来自该值的声明（必须是带 `Choices` 的枚举），当前值打勾，点选**只提交值**、不触发 `CommandName`。
+- `MenuValue` 的箭头段是**独立命中段**：整高、贴右缘；悬停/按下只覆盖指针所在的那一段，菜单打开时只有箭头段保持按下观感。点箭头只开菜单，不发送；`F4` / `Alt+Down` 也能打开菜单。不要再用父按钮与箭头区同时响应 `:pointerover` 的写法。
 - `ModuleToggle` 绑定一个值：用户拨动后按 `CommitMode` 交值；显示值来自 `ReadValue`，不是显示源。
 - `CheckedChanged` 在用户拨动和程序写回时都会触发；需要区分时自行用标志。
 - 开关文字是独立的 `ModuleLabel`，放在轨道右侧。
@@ -204,6 +206,8 @@ public sealed class LevelBar : ModuleElement
 预览值写在控件的 `Text` / `IsChecked` / `SelectedKey` 等属性上；不要为预览在代码后置里写一套默认值。
 
 预览不调用运行期 `Refresh`，XAML 中的可选参数默认全显；运行期会隐藏的控件因此在预览里仍占位，可能与相邻控件重叠或遮挡。这是有意为之，不能据此判定布局缺陷，也不要把这些控件改成 XAML 默认隐藏。
+
+**勾选框的范围框覆盖整个控件矩形（方框 + 文字）**：14×14 方框只表达勾选态，不表达布局或命中区域；不能只框方框，也不能在方框外留一大段透明宽度却指望范围框去猜。它是“自带可见轮廓的输入控件默认不叠框”规则的明确例外。
 
 ## 相关
 

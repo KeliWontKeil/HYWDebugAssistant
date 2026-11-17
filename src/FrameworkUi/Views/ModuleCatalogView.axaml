@@ -40,11 +40,19 @@
             </Button>
         </Grid>
 
-        <!-- ② 横向分类标签（**等分**：随主窗口宽度自适应，切换分类不会移动其它控件） -->
-        <ItemsControl Grid.Row="1" Margin="0,0,5,0" ItemsSource="{Binding Categories}">
+        <!--
+          ② 横向分类标签（**等分**：随主窗口宽度自适应，切换分类不会移动其它控件）
+
+          六列宽度只做一次除法；**列间留出可见间距**，相邻按钮的细边框才不会落在同一条
+          像素边界上、被后绘制的按钮盖住（选中态边框最容易被吃掉）。`UseLayoutRounding`
+          会把每列宽度对齐设备像素，最坏情况下六列合计会向外多出一点；右侧余量专门吸收
+          这部分，末列边框因此不会被窗口边缘裁掉。不要再靠单次调边距解决。
+        -->
+        <ItemsControl Grid.Row="1" Margin="0,0,6,0" ClipToBounds="False" ItemsSource="{Binding Categories}">
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
-                    <UniformGrid Rows="1" Columns="6" />
+                    <UniformGrid Rows="1" Columns="6" ColumnSpacing="4"
+                                 UseLayoutRounding="True" ClipToBounds="False" />
                 </ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>

@@ -563,7 +563,7 @@ public class BusinessModulesBehaviorTests
     }
 
     [Fact]
-    public void 转换器_换行档与转义应同时作用于两个方向()
+    public void 转换器_换行档与转义只作用于文本到HEX()
     {
         var context = new TestModuleContext();
         var module = new HexStringConverterModule();
@@ -577,9 +577,18 @@ public class BusinessModulesBehaviorTests
             .ShouldBeTrue();
         module.LastHexResult.ShouldBe("41 0D 0A 42");
 
+        // 0A 是 LF、0D 是 CR、0D0A 是 CRLF：HEX→文本按字节原样解码，不按勾选档归一。
         module.Convert(context, "41 0D 0A 42", toHex: false, HexStringConverterModule.HexSourceOf(0))
             .ShouldBeTrue();
         module.LastCharResult.ShouldBe("A\r\nB");
+
+        module.Convert(context, "41 0D 42", toHex: false, HexStringConverterModule.HexSourceOf(0))
+            .ShouldBeTrue();
+        module.LastCharResult.ShouldBe("A\rB");
+
+        module.Convert(context, "41 0A 42", toHex: false, HexStringConverterModule.HexSourceOf(0))
+            .ShouldBeTrue();
+        module.LastCharResult.ShouldBe("A\nB");
 
         context.ViewState.SetInputText(HexStringConverterModule.NewlineCrSource, "false");
         context.ViewState.SetInputText(HexStringConverterModule.NewlineLfSource, "true");
@@ -588,9 +597,10 @@ public class BusinessModulesBehaviorTests
             .ShouldBeTrue();
         module.LastHexResult.ShouldBe("41 0A 42");
 
+        // 换行档只改文本→HEX；HEX→文本仍保持原字节。
         module.Convert(context, "41 0D 0A 42", toHex: false, HexStringConverterModule.HexSourceOf(0))
             .ShouldBeTrue();
-        module.LastCharResult.ShouldBe("A\nB");
+        module.LastCharResult.ShouldBe("A\r\nB");
 
         context.ViewState.SetInputText(HexStringConverterModule.NewlineCrSource, "false");
         context.ViewState.SetInputText(HexStringConverterModule.NewlineLfSource, "false");
@@ -601,7 +611,7 @@ public class BusinessModulesBehaviorTests
 
         module.Convert(context, "41 0D 0A 42", toHex: false, HexStringConverterModule.HexSourceOf(0))
             .ShouldBeTrue();
-        module.LastCharResult.ShouldBe("AB");
+        module.LastCharResult.ShouldBe("A\r\nB");
     }
 
     /// <summary>**界面上现在显示的那句话**（模块写的最后一条消息）。</summary>

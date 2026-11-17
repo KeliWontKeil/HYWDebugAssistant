@@ -305,7 +305,7 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     {
         var ok = toHex
             ? ConverterCodec.TryToHex(text, escape, mode, out var result, out var failure)
-            : ConverterCodec.TryToText(text, mode, out result, out failure);
+            : ConverterCodec.TryToText(text, out result, out failure);
 
         if (!ok)
         {
@@ -335,7 +335,10 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
         return true;
     }
 
-    /// <summary>当前两个方向的格式：转义只作用于文本→HEX，换行两个方向共用。</summary>
+    /// <summary>当前格式：转义与换行档都只作用于文本→HEX（以及文本输入面的回车档）。</summary>
+    /// <remarks>
+    /// HEX→文本按字节原样解码，<c>0A</c> / <c>0D</c> / <c>0D0A</c> 不再被勾选档改写。
+    /// </remarks>
     private static (bool Escape, NewlineMode Mode) ReadFormat(IModuleContext context)
     {
         var escape = IsTrue(context.Values.ReadText(EscapeSource));

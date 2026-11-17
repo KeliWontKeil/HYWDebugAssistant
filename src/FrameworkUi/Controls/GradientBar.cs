@@ -49,6 +49,13 @@ public sealed class GradientBar : Control
             nameof(Orientation),
             Orientation.Horizontal);
 
+    /// <summary>
+    /// 反向：为 <c>true</c> 时横向变为右→左、纵向变为上→下。
+    /// 调色板的 Value 条用它表达"顶部最暗、底部最亮"。
+    /// </summary>
+    public static readonly StyledProperty<bool> InvertProperty =
+        AvaloniaProperty.Register<GradientBar, bool>(nameof(Invert));
+
     private bool _dragging;
 
     /// <summary>创建渐变条。</summary>
@@ -100,6 +107,13 @@ public sealed class GradientBar : Control
         set => SetValue(OrientationProperty, value);
     }
 
+    /// <summary>是否反向（横向右→左、纵向上→下）。</summary>
+    public bool Invert
+    {
+        get => GetValue(InvertProperty);
+        set => SetValue(InvertProperty, value);
+    }
+
     /// <summary>值变化（由用户拖动或代码赋值都会触发；调用方用抑制标志避免回环）。</summary>
     public event EventHandler? ValueChanged;
 
@@ -116,6 +130,7 @@ public sealed class GradientBar : Control
         else if (change.Property == GradientProperty
                  || change.Property == BorderBrushProperty
                  || change.Property == OrientationProperty
+                 || change.Property == InvertProperty
                  || change.Property == MinimumProperty
                  || change.Property == MaximumProperty)
         {
@@ -154,13 +169,17 @@ public sealed class GradientBar : Control
 
         if (Orientation == Orientation.Horizontal)
         {
-            var x = body.Left + (fraction * body.Width);
+            var x = body.Left + ((Invert ? 1 - fraction : fraction) * body.Width);
+            x = Math.Clamp(x, body.Left + 1, body.Right - 1);
             context.DrawLine(black, new Point(x - 0.5, body.Top), new Point(x - 0.5, body.Bottom));
             context.DrawLine(white, new Point(x + 0.5, body.Top), new Point(x + 0.5, body.Bottom));
         }
         else
         {
-            var y = body.Bottom - (fraction * body.Height);
+            var y = Invert
+                ? body.Top + (fraction * body.Height)
+                : body.Bottom - (fraction * body.Height);
+            y = Math.Clamp(y, body.Top + 1, body.Bottom - 1);
             context.DrawLine(black, new Point(body.Left, y - 0.5), new Point(body.Right, y - 0.5));
             context.DrawLine(white, new Point(body.Left, y + 0.5), new Point(body.Right, y + 0.5));
         }
@@ -229,7 +248,12 @@ public sealed class GradientBar : Control
 
         var fraction = Orientation == Orientation.Horizontal
             ? Math.Clamp(point.X / Bounds.Width, 0, 1)
-            : Math.Clamp(1 - (point.Y / Bounds.Height), 0, 1);
+            : Math.Clamp(Invert ? point.Y / Bounds.Height : 1 - (point.Y / Bounds.Height), 0, 1);
+
+        if (Orientation == Orientation.Horizontal && Invert)
+        {
+            fraction = 1 - fraction;
+        }
 
         Value = Minimum + (fraction * Range);
     }

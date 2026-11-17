@@ -77,7 +77,17 @@
                             <primitives:ColorSpectrum x:Name="Spectrum"
                                                       Components="HueSaturation"
                                                       Shape="Box"
+                                                      IsHitTestVisible="False"
                                                       MinWidth="0" MinHeight="0" />
+                            <!-- 透明输入层：平面 H/S 由本窗口直接按指针坐标计算，不依赖 ColorSpectrum 的选择点。 -->
+                            <Border x:Name="SpectrumInput"
+                                    Background="Transparent"
+                                    Cursor="Cross" />
+                            <!-- 绝对色：明度遮罩必须是纯黑，只靠 Opacity 表达 V；不能跟随主题色。 -->
+                            <Border x:Name="ValueShade"
+                                    Background="Black"
+                                    Opacity="0"
+                                    IsHitTestVisible="False" />
                             <Canvas x:Name="CrosshairLayer" IsHitTestVisible="False">
                                 <Grid x:Name="CrosshairGlyph" Width="9" Height="9" IsHitTestVisible="False">
                                     <!-- 绝对色：简单细十字，黑白双层，不做粗重装饰。 -->
@@ -93,6 +103,7 @@
                     <fw:GradientBar x:Name="ValueBar"
                                     Grid.Row="0" Grid.Column="1"
                                     Orientation="Vertical"
+                                    Invert="True"
                                     Minimum="0" Maximum="100"
                                     BorderBrush="{DynamicResource BorderStrong}"
                                     Cursor="Hand" />
@@ -128,16 +139,19 @@
                         <StackPanel Grid.Column="0" Spacing="2">
                             <TextBlock FontSize="10" Foreground="{DynamicResource TextSecondary}" Text="R" />
                             <TextBox x:Name="RBox" MaxLength="3" TextAlignment="Right"
+                                     TextInput="OnRgbTextInput"
                                      FontSize="11" MinHeight="26" VerticalContentAlignment="Center" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Spacing="2">
                             <TextBlock FontSize="10" Foreground="{DynamicResource TextSecondary}" Text="G" />
                             <TextBox x:Name="GBox" MaxLength="3" TextAlignment="Right"
+                                     TextInput="OnRgbTextInput"
                                      FontSize="11" MinHeight="26" VerticalContentAlignment="Center" />
                         </StackPanel>
                         <StackPanel Grid.Column="2" Spacing="2">
                             <TextBlock FontSize="10" Foreground="{DynamicResource TextSecondary}" Text="B" />
                             <TextBox x:Name="BBox" MaxLength="3" TextAlignment="Right"
+                                     TextInput="OnRgbTextInput"
                                      FontSize="11" MinHeight="26" VerticalContentAlignment="Center" />
                         </StackPanel>
                     </Grid>
