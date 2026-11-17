@@ -22,41 +22,58 @@
     文本发送器：上方多页输入区自适应；下方动作/状态条的高度只由它自己的 Canvas 声明。
     动作条里的元素仍是绝对坐标：间隔单位 `ms` 与「已发送」的单位 `条` 都是普通文本标签，
     各有自己的矩形 —— 单位不是控件的属性。
-    发送格式第三行：转义开关只作用于字面反斜杠序列；CR/LF 两个开关只作用于真实回车（开什么输出什么）。
+    发送格式第三行：文本输入始终按 C 转义输入；CR/LF 两个开关只作用于真实回车（开什么输出什么）。
   -->
   <Grid RowDefinitions="Auto,*,Auto">
 
-    <ui:ModuleLabel Grid.Row="0" Classes="caption" Text="{loc:Tr view.inputLabel}" />
+    
+    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+      <ui:ModuleLabel Classes="caption" Text="{loc:Tr view.inputLabel}" />
+              <!-- 发送格式：文本输入始终按 C 转义；CR、LF 两个勾选只控制真实回车。 -->
+      <ui:ModuleLabel Width="64" Height="24" Classes="caption right"
+                      VerticalAlignment="Center" Text="{loc:Tr view.newline}" />
+      <ui:ModuleCheckBox  Width="26" Height="24" IsChecked="True"
+                         Value="{x:Static views:TextSenderViewKeys.NewlineCr}"
+                         Content="{loc:Tr view.newlineCr}" />
+      <ui:ModuleCheckBox Width="26" Height="24" IsChecked="True"
+                         Value="{x:Static views:TextSenderViewKeys.NewlineLf}"
+                         Content="{loc:Tr view.newlineLf}" />
+    </StackPanel>
 
     <ui:ModuleTabs Grid.Row="1" StateKey="{x:Static views:TextSenderViewKeys.PagesStateKey}">
       <TabItem Header="1"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:TextSenderViewKeys.Text1}"
+                                                EscapeInput="True"
                                                 SubmitKeyValue="{x:Static views:TextSenderViewKeys.SubmitKey}"
                                                 EnterNewlineValue="{x:Static views:TextSenderViewKeys.EnterNewline}"
                                                 SubmitCommandName="{x:Static views:TextSenderViewKeys.Send}"
                                                 Multiline="True" CommitMode="OnChange" /></TabItem>
       <TabItem Header="2"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:TextSenderViewKeys.Text2}"
+                                                EscapeInput="True"
                                                 SubmitKeyValue="{x:Static views:TextSenderViewKeys.SubmitKey}"
                                                 EnterNewlineValue="{x:Static views:TextSenderViewKeys.EnterNewline}"
                                                 SubmitCommandName="{x:Static views:TextSenderViewKeys.Send}"
                                                 Multiline="True" CommitMode="OnChange" /></TabItem>
       <TabItem Header="3"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:TextSenderViewKeys.Text3}"
+                                                EscapeInput="True"
                                                 SubmitKeyValue="{x:Static views:TextSenderViewKeys.SubmitKey}"
                                                 EnterNewlineValue="{x:Static views:TextSenderViewKeys.EnterNewline}"
                                                 SubmitCommandName="{x:Static views:TextSenderViewKeys.Send}"
                                                 Multiline="True" CommitMode="OnChange" /></TabItem>
       <TabItem Header="4"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:TextSenderViewKeys.Text4}"
+                                                EscapeInput="True"
                                                 SubmitKeyValue="{x:Static views:TextSenderViewKeys.SubmitKey}"
                                                 EnterNewlineValue="{x:Static views:TextSenderViewKeys.EnterNewline}"
                                                 SubmitCommandName="{x:Static views:TextSenderViewKeys.Send}"
                                                 Multiline="True" CommitMode="OnChange" /></TabItem>
       <TabItem Header="5"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:TextSenderViewKeys.Text5}"
+                                                EscapeInput="True"
                                                 SubmitKeyValue="{x:Static views:TextSenderViewKeys.SubmitKey}"
                                                 EnterNewlineValue="{x:Static views:TextSenderViewKeys.EnterNewline}"
                                                 SubmitCommandName="{x:Static views:TextSenderViewKeys.Send}"
                                                 Multiline="True" CommitMode="OnChange" /></TabItem>
     </ui:ModuleTabs>
 
-    <Canvas Grid.Row="2" Height="72" ClipToBounds="True">
+    <Canvas Grid.Row="2" Height="52" ClipToBounds="True">
       <ui:ModuleButton Canvas.Left="0" Canvas.Top="4" Width="84" Height="27"
                        Appearance="Accent"
                        MenuValue="{x:Static views:TextSenderViewKeys.SubmitKey}"
@@ -76,7 +93,7 @@
         已发送：标题 / 值 / 单位是三个普通文本元素，在一个**声明矩形**里靠右紧排 ——
         三者相对这个矩形的右缘（值变宽时整体左移，右缘不动）。
       -->
-      <Grid Canvas.Left="262" Canvas.Top="4" Width="92" Height="24">
+      <Grid Canvas.Left="262" Canvas.Top="36" Width="92" Height="16">
         <StackPanel Orientation="Horizontal" Spacing="2"
                     HorizontalAlignment="Right" VerticalAlignment="Center">
           <ui:ModuleLabel Classes="caption" Text="{loc:Tr view.sentTitle}" />
@@ -85,23 +102,10 @@
         </StackPanel>
       </Grid>
 
-      <!-- 发送格式：转义 / 真实回车的 CR、LF（勾选框自带文字）。 -->
-      <ui:ModuleCheckBox Canvas.Left="8" Canvas.Top="32" Width="72" Height="24" IsChecked="False"
-                         Value="{x:Static views:TextSenderViewKeys.Escape}"
-                         Content="{loc:Tr view.escape}" />
-
-      <ui:ModuleLabel Canvas.Left="96" Canvas.Top="32" Width="54" Height="24" Classes="caption right"
-                      VerticalAlignment="Center" Text="{loc:Tr view.newline}" />
-      <ui:ModuleCheckBox Canvas.Left="154" Canvas.Top="32" Width="34" Height="24" IsChecked="True"
-                         Value="{x:Static views:TextSenderViewKeys.NewlineCr}"
-                         Content="{loc:Tr view.newlineCr}" />
-      <ui:ModuleCheckBox Canvas.Left="190" Canvas.Top="32" Width="34" Height="24" IsChecked="True"
-                         Value="{x:Static views:TextSenderViewKeys.NewlineLf}"
-                         Content="{loc:Tr view.newlineLf}" />
-
-      <ui:ModuleLabel Canvas.Left="0" Canvas.Top="56" Width="358" Height="16"
+      <ui:ModuleLabel Canvas.Left="0" Canvas.Top="36" Width="260" Height="16"
                       Text="{loc:Tr view.statusPreview}"
                       Source="{x:Static views:TextSenderViewKeys.Status}" />
+
     </Canvas>
   </Grid>
 </ui:ModuleView>

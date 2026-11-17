@@ -14,6 +14,10 @@
   <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
   <SolidColorBrush x:Key="TextMuted" Color="#A1A1AA" />
   <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="TextControlCharacter" Color="#EF4444" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
+  <SolidColorBrush x:Key="TextEscape" Color="#0284C7" />
+  <!-- 绝对色：设计时预览兜底；运行时唯一色源仍是 Ui/Styles/Tokens.axaml。 -->
   <SolidColorBrush x:Key="BgModule" Color="#FFFFFF" />
   <!-- 绝对色：设计时预览兜底；模块控件表面（默认可透出模块壁纸）。 -->
   <SolidColorBrush x:Key="SurfaceControlBrush" Color="#FFFFFF" Opacity="0.9" />
@@ -54,5 +58,7 @@
   <SolidColorBrush x:Key="SurfaceToggleKnobEdgeBrush" Color="#D4D4D8" />
   <!-- // i18n-exempt: 字体族名（宋体是字体标识，不是界面文案） -->
   <FontFamily x:Key="FontData">Cascadia Mono, 宋体</FontFamily>
+  <!-- 预览默认：不可显示字符显示为标记；运行时由 ThemeApplier 按设置覆盖。 -->
+  <x:Boolean x:Key="TextControlCharacterMarkers">True</x:Boolean>
 </ResourceDictionary>
 

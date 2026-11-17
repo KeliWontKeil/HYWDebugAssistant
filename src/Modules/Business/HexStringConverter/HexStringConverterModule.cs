@@ -110,9 +110,6 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     /// <summary>显示源：HEX→char 的结果区。</summary>
     public const string CharResultSource = "charResult";
 
-    /// <summary>文本→HEX 的 C 风格转义开关。</summary>
-    public const string EscapeSource = "escape";
-
     /// <summary>换行 CR 勾选。</summary>
     public const string NewlineCrSource = "newlineCr";
 
@@ -171,12 +168,6 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(HexResultSource, ViewDataSourceKind.Text));
         context.Declaration.DeclareDisplaySource(new DisplaySourceDeclaration(CharResultSource, ViewDataSourceKind.Text));
 
-        context.Declaration.DeclareValue(new ValueDeclaration(EscapeSource)
-        {
-            Editor = ValueEditor.Boolean,
-            Persistent = true,
-            ResetWithModule = false,
-        });
         context.Declaration.DeclareValue(new ValueDeclaration(NewlineCrSource)
         {
             Editor = ValueEditor.Boolean,
@@ -232,7 +223,7 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     /// </remarks>
     private readonly Dictionary<bool, (string Source, string Text)> _published = new();
 
-    private (bool Escape, NewlineMode Mode) _format = (false, NewlineMode.CrLf);
+    private NewlineMode _format = NewlineMode.CrLf;
     private bool _formatInitialized;
 
     /// <summary>
@@ -279,7 +270,7 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
 
         _published[toHex] = (source, text);
 
-        ConvertCore(context, text, toHex, source, _format.Escape, _format.Mode);
+        ConvertCore(context, text, toHex, source, _format);
     }
 
     /// <summary>转换一段文本（**模块级测试可直接调用**，无需线程）。</summary>
@@ -292,7 +283,7 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
         var format = ReadFormat(context);
-        return ConvertCore(context, text, toHex, source, format.Escape, format.Mode);
+        return ConvertCore(context, text, toHex, source, format);
     }
 
     private bool ConvertCore(
@@ -300,11 +291,10 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
         string? text,
         bool toHex,
         string source,
-        bool escape,
         NewlineMode mode)
     {
         var ok = toHex
-            ? ConverterCodec.TryToHex(text, escape, mode, out var result, out var failure)
+            ? ConverterCodec.TryToHex(text, mode, out var result, out var failure)
             : ConverterCodec.TryToText(text, out result, out failure);
 
         if (!ok)
@@ -335,20 +325,17 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
         return true;
     }
 
-    /// <summary>当前格式：转义与换行档都只作用于文本→HEX（以及文本输入面的回车档）。</summary>
+    /// <summary>当前换行档：只作用于文本输入与文本→HEX。</summary>
     /// <remarks>
-    /// HEX→文本按字节原样解码，<c>0A</c> / <c>0D</c> / <c>0D0A</c> 不再被勾选档改写。
+    /// 文本输入始终按 C 转义输入；HEX→文本按字节原样解码，<c>0A</c> / <c>0D</c> / <c>0D0A</c>
+    /// 不再被勾选档改写。
     /// </remarks>
-    private static (bool Escape, NewlineMode Mode) ReadFormat(IModuleContext context)
+    private static NewlineMode ReadFormat(IModuleContext context)
     {
-        var escape = IsTrue(context.Values.ReadText(EscapeSource));
         var cr = IsTrueOrUnset(context.Values.ReadText(NewlineCrSource));
         var lf = IsTrueOrUnset(context.Values.ReadText(NewlineLfSource));
-        return (escape, TextNewlines.FromCheckboxes(cr, lf));
+        return TextNewlines.FromCheckboxes(cr, lf);
     }
-
-    private static bool IsTrue(string? text) =>
-        string.Equals(text, "true", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsTrueOrUnset(string? text) =>
         string.IsNullOrEmpty(text) || string.Equals(text, "true", StringComparison.OrdinalIgnoreCase);

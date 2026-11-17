@@ -43,12 +43,26 @@ public sealed class NewlineMarkOverlay : Control
     public static readonly StyledProperty<IReadOnlyCollection<int>?> UnmarkedNewlinesProperty =
         AvaloniaProperty.Register<NewlineMarkOverlay, IReadOnlyCollection<int>?>(nameof(UnmarkedNewlines));
 
+    /// <summary>不可显示字符标记的绘制颜色。</summary>
+    public static readonly StyledProperty<IBrush?> MarkerBrushProperty =
+        AvaloniaProperty.Register<NewlineMarkOverlay, IBrush?>(nameof(MarkerBrush));
+
+    /// <summary>C 转义组的绘制颜色。</summary>
+    public static readonly StyledProperty<IBrush?> EscapeBrushProperty =
+        AvaloniaProperty.Register<NewlineMarkOverlay, IBrush?>(nameof(EscapeBrush));
+
     private readonly List<(Point Position, string Text)> _marks = [];
+    private readonly List<(Point Position, string Text)> _spanMarks = [];
+    private IReadOnlyList<TextMarkerSpan>? _markerSpans;
+    private IReadOnlyList<TextMarkerSpan>? _escapeSpans;
     private HashSet<int>? _unmarked;
     private Control? _subscribed;
     private ScrollViewer? _scrollViewer;
     private readonly Dictionary<NewlineKind, FormattedText> _markTexts = [];
+    private readonly Dictionary<string, FormattedText> _markerTexts = [];
     private double _markFontSize;
+    private double _markerFontSize;
+    private IBrush? _markerBrush;
 
     /// <summary>创建绘制层（不参与命中、不参与布局输入）。</summary>
     public NewlineMarkOverlay()
@@ -83,6 +97,45 @@ public sealed class NewlineMarkOverlay : Control
     /// <summary>当前画出的标记（测试/调试读取）。</summary>
     public IReadOnlyList<(Point Position, string Text)> Marks => _marks;
 
+    /// <summary>当前画出的着色文本段（测试/调试读取）。</summary>
+    internal IReadOnlyList<(Point Position, string Text)> SpanMarks => _spanMarks;
+
+    /// <summary>不可显示字符标记的绘制颜色。</summary>
+    public IBrush? MarkerBrush
+    {
+        get => GetValue(MarkerBrushProperty);
+        set => SetValue(MarkerBrushProperty, value);
+    }
+
+    /// <summary>C 转义组的绘制颜色。</summary>
+    public IBrush? EscapeBrush
+    {
+        get => GetValue(EscapeBrushProperty);
+        set => SetValue(EscapeBrushProperty, value);
+    }
+
+    /// <summary>需要警示色叠画的标记区间（显示坐标）。</summary>
+    internal IReadOnlyList<TextMarkerSpan>? MarkerSpans
+    {
+        get => _markerSpans;
+        set
+        {
+            _markerSpans = value;
+            InvalidateVisual();
+        }
+    }
+
+    /// <summary>需要蓝色叠画的 C 转义组（显示坐标）。</summary>
+    internal IReadOnlyList<TextMarkerSpan>? EscapeSpans
+    {
+        get => _escapeSpans;
+        set
+        {
+            _escapeSpans = value;
+            InvalidateVisual();
+        }
+    }
+
     /// <inheritdoc />
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
@@ -105,6 +158,12 @@ public sealed class NewlineMarkOverlay : Control
             var offsets = change.GetNewValue<IReadOnlyCollection<int>?>();
             _unmarked = offsets is { Count: > 0 } ? [.. offsets] : null;
             InvalidateVisual();
+            return;
+        }
+
+        if (change.Property == MarkerBrushProperty || change.Property == EscapeBrushProperty)
+        {
+            InvalidateVisual();
         }
     }
 
@@ -113,8 +172,9 @@ public sealed class NewlineMarkOverlay : Control
     {
         ArgumentNullException.ThrowIfNull(context);
         _marks.Clear();
+        _spanMarks.Clear();
 
-        if (!IsActive || Target is not { } target || Bounds.Width <= 0 || Bounds.Height <= 0)
+        if (Target is not { } target || Bounds.Width <= 0 || Bounds.Height <= 0)
         {
             return;
         }
@@ -126,34 +186,131 @@ public sealed class NewlineMarkOverlay : Control
             return;
         }
 
-        var marks = MarkLines(layout, text, _unmarked);
+        if (IsActive)
+        {
+            var marks = MarkLines(layout, text, _unmarked);
+            var top = origin.Y;
+
+            for (var index = 0; index < layout.TextLines.Count; index++)
+            {
+                var line = layout.TextLines[index];
+                var height = line.Height;
+
+                if (marks.TryGetValue(index, out var kinds))
+                {
+                    var x = origin.X + line.Width + MarkGap;
+
+                    foreach (var kind in kinds)
+                    {
+                        var font = MarkFormatted(target, kind);
+                        var y = top + ((height - font.Height) / 2);
+
+                        if (y + font.Height >= 0 && y <= Bounds.Height)
+                        {
+                            context.DrawText(font, new Point(x, y));
+                            _marks.Add((new Point(x, y), NewlineEncoding.MarkOf(kind)));
+                            x += font.Width;
+                        }
+                    }
+                }
+
+                top += height;
+            }
+        }
+
+        DrawTextSpans(context, target, layout, text, origin, _markerSpans, MarkerBrush);
+        DrawTextSpans(context, target, layout, text, origin, _escapeSpans, EscapeBrush);
+    }
+
+    private void DrawTextSpans(
+        DrawingContext context,
+        Control target,
+        Avalonia.Media.TextFormatting.TextLayout layout,
+        string text,
+        Point origin,
+        IReadOnlyList<TextMarkerSpan>? spans,
+        IBrush? brush)
+    {
+        if (spans is not { Count: > 0 } || brush is null || text.Length == 0)
+        {
+            return;
+        }
+
         var top = origin.Y;
 
         for (var index = 0; index < layout.TextLines.Count; index++)
         {
             var line = layout.TextLines[index];
-            var height = line.Height;
+            var lineStart = line.FirstTextSourceIndex;
+            var lineEnd = Math.Min(lineStart + line.Length, text.Length);
 
-            if (marks.TryGetValue(index, out var kinds))
+            if (lineEnd > lineStart)
             {
-                var x = origin.X + line.Width + MarkGap;
-
-                foreach (var kind in kinds)
+                foreach (var span in spans)
                 {
-                    var font = MarkFormatted(target, kind);
-                    var y = top + ((height - font.Height) / 2);
+                    var spanStart = Math.Max(span.Start, lineStart);
+                    var spanEnd = Math.Min(span.Start + span.Length, lineEnd);
 
-                    if (y + font.Height >= 0 && y <= Bounds.Height)
+                    if (spanEnd <= spanStart)
                     {
-                        context.DrawText(font, new Point(x, y));
-                        _marks.Add((new Point(x, y), NewlineEncoding.MarkOf(kind)));
-                        x += font.Width;
+                        continue;
+                    }
+
+                    var length = spanEnd - spanStart;
+                    var piece = text.Substring(spanStart, length);
+                    var formatted = MarkerFormatted(target, piece, brush);
+
+                    try
+                    {
+                        // GetTextBounds 的索引是整段 TextLayout 的源索引，不是行内索引；
+                        // 同一段只画一次，避免每个 bounds 把整段重复画一遍造成“重影/叠字”。
+                        var bounds = line.GetTextBounds(spanStart, length);
+
+                        if (bounds.Count > 0)
+                        {
+                            var left = bounds[0].Rectangle.Left;
+                            var y = top + line.Baseline - formatted.Baseline;
+                            var position = new Point(origin.X + left, y);
+                            context.DrawText(formatted, position);
+                            _spanMarks.Add((position, piece));
+                        }
+                    }
+                    catch (ArgumentException)
+                    {
+                        // 极端布局边界：宁可少画一段颜色，不让界面崩。
                     }
                 }
             }
 
-            top += height;
+            top += line.Height;
         }
+    }
+
+    private FormattedText MarkerFormatted(Control target, string text, IBrush brush)
+    {
+        var size = FontSizeOf(target);
+
+        if (_markerTexts.TryGetValue(text, out var cached)
+            && Math.Abs(_markerFontSize - size) < 0.01
+            && ReferenceEquals(_markerBrush, brush))
+        {
+            return cached;
+        }
+
+        _markerFontSize = size;
+        _markerBrush = brush;
+
+        var family = target is TextBlock block ? block.FontFamily : FontFamilyOf(target);
+        var formatted = new FormattedText(
+            text,
+            CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            new Typeface(family),
+            size,
+            brush);
+
+        _markerTexts[text] = formatted;
+        return formatted;
     }
 
     private bool TryGetLayout(

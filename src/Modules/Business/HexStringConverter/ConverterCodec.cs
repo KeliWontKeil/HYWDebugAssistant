@@ -22,15 +22,13 @@ namespace HYWDebugAssistant.Modules.HexStringConverter;
 internal static class ConverterCodec
 {
     /// <summary>字符 → HEX（两位大写、空格分隔；空文本 ⇒ 失败原因置空、结果为"无动作"）。</summary>
-    /// <param name="text">输入文本（原样，不做规范化）。</param>
-    /// <param name="escape">是否解释字面 C 转义。</param>
+    /// <param name="text">输入文本（按 C 字符串转义解析后编码）。</param>
     /// <param name="mode">换行归一档。</param>
     /// <param name="hex">结果（形如 <c>41 42</c>）。</param>
     /// <param name="failure">失败原因（成功为 <see langword="null"/>）。</param>
     /// <returns>成功为 <see langword="true"/>（空输入也算成功，但 <paramref name="hex"/> 为空串 ⇒ 调用方无动作）。</returns>
     public static bool TryToHex(
         string? text,
-        bool escape,
         NewlineMode mode,
         out string hex,
         out string? failure)
@@ -43,7 +41,7 @@ internal static class ConverterCodec
             return true;    // 空 ⇒ 无动作（不报错）
         }
 
-        var normalized = TextNewlines.Normalize(TextEscapes.Normalize(text, escape), mode);
+        var normalized = TextNewlines.Normalize(TextEscapes.Normalize(text), mode);
         var bytes = Encoding.UTF8.GetBytes(normalized);
         var builder = new StringBuilder(bytes.Length * 3);
 

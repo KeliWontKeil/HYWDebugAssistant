@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using HYWDebugAssistant.Sdk.Text;
 
 namespace HYWDebugAssistant.Modules.DataMonitor;
 
@@ -21,7 +22,8 @@ internal readonly record struct MonitorFormat(bool Hex, bool Timestamp, bool Lin
 ///     `IViewDisplayAccess.AppendText` / `AppendLine`）—— 通道引进的换行**不是字符**，
 ///     因此显示层不会给它画 `↵`（数据里真有的 `\n` 才画）；</item>
 ///   <item><b>文本方向按 UTF-8 解码</b>（与其余三个模块同一口径）：非法 / 被截断的字节序列**明确标出**
-///     （`⟨非法字节⟩`），**不静默替换成 `�`**；<b>十六进制方向永不丢</b>（原样呈现每个字节）；</item>
+///     （`⟨非法字节⟩`），**不静默替换成 `�`**；<b>十六进制方向永不丢</b>（原样呈现每个字节）；
+///     合法的控制/格式/私用/未分配字符**原样写进显示缓冲**，由文本控件决定显示成标记还是方框；</item>
 ///   <item><b>不按 `0x00` 截断</b>（用户纪律）：一切按到达的 `len` 切片 —— `0x00` 是合法数据。</item>
 /// </list>
 /// <para>
@@ -103,32 +105,28 @@ internal sealed class MonitorLineFormatter(MonitorFormat format)
             return string.Empty;
         }
 
-        // 十六进制方向每字节固定 3 个字符（两位 + 一个分隔空格），文本方向不会更长。
-        var builder = new StringBuilder(payload.Length * (format.Hex ? 3 : 1) + 24);
+        // 十六进制方向每字节固定 3 个字符（两位 + 一个分隔空格），文本方向不会更长
+        // （保留哨兵码位会变成标记，但那是极少数；多留一点余量）。
+        var builder = new StringBuilder(payload.Length * (format.Hex ? 3 : 2) + 24);
         Render(payload, timestamp, builder);
         return builder.ToString();
     }
 
     /// <summary>
-    /// UTF-8 解码：**非法 / 被截断的序列**与**不可显示的字符**都**明确标出**（不静默替换、不静默当换行）。
+    /// UTF-8 解码：**非法 / 被截断的序列**明确标出原始字节；**合法字符原样写入**。
     /// </summary>
     /// <param name="builder">目标。</param>
     /// <param name="chunk">字节块。</param>
     /// <remarks>
     /// <para>
     /// <b>换行是格式声明，不是不可显示字符</b>：`0x0A` / `0x0D0A` 原样输出为真实换行，
-    /// 由显示层画 `↵`；只有**没有可见形状、也没有格式语义**的控制字符才写成
-    /// <c>⟨XX⟩</c>（该字符的原始字节，大写十六进制、逐字节排列）——
-    /// <list type="bullet">
-    ///   <item>`0x0C`（换页）⇒ <c>⟨0C⟩</c>、制表 `0x09` ⇒ <c>⟨09⟩</c>；</item>
-    ///   <item>被删字符 `0x7F` ⇒ <c>⟨7F⟩</c>；</item>
-    ///   <item>非 ASCII 的不可显示码位（如 U+0085）⇒ 它的 UTF-8 原始字节，如 <c>⟨C2 85⟩</c>；</item>
-    ///   <item>非法 / 被截断的字节 ⇒ 单独那个字节，如 <c>⟨A1⟩</c>。</item>
-    /// </list>
+    /// 由显示层画 `↵`；数据里真实的换行字符保留为换行。
     /// </para>
     /// <para>
-    /// **换行保留为字符**：数据里真实的换行是数据的一部分，不能吞掉；显示层用 `↵` 告诉用户
-    /// "这里有一个换行字符"，自动折行不会画它。保存的 `.txt` 里对应位置也是真实换行。
+    /// **不可显示字符不由模块转义**：合法的控制/格式/私用/未分配字符直接写进显示缓冲，
+    /// 由文本控件按应用设置显示成 `⟨XX⟩` 或 `□`；复制与保存因此拿到原始字符。
+    /// 只有内部换行哨兵码位 U+F000–U+F002 写成字面标记，避免与哨兵协议混淆；
+    /// 非法字节仍写成 `⟨XX⟩` 字面文本（没有合法字符可还原）。
     /// </para>
     /// </remarks>
     private void AppendDecoded(StringBuilder builder, ReadOnlySpan<byte> chunk)
@@ -186,27 +184,26 @@ internal sealed class MonitorLineFormatter(MonitorFormat format)
                 continue;
             }
 
-            if (status == System.Buffers.OperationStatus.Done && IsVisible(rune))
-            {
-                AppendRune(builder, rune);
-                index += consumed;
-                continue;
-            }
-
             if (status == System.Buffers.OperationStatus.Done)
             {
-                // **合法但屏幕上没有形状** ⇒ 标出它的原始字节（逐个字节，便于与十六进制方向对照）
-                for (var i = 0; i < consumed; i++)
+                // **没有可见形状的字符不再由模块转义**：原样写进显示缓冲，由文本控件
+                // 决定画成 ⟨XX⟩ 还是 □。只有内部换行哨兵码位要写成字面标记，避免
+                // 它们与“哨兵 + 换行”的内部协议混淆。
+                if (rune.Value is >= 0xF000 and <= 0xF002)
                 {
-                    AppendByteMarker(builder, chunk[index + i]);
+                    TextControlCharacters.AppendRuneMarker(builder, rune);
+                }
+                else
+                {
+                    AppendRune(builder, rune);
                 }
 
                 index += consumed;
                 continue;
             }
 
-            // 非法或被截断 ⇒ **明确标出原始字节**（用户纪律：字符串方向明确报错、十六进制方向永不丢）
-            AppendByteMarker(builder, chunk[index]);
+            // 非法或被截断 ⇒ **明确标出原始字节**（字符串方向明确报错、十六进制方向永不丢）
+            TextControlCharacters.AppendByteMarker(builder, chunk[index]);
             index++;
         }
     }
@@ -225,37 +222,7 @@ internal sealed class MonitorLineFormatter(MonitorFormat format)
         _ = builder.Append(pair[..written]);
     }
 
-    /// <summary>写出 `⟨XX⟩`（两个大写十六进制数字 + 尖括号，不产生临时字符串）。</summary>
-    private static void AppendByteMarker(StringBuilder builder, byte value)
-    {
-        _ = builder.Append('⟨');
-        AppendHexByte(builder, value);
-        _ = builder.Append('⟩');
-    }
-
     /// <summary>写出两位大写十六进制。</summary>
     private static void AppendHexByte(StringBuilder builder, byte value) =>
         _ = builder.Append(HexDigits[value >> 4]).Append(HexDigits[value & 0xF]);
-
-    /// <summary>这个码位在屏幕上有可见形状吗（决定"原样显示"还是"写成 ⟨XX⟩"）。</summary>
-    /// <param name="rune">码位。</param>
-    /// <returns>有可见形状为 <see langword="true"/>。</returns>
-    /// <remarks>
-    /// 判据取 <see cref="Rune.GetUnicodeCategory(Rune)"/>：只有 <c>Cc</c>（控制）/<c>Cf</c>（格式）/
-    /// <c>Cs</c>（代理）/<c>Co</c>（私用）/<c>Cn</c>（未分配）/<c>Zl</c>/<c>Zp</c>（U+2028 / U+2029 这类会跳行的分隔符）
-    /// 被算作"没有可见形状"。**ASCII 空格 U+0020 算可见**（它是 <c>Zs</c>）——
-    /// 空格当然要照原样留着，否则 `41 42` 那种文本会被写成 `⟨20⟩⟨20⟩`，没法看。
-    /// <b>制表符不算可见</b>：它没有自己的字形，画出来是"一段不定宽的空白"，位置与宽度由制表位决定。
-    /// </remarks>
-    private static bool IsVisible(Rune rune) => Rune.GetUnicodeCategory(rune) switch
-    {
-        UnicodeCategory.Control => false,
-        UnicodeCategory.Format => false,
-        UnicodeCategory.Surrogate => false,
-        UnicodeCategory.PrivateUse => false,
-        UnicodeCategory.OtherNotAssigned => false,
-        UnicodeCategory.LineSeparator => false,
-        UnicodeCategory.ParagraphSeparator => false,
-        _ => true,
-    };
 }

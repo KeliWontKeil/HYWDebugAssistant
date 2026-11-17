@@ -17,7 +17,6 @@ public static class HexStringConverterViewKeys
     public const string CharResult = HexStringConverterModule.CharResultSource;
     public const string CharPagesKey = HexStringConverterModule.CharPagesKey;
     public const string HexPagesKey = HexStringConverterModule.HexPagesKey;
-    public const string Escape = HexStringConverterModule.EscapeSource;
     public const string NewlineCr = HexStringConverterModule.NewlineCrSource;
     public const string NewlineLf = HexStringConverterModule.NewlineLfSource;
     public const string EnterNewline = HexStringConverterModule.EnterNewlineSource;

@@ -55,11 +55,13 @@
               </ui:ModuleSegmentedControl.PreviewOptions>
             </ui:ModuleSegmentedControl>
           </ScrollViewer>
-          <ui:ModuleButton Canvas.Left="498" Canvas.Top="2" Width="18" Height="18" Classes="icon"
+          <ui:ModuleButton Canvas.Left="498" Canvas.Top="2" Width="19" Height="19" Classes="icon"
+                           Appearance="Accent"
                            CommandName="{x:Static views:WaveformGeneratorViewKeys.AddGroup}"
                            Icon="{x:Static views:WaveformGeneratorViewKeys.IconAdd}"
                            ToolTip.Tip="{loc:Tr view.addGroup}" />
-          <ui:ModuleButton Canvas.Left="518" Canvas.Top="2" Width="18" Height="18" Classes="icon"
+          <ui:ModuleButton Canvas.Left="518" Canvas.Top="2" Width="19" Height="19" Classes="icon"
+                           Appearance="Danger"
                            CommandName="{x:Static views:WaveformGeneratorViewKeys.RemoveGroup}"
                            Icon="{x:Static views:WaveformGeneratorViewKeys.IconTrash}"
                            ToolTip.Tip="{loc:Tr view.removeGroup}" />
@@ -120,11 +122,13 @@
               </ui:ModuleSegmentedControl.PreviewOptions>
             </ui:ModuleSegmentedControl>
           </ScrollViewer>
-          <ui:ModuleButton Canvas.Left="498" Canvas.Top="90" Width="18" Height="18" Classes="icon"
+          <ui:ModuleButton Canvas.Left="498" Canvas.Top="89" Width="19" Height="19" Classes="icon"
+                           Appearance="Accent"
                            CommandName="{x:Static views:WaveformGeneratorViewKeys.AddChannel}"
                            Icon="{x:Static views:WaveformGeneratorViewKeys.IconAdd}"
                            ToolTip.Tip="{loc:Tr view.addChannel}" />
-          <ui:ModuleButton Canvas.Left="518" Canvas.Top="90" Width="18" Height="18" Classes="icon"
+          <ui:ModuleButton Canvas.Left="518" Canvas.Top="89" Width="19" Height="19" Classes="icon"
+                           Appearance="Danger"
                            CommandName="{x:Static views:WaveformGeneratorViewKeys.RemoveChannel}"
                            Icon="{x:Static views:WaveformGeneratorViewKeys.IconTrash}"
                            ToolTip.Tip="{loc:Tr view.removeChannel}" />
@@ -245,9 +249,11 @@
                           Classes="micro wrap" Text="{loc:Tr view.totalEstimatePreview}" />
 
           <ui:ModuleButton Canvas.Left="6" Canvas.Top="140" Width="120" Height="22"
+                           Appearance="Accent"
                            CommandName="{x:Static views:WaveformGeneratorViewKeys.StartContinuous}"
                            Content="{loc:Tr view.startContinuous}" />
           <ui:ModuleButton Canvas.Left="6" Canvas.Top="104" Width="120" Height="22"
+                           Appearance="Accent"
                            CommandName="{x:Static views:WaveformGeneratorViewKeys.SendOnce}"
                            Content="{loc:Tr view.send}" />
           <ui:ModuleButton Canvas.Left="6" Canvas.Top="170" Width="120" Height="22"

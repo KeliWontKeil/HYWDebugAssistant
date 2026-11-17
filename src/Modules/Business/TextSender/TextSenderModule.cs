@@ -103,9 +103,6 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// <summary>输入源 / 数据源：发送间隔（毫秒，数值输入 + 框外单位标签）。</summary>
     public const string IntervalSource = "interval";
 
-    /// <summary>输入源：转义字面反斜杠序列（默认关）。</summary>
-    public const string EscapeSource = "escape";
-
     /// <summary>输入源：真实回车是否输出 CR（默认开）。</summary>
     public const string NewlineCrSource = "newlineCr";
 
@@ -264,13 +261,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
             Persistent = true,
         });
 
-        // 发送格式：转义只作用于字面反斜杠序列；CR/LF 只作用于真实回车，两者互不影响。
-        context.Declaration.DeclareValue(new ValueDeclaration(EscapeSource)
-        {
-            Editor = ValueEditor.Boolean,
-            Persistent = true,
-            ResetWithModule = false,
-        });
+        // 发送格式：文本输入始终按 C 转义记法解析；CR/LF 只作用于真实回车，两者互不影响。
         context.Declaration.DeclareValue(new ValueDeclaration(NewlineCrSource)
         {
             Editor = ValueEditor.Boolean,
@@ -594,7 +585,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
             : context.Values.ReadText(TextSourceOf(senderPage)) ?? string.Empty;
 
         // 发送格式在**一拍内只规范化一次**：长度判定、判据与真正发送用同一份文本。
-        outgoing = NormalizeOutgoing(context, outgoing);
+        outgoing = NormalizeOutgoing(outgoing);
 
         // **"按了发送而这一页是空的"⇒ 记下"这一页被拦下过"**（红按页粘住，补上内容才消失）。
         // 只认"按发送"，不认"连续发送当前页空" —— 后者每拍都成立，会把一整列格子永久染红。
@@ -1020,7 +1011,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
     public bool Send(IModuleContext context, string text, out int packets)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return SendNormalized(context, NormalizeOutgoing(context, text), out packets);
+        return SendNormalized(context, NormalizeOutgoing(text), out packets);
     }
 
     /// <summary>发送已经规范化过的文本（一拍内只规范化一次）。</summary>
@@ -1095,14 +1086,10 @@ public sealed class TextSenderModule : IModule, IActivitySource
         return packets > 0;
     }
 
-    /// <summary>按当前发送格式（C 风格转义）规范化一次。</summary>
-    private static string NormalizeOutgoing(IModuleContext context, string? text)
+    /// <summary>按 C 风格转义规范化一次（文本输入始终解析）。</summary>
+    private static string NormalizeOutgoing(string? text)
     {
-        ArgumentNullException.ThrowIfNull(context);
-
-        return TextSenderCodec.Normalize(
-            text ?? string.Empty,
-            ReadBool(context, EscapeSource, fallback: false));
+        return TextSenderCodec.Normalize(text ?? string.Empty);
     }
 
     /// <summary>把 CR/LF 勾选派生为输入控件读取的回车换行档。</summary>

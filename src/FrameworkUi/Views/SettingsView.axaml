@@ -163,6 +163,13 @@
                                      ToolTip.Tip="{loc:Tr settings.general.performanceMonitor.tip}" />
 
                         <Rectangle Classes="settingsRule" />
+                        <TextBlock Classes="sec" Text="{loc:Tr settings.general.text.title}" />
+                        <ui:UiToggle Content="{loc:Tr settings.general.controlCharacters.label}"
+                                     IsChecked="{Binding ShowControlCharacterMarkers, Mode=TwoWay}"
+                                     ToolTip.Tip="{loc:Tr settings.general.controlCharacters.tip}" />
+                        <TextBlock Classes="note" Text="{loc:Tr settings.general.controlCharacters.note}" />
+
+                        <Rectangle Classes="settingsRule" />
 
                         <TextBlock Classes="sec" Text="{loc:Tr settings.general.logs.title}" />
                         <Grid ColumnDefinitions="170,190,*">

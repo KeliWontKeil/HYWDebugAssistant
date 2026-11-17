@@ -22,7 +22,7 @@
 | `ModuleLabel` | 一句话：静态文字、配置字段标题、文本显示源 | `Text`、`Field`、`Source`、`TextVerticalAlignment`；样式类 `caption` / `hint` / `micro` / `right` / `wrap` |
 | `ModuleNumeric` | 数值读数 | `Source`、`Quantity`（`None` / `Bytes`）、`Text`（预览值） |
 | `ModuleStatusLight` | 状态灯：底色来自模块设的**角色词** | `Source`；配合 `Appearance.SetOutlineRole(Source, role)` |
-| `ModuleTextSurface` | 文本面：日志显示或可编辑值 | `Mode`、`Value`、`CommitMode`、`Source`（仅显示）、`Text`、`Multiline`、`IsReadOnly`、`ShowNewlineMarks`、`TextAlignment`、`MinEditorHeight`、`Commit()`、`SubmitKeyValue`、`SubmitCommandName`、`EnterNewlineValue` |
+| `ModuleTextSurface` | 文本面：日志显示或可编辑值 | `Mode`、`Value`、`CommitMode`、`Source`（仅显示）、`Text`、`Multiline`、`IsReadOnly`、`ShowNewlineMarks`、`ShowControlCharacterMarkers`、`EscapeInput`、`TextAlignment`、`MinEditorHeight`、`Commit()`、`SubmitKeyValue`、`SubmitCommandName`、`EnterNewlineValue` |
 | `ModuleButton` | 命令按钮（可选右侧小箭头菜单） | `CommandName`、`Content`、`Icon`、`Appearance`、`MenuValue` |
 | `ModuleToggle` | 开关：勾选提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`CheckedChanged`（程序写回也触发） |
 | `ModuleCheckBox` | 勾选框：方框 + 勾形 + 右侧文字（间距 2 DIP），提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`Content`、`CheckedChanged` |
@@ -62,11 +62,13 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 ## 文本面
 
 `ModuleTextSurface` 有两种模式：
-- `Display`：只读、跟随尾部，适合日志与结果。`Source` 是显示源名，`ShowNewlineMarks` 决定是否画出数据里的换行字符；`Text` 是预览文本。只读文本里的 `⟨XX⟩` 标记由主题 `IncrementalTextView.MarkerBrush`（默认警示色）着色，模块不逐段上色。
+- `Display`：只读、跟随尾部，适合日志与结果。`Source` 是显示源名，`ShowNewlineMarks` 决定是否画出数据里的换行字符；`Text` 是预览文本。真实不可显示字符由 `ShowControlCharacterMarkers`（默认随应用设置）显示为警示色 `⟨XX⟩` 或方框 `□`，模块不逐段上色；复制/保存得到原始字符。
 - `Input`：可编辑值。`Value` 是值名，`CommitMode` 决定交值时机；`Multiline` 控制多行，提交键由应用设置里的“多行输入提交键”决定（`Ctrl+Enter` / `Enter` / `None`）；`Commit()` 可主动交值（例如按钮点击时取当前编辑内容）。
+- **C 转义输入**：`EscapeInput="True"` 表示这个输入面的值按 C 字符串转义语法解释；控件只负责识别并把合法转义组画成蓝色，**不解码**。值本身仍是记法文本（例如 `\x0C`），复制/提交得到记法；模块在发送/转换时调用 `TextEscapes.Normalize` 解码。粘贴进来的真实不可显示字符仍按标记/方框显示，复制得到原字符。
 - **回车写入哪种换行**：`EnterNewlineValue` 指定一个值名（`crlf` / `cr` / `lf` / `none`），不指定或未知时默认 `crlf`（写 `\r\n`）。TextSender 与转换器用它把 CR/LF 勾选框映射为回车档；单行输入不处理换行。回车事件在输入框的**隧道**阶段处理，避免 TextBox 抢先插入 `\n` 或吃掉提交档。
-- **已有换行的归一**：只要输入面设置了 `EnterNewlineValue`，换行档变化时控件会把当前输入框里的全部 `\r\n`/`\r`/`\n` 替换成目标序列；`none` 删除全部换行，并立即交值。首次显示持久化内容时也归一；没有该值名的输入面不参与（例如 HEX 十六进制输入）。
-- **换行标记**：只读面与输入覆盖层对数据换行区分 `\r\n`=`↵`、单独 `\r`=`←`、单独 `\n`=`↓`；统一使用 `TextMuted`（可通过 `NewlineMarkBrush` 覆盖）。显示缓冲的内部哨兵不会进入复制/保存文本。
+- **已有换行的归一**：只要输入面设置了 `EnterNewlineValue`，换行档变化时控件会把当前输入框里的全部真实 `\r\n`/`\r`/`\n` 替换成目标序列；`none` 删除全部换行，并立即交值。首次显示持久化内容时也归一；没有该值名的输入面不参与（例如 HEX 十六进制输入）。C 转义记法里的 `\n` 不是真实换行，不参与归一。
+- **换行标记**：只读面与输入覆盖层对数据换行区分 `\r\n`=`↵`、单独 `\r`=`←`、单独 `\n`=`↓`；统一使用 `TextMuted`（可通过 `NewlineMarkBrush` 覆盖）。显示缓冲的内部哨兵不会进入复制/保存文本；复制保留真实换行种类（CRLF / CR / LF），通道换行按平台换行。
+- **输入面的复制、剪切与撤销**：复制/剪切取原始值（不是显示标记）；原生 TextBox 撤销关闭，改用 Raw 快照撤销，避免撤销把 `⟨XX⟩` 恢复成字面文本。
 
 规则：
 
@@ -85,7 +87,7 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 - `ModuleToggle` 绑定一个值：用户拨动后按 `CommitMode` 交值；显示值来自 `ReadValue`，不是显示源。
 - `CheckedChanged` 在用户拨动和程序写回时都会触发；需要区分时自行用标志。
 - 开关文字是独立的 `ModuleLabel`，放在轨道右侧。
-- `ModuleCheckBox` 与 `ModuleToggle` 是同一值语义的两种外观：勾选框把文字放在方框右侧（`Content`），适合需要更接近表单勾选观感的设置；文本发送器的转义/CR/LF 使用它。
+- `ModuleCheckBox` 与 `ModuleToggle` 是同一值语义的两种外观：勾选框把文字放在方框右侧（`Content`），适合需要更接近表单勾选观感的设置；文本发送器/转换器的 CR/LF 使用它。
 
 ## 值编辑器
 
@@ -175,7 +177,7 @@ public static System.Reflection.Assembly IconOwner => typeof(MyModule).Assembly;
          Owner="{x:Static local:MyModule.IconOwner}" Width="16" Height="16" />
 ```
 
-图标来自 `resources/icons/<程序集简名>/icons.json`（见[资源与文本](resources.md)）；缺键显示键名并报诊断。图标颜色跟随 `Foreground`。
+图标来自 `resources/icons/<程序集简名>/icons.json`（见[资源与文本](resources.md)）；缺键显示键名并报诊断。图标颜色与按钮文字共用同一个 `Foreground`（`Danger`/`Accent` 一起变白，指针/按下态一起变），不再为图标单独维护颜色。加、减、删除、刷新这类操作图标使用 `fill="none"` 的中心线路径（线条由 `Icon` 统一描边），不再用实心块。
 
 ## 自定义元件
 

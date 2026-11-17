@@ -626,12 +626,16 @@ public sealed class DataMonitorModule : IModule, IActivitySource
         try
         {
             // **回读显示缓冲**（框架侧已把"还没被 UI 取走的追加"叠进快照 ⇒ 不会丢尾巴）
-            // 显示层在数据换行前放了私有哨兵（只用于画箭头），落盘前必须剥离。
+            // 显示层在数据换行前放了私有哨兵（只用于画箭头），落盘时还原成真实换行种类。
             var lines = context.ViewState.GetDisplayLines(LogSource)
-                .Select(HYWDebugAssistant.Sdk.Ui.Controls.NewlineEncoding.Strip)
+                .Select(HYWDebugAssistant.Sdk.Ui.Controls.NewlineEncoding.Expand)
                 .ToList();
 
-            File.WriteAllLines(path, lines, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            var text = lines.Count == 0
+                ? string.Empty
+                : string.Join(Environment.NewLine, lines) + Environment.NewLine;
+
+            File.WriteAllText(path, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
             LastSaveFailure = null;
             SaveCount++;

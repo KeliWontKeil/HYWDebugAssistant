@@ -38,9 +38,6 @@ public static class TextSenderText
     /// <summary>发送按钮菜单：Ctrl+Enter 发送。</summary>
     public const string SubmitKeyCtrlEnter = "view.submitKey.ctrlEnter";
 
-    /// <summary>转义开关标签。</summary>
-    public const string Escape = "view.escape";
-
     /// <summary>换行开关组标签。</summary>
     public const string Newline = "view.newline";
 

@@ -134,6 +134,7 @@
                 <!-- 区域底行：左「加入现场」（页面级帮助在页面顶行，不在框内） -->
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="2,4,0,0">
                     <Button HorizontalAlignment="Left"
+                            Classes="accent"
                             MinWidth="60"
                             Content="{loc:Tr catalog.add}"
                             Command="{Binding AddCommand}"

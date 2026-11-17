@@ -4,7 +4,7 @@ using Xunit;
 
 namespace HYWDebugAssistant.Tests;
 
-/// <summary>共享换行/转义工具：文本发送器与转换器只有这一套语义。</summary>
+/// <summary>共享换行工具：文本发送器与转换器只有这一套语义。</summary>
 public class TextNewlinesTests
 {
     [Theory]
@@ -27,14 +27,5 @@ public class TextNewlinesTests
         TextNewlines.ChoiceOf(NewlineMode.CrLf).ShouldBe("crlf");
         TextNewlines.ParseChoice("lf").ShouldBe(NewlineMode.Lf);
         TextNewlines.ParseChoice("unknown").ShouldBe(NewlineMode.CrLf);
-    }
-
-    [Fact]
-    public void C转义_十六进制与八进制()
-    {
-        TextEscapes.Normalize(@"\x41\101\v\?\\", escape: true).ShouldBe("AA\v?\\");
-        TextEscapes.Normalize(@"\x41", escape: false).ShouldBe(@"\x41");
-        TextEscapes.Normalize(@"\x", escape: true).ShouldBe(@"\x");
-        TextEscapes.Normalize(@"\q", escape: true).ShouldBe(@"\q");
     }
 }

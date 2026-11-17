@@ -78,6 +78,7 @@
                           Value="{x:Static views:UdpViewKeys.Broadcast}" />
 
     <ui:ModuleButton Canvas.Left="206" Canvas.Top="8" Width="72" Height="25"
+                     Appearance="Accent"
                      CommandName="{x:Static views:UdpViewKeys.Open}" Content="{loc:Tr view.open}" />
     <ui:ModuleButton Canvas.Left="284" Canvas.Top="8" Width="72" Height="25"
                      CommandName="{x:Static views:UdpViewKeys.Close}" Content="{loc:Tr view.close}" />

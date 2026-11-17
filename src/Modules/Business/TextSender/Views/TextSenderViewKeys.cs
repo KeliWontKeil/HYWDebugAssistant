@@ -10,7 +10,6 @@ public static class TextSenderViewKeys
     public const string Text5 = TextSenderModule.Text5;
     public const string Continuous = TextSenderModule.ContinuousSource;
     public const string Interval = TextSenderModule.IntervalSource;
-    public const string Escape = TextSenderModule.EscapeSource;
     public const string NewlineCr = TextSenderModule.NewlineCrSource;
     public const string NewlineLf = TextSenderModule.NewlineLfSource;
     public const string SubmitKey = TextSenderModule.SubmitKeySource;

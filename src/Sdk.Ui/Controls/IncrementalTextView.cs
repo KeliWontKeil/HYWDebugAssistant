@@ -9,6 +9,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
 using Avalonia.Threading;
+using Avalonia.Utilities;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Views;
@@ -49,6 +50,10 @@ public sealed class IncrementalTextView : TemplatedControl
     public static readonly StyledProperty<IBrush?> MarkerBrushProperty =
         AvaloniaProperty.Register<IncrementalTextView, IBrush?>(nameof(MarkerBrush));
 
+    /// <summary>不可显示字符显示为警示色标记（true）还是方框占位（false）。</summary>
+    public static readonly StyledProperty<bool> ShowControlCharacterMarkersProperty =
+        AvaloniaProperty.Register<IncrementalTextView, bool>(nameof(ShowControlCharacterMarkers), defaultValue: true);
+
     /// <summary>行末换行标记的颜色；null = 主题的 TextMuted，再退到灰色。</summary>
     public static readonly StyledProperty<IBrush?> NewlineMarkBrushProperty =
         AvaloniaProperty.Register<IncrementalTextView, IBrush?>(nameof(NewlineMarkBrush));
@@ -85,7 +90,6 @@ public sealed class IncrementalTextView : TemplatedControl
     private bool _selecting;
     private ScrollViewer? _scroll;
     private readonly Dictionary<string, FormattedText> _newlineMarks = [];
-    private readonly Dictionary<string, FormattedText> _markerTexts = [];
     private int _layoutBuildCount;
 
     /// <summary>
@@ -165,6 +169,13 @@ public sealed class IncrementalTextView : TemplatedControl
         set => SetValue(MarkerBrushProperty, value);
     }
 
+    /// <summary>不可显示字符显示为标记（true）还是方框（false）。</summary>
+    public bool ShowControlCharacterMarkers
+    {
+        get => GetValue(ShowControlCharacterMarkersProperty);
+        set => SetValue(ShowControlCharacterMarkersProperty, value);
+    }
+
     /// <summary>行末换行标记的绘制颜色；默认跟随 TextMuted。</summary>
     public IBrush? NewlineMarkBrush
     {
@@ -187,7 +198,7 @@ public sealed class IncrementalTextView : TemplatedControl
     }
 
     /// <summary>完整文本（按“行 + 真实/通道换行”拼出；只在复制/测试等按需调用时生成）。</summary>
-    public string Text => BuildText().Replace("\n", Environment.NewLine, StringComparison.Ordinal);
+    public string Text => BuildText();
 
     /// <summary>选择起点（扁平字符偏移）。</summary>
     public int SelectionStart
@@ -225,7 +236,7 @@ public sealed class IncrementalTextView : TemplatedControl
 
             var text = BuildText();
             var selected = end <= text.Length ? text[start..end] : text[start..];
-            return selected.Replace("\n", Environment.NewLine, StringComparison.Ordinal);
+            return selected;
         }
     }
 
@@ -239,7 +250,7 @@ public sealed class IncrementalTextView : TemplatedControl
     public int VisualLineCount => _visuals.Count;
 
     /// <summary>每个视觉行的字符数（测试/诊断用；用于断言折行连续、没有块边界硬断）。</summary>
-    public IReadOnlyList<int> VisualLineLengths => _visuals.Select(visual => visual.Length).ToArray();
+    public IReadOnlyList<int> VisualLineLengths => _visuals.Select(visual => visual.SourceLength).ToArray();
 
     /// <summary>已创建的 <see cref="TextLayout"/> 数（增量性探针用）。</summary>
     public int LayoutBuildCount => _layoutBuildCount;
@@ -515,7 +526,6 @@ public sealed class IncrementalTextView : TemplatedControl
             || change.Property == FontStyleProperty)
         {
             _newlineMarks.Clear();
-            _markerTexts.Clear();
             _lineHeight = 0;
             _relayoutPending = true;
             InvalidateMeasure();
@@ -525,8 +535,14 @@ public sealed class IncrementalTextView : TemplatedControl
 
         if (change.Property == MarkerBrushProperty)
         {
-            _markerTexts.Clear();
-            InvalidateVisual();
+            RelayoutAll();
+            return;
+        }
+
+        if (change.Property == ShowControlCharacterMarkersProperty)
+        {
+            InvalidateProjections();
+            RelayoutAll();
             return;
         }
 
@@ -578,7 +594,6 @@ public sealed class IncrementalTextView : TemplatedControl
         var brush = Foreground ?? Brushes.Black;
         // 绝对色：主题缺失时的兜底选择色；正常路径由 SelectionBrush（OverlaySelection）提供。
         var selection = SelectionBrush ?? Brushes.LightBlue;
-        var markerBrush = MarkerBrush;
         var newlineBrush = NewlineMarkBrush;
 
         if (newlineBrush is null
@@ -619,11 +634,6 @@ public sealed class IncrementalTextView : TemplatedControl
 
                 DrawSelection(context, visual, line, x, y, selection, selStart, selEnd);
                 line.Draw(context, new Point(x, y));
-
-                if (markerBrush is not null)
-                {
-                    DrawMarkers(context, visual, line, x, y, markerBrush);
-                }
 
                 if (ShowNewlineMarks && visual.Owner.RealBreak && ReferenceEquals(visual, visual.Owner.Visuals[^1]))
                 {
@@ -814,7 +824,6 @@ public sealed class IncrementalTextView : TemplatedControl
         _relayoutPending = false;
         ReleaseAllLayouts();
         _newlineMarks.Clear();
-        _markerTexts.Clear();
     }
 
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e) => InvalidateVisual();
@@ -905,35 +914,51 @@ public sealed class IncrementalTextView : TemplatedControl
     private void AddSegments(RawLine raw, string text)
     {
         var start = 0;
+        var index = 0;
 
-        for (var i = 0; i < text.Length; i++)
+        while (index < text.Length)
         {
-            if (text[i] != '\n')
+            if (text[index] == '\r')
             {
+                if (index + 1 < text.Length && text[index + 1] == '\n')
+                {
+                    // CRLF 交给下面的 LF 分支统一处理（保留 ↵ 种类）。
+                    index++;
+                    continue;
+                }
+
+                // 单独 CR 也是真实换行；不从显示行里吞掉。
+                AddDisplayLine(raw, start, index - start, realBreak: true, NewlineKind.Cr);
+                start = index + 1;
+                index++;
                 continue;
             }
 
-            var length = i - start;
-            var kind = NewlineKind.Lf;
-
-            if (length > 0 && NewlineEncoding.IsSentinel(text[i - 1]))
+            if (text[index] == '\n')
             {
-                kind = NewlineEncoding.KindOf(text[i - 1]);
-                length--;
-            }
-            else if (length > 0 && text[i - 1] == '\r')
-            {
-                kind = NewlineKind.CrLf;
-                length--;
+                var length = index - start;
+                var kind = NewlineKind.Lf;
+
+                if (length > 0 && NewlineEncoding.IsSentinel(text[index - 1]))
+                {
+                    kind = NewlineEncoding.KindOf(text[index - 1]);
+                    length--;
+                }
+                else if (length > 0 && text[index - 1] == '\r')
+                {
+                    kind = NewlineKind.CrLf;
+                    length--;
+                }
+
+                AddDisplayLine(raw, start, length, realBreak: true, kind);
+                start = index + 1;
             }
 
-            AddDisplayLine(raw, start, length, realBreak: true, kind);
-            start = i + 1;
+            index++;
         }
 
         var tailLength = text.Length - start;
-        while (tailLength > 0
-               && (NewlineEncoding.IsSentinel(text[start + tailLength - 1]) || text[start + tailLength - 1] == '\r'))
+        while (tailLength > 0 && NewlineEncoding.IsSentinel(text[start + tailLength - 1]))
         {
             tailLength--;
         }
@@ -982,7 +1007,7 @@ public sealed class IncrementalTextView : TemplatedControl
         {
             foreach (var segment in _raw[i].Segments)
             {
-                removedChars += segment.Length + (segment.HasBreak ? 1 : 0);
+                removedChars += segment.Length + segment.BreakLength;
                 removedSegments++;
                 DisposeVisuals(segment);
             }
@@ -1065,6 +1090,32 @@ public sealed class IncrementalTextView : TemplatedControl
 
         for (var i = 0; i < suffix.Length; i++)
         {
+            if (suffix[i] == '\r')
+            {
+                if (i + 1 < suffix.Length && suffix[i + 1] == '\n')
+                {
+                    // CRLF 交给后面的 LF 分支统一处理。
+                    continue;
+                }
+
+                AppendToDisplayLine(last, suffix.Substring(start, i - start));
+                last.RealBreak = true;
+                last.BreakKind = NewlineKind.Cr;
+                last.ChannelBreak = false;
+
+                last = new DisplayLine
+                {
+                    StartInRaw = baseOffset + i + 1,
+                    Owner = raw,
+                };
+
+                raw.Segments.Add(last);
+                _display.Add(last);
+                LayoutLine(last, append: false);
+                start = i + 1;
+                continue;
+            }
+
             if (suffix[i] != '\n')
             {
                 continue;
@@ -1098,7 +1149,7 @@ public sealed class IncrementalTextView : TemplatedControl
                 kind = NewlineKind.CrLf;
             }
 
-            AppendToDisplayLine(last, length);
+            AppendToDisplayLine(last, suffix.Substring(start, length));
             last.RealBreak = true;
             last.BreakKind = kind;
             last.ChannelBreak = false;
@@ -1117,23 +1168,23 @@ public sealed class IncrementalTextView : TemplatedControl
 
         var tailLength = suffix.Length - start;
         while (tailLength > 0
-               && (NewlineEncoding.IsSentinel(suffix[start + tailLength - 1])
-                   || suffix[start + tailLength - 1] == '\r'))
+               && NewlineEncoding.IsSentinel(suffix[start + tailLength - 1]))
         {
             tailLength--;
         }
 
-        AppendToDisplayLine(last, tailLength);
+        AppendToDisplayLine(last, suffix.Substring(start, tailLength));
     }
 
-    private void AppendToDisplayLine(DisplayLine line, int length)
+    private void AppendToDisplayLine(DisplayLine line, string text)
     {
-        if (length == 0)
+        if (text.Length == 0)
         {
             return;
         }
 
-        line.Length += length;
+        line.Length += text.Length;
+        line.AppendProjection(text, ShowControlCharacterMarkers);
         line.RealBreak = false;
         line.BreakKind = NewlineKind.None;
         line.ChannelBreak = false;
@@ -1244,19 +1295,24 @@ public sealed class IncrementalTextView : TemplatedControl
             return;
         }
 
+        var projection = line.EnsureProjection(ShowControlCharacterMarkers);
+
         if (!append || line.Visuals.Count == 0)
         {
             DisposeVisuals(line);
-            AppendChunk(line, line.GetText(), startInLine: 0);
+            AppendChunk(line, projection.Display, startInLine: 0);
             return;
         }
 
         // 只重建最后一个视觉行：前面的视觉行已经固定。
         var last = line.Visuals[^1];
-        var pendingText = line.GetText(last.StartInLine, line.Length - last.StartInLine);
+        var pendingStart = Math.Clamp(last.ProjectedStartInLine, 0, projection.DisplayLength);
+        var pendingText = projection.Display.Substring(
+            pendingStart,
+            projection.DisplayLength - pendingStart);
         ReleaseLayout(last);
         line.Visuals.RemoveAt(line.Visuals.Count - 1);
-        AppendChunk(line, pendingText, last.StartInLine);
+        AppendChunk(line, pendingText, pendingStart);
     }
 
     private void AppendChunk(DisplayLine line, string text, int startInLine)
@@ -1306,15 +1362,21 @@ public sealed class IncrementalTextView : TemplatedControl
         AddVisualLine(line, pendingStart, pendingText.Length);
     }
 
-    private static void AddVisualLine(DisplayLine line, int startInLine, int length)
+    private void AddVisualLine(DisplayLine line, int projectedStartInLine, int projectedLength)
     {
         // **只留区间，不建布局**：布局对象（TextLayout + TextLine，含整形后的字形位置）
         // 是这里最贵的东西；长缓冲下"每一行都缓存一份"会把内存推到与显示字符数成正比。
         // 真正要画/要命中的那几行才建（见 `EnsureLine`），窗口外的旧布局随手释放。
+        var projection = line.EnsureProjection(ShowControlCharacterMarkers);
+        var sourceStart = projection.DisplayToRaw(projectedStartInLine, preferRight: false);
+        var sourceEnd = projection.DisplayToRaw(projectedStartInLine + projectedLength, preferRight: true);
+
         line.Visuals.Add(new VisualLine
         {
-            StartInLine = startInLine,
-            Length = length,
+            ProjectedStartInLine = projectedStartInLine,
+            ProjectedLength = projectedLength,
+            SourceStartInLine = sourceStart,
+            SourceLength = Math.Max(0, sourceEnd - sourceStart),
             Owner = line,
         });
     }
@@ -1338,6 +1400,14 @@ public sealed class IncrementalTextView : TemplatedControl
         InvalidateVisual();
     }
 
+    private void InvalidateProjections()
+    {
+        foreach (var line in _display)
+        {
+            line.InvalidateProjection();
+        }
+    }
+
     private void RecomputeLayout()
     {
         _visuals.Clear();
@@ -1348,7 +1418,7 @@ public sealed class IncrementalTextView : TemplatedControl
         foreach (var line in _display)
         {
             line.FlatStart = flat;
-            flat += line.Length + (line.HasBreak ? 1 : 0);
+            flat += line.Length + line.BreakLength;
             line.VisualStart = _visuals.Count;
 
             foreach (var visual in line.Visuals)
@@ -1383,7 +1453,7 @@ public sealed class IncrementalTextView : TemplatedControl
         _visuals.RemoveRange(startVisual, _visuals.Count - startVisual);
 
         var previous = _display[startLine - 1];
-        var flat = previous.FlatStart + previous.Length + (previous.HasBreak ? 1 : 0);
+        var flat = previous.FlatStart + previous.Length + previous.BreakLength;
         var lineHeight = LineHeight;
         var top = previous.Visuals.Count > 0
             ? previous.Visuals[^1].Top + lineHeight
@@ -1393,7 +1463,7 @@ public sealed class IncrementalTextView : TemplatedControl
         {
             var line = _display[index];
             line.FlatStart = flat;
-            flat += line.Length + (line.HasBreak ? 1 : 0);
+            flat += line.Length + line.BreakLength;
             line.VisualStart = _visuals.Count;
 
             foreach (var visual in line.Visuals)
@@ -1440,15 +1510,63 @@ public sealed class IncrementalTextView : TemplatedControl
             return visual.Line;
         }
 
-        visual.Materialized ??= visual.Length == 0
+        var projection = visual.Owner.EnsureProjection(ShowControlCharacterMarkers);
+        visual.Materialized ??= visual.ProjectedLength == 0
             ? string.Empty
-            : visual.Owner.GetText(visual.StartInLine, visual.Length);
+            : projection.Display.Substring(visual.ProjectedStartInLine, visual.ProjectedLength);
 
-        var layout = CreateLayout(visual.Materialized, wrap: false);
+        var layout = CreateLayout(
+            visual.Materialized,
+            wrap: false,
+            BuildMarkerOverrides(visual, projection));
         visual.Layout = layout;
         visual.Line = layout.TextLines[0];
         _laidOut.Add(visual);
         return visual.Line;
+    }
+
+    /// <summary>把当前视觉行里的标记段变成布局级前景色覆盖，避免再叠画一次造成重影。</summary>
+    private List<ValueSpan<TextRunProperties>>? BuildMarkerOverrides(
+        VisualLine visual,
+        TextProjection projection)
+    {
+        if (MarkerBrush is null || !projection.HasMarkers || visual.ProjectedLength == 0)
+        {
+            return null;
+        }
+
+        List<ValueSpan<TextRunProperties>>? overrides = null;
+        var visualStart = visual.ProjectedStartInLine;
+        var visualEnd = visualStart + visual.ProjectedLength;
+        var typeface = new Typeface(FontFamily, FontStyle, FontWeight);
+        var properties = new GenericTextRunProperties(
+            typeface,
+            FontSize,
+            foregroundBrush: MarkerBrush);
+
+        foreach (var segment in projection.Segments)
+        {
+            if (segment.Kind != TextProjectionKind.Marker)
+            {
+                continue;
+            }
+
+            var start = Math.Max(segment.DisplayStart, visualStart);
+            var end = Math.Min(segment.DisplayEnd, visualEnd);
+
+            if (end <= start)
+            {
+                continue;
+            }
+
+            overrides ??= [];
+            overrides.Add(new ValueSpan<TextRunProperties>(
+                start - visualStart,
+                end - start,
+                properties));
+        }
+
+        return overrides;
     }
 
     /// <summary>释放某个视觉行的布局（区间保留，下次要画再建）。</summary>
@@ -1489,7 +1607,10 @@ public sealed class IncrementalTextView : TemplatedControl
         line.Visuals.Clear();
     }
 
-    private TextLayout CreateLayout(string text, bool wrap)
+    private TextLayout CreateLayout(
+        string text,
+        bool wrap,
+        IReadOnlyList<ValueSpan<TextRunProperties>>? textStyleOverrides = null)
     {
         _layoutBuildCount++;
 
@@ -1508,10 +1629,11 @@ public sealed class IncrementalTextView : TemplatedControl
             null,
             FlowDirection.LeftToRight,
             wrap ? _layoutWidth : double.PositiveInfinity,
-            double.PositiveInfinity);
+            double.PositiveInfinity,
+            textStyleOverrides: textStyleOverrides);
     }
 
-    private static void DrawSelection(
+    private void DrawSelection(
         DrawingContext context,
         VisualLine visual,
         TextLine line,
@@ -1521,13 +1643,13 @@ public sealed class IncrementalTextView : TemplatedControl
         int selStart,
         int selEnd)
     {
-        if (selEnd <= selStart || visual.Length == 0)
+        if (selEnd <= selStart || visual.SourceLength == 0)
         {
             return;
         }
 
-        var flatStart = visual.Owner.FlatStart + visual.StartInLine;
-        var flatEnd = flatStart + visual.Length;
+        var flatStart = visual.Owner.FlatStart + visual.SourceStartInLine;
+        var flatEnd = flatStart + visual.SourceLength;
         var start = Math.Max(selStart, flatStart);
         var end = Math.Min(selEnd, flatEnd);
 
@@ -1536,12 +1658,27 @@ public sealed class IncrementalTextView : TemplatedControl
             return;
         }
 
-        var localStart = start - flatStart;
-        var localEnd = end - flatStart;
+        var projection = visual.Owner.EnsureProjection(ShowControlCharacterMarkers);
+        var localSourceStart = start - flatStart;
+        var localSourceEnd = end - flatStart;
+        var projectedStart = projection.RawToDisplay(
+            visual.SourceStartInLine + localSourceStart,
+            preferRight: false) - visual.ProjectedStartInLine;
+        var projectedEnd = projection.RawToDisplay(
+            visual.SourceStartInLine + localSourceEnd,
+            preferRight: true) - visual.ProjectedStartInLine;
+
+        projectedStart = Math.Clamp(projectedStart, 0, visual.ProjectedLength);
+        projectedEnd = Math.Clamp(projectedEnd, projectedStart, visual.ProjectedLength);
+
+        if (projectedEnd <= projectedStart)
+        {
+            return;
+        }
 
         try
         {
-            foreach (var bounds in line.GetTextBounds(localStart, localEnd - localStart))
+            foreach (var bounds in line.GetTextBounds(projectedStart, projectedEnd - projectedStart))
             {
                 var rect = bounds.Rectangle.Translate(new Vector(x, y));
                 context.FillRectangle(brush, rect);
@@ -1557,65 +1694,6 @@ public sealed class IncrementalTextView : TemplatedControl
     {
         var mark = MarkFormatted(brush, text);
         context.DrawText(mark, new Point(x, y));
-    }
-
-    /// <summary>把可视行里的 `⟨XX⟩` 标记用 MarkerBrush 叠画一遍。</summary>
-    private void DrawMarkers(
-        DrawingContext context,
-        VisualLine visual,
-        TextLine line,
-        double x,
-        double y,
-        IBrush brush)
-    {
-        if (visual.Length == 0)
-        {
-            return;
-        }
-
-        var text = visual.Owner.GetText(visual.StartInLine, visual.Length);
-        if (text.IndexOf('⟨') < 0)
-        {
-            return;
-        }
-
-        foreach (var span in MarkerText.FindSpans(text))
-        {
-            var marker = text.Substring(span.Start, span.Length);
-            var formatted = MarkerFormatted(marker, brush);
-
-            try
-            {
-                var bounds = line.GetTextBounds(span.Start, span.Length);
-                foreach (var glyph in bounds)
-                {
-                    context.DrawText(formatted, new Point(x + glyph.Rectangle.Left, y));
-                }
-            }
-            catch (ArgumentException)
-            {
-                // 极端布局边界：宁可少画一段标记色，不让界面崩。
-            }
-        }
-    }
-
-    private FormattedText MarkerFormatted(string text, IBrush brush)
-    {
-        if (_markerTexts.TryGetValue(text, out var cached))
-        {
-            return cached;
-        }
-
-        var formatted = new FormattedText(
-            text,
-            CultureInfo.CurrentCulture,
-            FlowDirection.LeftToRight,
-            new Typeface(FontFamily, FontStyle, FontWeight),
-            FontSize,
-            brush);
-
-        _markerTexts[text] = formatted;
-        return formatted;
     }
 
     private FormattedText MarkFormatted(IBrush brush, string text)
@@ -1670,8 +1748,14 @@ public sealed class IncrementalTextView : TemplatedControl
             var line = EnsureLine(visual);
             var x = point.X - Padding.Left - AlignmentOffset(contentWidth, line.Width);
             var hit = line.GetCharacterHitFromDistance(Math.Max(0, x));
-            var local = Math.Clamp(hit.FirstCharacterIndex, 0, visual.Length);
-            return visual.Owner.FlatStart + visual.StartInLine + local;
+            var projectedLocal = Math.Clamp(hit.FirstCharacterIndex, 0, visual.ProjectedLength);
+            var projection = visual.Owner.EnsureProjection(ShowControlCharacterMarkers);
+            var rawLocal = projection.DisplayToRaw(
+                visual.ProjectedStartInLine + projectedLocal,
+                preferRight: false) - visual.SourceStartInLine;
+
+            rawLocal = Math.Clamp(rawLocal, 0, visual.SourceLength);
+            return visual.Owner.FlatStart + visual.SourceStartInLine + rawLocal;
         }
 
         return TextLength;
@@ -1700,9 +1784,14 @@ public sealed class IncrementalTextView : TemplatedControl
         {
             builder.Append(line.GetText());
 
-            if (line.HasBreak)
+            if (line.RealBreak)
             {
-                builder.Append('\n');
+                builder.Append(NewlineEncoding.SequenceOf(line.BreakKind));
+            }
+            else if (line.ChannelBreak)
+            {
+                // 通道换行不是数据；复制/保存时按当前平台的换行惯例落成真实换行。
+                builder.Append(Environment.NewLine);
             }
         }
 
@@ -1760,11 +1849,26 @@ public sealed class IncrementalTextView : TemplatedControl
 
         public bool HasBreak => RealBreak || ChannelBreak;
 
+        /// <summary>这个换行在源文本里占几个字符（CRLF=2，CR/LF=1，通道换行=平台换行长度）。</summary>
+        public int BreakLength => RealBreak
+            ? BreakKind switch
+            {
+                NewlineKind.CrLf => 2,
+                NewlineKind.Cr or NewlineKind.Lf => 1,
+                _ => 0,
+            }
+            : ChannelBreak ? Environment.NewLine.Length : 0;
+
         public int FlatStart;
 
         public int VisualStart;
 
         public RawLine Owner = null!;
+
+        /// <summary>本显示行的显示投影（不可显示字符 → 标记/方框）。</summary>
+        private TextProjection? _projection;
+
+        private bool _projectionMarkers;
 
         public List<VisualLine> Visuals { get; } = [];
 
@@ -1774,6 +1878,34 @@ public sealed class IncrementalTextView : TemplatedControl
         /// <summary>取显示行内从 <paramref name="start"/> 起的 <paramref name="length"/> 个字符（复制）。</summary>
         public string GetText(int start, int length) =>
             Owner.Slice(StartInRaw + start, length);
+
+        /// <summary>取得（必要时重建）显示投影。</summary>
+        public TextProjection EnsureProjection(bool markers)
+        {
+            if (_projection is null || _projectionMarkers != markers)
+            {
+                _projection = TextProjection.Create(GetText(), markers);
+                _projectionMarkers = markers;
+            }
+
+            return _projection;
+        }
+
+        /// <summary>追加后缀到投影（只对当前行尾追加调用）。</summary>
+        public void AppendProjection(string text, bool markers)
+        {
+            if (_projection is null || _projectionMarkers != markers)
+            {
+                _projection = TextProjection.Create(GetText(), markers);
+                _projectionMarkers = markers;
+                return;
+            }
+
+            _projection.Append(text);
+        }
+
+        /// <summary>内容整体变化后丢弃投影。</summary>
+        public void InvalidateProjection() => _projection = null;
     }
 
     private sealed class VisualLine
@@ -1784,11 +1916,17 @@ public sealed class IncrementalTextView : TemplatedControl
         /// <summary>本行的排版结果（与 <see cref="Layout"/> 同生同灭）。</summary>
         public TextLine? Line;
 
-        /// <summary>本行在显示行文本里的起点。</summary>
-        public int StartInLine;
+        /// <summary>本行在**投影文本**里的起点。</summary>
+        public int ProjectedStartInLine;
 
-        /// <summary>本行的字符数（区间长度）。</summary>
-        public int Length;
+        /// <summary>本行在**投影文本**里的字符数。</summary>
+        public int ProjectedLength;
+
+        /// <summary>本行对应的源文本起点（显示行内）。</summary>
+        public int SourceStartInLine;
+
+        /// <summary>本行对应的源文本字符数。</summary>
+        public int SourceLength;
 
         /// <summary>可见窗口内才物化的字符串（与布局同生命周期；滚出即释放）。</summary>
         public string? Materialized;

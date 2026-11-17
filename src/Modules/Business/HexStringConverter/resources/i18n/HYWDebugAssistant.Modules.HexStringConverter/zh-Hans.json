@@ -9,11 +9,9 @@
     "view.hexResultPreview": "48 65 6C 6C 6F",
     "view.hexToText": "HEX→文本",
     "view.textToHex": "文本→HEX",
-    "view.escape": "转义",
     "view.newline": "换行含义",
     "view.newlineCr": "\\r",
     "view.newlineLf": "\\n",
-    "view.options.tip": "换行对两个方向生效；转义只作用于文本→HEX；两者都不勾时移除换行",
     "view.charResultPreview": "Hello"
   }
 }

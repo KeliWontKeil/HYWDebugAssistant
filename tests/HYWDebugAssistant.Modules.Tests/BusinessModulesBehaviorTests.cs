@@ -49,33 +49,26 @@ public class BusinessModulesBehaviorTests
     }
 
     [Fact]
-    public void 文本发送器_转义与真实回车按各自开关输出()
+    public void 文本发送器_转义始终解析且真实回车按换行档输出()
     {
         var context = new TestModuleContext();
         var module = new TextSenderModule();
         module.OnRegistered(context);
 
-        context.ViewState.SetInputText(TextSenderModule.EscapeSource, "true");
         context.ViewState.SetInputText(TextSenderModule.NewlineCrSource, "true");
         context.ViewState.SetInputText(TextSenderModule.NewlineLfSource, "false");
 
-        // 真实换行由输入面的回车档决定，发送时原样保留；转义只解释字面反斜杠。
+        // 文本输入始终按 C 转义解析；真实换行由输入面的回车档决定，发送时原样保留。
         module.Send(context, "12\\r3456\\n\n1234\n", out _).ShouldBeTrue();
         SentText(context.Sent[^1].Payload).ShouldBe("12\r3456\n\n1234\n");
 
-        // CR/LF 勾选不再裁剪真实换行。
+        // CR/LF 勾选不裁剪真实换行，也不改写已解析的转义结果。
         context.ViewState.SetInputText(TextSenderModule.NewlineCrSource, "false");
         context.ViewState.SetInputText(TextSenderModule.NewlineLfSource, "false");
         module.Send(context, "12\\r3456\\n\n1234\n", out _).ShouldBeTrue();
         SentText(context.Sent[^1].Payload).ShouldBe("12\r3456\n\n1234\n");
 
-        // 转义关：字面反斜杠原样；真实换行仍保留。
-        context.ViewState.SetInputText(TextSenderModule.EscapeSource, "false");
-        module.Send(context, "12\\r3456\\n\n1234\n", out _).ShouldBeTrue();
-        SentText(context.Sent[^1].Payload).ShouldBe("12\\r3456\\n\n1234\n");
-
-        // C 风格十六进制/八进制/控制转义。
-        context.ViewState.SetInputText(TextSenderModule.EscapeSource, "true");
+        // C 风格十六进制/八进制/控制转义始终生效。
         module.Send(context, "\\x41\\101\\v\\?\\a\\b\\f\\t", out _).ShouldBeTrue();
         SentText(context.Sent[^1].Payload).ShouldBe("AA\v?\a\b\f\t");
 
@@ -409,6 +402,98 @@ public class BusinessModulesBehaviorTests
     }
 
     [Fact]
+    public void 数据显示器_控制字符应原样进入显示缓冲()
+    {
+        var text = DataMonitorModule.FormatLines(
+            [0x41, 0x00, 0x0C, 0x7F, 0x42],
+            hex: false,
+            timestamp: false,
+            perPacket: false,
+            DateTimeOffset.UnixEpoch).ShouldHaveSingleItem();
+
+        text.ShouldBe("A\0\f\u007FB", "不可显示字符由文本面负责显示，模块不再写 ⟨XX⟩");
+        text.ShouldNotContain("⟨", Case.Sensitive);
+
+        DataMonitorModule.FormatLines(
+            [0xA1],
+            hex: false,
+            timestamp: false,
+            perPacket: false,
+            DateTimeOffset.UnixEpoch)
+            .ShouldHaveSingleItem()
+            .ShouldBe("⟨A1⟩", "非法字节没有合法字符可还原，仍保留字面标记");
+    }
+
+    [Fact]
+    public void 数据显示器_保存应写出原始控制字符()
+    {
+        var context = new TestModuleContext();
+        var module = new DataMonitorModule();
+        module.OnRegistered(context);
+
+        var path = Path.Combine(Path.GetTempPath(), $"hyw-monitor-controls-{Guid.NewGuid():N}.txt");
+
+        try
+        {
+            context.ViewState.SetDisplayLines(DataMonitorModule.LogSource, ["A\0\fB"]);
+            context.EnqueueInput(DataMonitorModule.SavePathSource, path);
+            module.PumpOnce(context);
+
+            module.Save(context).ShouldBeTrue();
+            var bytes = File.ReadAllBytes(path);
+            bytes.Contains((byte)0x00).ShouldBeTrue();
+            bytes.Contains((byte)0x0C).ShouldBeTrue();
+            Encoding.UTF8.GetString(bytes).ShouldNotContain("⟨", Case.Sensitive);
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
+    public void 数据显示器_保存应保留三种换行()
+    {
+        var context = new TestModuleContext();
+        var module = new DataMonitorModule();
+        module.OnRegistered(context);
+
+        var path = Path.Combine(Path.GetTempPath(), $"hyw-monitor-newlines-{Guid.NewGuid():N}.txt");
+
+        try
+        {
+            context.ViewState.SetDisplayLines(
+                DataMonitorModule.LogSource,
+                [
+                    $"A{HYWDebugAssistant.Sdk.Ui.Controls.NewlineEncoding.CrLfSentinel}\nB",
+                    $"C{HYWDebugAssistant.Sdk.Ui.Controls.NewlineEncoding.CrSentinel}\nD",
+                    $"E{HYWDebugAssistant.Sdk.Ui.Controls.NewlineEncoding.LfSentinel}\nF",
+                ]);
+            context.EnqueueInput(DataMonitorModule.SavePathSource, path);
+            module.PumpOnce(context);
+
+            module.Save(context).ShouldBeTrue();
+            var text = File.ReadAllText(path);
+            var expected = string.Join(
+                Environment.NewLine,
+                "A\r\nB",
+                "C\rD",
+                "E\nF") + Environment.NewLine;
+            text.ShouldBe(expected);
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
     public void 数据显示器_暂停应收下即弃_恢复后继续显示()
     {
         var context = new TestModuleContext();
@@ -563,13 +648,12 @@ public class BusinessModulesBehaviorTests
     }
 
     [Fact]
-    public void 转换器_换行档与转义只作用于文本到HEX()
+    public void 转换器_换行档只作用于文本到HEX且转义始终解析()
     {
         var context = new TestModuleContext();
         var module = new HexStringConverterModule();
         module.OnRegistered(context);
 
-        context.ViewState.SetInputText(HexStringConverterModule.EscapeSource, "true");
         context.ViewState.SetInputText(HexStringConverterModule.NewlineCrSource, "true");
         context.ViewState.SetInputText(HexStringConverterModule.NewlineLfSource, "true");
 

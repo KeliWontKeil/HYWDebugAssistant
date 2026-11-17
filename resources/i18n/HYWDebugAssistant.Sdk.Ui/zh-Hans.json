@@ -3,6 +3,10 @@
   "entries": {
     "moduleField.reject.missingFieldName": "ModuleConfigField 缺少 Value 属性，没有可绑定的值名",
     "moduleText.contextMenu.copy": "复制",
-    "moduleText.contextMenu.selectAll": "全选"
+    "moduleText.contextMenu.cut": "剪切",
+    "moduleText.contextMenu.paste": "粘贴",
+    "moduleText.contextMenu.redo": "重做",
+    "moduleText.contextMenu.selectAll": "全选",
+    "moduleText.contextMenu.undo": "撤销"
   }
 }

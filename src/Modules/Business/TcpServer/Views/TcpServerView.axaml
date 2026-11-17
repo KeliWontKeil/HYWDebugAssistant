@@ -83,6 +83,7 @@
     <ui:ModuleStatusLight Canvas.Left="180" Canvas.Top="12"
                           Source="{x:Static views:TcpServerViewKeys.Link}" />
     <ui:ModuleButton Canvas.Left="202" Canvas.Top="4" Width="72" Height="27"
+                     Appearance="Accent"
                      CommandName="{x:Static views:TcpServerViewKeys.Open}" Content="{loc:Tr view.open}" />
     <ui:ModuleButton Canvas.Left="282" Canvas.Top="4" Width="72" Height="27"
                      CommandName="{x:Static views:TcpServerViewKeys.Close}" Content="{loc:Tr view.close}" />

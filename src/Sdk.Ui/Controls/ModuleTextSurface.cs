@@ -50,7 +50,16 @@ public enum TextSurfaceMode
 /// </remarks>
 public sealed class ModuleTextSurface : ModuleElement
 {
+    /// <summary>不可显示字符显示为警示色标记（true）还是方框占位（false）。</summary>
+    public static readonly StyledProperty<bool> ShowControlCharacterMarkersProperty =
+        AvaloniaProperty.Register<ModuleTextSurface, bool>(nameof(ShowControlCharacterMarkers), defaultValue: true);
+
+    /// <summary>该输入面按 C 字符串转义输入：识别并着色合法转义组（不改变值）。</summary>
+    public static readonly StyledProperty<bool> EscapeInputProperty =
+        AvaloniaProperty.Register<ModuleTextSurface, bool>(nameof(EscapeInput));
+
     private TextBox? _input;
+    private ProjectedTextEditing? _editing;
     private IncrementalTextView? _readText;
     private ScrollViewer? _readScroll;
     private Border? _frame;
@@ -164,12 +173,12 @@ public sealed class ModuleTextSurface : ModuleElement
         }
     }
 
-    /// <summary>当前文本（只读叶子返回文本层的内容，编辑叶子返回编辑器内容）。</summary>
+    /// <summary>当前文本（只读叶子返回文本层的内容，编辑叶子返回原始值）。</summary>
     public string Text
     {
         get => DeclaredReadOnly
             ? _readText?.Text ?? _textValue
-            : _input?.Text ?? _textValue;
+            : _editing?.RawText ?? _textValue;
         set
         {
             _textValue = value ?? string.Empty;
@@ -213,6 +222,20 @@ public sealed class ModuleTextSurface : ModuleElement
             _showNewlineMarks = value;
             ApplyMarks();
         }
+    }
+
+    /// <summary>不可显示字符显示为标记（true）还是方框（false）。</summary>
+    public bool ShowControlCharacterMarkers
+    {
+        get => GetValue(ShowControlCharacterMarkersProperty);
+        set => SetValue(ShowControlCharacterMarkersProperty, value);
+    }
+
+    /// <summary>该输入面按 C 字符串转义输入：合法转义组画蓝色；值本身不变。</summary>
+    public bool EscapeInput
+    {
+        get => GetValue(EscapeInputProperty);
+        set => SetValue(EscapeInputProperty, value);
     }
 
     /// <summary>编辑叶子的最小高度（显示叶子不受此限制）。</summary>
@@ -304,12 +327,13 @@ public sealed class ModuleTextSurface : ModuleElement
         }
 
         var normalized = NormalizeNewlinesForChoice(context);
+        var currentText = _editing?.RawText ?? string.Empty;
 
         var state = context.ReadValue(Value);
 
         if (normalized
             && !_input.IsKeyboardFocusWithin
-            && !string.Equals(state.Value, _input.Text, StringComparison.Ordinal))
+            && !string.Equals(state.Value, currentText, StringComparison.Ordinal))
         {
             // 值层若还没回显这次归一，本帧先用输入框的新文本；下一帧再接受值层。
             ApplyValueNotice(state.Notice);
@@ -324,14 +348,14 @@ public sealed class ModuleTextSurface : ModuleElement
 
         // 焦点内且文本尚未被值层接受时，保留本地上次提交值；否则 Enter 后失焦会重复提交。
         if (!_input.IsKeyboardFocusWithin
-            || string.Equals(_input.Text, state.Value, StringComparison.Ordinal))
+            || string.Equals(currentText, state.Value, StringComparison.Ordinal))
         {
             _committedValue = state.Value;
         }
 
         // 用户正在输入时不覆盖本地意图；失焦后下一帧接受值层的有效值。
         if (!_input.IsKeyboardFocusWithin
-            && !string.Equals(_input.Text, state.Value, StringComparison.Ordinal))
+            && !string.Equals(currentText, state.Value, StringComparison.Ordinal))
         {
             SetSurfaceText(state.Value, null);
         }
@@ -350,6 +374,7 @@ public sealed class ModuleTextSurface : ModuleElement
     {
         if (EnterNewlineValue.Length == 0
             || _input is null
+            || _editing is null
             || !Multiline
             || IsReadOnlyEffective
             || Value.Length == 0)
@@ -371,19 +396,14 @@ public sealed class ModuleTextSurface : ModuleElement
 
         _lastNewlineMode = mode;
 
-        var text = _input.Text ?? string.Empty;
-        var normalized = TextNewlines.Normalize(text, mode);
-        if (string.Equals(text, normalized, StringComparison.Ordinal))
+        if (!_editing.NormalizeNewlines(mode))
         {
             return false;
         }
 
-        var caret = Math.Clamp(_input.CaretIndex, 0, normalized.Length);
-        _input.Text = normalized;
-        _input.CaretIndex = caret;
-
-        // TextChanged 在 Avalonia 12 是 Dispatcher.Post；不能等它，否则同一帧后面的
-        // RefreshValue 会用旧值把刚归一好的文本覆盖回去。这里直接交值并前移本地基线。
+        // 投影/值同步是同步完成的；这里直接交值并前移本地基线，避免同一帧后面的
+        // RefreshValue 用旧值把刚归一好的文本覆盖回去。
+        var normalized = _editing.RawText;
         _context?.CommitValue(Value, normalized);
         _committedValue = normalized;
         _textValue = normalized;
@@ -432,7 +452,7 @@ public sealed class ModuleTextSurface : ModuleElement
             return;
         }
 
-        var text = _input.Text ?? string.Empty;
+        var text = _editing?.RawText ?? string.Empty;
         _context.CommitValue(Value, text);
         _committedValue = text;
     }
@@ -477,7 +497,11 @@ public sealed class ModuleTextSurface : ModuleElement
             return;
         }
 
-        _input.TextChanged += OnInputTextChanged;
+        _editing = new ProjectedTextEditing(_input);
+        _editing.UserEdited += OnEditingUserEdited;
+        _editing.ProjectionChanged += OnEditingProjectionChanged;
+        _editing.SetMarkerMode(ShowControlCharacterMarkers);
+
         _input.LostFocus += OnInputLostFocus;
         _input.GotFocus += OnInputGotFocus;
 
@@ -493,10 +517,17 @@ public sealed class ModuleTextSurface : ModuleElement
             return;
         }
 
-        _input.TextChanged -= OnInputTextChanged;
         _input.LostFocus -= OnInputLostFocus;
         _input.GotFocus -= OnInputGotFocus;
         _input.RemoveHandler(KeyDownEvent, OnInputKeyDown);
+
+        if (_editing is not null)
+        {
+            _editing.UserEdited -= OnEditingUserEdited;
+            _editing.ProjectionChanged -= OnEditingProjectionChanged;
+            _editing.Detach();
+            _editing = null;
+        }
     }
 
     private void ApplyPresentation()
@@ -523,8 +554,9 @@ public sealed class ModuleTextSurface : ModuleElement
         _input.Focusable = !declaredReadOnly;
         _input.IsTabStop = !declaredReadOnly;
 
-        // 只读面没有"改"这回事 ⇒ 不需要撤销栈（它按整段文本记状态，长的只读文本没有必要为它留内存）。
-        _input.IsUndoEnabled = !effectiveReadOnly;
+        // 只读面没有"改"这回事 ⇒ 不需要撤销栈；输入面使用 Raw 快照撤销（见 ProjectedTextEditing），
+        // 原生 TextBox 撤销会把显示标记当成文本历史，必须关闭。
+        _input.IsUndoEnabled = false;
 
         if (declaredReadOnly)
         {
@@ -583,9 +615,9 @@ public sealed class ModuleTextSurface : ModuleElement
             return;
         }
 
-        if (_input is not null && !string.Equals(_input.Text, _textValue, StringComparison.Ordinal))
+        if (_editing is not null && !string.Equals(_editing.RawText, _textValue, StringComparison.Ordinal))
         {
-            _input.Text = _textValue;
+            _editing.SetRaw(_textValue, clearHistory: false);
         }
     }
 
@@ -605,13 +637,13 @@ public sealed class ModuleTextSurface : ModuleElement
                 }
             }
         }
-        else if (_input is not null && !string.Equals(_input.Text, text, StringComparison.Ordinal))
+        else if (_editing is not null && !string.Equals(_editing.RawText, text, StringComparison.Ordinal))
         {
-            _input.Text = text;
+            _editing.SetRaw(text, clearHistory: true);
         }
 
         SetUnmarked(unmarked);
-        _marks?.InvalidateVisual();
+        UpdateMarkOverlays();
     }
 
     private void SetUnmarked(IReadOnlyCollection<int>? unmarked)
@@ -633,18 +665,17 @@ public sealed class ModuleTextSurface : ModuleElement
         }
     }
 
-    private void OnInputTextChanged(object? sender, TextChangedEventArgs e)
+    private void OnEditingUserEdited(object? sender, EventArgs e)
     {
         if (_context is null || Value.Length == 0 || _mode != TextSurfaceMode.Input || IsReadOnlyEffective)
         {
             return;
         }
 
-        var text = _input?.Text ?? string.Empty;
+        var text = _editing?.RawText ?? string.Empty;
+
         if (string.Equals(text, _textValue, StringComparison.Ordinal))
         {
-            // Avalonia 12 的 TextChanged 走 `Dispatcher.Post`，程序写入的回调在抑制窗口之后才到。
-            // 本面已知文本已由 SetSurfaceText/SyncActiveText 前移：相同 ⇒ 这是程序回显，不是用户编辑。
             return;
         }
 
@@ -657,6 +688,11 @@ public sealed class ModuleTextSurface : ModuleElement
         }
     }
 
+    private void OnEditingProjectionChanged(object? sender, EventArgs e)
+    {
+        UpdateMarkOverlays();
+    }
+
     private void OnInputLostFocus(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (_focusRing is not null)
@@ -665,12 +701,12 @@ public sealed class ModuleTextSurface : ModuleElement
         }
 
         // 显式提交档：失焦提交，避免“改了输入框、点了别处却没提交”。
-        // 即时档已经在 OnInputTextChanged 逐键提交，这里不重复。
+        // 即时档已经在 Raw 编辑事件里逐键提交，这里不重复。
         if (Value.Length > 0
             && CommitMode == ValueCommitMode.OnExplicit
             && !IsReadOnlyEffective
-            && _input is not null
-            && !string.Equals(_input.Text ?? string.Empty, _committedValue, StringComparison.Ordinal))
+            && _editing is not null
+            && !string.Equals(_editing.RawText, _committedValue, StringComparison.Ordinal))
         {
             Commit();
         }
@@ -686,7 +722,49 @@ public sealed class ModuleTextSurface : ModuleElement
 
     private void OnInputKeyDown(object? sender, KeyEventArgs args)
     {
-        if (IsReadOnlyEffective || args.Key != Key.Enter || _input is null)
+        if (_input is null || _editing is null)
+        {
+            return;
+        }
+
+        var control = (args.KeyModifiers & KeyModifiers.Control) != 0;
+        var shift = (args.KeyModifiers & KeyModifiers.Shift) != 0;
+
+        // 复制/剪切一律走 Raw；只读时仍允许复制。
+        if (control && args.Key == Key.C)
+        {
+            _editing.CopySelection();
+            args.Handled = true;
+            return;
+        }
+
+        if (IsReadOnlyEffective)
+        {
+            return;
+        }
+
+        if (control && args.Key == Key.X)
+        {
+            _editing.CutSelection();
+            args.Handled = true;
+            return;
+        }
+
+        if (control && args.Key == Key.Z && !shift)
+        {
+            _editing.Undo();
+            args.Handled = true;
+            return;
+        }
+
+        if (control && (args.Key == Key.Y || (args.Key == Key.Z && shift)))
+        {
+            _editing.Redo();
+            args.Handled = true;
+            return;
+        }
+
+        if (args.Key != Key.Enter)
         {
             return;
         }
@@ -701,16 +779,14 @@ public sealed class ModuleTextSurface : ModuleElement
         var submitKey = ResolveSubmitKey();
         var newline = ResolveEnterNewline();
 
-        if (string.Equals(submitKey, "Enter", StringComparison.Ordinal)
-            && (args.KeyModifiers & KeyModifiers.Shift) == 0)
+        if (string.Equals(submitKey, "Enter", StringComparison.Ordinal) && !shift)
         {
             args.Handled = true;
             Submit();
             return;
         }
 
-        if (string.Equals(submitKey, "CtrlEnter", StringComparison.Ordinal)
-            && (args.KeyModifiers & KeyModifiers.Control) != 0)
+        if (string.Equals(submitKey, "CtrlEnter", StringComparison.Ordinal) && control)
         {
             args.Handled = true;
             Submit();
@@ -723,9 +799,7 @@ public sealed class ModuleTextSurface : ModuleElement
 
         if (newline.Length > 0)
         {
-            var caret = _input.SelectionStart;
-            _input.SelectedText = newline;
-            _input.CaretIndex = caret + newline.Length;
+            _editing.ReplaceSelectionRaw(newline);
         }
     }
 
@@ -855,6 +929,7 @@ public sealed class ModuleTextSurface : ModuleElement
         }
 
         _readText.ShowNewlineMarks = _showNewlineMarks;
+        _readText.ShowControlCharacterMarkers = ShowControlCharacterMarkers;
         _readText.AutoScroll = _followTail;
         _readText.TextAlignment = _textAlignment;
     }
@@ -902,6 +977,7 @@ public sealed class ModuleTextSurface : ModuleElement
         if (_readText is not null)
         {
             _readText.ShowNewlineMarks = _showNewlineMarks;
+            _readText.ShowControlCharacterMarkers = ShowControlCharacterMarkers;
         }
 
         if (_marks is null)
@@ -914,6 +990,76 @@ public sealed class ModuleTextSurface : ModuleElement
         _marks.IsActive = _showNewlineMarks
             && !IsReadOnlyEffective
             && _multiline;
+        UpdateMarkOverlays();
+    }
+
+    private void UpdateMarkOverlays()
+    {
+        if (_marks is null)
+        {
+            return;
+        }
+
+        if (IsReadOnlyEffective || _editing is null)
+        {
+            _marks.MarkerSpans = null;
+            _marks.EscapeSpans = null;
+            _marks.InvalidateVisual();
+            return;
+        }
+
+        _marks.MarkerSpans = _editing.MarkerSpans;
+        _marks.EscapeSpans = EscapeInput ? MapEscapeSpans(_editing) : null;
+        _marks.InvalidateVisual();
+    }
+
+    private static List<TextMarkerSpan>? MapEscapeSpans(ProjectedTextEditing editing)
+    {
+        var raw = editing.RawText;
+        var escapes = TextEscapes.FindEscapes(raw);
+
+        if (escapes.Count == 0)
+        {
+            return null;
+        }
+
+        var projection = editing.Projection;
+        var spans = new List<TextMarkerSpan>(escapes.Count);
+
+        foreach (var escape in escapes)
+        {
+            var start = projection.RawToDisplay(escape.Start, preferRight: false);
+            var end = projection.RawToDisplay(escape.Start + escape.Length, preferRight: true);
+
+            if (end > start)
+            {
+                spans.Add(new TextMarkerSpan(start, end - start));
+            }
+        }
+
+        return spans.Count > 0 ? spans : null;
+    }
+
+    /// <inheritdoc />
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        if (change.Property == ShowControlCharacterMarkersProperty)
+        {
+            _editing?.SetMarkerMode(ShowControlCharacterMarkers);
+
+            if (_readText is not null)
+            {
+                _readText.ShowControlCharacterMarkers = ShowControlCharacterMarkers;
+            }
+
+            UpdateMarkOverlays();
+        }
+        else if (change.Property == EscapeInputProperty)
+        {
+            UpdateMarkOverlays();
+        }
     }
 
     private static void ApplyTextAppearance(Control? target, ViewAppearance appearance, bool isTextBox)

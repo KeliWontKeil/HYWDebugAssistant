@@ -658,7 +658,7 @@ public sealed class SettingsService
         ["statusDropHoldMs"] = flow.StatusDropHoldMs,
     };
 
-    /// <summary>读文本显示内存上限块；缺失即默认值。</summary>
+    /// <summary>读文本显示设置块；缺失即默认值。</summary>
     private static DisplaySettings ReadDisplay(JsonObject root)
     {
         var defaults = new DisplaySettings();
@@ -670,14 +670,19 @@ public sealed class SettingsService
         {
             TextLineCapacity = ReadInt(block, "textLineCapacity", defaults.TextLineCapacity),
             TextCharBudget = ReadInt(block, "textCharBudget", defaults.TextCharBudget),
+            ShowControlCharacterMarkers = ReadBool(
+                block,
+                "controlCharacterMarkers",
+                defaults.ShowControlCharacterMarkers),
         };
     }
 
-    /// <summary>写文本显示内存上限块。</summary>
+    /// <summary>写文本显示块。</summary>
     private static JsonObject WriteDisplay(DisplaySettings display) => new()
     {
         ["textLineCapacity"] = display.TextLineCapacity,
         ["textCharBudget"] = display.TextCharBudget,
+        ["controlCharacterMarkers"] = display.ShowControlCharacterMarkers,
     };
 
     private static void MergeInto(JsonObject root, ApplicationSettings settings)

@@ -277,10 +277,15 @@
     <!--
       图标按钮（模块窗口按钮簇 / 弹窗删除按钮）：纯图标、正方形热区。
       **面/边/指针态与普通按钮同一套**（`ButtonChrome.axaml` 的 `:is(Button)` 规则不再排除 `.icon`）：
-      这里只收窄尺寸、内边距与图标颜色 —— 不再写 `Background=Transparent` / `BorderThickness=0`，
-      否则屏幕上就是"一个漂浮的符号"，点它之前看不出它是按钮。
+      这里只收窄尺寸与内边距；图标颜色由 `IconButton` 绑定到按钮 `Foreground`，与文字同一档。
+      不再把按钮写成无面、无边的透明容器，否则屏幕上就是"一个漂浮的符号"，
+      点它之前看不出它是按钮。
       选择器按**精确类型**写：Avalonia 的类型选择器不匹配派生类型，`Button.icon` 不会作用到 `IconButton`。
     -->
+    <Style Selector="ui|IconButton">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+    </Style>
+
     <Style Selector="ui|IconButton.icon">
         <Setter Property="Width" Value="20" />
         <Setter Property="Height" Value="20" />
@@ -288,22 +293,12 @@
         <Setter Property="Padding" Value="0" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
-        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
     </Style>
 
     <!-- 按钮里那枚图标：占按钮的内容区再小一档（内容区 = 按钮减去边框），比顶满更透气 -->
     <Style Selector="ui|IconButton.icon sdkui|Icon">
         <Setter Property="Width" Value="14" />
         <Setter Property="Height" Value="14" />
-    </Style>
-
-    <!-- 图标颜色随指针态走：面上是次要色，指向/按下时提到正文色（与文本按钮的字色同一档） -->
-    <Style Selector="ui|IconButton.icon:pointerover">
-        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-    </Style>
-
-    <Style Selector="ui|IconButton.icon:pressed">
-        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
     </Style>
 
     <!--

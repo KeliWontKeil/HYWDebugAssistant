@@ -115,16 +115,22 @@ public static class ThemeApplier
 
         var colors = BuildOverrides(app, themes, settings.Appearance, settings.Appearance.ThemeSelection);
         var fonts = BuildFontOverrides(settings);
+        var text = BuildTextOverrides(settings);
 
-        if (colors.Count == 0 && fonts.Count == 0)
+        if (colors.Count == 0 && fonts.Count == 0 && text.Count == 0)
         {
             return;
         }
 
         var dictionary = new ResourceDictionary();
 
-        // 平铺项（字体）：主题无关，直接住在这份字典的平铺部分
+        // 平铺项（字体 / 文本显示偏好）：主题无关，直接住在这份字典的平铺部分
         foreach (var (key, value) in fonts)
+        {
+            dictionary[key] = value;
+        }
+
+        foreach (var (key, value) in text)
         {
             dictionary[key] = value;
         }
@@ -181,6 +187,12 @@ public static class ThemeApplier
 
         return overrides;
     }
+
+    /// <summary>文本显示偏好（不可显示字符的标记/方框）作为主题无关的平铺资源。</summary>
+    private static Dictionary<string, object> BuildTextOverrides(ApplicationSettings settings) => new(StringComparer.Ordinal)
+    {
+        ["TextControlCharacterMarkers"] = settings.Display.ShowControlCharacterMarkers,
+    };
 
     /// <summary>
     /// 按色板契约算出**当前要生效的主题**要写进资源的值（主题 → token → 画刷）。

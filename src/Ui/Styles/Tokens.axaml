@@ -32,6 +32,8 @@
             <SolidColorBrush x:Key="TextPrimary" Color="#18181B" />
             <SolidColorBrush x:Key="TextSecondary" Color="#52525B" />
             <SolidColorBrush x:Key="TextMuted" Color="#A1A1AA" />
+            <SolidColorBrush x:Key="TextControlCharacter" Color="#EF4444" />
+            <SolidColorBrush x:Key="TextEscape" Color="#0284C7" />
             <SolidColorBrush x:Key="AccentPrimary" Color="#2563EB" />
             <SolidColorBrush x:Key="AccentSecondary" Color="#0891B2" />
             <SolidColorBrush x:Key="ChartCursor" Color="#D946EF" />
@@ -127,6 +129,8 @@
             <SolidColorBrush x:Key="TextPrimary" Color="#E6E6E6" />
             <SolidColorBrush x:Key="TextSecondary" Color="#A1A1AA" />
             <SolidColorBrush x:Key="TextMuted" Color="#71717A" />
+            <SolidColorBrush x:Key="TextControlCharacter" Color="#F87171" />
+            <SolidColorBrush x:Key="TextEscape" Color="#38BDF8" />
             <SolidColorBrush x:Key="AccentPrimary" Color="#3B82F6" />
             <SolidColorBrush x:Key="AccentSecondary" Color="#22D3EE" />
             <SolidColorBrush x:Key="ChartCursor" Color="#E879F9" />

@@ -383,11 +383,18 @@ public sealed class ModuleButton : Button, IModuleViewElement
             return;
         }
 
-        Content = new IconControl
+        var icon = new IconControl
         {
             IconKey = _icon,
             Owner = this.FindAncestorOfType<ModuleView>()?.GetType().Assembly,
         };
+
+        // 图标不是独立的颜色档位：它和按钮里的文字共用同一个 Foreground，
+        // danger/accent 变白、指针态变深时一起走。
+        icon[!TemplatedControl.ForegroundProperty] =
+            this[!TemplatedControl.ForegroundProperty];
+
+        Content = icon;
     }
 
     /// <summary>指针位置对应的段；菜单段几何直接取模板部件的实际 Bounds。</summary>

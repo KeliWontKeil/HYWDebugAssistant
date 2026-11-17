@@ -111,6 +111,83 @@ public class ControlMechanismProbes
     }
 
     [Fact]
+    public async Task 命令按钮_danger图标应与按钮文字同色()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var button = new ModuleButton
+                {
+                    Width = 28,
+                    Height = 28,
+                    Icon = "missing-icon",
+                    Appearance = ModuleButtonAppearance.Danger,
+                };
+
+                var normal = new ModuleButton
+                {
+                    Width = 28,
+                    Height = 28,
+                    Icon = "missing-icon",
+                };
+
+                var accent = new ModuleButton
+                {
+                    Width = 28,
+                    Height = 28,
+                    Icon = "missing-icon",
+                    Appearance = ModuleButtonAppearance.Accent,
+                };
+
+                var host = new Canvas { Width = 120, Height = 60 };
+                Canvas.SetLeft(button, 10);
+                Canvas.SetTop(button, 10);
+                Canvas.SetLeft(normal, 45);
+                Canvas.SetTop(normal, 10);
+                Canvas.SetLeft(accent, 80);
+                Canvas.SetTop(accent, 10);
+                host.Children.Add(button);
+                host.Children.Add(normal);
+                host.Children.Add(accent);
+
+                var window = new Window { Width = 120, Height = 60, Content = host };
+
+                try
+                {
+                    window.Show();
+                    SnapshotTool.Pump();
+
+                    Assert.Equal(Colors.White, ColorOf(button));
+                    Assert.Equal(Colors.White, ColorOf(accent));
+                    Assert.NotEqual(ColorOf(button), ColorOf(normal));
+
+                    Check(button);
+                    Check(normal);
+                    Check(accent);
+
+                    static Color ColorOf(ModuleButton target) =>
+                        ((ISolidColorBrush)target.Foreground!).Color;
+
+                    static void Check(ModuleButton target)
+                    {
+                        var icon = target.GetVisualDescendants()
+                            .OfType<HYWDebugAssistant.Sdk.Ui.Controls.Icon>()
+                            .First();
+
+                        var textColor = ((ISolidColorBrush)target.Foreground!).Color;
+                        var iconColor = ((ISolidColorBrush)icon.Foreground!).Color;
+                        Assert.Equal(textColor, iconColor);
+                    }
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
     public async Task 命令按钮_箭头只开菜单而主体才触发命令()
     {
         await SnapshotSession.Shared.Dispatch(
@@ -380,9 +457,32 @@ public class ControlMechanismProbes
                 view.SetText("a\uF000\nb\uF001\nc\uF002\nd");
 
                 Assert.Equal(3, view.MarkCount);
+                Assert.Equal("a\r\nb\rc\nd", view.Text);
                 Assert.DoesNotContain("\uF000", view.Text);
                 Assert.DoesNotContain("\uF001", view.Text);
                 Assert.DoesNotContain("\uF002", view.Text);
+
+                // 扁平偏移按真实换行长度计数：CRLF 占两位，CR/LF 各占一位。
+                Assert.Equal(8, view.TextLength);
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task 只读文本视图_单独CR应换行且复制保留CR()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var view = new IncrementalTextView();
+                view.SetText("A\rB\r\nC\nD");
+
+                Assert.Equal(3, view.MarkCount);
+                Assert.Equal("A\rB\r\nC\nD", view.Text);
+                Assert.Equal(8, view.TextLength);
+
+                view.SelectAll();
+                Assert.Equal("A\rB\r\nC\nD", view.SelectedText);
             },
             CancellationToken.None);
     }
@@ -422,6 +522,234 @@ public class ControlMechanismProbes
                 finally
                 {
                     window.Close();
+                }
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task 文本面_输入面应投影不可显示字符并保留Raw()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var surface = new ModuleTextSurface
+                {
+                    Multiline = true,
+                    Value = "probe-projection",
+                    Width = 220,
+                    Height = 80,
+                    Text = "A\0B",
+                };
+
+                var window = new Window { Width = 260, Height = 140, Content = surface };
+
+                try
+                {
+                    window.Show();
+                    SnapshotTool.Pump();
+
+                    var box = surface.GetVisualDescendants().OfType<TextBox>().First();
+                    Assert.Equal("A⟨00⟩B", box.Text);
+                    Assert.Equal("A\0B", surface.Text);
+
+                    surface.ShowControlCharacterMarkers = false;
+                    SnapshotTool.Pump();
+                    Assert.Equal("A□B", box.Text);
+                    Assert.Equal("A\0B", surface.Text);
+
+                    surface.EscapeInput = true;
+                    surface.Text = @"A\x0C";
+                    SnapshotTool.Pump();
+                    Assert.Equal(@"A\x0C", box.Text);
+                    Assert.Equal(@"A\x0C", surface.Text);
+
+                    var overlay = surface.GetVisualDescendants().OfType<NewlineMarkOverlay>().First();
+                    Assert.Single(overlay.EscapeSpans!);
+                    Assert.Equal(1, overlay.EscapeSpans![0].Start);
+                    Assert.Equal(4, overlay.EscapeSpans![0].Length);
+
+                    // 退格在标记右边界应删除整个不可显示字符，而不是只删一个显示字符。
+                    surface.EscapeInput = false;
+                    surface.ShowControlCharacterMarkers = true;
+                    surface.Text = "A\0B";
+                    SnapshotTool.Pump();
+                    Assert.Single(overlay.MarkerSpans!);
+                    Assert.Equal(1, overlay.MarkerSpans![0].Start);
+                    Assert.Equal(4, overlay.MarkerSpans![0].Length);
+                    SnapshotTool.Pump();
+                    box.Focus();
+                    box.CaretIndex = 5;
+                    SnapshotTool.Pump();
+                    Assert.Equal(5, box.CaretIndex);
+                    window.KeyPress(Key.Back, RawInputModifiers.None, PhysicalKey.Backspace, null);
+                    SnapshotTool.Pump();
+                    Assert.Equal("AB", surface.Text);
+                    Assert.Equal("AB", box.Text);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+    }
+
+
+    [Fact]
+    public async Task 设置_不可显示字符开关应安装为主题资源()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var settings = new HYWDebugAssistant.Core.Api.ApplicationSettings();
+                settings.Display = settings.Display with { ShowControlCharacterMarkers = false };
+                HYWDebugAssistant.Ui.Theming.ThemeApplier.Apply(settings, []);
+
+                var app = Application.Current!;
+                Assert.True(app.TryGetResource("TextControlCharacterMarkers", out var value));
+                Assert.Equal(false, value);
+
+                var textView = new IncrementalTextView();
+                textView.Classes.Add("module-text-read");
+                var window = new Window { Width = 200, Height = 80, Content = textView };
+
+                try
+                {
+                    window.Show();
+                    SnapshotTool.Pump();
+                    Assert.False(textView.ShowControlCharacterMarkers, "DynamicResource 应立即下发到文本面");
+
+                    HYWDebugAssistant.Ui.Theming.ThemeApplier.Apply(
+                        new HYWDebugAssistant.Core.Api.ApplicationSettings(),
+                        []);
+                    SnapshotTool.Pump();
+                    Assert.True(textView.ShowControlCharacterMarkers);
+                }
+                finally
+                {
+                    window.Close();
+                }
+
+                var surface = new ModuleTextSurface
+                {
+                    Value = "probe-resource",
+                    Text = "A\0B",
+                    Width = 200,
+                    Height = 60,
+                };
+                var surfaceWindow = new Window { Width = 220, Height = 100, Content = surface };
+
+                try
+                {
+                    HYWDebugAssistant.Ui.Theming.ThemeApplier.Apply(settings, []);
+                    surfaceWindow.Show();
+                    SnapshotTool.Pump();
+                    var box = surface.GetVisualDescendants().OfType<TextBox>().First();
+                    Assert.Equal("A□B", box.Text);
+
+                    HYWDebugAssistant.Ui.Theming.ThemeApplier.Apply(
+                        new HYWDebugAssistant.Core.Api.ApplicationSettings(),
+                        []);
+                    SnapshotTool.Pump();
+                    Assert.Equal("A⟨00⟩B", box.Text);
+                }
+                finally
+                {
+                    surfaceWindow.Close();
+                }
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task 只读文本视图_标记字符复制应使用原始字符()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var view = new IncrementalTextView { Width = 200, Height = 60 };
+                view.SetText("A\0B");
+
+                Assert.Equal("A\0B", view.Text);
+                view.SelectionStart = 1;
+                view.SelectionEnd = 2;
+                Assert.Equal("\0", view.SelectedText);
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task 文本面_多行转义应跨行标蓝()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var surface = new ModuleTextSurface
+                {
+                    Mode = TextSurfaceMode.Input,
+                    Value = "probe-multiline-escape",
+                    EscapeInput = true,
+                    Multiline = true,
+                    Width = 220,
+                    Height = 80,
+                    Text = "asds\\\r\n\\x0e",
+                };
+                var window = new Window { Width = 260, Height = 140, Content = surface };
+
+                try
+                {
+                    window.Show();
+                    SnapshotTool.Pump();
+                    var overlay = surface.GetVisualDescendants().OfType<NewlineMarkOverlay>().First();
+                    Assert.NotNull(overlay.EscapeSpans);
+                    Assert.NotNull(overlay.EscapeBrush);
+                    Assert.True(overlay.Bounds.Width > 0 && overlay.Bounds.Height > 0);
+                    Assert.Single(overlay.EscapeSpans!);
+                    var box = surface.GetVisualDescendants().OfType<TextBox>().First();
+                    Assert.Same(box, overlay.Target);
+                    Assert.NotEmpty(overlay.SpanMarks);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task 文本面_输入编辑_复制剪切撤销使用Raw()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var box = new TextBox { Width = 200, Height = 60 };
+                var editing = new ProjectedTextEditing(box);
+
+                try
+                {
+                    editing.SetRaw("A\0B");
+                    Assert.Equal("A⟨00⟩B", box.Text);
+
+                    box.SelectionStart = 1;
+                    box.SelectionEnd = 5;
+                    Assert.Equal("\0", editing.GetSelectedRawText());
+
+                    editing.CutSelection();
+                    Assert.Equal("AB", editing.RawText);
+                    Assert.Equal("AB", box.Text);
+
+                    editing.Undo();
+                    Assert.Equal("A\0B", editing.RawText);
+                    Assert.Equal("A⟨00⟩B", box.Text);
+
+                    editing.Redo();
+                    Assert.Equal("AB", editing.RawText);
+                }
+                finally
+                {
+                    editing.Detach();
                 }
             },
             CancellationToken.None);

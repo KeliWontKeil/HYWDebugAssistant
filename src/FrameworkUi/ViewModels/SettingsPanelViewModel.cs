@@ -297,6 +297,10 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
     [ObservableProperty]
     public partial bool ShowPerformanceMonitor { get; set; } = true;
 
+    /// <summary>不可显示字符显示为警示色标记（true）还是方框（false）。</summary>
+    [ObservableProperty]
+    public partial bool ShowControlCharacterMarkers { get; set; } = true;
+
     /// <summary>
     /// **吸附距离**（px，2–8，默认 4）——拖动时的「磁吸半径」：
     /// 越小越跟手（最多滞后一个容差就松手），越大越容易吸上；贴合（相邻边接触）用它的 2 倍。
@@ -1358,6 +1362,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         AlignAutoNetworkEnabled = settings.AlignAutoNetworkEnabled;
         UiRefreshRateHz = settings.UiRefreshRateHz;
         ShowPerformanceMonitor = settings.ShowPerformanceMonitor;
+        ShowControlCharacterMarkers = settings.Display.ShowControlCharacterMarkers;
         SnapDistance = settings.SnapDistance;
         WheelZoomStep = settings.WheelZoomStep;
         MultilineSubmitKey = settings.MultilineSubmitKey;
@@ -1548,6 +1553,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         AlignAutoNetworkEnabled = defaults.AlignAutoNetworkEnabled;
         UiRefreshRateHz = defaults.UiRefreshRateHz;
         ShowPerformanceMonitor = defaults.ShowPerformanceMonitor;
+        ShowControlCharacterMarkers = defaults.Display.ShowControlCharacterMarkers;
         SnapDistance = defaults.SnapDistance;
         WheelZoomStep = defaults.WheelZoomStep;
         MultilineSubmitKey = NormalizeSubmitKey(defaults.MultilineSubmitKey);
@@ -1657,6 +1663,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
         {
             TextLineCapacity = TextLineCapacity,
             TextCharBudget = TextCharBudget,
+            ShowControlCharacterMarkers = ShowControlCharacterMarkers,
         };
 
         settings.AlignAutoNetworkEnabled = AlignAutoNetworkEnabled;

@@ -31,6 +31,7 @@
 
     <Canvas Grid.Row="2" Height="106" ClipToBounds="True">
       <ui:ModuleButton Canvas.Left="0" Canvas.Top="2" Width="84" Height="27"
+                       Appearance="Danger"
                        CommandName="{x:Static views:DataMonitorViewKeys.Clear}" Content="{loc:Tr view.clear}" />
       <ui:ModuleButton Canvas.Left="96" Canvas.Top="2" Width="84" Height="27"
                        CommandName="{x:Static views:DataMonitorViewKeys.Save}" Content="{loc:Tr view.save}" />

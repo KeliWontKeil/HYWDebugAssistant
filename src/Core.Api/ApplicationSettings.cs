@@ -25,7 +25,7 @@ public sealed class ApplicationSettings
     public FlowSettings Flow { get; set; } = new();
 
     /// <summary>
-    /// **文本显示缓冲的内存上限**（行数 / 字符预算）；与 Flow 分开，但同属“高级”设置域。
+    /// **文本显示设置**：显示缓冲的内存上限与不可显示字符的呈现方式；与 Flow 分开，同属“高级”设置域。
     /// </summary>
     public DisplaySettings Display { get; set; } = new();
 

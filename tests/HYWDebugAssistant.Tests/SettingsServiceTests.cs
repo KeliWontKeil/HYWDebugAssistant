@@ -542,6 +542,28 @@ public class SettingsServiceTests
         reloaded.Current.ShowPerformanceMonitor.ShouldBeFalse();
     }
 
+    [Fact]
+    public void 不可显示字符标记开关_默认开启且可落盘往返()
+    {
+        using var scope = new SettingsScope();
+        using var runtime = new ModuleRuntime();
+        var service = new SettingsService(runtime, scope.SettingsPath);
+        service.Load();
+
+        service.Current.Display.ShowControlCharacterMarkers.ShouldBeTrue("新增设置项默认开启");
+
+        var updated = service.Current.Clone();
+        updated.Display = updated.Display with { ShowControlCharacterMarkers = false };
+        service.Update(updated).Succeeded.ShouldBeTrue();
+
+        var root = JsonNode.Parse(File.ReadAllText(scope.SettingsPath))!.AsObject();
+        root["display"]!["controlCharacterMarkers"]!.GetValue<bool>().ShouldBeFalse();
+
+        var reloaded = new SettingsService(runtime, scope.SettingsPath);
+        reloaded.Load();
+        reloaded.Current.Display.ShowControlCharacterMarkers.ShouldBeFalse();
+    }
+
     /// <summary>测试用临时目录（设置文件路径；主题根会落在同级的 `appearance\themes`）。</summary>
     private sealed class SettingsScope : IDisposable
     {

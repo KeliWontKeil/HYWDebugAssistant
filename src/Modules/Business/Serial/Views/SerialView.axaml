@@ -83,6 +83,7 @@
                     Source="{x:Static views:SerialViewKeys.State}" />
 
     <ui:ModuleButton Canvas.Left="196" Canvas.Top="16" Width="72" Height="36"
+                     Appearance="Accent"
                      CommandName="{x:Static views:SerialViewKeys.Open}" Content="{loc:Tr view.open}" />
     <ui:ModuleButton Canvas.Left="278" Canvas.Top="16" Width="72" Height="36"
                      CommandName="{x:Static views:SerialViewKeys.Close}" Content="{loc:Tr view.close}" />

@@ -52,6 +52,7 @@
 
     <Canvas Grid.Row="2" Height="52" ClipToBounds="True">
       <ui:ModuleButton Canvas.Left="0" Canvas.Top="4" Width="84" Height="27"
+                       Appearance="Accent"
                        MenuValue="{x:Static views:HexSenderViewKeys.SubmitKey}"
                        CommandName="{x:Static views:HexSenderViewKeys.Send}" Content="{loc:Tr view.send}" />
       <ui:ModuleToggle Canvas.Left="96" Canvas.Top="4" Width="36" Height="24"
@@ -65,7 +66,7 @@
       <ui:ModuleLabel Canvas.Left="240" Canvas.Top="4" Width="20" Height="24"
                       Classes="caption" Text="{loc:Tr view.intervalUnit}" />
 
-      <ui:ModuleLabel Canvas.Left="0" Canvas.Top="36" Width="358" Height="16"
+      <ui:ModuleLabel Canvas.Left="0" Canvas.Top="36" Width="260" Height="16"
                       Text="{loc:Tr view.statusPreview}"
                       Source="{x:Static views:HexSenderViewKeys.Status}" />
 
@@ -73,7 +74,7 @@
         已发送：标题 / 值 / 单位是三个普通文本元素，在一个**声明矩形**里靠右紧排 ——
         三者相对这个矩形的右缘（值变宽时整体左移，右缘不动）。
       -->
-      <Grid Canvas.Left="262" Canvas.Top="4" Width="92" Height="24">
+      <Grid Canvas.Left="262" Canvas.Top="36" Width="92" Height="16">
         <StackPanel Orientation="Horizontal" Spacing="2"
                     HorizontalAlignment="Right" VerticalAlignment="Center">
           <ui:ModuleLabel Classes="caption" Text="{loc:Tr view.sentTitle}" />

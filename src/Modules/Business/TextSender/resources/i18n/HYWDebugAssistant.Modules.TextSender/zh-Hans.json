@@ -9,7 +9,6 @@
     "status.pageEmpty": "输入内容为空，无法发送",
     "status.pageEmptyContinuous": "输入内容为空，连续发送无法继续",
     "view.continuous": "连续发送",
-    "view.escape": "转义字符",
     "view.inputLabel": "文本输入",
     "view.intervalUnit": "ms",
     "view.newline": "换行含义",

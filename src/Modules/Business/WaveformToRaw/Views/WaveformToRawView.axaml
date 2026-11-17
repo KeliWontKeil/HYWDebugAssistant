@@ -67,24 +67,24 @@
     <StackPanel Name="ParamFlow" Canvas.Left="0" Canvas.Top="36" Width="356">
 
       <Canvas Name="TextParams" Width="356" Height="24">
-        <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="24"
+        <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="56" Height="24"
                         Classes="caption right" Text="{loc:Tr field.header}" />
-        <ui:ModuleTextSurface Canvas.Left="44" Canvas.Top="0" Width="88" Height="24" Mode="Input"
+        <ui:ModuleTextSurface Canvas.Left="58" Canvas.Top="0" Width="86" Height="24" Mode="Input"
                               Value="{x:Static local:WaveformToRawModule.HeaderHexInput}"
                               Text="{x:Static local:WaveformToRawModule.DefaultHeaderHex}" CommitMode="OnChange"
                               ToolTip.Tip="{loc:Tr view.hexHint}" />
-        <ui:ModuleLabel Canvas.Left="134" Canvas.Top="0" Width="42" Height="24"
+        <ui:ModuleLabel Canvas.Left="148" Canvas.Top="0" Width="56" Height="24"
                         Classes="caption right" Text="{loc:Tr field.footer}" />
-        <ui:ModuleTextSurface Canvas.Left="178" Canvas.Top="0" Width="88" Height="24" Mode="Input"
+        <ui:ModuleTextSurface Canvas.Left="206" Canvas.Top="0" Width="86" Height="24" Mode="Input"
                               Value="{x:Static local:WaveformToRawModule.FooterHexInput}"
                               Text="{x:Static local:WaveformToRawModule.DefaultFooterHex}" CommitMode="OnChange"
                               ToolTip.Tip="{loc:Tr view.hexHint}" />
       </Canvas>
 
       <Canvas Name="FireWaterParams" Width="356" Height="24">
-        <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="42" Height="24"
+        <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="56" Height="24"
                         Classes="caption right" Text="{loc:Tr field.prefix}" />
-        <ui:ModuleTextSurface Canvas.Left="44" Canvas.Top="0" Width="88" Height="24" Mode="Input"
+        <ui:ModuleTextSurface Canvas.Left="58" Canvas.Top="0" Width="86" Height="24" Mode="Input"
                               Value="{x:Static local:WaveformToRawModule.PrefixInput}"
                               Text="" CommitMode="OnChange" />
       </Canvas>

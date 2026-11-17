@@ -80,7 +80,9 @@
             <Border Name="PART_FocusRing" BorderThickness="2" CornerRadius="2"
                     BorderBrush="{DynamicResource AccentPrimary}"
                     IsVisible="False" IsHitTestVisible="False" />
-            <ui:NewlineMarkOverlay Name="PART_Marks" IsHitTestVisible="False" />
+            <ui:NewlineMarkOverlay Name="PART_Marks" IsHitTestVisible="False"
+                                   MarkerBrush="{DynamicResource TextControlCharacter}"
+                                   EscapeBrush="{DynamicResource TextEscape}" />
             <Border Name="PART_ErrorRing" BorderThickness="2" CornerRadius="2"
                     BorderBrush="{DynamicResource SemanticError}"
                     IsVisible="False" IsHitTestVisible="False" />
@@ -246,6 +248,7 @@
 
   <Style Selector="ui|ModuleTextSurface">
     <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleTextSurface}}" />
+    <Setter Property="ShowControlCharacterMarkers" Value="{DynamicResource TextControlCharacterMarkers}" />
   </Style>
 
   <Style Selector="ui|ModuleToggle">
@@ -421,6 +424,7 @@
     <Setter Property="MinHeight" Value="26" />
     <Setter Property="MinWidth" Value="64" />
     <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
   </Style>
 
   <!--
@@ -428,7 +432,7 @@
     必须把上面那条的最小尺寸与内边距放开，否则尺寸下限会把方框撑大、内边距会把图标挤偏；
     图标在框里居中，不参与文本基线对齐。
     **面 / 边 / 指针态不在这里**：宿主 App 的 `ButtonChrome.axaml` 对 `:is(Button)` 统一给
-    （图标按钮不再排除），这里只收窄尺寸与图标颜色——否则模块视图里的清空按钮会"没有面"。
+    （图标按钮不再排除），这里只收窄尺寸；图标颜色由代码绑定到按钮 Foreground，与文字同一档。
   -->
   <Style Selector="ui|ModuleButton.icon">
     <Setter Property="MinWidth" Value="0" />
@@ -437,21 +441,12 @@
     <Setter Property="CornerRadius" Value="4" />
     <Setter Property="HorizontalContentAlignment" Value="Center" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
-    <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
   </Style>
 
   <!-- 按钮里那枚图标的尺寸（清空按钮比普通按钮更小，图标相应收窄才不挤） -->
   <Style Selector="ui|ModuleButton.icon ui|Icon">
     <Setter Property="Width" Value="14" />
     <Setter Property="Height" Value="14" />
-  </Style>
-
-  <Style Selector="ui|ModuleButton.icon:pointerover">
-    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-  </Style>
-
-  <Style Selector="ui|ModuleButton.icon:pressed">
-    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
   </Style>
 
   <Style Selector="ui|ModuleToggle">
@@ -581,8 +576,9 @@
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="SelectionBrush" Value="{DynamicResource OverlaySelection}" />
     <Setter Property="SelectionForegroundBrush" Value="{DynamicResource TextPrimary}" />
-    <Setter Property="MarkerBrush" Value="{DynamicResource SemanticWarn}" />
+    <Setter Property="MarkerBrush" Value="{DynamicResource TextControlCharacter}" />
     <Setter Property="NewlineMarkBrush" Value="{DynamicResource TextMuted}" />
+    <Setter Property="ShowControlCharacterMarkers" Value="{DynamicResource TextControlCharacterMarkers}" />
   </Style>
   <!-- 字段编辑器：统一高度与字号，避免"一行高一行矮"（三档自然高本来各不相同）。 -->
   <!--

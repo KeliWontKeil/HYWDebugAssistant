@@ -4,7 +4,7 @@ namespace HYWDebugAssistant.Core.Api;
 /// **文本显示缓冲的默认值唯一事实源**（通信/内存类高级参数）。
 /// </summary>
 /// <remarks>
-/// 这里只放显示文本框的内存上限；1472 字节模块载荷、4096 字节契约字段等属于协议常量，不在这里。
+/// 这里放显示文本框的内存上限与不可显示字符的呈现方式；1472 字节模块载荷、4096 字节契约字段等属于协议常量，不在这里。
 /// </remarks>
 public static class DisplayDefaults
 {
@@ -27,7 +27,7 @@ public static class DisplayDefaults
     public const int TextCharBudgetMax = 16 * 1024 * 1024;
 }
 
-/// <summary>文本显示缓冲的应用级内存上限。</summary>
+/// <summary>文本显示缓冲的应用级设置：内存上限与不可显示字符的呈现方式。</summary>
 public sealed record DisplaySettings
 {
     /// <summary>每个文本显示缓冲的最大行数。</summary>
@@ -35,4 +35,7 @@ public sealed record DisplaySettings
 
     /// <summary>每个文本显示缓冲的总字符预算。</summary>
     public int TextCharBudget { get; init; } = DisplayDefaults.TextCharBudget;
+
+    /// <summary>不可显示字符显示为警示色 <c>⟨XX⟩</c>（true）还是方框 <c>□</c>（false）。</summary>
+    public bool ShowControlCharacterMarkers { get; init; } = true;
 }

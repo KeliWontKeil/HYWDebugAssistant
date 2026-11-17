@@ -54,6 +54,8 @@
     { "key": "TextPrimary", "title": "正文文字", "group": "ink", "purpose": "正文墨（标签正文、读数、按钮字、输入框文字）", "roles": ["default"] },
     { "key": "TextSecondary", "title": "次级文字", "group": "ink", "purpose": "次级墨（表单标签、分组标题）" },
     { "key": "TextMuted", "title": "弱化文字", "group": "ink", "purpose": "弱化墨（说明、脚注、占位、文本层里的 ↵ 标记）", "roles": ["muted"] },
+    { "key": "TextControlCharacter", "title": "不可显示字符", "group": "ink", "purpose": "文本面里的不可显示字符标记 ⟨XX⟩（警示色）" },
+    { "key": "TextEscape", "title": "输入转义", "group": "ink", "purpose": "文本输入面里的 C 转义组（蓝色记法）" },
 
     { "key": "BorderDefault", "title": "常态边框", "group": "border", "purpose": "常态边框（分组框、分隔线、曲线外框）" },
     { "key": "BorderStrong", "title": "强调边框", "group": "border", "purpose": "更重一档的边框（只读文本面外框、色块外框）" },

@@ -20,7 +20,8 @@ public enum NewlineKind
 /// **显示层的换行标记编码**：数据换行在显示缓冲里保留为 <c>哨兵 + \n</c>，只供只读文本视图画箭头。
 /// </summary>
 /// <remarks>
-/// 哨兵是**私有区字符**，数据解码会把私有区字符写成 <c>⟨XX⟩</c>，因此不会与用户数据碰撞。
+/// 哨兵是**私有区字符**；数据解码只会把**这三个哨兵码位本身**写成
+/// <c>⟨XX⟩</c> 字面标记，其他私有区字符按普通不可显示字符显示，因此不会与用户数据碰撞。
 /// 哨兵不是数据：复制/保存前必须剥离；它也不参与布局与选择偏移。
 /// </remarks>
 public static class NewlineEncoding
@@ -98,6 +99,40 @@ public static class NewlineEncoding
             if (!IsSentinel(value))
             {
                 _ = builder.Append(value);
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>把显示层哨兵+<c>\n</c>还原成真实换行序列，其余字符原样保留。</summary>
+    /// <param name="text">显示缓冲里的一行。</param>
+    /// <returns>保留 CRLF / CR / LF 种类的文本。</returns>
+    public static string Expand(string text)
+    {
+        if (string.IsNullOrEmpty(text) || text.IndexOfAny([CrLfSentinel, CrSentinel, LfSentinel]) < 0)
+        {
+            return text;
+        }
+
+        var builder = new System.Text.StringBuilder(text.Length);
+
+        for (var index = 0; index < text.Length; index++)
+        {
+            var current = text[index];
+
+            if (IsSentinel(current)
+                && index + 1 < text.Length
+                && text[index + 1] == '\n')
+            {
+                _ = builder.Append(SequenceOf(KindOf(current)));
+                index++;
+                continue;
+            }
+
+            if (!IsSentinel(current))
+            {
+                _ = builder.Append(current);
             }
         }
 

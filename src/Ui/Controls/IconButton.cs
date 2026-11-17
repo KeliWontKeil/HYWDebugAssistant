@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using IconControl = HYWDebugAssistant.Sdk.Ui.Controls.Icon;
 
@@ -15,7 +16,7 @@ namespace HYWDebugAssistant.Ui.Controls;
 ///   <item>缺键 / 缺表 ⇒ <see cref="IconControl"/> 自己显示**键名**并报诊断——界面上看得见缺的是哪个键；</item>
 ///   <item>空 ⇒ 文本模式：`Content` 由使用方给，本类不碰；</item>
 ///   <item>面 / 边 / 五态由 `ButtonChrome.axaml` 与 `ui|IconButton.icon` 样式给；
-///     图标的前景色跟随按钮（继承）⇒ 指针/按下态自动带上图标。</item>
+///     图标前景色绑定到按钮 Foreground ⇒ 指针/按下/danger/accent 与文字一起变。</item>
 /// </list>
 /// <para>
 /// <see cref="Icon"/> 是 <see cref="AvaloniaProperty"/> 而不是普通属性：外壳里有 `{Binding …}` 的用法，
@@ -64,10 +65,16 @@ public sealed class IconButton : Button
             return;
         }
 
-        Content = new IconControl
+        var icon = new IconControl
         {
             IconKey = key,
             Owner = typeof(IconButton).Assembly,
         };
+
+        // 图标与按钮文字共用同一个 Foreground；danger/accent 或指针态不再各写一套颜色。
+        icon[!TemplatedControl.ForegroundProperty] =
+            this[!TemplatedControl.ForegroundProperty];
+
+        Content = icon;
     }
 }

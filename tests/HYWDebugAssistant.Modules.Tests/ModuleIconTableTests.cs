@@ -1,8 +1,11 @@
+using HYWDebugAssistant.Modules.RawToWaveform;
 using HYWDebugAssistant.Modules.Serial;
 using HYWDebugAssistant.Modules.TcpClient;
 using HYWDebugAssistant.Modules.TcpServer;
 using HYWDebugAssistant.Modules.Udp;
+using HYWDebugAssistant.Modules.WaveformDisplay;
 using HYWDebugAssistant.Modules.WaveformGenerator;
+using HYWDebugAssistant.Modules.WaveformToRaw;
 using HYWDebugAssistant.Sdk.Resources;
 using Shouldly;
 using Xunit;
@@ -110,6 +113,42 @@ public sealed class ModuleIconTableTests
             catch (UnauthorizedAccessException)
             {
             }
+        }
+    }
+
+    [Fact]
+    public void 编辑与刷新图标_应使用干净的线条模式()
+    {
+        var editKeys = new[] { "icon.edit.add", "icon.edit.remove", "icon.edit.trash" };
+        foreach (var key in editKeys)
+        {
+            IconCatalog.TryGet(typeof(WaveformGeneratorModule).Assembly, key, out var asset)
+                .ShouldBeTrue($"缺少图标 {key}");
+            asset!.StrokeOnly.ShouldBeTrue($"{key} 必须是 fill=none 的线条图标");
+        }
+
+        IconCatalog.TryGet(
+                typeof(WaveformDisplayModule).Assembly,
+                "icon.group.delete",
+                out var groupDelete)
+            .ShouldBeTrue("缺少 icon.group.delete");
+        groupDelete!.StrokeOnly.ShouldBeTrue("icon.group.delete 必须是 fill=none 的线条图标");
+
+        var refreshAssemblies = new[]
+        {
+            typeof(SerialModule),
+            typeof(TcpClientModule),
+            typeof(TcpServerModule),
+            typeof(UdpModule),
+            typeof(RawToWaveformModule),
+            typeof(WaveformToRawModule),
+        };
+
+        foreach (var moduleType in refreshAssemblies)
+        {
+            IconCatalog.TryGet(moduleType.Assembly, "icon.refresh", out var refresh)
+                .ShouldBeTrue($"{moduleType.Name} 缺少 icon.refresh");
+            refresh!.StrokeOnly.ShouldBeTrue($"{moduleType.Name} 的刷新必须是 fill=none 的线条图标");
         }
     }
 
