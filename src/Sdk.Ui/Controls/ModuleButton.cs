@@ -86,6 +86,15 @@ public sealed class ModuleButton : Button, IModuleViewElement
     public string CommandName { get; set; } = string.Empty;
 
     /// <summary>
+    /// **图标属主程序集**（可选）：不设时按所在 <see cref="ModuleView"/> 的程序集推断。
+    /// </summary>
+    /// <remarks>
+    /// 内容被托管到模块视图之外（例如 <see cref="ModulePopupPanel"/> 的浮层里）时，
+    /// 祖先链上没有 <see cref="ModuleView"/>，必须在这里显式给属主，否则图标键查不到资源。
+    /// </remarks>
+    public System.Reflection.Assembly? IconOwner { get; set; }
+
+    /// <summary>
     /// **菜单值名**（可选）：非空时按钮右侧出现小箭头，菜单编辑这个值。
     /// </summary>
     /// <remarks>
@@ -386,7 +395,7 @@ public sealed class ModuleButton : Button, IModuleViewElement
         var icon = new IconControl
         {
             IconKey = _icon,
-            Owner = this.FindAncestorOfType<ModuleView>()?.GetType().Assembly,
+            Owner = IconOwner ?? this.FindAncestorOfType<ModuleView>()?.GetType().Assembly,
         };
 
         // 图标不是独立的颜色档位：它和按钮里的文字共用同一个 Foreground，

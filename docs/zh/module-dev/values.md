@@ -19,6 +19,10 @@ context.Declaration.DeclareValue(new ValueDeclaration("header")
 
 `Editor` 只决定控件默认选哪种编辑器；`Persistent` 与 `ResetWithModule` 是正交属性，不是值的种类。一次性的动作输入（文件选择结果、结构动作）仍用 `DeclareInput` / 命令，不属于值。
 
+## 一个值只能有一个编辑器
+
+同一个值名在视图 XAML 里**只能出现在一个输入控件上**（\ModuleTextSurface\ 的 \Value\、\ModuleToggle\/\ModuleCheckBox\、\ModuleSelect\/\ModuleSegmentedControl\、\ModuleConfigField\ 都算）。重复会出现两个初值、包加载时被拒绝（\DuplicateValue\），整个模块都装不上——把同一项设置放进工具栏和设置面板两处就是这种写法。
+
 ## 视图绑定
 
 控件只写**值名**，不写配置字段名、不直接读写视图状态：

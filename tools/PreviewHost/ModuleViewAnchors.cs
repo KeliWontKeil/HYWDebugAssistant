@@ -1,6 +1,10 @@
+using HYWDebugAssistant.Modules.AttitudeDisplay.Views;
 using HYWDebugAssistant.Modules.DataMonitor.Views;
+using HYWDebugAssistant.Modules.GaugeDisplay.Views;
 using HYWDebugAssistant.Modules.HexSender.Views;
 using HYWDebugAssistant.Modules.HexStringConverter.Views;
+using HYWDebugAssistant.Modules.ScaleBarHorizontal.Views;
+using HYWDebugAssistant.Modules.ScaleBarVertical.Views;
 using HYWDebugAssistant.Modules.Serial.Views;
 using HYWDebugAssistant.Modules.TcpClient.Views;
 using HYWDebugAssistant.Modules.TcpServer.Views;
@@ -27,9 +31,13 @@ internal static class ModuleViewAnchors
     /// <summary>全部模块视图类型（保持引用，禁止裁剪/优化掉）。</summary>
     public static readonly Type[] All =
     [
+        typeof(AttitudeDisplayView),
         typeof(DataMonitorView),
+        typeof(GaugeDisplayView),
         typeof(HexSenderView),
         typeof(HexStringConverterView),
+        typeof(ScaleBarHorizontalView),
+        typeof(ScaleBarVerticalView),
         typeof(SerialView),
         typeof(TcpClientView),
         typeof(TcpServerView),

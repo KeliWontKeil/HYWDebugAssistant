@@ -1,0 +1,97 @@
+<ui:ModuleView xmlns="https://github.com/avaloniaui"
+               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+               xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+               xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+               xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
+               xmlns:views="using:HYWDebugAssistant.Modules.ScaleBarHorizontal.Views"
+               x:Class="HYWDebugAssistant.Modules.ScaleBarHorizontal.Views.ScaleBarSettingsPanel"
+               x:CompileBindings="True"
+               x:DataType="contracts:IModuleViewContext"
+               InitialWidth="300" InitialHeight="380">
+
+  <!-- 面板正文 = 独立视图：预览器可直接打开这个文件单独看表单。 -->
+  <Grid Margin="8" ColumnDefinitions="84,*" ColumnSpacing="4" RowSpacing="4"
+        RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+    <Grid Grid.Row="0" Grid.ColumnSpan="2" ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="4">
+      <ui:ModuleLabel Grid.Column="0" Classes="caption right" VerticalAlignment="Center"
+                      Text="{loc:Tr view.group}" />
+      <ui:ModuleConfigField Grid.Column="1" Height="22"
+                            Value="{x:Static views:ScaleBarHorizontalViewKeys.Group}"
+                            Editor="Number" InitialValue="0"
+                            ToolTip.Tip="{loc:Tr view.groupTip}" />
+      <ui:ModuleLabel Grid.Column="2" Classes="caption right" VerticalAlignment="Center"
+                      Text="{loc:Tr view.channel}" />
+      <ui:ModuleConfigField Grid.Column="3" Height="22"
+                            Value="{x:Static views:ScaleBarHorizontalViewKeys.Channel}"
+                            Editor="Number" InitialValue="0"
+                            ToolTip.Tip="{loc:Tr view.channelTip}" />
+    </Grid>
+
+    <ui:ModuleLabel Grid.Row="1" Classes="caption right" VerticalAlignment="Center"
+                    Text="{loc:Tr view.minimum}" />
+    <ui:ModuleConfigField Grid.Row="1" Grid.Column="1" Height="22"
+                          Value="{x:Static views:ScaleBarHorizontalViewKeys.Minimum}"
+                          Editor="Number" InitialValue="0" />
+
+    <ui:ModuleLabel Grid.Row="2" Classes="caption right" VerticalAlignment="Center"
+                    Text="{loc:Tr view.maximum}" />
+    <ui:ModuleConfigField Grid.Row="2" Grid.Column="1" Height="22"
+                          Value="{x:Static views:ScaleBarHorizontalViewKeys.Maximum}"
+                          Editor="Number" InitialValue="100" />
+
+    <ui:ModuleLabel Grid.Row="3" Classes="caption right" VerticalAlignment="Center"
+                    Text="{loc:Tr view.color}" />
+    <ui:ModuleSegmentedControl Grid.Row="3" Grid.Column="1" Height="22" SelectedKey="green"
+                               Value="{x:Static views:ScaleBarHorizontalViewKeys.Color}">
+      <ui:ModuleSegmentedControl.PreviewOptions>
+        <ui:ModuleSegmentOption Key="green" Label="{loc:Tr view.colorGreen}" />
+        <ui:ModuleSegmentOption Key="blue" Label="{loc:Tr view.colorBlue}" />
+        <ui:ModuleSegmentOption Key="orange" Label="{loc:Tr view.colorOrange}" />
+        <ui:ModuleSegmentOption Key="red" Label="{loc:Tr view.colorRed}" />
+        <ui:ModuleSegmentOption Key="purple" Label="{loc:Tr view.colorPurple}" />
+      </ui:ModuleSegmentedControl.PreviewOptions>
+    </ui:ModuleSegmentedControl>
+
+    <ui:ModuleCheckBox Grid.Row="4" Grid.ColumnSpan="2" IsChecked="True"
+                       Content="{loc:Tr view.fillFromZero}"
+                       Value="{x:Static views:ScaleBarHorizontalViewKeys.FillFromZero}" />
+
+    <ui:ModuleCheckBox Grid.Row="5" Grid.ColumnSpan="2" IsChecked="True"
+                       Content="{loc:Tr view.autoZero}"
+                       Value="{x:Static views:ScaleBarHorizontalViewKeys.AutoZero}" />
+
+    <ui:ModuleLabel Grid.Row="6" Classes="caption right" VerticalAlignment="Center"
+                    Text="{loc:Tr view.zeroDelay}" />
+    <ui:ModuleConfigField Grid.Row="6" Grid.Column="1" Height="22"
+                          Value="{x:Static views:ScaleBarHorizontalViewKeys.ZeroDelay}"
+                          Editor="Number" InitialValue="800" />
+
+    <ui:ModuleLabel Grid.Row="7" Classes="caption right" VerticalAlignment="Center"
+                    Text="{loc:Tr view.barText}" />
+    <ui:ModuleConfigField Grid.Row="7" Grid.Column="1" Height="22"
+                          Value="{x:Static views:ScaleBarHorizontalViewKeys.Title}"
+                          Editor="Text" InitialValue="" />
+
+    <ui:ModuleLabel Grid.Row="8" Classes="caption right" VerticalAlignment="Center"
+                    Text="{loc:Tr view.unit}" />
+    <ui:ModuleConfigField Grid.Row="8" Grid.Column="1" Height="22"
+                          Value="{x:Static views:ScaleBarHorizontalViewKeys.Unit}"
+                          Editor="Text" InitialValue="" />
+
+    <ui:ModuleCheckBox Grid.Row="9" Grid.ColumnSpan="2" IsChecked="True"
+                       Content="{loc:Tr view.smoothing}"
+                       Value="{x:Static views:ScaleBarHorizontalViewKeys.Smoothing}" />
+
+    <ui:ModuleLabel Grid.Row="10" Classes="caption right" VerticalAlignment="Center"
+                    Text="{loc:Tr view.smoothingMs}" />
+    <ui:ModuleConfigField Grid.Row="10" Grid.Column="1" Height="22"
+                          Value="{x:Static views:ScaleBarHorizontalViewKeys.SmoothingMs}"
+                          Editor="Number" InitialValue="120" />
+
+    <ui:ModuleLabel Grid.Row="11" Classes="caption right" VerticalAlignment="Center"
+                    Text="{loc:Tr view.decimals}" />
+    <ui:ModuleConfigField Grid.Row="11" Grid.Column="1" Height="22"
+                          Value="{x:Static views:ScaleBarHorizontalViewKeys.Decimals}"
+                          Editor="Number" InitialValue="2" />
+  </Grid>
+</ui:ModuleView>

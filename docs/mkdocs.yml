@@ -35,6 +35,10 @@ nav:
           - 波形发生器: guides/modules/waveform-generator.md
           - 文本→波形转换器: guides/modules/raw-to-waveform.md
           - 波形→文本转换器: guides/modules/waveform-to-raw.md
+          - 指针仪表盘: guides/modules/gauge-display.md
+          - 横向刻度条: guides/modules/scale-bar-horizontal.md
+          - 纵向刻度条: guides/modules/scale-bar-vertical.md
+          - 三轴姿态仪: guides/modules/attitude-display.md
       - 模块管理: guides/manage-modules.md
       - 窗口操作: guides/windows.md
       - 吸附与拼接: guides/puzzle.md

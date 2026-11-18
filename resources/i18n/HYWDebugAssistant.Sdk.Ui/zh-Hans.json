@@ -2,6 +2,8 @@
   "language": "zh-Hans",
   "entries": {
     "moduleField.reject.missingFieldName": "ModuleConfigField 缺少 Value 属性，没有可绑定的值名",
+    "panel.close": "关闭",
+    "panel.reset": "恢复默认",
     "moduleText.contextMenu.copy": "复制",
     "moduleText.contextMenu.cut": "剪切",
     "moduleText.contextMenu.paste": "粘贴",

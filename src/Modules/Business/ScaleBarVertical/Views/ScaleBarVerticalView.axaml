@@ -1,0 +1,57 @@
+<ui:ModuleView xmlns="https://github.com/avaloniaui"
+               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+               xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+               xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+               xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
+               xmlns:views="using:HYWDebugAssistant.Modules.ScaleBarVertical.Views"
+               xmlns:local="using:HYWDebugAssistant.Modules.ScaleBarVertical"
+               x:Class="HYWDebugAssistant.Modules.ScaleBarVertical.Views.ScaleBarVerticalView"
+               x:CompileBindings="True"
+               x:DataType="contracts:IModuleViewContext"
+               InitialWidth="80" InitialHeight="420"
+               MinWidth="60" MinHeight="320">
+
+  <ui:ModuleView.Ports>
+    <ui:ModulePort Name="{x:Static local:ScaleBarVerticalModule.InPort}"
+                   Direction="Receive"
+                   TypeId="{x:Static local:ScaleBarVerticalModule.WaveformTypeId}"
+                   Edge="Right" />
+  </ui:ModuleView.Ports>
+
+  <!-- 标题 / 读数 / 单位是独立标签；刻度条只画轨道、填充与刻度，因此条身可以很窄。 -->
+  <Panel>
+    <Grid RowDefinitions="24,16,22,14,*" RowSpacing="1" Margin="2">
+      <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="4">
+        <ui:ModuleLabel x:Name="Summary" Grid.Column="0" Classes="micro" VerticalAlignment="Center"
+                        Text="{loc:Tr view.summaryPreview}"
+                        ToolTip.Tip="{loc:Tr view.summaryTip}" />
+        <ui:ModuleButton x:Name="SettingsButton" Grid.Column="1" Classes="icon" Width="24" Height="22"
+                         Icon="{x:Static views:ScaleBarVerticalViewKeys.IconSettings}"
+                         ToolTip.Tip="{loc:Tr view.settings}" />
+      </Grid>
+
+      <ui:ModuleLabel x:Name="Title" Grid.Row="1" Classes="caption" HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Text="{loc:Tr view.titlePreview}" />
+
+      <ui:ModuleNumeric x:Name="Value" Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Source="{x:Static views:ScaleBarVerticalViewKeys.Value}"
+                        Decimals="2" Text="{loc:Tr view.valuePreview}" />
+
+      <ui:ModuleLabel x:Name="Unit" Grid.Row="3" Classes="micro" HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Text="{loc:Tr view.unitPreview}" />
+
+      <ui:ScaleBar x:Name="ScaleBar" Grid.Row="4" Margin="2"
+                   Orientation="Vertical"
+                   Minimum="0" Maximum="100" Value="42"
+                   BarThickness="14"
+                   ShowLabels="True" FillOrigin="Zero" Color="Success" />
+    </Grid>
+
+    <ui:ModulePopupPanel x:Name="SettingsPanel"
+                         PanelType="{x:Type views:ScaleBarSettingsPanel}"
+                         Title="{loc:Tr view.settings}"
+                         ResetCommandName="{x:Static views:ScaleBarVerticalViewKeys.ResetSettings}" />
+  </Panel>
+</ui:ModuleView>

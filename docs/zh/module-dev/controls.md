@@ -23,7 +23,7 @@
 | `ModuleNumeric` | 数值读数 | `Source`、`Quantity`（`None` / `Bytes`）、`Text`（预览值） |
 | `ModuleStatusLight` | 状态灯：底色来自模块设的**角色词** | `Source`；配合 `Appearance.SetOutlineRole(Source, role)` |
 | `ModuleTextSurface` | 文本面：日志显示或可编辑值 | `Mode`、`Value`、`CommitMode`、`Source`（仅显示）、`Text`、`Multiline`、`IsReadOnly`、`ShowNewlineMarks`、`ShowControlCharacterMarkers`、`EscapeInput`、`TextAlignment`、`MinEditorHeight`、`Commit()`、`SubmitKeyValue`、`SubmitCommandName`、`EnterNewlineValue` |
-| `ModuleButton` | 命令按钮（可选右侧小箭头菜单） | `CommandName`、`Content`、`Icon`、`Appearance`、`MenuValue` |
+| `ModuleButton` | 命令按钮（可选右侧小箭头菜单） | `CommandName`、`Content`、`Icon`、`IconOwner`、`Appearance`、`MenuValue` |
 | `ModuleToggle` | 开关：勾选提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`CheckedChanged`（程序写回也触发） |
 | `ModuleCheckBox` | 勾选框：方框 + 勾形 + 右侧文字（间距 2 DIP），提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`Content`、`CheckedChanged` |
 | `ModuleConfigField` | 值编辑器（文本/数字/布尔/枚举） | `Value`（标题另用 `ModuleLabel`） |
@@ -32,6 +32,11 @@
 | `ModuleSegmentedControl` | 互斥分段选择（文字/图标，可禁用） | `Value`、`CommitMode`、`SelectedKey`、`PreviewOptions`、`ShowLabels`、`IconSize`；旧 `Options`/`OptionSelected` 供结构选择 |
 | `ChartSurface` | 通用多序列绘图（全量点、X/Y 游标、参考线、PNG、左键平移/右键缩放/滚轮缩放） | `Series`、`DataVersion`、`XStart`、`XEnd`、`XStep`、`XAxisKind`、`YMin/Max`、`XTickStep/YTickStep`、`PlotInset`、`ReferenceLines`、`ShowCursors`、`ShowYCursors`、`WheelZoomStep`、`CapturePng()`、`PanRequested`、`ZoomRequested`、`WheelZoomRequested`；有无 Ctrl 都同时缩放 X/Y（模块负责在任一轴触界时整次拒绝） |
 | `RangeSelector` | 通用线性范围可视化/拖动 | `Minimum`、`Maximum`、`RangeStart/End`、`MinimumRangeSpan`、`TickStep`、`ShowTicks`、`ShowTickLabels`、`MinorTickStep`、`XAxisKind`、`HandleWidth`、`RangeChanged`、`LastChangeKind` |
+| `GaugeDial` | 指针仪表盘（单值、弧线刻度 + 指针 + 读数，可平滑） | `Minimum`/`Maximum`/`Value`、`Title`/`Unit`、`SweepAngle`、`ValueDecimals`、`MajorTickStep`、`MinorTickCount`、`ShowValue`、`SmoothingEnabled`/`SmoothingTimeMs`、`DialBrush`/`TrackBrush`/`TickBrush`/`TickLabelBrush`/`NeedleBrush`/`HubBrush`/`TitleBrush`/`ValueBrush`/`UnitBrush`/`OutOfRangeBrush` |
+| `ScaleBar` | 矩形细条刻度进度条（横向 / 纵向，Windows 进度条观感；**不含文字**） | `Orientation`、`Minimum`/`Maximum`/`Value`、`BarThickness`、`TickStep`、`MinorTickCount`、`ShowLabels`、`FillOrigin`（`Minimum`/`Zero`）、`Color`（`Success`/`Accent`/`Warning`/`Danger`/`Alternate`，映射主题 token）、`SmoothingEnabled`/`SmoothingTimeMs`、`TrackBrush`/`FrameBrush`/`TickBrush`/`TickLabelBrush` |
+| `AttitudeView` | 三轴姿态（坐标轴 / 方块 / 无人机） | `Roll`/`Pitch`/`Yaw`（度）、`RenderStyle`、`Zoom`、`ShowGrid`、`ShowLabels`、`SmoothingEnabled`/`SmoothingTimeMs`、`GridBrush`/`AxisXBrush`/`AxisYBrush`/`AxisZBrush`/`BodyBrush`/`BodyEdgeBrush`/`TextBrush` |
+| `ModulePopupPanel` | 浮层面板容器（独立窗口里显示，可放在模块之外） | `PanelType`（正文视图类型）、`Title`、`ResetCommandName`、`Anchor`、`IsOpen`、`Open()`/`Close()`/`Toggle()` |
+| `ModulePanelSurface` | 面板外壳（标题行 + 刷新/关闭 + 内容区），由容器创建 | `Title`、`ResetCommandName`、`IconOwner`、`CloseRequested`、`HeaderHeight` |
 | `Icon` | 模块图标 | `IconKey`、`Owner` |
 | `ModuleView` | 视图根（推荐） | 继承 `UserControl`；`InitialWidth/Height`、`MinWidth/Height`（均含外框的实际窗口尺寸）；自动带控件主题 |
 | `ModuleViewHost` | 普通 `UserControl` 的宿主（运行期由框架创建） | `Context`、`Refresh()` |
@@ -156,9 +161,48 @@ surface.DataVersion++;          // 改了 Values/Count 后抬版本号才会重�
 
 `RangeSelector` 是独立的范围可视化控件：拖两端/中间触发 `RangeChanged`，`LastChangeKind` 标识 `Start/End/Body/New`；轨道占满自身宽度，不接收图表 inset。
 
+## 数据显示控件（表盘 / 刻度条 / 姿态）
+
+`GaugeDial`、`ScaleBar`、`AttitudeView` 是同一条口径：**只画目标值**。
+
+- `Value`（姿态是 `Roll` / `Pitch` / `Yaw`）必须是有限实数；控件**没有"无数据"分支**——"数据停了一会儿该保持还是回零"由模块发布的目标值决定（模块的自动回零设置），控件不自行判断。
+- 平滑在控件内：按框架每帧 `Refresh` 的 dt 逼近目标值，差值落到阈值以下就对齐并停止重绘；`SmoothingEnabled` 关闭或 `SmoothingTimeMs <= 0` 时直接对齐。控件不起定时器。
+- `GaugeDial` / `ScaleBar` 在数值超出 `Minimum..Maximum` 时把指针/填充停在边界、读数改用 `OutOfRangeBrush`；收到的数值本身不被裁剪。
+- `ScaleBar` 的观感是**矩形细条**（Windows 进度条）：`BarThickness` 给条厚度（<= 0 用可用空间），填充内缩一圈；填充色由 `Color` 这个**角色**决定（映射主题 token，随深浅主题跟随），默认 `Success`（绿）。
+- `ScaleBar` **只画轨道、填充与刻度，不画标题/读数/单位**：那些文字由视图用 `ModuleLabel` / `ModuleNumeric` 拼（标题、单位各有标签，读数用 `ModuleNumeric Source=value Decimals=N`）。控件自带文字会逼出一条标题行，细条就缩不下去了。
+- `GaugeDial` 的指针与中心轴默认取 `SemanticError`（红）。
+- `GaugeDial` 的外沿留白有两条都得满足：**扣掉环线自身厚度**、**张角 ≥ 180° 时按半径本身限宽**（弧经过圆的左右极点，不是端点）；余量高度上下均分。端点数字与主刻度重合时只画一次（`0..100` 的 `100` 不会重影）。
+- `AttitudeView` 的世界（地面网格、相机）固定，只有机体按三个角度旋转；`RenderStyle` 切换坐标轴 / 方块 / 无人机。
+- 颜色默认值在 `Themes/Controls.axaml`；调用方只换 token 或角色，不传字面颜色。
+
+## 浮层面板（ModulePopupPanel + ModulePanelSurface）
+
+模块窗口会裁切视图，**视图内的浮层出不了模块窗口**；面板还要能在预览器里单独看。这是统一标准（三件套），模块只做前两件：
+
+1. **面板正文 = 一个独立视图**：`Views/<Name>SettingsPanel.axaml`，继承 `ModuleView`，在 XAML 里声明自己的 `InitialWidth`/`InitialHeight`（表单区尺寸），并带 `[ModuleViewDesignData]`。预览器可以直接打开这个文件单独看表单，模块视图因此不再被面板挡住。
+2. **模块视图只声明容器**：
+
+```xml
+<ui:ModulePopupPanel x:Name="SettingsPanel"
+                     PanelType="{x:Type views:GaugeSettingsPanel}"
+                     Title="{loc:Tr view.settings}"
+                     ResetCommandName="{x:Static views:GaugeDisplayViewKeys.ResetSettings}" />
+```
+
+代码后置补一行 `SettingsPanel.Anchor = SettingsButton;`，按钮点击调 `Toggle()`。
+
+3. **容器负责其余一切**：无边框、不透明、不可缩放、不进任务栏的独立 `Window`（`Owner` = 模块窗口）；标题行由 `ModulePanelSurface` 统一渲染（标题 + 刷新 + 关闭）；正文包进内部 `ModuleViewHost` 按帧刷新；关闭 = 关闭图标 / 再点齿轮 / `Esc` / 模块窗口关闭或隐藏；窗口复用，正文状态保留。
+
+- **面板必须提供两个图标键**：`icon.refresh`（恢复默认）与 `icon.close`（关闭），属主由容器按正文程序集给。
+- **尺寸与位置**：窗口 = 正文 `Initial` 尺寸 + 标题行；优先放模块右侧，放不下放左侧，再不行居中叠在模块上；始终夹在屏幕工作区内。
+- **不要用 `Popup` 或视图内浮层**：Popup 的落位/翻转/是否落 overlay 层由平台决定，还出现过贴在模块上的残留；视图内浮层被窗口裁切。两者都试过，统一用独立窗口。
+- **预览**：模块视图里只有齿轮（没有面板布局）；面板正文单独打开，另有 `<模块>-settings.png` 单独截图。
+- 面板正文要公共无参构造（与视图工厂同一规则）。
+- 容器铺在模块视图最上层但不参与命中（`IsHitTestVisible=false`）：齿轮与表盘的点击照常。
+- 标题行的刷新按钮走模块的 `resetSettings` 命令（`ResetCommandName`），行为与原来一致：只重置设置，不动组/通道。
 ## 图标
 
-`ModuleButton` 的 `Icon` 会自动用所在 `ModuleView` 的程序集作图标表拥有者，模块视图里只写键即可：
+`ModuleButton` 的 `Icon` 会自动用所在 `ModuleView` 的程序集作图标表拥有者，模块视图里只写键即可；内容被托管到模块视图之外（浮层面板）时用 `IconOwner` 显式给属主：
 
 ```xml
 <ui:ModuleButton Classes="icon" Width="16" Height="16"
@@ -166,7 +210,7 @@ surface.DataVersion++;          // 改了 Values/Count 后抬版本号才会重�
                  CommandName="{x:Static local:MyModule.RefreshCommand}" />
 ```
 
-独立使用 `Icon` 时要显式给 `Owner`（模块程序集）：
+内容在浮层面板里时：`<ui:ModuleButton Classes="icon" Icon="{x:Static views:MyViewKeys.Close}" IconOwner="{x:Static local:MyModule.IconOwner}" />`。独立使用 `Icon` 时要显式给 `Owner`（模块程序集）：
 
 ```csharp
 public static System.Reflection.Assembly IconOwner => typeof(MyModule).Assembly;

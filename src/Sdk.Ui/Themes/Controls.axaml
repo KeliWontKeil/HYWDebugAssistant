@@ -13,6 +13,30 @@
   -->
   <Styles.Resources>
 
+    <!-- 浮层面板外壳：边框 + 标题行（标题 / 刷新 / 关闭）+ 内容区；视觉结构只在这里。 -->
+    <ControlTheme x:Key="{x:Type ui:ModulePanelSurface}" TargetType="ui:ModulePanelSurface">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{DynamicResource BgModule}"
+                  BorderBrush="{DynamicResource BorderDefault}"
+                  BorderThickness="1" CornerRadius="2">
+            <Grid RowDefinitions="26,*">
+              <Grid ColumnDefinitions="*,Auto,Auto" Margin="8,0" ColumnSpacing="4">
+                <TextBlock Name="PART_Title" VerticalAlignment="Center"
+                           FontSize="11"
+                           Foreground="{DynamicResource TextSecondary}"
+                           TextTrimming="CharacterEllipsis" />
+                <ui:ModuleButton Name="PART_Reset" Grid.Column="1" Classes="icon"
+                                 Width="22" Height="20" HorizontalAlignment="Right" />
+                <ui:ModuleButton Name="PART_Close" Grid.Column="2" Classes="icon"
+                                 Width="22" Height="20" HorizontalAlignment="Right" />
+              </Grid>
+              <ContentPresenter Name="PART_ContentPresenter" Grid.Row="1" />
+            </Grid>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
     <ControlTheme x:Key="{x:Type ui:ModuleStatusLight}" TargetType="ui:ModuleStatusLight">
       <Setter Property="Template">
         <ControlTemplate>
@@ -635,6 +659,39 @@
     <Setter Property="FrameBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="TickBrush" Value="{DynamicResource TextPrimary}" />
     <Setter Property="TickLabelBrush" Value="{DynamicResource TextPrimary}" />
+  </Style>
+
+  <!-- 仪表盘：弧线/指针/刻度各一支 token；超量程读数转语义错误色。 -->
+  <Style Selector="ui|GaugeDial">
+    <Setter Property="DialBrush" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="TrackBrush" Value="{DynamicResource AccentPrimary}" />
+    <Setter Property="TickBrush" Value="{DynamicResource TextSecondary}" />
+    <Setter Property="TickLabelBrush" Value="{DynamicResource TextMuted}" />
+    <Setter Property="NeedleBrush" Value="{DynamicResource SemanticError}" />
+    <Setter Property="HubBrush" Value="{DynamicResource SemanticError}" />
+    <Setter Property="FontSize" Value="10" />
+  </Style>
+
+  <!-- 刻度进度条：矩形细条，填充色由控件的颜色角色映射 token（不在这里写死底色）。 -->
+  <Style Selector="ui|ScaleBar">
+    <Setter Property="TrackBrush" Value="{DynamicResource SurfaceControlBrush}" />
+    <Setter Property="FrameBrush" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="BarThickness" Value="14" />
+    <Setter Property="TickBrush" Value="{DynamicResource TextSecondary}" />
+    <Setter Property="TickLabelBrush" Value="{DynamicResource TextMuted}" />
+    <Setter Property="FontSize" Value="10" />
+  </Style>
+
+  <!-- 三轴姿态：网格用边框色，三轴取方向/语义色，机体用表面色 + 强调棱线。 -->
+  <Style Selector="ui|AttitudeView">
+    <Setter Property="GridBrush" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="AxisXBrush" Value="{DynamicResource DirectionSend}" />
+    <Setter Property="AxisYBrush" Value="{DynamicResource SemanticOk}" />
+    <Setter Property="AxisZBrush" Value="{DynamicResource DirectionReceive}" />
+    <Setter Property="BodyBrush" Value="{DynamicResource SurfaceControlBrush}" />
+    <Setter Property="BodyEdgeBrush" Value="{DynamicResource AccentStrong}" />
+    <Setter Property="TextBrush" Value="{DynamicResource TextSecondary}" />
+    <Setter Property="FontSize" Value="10" />
   </Style>
 
   <!--

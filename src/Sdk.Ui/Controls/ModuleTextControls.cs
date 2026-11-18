@@ -315,6 +315,9 @@ public sealed class ModuleNumeric : ModuleTextElement
     /// <summary>数量种类（默认 <see cref="ModuleQuantity.None"/> = 原样显示）。</summary>
     public ModuleQuantity Quantity { get; set; }
 
+    /// <summary>固定小数位（&lt; 0 = 去掉多余小数，保持默认观感）。</summary>
+    public int Decimals { get; set; } = -1;
+
     /// <inheritdoc />
     public override void Refresh(IModuleViewContext context)
     {
@@ -334,11 +337,21 @@ public sealed class ModuleNumeric : ModuleTextElement
         }
     }
 
-    /// <summary>值的显示文本（字节数量含单位；其余按当前文化显示小数）。</summary>
+    /// <summary>值的显示文本（字节数量含单位；固定小数位优先，否则按当前文化去掉多余小数）。</summary>
     /// <param name="number">值。</param>
-    private string Format(double number) => Quantity == ModuleQuantity.Bytes
-        ? ByteQuantity.Format(number)
-        : number.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture);
+    private string Format(double number)
+    {
+        if (Quantity == ModuleQuantity.Bytes)
+        {
+            return ByteQuantity.Format(number);
+        }
+
+        return Decimals >= 0
+            ? number.ToString(
+                "F" + Decimals.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                System.Globalization.CultureInfo.CurrentCulture)
+            : number.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture);
+    }
 }
 
 /// <summary>模块文本元件共用的运行期外观落点（<see cref="ModuleLabel"/> / <see cref="ModuleNumeric"/>）。</summary>

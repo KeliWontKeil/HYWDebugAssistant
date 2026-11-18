@@ -52,6 +52,11 @@
     <ProjectReference Include="..\..\src\Modules\Business\WaveformGenerator\HYWDebugAssistant.Modules.WaveformGenerator.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\RawToWaveform\HYWDebugAssistant.Modules.RawToWaveform.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\WaveformToRaw\HYWDebugAssistant.Modules.WaveformToRaw.csproj" />
+    <!-- 第五批终端显示模块：四个新视图的截图（人眼复核，不是判据）。 -->
+    <ProjectReference Include="..\..\src\Modules\Business\GaugeDisplay\HYWDebugAssistant.Modules.GaugeDisplay.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\ScaleBarHorizontal\HYWDebugAssistant.Modules.ScaleBarHorizontal.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\ScaleBarVertical\HYWDebugAssistant.Modules.ScaleBarVertical.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\AttitudeDisplay\HYWDebugAssistant.Modules.AttitudeDisplay.csproj" />
   </ItemGroup>
 
 </Project>

@@ -670,6 +670,29 @@ public class ArchitectureRulesTests
                     continue;
                 }
 
+                // 面板正文（`*SettingsPanel.axaml`）不是模块窗口：它只声明自己的尺寸事实，
+                // 运行期由浮层面板按这份尺寸开窗（不可缩放），因此没有"最小尺寸"这回事；
+                // 但它同样不许声明端口 —— 端口是模块窗口的东西。
+                if (Path.GetFileName(file).EndsWith("SettingsPanel.axaml", StringComparison.Ordinal))
+                {
+                    if (!text.Contains("InitialWidth=", StringComparison.Ordinal)
+                        || !text.Contains("InitialHeight=", StringComparison.Ordinal))
+                    {
+                        offenders.Add(
+                            $"{Path.GetRelativePath(RepoRoot, file)} 的面板正文没有声明 InitialWidth/InitialHeight"
+                            + "（面板尺寸的唯一事实是正文 XAML）");
+                    }
+
+                    if (text.Contains("<ui:ModuleView.Ports>", StringComparison.Ordinal))
+                    {
+                        offenders.Add(
+                            $"{Path.GetRelativePath(RepoRoot, file)} 的面板正文声明了端口"
+                            + "（端口属于模块窗口，不属于浮层面板）");
+                    }
+
+                    continue;
+                }
+
                 if (!text.Contains("MinWidth=", StringComparison.Ordinal)
                     || !text.Contains("MinHeight=", StringComparison.Ordinal)
                     || !text.Contains("InitialWidth=", StringComparison.Ordinal)

@@ -1,0 +1,7 @@
+{
+  "id": "hyw/scale-bar-horizontal",
+  "entryAssembly": "HYWDebugAssistant.Modules.ScaleBarHorizontal.dll",
+  "entryType": "HYWDebugAssistant.Modules.ScaleBarHorizontal.ScaleBarHorizontalModule",
+  "dependsOn": [],
+  "resources": ["resources/i18n", "resources/icons"]
+}

@@ -1,0 +1,46 @@
+<ui:ModuleView xmlns="https://github.com/avaloniaui"
+               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+               xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+               xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+               xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
+               xmlns:views="using:HYWDebugAssistant.Modules.GaugeDisplay.Views"
+               xmlns:local="using:HYWDebugAssistant.Modules.GaugeDisplay"
+               x:Class="HYWDebugAssistant.Modules.GaugeDisplay.Views.GaugeDisplayView"
+               x:CompileBindings="True"
+               x:DataType="contracts:IModuleViewContext"
+               InitialWidth="300" InitialHeight="350"
+               MinWidth="300" MinHeight="300">
+
+  <ui:ModuleView.Ports>
+    <ui:ModulePort Name="{x:Static local:GaugeDisplayModule.InPort}"
+                   Direction="Receive"
+                   TypeId="{x:Static local:GaugeDisplayModule.WaveformTypeId}"
+                   Edge="Top" />
+  </ui:ModuleView.Ports>
+
+  <!--
+    精简版：一行摘要 + 表盘。组/通道在设置面板里编辑；面板正文是独立视图（见 GaugeSettingsPanel）。
+  -->
+  <Panel>
+    <Grid RowDefinitions="24,*" RowSpacing="2" Margin="2">
+      <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="4">
+        <ui:ModuleLabel x:Name="Summary" Grid.Column="0" Classes="micro" VerticalAlignment="Center"
+                        Text="{loc:Tr view.summaryPreview}"
+                        ToolTip.Tip="{loc:Tr view.summaryTip}" />
+        <ui:ModuleButton x:Name="SettingsButton" Grid.Column="1" Classes="icon" Width="24" Height="22"
+                         Icon="{x:Static views:GaugeDisplayViewKeys.IconSettings}"
+                         ToolTip.Tip="{loc:Tr view.settings}" />
+      </Grid>
+
+      <ui:GaugeDial x:Name="Gauge" Grid.Row="1" Margin="2,2,2,0"
+                    Minimum="0" Maximum="100" Value="42"
+                    Title="{loc:Tr view.titlePreview}"
+                    SweepAngle="240" ValueDecimals="2" MajorTickStep="0" MinorTickCount="4" />
+    </Grid>
+
+    <ui:ModulePopupPanel x:Name="SettingsPanel"
+                         PanelType="{x:Type views:GaugeSettingsPanel}"
+                         Title="{loc:Tr view.settings}"
+                         ResetCommandName="{x:Static views:GaugeDisplayViewKeys.ResetSettings}" />
+  </Panel>
+</ui:ModuleView>

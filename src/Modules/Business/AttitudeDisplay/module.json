@@ -1,0 +1,7 @@
+{
+  "id": "hyw/attitude-display",
+  "entryAssembly": "HYWDebugAssistant.Modules.AttitudeDisplay.dll",
+  "entryType": "HYWDebugAssistant.Modules.AttitudeDisplay.AttitudeDisplayModule",
+  "dependsOn": [],
+  "resources": ["resources/i18n", "resources/icons"]
+}

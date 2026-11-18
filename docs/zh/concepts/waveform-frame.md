@@ -102,4 +102,5 @@ new MeteringBlock
 - [连接与组网](../guides/connect.md)：建网操作与失败查看位置
 - [波形显示器](../guides/modules/waveform-display.md) / [波形发生器](../guides/modules/waveform-generator.md)：两个内置消费/生产方
 - [原始 → 波形](../guides/modules/raw-to-waveform.md) / [波形 → 原始](../guides/modules/waveform-to-raw.md)：两个内置转换模块（原始字节流 ↔ 波形帧）
+- [指针仪表盘](../guides/modules/gauge-display.md) / [横向刻度条](../guides/modules/scale-bar-horizontal.md) / [纵向刻度条](../guides/modules/scale-bar-vertical.md) / [三轴姿态仪](../guides/modules/attitude-display.md)：四个内置显示模块（单通道仪表 / 单通道量条 / 三通道姿态）
 - [发布与装载](../module-dev/publishing.md)：模块装载与重启规则

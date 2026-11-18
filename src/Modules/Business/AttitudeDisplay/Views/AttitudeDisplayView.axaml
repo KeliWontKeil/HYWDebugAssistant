@@ -1,0 +1,62 @@
+<ui:ModuleView xmlns="https://github.com/avaloniaui"
+               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+               xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+               xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+               xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
+               xmlns:views="using:HYWDebugAssistant.Modules.AttitudeDisplay.Views"
+               xmlns:local="using:HYWDebugAssistant.Modules.AttitudeDisplay"
+               x:Class="HYWDebugAssistant.Modules.AttitudeDisplay.Views.AttitudeDisplayView"
+               x:CompileBindings="True"
+               x:DataType="contracts:IModuleViewContext"
+               InitialWidth="440" InitialHeight="480"
+               MinWidth="360" MinHeight="400">
+
+  <ui:ModuleView.Ports>
+    <ui:ModulePort Name="{x:Static local:AttitudeDisplayModule.InPort}"
+                   Direction="Receive"
+                   TypeId="{x:Static local:AttitudeDisplayModule.WaveformTypeId}"
+                   Edge="Top" />
+  </ui:ModuleView.Ports>
+
+  <Panel>
+    <Grid RowDefinitions="24,*,18" RowSpacing="2" Margin="2">
+      <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="4">
+        <ui:ModuleLabel x:Name="Summary" Grid.Column="0" Classes="micro" VerticalAlignment="Center"
+                        Text="{loc:Tr view.summaryPreview}"
+                        ToolTip.Tip="{loc:Tr view.summaryTip}" />
+        <ui:ModuleButton x:Name="SettingsButton" Grid.Column="1" Classes="icon" Width="24" Height="22"
+                         Icon="{x:Static views:AttitudeDisplayViewKeys.IconSettings}"
+                         ToolTip.Tip="{loc:Tr view.settings}" />
+      </Grid>
+
+      <ui:AttitudeView x:Name="View" Grid.Row="1" Margin="2"
+                       Roll="12" Pitch="-8" Yaw="30"
+                       RenderStyle="Cube" Zoom="1" ShowGrid="True" ShowLabels="True" />
+
+      <Grid Grid.Row="2" ColumnDefinitions="*,*,*" ColumnSpacing="6">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2">
+          <ui:ModuleLabel Classes="micro" VerticalAlignment="Center" Text="R" />
+          <ui:ModuleNumeric Source="{x:Static views:AttitudeDisplayViewKeys.Roll}" Text="12.0" />
+          <ui:ModuleLabel Classes="micro" VerticalAlignment="Center" Text="°" />
+        </StackPanel>
+
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2">
+          <ui:ModuleLabel Classes="micro" VerticalAlignment="Center" Text="P" />
+          <ui:ModuleNumeric Source="{x:Static views:AttitudeDisplayViewKeys.Pitch}" Text="-8.0" />
+          <ui:ModuleLabel Classes="micro" VerticalAlignment="Center" Text="°" />
+        </StackPanel>
+
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
+          <ui:ModuleLabel Classes="micro" VerticalAlignment="Center" Text="Y" />
+          <ui:ModuleNumeric Source="{x:Static views:AttitudeDisplayViewKeys.Yaw}" Text="30.0" />
+          <ui:ModuleLabel Classes="micro" VerticalAlignment="Center" Text="°" />
+        </StackPanel>
+      </Grid>
+    </Grid>
+
+    <ui:ModulePopupPanel x:Name="SettingsPanel"
+                         PanelType="{x:Type views:AttitudeSettingsPanel}"
+                         Title="{loc:Tr view.settings}"
+                         ResetCommandName="{x:Static views:AttitudeDisplayViewKeys.ResetSettings}" />
+  </Panel>
+</ui:ModuleView>

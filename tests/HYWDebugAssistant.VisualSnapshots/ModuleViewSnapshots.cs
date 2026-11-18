@@ -4,14 +4,23 @@ using System.Linq;
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.LogicalTree;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Access.Parameters;
+using HYWDebugAssistant.Modules.AttitudeDisplay;
+using HYWDebugAssistant.Modules.AttitudeDisplay.Views;
 using HYWDebugAssistant.Modules.DataMonitor;
 using HYWDebugAssistant.Modules.DataMonitor.Views;
+using HYWDebugAssistant.Modules.GaugeDisplay;
+using HYWDebugAssistant.Modules.GaugeDisplay.Views;
 using HYWDebugAssistant.Modules.HexSender;
 using HYWDebugAssistant.Modules.HexSender.Views;
 using HYWDebugAssistant.Modules.HexStringConverter;
 using HYWDebugAssistant.Modules.HexStringConverter.Views;
+using HYWDebugAssistant.Modules.ScaleBarHorizontal;
+using HYWDebugAssistant.Modules.ScaleBarHorizontal.Views;
+using HYWDebugAssistant.Modules.ScaleBarVertical;
+using HYWDebugAssistant.Modules.ScaleBarVertical.Views;
 using HYWDebugAssistant.Modules.Serial;
 using HYWDebugAssistant.Modules.Serial.Views;
 using HYWDebugAssistant.Modules.TcpClient;
@@ -31,6 +40,8 @@ using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
 using HYWDebugAssistant.Sdk.Views;
+using HorizontalSettingsPanel = HYWDebugAssistant.Modules.ScaleBarHorizontal.Views.ScaleBarSettingsPanel;
+using VerticalSettingsPanel = HYWDebugAssistant.Modules.ScaleBarVertical.Views.ScaleBarSettingsPanel;
 using Xunit;
 
 namespace HYWDebugAssistant.VisualSnapshots;
@@ -58,8 +69,78 @@ public class ModuleViewSnapshots
         { typeof(HexSenderModule), typeof(HexSenderViewFactory), typeof(NoConfig) },
         { typeof(DataMonitorModule), typeof(DataMonitorViewFactory), typeof(NoConfig) },
         { typeof(HexStringConverterModule), typeof(HexStringConverterViewFactory), typeof(NoConfig) },
+        { typeof(GaugeDisplayModule), typeof(GaugeDisplayViewFactory), typeof(NoConfig) },
+        { typeof(ScaleBarHorizontalModule), typeof(ScaleBarHorizontalViewFactory), typeof(NoConfig) },
+        { typeof(ScaleBarVerticalModule), typeof(ScaleBarVerticalViewFactory), typeof(NoConfig) },
+        { typeof(AttitudeDisplayModule), typeof(AttitudeDisplayViewFactory), typeof(NoConfig) },
     };
 
+    /// <summary>四个终端显示模块的设置面板正文（独立视图，单独渲染成人眼可核对的图）。</summary>
+    public static TheoryData<Type, string> SettingsPanels => new()
+    {
+        { typeof(GaugeSettingsPanel), "GaugeDisplay" },
+        { typeof(HorizontalSettingsPanel), "ScaleBarHorizontal" },
+        { typeof(VerticalSettingsPanel), "ScaleBarVertical" },
+        { typeof(AttitudeSettingsPanel), "AttitudeDisplay" },
+    };
+
+    /// <summary>
+    /// 生成设置面板正文的截图（<c>modules\&lt;模块&gt;-settings.png</c>）：面板不进模块视图，
+    /// 因此单独按自己的声明尺寸渲染；标题行用运行期同一套 <c>ModulePanelSurface</c>。
+    /// </summary>
+    /// <param name="panelType">面板正文类型。</param>
+    /// <param name="name">模块名（文件名用）。</param>
+    [Theory]
+    [MemberData(nameof(SettingsPanels))]
+    public async Task 生成快照_设置面板正文(Type panelType, string name)
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                // 按预览环境渲染（分段控件的 PreviewOptions 才会出现），但不画逐控件范围框：
+                // 这张图要看的是表单本身，不是预览器的定位框。
+                var previous = ModuleView.IsPreviewHost;
+                ModuleView.IsPreviewHost = true;
+
+                try
+                {
+                    var panel = (Control)Activator.CreateInstance(panelType)!;
+                    var view = (ModuleView)panel;
+                    foreach (var control in panel.GetLogicalDescendants().OfType<Control>())
+                    {
+                        PreviewBounds.SetShow(control, false);
+                    }
+
+                    var width = view.InitialWidth > 0 ? view.InitialWidth : 320;
+                    var height = view.InitialHeight > 0 ? view.InitialHeight : 360;
+
+                    var surface = new ModulePanelSurface
+                    {
+                        Title = TextCatalog.Get(panelType.Assembly, "view.settings"),
+                        IconOwner = panelType.Assembly,
+                        Content = panel,
+                    };
+
+                    var window = new Window
+                    {
+                        Width = width + 2,
+                        Height = height + ModulePanelSurface.HeaderHeight + 2,
+                        Content = surface,
+                    };
+
+                    window.Show();
+                    SnapshotTool.Pump();
+                    SnapshotTool.Pump();
+                    SnapshotTool.Save(window, "modules/" + name + "-settings.png");
+                    window.Close();
+                }
+                finally
+                {
+                    ModuleView.IsPreviewHost = previous;
+                }
+            },
+            CancellationToken.None);
+    }
     /// <summary>生成某模块的视图截图（<c>modules\&lt;模块&gt;.png</c> + 逐页签）。</summary>
     /// <param name="moduleType">模块入口类型。</param>
     /// <param name="factoryType">视图工厂类型。</param>

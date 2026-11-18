@@ -1,0 +1,118 @@
+<ui:ModuleView xmlns="https://github.com/avaloniaui"
+               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+               xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+               xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+               xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
+               xmlns:views="using:HYWDebugAssistant.Modules.AttitudeDisplay.Views"
+               x:Class="HYWDebugAssistant.Modules.AttitudeDisplay.Views.AttitudeSettingsPanel"
+               x:CompileBindings="True"
+               x:DataType="contracts:IModuleViewContext"
+               InitialWidth="320" InitialHeight="430">
+
+  <!-- 面板正文 = 独立视图：预览器可直接打开这个文件单独看表单。 -->
+  <Grid Margin="8" ColumnDefinitions="84,*" ColumnSpacing="4" RowSpacing="4"
+        RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+    <Grid Grid.Row="0" Grid.ColumnSpan="2" ColumnDefinitions="Auto,*" ColumnSpacing="4">
+      <ui:ModuleLabel Grid.Column="0" Classes="caption right" VerticalAlignment="Center"
+                      Text="{loc:Tr view.group}" />
+      <ui:ModuleConfigField Grid.Column="1" Height="22"
+                            Value="{x:Static views:AttitudeDisplayViewKeys.Group}"
+                            Editor="Number" InitialValue="0"
+                            ToolTip.Tip="{loc:Tr view.groupTip}" />
+    </Grid>
+
+    <Grid Grid.Row="1" Grid.ColumnSpan="2" ColumnDefinitions="*,*,*" ColumnSpacing="6">
+      <Grid Grid.Column="0" ColumnDefinitions="Auto,*" ColumnSpacing="2">
+        <ui:ModuleLabel Grid.Column="0" Classes="caption right" VerticalAlignment="Center"
+                        Text="{loc:Tr view.rollChannel}" />
+        <ui:ModuleConfigField Grid.Column="1" Height="22"
+                              Value="{x:Static views:AttitudeDisplayViewKeys.RollChannel}"
+                              Editor="Number" InitialValue="0"
+                              ToolTip.Tip="{loc:Tr view.channelTip}" />
+      </Grid>
+      <Grid Grid.Column="1" ColumnDefinitions="Auto,*" ColumnSpacing="2">
+        <ui:ModuleLabel Grid.Column="0" Classes="caption right" VerticalAlignment="Center"
+                        Text="{loc:Tr view.pitchChannel}" />
+        <ui:ModuleConfigField Grid.Column="1" Height="22"
+                              Value="{x:Static views:AttitudeDisplayViewKeys.PitchChannel}"
+                              Editor="Number" InitialValue="1"
+                              ToolTip.Tip="{loc:Tr view.channelTip}" />
+      </Grid>
+      <Grid Grid.Column="2" ColumnDefinitions="Auto,*" ColumnSpacing="2">
+        <ui:ModuleLabel Grid.Column="0" Classes="caption right" VerticalAlignment="Center"
+                        Text="{loc:Tr view.yawChannel}" />
+        <ui:ModuleConfigField Grid.Column="1" Height="22"
+                              Value="{x:Static views:AttitudeDisplayViewKeys.YawChannel}"
+                              Editor="Number" InitialValue="2"
+                              ToolTip.Tip="{loc:Tr view.channelTip}" />
+      </Grid>
+    </Grid>
+
+    <ui:ModuleLabel Grid.Row="2" Classes="caption right" VerticalAlignment="Center"
+                    Text="{loc:Tr view.style}" />
+    <ui:ModuleSegmentedControl Grid.Row="2" Grid.Column="1" Height="22" SelectedKey="cube"
+                               Value="{x:Static views:AttitudeDisplayViewKeys.Style}">
+      <ui:ModuleSegmentedControl.PreviewOptions>
+        <ui:ModuleSegmentOption Key="axes" Label="{loc:Tr view.styleAxes}" />
+        <ui:ModuleSegmentOption Key="cube" Label="{loc:Tr view.styleCube}" />
+        <ui:ModuleSegmentOption Key="drone" Label="{loc:Tr view.styleDrone}" />
+      </ui:ModuleSegmentedControl.PreviewOptions>
+    </ui:ModuleSegmentedControl>
+
+    <ui:ModuleLabel Grid.Row="3" Classes="caption right" VerticalAlignment="Center"
+                    Text="{loc:Tr view.unit}" />
+    <ui:ModuleSegmentedControl Grid.Row="3" Grid.Column="1" Height="22" SelectedKey="deg"
+                               Value="{x:Static views:AttitudeDisplayViewKeys.Unit}">
+      <ui:ModuleSegmentedControl.PreviewOptions>
+        <ui:ModuleSegmentOption Key="deg" Label="{loc:Tr view.unitDegree}" />
+        <ui:ModuleSegmentOption Key="rad" Label="{loc:Tr view.unitRadian}" />
+      </ui:ModuleSegmentedControl.PreviewOptions>
+    </ui:ModuleSegmentedControl>
+
+    <ui:ModuleCheckBox Grid.Row="4" Grid.ColumnSpan="2" IsChecked="True"
+                       Content="{loc:Tr view.smoothing}"
+                       Value="{x:Static views:AttitudeDisplayViewKeys.Smoothing}" />
+
+    <ui:ModuleLabel Grid.Row="5" Classes="caption right" VerticalAlignment="Center"
+                    Text="{loc:Tr view.smoothingMs}" />
+    <ui:ModuleConfigField Grid.Row="5" Grid.Column="1" Height="22"
+                          Value="{x:Static views:AttitudeDisplayViewKeys.SmoothingMs}"
+                          Editor="Number" InitialValue="120" />
+
+    <ui:ModuleLabel Grid.Row="6" Classes="caption right" VerticalAlignment="Center"
+                    Text="{loc:Tr view.zoom}" />
+    <ui:ModuleConfigField Grid.Row="6" Grid.Column="1" Height="22"
+                          Value="{x:Static views:AttitudeDisplayViewKeys.Zoom}"
+                          Editor="Number" InitialValue="1" />
+
+    <ui:ModuleCheckBox Grid.Row="7" Grid.ColumnSpan="2" IsChecked="True"
+                       Content="{loc:Tr view.grid}"
+                       Value="{x:Static views:AttitudeDisplayViewKeys.Grid}" />
+
+    <ui:ModuleCheckBox Grid.Row="8" Grid.ColumnSpan="2" IsChecked="True"
+                       Content="{loc:Tr view.labels}"
+                       Value="{x:Static views:AttitudeDisplayViewKeys.Labels}" />
+
+    <ui:ModuleCheckBox Grid.Row="9" Grid.ColumnSpan="2"
+                       Content="{loc:Tr view.invertRoll}"
+                       Value="{x:Static views:AttitudeDisplayViewKeys.InvertRoll}" />
+
+    <ui:ModuleCheckBox Grid.Row="10" Grid.ColumnSpan="2"
+                       Content="{loc:Tr view.invertPitch}"
+                       Value="{x:Static views:AttitudeDisplayViewKeys.InvertPitch}" />
+
+    <ui:ModuleCheckBox Grid.Row="11" Grid.ColumnSpan="2"
+                       Content="{loc:Tr view.invertYaw}"
+                       Value="{x:Static views:AttitudeDisplayViewKeys.InvertYaw}" />
+
+    <ui:ModuleLabel Grid.Row="12" Classes="caption right" VerticalAlignment="Center"
+                    Text="{loc:Tr view.lostDelay}" />
+    <ui:ModuleConfigField Grid.Row="12" Grid.Column="1" Height="22"
+                          Value="{x:Static views:AttitudeDisplayViewKeys.LostDelay}"
+                          Editor="Number" InitialValue="1000" />
+
+    <ui:ModuleCheckBox Grid.Row="13" Grid.ColumnSpan="2" IsChecked="True"
+                       Content="{loc:Tr view.lostZero}"
+                       Value="{x:Static views:AttitudeDisplayViewKeys.LostZero}" />
+  </Grid>
+</ui:ModuleView>

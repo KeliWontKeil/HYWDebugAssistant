@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    业务模块（第五批）：横向刻度条 `hyw/scale-bar-horizontal`。
+    与其它模块同构同路径：只引 Sdk / Sdk.Ui；不引 Access、不直接引 UI 框架、不引其他模块（AR-1 / AR-2）。
+  -->
+  <PropertyGroup>
+    <ModulePackageName>scale-bar-horizontal</ModulePackageName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\..\..\Sdk.Ui\HYWDebugAssistant.Sdk.Ui.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="resources\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

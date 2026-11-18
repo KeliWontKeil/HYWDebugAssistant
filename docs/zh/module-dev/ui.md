@@ -127,6 +127,8 @@ public partial class MyView : ModuleView, IModuleViewElement
 - 开关文字是独立 `ModuleLabel`，放在轨道右侧；勾选框的文字是自带的 `Content`，方框与文字间距 2 DIP。
 - 颜色一律取主题 token 或角色词，不写死色值；排印档位用 `caption` / `hint` / `micro`。
 - 需要用户选色时走 `IModuleViewContext.ColorPicker`，不要自建色板。
+- 设置表单放不下时走**浮层面板标准**（见[控件](controls.md)）：正文是独立的 `Views/<Name>SettingsPanel.axaml`（可被预览器单独打开），模块视图只声明一个 `ModulePopupPanel` 并设置 `Anchor`。不要把大块设置硬塞进小型控件的活动区域，也不要在模块视图里自己开窗口或弹 Popup。
+
 
 ## 颜色与排印
 

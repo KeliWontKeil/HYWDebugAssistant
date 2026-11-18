@@ -10,15 +10,24 @@
   `resources/` 清单会逐个文件列出它，`verify-resources` 按 SHA256 核对）。
 - **来源**：<https://github.com/microsoft/fluentui-system-icons>
 - **版本 / 获取方式**：`main` 分支的 **20px filled** 图标
-  （`assets/<名称>/SVG/ic_fluent_<名称>_20_filled.svg`），2026-10 一次性取回后**以文件形式入库**：
-  四个外部接入模块在各自的 `resources/icons/<程序集简名>/refresh.svg`（清空计数按钮，
-  与 24×20 的小按钮适配）。运行期不联网、不依赖图标字体，只读仓库里这份文件。
-- **用途**：模块视图的清空按钮。
+  （`assets/<名称>/SVG/ic_fluent_<名称>_20_filled.svg`），2026-10 一次性取回后**以文件形式入库**。
+  本仓库用到这一套的是：`WaveformGenerator` 的波形类图标、`WaveformDisplay` 的 `group.fit-y`、
+  `WaveformToRaw` 的 `refresh.svg`。运行期不联网、不依赖图标字体，只读仓库里这份文件。
+- **用途**：模块视图里的波形/视图类小图标。
   图形由自研最小读取器解析（只认 `<svg viewBox>` + `<path d>` + `fill-rule`，见
   `src/Sdk/Resources/IconCatalog.cs` 与 `src/Sdk.Ui/Controls/Icon.cs`）。
-- **修改**：未改动图形几何；只做了"键 → 相对路径"的清单登记（`icons.json`）与文件重命名
-  （模块内的 `refresh.svg`）。
+- **修改**：未改动图形几何；只做了"键 → 相对路径"的清单登记（`icons.json`）与文件重命名。
 
+## Lucide
+
+- **版权**：Copyright (c) Lucide Contributors
+- **许可**：ISC —— 允许复制、修改、再分发，条件是保留版权与许可声明，本节即是该声明。
+- **来源**：<https://lucide.dev>（`refresh-cw`、`trash-2` 等中心线图标）。
+- **版本 / 获取方式**：以文件形式入库，`viewBox="0 0 24 24"`、`fill="none"`、`stroke="currentColor"`：
+  各模块的 `resources/icons/<程序集简名>/refresh.svg`（恢复默认 / 清空计数）、
+  `WaveformGenerator` 的 `edit.trash.svg`、`WaveformDisplay` 的 `group.delete.svg`。
+- **用途**：模块里的线条图标（线条由 `Icon` 统一描边）；运行期不联网、不依赖图标字体。
+- **修改**：未改动图形几何；只做了文件重命名与"键 → 相对路径"的清单登记（`icons.json`）。
 ## Fluent UI MDL2 Icons
 
 - **版权**：Copyright (c) Microsoft Corporation
@@ -30,7 +39,8 @@
   **以文件形式入库**：框架侧 17 个图标在 `resources/icons/HYWDebugAssistant.Ui/{shell,catalog}/*.svg`。
   这些是旧版（Fluent 1 / MDL2）观感，`viewBox` 为 `0 0 2048 2048`，与 Windows 系统字体
   `Segoe MDL2 Assets` 同一套形状；运行期不联网、不依赖任何字体。
-- **用途**：外壳活动栏、模块窗口按钮簇、模块清单分类与占位（框架的 17 个图标）。
+- **用途**：外壳活动栏、模块窗口按钮簇、模块清单分类与占位（框架的 17 个图标）；
+  四个终端显示模块的 `settings.svg` / `close.svg`（面板的设置与关闭按钮）取自同一套 MDL2 形状。
   图形由同一套自研读取器解析。
 - **修改**：未改动图形几何；只做了"键 → 相对路径"的清单登记（`icons.json`）与文件重命名
   （`shell/*.svg`、`catalog/*.svg`）。
