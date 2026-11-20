@@ -25,4 +25,17 @@ public static class PreviewBounds
     /// <param name="value">是否显示范围框。</param>
     public static void SetShow(Control control, bool value) => control.SetValue(ShowProperty, value);
 }
+/// <summary>预览框的**角色**：控件框表达控件自身边界，容器框表达布局槽位。</summary>
+public enum PreviewBoundsRole
+{
+    /// <summary>控件框（虚线）：框住控件的最终边界。</summary>
+    Control = 0,
 
+    /// <summary>容器框（点线）：框住布局容器/槽位，例如模块内容区、行、栏。</summary>
+    Container = 1,
+}
+
+/// <summary>一个预览框目标：控件 + 角色（角色决定线型与浓度）。</summary>
+/// <param name="Control">要画框的控件。</param>
+/// <param name="Role">角色。</param>
+public readonly record struct PreviewBoundsTarget(Control Control, PreviewBoundsRole Role);

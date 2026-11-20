@@ -12,6 +12,7 @@ public static class GaugeDisplayViewKeys
 
     public const string Minimum = GaugeDisplayModule.MinimumSource;
     public const string Maximum = GaugeDisplayModule.MaximumSource;
+    public const string FillFromZero = GaugeDisplayModule.FillFromZeroSource;
     public const string AutoZero = GaugeDisplayModule.AutoZeroSource;
     public const string ZeroDelay = GaugeDisplayModule.ZeroDelaySource;
     public const string Title = GaugeDisplayModule.TitleSource;

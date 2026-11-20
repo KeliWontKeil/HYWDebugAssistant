@@ -1,3 +1,4 @@
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -16,7 +17,7 @@ namespace HYWDebugAssistant.Sdk.Ui.Controls;
 /// 平滑只改"显示值"：目标值不变且已经对齐时 <see cref="Refresh"/> 不重绘。
 /// </para>
 /// </remarks>
-public sealed class GaugeDial : Control, IModuleViewElement
+public sealed class GaugeDial : Control, IModuleViewElement, IModulePreviewBoundsTarget
 {
     /// <summary>量程下限。</summary>
     public static readonly StyledProperty<double> MinimumProperty =
@@ -38,6 +39,12 @@ public sealed class GaugeDial : Control, IModuleViewElement
     public static readonly StyledProperty<string> UnitProperty =
         AvaloniaProperty.Register<GaugeDial, string>(nameof(Unit), string.Empty);
 
+    /// <summary>
+    /// **四周留白**（DIP；0 = 刻度环外沿紧贴控件边框）；标题/读数/单位在圆内绘制，不占这段留白。
+    /// </summary>
+    public static readonly StyledProperty<double> PaddingProperty =
+        AvaloniaProperty.Register<GaugeDial, double>(nameof(Padding), GaugeGeometry.DefaultPadding);
+
     /// <summary>弧线总张角（度；以正上方为中心）。</summary>
     public static readonly StyledProperty<double> SweepAngleProperty =
         AvaloniaProperty.Register<GaugeDial, double>(nameof(SweepAngle), 240);
@@ -53,6 +60,10 @@ public sealed class GaugeDial : Control, IModuleViewElement
     /// <summary>每个主刻度间的次刻度数（0 = 不画）。</summary>
     public static readonly StyledProperty<int> MinorTickCountProperty =
         AvaloniaProperty.Register<GaugeDial, int>(nameof(MinorTickCount), 4);
+
+    /// <summary>填充起点：从量程下限，还是从零开始（零在量程外时夹到端点）。</summary>
+    public static readonly StyledProperty<ScaleFillOrigin> FillOriginProperty =
+        AvaloniaProperty.Register<GaugeDial, ScaleFillOrigin>(nameof(FillOrigin), ScaleFillOrigin.Zero);
 
     /// <summary>是否画中间读数。</summary>
     public static readonly StyledProperty<bool> ShowValueProperty =
@@ -116,6 +127,9 @@ public sealed class GaugeDial : Control, IModuleViewElement
     private readonly AnimatedNumber _display = new();
     private readonly Dictionary<(IBrush Brush, double Thickness), IPen> _pens = [];
 
+    /// <summary>端点标签槽：先算好文字与角度，供主刻度标签避让。</summary>
+    private readonly record struct EndLabelSlot(double Angle, double Radius, FormattedText Text);
+
     static GaugeDial()
     {
         AffectsRender<GaugeDial>(
@@ -124,10 +138,12 @@ public sealed class GaugeDial : Control, IModuleViewElement
             ValueProperty,
             TitleProperty,
             UnitProperty,
+            PaddingProperty,
             SweepAngleProperty,
             ValueDecimalsProperty,
             MajorTickStepProperty,
             MinorTickCountProperty,
+            FillOriginProperty,
             ShowValueProperty,
             SmoothingEnabledProperty,
             SmoothingTimeMsProperty,
@@ -179,6 +195,13 @@ public sealed class GaugeDial : Control, IModuleViewElement
         set => SetValue(UnitProperty, value);
     }
 
+    /// <summary>四周留白（DIP；0 = 刻度环外沿紧贴控件边框）。</summary>
+    public double Padding
+    {
+        get => GetValue(PaddingProperty);
+        set => SetValue(PaddingProperty, value);
+    }
+
     /// <summary>弧线总张角（度）。</summary>
     public double SweepAngle
     {
@@ -205,6 +228,13 @@ public sealed class GaugeDial : Control, IModuleViewElement
     {
         get => GetValue(MinorTickCountProperty);
         set => SetValue(MinorTickCountProperty, value);
+    }
+
+    /// <summary>填充起点（量程下限 / 零）。</summary>
+    public ScaleFillOrigin FillOrigin
+    {
+        get => GetValue(FillOriginProperty);
+        set => SetValue(FillOriginProperty, value);
     }
 
     /// <summary>是否画中间读数。</summary>
@@ -318,6 +348,26 @@ public sealed class GaugeDial : Control, IModuleViewElement
         }
     }
 
+    /// <summary>
+    /// **报方形尺寸**：控件边界 = 圆的直径，圆心即控件中心；标题/读数/单位在圆内绘制，
+    /// 不参与尺寸计算，因此改文字不会改变表盘大小。
+    /// </summary>
+    /// <param name="availableSize">可用尺寸。</param>
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        var width = double.IsFinite(availableSize.Width) && availableSize.Width > 0
+            ? availableSize.Width
+            : 300;
+        var height = double.IsFinite(availableSize.Height) && availableSize.Height > 0
+            ? availableSize.Height
+            : width;
+
+        var side = Math.Min(width, height);
+        return side < 24
+            ? new Size(Math.Min(width, 24), Math.Min(height, 24))
+            : new Size(side, side);
+    }
+
     /// <inheritdoc />
     public override void Render(DrawingContext context)
     {
@@ -335,12 +385,8 @@ public sealed class GaugeDial : Control, IModuleViewElement
         var maximum = NormalizedMaximum();
         var span = maximum - minimum;
 
-        const double inset = 2;
-        var title = Title ?? string.Empty;
-        var hasTitle = SurfaceDrawing.HasText(title);
-        var titleHeight = hasTitle ? fontSize * 1.9 : 0;
-
-        var metrics = GaugeGeometry.Compute(width, height, inset, titleHeight, SweepAngle, 2);
+        var padding = NormalizedPadding();
+        var metrics = GaugeGeometry.Compute(width, height, padding, SweepAngle, 2);
         if (metrics.Radius <= 6)
         {
             return;
@@ -352,29 +398,25 @@ public sealed class GaugeDial : Control, IModuleViewElement
         var centerX = metrics.CenterX;
         var centerY = metrics.CenterY;
         var displayed = Math.Clamp(_display.Value, minimum, maximum);
-        var fraction = (displayed - minimum) / span;
+        var fraction = span > 0 ? (displayed - minimum) / span : 0;
         var needleAngle = -half + (fraction * 2 * half);
+        var origin = FillOrigin == ScaleFillOrigin.Zero && span > 0
+            ? Math.Clamp((0 - minimum) / span, 0, 1)
+            : 0;
+        var originAngle = -half + (origin * 2 * half);
+        var endLabels = BuildEndLabels(radius, ringThickness, half, minimum, maximum, fontSize);
 
-        if (hasTitle && TitleBrush is { } titleBrush)
-        {
-            var text = SurfaceDrawing.Format(title, fontSize, titleBrush);
-            SurfaceDrawing.DrawCentered(context, text, centerX, inset, width - (2 * inset));
-        }
-
-        DrawRing(
-            context,
-            centerX,
-            centerY,
-            radius,
-            ringThickness,
-            half,
-            needleAngle,
-            (needleAngle + half) / (2 * half));
-        DrawTicks(context, centerX, centerY, radius, ringThickness, half, minimum, maximum, fontSize);
-        DrawEndLabels(context, centerX, centerY, radius, ringThickness, half, minimum, maximum, fontSize);
+        DrawRing(context, centerX, centerY, radius, ringThickness, half, needleAngle, originAngle);
+        DrawTicks(context, centerX, centerY, radius, ringThickness, half, minimum, maximum, fontSize, endLabels);
+        DrawEndLabels(context, centerX, centerY, endLabels);
         DrawNeedle(context, centerX, centerY, radius, needleAngle);
-        DrawReadout(context, centerX, centerY, radius, width, height, fontSize, minimum, maximum);
+
+        // 文字最后画：标题/读数/单位压在指针与中心轴之上，且始终在圆内。
+        DrawText(context, centerX, centerY, radius, ringThickness, fontSize, minimum, maximum);
     }
+
+    private double NormalizedPadding() =>
+        double.IsFinite(Padding) && Padding > 0 ? Padding : 0;
 
     private double NormalizedMinimum() => double.IsFinite(Minimum) ? Minimum : 0;
 
@@ -396,14 +438,15 @@ public sealed class GaugeDial : Control, IModuleViewElement
         double thickness,
         double half,
         double needleAngle,
-        double fraction)
+        double originAngle)
     {
         if (DialBrush is { } dialBrush)
         {
             DrawArc(context, GetPen(dialBrush, thickness), centerX, centerY, radius, -half, half);
         }
 
-        if (fraction <= 0.0001 || TrackBrush is not { } trackBrush)
+        if (TrackBrush is not { } trackBrush
+            || Math.Abs(needleAngle - originAngle) < 1e-4)
         {
             return;
         }
@@ -414,8 +457,8 @@ public sealed class GaugeDial : Control, IModuleViewElement
             centerX,
             centerY,
             radius,
-            -half,
-            needleAngle);
+            Math.Min(originAngle, needleAngle),
+            Math.Max(originAngle, needleAngle));
     }
 
     private void DrawTicks(
@@ -427,7 +470,8 @@ public sealed class GaugeDial : Control, IModuleViewElement
         double half,
         double minimum,
         double maximum,
-        double fontSize)
+        double fontSize,
+        IReadOnlyList<EndLabelSlot> endLabels)
     {
         if (TickBrush is not { } tickBrush)
         {
@@ -503,6 +547,11 @@ public sealed class GaugeDial : Control, IModuleViewElement
                 SurfaceDrawing.FormatNumber(value, DecimalsForStep(majorStep)),
                 fontSize * 0.85,
                 TickLabelBrush!);
+            if (IsTooClose(angle, text.Width, labelRadius, endLabels))
+            {
+                continue;
+            }
+
             var anchor = OnArc(centerX, centerY, labelRadius, angle);
             SurfaceDrawing.DrawCentered(
                 context,
@@ -526,11 +575,8 @@ public sealed class GaugeDial : Control, IModuleViewElement
         return Math.Max(1, (int)Math.Ceiling((double)tickCount / budget));
     }
 
-    /// <summary>量程两端各标一个数字：端点值通常不是主刻度的整数倍。</summary>
-    private void DrawEndLabels(
-        DrawingContext context,
-        double centerX,
-        double centerY,
+    /// <summary>量程两端各标一个数字：端点用自己的精度，且与邻近主刻度二选一。</summary>
+    private List<EndLabelSlot> BuildEndLabels(
         double radius,
         double ringThickness,
         double half,
@@ -538,24 +584,41 @@ public sealed class GaugeDial : Control, IModuleViewElement
         double maximum,
         double fontSize)
     {
+        var slots = new List<EndLabelSlot>(2);
         if (TickLabelBrush is not { } labelBrush)
         {
-            return;
+            return slots;
         }
 
         var span = maximum - minimum;
         var step = MajorTickStep > 0 && double.IsFinite(MajorTickStep)
             ? MajorTickStep
             : ChartScale.NiceStep(span, 8);
-        var decimals = DecimalsForStep(step);
         var labelRadius = radius - ringThickness - (fontSize * 1.8);
         if (labelRadius <= 4)
         {
-            return;
+            return slots;
         }
 
-        DrawEndLabel(context, centerX, centerY, labelRadius, -half, minimum, decimals, fontSize, labelBrush, step);
-        DrawEndLabel(context, centerX, centerY, labelRadius, half, maximum, decimals, fontSize, labelBrush, step);
+        var maxWidth = Math.Max(24, (radius - ringThickness) * 0.8);
+        Add(minimum, -half);
+        Add(maximum, half);
+        return slots;
+
+        void Add(double value, double angle)
+        {
+            if (IsOnMajorTick(value, step))
+            {
+                return;
+            }
+
+            var text = SurfaceDrawing.Format(
+                FormatEndpoint(value),
+                fontSize * 0.85,
+                labelBrush,
+                maxWidth);
+            slots.Add(new EndLabelSlot(angle, labelRadius, text));
+        }
     }
 
     /// <summary>端点恰好落在主刻度上时不再重复画：那个位置已经有一份刻度数字。</summary>
@@ -570,34 +633,48 @@ public sealed class GaugeDial : Control, IModuleViewElement
         return Math.Abs(index - Math.Round(index)) < 1e-6;
     }
 
-    private void DrawEndLabel(
+    internal static string FormatEndpoint(double value) =>
+        double.IsFinite(value) ? value.ToString("0.######", CultureInfo.InvariantCulture) : "—";
+
+    private static bool IsTooClose(
+        double angle,
+        double textWidth,
+        double labelRadius,
+        IReadOnlyList<EndLabelSlot> endLabels)
+    {
+        foreach (var slot in endLabels)
+        {
+            var delta = Math.Abs(angle - slot.Angle);
+            if (delta > Math.PI)
+            {
+                delta = (2 * Math.PI) - delta;
+            }
+
+            if (delta * labelRadius < ((textWidth + slot.Text.Width) / 2) + 2)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void DrawEndLabels(
         DrawingContext context,
         double centerX,
         double centerY,
-        double labelRadius,
-        double angle,
-        double value,
-        int decimals,
-        double fontSize,
-        IBrush labelBrush,
-        double majorStep)
+        IReadOnlyList<EndLabelSlot> endLabels)
     {
-        if (IsOnMajorTick(value, majorStep))
+        foreach (var slot in endLabels)
         {
-            return;
+            var anchor = OnArc(centerX, centerY, slot.Radius, slot.Angle);
+            SurfaceDrawing.DrawCentered(
+                context,
+                slot.Text,
+                anchor.X,
+                anchor.Y - (slot.Text.Height / 2),
+                Bounds.Width);
         }
-
-        var text = SurfaceDrawing.Format(
-            SurfaceDrawing.FormatNumber(value, decimals),
-            fontSize * 0.85,
-            labelBrush);
-        var anchor = OnArc(centerX, centerY, labelRadius, angle);
-        SurfaceDrawing.DrawCentered(
-            context,
-            text,
-            anchor.X,
-            anchor.Y - (text.Height / 2),
-            Bounds.Width);
     }
 
     private void DrawNeedle(DrawingContext context, double centerX, double centerY, double radius, double angle)
@@ -620,17 +697,32 @@ public sealed class GaugeDial : Control, IModuleViewElement
         context.DrawEllipse(hubBrush, null, new Point(centerX, centerY), hubRadius, hubRadius);
     }
 
-    private void DrawReadout(
+    /// <summary>标题/读数/单位都画在圆内；宽度按内圆弦长截断，不改变控件尺寸。</summary>
+    private void DrawText(
         DrawingContext context,
         double centerX,
         double centerY,
         double radius,
-        double width,
-        double height,
+        double thickness,
         double fontSize,
         double minimum,
         double maximum)
     {
+        var inner = radius - (thickness / 2);
+        var maxWidth = Math.Max(16, inner * 1.6);
+        var limit = Bounds.Width;
+
+        if (TitleBrush is { } titleBrush && SurfaceDrawing.HasText(Title))
+        {
+            var title = SurfaceDrawing.Format(Title, fontSize, titleBrush, maxWidth);
+            SurfaceDrawing.DrawCentered(
+                context,
+                title,
+                centerX,
+                centerY - (radius * 0.55) - (title.Height / 2),
+                limit);
+        }
+
         if (!ShowValue)
         {
             return;
@@ -640,32 +732,23 @@ public sealed class GaugeDial : Control, IModuleViewElement
         var outOfRange = displayed < minimum - 1e-9 || displayed > maximum + 1e-9;
         var valueBrush = (outOfRange ? OutOfRangeBrush : null) ?? ValueBrush;
         var valueFontSize = Math.Clamp(radius * 0.24, fontSize * 1.4, fontSize * 2.6);
+        var top = centerY + (radius * 0.06);
 
-        var top = centerY + (radius * 0.36);
         if (valueBrush is { } brush)
         {
-            var text = SurfaceDrawing.Format(
+            var value = SurfaceDrawing.Format(
                 SurfaceDrawing.FormatNumber(displayed, ValueDecimals),
                 valueFontSize,
-                brush);
-            if (top + text.Height > height)
-            {
-                top = Math.Max(0, height - text.Height);
-            }
-
-            SurfaceDrawing.DrawCentered(context, text, centerX, top, width);
-            top += text.Height;
+                brush,
+                maxWidth);
+            SurfaceDrawing.DrawCentered(context, value, centerX, top, limit);
+            top += value.Height;
         }
 
         if (UnitBrush is { } unitBrush && SurfaceDrawing.HasText(Unit))
         {
-            var unit = SurfaceDrawing.Format(Unit, fontSize, unitBrush);
-            if (top + unit.Height > height)
-            {
-                return;
-            }
-
-            SurfaceDrawing.DrawCentered(context, unit, centerX, top, width);
+            var unit = SurfaceDrawing.Format(Unit, fontSize, unitBrush, maxWidth);
+            SurfaceDrawing.DrawCentered(context, unit, centerX, top + 1, limit);
         }
     }
 

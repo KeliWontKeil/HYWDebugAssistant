@@ -8,6 +8,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Ui.Geometry;
 using HYWDebugAssistant.Ui.Controls;
 using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.Images;
@@ -96,6 +97,10 @@ public partial class ModuleWindow : Window
         // 显示之后再解析一次：那时窗口自己的 `RenderScaling` 才是事实（见 `PublishScaling`）。
         Opened += (_, _) => PublishScaling();
 
+        // 窄窗 chrome 的判定事实 = **窗口实际宽度**（不是模型里的 Width）：
+        // 布局器、预览器改的都是 Bounds，只有它如实反映"现在这块地方有多宽"。
+        Opened += (_, _) => ApplyChromeMode();
+
         // 任何关闭路径都先摘掉缓存视图的父级（隐藏后再“显示全部”会创建新窗口）。
         // 用 `Closed` 而不是 `Closing`：外壳取消关闭时子窗的 `Closing` 不会触发 ——
         // 视图必须留到"窗口真的关掉"之后再摘，取消后窗口仍可见时内容不能空。
@@ -104,6 +109,31 @@ public partial class ModuleWindow : Window
             DetachModuleView();
             Unhook();
         };
+    }
+
+    /// <summary>按**窗口实际宽度**切换窄窗 chrome（按钮簇竖排 / 选中标题竖排）。</summary>
+    /// <remarks>
+    /// 阈值只有 <see cref="ModuleSurfaceMetrics.NarrowWidth"/> 一处；状态就用窗口自己的 `narrow` 类
+    /// （不另存字段），样式负责排布方向，因此不会出现"模型说窄、屏幕上不窄"的第二份事实。
+    /// </remarks>
+    private void ApplyChromeMode()
+    {
+        var narrow = Bounds.Width > 0 && Bounds.Width < ModuleSurfaceMetrics.NarrowWidth;
+        if (narrow != Classes.Contains("narrow"))
+        {
+            Classes.Set("narrow", narrow);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        if (change.Property == BoundsProperty)
+        {
+            ApplyChromeMode();
+        }
     }
 
     /// <summary>
@@ -527,13 +557,20 @@ public partial class ModuleWindow : Window
         var toTop = local.Y;
         var toBottom = height - local.Y;
 
-        var edge = toLeft <= toRight && toLeft <= toTop && toLeft <= toBottom
+        var nearest = toLeft <= toRight && toLeft <= toTop && toLeft <= toBottom
             ? PortEdge.Left
             : toRight <= toTop && toRight <= toBottom
                 ? PortEdge.Right
                 : toTop <= toBottom
                     ? PortEdge.Top
                     : PortEdge.Bottom;
+
+        // 这条边放不下标记 ⇒ **本次不落位**（标记留在当前边）。否则松手后会被 `FitEdge` 夹回去，
+        // 表现为"拖过去又弹回"；指针移到放得下的边时继续正常落位。
+        if (PortMarkerLayout.PickDragEdge(nearest, width, height) is not { } edge)
+        {
+            return;
+        }
 
         if (edge != marker.Edge)
         {

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
@@ -122,7 +123,24 @@ public sealed partial class ScaleBarHorizontalView : ModuleView, IModuleViewElem
         _bar.FillOrigin = ReadBool(settings, "fillFromZero", _bar.FillOrigin == ScaleFillOrigin.Zero)
             ? ScaleFillOrigin.Zero
             : ScaleFillOrigin.Minimum;
-        _bar.Color = ParseColor(ReadString(settings, "color", "green"));
+        ApplyFill(ReadString(settings, "color", string.Empty));
+    }
+
+    /// <summary>颜色覆盖：有 ARGB 就写本地画刷，空/非法则交还主题默认。</summary>
+    private void ApplyFill(string text)
+    {
+        if (_bar is null)
+        {
+            return;
+        }
+
+        if (ColorText.TryParseArgb(text, out var argb))
+        {
+            _bar.FillBrush = new SolidColorBrush(Color.FromUInt32(argb));
+            return;
+        }
+
+        _bar.ClearValue(ScaleBar.FillBrushProperty);
     }
 
     /// <summary>组/通道摘要：值没变不重写标签。</summary>
@@ -158,15 +176,6 @@ public sealed partial class ScaleBarHorizontalView : ModuleView, IModuleViewElem
         _statusRevision = snapshot.Revision;
         ToolTip.SetTip(this, string.Concat(snapshot.Lines));
     }
-
-    private static ScaleBarColor ParseColor(string token) => token switch
-    {
-        "blue" => ScaleBarColor.Accent,
-        "orange" => ScaleBarColor.Warning,
-        "red" => ScaleBarColor.Danger,
-        "purple" => ScaleBarColor.Alternate,
-        _ => ScaleBarColor.Success,
-    };
 
     private static double ReadDouble(JsonElement element, string name, double fallback) =>
         element.TryGetProperty(name, out var value) && value.TryGetDouble(out var parsed) ? parsed : fallback;

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text.Json;
 using HYWDebugAssistant.Modules.AttitudeDisplay;
 using HYWDebugAssistant.Modules.GaugeDisplay;
 using HYWDebugAssistant.Modules.ScaleBarHorizontal;
@@ -9,6 +10,7 @@ using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Resources;
 using HYWDebugAssistant.Sdk.Testing;
 using HYWDebugAssistant.Sdk.Values;
+using HYWDebugAssistant.Sdk.Views;
 using Shouldly;
 using Xunit;
 using GaugeFeed = HYWDebugAssistant.Modules.GaugeDisplay.ChannelFrameFeed;
@@ -187,6 +189,193 @@ public class ChannelDisplayModulesTests
         Published(context, AttitudeDisplayModule.RollSource).ShouldBe(-90f, 0.01f);
         Published(context, AttitudeDisplayModule.PitchSource).ShouldBe(0f, 0.01f);
         Published(context, AttitudeDisplayModule.YawSource).ShouldBe(0f, 0.01f);
+    }
+
+    [Fact]
+    public void 刻度条颜色_十六进制写入元数据_空与非法回默认()
+    {
+        var context = new TestModuleContext();
+        var module = new ScaleBarHorizontalModule();
+        module.OnRegistered(context);
+
+        context.ViewState.SetInputText(ScaleBarHorizontalModule.ColorSource, "FF112233");
+        module.PumpOnce(context);
+        ReadMetaString(context, ScaleBarHorizontalModule.MetaSource, "color").ShouldBe("FF112233");
+
+        context.ViewState.SetInputText(ScaleBarHorizontalModule.ColorSource, string.Empty);
+        module.PumpOnce(context);
+        ReadMetaString(context, ScaleBarHorizontalModule.MetaSource, "color").ShouldBe(string.Empty);
+
+        context.ViewState.SetInputText(ScaleBarHorizontalModule.ColorSource, "not-a-color");
+        module.PumpOnce(context);
+        ReadMetaString(context, ScaleBarHorizontalModule.MetaSource, "color").ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public void 设置数值_非法或空保留上一份有效值_框架清空回默认()
+    {
+        var context = new TestModuleContext();
+        var module = new GaugeDisplayModule();
+        module.OnRegistered(context);
+
+        context.ViewState.SetInputText(GaugeDisplayModule.GroupSource, "2");
+        context.ViewState.SetInputText(GaugeDisplayModule.ZeroDelaySource, "1500");
+        module.PumpOnce(context);
+        ReadMetaInt(context, GaugeDisplayModule.MetaSource, "group").ShouldBe(2);
+        ReadMetaInt(context, GaugeDisplayModule.MetaSource, "zeroDelayMs").ShouldBe(1500);
+
+        // 用户输入非法/空：保留上一份有效值，不回默认。
+        context.ViewState.SetInputText(GaugeDisplayModule.GroupSource, "x");
+        context.ViewState.SetInputText(GaugeDisplayModule.ZeroDelaySource, "abc");
+        module.PumpOnce(context);
+        ReadMetaInt(context, GaugeDisplayModule.MetaSource, "group").ShouldBe(2);
+        ReadMetaInt(context, GaugeDisplayModule.MetaSource, "zeroDelayMs").ShouldBe(1500);
+
+        context.ViewState.SetInputText(GaugeDisplayModule.ZeroDelaySource, string.Empty);
+        module.PumpOnce(context);
+        ReadMetaInt(context, GaugeDisplayModule.MetaSource, "zeroDelayMs").ShouldBe(1500);
+
+        // 框架清空（还原/移除值）：回默认。
+        context.ViewState.SetInputText(GaugeDisplayModule.ZeroDelaySource, null);
+        module.PumpOnce(context);
+        ReadMetaInt(context, GaugeDisplayModule.MetaSource, "zeroDelayMs").ShouldBe(800);
+    }
+
+    [Fact]
+    public void 设置范围_上下界互逆时保留上一份有效范围()
+    {
+        var context = new TestModuleContext();
+        var module = new GaugeDisplayModule();
+        module.OnRegistered(context);
+
+        context.ViewState.SetInputText(GaugeDisplayModule.MaximumSource, "50");
+        module.PumpOnce(context);
+        ReadMetaDouble(context, GaugeDisplayModule.MetaSource, "min").ShouldBe(0);
+        ReadMetaDouble(context, GaugeDisplayModule.MetaSource, "max").ShouldBe(50);
+
+        context.ViewState.SetInputText(GaugeDisplayModule.MinimumSource, "100");
+        module.PumpOnce(context);
+        ReadMetaDouble(context, GaugeDisplayModule.MetaSource, "min").ShouldBe(0);
+        ReadMetaDouble(context, GaugeDisplayModule.MetaSource, "max").ShouldBe(50);
+
+        // 上限改到 150 后当前文本 100..150 成为合法范围：未变的 min 文本也要落到 100。
+        context.ViewState.SetInputText(GaugeDisplayModule.MaximumSource, "150");
+        module.PumpOnce(context);
+        ReadMetaDouble(context, GaugeDisplayModule.MetaSource, "min").ShouldBe(100);
+        ReadMetaDouble(context, GaugeDisplayModule.MetaSource, "max").ShouldBe(150);
+    }
+
+    [Fact]
+    public void 设置范围_非法边界下一帧仍标红_修正后清除()
+    {
+        var context = new TestModuleContext();
+        var module = new GaugeDisplayModule();
+        module.OnRegistered(context);
+
+        context.ViewState.SetInputText(GaugeDisplayModule.MinimumSource, "abc");
+        module.PumpOnce(context);
+        context.ValueValidities.ContainsKey(GaugeDisplayModule.MinimumSource).ShouldBeTrue();
+        context.AppearanceReports.ShouldContain(
+            report => report.SourceName == GaugeDisplayModule.MinimumSource
+                      && report.OutlineRole == ViewInkRoles.Danger);
+
+        // 下一帧不能被“范围看起来合法”的分支清掉。
+        module.PumpOnce(context);
+        context.ValueValidities.ContainsKey(GaugeDisplayModule.MinimumSource).ShouldBeTrue();
+
+        context.ViewState.SetInputText(GaugeDisplayModule.MinimumSource, "0");
+        module.PumpOnce(context);
+        context.ValueValidities.ContainsKey(GaugeDisplayModule.MinimumSource).ShouldBeFalse();
+        context.AppearanceReports.ShouldContain(
+            report => report.SourceName == GaugeDisplayModule.MinimumSource
+                      && report.OutlineRole == null);
+    }
+
+    [Fact]
+    public void 设置范围_上下界互逆时两个字段都保持标红_修正后都清()
+    {
+        var context = new TestModuleContext();
+        var module = new GaugeDisplayModule();
+        module.OnRegistered(context);
+
+        context.ViewState.SetInputText(GaugeDisplayModule.MaximumSource, "50");
+        module.PumpOnce(context);
+        context.ViewState.SetInputText(GaugeDisplayModule.MinimumSource, "100");
+        module.PumpOnce(context);
+
+        context.ValueValidities.ContainsKey(GaugeDisplayModule.MinimumSource).ShouldBeTrue();
+        context.ValueValidities.ContainsKey(GaugeDisplayModule.MaximumSource).ShouldBeTrue();
+        module.PumpOnce(context);
+        context.ValueValidities.ContainsKey(GaugeDisplayModule.MinimumSource).ShouldBeTrue();
+        context.ValueValidities.ContainsKey(GaugeDisplayModule.MaximumSource).ShouldBeTrue();
+
+        context.ViewState.SetInputText(GaugeDisplayModule.MaximumSource, "150");
+        module.PumpOnce(context);
+        context.ValueValidities.ContainsKey(GaugeDisplayModule.MinimumSource).ShouldBeFalse();
+        context.ValueValidities.ContainsKey(GaugeDisplayModule.MaximumSource).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void 设置范围_一侧非法时合法侧不标红()
+    {
+        var context = new TestModuleContext();
+        var module = new GaugeDisplayModule();
+        module.OnRegistered(context);
+
+        context.ViewState.SetInputText(GaugeDisplayModule.MaximumSource, "50");
+        module.PumpOnce(context);
+        context.ViewState.SetInputText(GaugeDisplayModule.MinimumSource, "abc");
+        module.PumpOnce(context);
+
+        context.ValueValidities.ContainsKey(GaugeDisplayModule.MinimumSource).ShouldBeTrue();
+        context.ValueValidities.ContainsKey(GaugeDisplayModule.MaximumSource).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void 仪表设置_从零开始填充默认开_可关闭()
+    {
+        var context = new TestModuleContext();
+        var module = new GaugeDisplayModule();
+        module.OnRegistered(context);
+        module.PumpOnce(context);
+
+        ReadMetaBool(context, GaugeDisplayModule.MetaSource, "fillFromZero").ShouldBeTrue();
+
+        context.ViewState.SetInputText(GaugeDisplayModule.FillFromZeroSource, "false");
+        module.PumpOnce(context);
+        ReadMetaBool(context, GaugeDisplayModule.MetaSource, "fillFromZero").ShouldBeFalse();
+    }
+
+    private static string ReadMetaString(TestModuleContext context, string metaSource, string name)
+    {
+        var text = context.SetTexts.LastOrDefault(item => string.Equals(item.SourceName, metaSource, StringComparison.Ordinal)).Text;
+        text.ShouldNotBeNull();
+        using var document = JsonDocument.Parse(text);
+        return document.RootElement.GetProperty("settings").GetProperty(name).GetString() ?? string.Empty;
+    }
+
+    private static int ReadMetaInt(TestModuleContext context, string metaSource, string name)
+    {
+        var text = context.SetTexts.LastOrDefault(item => string.Equals(item.SourceName, metaSource, StringComparison.Ordinal)).Text;
+        text.ShouldNotBeNull();
+        using var document = JsonDocument.Parse(text);
+        return document.RootElement.GetProperty("settings").GetProperty(name).GetInt32();
+    }
+
+    private static bool ReadMetaBool(TestModuleContext context, string metaSource, string name)
+    {
+        var text = context.SetTexts.LastOrDefault(item => string.Equals(item.SourceName, metaSource, StringComparison.Ordinal)).Text;
+        text.ShouldNotBeNull();
+        using var document = JsonDocument.Parse(text);
+        return document.RootElement.GetProperty("settings").GetProperty(name).GetBoolean();
+    }
+
+    private static double ReadMetaDouble(TestModuleContext context, string metaSource, string name)
+    {
+        var text = context.SetTexts.LastOrDefault(item => string.Equals(item.SourceName, metaSource, StringComparison.Ordinal)).Text;
+        text.ShouldNotBeNull();
+        using var document = JsonDocument.Parse(text);
+        return document.RootElement.GetProperty("settings").GetProperty(name).GetDouble();
     }
 
     /// <summary>造一帧 280 B 波形帧。</summary>

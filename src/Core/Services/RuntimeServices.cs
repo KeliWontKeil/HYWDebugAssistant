@@ -2351,14 +2351,14 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     }
 
     /// <inheritdoc />
-    public bool TryGetValueNotice(string instanceId, string name, out ValueNotice? notice)
+    public bool TryGetValueValidity(string instanceId, string name, out ValueValidity validity)
     {
-        notice = null;
+        validity = ValueValidity.Valid;
 
         return !string.IsNullOrWhiteSpace(name)
             && _runtime.Content.TryGetInstance(instanceId, out var instance)
             && instance is not null
-            && instance.Context.TryGetValueNotice(name, out notice);
+            && instance.Context.TryGetValueValidity(name, out validity);
     }
 
     /// <summary>动态可选项的版本号（无动态字段时为 0）。</summary>

@@ -286,18 +286,15 @@ public sealed partial class PortMarkerViewModel : ViewModelBase
     [ObservableProperty]
     public partial bool IsAnchorFixed { get; set; }
 
-    /// <summary>所在边缘（视图用的枚举；与 <see cref="Edge"/> 同源）。</summary>
+    /// <summary>
+    /// 所在边缘（视图用的枚举）：**就是 <see cref="Edge"/>**——放不下时框架直接把它改成别的边（坐标式变更）。
+    /// </summary>
     /// <remarks>
     /// <see cref="PortEdge.Auto"/> 落到 <see cref="PortSide.Left"/> 只是**渲染兜底**：它只出现在
     /// "包内声明缺失 ⇒ 已判硬伤、整份忽略"的实例上（那个口没有位置），不参与建网判定与吸附。
+    /// 没有"声明边/有效边"两份状态，也没有"空间回来再挪回去"的记忆。
     /// </remarks>
-    public PortSide Side => Edge switch
-    {
-        PortEdge.Right => PortSide.Right,
-        PortEdge.Top => PortSide.Top,
-        PortEdge.Bottom => PortSide.Bottom,
-        _ => PortSide.Left,
-    };
+    public PortSide Side => PortMarkerLayout.SideOf(Edge);
 
     /// <summary>锚点**可拖动**（= 未固定）——只用于光标与悬停提示。</summary>
     public bool IsDraggable => !IsAnchorFixed;

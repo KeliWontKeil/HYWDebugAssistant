@@ -61,6 +61,9 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
     /// <summary>量程上限值。</summary>
     public const string MaximumSource = "settings.maximum";
 
+    /// <summary>填充起点开关值。</summary>
+    public const string FillFromZeroSource = "settings.fillFromZero";
+
     /// <summary>自动回零开关值。</summary>
     public const string AutoZeroSource = "settings.autoZero";
 
@@ -96,6 +99,7 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
 
     private readonly ChannelFrameFeed _feed = new();
     private readonly Dictionary<string, string> _lastText = new(StringComparer.Ordinal);
+    private readonly InputValidity _validity = new();
 
     private IModuleContext? _context;
     private IModuleTimer? _timer;
@@ -152,6 +156,7 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
     {
         DeclareValue(context, MinimumSource, ValueEditor.Number);
         DeclareValue(context, MaximumSource, ValueEditor.Number);
+        DeclareValue(context, FillFromZeroSource, ValueEditor.Boolean);
         DeclareValue(context, AutoZeroSource, ValueEditor.Boolean);
         DeclareValue(context, ZeroDelaySource, ValueEditor.Number);
         DeclareValue(context, TitleSource, ValueEditor.Text);
@@ -283,142 +288,216 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
         var defaults = GaugeSettings.Default;
         var candidate = _settings;
 
-        if (TryReadChanged(context, GroupSource, out var groupText))
+        if (TryReadChanged(context, GroupSource, out var groupText, out var groupCleared))
         {
-            if (TryParseInteger(groupText, out var group) && group >= 0)
+            if (groupCleared)
+            {
+                candidate = candidate with { GroupId = defaults.GroupId };
+                _validity.Set(context, GroupSource, false);
+            }
+            else if (TryParseInteger(groupText, out var group) && group >= 0)
             {
                 candidate = candidate with { GroupId = group };
-                ClearNotice(context, GroupSource);
+                _validity.Set(context, GroupSource, false);
             }
             else
             {
-                ReportInvalidInteger(context, GroupSource);
+                _validity.Set(context, GroupSource, true, Tr(GaugeDisplayText.InvalidInteger));
             }
         }
 
-        if (TryReadChanged(context, ChannelSource, out var channelText))
+        if (TryReadChanged(context, ChannelSource, out var channelText, out var channelCleared))
         {
-            if (TryParseInteger(channelText, out var channel) && channel >= 0)
+            if (channelCleared)
+            {
+                candidate = candidate with { Channel = defaults.Channel };
+                _validity.Set(context, ChannelSource, false);
+            }
+            else if (TryParseInteger(channelText, out var channel) && channel >= 0)
             {
                 candidate = candidate with { Channel = channel };
-                ClearNotice(context, ChannelSource);
+                _validity.Set(context, ChannelSource, false);
             }
             else
             {
-                ReportInvalidInteger(context, ChannelSource);
+                _validity.Set(context, ChannelSource, true, Tr(GaugeDisplayText.InvalidInteger));
             }
         }
 
-        if (TryReadChanged(context, MinimumSource, out var minimumText))
+        if (TryReadChanged(context, MinimumSource, out var minimumText, out var minimumCleared))
         {
-            if (minimumText.Length == 0)
+            if (minimumCleared)
             {
                 candidate = candidate with { Minimum = defaults.Minimum };
-                ClearNotice(context, MinimumSource);
             }
-            else if (TryParseDouble(minimumText, out var minimum))
+            else if (minimumText.Length > 0 && TryParseDouble(minimumText, out var minimum))
             {
                 candidate = candidate with { Minimum = minimum };
-                ClearNotice(context, MinimumSource);
-            }
-            else
-            {
-                ReportInvalidNumber(context, MinimumSource);
             }
         }
 
-        if (TryReadChanged(context, MaximumSource, out var maximumText))
+        if (TryReadChanged(context, MaximumSource, out var maximumText, out var maximumCleared))
         {
-            if (maximumText.Length == 0)
+            if (maximumCleared)
             {
                 candidate = candidate with { Maximum = defaults.Maximum };
-                ClearNotice(context, MaximumSource);
             }
-            else if (TryParseDouble(maximumText, out var maximum))
+            else if (maximumText.Length > 0 && TryParseDouble(maximumText, out var maximum))
             {
                 candidate = candidate with { Maximum = maximum };
-                ClearNotice(context, MaximumSource);
+            }
+        }
+
+        // 范围是“一对”的设置：逐帧读当前文本的有效性，解析错误与范围错误分开维护。
+        var minimumCurrent = context.Values.ReadText(MinimumSource);
+        var maximumCurrent = context.Values.ReadText(MaximumSource);
+        var minimumOk = minimumCurrent is null;
+        var maximumOk = maximumCurrent is null;
+        var minimumValue = defaults.Minimum;
+        var maximumValue = defaults.Maximum;
+        if (minimumCurrent is not null)
+        {
+            minimumOk = TryParseDouble(minimumCurrent, out minimumValue);
+        }
+
+        if (maximumCurrent is not null)
+        {
+            maximumOk = TryParseDouble(maximumCurrent, out maximumValue);
+        }
+
+        if (minimumOk && maximumOk)
+        {
+            if (maximumValue <= minimumValue)
+            {
+                var message = Tr(GaugeDisplayText.InvalidRange);
+                _validity.Set(context, MinimumSource, true, message);
+                _validity.Set(context, MaximumSource, true, message);
+                candidate = candidate with { Minimum = _settings.Minimum, Maximum = _settings.Maximum };
             }
             else
             {
-                ReportInvalidNumber(context, MaximumSource);
+                // 以当前文本为准：互逆回退之后再改一侧，未改的那一侧也要重新落到当前值上。
+                candidate = candidate with { Minimum = minimumValue, Maximum = maximumValue };
+                _validity.Set(context, MinimumSource, false);
+                _validity.Set(context, MaximumSource, false);
+            }
+        }
+        else
+        {
+            _validity.Set(context, MinimumSource, !minimumOk, Tr(GaugeDisplayText.InvalidNumber));
+            _validity.Set(context, MaximumSource, !maximumOk, Tr(GaugeDisplayText.InvalidNumber));
+        }
+
+        if (TryReadChanged(context, FillFromZeroSource, out var fillFromZeroText, out var fillFromZeroCleared))
+        {
+            if (fillFromZeroCleared)
+            {
+                candidate = candidate with { FillFromZero = defaults.FillFromZero };
+            }
+            else if (bool.TryParse(fillFromZeroText.Trim(), out var fillFromZero))
+            {
+                candidate = candidate with { FillFromZero = fillFromZero };
             }
         }
 
-        if (TryReadChanged(context, AutoZeroSource, out var autoZeroText))
+        if (TryReadChanged(context, AutoZeroSource, out var autoZeroText, out var autoZeroCleared))
         {
-            candidate = candidate with
+            if (autoZeroCleared)
             {
-                AutoZero = bool.TryParse(autoZeroText.Trim(), out var autoZero) ? autoZero : defaults.AutoZero,
-            };
+                candidate = candidate with { AutoZero = defaults.AutoZero };
+            }
+            else if (bool.TryParse(autoZeroText.Trim(), out var autoZero))
+            {
+                candidate = candidate with { AutoZero = autoZero };
+            }
         }
 
-        if (TryReadChanged(context, ZeroDelaySource, out var delayText))
+        if (TryReadChanged(context, ZeroDelaySource, out var delayText, out var delayCleared))
         {
-            candidate = candidate with
+            if (delayCleared)
             {
-                ZeroDelayMs = ParseClamped(
-                    delayText,
-                    defaults.ZeroDelayMs,
-                    GaugeSettings.MinimumZeroDelayMs,
-                    GaugeSettings.MaximumZeroDelayMs),
-            };
+                candidate = candidate with { ZeroDelayMs = defaults.ZeroDelayMs };
+                _validity.Set(context, ZeroDelaySource, false);
+            }
+            else if (TryParseClamped(
+                         delayText,
+                         GaugeSettings.MinimumZeroDelayMs,
+                         GaugeSettings.MaximumZeroDelayMs,
+                         out var delay))
+            {
+                candidate = candidate with { ZeroDelayMs = delay };
+                _validity.Set(context, ZeroDelaySource, false);
+            }
+            else
+            {
+                _validity.Set(context, ZeroDelaySource, true, Tr(GaugeDisplayText.InvalidNumber));
+            }
         }
 
-        if (TryReadChanged(context, TitleSource, out var titleText))
+        if (TryReadChanged(context, TitleSource, out var titleText, out _))
         {
             candidate = candidate with { Title = titleText };
         }
 
-        if (TryReadChanged(context, UnitSource, out var unitText))
+        if (TryReadChanged(context, UnitSource, out var unitText, out _))
         {
             candidate = candidate with { Unit = unitText };
         }
 
-        if (TryReadChanged(context, SmoothingSource, out var smoothingText))
+        if (TryReadChanged(context, SmoothingSource, out var smoothingText, out var smoothingCleared))
         {
-            candidate = candidate with
+            if (smoothingCleared)
             {
-                Smoothing = bool.TryParse(smoothingText.Trim(), out var smoothing) ? smoothing : defaults.Smoothing,
-            };
+                candidate = candidate with { Smoothing = defaults.Smoothing };
+            }
+            else if (bool.TryParse(smoothingText.Trim(), out var smoothing))
+            {
+                candidate = candidate with { Smoothing = smoothing };
+            }
         }
 
-        if (TryReadChanged(context, SmoothingMsSource, out var smoothingMsText))
+        if (TryReadChanged(context, SmoothingMsSource, out var smoothingMsText, out var smoothingMsCleared))
         {
-            candidate = candidate with
+            if (smoothingMsCleared)
             {
-                SmoothingMs = ParseClamped(
-                    smoothingMsText,
-                    defaults.SmoothingMs,
-                    GaugeSettings.MinimumSmoothingMs,
-                    GaugeSettings.MaximumSmoothingMs),
-            };
+                candidate = candidate with { SmoothingMs = defaults.SmoothingMs };
+                _validity.Set(context, SmoothingMsSource, false);
+            }
+            else if (TryParseClamped(
+                         smoothingMsText,
+                         GaugeSettings.MinimumSmoothingMs,
+                         GaugeSettings.MaximumSmoothingMs,
+                         out var smoothingMs))
+            {
+                candidate = candidate with { SmoothingMs = smoothingMs };
+                _validity.Set(context, SmoothingMsSource, false);
+            }
+            else
+            {
+                _validity.Set(context, SmoothingMsSource, true, Tr(GaugeDisplayText.InvalidNumber));
+            }
         }
 
-        if (TryReadChanged(context, DecimalsSource, out var decimalsText))
+        if (TryReadChanged(context, DecimalsSource, out var decimalsText, out var decimalsCleared))
         {
-            candidate = candidate with
+            if (decimalsCleared)
             {
-                Decimals = ParseClamped(
-                    decimalsText,
-                    defaults.Decimals,
-                    GaugeSettings.MinimumDecimals,
-                    GaugeSettings.MaximumDecimals),
-            };
-        }
-
-        if (candidate.Maximum <= candidate.Minimum)
-        {
-            // 只回退"范围这一对"，其余设置照常生效；用户下一步改对上限即可恢复。
-            var message = Tr(GaugeDisplayText.InvalidRange);
-            context.Values.Report(MinimumSource, new ValueNotice(ValueNoticeSeverity.Error, message));
-            context.Values.Report(MaximumSource, new ValueNotice(ValueNoticeSeverity.Error, message));
-            candidate = candidate with { Minimum = _settings.Minimum, Maximum = _settings.Maximum };
-        }
-        else
-        {
-            ClearNotice(context, MinimumSource);
-            ClearNotice(context, MaximumSource);
+                candidate = candidate with { Decimals = defaults.Decimals };
+                _validity.Set(context, DecimalsSource, false);
+            }
+            else if (TryParseClamped(
+                         decimalsText,
+                         GaugeSettings.MinimumDecimals,
+                         GaugeSettings.MaximumDecimals,
+                         out var decimals))
+            {
+                candidate = candidate with { Decimals = decimals };
+                _validity.Set(context, DecimalsSource, false);
+            }
+            else
+            {
+                _validity.Set(context, DecimalsSource, true, Tr(GaugeDisplayText.InvalidNumber));
+            }
         }
 
         if (!candidate.Equals(_settings))
@@ -428,18 +507,24 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
         }
     }
 
-    /// <summary>读出某个值是否发生变化；值被清空时用哨兵表示（与"用户输入空串"区分）。</summary>
-    private bool TryReadChanged(IModuleContext context, string source, out string text)
+    /// <summary>读出某个值是否发生变化；`cleared` 区分“框架清空”（回默认）与“用户输入空串”（非法）。</summary>
+    private bool TryReadChanged(
+        IModuleContext context,
+        string source,
+        out string text,
+        out bool cleared)
     {
-        var current = context.Values.ReadText(source) ?? ClearedMarker;
-        if (_lastText.TryGetValue(source, out var previous) && string.Equals(previous, current, StringComparison.Ordinal))
+        var current = context.Values.ReadText(source);
+        cleared = current is null;
+        var marker = current ?? ClearedMarker;
+        if (_lastText.TryGetValue(source, out var previous) && string.Equals(previous, marker, StringComparison.Ordinal))
         {
             text = string.Empty;
             return false;
         }
 
-        _lastText[source] = current;
-        text = string.Equals(current, ClearedMarker, StringComparison.Ordinal) ? string.Empty : current;
+        _lastText[source] = marker;
+        text = current ?? string.Empty;
         return true;
     }
 
@@ -448,6 +533,7 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
         var defaults = GaugeSettings.Default;
         Accept(context, MinimumSource, Format(defaults.Minimum));
         Accept(context, MaximumSource, Format(defaults.Maximum));
+        Accept(context, FillFromZeroSource, defaults.FillFromZero ? "true" : "false");
         Accept(context, AutoZeroSource, defaults.AutoZero ? "true" : "false");
         Accept(context, ZeroDelaySource, defaults.ZeroDelayMs.ToString(CultureInfo.InvariantCulture));
         Accept(context, TitleSource, defaults.Title);
@@ -456,6 +542,7 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
         Accept(context, SmoothingMsSource, defaults.SmoothingMs.ToString(CultureInfo.InvariantCulture));
         Accept(context, DecimalsSource, defaults.Decimals.ToString(CultureInfo.InvariantCulture));
         _lastText.Clear();
+        _validity.ClearAll(context);
     }
 
     private static void Accept(IModuleContext context, string source, string text) =>
@@ -549,8 +636,11 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
             revision = ++_metaRevision,
             settings = new
             {
+                group = settings.GroupId,
+                channel = settings.Channel,
                 min = settings.Minimum,
                 max = settings.Maximum,
+                fillFromZero = settings.FillFromZero,
                 autoZero = settings.AutoZero,
                 zeroDelayMs = settings.ZeroDelayMs,
                 title = settings.Title,
@@ -582,27 +672,16 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
         context.Ports.Publish(source, buffer);
     }
 
-    private static void ClearNotice(IModuleContext context, string source) =>
-        context.Values.Report(source, null);
-
-    private static void ReportInvalidNumber(IModuleContext context, string source) =>
-        context.Values.Report(source, new ValueNotice(
-            ValueNoticeSeverity.Error,
-            Tr(GaugeDisplayText.InvalidNumber)));
-
-    private static void ReportInvalidInteger(IModuleContext context, string source) =>
-        context.Values.Report(source, new ValueNotice(
-            ValueNoticeSeverity.Error,
-            Tr(GaugeDisplayText.InvalidInteger)));
-
-    private static int ParseClamped(string text, int fallback, int minimum, int maximum)
+    private static bool TryParseClamped(string text, int minimum, int maximum, out int value)
     {
-        if (!int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+        value = 0;
+        if (!int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
         {
-            return fallback;
+            return false;
         }
 
-        return Math.Clamp(value, minimum, maximum);
+        value = Math.Clamp(parsed, minimum, maximum);
+        return true;
     }
 
     private static bool TryParseInteger(string text, out int value) =>

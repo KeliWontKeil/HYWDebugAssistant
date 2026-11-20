@@ -26,11 +26,8 @@ internal static class ScaleBarVerticalText
     public const string Unit = "view.unit";
     public const string FillFromZero = "view.fillFromZero";
     public const string Color = "view.color";
-    public const string ColorGreen = "view.colorGreen";
-    public const string ColorBlue = "view.colorBlue";
-    public const string ColorOrange = "view.colorOrange";
-    public const string ColorRed = "view.colorRed";
-    public const string ColorPurple = "view.colorPurple";
+    public const string ColorTitle = "view.colorTitle";
+    public const string ColorReset = "view.colorReset";
     public const string Smoothing = "view.smoothing";
     public const string SmoothingMs = "view.smoothingMs";
     public const string Decimals = "view.decimals";

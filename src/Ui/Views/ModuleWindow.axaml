@@ -32,7 +32,7 @@
       （`Width`/`Height`/`d:DesignWidth`/`d:DesignHeight`）。
       **本文件没有 `MinWidth`/`MinHeight`**（2026-10）：它们是框架地板的第二份字面量，且因为
       `CanResize="False"` 对用户**毫无约束作用** —— 真实约束走模型的
-      `ModuleViewViewModel.EffectiveMin*` → `Fit`。地板来源见 `PortMarkerMetrics.MinWindowExtent`。
+      `ModuleViewViewModel.EffectiveMin*` → `Fit`。地板来源见 `PortMarkerMetrics.MinWindowWidth` / `MinWindowHeight`（宽比高小：窄窗里顶部标记会缩短）。
       内容排不下时由内容区（`ModuleSurfaceView` 里的滚动视口）滚动，**代码不再按内容计算窗口尺寸**；
       用户在界面上拖过的尺寸会随组合件保存（那是"用户的布局"，不是"代码算的布局"）。
       `d:DataContext` = 设计时样例数据 → **VS 设计器里可直接预览与调整**（见 `Ui/Design/DesignData.cs`）。
@@ -186,6 +186,65 @@
         <Style Selector="Border.contractConflict">
             <Setter Property="BorderBrush" Value="{DynamicResource SemanticError}" />
         </Style>
+
+        <!--
+          **窄窗模式**（窗口自己的 `narrow` 类；判定见 `ModuleWindow.ApplyChromeMode`，阈值唯一来源
+          `ModuleSurfaceMetrics.NarrowWidth`）：右上角按钮簇竖排、左上角选中标题按字竖排。
+
+          【为什么基础值也写在样式里】Avalonia 的**本地值优先于样式**：`Orientation="Horizontal"`、
+          `MaxWidth="180"` 若还留在元素上，下面的窄窗 setter 永远赢不了（上一轮就是这么"看起来没生效"的）。
+          因此基础排布也只放在这里，并由窄窗样式**在后面**覆盖。
+        -->
+        <Style Selector="Border#Cluster > Grid > ctrl|IconButton#WallpaperButton">
+            <Setter Property="Grid.Column" Value="0" />
+        </Style>
+        <Style Selector="Border#Cluster > Grid > ctrl|IconButton#ResetButton">
+            <Setter Property="Grid.Column" Value="1" />
+        </Style>
+        <Style Selector="Border#Cluster > Grid > ctrl|IconButton#LockButton">
+            <Setter Property="Grid.Column" Value="2" />
+        </Style>
+        <Style Selector="Border#Cluster > Grid > ctrl|IconButton#HideButton">
+            <Setter Property="Grid.Column" Value="3" />
+        </Style>
+        <Style Selector="Border#Cluster > Grid > ctrl|IconButton#CloseButton">
+            <Setter Property="Grid.Column" Value="4" />
+        </Style>
+
+        <Style Selector="Border#NameBadge > TextBlock">
+            <Setter Property="MaxWidth" Value="180" />
+            <Setter Property="TextWrapping" Value="NoWrap" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+
+        <!-- 窄窗：全部落到最右列，行号反序 —— **关闭在最上**；列坐标直接靠右，不给内容加条带。 -->
+        <Style Selector="Window.narrow Border#Cluster > Grid > ctrl|IconButton">
+            <Setter Property="Grid.Column" Value="4" />
+        </Style>
+        <Style Selector="Window.narrow Border#Cluster > Grid > ctrl|IconButton#CloseButton">
+            <Setter Property="Grid.Row" Value="0" />
+        </Style>
+        <Style Selector="Window.narrow Border#Cluster > Grid > ctrl|IconButton#HideButton">
+            <Setter Property="Grid.Row" Value="1" />
+        </Style>
+        <Style Selector="Window.narrow Border#Cluster > Grid > ctrl|IconButton#LockButton">
+            <Setter Property="Grid.Row" Value="2" />
+        </Style>
+        <Style Selector="Window.narrow Border#Cluster > Grid > ctrl|IconButton#ResetButton">
+            <Setter Property="Grid.Row" Value="3" />
+        </Style>
+        <Style Selector="Window.narrow Border#Cluster > Grid > ctrl|IconButton#WallpaperButton">
+            <Setter Property="Grid.Row" Value="4" />
+        </Style>
+
+        <Style Selector="Window.narrow Border#NameBadge > TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="MaxWidth" Value="14" />
+            <Setter Property="TextTrimming" Value="None" />
+            <Setter Property="LineHeight" Value="12" />
+        </Style>
+
+
     </Window.Styles>
 
     <Grid>
@@ -219,8 +278,6 @@
                     IsVisible="{Binding IsSelected}">
                 <TextBlock Text="{Binding Title}"
                            FontSize="10"
-                           MaxWidth="180"
-                           TextTrimming="CharacterEllipsis"
                            Foreground="{DynamicResource AccentPrimary}" />
             </Border>
 
@@ -323,8 +380,6 @@
                         <Border Classes="portMarker"
                                 Classes.send="{Binding IsSend}"
                                 Classes.anchorFixed="{Binding IsAnchorFixed}"
-                                Width="{Binding MarkerWidth}"
-                                Height="{Binding MarkerHeight}"
                                 Background="{DynamicResource BgChrome}"
                                 BorderThickness="1"
                                 CornerRadius="0"
@@ -712,10 +767,16 @@
             <Border Name="Cluster"
                     HorizontalAlignment="Right"
                     VerticalAlignment="Top"
-                    Margin="0,5,5,0"
-                    Padding="2"
+                    Margin="0,2,2,0"
+                    Padding="0"
                     CornerRadius="3">
-                <StackPanel Orientation="Horizontal" Spacing="1">
+                <!--
+                  **Grid 而不是 StackPanel**：窄窗竖排时要把"关闭"放到最上（横排顺序不变），
+                  用行/列固定位分配（样式里写 `Grid.Column`/`Grid.Row`），不靠代码重排。
+                -->
+                <Grid Name="ClusterGrid" RowSpacing="1" ColumnSpacing="1"
+                      RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                      ColumnDefinitions="Auto,Auto,Auto,Auto,Auto">
                     <ctrl:IconButton Name="WallpaperButton" Classes="icon"
                                      Icon="{x:Static ctrl:ShellIcons.Image}"
                                      ToolTip.Tip="{loc:Tr moduleWindow.wallpaper.tip}">
@@ -738,7 +799,7 @@
                     <ctrl:IconButton Name="CloseButton" Classes="icon" Click="OnClose"
                                      Icon="{x:Static ctrl:ShellIcons.Close}"
                                      ToolTip.Tip="{loc:Tr moduleWindow.close.tip}" />
-                </StackPanel>
+                </Grid>
             </Border>
         </Grid>
     </Border>

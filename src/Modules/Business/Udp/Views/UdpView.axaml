@@ -31,22 +31,26 @@
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="1" Width="56" Height="24"
                     Classes="caption right" Field="{x:Static views:UdpViewKeys.LocalAddress}" />
-    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="1" Width="108" Height="24"
-                          Value="{x:Static views:UdpViewKeys.LocalAddress}" />
+    <ui:ModuleSelect Canvas.Left="60" Canvas.Top="1" Width="108" Height="24"
+                     Value="{x:Static views:UdpViewKeys.LocalAddress}" />
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="27" Width="56" Height="24"
                     Classes="caption right" Field="{x:Static views:UdpViewKeys.LocalPort}" />
-    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="27" Width="54" Height="24"
+    <!-- 配置变更会重开会话：这里显式用回车/失焦提交，其余模块输入默认逐键生效。 -->
+    <ui:ModuleTextSurface Canvas.Left="60" Canvas.Top="27" Width="54" Height="24"
+                          Mode="Input" TextFormat="PositiveWhole" CommitMode="OnExplicit"
                           Value="{x:Static views:UdpViewKeys.LocalPort}" />
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="53" Width="56" Height="24"
                     Classes="caption right" Field="{x:Static views:UdpViewKeys.RemoteAddress}" />
-    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="53" Width="108" Height="24"
+    <ui:ModuleTextSurface Canvas.Left="60" Canvas.Top="53" Width="108" Height="24"
+                          Mode="Input" TextFormat="Text" CommitMode="OnExplicit"
                           Value="{x:Static views:UdpViewKeys.RemoteAddress}" />
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="79" Width="56" Height="24"
                     Classes="caption right" Field="{x:Static views:UdpViewKeys.RemotePort}" />
-    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="79" Width="54" Height="24"
+    <ui:ModuleTextSurface Canvas.Left="60" Canvas.Top="79" Width="54" Height="24"
+                          Mode="Input" TextFormat="NonNegativeWhole" CommitMode="OnExplicit"
                           Value="{x:Static views:UdpViewKeys.RemotePort}" />
 
     <!-- 右栏：状态灯 + 三格读数。 -->
@@ -74,8 +78,8 @@
 
     <ui:ModuleLabel Canvas.Left="172" Canvas.Top="34" Width="56" Height="24"
                     Classes="caption right" Field="{x:Static views:UdpViewKeys.Broadcast}" />
-    <ui:ModuleConfigField Canvas.Left="232" Canvas.Top="35" Width="120" Height="24"
-                          Value="{x:Static views:UdpViewKeys.Broadcast}" />
+    <ui:ModuleToggle Canvas.Left="232" Canvas.Top="38" Width="36" Height="18"
+                     Value="{x:Static views:UdpViewKeys.Broadcast}" />
 
     <ui:ModuleButton Canvas.Left="206" Canvas.Top="8" Width="72" Height="25"
                      Appearance="Accent"

@@ -46,6 +46,7 @@
     <ui:ModuleLabel Canvas.Left="148" Canvas.Top="10" Width="30" Height="24"
                     Classes="caption right" Text="{loc:Tr view.groupShort}" />
     <ui:ModuleTextSurface Canvas.Left="180" Canvas.Top="10" Width="36" Height="24" Mode="Input"
+                          TextFormat="PositiveWhole"
                           Value="{x:Static local:RawToWaveformModule.GroupIdInput}"
                           Text="1" TextAlignment="Right"
                           CommitMode="OnChange" />
@@ -53,6 +54,7 @@
     <ui:ModuleLabel Canvas.Left="220" Canvas.Top="10" Width="44" Height="24"
                     Classes="caption right" Text="{loc:Tr field.rate}" />
     <ui:ModuleTextSurface Canvas.Left="266" Canvas.Top="10" Width="50" Height="24" Mode="Input"
+                          TextFormat="Real"
                           Value="{x:Static local:RawToWaveformModule.RateInput}"
                           Text="1000" TextAlignment="Right"
                           CommitMode="OnChange" />
@@ -72,12 +74,14 @@
         <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="56" Height="24"
                         Classes="caption right" Text="{loc:Tr field.header}" />
         <ui:ModuleTextSurface Canvas.Left="58" Canvas.Top="0" Width="86" Height="24" Mode="Input"
+                              TextFormat="Hex"
                               Value="{x:Static local:RawToWaveformModule.HeaderHexInput}"
                               Text="{x:Static local:RawToWaveformModule.DefaultHeaderHex}" CommitMode="OnChange"
                               ToolTip.Tip="{loc:Tr view.hexHint}" />
         <ui:ModuleLabel Canvas.Left="148" Canvas.Top="0" Width="42" Height="24"
                         Classes="caption right" Text="{loc:Tr field.footer}" />
         <ui:ModuleTextSurface Canvas.Left="206" Canvas.Top="0" Width="86" Height="24" Mode="Input"
+                              TextFormat="Hex"
                               Value="{x:Static local:RawToWaveformModule.FooterHexInput}"
                               Text="{x:Static local:RawToWaveformModule.DefaultFooterHex}" CommitMode="OnChange"
                               ToolTip.Tip="{loc:Tr view.hexHint}" />
@@ -87,6 +91,7 @@
         <ui:ModuleLabel Canvas.Left="0" Canvas.Top="0" Width="56" Height="24"
                         Classes="caption right" Text="{loc:Tr field.prefix}" />
         <ui:ModuleTextSurface Canvas.Left="58" Canvas.Top="0" Width="86" Height="24" Mode="Input"
+                              TextFormat="Text"
                               Value="{x:Static local:RawToWaveformModule.PrefixInput}"
                               Text="" ToolTip.Tip="{loc:Tr field.prefix.hint}"
                               CommitMode="OnChange" />

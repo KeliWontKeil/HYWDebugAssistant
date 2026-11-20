@@ -20,7 +20,7 @@ internal sealed class ModuleValuePresenter
     private readonly IRuntimeQuery _query;
     private readonly IRuntimeCommand _command;
     private readonly IViewStateAccess? _viewState;
-    private readonly Dictionary<string, ValueNotice> _notices = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ValueValidity> _validities = new(StringComparer.Ordinal);
 
     internal ModuleValuePresenter(
         string instanceId,
@@ -58,13 +58,13 @@ internal sealed class ModuleValuePresenter
             var appearance = _appearance(name);
             return new ValueState(
                 name,
-                Translate(field.Kind),
+                ValueEditorMapping.ToEditor(field.Kind),
                 field.Value,
                 field.Value,
                 field.Choices?.Select(choice => new ValueChoice(choice.Value, choice.Title)).ToArray(),
                 appearance.ReadOnly is true,
                 appearance.Enabled is not false,
-                EffectiveNotice(name),
+                EffectiveValidity(name),
                 0,
                 IsKnown: true);
         }
@@ -85,7 +85,7 @@ internal sealed class ModuleValuePresenter
             declaration.Choices,
             valueAppearance.ReadOnly is true,
             valueAppearance.Enabled is not false,
-            EffectiveNotice(name),
+            EffectiveValidity(name),
             0,
             IsKnown: true);
     }
@@ -95,8 +95,7 @@ internal sealed class ModuleValuePresenter
     {
         if (string.IsNullOrWhiteSpace(name))
         {
-            SetNotice(name, new ValueNotice(
-                ValueNoticeSeverity.Error,
+            SetValidity(name, ValueValidity.Error(
                 TextCatalog.Get(typeof(ModuleValuePresenter).Assembly, "ui.moduleView.valueNameMissing")));
             return;
         }
@@ -105,18 +104,17 @@ internal sealed class ModuleValuePresenter
         {
             var result = _command.UpdateConfigurationField(_instanceId, name, text);
 
-            SetNotice(
+            SetValidity(
                 name,
                 result.Succeeded
-                    ? null
-                    : new ValueNotice(ValueNoticeSeverity.Error, string.Join("；", result.Failures)));
+                    ? ValueValidity.Valid
+                    : ValueValidity.Error(string.Join("；", result.Failures)));
             return;
         }
 
         if (!_query.TryGetValueDeclaration(_instanceId, name, out var declaration) || declaration is null)
         {
-            SetNotice(name, new ValueNotice(
-                ValueNoticeSeverity.Error,
+            SetValidity(name, ValueValidity.Error(
                 TextCatalog.Get(typeof(ModuleValuePresenter).Assembly, "ui.moduleView.valueUnknown", name)));
             return;
         }
@@ -130,7 +128,7 @@ internal sealed class ModuleValuePresenter
             _ = _command.SubmitInput(_instanceId, name, text);
         }
 
-        SetNotice(name, null);
+        SetValidity(name, ValueValidity.Valid);
     }
 
     /// <summary>登记 XAML 初值（仅当当前没有值）；正常由运行时在激活前播种。</summary>
@@ -149,33 +147,27 @@ internal sealed class ModuleValuePresenter
         }
     }
 
-    private ValueNotice? EffectiveNotice(string name) =>
-        _notices.TryGetValue(name, out var local)
+    private ValueValidity EffectiveValidity(string name) =>
+        _validities.TryGetValue(name, out var local)
             ? local
-            : _query.TryGetValueNotice(_instanceId, name, out var notice) ? notice : null;
+            : _query.TryGetValueValidity(_instanceId, name, out var validity)
+                ? validity
+                : ValueValidity.Valid;
 
-    private void SetNotice(string name, ValueNotice? notice)
+    private void SetValidity(string name, ValueValidity validity)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
             return;
         }
 
-        if (notice is null)
+        if (validity == ValueValidity.Valid)
         {
-            _ = _notices.Remove(name);
+            _ = _validities.Remove(name);
         }
         else
         {
-            _notices[name] = notice;
+            _validities[name] = validity;
         }
     }
-
-    private static ValueEditor Translate(ConfigFieldKind kind) => kind switch
-    {
-        ConfigFieldKind.Boolean => ValueEditor.Boolean,
-        ConfigFieldKind.WholeNumber or ConfigFieldKind.Number => ValueEditor.Number,
-        ConfigFieldKind.Enum => ValueEditor.Enum,
-        _ => ValueEditor.Text,
-    };
 }

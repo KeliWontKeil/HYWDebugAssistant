@@ -38,6 +38,7 @@ internal static class AttitudeDisplayText
     public const string LostZero = "view.lostZero";
     public const string LostDelay = "view.lostDelay";
     public const string InvalidInteger = "view.invalidInteger";
+    public const string InvalidNumber = "view.invalidNumber";
 
     public const string Ready = "status.ready";
     public const string WaitingGroup = "status.waitingGroup";

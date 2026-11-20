@@ -32,17 +32,20 @@
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="1" Width="56" Height="24"
                     Classes="caption right" Field="{x:Static views:TcpServerViewKeys.LocalAddress}" />
-    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="1" Width="108" Height="24"
-                          Value="{x:Static views:TcpServerViewKeys.LocalAddress}" />
+    <ui:ModuleSelect Canvas.Left="60" Canvas.Top="1" Width="108" Height="24"
+                     Value="{x:Static views:TcpServerViewKeys.LocalAddress}" />
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="27" Width="56" Height="24"
                     Classes="caption right" Field="{x:Static views:TcpServerViewKeys.LocalPort}" />
-    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="27" Width="54" Height="24"
+    <!-- 配置变更会重开会话：这里显式用回车/失焦提交，其余模块输入默认逐键生效。 -->
+    <ui:ModuleTextSurface Canvas.Left="60" Canvas.Top="27" Width="54" Height="24"
+                          Mode="Input" TextFormat="PositiveWhole" CommitMode="OnExplicit"
                           Value="{x:Static views:TcpServerViewKeys.LocalPort}" />
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="53" Width="56" Height="24"
                     Classes="caption right" Field="{x:Static views:TcpServerViewKeys.MaxConnections}" />
-    <ui:ModuleConfigField Canvas.Left="60" Canvas.Top="53" Width="108" Height="24"
+    <ui:ModuleTextSurface Canvas.Left="60" Canvas.Top="53" Width="108" Height="24"
+                          Mode="Input" TextFormat="PositiveWhole" CommitMode="OnExplicit"
                           Value="{x:Static views:TcpServerViewKeys.MaxConnections}" />
 
     <ui:ModuleLabel Canvas.Left="172" Canvas.Top="54" Width="36" Height="20"
@@ -76,8 +79,8 @@
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="76" Width="65" Height="24"
                     Classes="caption right" Field="{x:Static views:TcpServerViewKeys.NoDelay}" />
-    <ui:ModuleConfigField Canvas.Left="68" Canvas.Top="77" Width="120" Height="24"
-                          Value="{x:Static views:TcpServerViewKeys.NoDelay}" />
+    <ui:ModuleToggle Canvas.Left="68" Canvas.Top="79" Width="36" Height="18"
+                     Value="{x:Static views:TcpServerViewKeys.NoDelay}" />
 
           <!-- 右栏：状态灯 + 三格读数。 -->
     <ui:ModuleStatusLight Canvas.Left="180" Canvas.Top="12"

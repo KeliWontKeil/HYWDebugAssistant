@@ -98,6 +98,13 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
         // 模块窗口发出的**面向用户提示**（建网/端口标签结果）→ 状态栏
         Windows.NoticeRaised += (_, notice) => RaiseNotice(notice.Message, notice.IsError);
+        Windows.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ModuleWindowsViewModel.ModuleCount))
+            {
+                OnPropertyChanged(nameof(HasModules));
+            }
+        };
         Catalog = new ModuleCatalogViewModel(query, command);
         Catalog.RestartRequested += (_, _) => RestartRequested?.Invoke(this, EventArgs.Empty);
         Issues = new IssuesPanelViewModel(query, command);
@@ -492,6 +499,9 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
     /// <summary>是否存在错误级 Issue（活动栏徽标显隐）。</summary>
     public bool HasErrors => ErrorIssueCount > 0;
+
+    /// <summary>当前是否有模块（交互入口的模块数徽标显隐）。</summary>
+    public bool HasModules => Windows.ModuleCount > 0;
 
     /// <summary>徽标悬停说明（只描述错误；警告/信息不参与角标）。</summary>
     public string IssueBadgeToolTip => ErrorIssueCount > 0

@@ -31,4 +31,6 @@ internal static class WaveformDisplayText
     public const string Paused = "status.paused";
     public const string Invalid = "status.invalid";
     public const string Cleared = "status.cleared";
+    public const string InvalidNumber = "view.invalidNumber";
+    public const string TickTooDense = "view.tickTooDense";
 }

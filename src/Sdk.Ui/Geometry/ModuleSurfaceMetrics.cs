@@ -48,6 +48,15 @@ public static class ModuleSurfaceMetrics
     /// <summary>窗口外框相对内容区多出的高（上下描边 + 上下预留带）。</summary>
     public static double VerticalChrome => (2 * FrameBorder) + InsetTop + InsetBottom;
 
+    /// <summary>
+    /// **窄窗断点**（窗口宽，DIP）：低于它时窗口 chrome 改为竖排（按钮簇、选中标题）。
+    /// </summary>
+    /// <remarks>
+    /// 来历：右上角五个图标按钮横排 ≈ 113，左上角选中标题徽标至少 40，加两侧边距 ≈ 173；
+    /// 取 200 留余量。它是**唯一断点**：窗口与控件都只认这一个值。
+    /// </remarks>
+    public const double NarrowWidth = 200;
+
     /// <summary>按窗口客户区尺寸算出内容区尺寸。</summary>
     /// <param name="windowWidth">窗口客户区宽。</param>
     /// <param name="windowHeight">窗口客户区高。</param>

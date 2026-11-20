@@ -387,4 +387,10 @@
   <Style Selector="ui|ModuleButton.danger:focus-visible">
     <Setter Property="BorderBrush" Value="{DynamicResource TextOnAccent}" />
   </Style>
+
+  <!-- 面板打开期间，打开它的按钮保持“这是我的面板”的边框与淡底；只改色，不改厚度。 -->
+  <Style Selector="ui|ModuleButton.panel-anchor">
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+    <Setter Property="Background" Value="{DynamicResource OverlaySelection}" />
+  </Style>
 </Styles>

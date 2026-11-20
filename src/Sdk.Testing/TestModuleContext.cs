@@ -32,7 +32,7 @@ public sealed class TestModuleContext : IModuleContext
     private readonly List<DisplaySourceDeclaration> _displaySources = [];
     private readonly List<string> _inputs = [];
     private readonly List<ValueDeclaration> _values = [];
-    private readonly Dictionary<string, ValueNotice> _valueNotices = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ValueValidity> _valueValidities = new(StringComparer.Ordinal);
     private readonly List<(string Name, string Title)> _commands = [];
     private readonly List<ExternalAccessDeclaration> _externalAccesses = [];
     private readonly List<AppearanceReport> _appearances = [];
@@ -175,8 +175,8 @@ public sealed class TestModuleContext : IModuleContext
     /// <summary>模块声明的值（测试断言用）。</summary>
     public IReadOnlyList<ValueDeclaration> DeclaredValues => _values;
 
-    /// <summary>模块上报的字段结论（测试断言用）。</summary>
-    public IReadOnlyDictionary<string, ValueNotice> ValueNotices => _valueNotices;
+    /// <summary>模块上报的字段有效性结论（测试断言用）。</summary>
+    public IReadOnlyDictionary<string, ValueValidity> ValueValidities => _valueValidities;
 
     /// <inheritdoc />
     public IIssueReporter Issues { get; }
@@ -501,15 +501,29 @@ public sealed class TestModuleContext : IModuleContext
         }
 
         /// <inheritdoc />
-        public void Report(string name, ValueNotice? notice)
+        public ValueValidity ReadValidity(string name)
         {
-            if (notice is null)
+            lock (owner._valueValidities)
             {
-                _ = owner._valueNotices.Remove(name);
+                return owner._valueValidities.TryGetValue(name, out var validity)
+                    ? validity
+                    : ValueValidity.Valid;
             }
-            else
+        }
+
+        /// <inheritdoc />
+        public void ReportValidity(string name, ValueValidity validity)
+        {
+            lock (owner._valueValidities)
             {
-                owner._valueNotices[name] = notice;
+                if (validity == ValueValidity.Valid)
+                {
+                    _ = owner._valueValidities.Remove(name);
+                }
+                else
+                {
+                    owner._valueValidities[name] = validity;
+                }
             }
         }
     }

@@ -1,14 +1,17 @@
+using System.Globalization;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml;
+using System.Xml.Linq;
 using Shouldly;
 using Xunit;
 
 namespace HYWDebugAssistant.ArchitectureTests;
 
 /// <summary>
-/// 架构约束检查：<b>AR-0 ~ AR-22</b>（规则集的权威定义见 dev/constraints.md）。
+/// 架构约束检查：<b>AR-0 ~ AR-27</b>（规则集的权威定义见 dev/constraints.md）。
 /// <para>
 /// 依赖类（AR-1~AR-12）：读取**已编译程序集的 AssemblyRef 表**（覆盖间接依赖，比源码扫描可靠）。
 /// 源码类（AR-0、AR-13~AR-19）：源码扫描（项目清单、命名空间一致性、业务词汇、排除清单、公开签名、数据路径、模块几何、注释纪律）。
@@ -1372,5 +1375,134 @@ public class ArchitectureRulesTests
         violations.ShouldBeEmpty(
             "控件不得直接读配置/视图状态或提交值；请改走 IModuleViewContext 的值契约。违规：\n"
             + string.Join("\n", violations));
+    }
+
+    /// <summary>
+    /// **值编辑器职责分离**：文本/数字用 <c>ModuleTextSurface</c>，布尔用 <c>ModuleToggle</c>，
+    /// 枚举用 <c>ModuleSelect</c>；不得再出现把三种编辑器混在一起的 <c>ModuleConfigField</c>。
+    /// </summary>
+    [Fact]
+    public void 值编辑器职责不得混叠()
+    {
+        var retired = Path.Combine(RepoRoot, "src", "Sdk.Ui", "Controls", "ModuleConfigField.cs");
+        File.Exists(retired).ShouldBeFalse(
+            "ModuleConfigField 是文本/布尔/枚举混在一起的旧宿主；文本改用 ModuleTextSurface、枚举改用 ModuleSelect。");
+
+        var offenders = new List<string>();
+        var roots = new[] { Path.Combine(RepoRoot, "src"), Path.Combine(RepoRoot, "templates") };
+
+        foreach (var root in roots)
+        {
+            if (!Directory.Exists(root))
+            {
+                continue;
+            }
+
+            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            {
+                if (file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
+                    || file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
+                    || !(file.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
+                         || file.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                if (File.ReadAllText(file).Contains("ModuleConfigField", StringComparison.Ordinal))
+                {
+                    offenders.Add(Path.GetRelativePath(RepoRoot, file));
+                }
+            }
+        }
+
+        var controlsDoc = Path.Combine(RepoRoot, "docs", "zh", "module-dev", "controls.md");
+        if (File.Exists(controlsDoc)
+            && File.ReadAllText(controlsDoc).Contains("ModuleConfigField", StringComparison.Ordinal))
+        {
+            offenders.Add(Path.GetRelativePath(RepoRoot, controlsDoc));
+        }
+
+        offenders.ShouldBeEmpty(
+            "值编辑器宿主已拆分：文本/数字 → ModuleTextSurface；布尔 → ModuleToggle/ModuleCheckBox；"
+            + "枚举 → ModuleSelect/ModuleSegmentedControl。仍出现旧宿主：\n"
+            + string.Join("\n", offenders));
+    }
+
+    /// <summary>
+    /// **AR-27：模块输入文本面必须显式声明 `TextFormat`**。
+    /// </summary>
+    /// <remarks>
+    /// 准入格式只住在视图 XAML：预览器没有模块的 `ValueDeclaration`，若靠默认值，
+    /// 视图自定义值在预览与运行期会得到不同提示/过滤。规则只查仓库内模块与模板；
+    /// 第三方模块按文档要求自行声明。
+    /// </remarks>
+    [Fact]
+    public void AR27_模块输入文本面必须显式声明文本格式()
+    {
+        var roots = new[]
+        {
+            Path.Combine(RepoRoot, "src", "Modules"),
+            Path.Combine(RepoRoot, "templates"),
+        };
+
+        var offenders = new List<string>();
+        var inputs = 0;
+
+        foreach (var root in roots)
+        {
+            if (!Directory.Exists(root))
+            {
+                continue;
+            }
+
+            foreach (var file in Directory.EnumerateFiles(root, "*.axaml", SearchOption.AllDirectories))
+            {
+                if (file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
+                    || file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                XDocument document;
+                try
+                {
+                    document = XDocument.Load(file, LoadOptions.SetLineInfo);
+                }
+                catch (XmlException ex)
+                {
+                    offenders.Add($"{Path.GetRelativePath(RepoRoot, file)}: XML 无法解析：{ex.Message}");
+                    continue;
+                }
+
+                foreach (var element in document.Descendants()
+                             .Where(element => element.Name.LocalName == "ModuleTextSurface"))
+                {
+                    var mode = (string?)element.Attribute("Mode");
+
+                    if (string.Equals(mode?.Trim(), "Display", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    inputs++;
+
+                    if (element.Attribute("TextFormat") is null)
+                    {
+                        var line = element is IXmlLineInfo info && info.HasLineInfo()
+                            ? info.LineNumber.ToString(CultureInfo.InvariantCulture)
+                            : "?";
+                        offenders.Add(
+                            $"{Path.GetRelativePath(RepoRoot, file)}:{line} 的输入文本面没有 TextFormat");
+                    }
+                }
+            }
+        }
+
+        inputs.ShouldBeGreaterThan(0, "没有找到任何输入文本面；规则目标缺失，不能静默通过（AR-27）");
+
+        offenders.ShouldBeEmpty(
+            "输入文本面必须在 XAML 显式声明 TextFormat（Text/Hex/SignedWhole/NonNegativeWhole/PositiveWhole/Real/IpAddress）；"
+            + "预览与运行期只认这一处。违规：\n"
+            + string.Join("\n", offenders));
     }
 }

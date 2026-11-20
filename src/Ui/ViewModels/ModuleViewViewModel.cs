@@ -7,6 +7,7 @@ using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
+using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Ui.Geometry;
 using HYWDebugAssistant.Sdk.Views;
 using HYWDebugAssistant.Ui.Geometry;
@@ -46,24 +47,26 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <remarks>
     /// 尺寸唯一事实是模块 `.axaml` 的视图根；声明已经是**含外框**的窗口尺寸，
     /// 框架不再额外加 chrome（chrome 只用于让视图内容区让开预留带）。
+    /// 宽度地板（<see cref="PortMarkerMetrics.MinWindowWidth"/>）比高度地板小：窄模块的顶部标记会缩短，
+    /// 但竖排按钮簇与左右边缘的竖排标记仍需要高度。
     /// </remarks>
     public double EffectiveMinWidth => Math.Max(
-        PortMarkerMetrics.MinWindowExtent,
+        PortMarkerMetrics.MinWindowWidth,
         DeclaredMinWidth);
 
     /// <summary>**有效最小高**（DIP）= XAML 声明的窗口最小高，且不低于框架地板。</summary>
     public double EffectiveMinHeight => Math.Max(
-        PortMarkerMetrics.MinWindowExtent,
+        PortMarkerMetrics.MinWindowHeight,
         DeclaredMinHeight);
 
     /// <summary>**初始窗口宽**（DIP）= XAML 声明的窗口初始宽；不含最小尺寸修正。</summary>
     public double InitialWindowWidth => Math.Max(
-        PortMarkerMetrics.MinWindowExtent,
+        PortMarkerMetrics.MinWindowWidth,
         DeclaredInitialWidth);
 
     /// <summary>**初始窗口高**（DIP）= XAML 声明的窗口初始高；不含最小尺寸修正。</summary>
     public double InitialWindowHeight => Math.Max(
-        PortMarkerMetrics.MinWindowExtent,
+        PortMarkerMetrics.MinWindowHeight,
         DeclaredInitialHeight);
 
     /// <summary>新建/还原时实际采用的窗口宽（初始尺寸不允许低于运行期下限）。</summary>
@@ -572,10 +575,33 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     public double CanvasHeight => Height;
 
     /// <summary>宽变化 ⇒ 叠加层画布宽也变了（否则自绘层会继续按旧宽度裁剪连线）。</summary>
-    partial void OnWidthChanged(double value) => OnPropertyChanged(nameof(CanvasWidth));
+    partial void OnWidthChanged(double value)
+    {
+        OnPropertyChanged(nameof(CanvasWidth));
+        FitPortEdges();
+    }
 
-    /// <summary>高变化 ⇒ 叠加层画布高也变了。</summary>
-    partial void OnHeightChanged(double value) => OnPropertyChanged(nameof(CanvasHeight));
+    /// <summary>高变化 ⇒ 叠加层画布高也变了（口标记换边也跟窗口尺寸走）。</summary>
+    partial void OnHeightChanged(double value)
+    {
+        OnPropertyChanged(nameof(CanvasHeight));
+        FitPortEdges();
+    }
+
+    /// <summary>
+    /// 标记尺寸固定：把放不下的边**直接改到放得下的边**（一次坐标式变更，不记原边、不自动挪回）。
+    /// </summary>
+    private void FitPortEdges()
+    {
+        foreach (var port in Ports)
+        {
+            port.Edge = PortMarkerLayout.FitEdge(
+                port.Edge,
+                port.IsSend ? PortDirection.Send : PortDirection.Receive,
+                Width,
+                Height);
+        }
+    }
 
     /// <summary>刷新实例状态（实例视图变化时调用；视图类型在实例生命周期内不变）。</summary>
     /// <remarks>
@@ -833,7 +859,11 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
 
                 // 边同源：**框架是唯一权威**（用户覆盖 > 模块声明的默认边 > 数据流惯例）。
                 // 少这一行 ⇒ 载入组合件/撤销后标记会停在旧的边（本地值成了第二个来源）。
-                existing.Edge = port.Edge;
+                existing.Edge = PortMarkerLayout.FitEdge(
+                    port.Edge,
+                    existing.IsSend ? PortDirection.Send : PortDirection.Receive,
+                    Width,
+                    Height);
             }
 
             // 「固定」是可变的呈现事实（模块声明 + 全局快捷键都会改它）⇒ 每次同步都跟一遍
@@ -853,6 +883,9 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         {
             _ = Ports.Remove(stale);
         }
+
+        // 新增/声明边的标记：放不下就换到放得下的边
+        FitPortEdges();
     }
 
 }

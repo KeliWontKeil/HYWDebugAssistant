@@ -425,10 +425,15 @@ public interface IModuleValues
     /// <param name="value">接受后的值；<see langword="null"/> = 清除。</param>
     void AcceptText(string name, string? value);
 
-    /// <summary>报告某一格当前的结论（错误 / 警告 / 提示）；<see langword="null"/> = 收起。</summary>
+    /// <summary>读某一格当前的有效性结论（没有结论 ⇒ <see cref="ValueValidity.Valid"/>）。</summary>
     /// <param name="name">值名。</param>
-    /// <param name="notice">结论。</param>
-    void Report(string name, ValueNotice? notice);
+    /// <remarks>模块可据此分类状态（例如状态文本栏按严重程度归类），本轮不要求改变现有模块逻辑。</remarks>
+    ValueValidity ReadValidity(string name);
+
+    /// <summary>报告某一格当前的有效性结论；<see cref="ValueValidity.Valid"/> = 收起。</summary>
+    /// <param name="name">值名。</param>
+    /// <param name="validity">结论（是否无效 + 原因）。</param>
+    void ReportValidity(string name, ValueValidity validity);
 }
 
 /// <summary>未接线时的值面：读不到、接受被忽略、结论被丢弃（不抛）。</summary>
@@ -446,7 +451,10 @@ public sealed class EmptyModuleValues : IModuleValues
     }
 
     /// <inheritdoc />
-    public void Report(string name, ValueNotice? notice)
+    public ValueValidity ReadValidity(string name) => ValueValidity.Valid;
+
+    /// <inheritdoc />
+    public void ReportValidity(string name, ValueValidity validity)
     {
     }
 }

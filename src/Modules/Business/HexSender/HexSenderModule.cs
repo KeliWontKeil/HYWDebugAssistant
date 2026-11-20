@@ -100,12 +100,6 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// <remarks>没有界面实体：模块按自己的逻辑写，界面上一块 `label`（或只读文本面）按声明吃它。</remarks>
     public const string StatusSource = "status";
 
-    /// <summary>
-    /// 模块自己挑的**提示角色**（**相对色**）—— 框架只提供"设边框色"这个能力，不认识"红 = 失败"。
-    /// </summary>
-    /// <remarks>用角色词而不是色值：设置里改那一支色 / 换深浅主题时，这一圈跟着变。</remarks>
-    public const string AlertRole = ViewInkRoles.Danger;
-
     /// <summary>数据类型标识（**与两个兄弟模块逐字相同**）。</summary>
     public const string RawBytesTypeId = "RawBytes";
 
@@ -302,6 +296,9 @@ public sealed class HexSenderModule : IModule, IActivitySource
 
     /// <summary>**界面上现在红着的那一格**（源名）—— 唯一记录"红"的地方。</summary>
     private string? _shownAlertSource;
+
+    /// <summary>输入有效性的统一记账（红圈 + 原因）。</summary>
+    private readonly InputValidity _validity = new();
 
     /// <summary>**「间隔」那一格现在是不是被我锁着**（只读）—— 幂等写法，不需要记"锁了哪一格"。</summary>
     private bool _intervalLocked;
@@ -657,19 +654,23 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// </remarks>
     private void ApplyVerdict(IModuleContext context, Verdict verdict)
     {
-        if (!string.Equals(_shownAlertSource, verdict.AlertSource, StringComparison.Ordinal))
+        var previous = _shownAlertSource;
+
+        if (previous is { Length: > 0 }
+            && !string.Equals(previous, verdict.AlertSource, StringComparison.Ordinal))
         {
-            if (_shownAlertSource is { Length: > 0 } shown)
-            {
-                context.Appearance.SetOutlineColor(shown, null);
-            }
+            _validity.Set(context, previous, false);
+        }
 
-            _shownAlertSource = verdict.AlertSource;
+        _shownAlertSource = verdict.AlertSource;
 
-            if (verdict.AlertSource is { Length: > 0 } next)
-            {
-                context.Appearance.SetOutlineRole(next, AlertRole);
-            }
+        if (verdict.AlertSource is { Length: > 0 } next)
+        {
+            _validity.Set(context, next, true, verdict.Message);
+        }
+        else if (previous is { Length: > 0 })
+        {
+            _validity.Set(context, previous, false);
         }
 
         context.Display.SetText(StatusSource, verdict.Message ?? string.Empty);

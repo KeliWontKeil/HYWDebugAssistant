@@ -17,11 +17,11 @@ context.Declaration.DeclareValue(new ValueDeclaration("header")
 
 配置字段不需要再次声明：框架把每个配置字段也当作同名的值。视图按名字绑定即可，模块按名字读取当前值。配置类型仍需在 `OnRegistered` 读一次（`Configuration.Read<T>()`）以登记 Schema 与默认值；值本身由 `Values` 读取。
 
-`Editor` 只决定控件默认选哪种编辑器；`Persistent` 与 `ResetWithModule` 是正交属性，不是值的种类。一次性的动作输入（文件选择结果、结构动作）仍用 `DeclareInput` / 命令，不属于值。
+`Editor` 只决定控件默认选哪种编辑器；**文本准入格式不在这里声明**，而是由视图的 `ModuleTextSurface.TextFormat` 决定（见[控件](controls.md)）。它只影响用户插入时允许哪些字符：`Text`（不限制）、`Hex`、`SignedWhole`、`NonNegativeWhole`、`PositiveWhole`、`Real`、`IpAddress`。允许集是模块解析语法的**超集**，只挡“不可能出现在合法值里”的字符；结构、范围、跨字段约束仍由模块判断。程序化写入（XAML/持久化/`AcceptText`）不经过准入。`Persistent` 与 `ResetWithModule` 是正交属性，不是值的种类。一次性的动作输入（文件选择结果、结构动作）仍用 `DeclareInput` / 命令，不属于值。
 
 ## 一个值只能有一个编辑器
 
-同一个值名在视图 XAML 里**只能出现在一个输入控件上**（\ModuleTextSurface\ 的 \Value\、\ModuleToggle\/\ModuleCheckBox\、\ModuleSelect\/\ModuleSegmentedControl\、\ModuleConfigField\ 都算）。重复会出现两个初值、包加载时被拒绝（\DuplicateValue\），整个模块都装不上——把同一项设置放进工具栏和设置面板两处就是这种写法。
+同一个值名在视图 XAML 里**只能出现在一个输入控件上**（\ModuleTextSurface\ 的 \Value\、\ModuleToggle\/\ModuleCheckBox\、\ModuleSelect\/\ModuleSegmentedControl\、\ModuleColorField\ 都算）。重复会出现两个初值、包加载时被拒绝（\DuplicateValue\），整个模块都装不上——把同一项设置放进工具栏和设置面板两处就是这种写法。
 
 ## 视图绑定
 
@@ -30,6 +30,7 @@ context.Declaration.DeclareValue(new ValueDeclaration("header")
 ```xml
 <ui:ModuleTextSurface Mode="Input"
                       Value="{x:Static local:MyModule.HeaderValue}"
+                      TextFormat="Hex"
                       Text="ab"
                       CommitMode="OnChange" />
 
@@ -44,8 +45,8 @@ context.Declaration.DeclareValue(new ValueDeclaration("header")
 </ui:ModuleSelect>
 ```
 
-- `CommitMode="OnChange"`：每次修改都交值；适合开关、下拉、内容文本。
-- `CommitMode="OnExplicit"`：回车、失焦或显式动作交值；适合普通设置文本、数字。
+- `CommitMode="OnChange"`：每次修改都交值，默认；适合设置、开关、下拉、普通模块输入。
+- `CommitMode="OnExplicit"`：回车、失焦或显式动作交值；只给配置字段这类“变更会重开会话”的明确需求用，并在视图注释说明。
 - `OnChange` 已经逐键提交，失焦不重复。
 - `Text` / `IsChecked` / `SelectedKey` 是预览/实例化默认值，不是第二套运行期逻辑；运行期显示以值状态为准。
 
@@ -61,11 +62,12 @@ var header = context.Values.ReadText(MyModule.HeaderValue) ?? string.Empty;
 
 ```csharp
 context.Values.AcceptText(MyModule.HeaderValue, normalized);
-context.Values.Report(MyModule.HeaderValue, new ValueNotice(
-    ValueNoticeSeverity.Warning, "帧头不能为空"));
+context.Values.ReportValidity(MyModule.HeaderValue, ValueValidity.Error("帧头不能为空"));
 ```
 
-`Report(null)` 收起结论。控件只负责把结论画出来，不判断什么算错。
+`ReportValidity(ValueValidity.Valid)` 收起结论；`ValueValidity.Warning(...)` / `Info(...)` 只给悬停原因、不画红圈。模块可以随时用 `context.Values.ReadValidity(值名)` 读回 `IsInvalid` 与 `Notice`，据此分类状态（例如状态文本栏）；本轮不要求改变现有模块的状态逻辑。
+
+**红圈与原因**：输入有效性统一走 `InputValidity`（它写外观轮廓 + `ValueValidity`）。控件只画结论，不判断什么算错，也不靠 Notice 清红圈。
 
 ## 初值与持久化
 
@@ -87,7 +89,7 @@ context.Values.Report(MyModule.HeaderValue, new ValueNotice(
 
 1. 读 `IModuleViewContext.ReadValue(name)` 并画出来；
 2. 按 `CommitMode` 调 `CommitValue(name, text)`；
-3. 把 `ValueState.Notice` / 只读 / 可用状态画出来。
+3. 把 `ValueState.Validity`（红圈/原因提示）/ 外观轮廓 / 只读 / 可用状态画出来。
 
 控件**不**读配置、不读写视图状态、不调用 `SubmitInput` / `UpdateField`、不解析、不校验、不生成错误句子。值的后端由框架决定，替换存储实现不需要改控件。
 

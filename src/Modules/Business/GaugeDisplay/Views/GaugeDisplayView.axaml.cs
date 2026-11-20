@@ -102,6 +102,9 @@ public sealed partial class GaugeDisplayView : ModuleView, IModuleViewElement
 
         _gauge.Minimum = ReadDouble(settings, "min", _gauge.Minimum);
         _gauge.Maximum = ReadDouble(settings, "max", _gauge.Maximum);
+        _gauge.FillOrigin = ReadBool(settings, "fillFromZero", _gauge.FillOrigin == ScaleFillOrigin.Zero)
+            ? ScaleFillOrigin.Zero
+            : ScaleFillOrigin.Minimum;
         _gauge.Title = ReadString(settings, "title", _gauge.Title);
         _gauge.Unit = ReadString(settings, "unit", _gauge.Unit);
         _gauge.SmoothingEnabled = ReadBool(settings, "smooth", _gauge.SmoothingEnabled);

@@ -182,22 +182,6 @@
       </Setter>
     </ControlTheme>
 
-    <ControlTheme x:Key="{x:Type ui:ModuleConfigField}" TargetType="ui:ModuleConfigField">
-      <Setter Property="Template">
-        <ControlTemplate>
-          <Grid RowDefinitions="*,Auto">
-            <Grid Grid.Row="0">
-              <ContentControl Name="PART_EditorHost" />
-              <Border Name="PART_ErrorRing" BorderThickness="2" CornerRadius="2"
-                      IsVisible="False" IsHitTestVisible="False" />
-            </Grid>
-            <TextBlock Name="PART_Notice" Grid.Row="1" Classes="module-notice"
-                       TextWrapping="Wrap" IsVisible="False" />
-          </Grid>
-        </ControlTemplate>
-      </Setter>
-    </ControlTheme>
-
     <!--
       页签本体：选中态 = 淡主题色圆角底 + 主题色下沿（下沿厚度由声明给出），未选中透明 + 次文字。
       这组属性必须住在 ControlTheme 里：Fluent 的 TabItem 主题会盖掉外部
@@ -380,10 +364,6 @@
     <Setter Property="BorderThickness" Value="2" />
   </Style>
 
-  <Style Selector="ui|ModuleConfigField">
-    <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleConfigField}}" />
-  </Style>
-
   <!--
     **标签只有一套排印**：字号/墨色/省略号都在这里；视图用类选档位，不自己写字号。
     默认档 = 事实/状态（正文墨）；`caption` = 标题类（次级墨）；`hint` = 说明（更小、更弱）；
@@ -426,11 +406,6 @@
     <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
     <Setter Property="TextWrapping" Value="NoWrap" />
     <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-  </Style>
-
-  <Style Selector="TextBlock.module-notice">
-    <Setter Property="FontSize" Value="10" />
-    <Setter Property="Foreground" Value="{DynamicResource SemanticError}" />
   </Style>
 
   <Style Selector="Ellipse.module-status-light">
@@ -582,6 +557,7 @@
     <Setter Property="FontSize" Value="11" />
     <Setter Property="Padding" Value="4,0" />
     <Setter Property="Background" Value="Transparent" />
+    <Setter Property="PlaceholderForeground" Value="{DynamicResource TextMuted}" />
     <Setter Property="SelectionBrush" Value="{DynamicResource OverlaySelection}" />
     <Setter Property="SelectionForegroundBrush" Value="{DynamicResource TextPrimary}" />
   </Style>
@@ -604,40 +580,6 @@
     <Setter Property="NewlineMarkBrush" Value="{DynamicResource TextMuted}" />
     <Setter Property="ShowControlCharacterMarkers" Value="{DynamicResource TextControlCharacterMarkers}" />
   </Style>
-  <!-- 字段编辑器：统一高度与字号，避免"一行高一行矮"（三档自然高本来各不相同）。 -->
-  <!--
-    配置格的内层编辑器**必须改掉全局 TextBox/ComboBox 的固定高**：
-    模块内容区按紧凑行高排，沿用全局高度会让参数行比内容区还高（最后一格被裁）。
-    高度只在这里给，视图不再逐格写。
-  -->
-  <Style Selector="ui|ModuleConfigField TextBox">
-    <Setter Property="Height" Value="{Binding Height, RelativeSource={RelativeSource AncestorType=ui:ModuleConfigField}}" />
-    <Setter Property="MinHeight" Value="0" />
-    <Setter Property="FontSize" Value="11" />
-    <Setter Property="Padding" Value="4,0" />
-    <Setter Property="VerticalContentAlignment" Value="Center" />
-  </Style>
-
-  <Style Selector="ui|ModuleConfigField ComboBox">
-    <Setter Property="Height" Value="{Binding Height, RelativeSource={RelativeSource AncestorType=ui:ModuleConfigField}}" />
-    <Setter Property="MinHeight" Value="0" />
-    <Setter Property="FontSize" Value="11" />
-    <Setter Property="Padding" Value="2,0" />
-    <Setter Property="VerticalContentAlignment" Value="Center" />
-  </Style>
-
-  <!-- 模块配置格通常只有一百来像素宽：箭头只占它真正需要的宽度，不能沿用全局箭头的宽松留白。 -->
-  <Style Selector="ComboBox.compact /template/ PathIcon#DropDownGlyph">
-    <Setter Property="Width" Value="10" />
-    <Setter Property="Height" Value="10" />
-    <Setter Property="Margin" Value="0,0,6,0" />
-  </Style>
-
-  <Style Selector="ui|ModuleConfigField ui|ModuleToggle">
-    <Setter Property="VerticalAlignment" Value="Center" />
-    <Setter Property="HorizontalAlignment" Value="Left" />
-  </Style>
-
   <!-- 通用图表：只给默认观感；曲线色由调用方显式给出，缺省用主题强调色。 -->
   <Style Selector="ui|ChartSurface">
     <Setter Property="PlotBackground" Value="{DynamicResource SurfaceControlBrush}" />
@@ -669,6 +611,10 @@
     <Setter Property="TickLabelBrush" Value="{DynamicResource TextMuted}" />
     <Setter Property="NeedleBrush" Value="{DynamicResource SemanticError}" />
     <Setter Property="HubBrush" Value="{DynamicResource SemanticError}" />
+    <Setter Property="TitleBrush" Value="{DynamicResource TextSecondary}" />
+    <Setter Property="ValueBrush" Value="{DynamicResource TextPrimary}" />
+    <Setter Property="UnitBrush" Value="{DynamicResource TextMuted}" />
+    <Setter Property="OutOfRangeBrush" Value="{DynamicResource SemanticError}" />
     <Setter Property="FontSize" Value="10" />
   </Style>
 
@@ -676,6 +622,7 @@
   <Style Selector="ui|ScaleBar">
     <Setter Property="TrackBrush" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="FrameBrush" Value="{DynamicResource BorderDefault}" />
+    <Setter Property="FillBrush" Value="{DynamicResource SemanticOk}" />
     <Setter Property="BarThickness" Value="14" />
     <Setter Property="TickBrush" Value="{DynamicResource TextSecondary}" />
     <Setter Property="TickLabelBrush" Value="{DynamicResource TextMuted}" />

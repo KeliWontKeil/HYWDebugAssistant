@@ -58,17 +58,17 @@
       <ui:ModuleLabel Canvas.Left="0" Canvas.Top="54" Width="54" Height="22" Classes="caption right"
                       Text="{loc:Tr view.xTick}" />
       <ui:ModuleTextSurface x:Name="XTickInput" Canvas.Left="56" Canvas.Top="54" Width="42" Height="24"
-                            Mode="Input" Text="0"
+                            Mode="Input" TextFormat="Real" Text="0"
                             CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.XTick}" />
       <ui:ModuleLabel Canvas.Left="102" Canvas.Top="54" Width="72" Height="22" Classes="caption right"
                       Text="{loc:Tr view.xStart}" />
       <ui:ModuleTextSurface x:Name="XStartInput" Canvas.Left="176" Canvas.Top="54" Width="56" Height="24"
-                            Mode="Input" Text="0"
+                            Mode="Input" TextFormat="SignedWhole" Text="0"
                             CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.XStart}" />
       <ui:ModuleLabel Canvas.Left="236" Canvas.Top="54" Width="72" Height="22" Classes="caption right"
                       Text="{loc:Tr view.xEnd}" />
       <ui:ModuleTextSurface x:Name="XEndInput" Canvas.Left="310" Canvas.Top="54" Width="56" Height="24"
-                            Mode="Input" Text="255"
+                            Mode="Input" TextFormat="SignedWhole" Text="255"
                             CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.XEnd}" />
 
       <ui:ModuleToggle Canvas.Left="486" Canvas.Top="54" Width="36" Height="24" IsChecked="True"
@@ -78,7 +78,7 @@
       <ui:ModuleLabel Canvas.Left="368" Canvas.Top="54" Width="56" Height="24" Classes="caption right"
                       Text="{loc:Tr view.followRange}" />
       <ui:ModuleTextSurface x:Name="FollowRangeInput" Canvas.Left="426" Canvas.Top="54" Width="56" Height="24"
-                            Mode="Input" Text="256"
+                            Mode="Input" TextFormat="Real" Text="256"
                             CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.FollowRange}" />
 
 
@@ -86,17 +86,17 @@
       <ui:ModuleLabel Canvas.Left="0" Canvas.Top="78" Width="54" Height="22" Classes="caption right"
                       Text="{loc:Tr view.yTick}" />
       <ui:ModuleTextSurface x:Name="YTickInput" Canvas.Left="56" Canvas.Top="78" Width="42" Height="22"
-                            Mode="Input" Text="0"
+                            Mode="Input" TextFormat="Real" Text="0"
                             CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.YTick}" />
       <ui:ModuleLabel Canvas.Left="102" Canvas.Top="78" Width="72" Height="22" Classes="caption right"
                       Text="{loc:Tr view.yMin}" />
       <ui:ModuleTextSurface x:Name="YMinInput" Canvas.Left="176" Canvas.Top="78" Width="56" Height="22"
-                            Mode="Input" Text="-1"
+                            Mode="Input" TextFormat="Real" Text="-1"
                             CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.YMin}" />
       <ui:ModuleLabel Canvas.Left="236" Canvas.Top="78" Width="72" Height="22" Classes="caption right"
                       Text="{loc:Tr view.yMax}" />
       <ui:ModuleTextSurface x:Name="YMaxInput" Canvas.Left="310" Canvas.Top="78" Width="56" Height="22"
-                            Mode="Input" Text="1"
+                            Mode="Input" TextFormat="Real" Text="1"
                             CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.YMax}" />
 
       <ui:ModuleToggle Canvas.Left="378" Canvas.Top="78" Width="36" Height="22" IsChecked="True"
@@ -142,7 +142,7 @@
       <ui:ModuleLabel Canvas.Left="160" Canvas.Top="29" Width="70" Height="24" Classes="caption right"
                       Text="{loc:Tr view.CustomRate}" />
       <ui:ModuleTextSurface x:Name="CustomRateInput" Canvas.Left="232" Canvas.Top="29" Width="64" Height="24"
-                            Mode="Input" Text="100"
+                            Mode="Input" TextFormat="Real" Text="100"
                             CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.CustomRate}" />
 
       <ui:ModuleToggle x:Name="UseCustomRateToggle" Canvas.Left="300" Canvas.Top="29" Width="36" Height="24"
@@ -162,7 +162,7 @@
       <ui:ModuleLabel Canvas.Left="750" Canvas.Top="29" Width="48" Height="22" Classes="caption right"
                       Text="{loc:Tr view.historyLimit}" />
       <ui:ModuleTextSurface x:Name="HistoryLimitInput" Canvas.Left="800" Canvas.Top="29" Width="50" Height="22"
-                            Mode="Input" Text="0"
+                            Mode="Input" TextFormat="NonNegativeWhole" Text="0"
                             CommitMode="OnChange" Value="{x:Static views:WaveformDisplayViewKeys.HistoryLimit}" />
       
 

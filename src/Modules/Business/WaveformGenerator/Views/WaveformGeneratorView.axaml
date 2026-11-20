@@ -70,12 +70,12 @@
           <ui:ModuleLabel Canvas.Left="0" Canvas.Top="26" Width="42" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.groupName}" />
           <ui:ModuleTextSurface x:Name="GroupNameInput" Canvas.Left="46" Canvas.Top="26" Width="180" Height="22"
-                                Mode="Input" Text="G1"
+                                Mode="Input" TextFormat="Text" Text="G1"
                                 CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.GroupName}" />
           <ui:ModuleLabel Canvas.Left="236" Canvas.Top="26" Width="42" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.groupId}" />
           <ui:ModuleTextSurface x:Name="GroupIdInput" Canvas.Left="282" Canvas.Top="26" Width="72" Height="22"
-                                Mode="Input" Text="1"
+                                Mode="Input" TextFormat="PositiveWhole" Text="1"
                                 CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.GroupId}" />
           <ui:ModuleToggle Canvas.Left="452" Canvas.Top="26" Width="36" Height="22" IsChecked="True"
                            Value="{x:Static views:WaveformGeneratorViewKeys.GroupEnabled}" />
@@ -85,21 +85,21 @@
           <ui:ModuleLabel Canvas.Left="0" Canvas.Top="52" Width="42" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.frequency}" />
           <ui:ModuleTextSurface x:Name="FrequencyInput" Canvas.Left="46" Canvas.Top="52" Width="50" Height="22"
-                                Mode="Input" Text="10"
+                                Mode="Input" TextFormat="Real" Text="10"
                                 CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.Frequency}" />
           <ui:ModuleLabel Canvas.Left="100" Canvas.Top="52" Width="16" Height="22" Classes="caption"
                           VerticalAlignment="Center" Text="{loc:Tr view.unitHz}" />
           <ui:ModuleLabel Canvas.Left="122" Canvas.Top="52" Width="38" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.period}" />
           <ui:ModuleTextSurface x:Name="PeriodInput" Canvas.Left="164" Canvas.Top="52" Width="50" Height="22"
-                                Mode="Input" Text="0.1"
+                                Mode="Input" TextFormat="Real" Text="0.1"
                                 CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.Period}" />
           <ui:ModuleLabel Canvas.Left="218" Canvas.Top="52" Width="16" Height="22" Classes="caption"
                           VerticalAlignment="Center" Text="{loc:Tr view.unitSecond}" />
           <ui:ModuleLabel Canvas.Left="240" Canvas.Top="52" Width="60" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.resolution}" />
           <ui:ModuleTextSurface x:Name="ResolutionInput" Canvas.Left="304" Canvas.Top="52" Width="52" Height="22"
-                                Mode="Input" Text="100"
+                                Mode="Input" TextFormat="PositiveWhole" Text="100"
                                 CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.Resolution}" />
           <ui:ModuleLabel Canvas.Left="360" Canvas.Top="52" Width="42" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.groupRate}" />
@@ -137,7 +137,7 @@
           <ui:ModuleLabel Canvas.Left="0" Canvas.Top="114" Width="42" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.channelName}" />
           <ui:ModuleTextSurface x:Name="ChannelNameInput" Canvas.Left="46" Canvas.Top="114" Width="180" Height="22"
-                                Mode="Input" Text="CH1"
+                                Mode="Input" TextFormat="Text" Text="CH1"
                                 CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.ChannelName}" />
           <ui:ModuleToggle x:Name="ChannelEnabledToggle" Canvas.Left="452" Canvas.Top="114" Width="36" Height="22"
                            IsChecked="True"
@@ -170,14 +170,14 @@
                 <ui:ModuleLabel Grid.Column="0" Classes="caption right" VerticalAlignment="Center"
                                 Text="{loc:Tr view.offset}" />
                 <ui:ModuleTextSurface x:Name="OffsetInput" Grid.Column="1" Height="22"
-                                      HorizontalAlignment="Stretch" VerticalAlignment="Center" Mode="Input" Text="0"
+                                      HorizontalAlignment="Stretch" VerticalAlignment="Center" Mode="Input" TextFormat="Real" Text="0"
                                       CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.Offset}" />
               </Grid>
               <Grid Grid.Column="1" Width="180" Height="24" ColumnDefinitions="72,64,44">
                 <ui:ModuleLabel Grid.Column="0" Classes="caption right" VerticalAlignment="Center"
                                 Text="{loc:Tr view.amplitude}" />
                 <ui:ModuleTextSurface x:Name="AmplitudeInput" Grid.Column="1" Height="22"
-                                      HorizontalAlignment="Stretch" VerticalAlignment="Center" Mode="Input" Text="1"
+                                      HorizontalAlignment="Stretch" VerticalAlignment="Center" Mode="Input" TextFormat="Real" Text="1"
                                       CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.Amplitude}" />
               </Grid>
               <Grid x:Name="PhaseCell" Grid.Column="2" Width="180" Height="24"
@@ -185,7 +185,7 @@
                 <ui:ModuleLabel Grid.Column="0" Classes="caption right" VerticalAlignment="Center"
                                 Text="{loc:Tr view.phase}" />
                 <ui:ModuleTextSurface x:Name="PhaseInput" Grid.Column="1" Height="22"
-                                      HorizontalAlignment="Stretch" VerticalAlignment="Center" Mode="Input" Text="0"
+                                      HorizontalAlignment="Stretch" VerticalAlignment="Center" Mode="Input" TextFormat="Real" Text="0"
                                       CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.Phase}" />
                 <ui:ModuleLabel Grid.Column="2" Classes="caption" VerticalAlignment="Center"
                                 Text="{loc:Tr view.unitDegree}" />
@@ -197,7 +197,7 @@
                 <ui:ModuleLabel Grid.Column="0" Classes="caption right" VerticalAlignment="Center"
                                 Text="{loc:Tr view.duty}" />
                 <ui:ModuleTextSurface x:Name="DutyInput" Grid.Column="1" Height="22"
-                                      HorizontalAlignment="Stretch" VerticalAlignment="Center" Mode="Input" Text="0.5"
+                                      HorizontalAlignment="Stretch" VerticalAlignment="Center" Mode="Input" TextFormat="Real" Text="0.5"
                                       CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.Duty}" />
               </Grid>
             </Grid>
@@ -207,7 +207,7 @@
                 <ui:ModuleLabel Grid.Column="0" Classes="caption right" VerticalAlignment="Center"
                                 Text="{loc:Tr view.carrierFrequency}" />
                 <ui:ModuleTextSurface x:Name="CarrierFrequencyInput" Grid.Column="1" Height="22"
-                                      HorizontalAlignment="Stretch" VerticalAlignment="Center" Mode="Input" Text="100"
+                                      HorizontalAlignment="Stretch" VerticalAlignment="Center" Mode="Input" TextFormat="Real" Text="100"
                                       CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.CarrierFrequency}" />
                 <ui:ModuleLabel Grid.Column="2" Classes="caption" VerticalAlignment="Center"
                                 Text="{loc:Tr view.unitHz}" />
@@ -216,14 +216,14 @@
                 <ui:ModuleLabel Grid.Column="0" Classes="caption right" VerticalAlignment="Center"
                                 Text="{loc:Tr view.modulationIndex}" />
                 <ui:ModuleTextSurface x:Name="ModulationIndexInput" Grid.Column="1" Height="22"
-                                      HorizontalAlignment="Stretch" VerticalAlignment="Center" Mode="Input" Text="0.8"
+                                      HorizontalAlignment="Stretch" VerticalAlignment="Center" Mode="Input" TextFormat="Real" Text="0.8"
                                       CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.ModulationIndex}" />
               </Grid>
               <Grid Grid.Column="2" Width="180" Height="24" ColumnDefinitions="72,64,44">
                 <ui:ModuleLabel Grid.Column="0" Classes="caption right" VerticalAlignment="Center"
                                 Text="{loc:Tr view.carrierPhase}" />
                 <ui:ModuleTextSurface x:Name="CarrierPhaseInput" Grid.Column="1" Height="22"
-                                      HorizontalAlignment="Stretch" VerticalAlignment="Center" Mode="Input" Text="0"
+                                      HorizontalAlignment="Stretch" VerticalAlignment="Center" Mode="Input" TextFormat="Real" Text="0"
                                       CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.CarrierPhase}" />
                 <ui:ModuleLabel Grid.Column="2" Classes="caption" VerticalAlignment="Center"
                                 Text="{loc:Tr view.unitDegree}" />
@@ -240,7 +240,7 @@
           <ui:ModuleLabel Canvas.Left="0" Canvas.Top="45" Width="58" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.periods}" />
           <ui:ModuleTextSurface x:Name="PeriodsInput" Canvas.Left="60" Canvas.Top="45" Width="50" Height="22"
-                                Mode="Input" Text="5"
+                                Mode="Input" TextFormat="PositiveWhole" Text="5"
                                 CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.OneShotPeriods}" />
 
           <ui:ModuleLabel x:Name="EstimateLabel" Canvas.Left="0" Canvas.Top="70" Width="140"

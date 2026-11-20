@@ -5,27 +5,28 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// **仪表盘几何的不变量**：刻度环整体落在控件内并留出边距。
+/// **仪表盘几何的不变量**：圆心固定在控件中心，刻度环整体落在控件内，并按 <c>Padding</c> 留白。
 /// </summary>
 /// <remarks>
-/// 用户看到过"外面的圆左右被裁"：根因有两个，且这条用例最初只盖住了第一个 ——
-/// 限宽时既没扣环线厚度，也把水平最远点当成弧端点（张角 ≥ 180° 时弧其实经过圆的左右极点）。
-/// 这里钉"任意宽高比下、四个方向都在边界内且留白"，不钉具体半径。
+/// 用户看到过两个问题：外面的圆被裁、圆心随标题下移。这里钉“圆心 = 控件中心”“半径只由短边决定”
+/// 以及“四个方向都在边界内”，不钉具体字体的排版。
 /// </remarks>
 public class GaugeGeometryTests
 {
-    /// <summary>常见控件尺寸（宽 × 高 × 标题占用高）下，环外沿都在边界内且留白。</summary>
+    /// <summary>常见控件尺寸（宽 × 高 × 留白）下，环外沿都在边界内且留白。</summary>
     [Theory]
-    [InlineData(300, 300, 0)]
-    [InlineData(250, 270, 19)]
-    [InlineData(271, 235, 0)]
-    [InlineData(558, 250, 0)]
-    [InlineData(214, 550, 0)]
-    [InlineData(160, 300, 0)]
-    [InlineData(400, 224, 0)]
-    public void 圆盘几何_外沿在控件内且留有边距(double width, double height, double titleHeight)
+    [InlineData(300, 300, 6)]
+    [InlineData(250, 270, 6)]
+    [InlineData(271, 235, 6)]
+    [InlineData(558, 250, 6)]
+    [InlineData(214, 550, 6)]
+    [InlineData(160, 300, 6)]
+    [InlineData(400, 224, 6)]
+    [InlineData(250, 270, 0)]
+    [InlineData(300, 300, 12)]
+    public void 圆盘几何_外沿在控件内且留白不小于Padding(double width, double height, double padding)
     {
-        var metrics = GaugeGeometry.Compute(width, height, 2, titleHeight, 240, 2);
+        var metrics = GaugeGeometry.Compute(width, height, padding, 240, 2);
 
         metrics.Radius.ShouldBeGreaterThan(0);
 
@@ -37,7 +38,7 @@ public class GaugeGeometryTests
         var right = metrics.CenterX + (metrics.Radius * horizontalFactor) + halfThickness;
         var top = metrics.CenterY - metrics.Radius - halfThickness;
         var bottom = metrics.CenterY - (metrics.Radius * cos) + halfThickness;
-        var pad = GaugeGeometry.EdgePadding - 0.5;
+        var pad = padding - 0.5;
 
         left.ShouldBeGreaterThanOrEqualTo(pad);
         right.ShouldBeLessThanOrEqualTo(width - pad);
@@ -45,26 +46,53 @@ public class GaugeGeometryTests
         bottom.ShouldBeLessThanOrEqualTo(height - pad);
     }
 
-    /// <summary>弧经过圆的左右极点时，限宽用的是半径本身（不是端点跨度）。</summary>
+    /// <summary>圆心恒为控件中心；标题/字体不参与几何。</summary>
     [Theory]
     [InlineData(300, 300)]
     [InlineData(250, 270)]
+    [InlineData(558, 250)]
     [InlineData(160, 300)]
-    public void 宽大于高时圆盘不被左右裁(double width, double height)
+    public void 圆心固定在控件中心(double width, double height)
     {
-        var metrics = GaugeGeometry.Compute(width, height, 2, 0, 240, 2);
+        var metrics = GaugeGeometry.Compute(width, height, 4, 240, 2);
 
-        var extent = metrics.CenterX + metrics.Radius + (metrics.Thickness / 2);
-        extent.ShouldBeLessThanOrEqualTo(width - GaugeGeometry.EdgePadding + 0.5);
-        (metrics.CenterX - metrics.Radius - (metrics.Thickness / 2))
-            .ShouldBeGreaterThanOrEqualTo(GaugeGeometry.EdgePadding - 0.5);
+        metrics.CenterX.ShouldBe(width / 2, 0.001);
+        metrics.CenterY.ShouldBe(height / 2, 0.001);
     }
 
-    /// <summary>放不下时不产生几何，调用方据此跳过绘制。</summary>
-    [Fact]
-    public void 放不下时不产生圆心与半径()
+    /// <summary>`Padding = 0` 时环外沿紧贴控件边框（用户要的"不留白"）。</summary>
+    [Theory]
+    [InlineData(300, 300)]
+    [InlineData(250, 270)]
+    public void 零留白时环外沿贴边(double width, double height)
     {
-        var metrics = GaugeGeometry.Compute(20, 20, 2, 0, 240, 2);
+        var metrics = GaugeGeometry.Compute(width, height, 0, 240, 2);
+        var sin = Math.Sin(metrics.HalfAngle);
+        var horizontalFactor = metrics.HalfAngle >= Math.PI / 2 ? 1.0 : sin;
+        var left = metrics.CenterX - (metrics.Radius * horizontalFactor) - (metrics.Thickness / 2);
+        var right = metrics.CenterX + (metrics.Radius * horizontalFactor) + (metrics.Thickness / 2);
+
+        left.ShouldBeLessThan(1.0);
+        right.ShouldBeGreaterThan(width - 1.0);
+    }
+
+    /// <summary>宽高互换半径相同：半径只由短边决定，不受长边拉伸影响。</summary>
+    [Fact]
+    public void 半径只由短边决定()
+    {
+        var wide = GaugeGeometry.Compute(400, 200, 0, 240, 2);
+        var tall = GaugeGeometry.Compute(200, 400, 0, 240, 2);
+
+        wide.Radius.ShouldBe(tall.Radius, 0.001);
+    }
+
+    /// <summary>尺寸小到放不下（或留白吃掉全部空间）时不产生几何，调用方据此跳过绘制。</summary>
+    [Theory]
+    [InlineData(20, 5, 0)]
+    [InlineData(40, 300, 30)]
+    public void 放不下时不产生圆心与半径(double width, double height, double padding)
+    {
+        var metrics = GaugeGeometry.Compute(width, height, padding, 240, 2);
         metrics.Radius.ShouldBe(0);
     }
 }

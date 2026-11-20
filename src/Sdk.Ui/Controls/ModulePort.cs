@@ -44,14 +44,20 @@ public sealed class ModulePort : AvaloniaObject
     /// <summary>解析后的挂载边（`Auto` → 发送右 / 接收左）。</summary>
     public PortEdge ResolvedEdge => Edge == PortEdge.Auto ? PortEdgeGeometry.DefaultFor(Direction) : Edge;
 
-    /// <summary>预览排布用的边（与 <see cref="ResolvedEdge"/> 同源）。</summary>
-    public PortSide Side => ResolvedEdge switch
+    /// <summary>
+    /// 预览排布用的边：就是 <see cref="Edge"/>（放不下时 <see cref="ResolveEdge"/> 已把它改过去）。
+    /// </summary>
+    public PortSide Side => PortMarkerLayout.SideOf(ResolvedEdge);
+
+    /// <summary>
+    /// 按预览窗口尺寸把**放不下的边直接改掉**（创建预览外壳时调用一次；设计器内改尺寸不重解析）。
+    /// </summary>
+    /// <param name="width">预览窗口宽。</param>
+    /// <param name="height">预览窗口高。</param>
+    public void ResolveEdge(double width, double height)
     {
-        PortEdge.Right => PortSide.Right,
-        PortEdge.Top => PortSide.Top,
-        PortEdge.Bottom => PortSide.Bottom,
-        _ => PortSide.Left,
-    };
+        Edge = PortMarkerLayout.FitEdge(ResolvedEdge, Direction, width, height);
+    }
 
     /// <summary>竖排（左右边）还是横排（上下边）。</summary>
     public bool IsVertical => Side is PortSide.Left or PortSide.Right;

@@ -8,8 +8,8 @@
                x:Class="HYWDebugAssistant.Modules.ScaleBarHorizontal.Views.ScaleBarHorizontalView"
                x:CompileBindings="True"
                x:DataType="contracts:IModuleViewContext"
-               InitialWidth="440" InitialHeight="140"
-               MinWidth="340" MinHeight="80">
+               InitialWidth="400" InitialHeight="100"
+               MinWidth="200" MinHeight="100">
 
   <ui:ModuleView.Ports>
     <ui:ModulePort Name="{x:Static local:ScaleBarHorizontalModule.InPort}"
@@ -18,37 +18,38 @@
                    Edge="Top" />
   </ui:ModuleView.Ports>
 
-  <!--
-    摘要 / 标题 / 读数都是独立标签：刻度条控件只画轨道、填充与刻度，
-    因此一条"细条"模块可以压到很矮，文字与条各自对齐。
-  -->
   <Panel>
-    <Grid RowDefinitions="24,18,*" RowSpacing="2" Margin="2">
-      <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="4">
-        <ui:ModuleLabel x:Name="Summary" Grid.Column="0" Classes="micro" VerticalAlignment="Center"
-                        Text="{loc:Tr view.summaryPreview}"
-                        ToolTip.Tip="{loc:Tr view.summaryTip}" />
-        <ui:ModuleButton x:Name="SettingsButton" Grid.Column="1" Classes="icon" Width="24" Height="22"
-                         Icon="{x:Static views:ScaleBarHorizontalViewKeys.IconSettings}"
-                         ToolTip.Tip="{loc:Tr view.settings}" />
-      </Grid>
-
-      <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="4">
-        <ui:ModuleLabel x:Name="Title" Grid.Column="0" Classes="caption" VerticalAlignment="Center"
+    <Grid RowDefinitions="20,*" RowSpacing="0" Margin="0">
+      <Grid Grid.Row="0" ColumnDefinitions="*,*" ColumnSpacing="2">
+      <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="3" VerticalAlignment="Center" HorizontalAlignment="Left">
+          <ui:ModuleLabel x:Name="Title" Classes="caption" Margin="0,0,0,2"
+                        VerticalAlignment="Center" HorizontalAlignment="Left"
                         Text="{loc:Tr view.titlePreview}" />
-        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
           <ui:ModuleNumeric x:Name="Value" Classes="right"
+                            HorizontalAlignment="Left"
                             Source="{x:Static views:ScaleBarHorizontalViewKeys.Value}"
                             Decimals="2" Text="{loc:Tr view.valuePreview}" />
           <ui:ModuleLabel x:Name="Unit" Classes="micro" Text="{loc:Tr view.unitPreview}" />
-        </StackPanel>
-      </Grid>
+      </StackPanel>
 
-      <ui:ScaleBar x:Name="ScaleBar" Grid.Row="2" Margin="2"
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" HorizontalAlignment="Right">
+        <ui:ModuleLabel x:Name="Summary" Classes="micro"
+                        VerticalAlignment="Center" HorizontalAlignment="Right"
+                        Text="{loc:Tr view.summaryPreview}"
+                        ToolTip.Tip="{loc:Tr view.summaryTip}" />
+        <ui:ModuleButton x:Name="SettingsButton" Classes="icon" Width="20" Height="20"
+                         HorizontalAlignment="Right"
+                         Icon="{x:Static views:ScaleBarHorizontalViewKeys.IconSettings}"
+                         ToolTip.Tip="{loc:Tr view.settings}" />
+      </StackPanel>
+     </Grid>
+
+      <ui:ScaleBar x:Name="ScaleBar" Grid.Row="1" Margin="0,0,0,-2"
+                   VerticalAlignment="Center"
                    Orientation="Horizontal"
                    Minimum="0" Maximum="100" Value="42"
-                   BarThickness="14"
-                   ShowLabels="True" FillOrigin="Zero" Color="Success" />
+                   BarThickness="18" Padding="0"
+                   ShowLabels="True" FillOrigin="Zero" />
     </Grid>
 
     <ui:ModulePopupPanel x:Name="SettingsPanel"

@@ -175,7 +175,7 @@ new DisplaySourceDeclaration("count", ViewDataSourceKind.Value, ContractPrimitiv
 
 | 类型 | 要点 |
 |---|---|
-| `new ValueDeclaration(name) { ... }` | 视图可编辑值；`Persistent` / `ResetWithModule` 是正交属性，初值写在 XAML；详见[值](values.md) |
+| `new ValueDeclaration(name) { ... }` | 视图可编辑值；`Editor` 选编辑器，`Persistent` / `ResetWithModule` 是正交属性，初值写在 XAML；文本准入格式写在控件 `TextFormat`；详见[值](values.md) |
 | `new InputDeclaration(name) { Persistence = InputPersistence.Persistent }` | 动作/事件输入；持久化仅对这类事件保留旧语义 |
 | `DeclareCommand(name, title)` | 未登记的命令名被框架拒收并报 Issue |
 | `new ExternalAccessDeclaration(name, standardId) { MaxUnitBytes = 1472 }` | 适配器、参数类型与会话都在框架侧；上限超过框架校验值时该接入被拒 |
@@ -252,7 +252,7 @@ context.Configuration.Write(new MyConfig { Host = "10.0.0.2" });
 | 写回 | `Write<T>` 用传入的新实例替换实例配置；界面字段写回走 JSON 中转并调用 `OnConfigurationChanged`，模块自己的 `Write` 不会回投该钩子。不要就地修改运行中的对象 |
 | 不落盘的类型 | 不要把运行时状态放进配置类型；配置只放用户可编辑的参数 |
 
-声明外部接入后，框架把该标准的参数类型登记为实例配置，模块视图可直接用 `ModuleConfigField` 绑定这些字段名（见下文“外部接入”）。
+声明外部接入后，框架把该标准的参数类型登记为实例配置，模块视图可直接用标准输入控件绑定这些字段名：文本/数字 `ModuleTextSurface`，枚举 `ModuleSelect`，布尔 `ModuleToggle`（见下文“外部接入”）。
 
 ## 上报
 
@@ -288,8 +288,10 @@ context.Configuration.Write(new MyConfig { Host = "10.0.0.2" });
 | `ViewState.GetSelectedPage(stateKey)` | 页签组当前页（0 基）；未知 ⇒ `null` |
 | `Values.ReadText(name)` | 当前有效值（持久化值，或激活前播种的 XAML 初值） |
 | `Values.AcceptText(name, text)` | 模块接受/规范化后的值；控件下一帧读到 |
-| `Values.Report(name, notice)` | 报告该值当前的结论；控件只负责画 |
+| `Values.ReportValidity(name, validity)` | 报告该值当前的有效性（`ValueValidity`：是否无效 + 原因；`Valid` 收起） |
+| `Values.ReadValidity(name)` | 读回该值当前的有效性，模块可据此分类状态 |
 | `ViewState.GetDisplayLines(source)` | 文本显示缓冲的全部行（调用时复制） |
+| `InputValidity.Set(context, name, invalid, message)` | 输入有效性的唯一记账：写/清 `Danger` 轮廓并写 `ValueValidity`；重复调用不重复写外观 |
 
 ### 外观
 
@@ -398,7 +400,7 @@ public sealed class MyViewFactory : IModuleViewFactory
 
 `ExternalAccessSnapshot` 关键字段：`State`（`Closed`/`Opening`/`Open`/`Closing`/`Faulted`）、`Suspended`、`Endpoint`、`Failure`、`ReceivedUnits/Bytes`、`SentUnits/Bytes`、`DroppedUnits/Bytes`、`RejectedUnits`、`ActiveConnections`、`LastReceivedAt`；分原因丢弃字段与饱和/滞回字段见快照类型。计数在实例生命周期内累计，只有 `ClearCounters` 归零。失败用 `ExternalAccessFailure(Kind, Endpoint, Value, Detail)` 表达：`Kind` 是机器可读种类（地址为空/端口占用/超时/对端关闭/设备丢失/读写失败等），其余字段只搬运事实，句子由模块自己的表生成。框架不自动重试，失败后需用户再次请求打开。
 
-四个标准与配置字段（模块视图用 `ModuleConfigField Value="字段名"` 绑定，用 `ExternalAccessFieldNames` 常量）：
+四个标准与配置字段（模块视图用标准输入控件绑定字段名：文本/数字 `ModuleTextSurface`、枚举 `ModuleSelect`、布尔 `ModuleToggle`；用 `ExternalAccessFieldNames` 常量）：
 
 | 标准 | 字段 |
 |---|---|

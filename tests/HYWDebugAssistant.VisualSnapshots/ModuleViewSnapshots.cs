@@ -233,6 +233,16 @@ public class ModuleViewSnapshots
                     SnapshotTool.Pump();
 
                     // 故意不调用 host.Refresh()：模拟 Avalonia 预览器。
+
+                    // 范围框的**两种角色**都要在：容器/模块布局区（点线）+ 控件（虚线）。
+                    // 这是机制断言，不判观感；线型是否可区分仍看 PNG。
+                    var overlay = view.GetVisualDescendants().OfType<PreviewBoundsOverlay>().FirstOrDefault();
+                    Assert.NotNull(overlay);
+                    Assert.Contains(overlay!.Targets, target => target.Role == PreviewBoundsRole.Container);
+                    Assert.Contains(overlay.Targets, target => target.Role == PreviewBoundsRole.Control);
+                    Assert.DoesNotContain(
+                        overlay.Targets,
+                        target => target.Control is ModuleElement and not ModuleCheckBox);
                     var name = moduleType.Name.Replace("Module", string.Empty, StringComparison.Ordinal);
                     SnapshotTool.Save(window, "modules/" + name + "-preview.png");
                     window.Close();

@@ -12,6 +12,8 @@
     "status.imagePending": "正在生成图片…",
     "status.imageSaved": "图片已保存：{0}",
     "status.invalid": "波形帧格式不正确，已丢弃",
+    "view.invalidNumber": "请输入有效数值",
+    "view.tickTooDense": "刻度太密：当前窗口显示不下这么多刻度",
     "status.paused": "已暂停，不接收新数据",
     "status.ready": "等待数据",
     "status.receiving": "接收中",

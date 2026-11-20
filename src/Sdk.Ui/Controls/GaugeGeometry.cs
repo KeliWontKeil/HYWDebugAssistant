@@ -14,38 +14,38 @@ internal readonly record struct GaugeMetrics(
     double HalfAngle);
 
 /// <summary>
-/// **仪表盘几何的唯一算法**：保证刻度环整体落在控件内，并留出边距。
+/// **仪表盘几何的唯一算法**：圆心固定在控件中心，刻度环按短边内接，四周按 <c>Padding</c> 留白。
 /// </summary>
 /// <remarks>
 /// <para>
-/// 两个必须同时成立的事实：
+/// 三个必须同时成立的事实：
 /// </para>
 /// <list type="bullet">
-///   <item><b>水平最远点不是弧端点</b>：张角 ≥ 180° 时弧经过圆的左右极点，最远点是
-///     <c>半径本身</c>；只按"端点水平跨度（r·sin）"限宽，环会从左右被裁。</item>
-///   <item>环线自身有厚度，限宽/限高都要扣掉 <c>厚度/2</c> 再留边距。</item>
+///   <item><b>圆心 = 控件中心</b>：标签、读数、单位都相对圆心排；圆心若随标题下移，
+///     上下边框与布局都会变得不可预测。</item>
+///   <item>环线自身有厚度：半径按 <c>min(宽, 高)/2 − padding − 厚度/2</c> 限，环外沿才落在控件内。</item>
+///   <item><c>padding</c> 是**唯一的留白来源**（0 = 环外沿贴控件边）；标题/读数/单位在环内绘制，
+///     不参与尺寸计算，因此改文字不会改变表盘大小。</item>
 /// </list>
 /// <para>
-/// 半径与厚度互相依赖，迭代两轮收敛；放得下的富余高度上下均分，表盘在控件里视觉居中。
+/// 半径与厚度互相依赖，迭代收敛后按最终厚度回算半径，保证外沿精确落在边界内。
 /// </para>
 /// </remarks>
 internal static class GaugeGeometry
 {
-    /// <summary>圆环外沿与控件边之间的最小留白（DIP）。</summary>
-    public const double EdgePadding = 4;
+    /// <summary>默认留白（DIP）：<c>GaugeDial.Padding</c> 的默认值。</summary>
+    public const double DefaultPadding = 6;
 
-    /// <summary>按可用尺寸算出一个完整落在控件内的刻度环。</summary>
+    /// <summary>按控件尺寸与留白算出一个完整落在控件内、圆心居中的刻度环。</summary>
     /// <param name="width">控件宽（DIP）。</param>
     /// <param name="height">控件高（DIP）。</param>
-    /// <param name="inset">控件内缩（DIP）。</param>
-    /// <param name="titleHeight">标题占用的高度（DIP，可为 0）。</param>
+    /// <param name="padding">四周留白（DIP；0 = 环外沿贴控件边）。</param>
     /// <param name="sweepAngle">弧的总张角（度）。</param>
     /// <param name="minimumThickness">环厚下限（DIP）。</param>
     public static GaugeMetrics Compute(
         double width,
         double height,
-        double inset,
-        double titleHeight,
+        double padding,
         double sweepAngle,
         double minimumThickness)
     {
@@ -54,51 +54,36 @@ internal static class GaugeGeometry
             return default;
         }
 
+        var pad = double.IsFinite(padding) && padding > 0 ? padding : 0;
         var sweep = double.IsFinite(sweepAngle) ? Math.Clamp(sweepAngle, 40, 330) : 240;
         var half = sweep * Math.PI / 360;
-        var sin = Math.Sin(half);
-        var cos = Math.Cos(half);
-        if (sin < 0.05)
+        if (Math.Sin(half) < 0.05)
         {
             return default;
         }
 
-        var pad = EdgePadding;
-        var contentTop = inset + (double.IsFinite(titleHeight) && titleHeight > 0 ? titleHeight : 0) + pad;
-        var availableHeight = height - inset - pad - contentTop;
-        if (availableHeight <= 8)
+        var available = Math.Min(width, height) - (2 * pad);
+        if (available <= 16)
         {
             return default;
         }
-
-        // 半张角 ≥ 90° 时，弧的水平最远点是圆的左右极点（半径本身），不是端点。
-        var horizontalFactor = half >= Math.PI / 2 ? 1.0 : sin;
 
         var thickness = Math.Max(2, double.IsFinite(minimumThickness) ? minimumThickness : 2);
-        var radius = 0.0;
+        var radius = (available - thickness) / 2;
 
+        // 半径 ↔ 环厚两轮收敛；最后按最终厚度回算半径，外沿精确贴住内接圆边界。
         for (var iteration = 0; iteration < 2; iteration++)
         {
-            var horizontalLimit = ((width / 2) - inset - pad - (thickness / 2)) / horizontalFactor;
-            var verticalLimit = (availableHeight - thickness) / (1 - cos);
-            radius = Math.Min(horizontalLimit, verticalLimit);
-            if (!(radius > 0))
-            {
-                return default;
-            }
-
-            thickness = Math.Max(2, radius * 0.045);
+            radius = (available - Math.Max(2, radius * 0.045)) / 2;
         }
 
-        var ringHeight = (radius * (1 - cos)) + thickness;
-        var slack = availableHeight - ringHeight;
-        var top = contentTop + (slack > 0 ? slack / 2 : 0);
+        thickness = Math.Max(2, radius * 0.045);
+        radius = (available - thickness) / 2;
+        if (!(radius > 0))
+        {
+            return default;
+        }
 
-        return new GaugeMetrics(
-            width / 2,
-            top + radius + (thickness / 2),
-            radius,
-            thickness,
-            half);
+        return new GaugeMetrics(width / 2, height / 2, radius, thickness, half);
     }
 }

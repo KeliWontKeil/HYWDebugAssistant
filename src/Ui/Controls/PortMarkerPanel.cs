@@ -111,21 +111,31 @@ public sealed class PortMarkerPanel : Panel
         foreach (var child in Children)
         {
             var marker = child.DataContext as PortMarkerViewModel;
-            var size = MarkerSize(marker, child.DesiredSize);
+            var markerSize = MarkerSize(marker, child.DesiredSize);
+            var buttonSize = child.DesiredSize;
 
-            child.Arrange(Layer == PortMarkerLayer.AnchorButton
-                ? AnchorButtonRect(marker, size, child.DesiredSize, finalSize)
+            // 两层各自的**确定尺寸**：标记层给标记尺寸、按钮层给按钮尺寸。
+            // 只给 Arrange 矩形不够 —— 容器会按内容对齐把根控件摆成"内容尺寸"（标记忽宽忽窄/错位）；
+            // 按钮层若沿用标记尺寸，按钮就会在标记矩形里居中，看起来"离标记很远"。
+            var rect = Layer == PortMarkerLayer.AnchorButton
+                ? AnchorButtonRect(marker, markerSize, buttonSize, finalSize)
                 : PortMarkerLayout.MarkerRect(
                     marker?.Side ?? PortSide.Left,
                     marker?.Offset ?? 0.5,
                     finalSize,
-                    size));
+                    markerSize);
+
+            child.Width = rect.Width;
+            child.Height = rect.Height;
+            child.Arrange(rect);
         }
 
         return finalSize;
     }
 
-    /// <summary>标记的占地尺寸（**以视图模型为准**；模型缺失时回退到实测尺寸）。</summary>
+    /// <summary>
+    /// 标记的占地尺寸：**固定尺寸由视图模型给**（不随窗口缩放；放不下的边由 `PortMarkerViewModel` 换掉）。
+    /// </summary>
     private static Size MarkerSize(PortMarkerViewModel? marker, Size fallback) =>
         marker is null ? fallback : new Size(marker.MarkerWidth, marker.MarkerHeight);
 
@@ -163,18 +173,19 @@ public sealed class PortMarkerPanel : Panel
         var end = start + markerLength;
 
         double along;
-        if (available - end >= need)
+        if (start >= need)
         {
-            along = end + AnchorButtonGap;                        // ① 标记之后
+            // ① 标记**之前**（贴近标签那一端，视觉上离标记最近）
+            along = start - AnchorButtonGap - alongLength;
         }
-        else if (start >= need)
+        else if (available - end >= need)
         {
-            along = start - AnchorButtonGap - alongLength;        // ② 标记之前
+            along = end + AnchorButtonGap;                        // ② 标记之后
         }
         else
         {
-            // ③ 都不够：贴"色条端"（竖排 = 下端；横排 = 左端），允许压住色条
-            along = vertical ? available - alongLength : 0;
+            // ③ 都不够：压住标记的色条端（信息最少的那头），绝不落到窗口尽头。
+            along = vertical ? end - alongLength : start;
         }
 
         along = Math.Clamp(along, 0, Math.Max(0, available - alongLength));

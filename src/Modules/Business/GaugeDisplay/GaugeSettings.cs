@@ -36,6 +36,9 @@ internal sealed record GaugeSettings
     /// <summary>量程上限。</summary>
     public double Maximum { get; init; } = 100;
 
+    /// <summary>填充是否从零开始（零在量程外时夹到端点）。</summary>
+    public bool FillFromZero { get; init; } = true;
+
     /// <summary>是否自动回零。</summary>
     public bool AutoZero { get; init; } = true;
 

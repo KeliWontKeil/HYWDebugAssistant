@@ -28,7 +28,7 @@ public enum AttitudeRenderStyle
 /// 不依赖第三方 3D 引擎，也不需要额外的渲染循环（由框架每帧 <see cref="Refresh"/> 推进）。
 /// </para>
 /// </remarks>
-public sealed class AttitudeView : Control, IModuleViewElement
+public sealed class AttitudeView : Control, IModuleViewElement, IModulePreviewBoundsTarget
 {
     /// <summary>横滚角（度）。</summary>
     public static readonly StyledProperty<double> RollProperty =

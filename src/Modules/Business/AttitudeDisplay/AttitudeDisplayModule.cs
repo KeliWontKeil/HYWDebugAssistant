@@ -121,6 +121,7 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
 
     private readonly ChannelFrameFeed _feed = new();
     private readonly Dictionary<string, string> _lastText = new(StringComparer.Ordinal);
+    private readonly InputValidity _validity = new();
     private readonly float[] _lastPublished = new float[AxisCount];
     private readonly bool[] _hasPublished = new bool[AxisCount];
 
@@ -329,161 +330,246 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
         var defaults = AttitudeSettings.Default;
         var candidate = _settings;
 
-        if (TryReadChanged(context, GroupSource, out var groupText))
+        if (TryReadChanged(context, GroupSource, out var groupText, out var groupCleared))
         {
-            if (TryParseInteger(groupText, out var group) && group >= 0)
+            if (groupCleared)
+            {
+                candidate = candidate with { GroupId = defaults.GroupId };
+                _validity.Set(context, GroupSource, false);
+            }
+            else if (TryParseInteger(groupText, out var group) && group >= 0)
             {
                 candidate = candidate with { GroupId = group };
-                ClearNotice(context, GroupSource);
+                _validity.Set(context, GroupSource, false);
             }
             else
             {
-                ReportInvalidInteger(context, GroupSource);
+                _validity.Set(context, GroupSource, true, Tr(AttitudeDisplayText.InvalidInteger));
             }
         }
 
-        if (TryReadChanged(context, RollChannelSource, out var rollText))
+        if (TryReadChanged(context, RollChannelSource, out var rollText, out var rollCleared))
         {
-            if (TryParseInteger(rollText, out var roll) && roll >= 0)
+            if (rollCleared)
+            {
+                candidate = candidate with { RollChannel = defaults.RollChannel };
+                _validity.Set(context, RollChannelSource, false);
+            }
+            else if (TryParseInteger(rollText, out var roll) && roll >= 0)
             {
                 candidate = candidate with { RollChannel = roll };
-                ClearNotice(context, RollChannelSource);
+                _validity.Set(context, RollChannelSource, false);
             }
             else
             {
-                ReportInvalidInteger(context, RollChannelSource);
+                _validity.Set(context, RollChannelSource, true, Tr(AttitudeDisplayText.InvalidInteger));
             }
         }
 
-        if (TryReadChanged(context, PitchChannelSource, out var pitchText))
+        if (TryReadChanged(context, PitchChannelSource, out var pitchText, out var pitchCleared))
         {
-            if (TryParseInteger(pitchText, out var pitch) && pitch >= 0)
+            if (pitchCleared)
+            {
+                candidate = candidate with { PitchChannel = defaults.PitchChannel };
+                _validity.Set(context, PitchChannelSource, false);
+            }
+            else if (TryParseInteger(pitchText, out var pitch) && pitch >= 0)
             {
                 candidate = candidate with { PitchChannel = pitch };
-                ClearNotice(context, PitchChannelSource);
+                _validity.Set(context, PitchChannelSource, false);
             }
             else
             {
-                ReportInvalidInteger(context, PitchChannelSource);
+                _validity.Set(context, PitchChannelSource, true, Tr(AttitudeDisplayText.InvalidInteger));
             }
         }
 
-        if (TryReadChanged(context, YawChannelSource, out var yawText))
+        if (TryReadChanged(context, YawChannelSource, out var yawText, out var yawCleared))
         {
-            if (TryParseInteger(yawText, out var yaw) && yaw >= 0)
+            if (yawCleared)
+            {
+                candidate = candidate with { YawChannel = defaults.YawChannel };
+                _validity.Set(context, YawChannelSource, false);
+            }
+            else if (TryParseInteger(yawText, out var yaw) && yaw >= 0)
             {
                 candidate = candidate with { YawChannel = yaw };
-                ClearNotice(context, YawChannelSource);
+                _validity.Set(context, YawChannelSource, false);
             }
             else
             {
-                ReportInvalidInteger(context, YawChannelSource);
+                _validity.Set(context, YawChannelSource, true, Tr(AttitudeDisplayText.InvalidInteger));
             }
         }
 
-        if (TryReadChanged(context, StyleSource, out var styleText) && styleText.Length > 0)
+        if (TryReadChanged(context, StyleSource, out var styleText, out var styleCleared))
         {
-            candidate = candidate with { Style = ParseStyle(styleText, defaults.Style) };
-        }
-
-        if (TryReadChanged(context, UnitSource, out var unitText) && unitText.Length > 0)
-        {
-            candidate = candidate with { Unit = ParseUnit(unitText, defaults.Unit) };
-        }
-
-        if (TryReadChanged(context, SmoothingSource, out var smoothingText))
-        {
-            candidate = candidate with
+            if (styleCleared)
             {
-                Smoothing = bool.TryParse(smoothingText.Trim(), out var smoothing)
-                    ? smoothing
-                    : defaults.Smoothing,
-            };
-        }
-
-        if (TryReadChanged(context, SmoothingMsSource, out var smoothingMsText))
-        {
-            candidate = candidate with
+                candidate = candidate with { Style = defaults.Style };
+            }
+            else if (styleText.Length > 0)
             {
-                SmoothingMs = ParseClamped(
-                    smoothingMsText,
-                    defaults.SmoothingMs,
-                    AttitudeSettings.MinimumSmoothingMs,
-                    AttitudeSettings.MaximumSmoothingMs),
-            };
+                candidate = candidate with { Style = ParseStyle(styleText, _settings.Style) };
+            }
         }
 
-        if (TryReadChanged(context, ZoomSource, out var zoomText))
+        if (TryReadChanged(context, UnitSource, out var unitText, out var unitCleared))
         {
-            candidate = candidate with { Zoom = ParseZoom(zoomText, defaults.Zoom) };
-        }
-
-        if (TryReadChanged(context, GridSource, out var gridText))
-        {
-            candidate = candidate with
+            if (unitCleared)
             {
-                ShowGrid = bool.TryParse(gridText.Trim(), out var grid) ? grid : defaults.ShowGrid,
-            };
+                candidate = candidate with { Unit = defaults.Unit };
+            }
+            else if (unitText.Length > 0)
+            {
+                candidate = candidate with { Unit = ParseUnit(unitText, _settings.Unit) };
+            }
         }
 
-        if (TryReadChanged(context, LabelsSource, out var labelsText))
+        if (TryReadChanged(context, SmoothingSource, out var smoothingText, out var smoothingCleared))
         {
-            candidate = candidate with
+            if (smoothingCleared)
             {
-                ShowLabels = bool.TryParse(labelsText.Trim(), out var labels) ? labels : defaults.ShowLabels,
-            };
+                candidate = candidate with { Smoothing = defaults.Smoothing };
+            }
+            else if (bool.TryParse(smoothingText.Trim(), out var smoothing))
+            {
+                candidate = candidate with { Smoothing = smoothing };
+            }
         }
 
-        if (TryReadChanged(context, InvertRollSource, out var invertRollText))
+        if (TryReadChanged(context, SmoothingMsSource, out var smoothingMsText, out var smoothingMsCleared))
         {
-            candidate = candidate with
+            if (smoothingMsCleared)
             {
-                InvertRoll = bool.TryParse(invertRollText.Trim(), out var invertRoll)
-                    ? invertRoll
-                    : defaults.InvertRoll,
-            };
+                candidate = candidate with { SmoothingMs = defaults.SmoothingMs };
+                _validity.Set(context, SmoothingMsSource, false);
+            }
+            else if (TryParseClamped(
+                         smoothingMsText,
+                         AttitudeSettings.MinimumSmoothingMs,
+                         AttitudeSettings.MaximumSmoothingMs,
+                         out var smoothingMs))
+            {
+                candidate = candidate with { SmoothingMs = smoothingMs };
+                _validity.Set(context, SmoothingMsSource, false);
+            }
+            else
+            {
+                _validity.Set(context, SmoothingMsSource, true, Tr(AttitudeDisplayText.InvalidNumber));
+            }
         }
 
-        if (TryReadChanged(context, InvertPitchSource, out var invertPitchText))
+        if (TryReadChanged(context, ZoomSource, out var zoomText, out var zoomCleared))
         {
-            candidate = candidate with
+            if (zoomCleared)
             {
-                InvertPitch = bool.TryParse(invertPitchText.Trim(), out var invertPitch)
-                    ? invertPitch
-                    : defaults.InvertPitch,
-            };
+                candidate = candidate with { Zoom = defaults.Zoom };
+                _validity.Set(context, ZoomSource, false);
+            }
+            else if (TryParseZoom(zoomText, out var zoom))
+            {
+                candidate = candidate with { Zoom = zoom };
+                _validity.Set(context, ZoomSource, false);
+            }
+            else
+            {
+                _validity.Set(context, ZoomSource, true, Tr(AttitudeDisplayText.InvalidNumber));
+            }
         }
 
-        if (TryReadChanged(context, InvertYawSource, out var invertYawText))
+        if (TryReadChanged(context, GridSource, out var gridText, out var gridCleared))
         {
-            candidate = candidate with
+            if (gridCleared)
             {
-                InvertYaw = bool.TryParse(invertYawText.Trim(), out var invertYaw)
-                    ? invertYaw
-                    : defaults.InvertYaw,
-            };
+                candidate = candidate with { ShowGrid = defaults.ShowGrid };
+            }
+            else if (bool.TryParse(gridText.Trim(), out var grid))
+            {
+                candidate = candidate with { ShowGrid = grid };
+            }
         }
 
-        if (TryReadChanged(context, LostZeroSource, out var lostZeroText))
+        if (TryReadChanged(context, LabelsSource, out var labelsText, out var labelsCleared))
         {
-            candidate = candidate with
+            if (labelsCleared)
             {
-                LostZero = bool.TryParse(lostZeroText.Trim(), out var lostZero)
-                    ? lostZero
-                    : defaults.LostZero,
-            };
+                candidate = candidate with { ShowLabels = defaults.ShowLabels };
+            }
+            else if (bool.TryParse(labelsText.Trim(), out var labels))
+            {
+                candidate = candidate with { ShowLabels = labels };
+            }
         }
 
-        if (TryReadChanged(context, LostDelaySource, out var lostDelayText))
+        if (TryReadChanged(context, InvertRollSource, out var invertRollText, out var invertRollCleared))
         {
-            candidate = candidate with
+            if (invertRollCleared)
             {
-                LostDelayMs = ParseClamped(
-                    lostDelayText,
-                    defaults.LostDelayMs,
-                    AttitudeSettings.MinimumLostDelayMs,
-                    AttitudeSettings.MaximumLostDelayMs),
-            };
+                candidate = candidate with { InvertRoll = defaults.InvertRoll };
+            }
+            else if (bool.TryParse(invertRollText.Trim(), out var invertRoll))
+            {
+                candidate = candidate with { InvertRoll = invertRoll };
+            }
+        }
+
+        if (TryReadChanged(context, InvertPitchSource, out var invertPitchText, out var invertPitchCleared))
+        {
+            if (invertPitchCleared)
+            {
+                candidate = candidate with { InvertPitch = defaults.InvertPitch };
+            }
+            else if (bool.TryParse(invertPitchText.Trim(), out var invertPitch))
+            {
+                candidate = candidate with { InvertPitch = invertPitch };
+            }
+        }
+
+        if (TryReadChanged(context, InvertYawSource, out var invertYawText, out var invertYawCleared))
+        {
+            if (invertYawCleared)
+            {
+                candidate = candidate with { InvertYaw = defaults.InvertYaw };
+            }
+            else if (bool.TryParse(invertYawText.Trim(), out var invertYaw))
+            {
+                candidate = candidate with { InvertYaw = invertYaw };
+            }
+        }
+
+        if (TryReadChanged(context, LostZeroSource, out var lostZeroText, out var lostZeroCleared))
+        {
+            if (lostZeroCleared)
+            {
+                candidate = candidate with { LostZero = defaults.LostZero };
+            }
+            else if (bool.TryParse(lostZeroText.Trim(), out var lostZero))
+            {
+                candidate = candidate with { LostZero = lostZero };
+            }
+        }
+
+        if (TryReadChanged(context, LostDelaySource, out var lostDelayText, out var lostDelayCleared))
+        {
+            if (lostDelayCleared)
+            {
+                candidate = candidate with { LostDelayMs = defaults.LostDelayMs };
+                _validity.Set(context, LostDelaySource, false);
+            }
+            else if (TryParseClamped(
+                         lostDelayText,
+                         AttitudeSettings.MinimumLostDelayMs,
+                         AttitudeSettings.MaximumLostDelayMs,
+                         out var lostDelay))
+            {
+                candidate = candidate with { LostDelayMs = lostDelay };
+                _validity.Set(context, LostDelaySource, false);
+            }
+            else
+            {
+                _validity.Set(context, LostDelaySource, true, Tr(AttitudeDisplayText.InvalidNumber));
+            }
         }
 
         if (!candidate.Equals(_settings))
@@ -493,18 +579,24 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
         }
     }
 
-    /// <summary>读出某个值是否发生变化；值被清空时用哨兵表示（与"用户输入空串"区分）。</summary>
-    private bool TryReadChanged(IModuleContext context, string source, out string text)
+    /// <summary>读出某个值是否发生变化；`cleared` 区分“框架清空”（回默认）与“用户输入空串”（非法）。</summary>
+    private bool TryReadChanged(
+        IModuleContext context,
+        string source,
+        out string text,
+        out bool cleared)
     {
-        var current = context.Values.ReadText(source) ?? ClearedMarker;
-        if (_lastText.TryGetValue(source, out var previous) && string.Equals(previous, current, StringComparison.Ordinal))
+        var current = context.Values.ReadText(source);
+        cleared = current is null;
+        var marker = current ?? ClearedMarker;
+        if (_lastText.TryGetValue(source, out var previous) && string.Equals(previous, marker, StringComparison.Ordinal))
         {
             text = string.Empty;
             return false;
         }
 
-        _lastText[source] = current;
-        text = string.Equals(current, ClearedMarker, StringComparison.Ordinal) ? string.Empty : current;
+        _lastText[source] = marker;
+        text = current ?? string.Empty;
         return true;
     }
 
@@ -524,6 +616,7 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
         Accept(context, LostZeroSource, defaults.LostZero ? "true" : "false");
         Accept(context, LostDelaySource, defaults.LostDelayMs.ToString(CultureInfo.InvariantCulture));
         _lastText.Clear();
+        _validity.ClearAll(context);
     }
 
     private static void Accept(IModuleContext context, string source, string text) =>
@@ -734,37 +827,33 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
     private static string UnitToken(AttitudeAngleUnit unit) =>
         unit == AttitudeAngleUnit.Radian ? "rad" : "deg";
 
-    private static int ParseClamped(string text, int fallback, int minimum, int maximum)
+    private static bool TryParseClamped(string text, int minimum, int maximum, out int value)
     {
-        if (!int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+        value = 0;
+        if (!int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
         {
-            return fallback;
+            return false;
         }
 
-        return Math.Clamp(value, minimum, maximum);
+        value = Math.Clamp(parsed, minimum, maximum);
+        return true;
     }
 
-    private static double ParseZoom(string text, double fallback)
+    private static bool TryParseZoom(string text, out double value)
     {
-        if (!double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
-            || !double.IsFinite(value))
+        value = 0;
+        if (!double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+            || !double.IsFinite(parsed))
         {
-            return fallback;
+            return false;
         }
 
-        return Math.Clamp(value, AttitudeSettings.MinimumZoom, AttitudeSettings.MaximumZoom);
+        value = Math.Clamp(parsed, AttitudeSettings.MinimumZoom, AttitudeSettings.MaximumZoom);
+        return true;
     }
 
     private static bool TryParseInteger(string text, out int value) =>
         int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
-
-    private static void ClearNotice(IModuleContext context, string source) =>
-        context.Values.Report(source, null);
-
-    private static void ReportInvalidInteger(IModuleContext context, string source) =>
-        context.Values.Report(source, new ValueNotice(
-            ValueNoticeSeverity.Error,
-            Tr(AttitudeDisplayText.InvalidInteger)));
 
     private static string FormatRate(float rateHz) =>
         rateHz > 0 && float.IsFinite(rateHz)

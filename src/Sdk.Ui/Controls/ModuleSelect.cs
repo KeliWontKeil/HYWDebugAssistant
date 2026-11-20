@@ -1,6 +1,11 @@
+using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls;
+using Avalonia.Markup.Xaml.MarkupExtensions;
+using Avalonia.Media;
+using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Values;
+using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
@@ -45,7 +50,7 @@ public sealed record ModuleSelectOption
 /// 设计环境用这里的样例选项把下拉画出来；运行期永远不用它。
 /// </para>
 /// </remarks>
-public sealed class ModuleSelect : ComboBox, IModuleViewElement
+public sealed class ModuleSelect : ComboBox, IModuleViewElement, IModuleElementInternal
 {
     private bool _syncing;
     private bool _valueRegistered;
@@ -54,6 +59,7 @@ public sealed class ModuleSelect : ComboBox, IModuleViewElement
     private IModuleViewContext? _context;
     private IReadOnlyList<ModuleSelectOption> _options = [];
     private string _selectedKey = string.Empty;
+    private bool _appearanceInvalid;
 
     /// <summary>造一个通用下拉。</summary>
     public ModuleSelect()
@@ -67,6 +73,19 @@ public sealed class ModuleSelect : ComboBox, IModuleViewElement
                 Rebuild();
             }
         };
+
+        // 预览器没有 ModuleViewHost：设计上下文挂在视图 DataContext 上，挂树时读一次。
+        DataContextChanged += (_, _) => ResolveDesignContext();
+        AttachedToVisualTree += (_, _) => ResolveDesignContext();
+    }
+
+    private void ResolveDesignContext()
+    {
+        if (_context is null && DataContext is IModuleViewContext context)
+        {
+            _context = context;
+            Refresh(context);
+        }
     }
 
     /// <summary>选项集合（键 + 显示文本）。</summary>
@@ -106,6 +125,54 @@ public sealed class ModuleSelect : ComboBox, IModuleViewElement
     public event EventHandler? OptionSelected;
 
     /// <inheritdoc />
+    string IModuleElementInternal.Source => Value.Length > 0 ? Value : string.Empty;
+
+    /// <inheritdoc />
+    void IModuleElementInternal.ApplyModuleAppearance(ViewAppearance appearance) =>
+        ApplyAppearance(appearance);
+
+    /// <summary>
+    /// 把模块设的外观落到下拉上：文字色/字号、只读禁用、失败红框。
+    /// </summary>
+    /// <param name="appearance">外观（全空 ⇒ 交还主题）。</param>
+    private void ApplyAppearance(ViewAppearance appearance)
+    {
+        ArgumentNullException.ThrowIfNull(appearance);
+
+        if (appearance.Text is { } text)
+        {
+            Foreground = new SolidColorBrush(Color.FromUInt32(text));
+        }
+        else if (appearance.TextToken is { Length: > 0 } textToken)
+        {
+            this[!ForegroundProperty] = new DynamicResourceExtension(textToken);
+        }
+        else
+        {
+            ClearValue(ForegroundProperty);
+        }
+
+        if (appearance.TextSize is { } size)
+        {
+            FontSize = size;
+        }
+        else
+        {
+            ClearValue(FontSizeProperty);
+        }
+
+        _appearanceInvalid = appearance.Outline is not null
+            || appearance.OutlineToken is { Length: > 0 };
+        UpdateErrorRing();
+
+        // 下拉没有独立的只读叶子：只读就是不让展开/选择；显示值仍由值层刷新。
+        IsEnabled = appearance.ReadOnly is not true && appearance.Enabled is not false;
+    }
+
+    /// <summary>失败红框只由模块设的外观轮廓驱动；Notice 只负责原因提示。</summary>
+    private void UpdateErrorRing() => PseudoClasses.Set(":error", _appearanceInvalid);
+
+    /// <inheritdoc />
     public void Refresh(IModuleViewContext context)
     {
         _context = context;
@@ -125,6 +192,7 @@ public sealed class ModuleSelect : ComboBox, IModuleViewElement
 
         if (!state.IsKnown)
         {
+            UpdateErrorRing();
             ApplyNoticeToolTip(null);
             return;
         }
@@ -146,6 +214,7 @@ public sealed class ModuleSelect : ComboBox, IModuleViewElement
             SelectedKey = state.Value;
         }
 
+        UpdateErrorRing();
         ApplyNoticeToolTip(state.Notice);
     }
 

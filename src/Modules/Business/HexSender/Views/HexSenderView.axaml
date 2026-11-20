@@ -28,23 +28,28 @@
     <ui:ModuleLabel Grid.Row="0" Classes="caption" Text="{loc:Tr view.inputLabel}" />
 
     <ui:ModuleTabs Grid.Row="1" StateKey="{x:Static views:HexSenderViewKeys.PagesStateKey}">
-      <TabItem Header="1"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexSenderViewKeys.Hex1}"
+      <TabItem Header="1"><ui:ModuleTextSurface Mode="Input" TextFormat="Hex" Value="{x:Static views:HexSenderViewKeys.Hex1}"
+                                                ShowInputHint="True"
                                                 SubmitKeyValue="{x:Static views:HexSenderViewKeys.SubmitKey}"
                                                 SubmitCommandName="{x:Static views:HexSenderViewKeys.Send}"
                                                 Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" /></TabItem>
-      <TabItem Header="2"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexSenderViewKeys.Hex2}"
+      <TabItem Header="2"><ui:ModuleTextSurface Mode="Input" TextFormat="Hex" Value="{x:Static views:HexSenderViewKeys.Hex2}"
+                                                ShowInputHint="True"
                                                 SubmitKeyValue="{x:Static views:HexSenderViewKeys.SubmitKey}"
                                                 SubmitCommandName="{x:Static views:HexSenderViewKeys.Send}"
                                                 Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" /></TabItem>
-      <TabItem Header="3"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexSenderViewKeys.Hex3}"
+      <TabItem Header="3"><ui:ModuleTextSurface Mode="Input" TextFormat="Hex" Value="{x:Static views:HexSenderViewKeys.Hex3}"
+                                                ShowInputHint="True"
                                                 SubmitKeyValue="{x:Static views:HexSenderViewKeys.SubmitKey}"
                                                 SubmitCommandName="{x:Static views:HexSenderViewKeys.Send}"
                                                 Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" /></TabItem>
-      <TabItem Header="4"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexSenderViewKeys.Hex4}"
+      <TabItem Header="4"><ui:ModuleTextSurface Mode="Input" TextFormat="Hex" Value="{x:Static views:HexSenderViewKeys.Hex4}"
+                                                ShowInputHint="True"
                                                 SubmitKeyValue="{x:Static views:HexSenderViewKeys.SubmitKey}"
                                                 SubmitCommandName="{x:Static views:HexSenderViewKeys.Send}"
                                                 Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" /></TabItem>
-      <TabItem Header="5"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:HexSenderViewKeys.Hex5}"
+      <TabItem Header="5"><ui:ModuleTextSurface Mode="Input" TextFormat="Hex" Value="{x:Static views:HexSenderViewKeys.Hex5}"
+                                                ShowInputHint="True"
                                                 SubmitKeyValue="{x:Static views:HexSenderViewKeys.SubmitKey}"
                                                 SubmitCommandName="{x:Static views:HexSenderViewKeys.Send}"
                                                 Multiline="True" ShowNewlineMarks="False" CommitMode="OnChange" /></TabItem>
@@ -61,7 +66,7 @@
                       VerticalAlignment="Center" Text="{loc:Tr view.continuous}" />
 
       <!-- 间隔：输入框一条矩形，单位 `ms` 是紧挨着的普通标签。 -->
-      <ui:ModuleTextSurface Canvas.Left="190" Canvas.Top="4" Width="48" Height="24" Mode="Input"
+      <ui:ModuleTextSurface Canvas.Left="190" Canvas.Top="4" Width="48" Height="24" Mode="Input" TextFormat="NonNegativeWhole"
                             Value="{x:Static views:HexSenderViewKeys.Interval}" TextAlignment="Right" CommitMode="OnChange" />
       <ui:ModuleLabel Canvas.Left="240" Canvas.Top="4" Width="20" Height="24"
                       Classes="caption" Text="{loc:Tr view.intervalUnit}" />

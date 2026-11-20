@@ -11,7 +11,10 @@ using Avalonia.VisualTree;
 using HYWDebugAssistant.FrameworkUi.Controls;
 using HYWDebugAssistant.FrameworkUi.ViewModels;
 using HYWDebugAssistant.FrameworkUi.Views;
+using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
+using HYWDebugAssistant.Sdk.Values;
+using HYWDebugAssistant.Sdk.Views;
 using Xunit;
 
 namespace HYWDebugAssistant.VisualSnapshots;
@@ -553,6 +556,14 @@ public class ControlMechanismProbes
                     Assert.Equal("A⟨00⟩B", box.Text);
                     Assert.Equal("A\0B", surface.Text);
 
+                    // 用户粘贴/键入真实控制字符：Raw 必须保留原字符，而不是投影后的标记字面。
+                    surface.Text = string.Empty;
+                    SnapshotTool.Pump();
+                    box.Text = "A\0B";
+                    SnapshotTool.Pump();
+                    Assert.Equal("A⟨00⟩B", box.Text);
+                    Assert.Equal("A\0B", surface.Text);
+
                     surface.ShowControlCharacterMarkers = false;
                     SnapshotTool.Pump();
                     Assert.Equal("A□B", box.Text);
@@ -889,6 +900,73 @@ public class ControlMechanismProbes
     }
 
     [Fact]
+    public async Task 文本面_按值格式过滤插入并保留程序化旧值()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var context = new InputFormatContext();
+                var surface = new ModuleTextSurface
+                {
+                    Value = "probe-format",
+                    TextFormat = ValueTextFormat.Hex,
+                    Width = 200,
+                    Height = 40,
+                };
+
+                var window = new Window { Width = 240, Height = 80, Content = surface };
+
+                try
+                {
+                    window.Show();
+                    SnapshotTool.Pump();
+                    surface.Refresh(context);
+
+                    var box = surface.GetVisualDescendants().OfType<TextBox>().First();
+
+                    // 提示是可选机制：显式开启后空框应拿到该格式的文案（不在这里钉文案内容）。
+                    surface.ShowInputHint = true;
+                    SnapshotTool.Pump();
+                    Assert.False(string.IsNullOrEmpty(box.PlaceholderText));
+
+                    // 粘贴混合文本：非法字符被丢弃，合法字符进入 Raw 并按 OnChange 提交。
+                    box.Text = "0x41";
+                    SnapshotTool.Pump();
+                    Assert.Equal("041", surface.Text);
+                    Assert.Single(context.Commits);
+
+                    // 整段都非法：恢复原显示，不产生第二次提交。
+                    box.Text = "zz";
+                    SnapshotTool.Pump();
+                    Assert.Equal("041", surface.Text);
+                    Assert.Single(context.Commits);
+
+                    // 程序化写入不过滤；之后只过滤新插入的字符，不追删旧非法字符。
+                    surface.Text = "zz";
+                    SnapshotTool.Pump();
+                    Assert.Equal("zz", surface.Text);
+                    box.Text = "zzA";
+                    SnapshotTool.Pump();
+                    Assert.Equal("zzA", surface.Text);
+
+                    // 只读时不显示提示；恢复可编辑后空框重新显示。
+                    surface.Text = string.Empty;
+                    surface.IsReadOnly = true;
+                    SnapshotTool.Pump();
+                    Assert.True(string.IsNullOrEmpty(box.PlaceholderText));
+                    surface.IsReadOnly = false;
+                    SnapshotTool.Pump();
+                    Assert.False(string.IsNullOrEmpty(box.PlaceholderText));
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
     public async Task 只有横向滚动_普通滚轮应横向滚动()
     {
         await SnapshotSession.Shared.Dispatch(
@@ -943,5 +1021,72 @@ public class ControlMechanismProbes
                 }
             },
             CancellationToken.None);
+    }
+
+    private sealed class InputFormatContext : IModuleViewContext
+    {
+        public List<string> Commits { get; } = [];
+
+        public string InstanceId => "probe-format";
+
+        public IModuleColorPicker? ColorPicker => null;
+
+        public double? ReadLatest(string source) => null;
+
+        public IReadOnlyList<double> ReadSeries(string source) => [];
+
+        public SeriesWindowSnapshot? ReadSeriesWindow(string source) => null;
+
+        public TextBufferSnapshot ReadText(string source) => TextBufferSnapshot.Empty;
+
+        public long ReadTextRevision(string source) => 0;
+
+        public bool SubmitInput(string source, string text) => true;
+
+        public CommandOutcome InvokeCommand(string command) => CommandOutcome.Ok;
+
+        public ConfigFieldView? ReadField(string fieldName) => null;
+
+        public CommandOutcome UpdateField(string fieldName, string value) => CommandOutcome.Ok;
+
+        public ViewAppearance Appearance(string source) => ViewAppearance.None;
+
+        public string? ReadInputText(string source) => _value;
+
+        public void WriteInputText(string source, string text) => _value = text;
+
+        public void CommitValue(string name, string text)
+        {
+            _value = text;
+            Commits.Add(text);
+        }
+
+        public void RegisterViewDefault(string name, string value)
+        {
+        }
+
+        public int? SelectedPage(string stateKey) => null;
+
+        public void SetSelectedPage(string stateKey, int page)
+        {
+        }
+
+        public string MultilineSubmitKey => "CtrlEnter";
+
+        public double WheelZoomStep => 1.2;
+
+        public ValueState ReadValue(string name) => new(
+            name,
+            ValueEditor.Text,
+            _value,
+            string.Empty,
+            null,
+            false,
+            true,
+            ValueValidity.Valid,
+            0,
+            IsKnown: true);
+
+        private string _value = string.Empty;
     }
 }

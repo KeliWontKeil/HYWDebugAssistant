@@ -39,6 +39,35 @@ public enum ValueNoticeSeverity
 /// <param name="Message">给人看的一句话。</param>
 public sealed record ValueNotice(ValueNoticeSeverity Severity, string Message);
 
+/// <summary>某个值当前的有效性结论：是否无效，以及（可选的）原因。</summary>
+/// <param name="IsInvalid">是否无效（无效时控件画失败轮廓）。</param>
+/// <param name="Notice">原因；<see langword="null"/> = 只有状态没有文字。</param>
+/// <remarks>
+/// 它与 <see cref="ValueNotice"/> 是组合关系而不是二选一：只描红不给原因时
+/// <see cref="IsInvalid"/> 为真、<see cref="Notice"/> 为空；只有警告/提示时
+/// <see cref="IsInvalid"/> 为假、<see cref="Notice"/> 有值。
+/// </remarks>
+public readonly record struct ValueValidity(bool IsInvalid, ValueNotice? Notice)
+{
+    /// <summary>有效且没有结论。</summary>
+    public static readonly ValueValidity Valid = new(false, null);
+
+    /// <summary>无效并给一句原因。</summary>
+    /// <param name="message">原因。</param>
+    public static ValueValidity Error(string message) =>
+        new(true, new ValueNotice(ValueNoticeSeverity.Error, message));
+
+    /// <summary>有效但给一句警告。</summary>
+    /// <param name="message">警告。</param>
+    public static ValueValidity Warning(string message) =>
+        new(false, new ValueNotice(ValueNoticeSeverity.Warning, message));
+
+    /// <summary>有效但给一句提示。</summary>
+    /// <param name="message">提示。</param>
+    public static ValueValidity Info(string message) =>
+        new(false, new ValueNotice(ValueNoticeSeverity.Info, message));
+}
+
 /// <summary>值的声明：名字、编辑器、可选项、持久化与重置属性。</summary>
 /// <remarks>
 /// <para>
@@ -73,7 +102,7 @@ public sealed record ValueDeclaration(string Name)
 /// <param name="Choices">可选值。</param>
 /// <param name="IsReadOnly">是否只读。</param>
 /// <param name="IsEnabled">是否可操作。</param>
-/// <param name="Notice">当前结论（空 = 没有话说）。</param>
+/// <param name="Validity">当前有效性结论（是否无效 + 原因）。</param>
 /// <param name="Revision">值状态变更号（用于“没变就不碰视觉”）。</param>
 /// <param name="IsKnown">这个值是否有运行期事实；false = 设计期/无上下文，控件应保留 XAML 初值。</param>
 public sealed record ValueState(
@@ -84,10 +113,16 @@ public sealed record ValueState(
     IReadOnlyList<ValueChoice>? Choices,
     bool IsReadOnly,
     bool IsEnabled,
-    ValueNotice? Notice,
+    ValueValidity Validity,
     long Revision,
     bool IsKnown = false)
 {
+    /// <summary>当前是否无效（<see cref="Validity"/> 的派生读法）。</summary>
+    public bool IsInvalid => Validity.IsInvalid;
+
+    /// <summary>当前结论（<see cref="Validity"/> 的派生读法；空 = 没有话说）。</summary>
+    public ValueNotice? Notice => Validity.Notice;
+
     /// <summary>一个“这个值还没有事实”的空状态。</summary>
     /// <param name="name">值名。</param>
     public static ValueState Empty(string name) => new(
@@ -98,6 +133,6 @@ public sealed record ValueState(
         null,
         false,
         true,
-        null,
+        ValueValidity.Valid,
         0);
 }

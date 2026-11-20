@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.VisualTree;
+using HYWDebugAssistant.Sdk.Ui.Geometry;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
@@ -36,6 +37,7 @@ public sealed class ModulePopupPanel : Control, IModuleViewElement
     private ModulePanelSurface? _surface;
     private IModuleViewContext? _context;
     private Type? _builtPanelType;
+    private Control? _anchor;
     private bool _isOpen;
 
     /// <summary>面板正文类型（<see cref="ModuleView"/> 派生、公共无参构造）。</summary>
@@ -47,8 +49,22 @@ public sealed class ModulePopupPanel : Control, IModuleViewElement
     /// <summary>标题行刷新按钮触发的命令名（空 = 不显示刷新按钮）。</summary>
     public string ResetCommandName { get; set; } = string.Empty;
 
-    /// <summary>定位锚点（通常是打开面板的按钮）。</summary>
-    public Control? Anchor { get; set; }
+    /// <summary>定位锚点（通常是打开面板的按钮）：面板贴着它出现，打开期间它保持高亮。</summary>
+    public Control? Anchor
+    {
+        get => _anchor;
+        set
+        {
+            if (ReferenceEquals(_anchor, value))
+            {
+                return;
+            }
+
+            SetAnchorHighlight(false);
+            _anchor = value;
+            SetAnchorHighlight(_isOpen);
+        }
+    }
 
     /// <summary>
     /// 构造容器：它只要行为、不要命中 —— 铺在模块视图最上层时不能把齿轮/表盘的点击吃掉。
@@ -82,9 +98,11 @@ public sealed class ModulePopupPanel : Control, IModuleViewElement
         }
 
         _isOpen = true;
+        SetAnchorHighlight(true);
         _host?.Refresh();
         if (_window.IsVisible)
         {
+            PlaceWindow();
             _window.Activate();
             return;
         }
@@ -105,6 +123,7 @@ public sealed class ModulePopupPanel : Control, IModuleViewElement
     public void Close()
     {
         _isOpen = false;
+        SetAnchorHighlight(false);
         if (_window is { IsVisible: true })
         {
             _window.Hide();
@@ -133,6 +152,7 @@ public sealed class ModulePopupPanel : Control, IModuleViewElement
         if (_isOpen)
         {
             _host?.Refresh();
+            PlaceWindow();
         }
     }
 
@@ -196,48 +216,68 @@ public sealed class ModulePopupPanel : Control, IModuleViewElement
         _builtPanelType = panelType;
     }
 
-    /// <summary>优先放模块右侧；屏幕放不下放左侧；都放不下居中叠在模块上；始终夹在工作区内。</summary>
+    /// <summary>贴着锚点落位：右侧→左侧→下方→上方，始终夹在工作区内；锚点缺失时回退模块窗口。</summary>
     private void PlaceWindow()
     {
-        if (_window is null)
+        if (_window is null || _owner is null)
         {
             return;
         }
 
-        var screens = _owner?.Screens;
-        var screen = (_owner is not null ? screens?.ScreenFromWindow(_owner) : null) ?? screens?.Primary;
-        if (_owner is null || screen is null)
+        var screens = _owner.Screens;
+        if (ResolveAnchorRect(_owner) is not { } anchor)
         {
             return;
         }
 
-        var work = screen.WorkingArea;
-        var scaling = screen.Scaling > 0 ? screen.Scaling : 1;
-        var width = (_window.Bounds.Width > 0 ? _window.Bounds.Width : _window.Width) * scaling;
-        var height = (_window.Bounds.Height > 0 ? _window.Bounds.Height : _window.Height) * scaling;
-        var origin = _owner.PointToScreen(default);
-        var ownerWidth = _owner.Bounds.Width * scaling;
-        var gap = 8.0;
-
-        double x;
-        var right = origin.X + ownerWidth + gap;
-        var left = origin.X - width - gap;
-        if (right + width <= work.Right)
+        var screen = screens.ScreenFromPoint(new PixelPoint(anchor.X, anchor.Y))
+            ?? screens.ScreenFromWindow(_owner)
+            ?? screens.Primary;
+        if (screen is null)
         {
-            x = right;
-        }
-        else if (left >= work.X)
-        {
-            x = left;
-        }
-        else
-        {
-            x = Math.Clamp(origin.X + ((ownerWidth - width) / 2), work.X, Math.Max(work.X, work.Right - width));
+            return;
         }
 
-        var y = Math.Clamp((double)origin.Y, work.Y, Math.Max(work.Y, work.Bottom - height));
-        _window.Position = new PixelPoint((int)Math.Round(x), (int)Math.Round(y));
+        var scale = screen.Scaling > 0 ? screen.Scaling : 1;
+        var width = (_window.Bounds.Width > 0 ? _window.Bounds.Width : _window.Width) * scale;
+        var height = (_window.Bounds.Height > 0 ? _window.Bounds.Height : _window.Height) * scale;
+        var panel = new PixelSize(
+            Math.Max(1, (int)Math.Ceiling(width)),
+            Math.Max(1, (int)Math.Ceiling(height)));
+        var gap = Math.Max(1, (int)Math.Round(PanelPlacement.Gap * scale));
+
+        var position = PanelPlacement.Compute(anchor, panel, screen.WorkingArea, gap);
+        if (!_window.Position.Equals(position))
+        {
+            _window.Position = position;
+        }
     }
+
+    /// <summary>锚点矩形（物理像素）；锚点不在可视树时回退到 owner 窗口矩形。</summary>
+    private PixelRect? ResolveAnchorRect(Window owner)
+    {
+        if (_anchor is { } anchor && anchor.TranslatePoint(default, owner) is not null)
+        {
+            var topLeft = anchor.PointToScreen(default);
+            var bottomRight = anchor.PointToScreen(new Point(anchor.Bounds.Width, anchor.Bounds.Height));
+            return new PixelRect(
+                topLeft.X,
+                topLeft.Y,
+                Math.Max(1, bottomRight.X - topLeft.X),
+                Math.Max(1, bottomRight.Y - topLeft.Y));
+        }
+
+        var origin = owner.PointToScreen(default);
+        var scale = owner.RenderScaling > 0 ? owner.RenderScaling : 1;
+        return new PixelRect(
+            origin.X,
+            origin.Y,
+            Math.Max(1, (int)Math.Ceiling(owner.Bounds.Width * scale)),
+            Math.Max(1, (int)Math.Ceiling(owner.Bounds.Height * scale)));
+    }
+
+    /// <summary>打开期间给锚点加高亮类；关闭/释放时移除。</summary>
+    private void SetAnchorHighlight(bool on) => _anchor?.Classes.Set("panel-anchor", on);
 
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
@@ -274,6 +314,8 @@ public sealed class ModulePopupPanel : Control, IModuleViewElement
 
     private void DisposeWindow()
     {
+        SetAnchorHighlight(false);
+
         if (_owner is not null)
         {
             _owner.Closed -= OnOwnerClosed;

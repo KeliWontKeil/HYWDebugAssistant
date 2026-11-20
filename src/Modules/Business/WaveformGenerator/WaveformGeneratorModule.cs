@@ -138,7 +138,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
     private readonly Dictionary<uint, GeneratorRuntime> _runtimes = [];
     private readonly Dictionary<IModuleTimer, GeneratorRuntime> _timerOwners = [];
     private readonly Dictionary<string, string> _lastText = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _invalidInputs = new(StringComparer.Ordinal);
+    private readonly InputValidity _validity = new();
     private readonly byte[] _frame = new byte[WaveformFrameContract.SizeInBytes];
 
     private IModuleContext? _context;
@@ -877,37 +877,37 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
     /// <summary>按当前输入文本重算所有字段的红框；不读写配置。</summary>
     private void ValidateAllInputs(IModuleContext context)
     {
-        Validate(context, GroupNameSource, text => TryNonEmptyName(text, out _));
+        Validate(context, GroupNameSource, text => TryNonEmptyName(text, out _), Tr(WaveformGeneratorText.InvalidName));
         Validate(context, GroupIdSource, text =>
             uint.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)
             && id != 0
-            && IsGroupIdAvailable(id));
-        Validate(context, ChannelNameSource, text => TryNonEmptyName(text, out _));
-        Validate(context, FrequencySource, text => TryPositive(text, out _));
-        Validate(context, PeriodSource, text => TryPositive(text, out _));
-        Validate(context, PhaseSource, text => TryFinite(text, out _));
-        Validate(context, OffsetSource, text => TryFinite(text, out _));
-        Validate(context, AmplitudeSource, text => TryFinite(text, out _));
+            && IsGroupIdAvailable(id), Tr(WaveformGeneratorText.InvalidGroupId));
+        Validate(context, ChannelNameSource, text => TryNonEmptyName(text, out _), Tr(WaveformGeneratorText.InvalidName));
+        Validate(context, FrequencySource, text => TryPositive(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
+        Validate(context, PeriodSource, text => TryPositive(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
+        Validate(context, PhaseSource, text => TryFinite(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
+        Validate(context, OffsetSource, text => TryFinite(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
+        Validate(context, AmplitudeSource, text => TryFinite(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
         Validate(context, ResolutionSource, text =>
             int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var resolution)
-            && resolution is >= 2 and <= 4096);
-        Validate(context, DutySource, text => TryFinite(text, out var duty) && duty is >= 0.01 and <= 0.99);
-        Validate(context, CarrierFrequencySource, text => TryPositive(text, out _));
+            && resolution is >= 2 and <= 4096, Tr(WaveformGeneratorText.InvalidNumber));
+        Validate(context, DutySource, text => TryFinite(text, out var duty) && duty is >= 0.01 and <= 0.99, Tr(WaveformGeneratorText.InvalidNumber));
+        Validate(context, CarrierFrequencySource, text => TryPositive(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
         Validate(context, ModulationIndexSource, text =>
             TryFinite(text, out var modulation)
-            && IsModulationIndexValid(SelectedChannel?.Kind ?? WaveformKind.Sine, modulation));
-        Validate(context, CarrierPhaseSource, text => TryFinite(text, out _));
+            && IsModulationIndexValid(SelectedChannel?.Kind ?? WaveformKind.Sine, modulation), Tr(WaveformGeneratorText.InvalidNumber));
+        Validate(context, CarrierPhaseSource, text => TryFinite(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
         Validate(context, OneShotPeriodsSource, text =>
             int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var periods)
-            && periods is >= 1 and <= 1_000_000);
+            && periods is >= 1 and <= 1_000_000, Tr(WaveformGeneratorText.InvalidNumber));
     }
 
-    private void Validate(IModuleContext context, string source, Func<string, bool> isValid)
+    private void Validate(IModuleContext context, string source, Func<string, bool> isValid, string message)
     {
         var text = context.Values.ReadText(source);
         if (text is not null)
         {
-            MarkInput(context, source, !isValid(text));
+            _validity.Set(context, source, !isValid(text), message);
         }
     }
 
@@ -1829,22 +1829,6 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
             WaveformKind.Svpwm => value is >= 0 and <= 1.15,
             _ => value is >= 0 and <= 1.15,
         };
-
-    /// <summary>非法字段标红；合法后清除。</summary>
-    private void MarkInput(IModuleContext context, string source, bool invalid)
-    {
-        if (invalid)
-        {
-            if (_invalidInputs.Add(source))
-            {
-                context.Appearance.SetOutlineRole(source, AlertRole);
-            }
-        }
-        else if (_invalidInputs.Remove(source))
-        {
-            context.Appearance.SetOutlineRole(source, null);
-        }
-    }
 
     private void SetInput(IModuleContext context, string source, string text)
     {

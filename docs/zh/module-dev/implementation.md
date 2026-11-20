@@ -77,9 +77,9 @@ context.Declaration.DeclareValue(new ValueDeclaration("header")
 });
 
 var header = context.Values.ReadText("header") ?? string.Empty;
-context.Values.Report("header", header.Length == 0
-    ? new ValueNotice(ValueNoticeSeverity.Warning, "帧头不能为空")
-    : null);
+context.Values.ReportValidity("header", header.Length == 0
+    ? ValueValidity.Warning("帧头不能为空")
+    : ValueValidity.Valid);
 ```
 
 配置字段自动是同名的值；模块也可以继续用强类型配置对象处理自己的领域状态。控件不直接读写配置或视图状态。
@@ -121,7 +121,7 @@ public void OnConfigurationChanged()
 - 字段标题、说明、分组、枚举显示用 `TitleKey` / `DescriptionKey` / `GroupKey` / `[ConfigurationChoice(TitleKey = …)]` 指向本模块文本表；不给键时回退为字段名（如 `PeriodMs` → “Period Ms”）。
 - 动态选项（可用串口、本机地址）实现 `IConfigurationChoices`：返回 `null` = 不是动态字段，空表 = 现在没有可选项。它运行在界面线程，必须廉价、不抛、不阻塞。
 - 单位写在 `Unit` 或字段标题里，**不入契约**；改单位不改变数据字节。
-- **配置字段不会自动出现在窗口里**：需要在视图中用 `ModuleConfigField Value="字段名"` 画出（见[控件](controls.md)）。不声明视图工厂的模块，窗口只显示身份与状态；配置仍可随组合件保存，但用户改不了。
+- **配置字段不会自动出现在窗口里**：需要在视图中用标准输入控件画出（文本/数字 `ModuleTextSurface`、枚举 `ModuleSelect`、布尔 `ModuleToggle`，见[控件](controls.md)）。不声明视图工厂的模块，窗口只显示身份与状态；配置仍可随组合件保存，但用户改不了。
 
 ## 收件箱：命令与动作输入
 
@@ -155,7 +155,7 @@ public void OnStep(IModuleContext context, StepReason reason)
 - 不实现 `IActivitySource` 的模块**收不到**命令与输入：没有单步就没有消费时机。
 - 控件值用 `context.Values.ReadText(名字)` 读取；它已经是当前有效值（持久化值，或框架在激活前播种的 XAML 初值）。
 - 需要“用户正在编辑但尚未提交”的内容时，把控件的 `CommitMode` 设为 `OnChange`，而不是依赖回车。
-- 模块接受/规范化的值用 `context.Values.AcceptText`；字段结论用 `context.Values.Report`。
+- 模块接受/规范化的值用 `context.Values.AcceptText`；字段有效性用 `context.Values.ReportValidity`，读回分类用 `ReadValidity`。
 - **提交时机是控件属性**：`OnChange` 逐键交值，`OnExplicit` 在回车/动作/失焦时交值。模块不判断控件属于哪种。
 - **持久化归值声明，初值归 XAML**：`Persistent` / `ResetWithModule` 写在 `ValueDeclaration` 上；视图可见值的默认值只写在控件 XAML 初值（`Text` / `IsChecked` / `SelectedKey` / `InitialValue`）。控件不持有持久化语义。
 
@@ -223,7 +223,8 @@ context.Appearance.ResetInteraction(ContinuousSource);
 
 - 优先用角色词（`ViewInkRoles.Danger` 等），它随主题与用户改色；绝对色只在确有需要时使用。
 - 只读 ≠ 禁用：只读让用户能看能选中但不能改；禁用让整格不可操作。
-- `ResetInteraction` 表达“这次动作不成立，把控件拨回”；要表达“这一格接受后的值”，用 `context.Values.AcceptText`，并可用 `context.Values.Report` 给出结论。
+- `ResetInteraction` 表达“这次动作不成立，把控件拨回”；要表达“这一格接受后的值”，用 `context.Values.AcceptText`，并可用 `context.Values.ReportValidity` 给出结论。
+- 输入校验用 `InputValidity` 记账：它同时写 `ViewInkRoles.Danger` 边框与 `ValueValidity`（是否无效 + 原因）；模块可用 `ReadValidity` 读回。控件不每帧擦红圈，红圈只跟外观通道走。
 
 ## 视图状态
 
@@ -299,7 +300,7 @@ var snapshot = context.Access.GetSnapshot(AccessName);
 - 状态与计数以 `GetSnapshot` 为唯一事实源；`ClearCounters` 只清计数，不清队列、连接数与故障态。
 - 框架**不自动重试**：打开/读写失败后状态是 `Faulted`，需要用户再次请求打开；模块的状态句按 `snapshot.Failure.Kind` 从自己的表选文案。
 - 设备探活由框架按会话节拍推进，模块不建轮询定时器。
-- 标准接入的参数类型由框架登记为实例配置；模块视图用 `ModuleConfigField` 绑定字段名（`ExternalAccessFieldNames` 常量），并需要在本模块文本表里提供对应的 `config.*` 文案。参数值不需要模块自己读取（框架用它建会话）；要在状态句里显示端点，用 `snapshot.Endpoint`。字段名见[接口参考](reference.md)。
+- 标准接入的参数类型由框架登记为实例配置；模块视图用标准输入控件绑定字段名（文本/数字 `ModuleTextSurface`、枚举 `ModuleSelect`、布尔 `ModuleToggle`；`ExternalAccessFieldNames` 常量），并需要在本模块文本表里提供对应的 `config.*` 文案。参数值不需要模块自己读取（框架用它建会话）；要在状态句里显示端点，用 `snapshot.Endpoint`。字段名见[接口参考](reference.md)。
 - `Sdk.AccessKit` 的 `ExternalAccessChannel` 是可选骨架：统一处理打开/关闭/清空计数命令、状态句、灯色、计数与按钮/字段闸门；不用它也可以。
 
 ## 异常与停止
@@ -316,7 +317,7 @@ var snapshot = context.Access.GetSnapshot(AccessName);
 | 命令不执行、输入收不到 | 没实现 `IActivitySource`，或没在 `OnStep` 里排空收件箱 | 实现接口并在 `OnStep` 里 `TryDequeue*` |
 | 状态行一直是初始值 | 显示源没声明，或只写了 `Text` 没写源 | 先 `DeclareDisplaySource`，再 `Display.SetText` |
 | 数值读数不更新 | 写显示源的字节数与声明的 `ValueType` 不一致，或空样本 | 按声明原语写小端；不要发布空数组 |
-| 开关自己弹回去 | 控件绑了值，但模块没有接受/回写 | 用 `context.Values.AcceptText` 宣告接受值；用 `Values.Report` 说明原因 |
+| 开关自己弹回去 | 控件绑了值，但模块没有接受/回写 | 用 `context.Values.AcceptText` 宣告接受值；用 `Values.ReportValidity` 说明原因 |
 | 配置改了不生效 | 没有重写 `OnConfigurationChanged`，或读的是旧对象 | 在钩子里重新 `Read<T>`；写回走 `Configuration.Write` |
 | 配置字段不出现 | 配置类型不是公开类、缺无参构造，或属性不可读写 | 按“配置”一节的约束改 |
 | 视图不刷新 | 视图根不是 `ModuleView`、没被 `ModuleViewHost` 驱动，或窗口不可见 | 用工厂 + `ModuleView`；可见时框架每帧调用 `Refresh` |

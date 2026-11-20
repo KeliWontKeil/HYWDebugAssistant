@@ -37,6 +37,18 @@ public sealed class ModuleToggle : ModuleElement
         Focusable = true;
         Cursor = new Cursor(StandardCursorType.Hand);
         PseudoClasses.Set(":checked", false);
+
+        // 预览器没有 ModuleViewHost：设计上下文挂在视图 DataContext 上，挂树时读一次。
+        DataContextChanged += (_, _) => ResolveDesignContext();
+        AttachedToVisualTree += (_, _) => ResolveDesignContext();
+    }
+
+    private void ResolveDesignContext()
+    {
+        if (_context is null && DataContext is IModuleViewContext context)
+        {
+            Refresh(context);
+        }
     }
 
     /// <summary>用户拨动（或模块写回）后的勾选态。</summary>

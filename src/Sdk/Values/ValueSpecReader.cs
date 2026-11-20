@@ -73,7 +73,6 @@ public static class ValueSpecReader
         "ModuleCheckBox",
         "ModuleSelect",
         "ModuleSegmentedControl",
-        "ModuleConfigField",
     };
 
     /// <summary>读取一个目录下的全部 `*.axaml`（递归；目录不存在 ⇒ 空结果）。</summary>
@@ -178,7 +177,6 @@ public static class ValueSpecReader
             "ModuleTextSurface" => ("Text", string.Empty),
             "ModuleToggle" or "ModuleCheckBox" => ("IsChecked", "false"),
             "ModuleSelect" or "ModuleSegmentedControl" => ("SelectedKey", string.Empty),
-            "ModuleConfigField" => ("InitialValue", string.Empty),
             _ => (string.Empty, string.Empty),
         };
 

@@ -81,6 +81,11 @@
         <Style Selector="Border.issueBadge">
             <Setter Property="Background" Value="{DynamicResource SemanticError}" />
         </Style>
+
+        <!-- 交互入口的模块数角标：主题色，表达当前模块数量 -->
+        <Style Selector="Border.moduleBadge">
+            <Setter Property="Background" Value="{DynamicResource AccentPrimary}" />
+        </Style>
     </Window.Styles>
 
     <!-- 按钮的指针 / 按下态：必须挂在窗口 Resources 上才被 Fluent 的按钮模板读到（见该文件说明） -->
@@ -132,6 +137,20 @@
                         <Grid ColumnDefinitions="3,*">
                             <Rectangle Grid.Column="0" Classes="railMark" Classes.active="{Binding IsInteractionPage}" />
                             <uc:Glyph Grid.Column="1" Classes="icon" Icon="{x:Static uc:ShellIcons.Interaction}" />
+                            <Border Grid.ColumnSpan="2"
+                                    Classes="moduleBadge"
+                                    IsVisible="{Binding HasModules}"
+                                    CornerRadius="6"
+                                    MinWidth="12" Height="12"
+                                    Padding="2,0"
+                                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                                    Margin="0">
+                                <TextBlock FontSize="8"
+                                           Foreground="White"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Text="{Binding Windows.ModuleCount}" />
+                            </Border>
                         </Grid>
                     </Button>
 

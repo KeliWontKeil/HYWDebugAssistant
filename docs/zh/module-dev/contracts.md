@@ -176,7 +176,8 @@ context.Declaration.DeclareExternalAccess(new ExternalAccessDeclaration(
 | 接入名 | 模块内唯一；界面与诊断按这个名字寻址 |
 | 标准标识 | 必须是框架已提供的值（`serial` / `tcp-client` / `tcp-server` / `udp`）；未知标识 ⇒ 该接入不接线并报 Issue |
 | 单元上限 | 默认 1472；必须 > 0 且不超过框架上限，否则该接入被拒绝 |
-| 参数类型 | 框架按标准登记；模块不引用它，但视图可以用 `ModuleConfigField` 绑定它的字段名 |
+| 参数类型 | 框架按标准登记；模块不引用它，但视图可以用标准输入控件（文本/数字 `ModuleTextSurface`、枚举 `ModuleSelect`、布尔 `ModuleToggle`）绑定它的字段名 |
+| 动态选项 | 本机串口、本机网卡地址等 `IConfigurationChoices` 字段用 `ModuleSelect`；没有可选项时下拉为空，不退回文本框 |
 | 表单文案 | 参数表单的标题/说明/分组/枚举显示由**本模块**的文本表解析，需提供对应的 `config.*` 键 |
 
 外部接入只搬原始字节：一次读到的是一块字节，不是完整报文；需要报文边界时由模块自己组帧。机制见[外部接入](../concepts/access.md)，用法见[实现](implementation.md)。

@@ -28,7 +28,7 @@ public class ValueContextTests
                   <ui:ModuleTextSurface Value="{x:Static local:ValueSpecTestConstants.Text}" Text="ab" />
                   <ui:ModuleToggle Value="{x:Static local:ValueSpecTestConstants.Flag}" IsChecked="True" />
                   <ui:ModuleCheckBox Value="{x:Static local:ValueSpecTestConstants.Check}" IsChecked="False" />
-                  <ui:ModuleConfigField Value="{x:Static local:ValueSpecTestConstants.Interval}" InitialValue="500" />
+                  <ui:ModuleTextSurface Value="{x:Static local:ValueSpecTestConstants.Interval}" Text="500" />
                   <ui:ModuleTextSurface Mode="Display" Source="{x:Static local:ValueSpecTestConstants.Display}" />
                 </ui:ModuleView>
                 """);
@@ -61,10 +61,21 @@ public class ValueContextTests
     public void 值控件_外观寻址键应跟随值名()
     {
         var surface = new HYWDebugAssistant.Sdk.Ui.Controls.ModuleTextSurface { Value = "header" };
-        var field = new HYWDebugAssistant.Sdk.Ui.Controls.ModuleConfigField { Value = "interval" };
 
         ((HYWDebugAssistant.Sdk.Ui.Controls.IModuleElementInternal)surface).Source.ShouldBe("header");
-        ((HYWDebugAssistant.Sdk.Ui.Controls.IModuleElementInternal)field).Source.ShouldBe("interval");
+    }
+
+    [Fact]
+    public void 枚举下拉_只读外观禁用且可恢复()
+    {
+        var select = new HYWDebugAssistant.Sdk.Ui.Controls.ModuleSelect { Value = "mode" };
+        var element = (HYWDebugAssistant.Sdk.Ui.Controls.IModuleElementInternal)select;
+
+        element.ApplyModuleAppearance(new HYWDebugAssistant.Sdk.Ui.ViewAppearance { ReadOnly = true });
+        select.IsEnabled.ShouldBeFalse();
+
+        element.ApplyModuleAppearance(HYWDebugAssistant.Sdk.Ui.ViewAppearance.None);
+        select.IsEnabled.ShouldBeTrue();
     }
 
     [Fact]
@@ -165,10 +176,13 @@ public class ValueContextTests
         store.GetInputText("v1", CompositePersistenceTests.ValueModule.TextValue).ShouldBe("typed");
 
         runtime.Content.TryGetInstance("v1", out var instance).ShouldBeTrue();
-        instance!.Context.Values.Report(
+        instance!.Context.Values.ReportValidity(
             CompositePersistenceTests.ValueModule.TextValue,
-            new ValueNotice(ValueNoticeSeverity.Warning, "bad"));
+            ValueValidity.Warning("bad"));
         context.ReadValue(CompositePersistenceTests.ValueModule.TextValue).Notice!.Message.ShouldBe("bad");
+        context.ReadValue(CompositePersistenceTests.ValueModule.TextValue).IsInvalid.ShouldBeFalse();
+        instance.Context.Values.ReadValidity(CompositePersistenceTests.ValueModule.TextValue)
+            .Notice!.Message.ShouldBe("bad");
 
         services.ResetModuleConfiguration("v1").Succeeded.ShouldBeTrue();
         context.ReadValue(CompositePersistenceTests.ValueModule.TextValue).Value.ShouldBe("xaml-default");

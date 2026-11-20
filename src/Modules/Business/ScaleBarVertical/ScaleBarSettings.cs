@@ -51,8 +51,8 @@ internal sealed record ScaleBarSettings
     /// <summary>填充起点（true = 从零开始）。</summary>
     public bool FillFromZero { get; init; } = true;
 
-    /// <summary>填充颜色角色（green / blue / orange / red / purple）。</summary>
-    public string Color { get; init; } = "green";
+    /// <summary>填充颜色（<c>AARRGGBB</c>；空 = 主题默认）。</summary>
+    public string Color { get; init; } = string.Empty;
 
     /// <summary>是否平滑。</summary>
     public bool Smoothing { get; init; } = true;

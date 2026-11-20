@@ -38,14 +38,18 @@ public enum TextSurfaceMode
 /// 仍可用鼠标选中复制（只是没有光标与提交）。
 /// </para>
 /// <para>
-/// **提交是控件行为**：<see cref="CommitMode"/> 为 <see cref="ValueCommitMode.OnChange"/> 时逐键交值，
-/// 为 <see cref="ValueCommitMode.OnExplicit"/> 时只由 Enter（单行）/ Ctrl+Enter（多行）或显式
-/// <see cref="Commit"/> 交值；<see cref="ValueCommitMode.OnExplicit"/> 在失焦时也提交。
+/// **提交是控件行为**：默认 <see cref="ValueCommitMode.OnChange"/> 逐键交值；只有配置字段这类
+/// “变更会重开会话”的明确需求才显式设 <see cref="ValueCommitMode.OnExplicit"/>，
+/// 此时由 Enter（单行）/ Ctrl+Enter（多行）或显式 <see cref="Commit"/> 交值，失焦也提交。
 /// </para>
 /// <para>
 /// **控件不碰后端**：值从 <see cref="IModuleViewContext.ReadValue"/> 来，用户修改经
 /// <see cref="IModuleViewContext.CommitValue"/> 交出去；控件不知道值落在配置还是视图状态里，
 /// 也不判断错误。给 <see cref="Text"/> 赋值只更新显示。
+/// </para>
+/// <para>
+/// **字符准入**：用户插入按本控件的 <see cref="TextFormat"/> 过滤（丢弃不允许的字符），程序化写入不经过它；
+/// 结构/范围/正负仍由模块判断。<see cref="ShowInputHint"/> 可选地在空且可编辑时显示格式提示。
 /// </para>
 /// </remarks>
 public sealed class ModuleTextSurface : ModuleElement
@@ -57,6 +61,15 @@ public sealed class ModuleTextSurface : ModuleElement
     /// <summary>该输入面按 C 字符串转义输入：识别并着色合法转义组（不改变值）。</summary>
     public static readonly StyledProperty<bool> EscapeInputProperty =
         AvaloniaProperty.Register<ModuleTextSurface, bool>(nameof(EscapeInput));
+
+    /// <summary>空输入面是否显示该值格式的浅灰提示；默认关闭，窄框可不启用。</summary>
+    public static readonly StyledProperty<bool> ShowInputHintProperty =
+        AvaloniaProperty.Register<ModuleTextSurface, bool>(nameof(ShowInputHint));
+
+    /// <summary>用户插入时允许的字符语法；只影响准入，不改变值/合法性判断。</summary>
+    public static readonly StyledProperty<ValueTextFormat> TextFormatProperty =
+        AvaloniaProperty.Register<ModuleTextSurface, ValueTextFormat>(
+            nameof(TextFormat), defaultValue: ValueTextFormat.Text);
 
     private TextBox? _input;
     private ProjectedTextEditing? _editing;
@@ -73,6 +86,7 @@ public sealed class ModuleTextSurface : ModuleElement
     private bool _appearanceReadOnly;
     private bool _multiline;
     private bool _showNewlineMarks = true;
+    private string? _placeholderText;
     private bool _valueRegistered;
     private string _committedValue = string.Empty;
     private NewlineMode? _lastNewlineMode;
@@ -98,6 +112,7 @@ public sealed class ModuleTextSurface : ModuleElement
     public ModuleTextSurface()
     {
         AttachedToVisualTree += (_, _) => ResolveContext();
+        DataContextChanged += (_, _) => ResolveContext();
     }
 
     /// <summary>
@@ -106,8 +121,8 @@ public sealed class ModuleTextSurface : ModuleElement
     /// <remarks>控件不知道值最终存在哪里；它只读 <see cref="IModuleViewContext.ReadValue"/>。</remarks>
     public string Value { get; set; } = string.Empty;
 
-    /// <summary>用户修改交出去的时机（仅值通道）。</summary>
-    public ValueCommitMode CommitMode { get; set; } = ValueCommitMode.OnExplicit;
+    /// <summary>用户修改交出去的时机（仅值通道；默认变更即应用）。</summary>
+    public ValueCommitMode CommitMode { get; set; } = ValueCommitMode.OnChange;
 
     /// <summary>
     /// **提交键的值名**（可选）：非空时从该值读取 <c>Enter</c> / <c>CtrlEnter</c> 档位。
@@ -236,6 +251,24 @@ public sealed class ModuleTextSurface : ModuleElement
     {
         get => GetValue(EscapeInputProperty);
         set => SetValue(EscapeInputProperty, value);
+    }
+
+    /// <summary>空输入面是否显示该值格式的浅灰提示（默认关闭，窄框可按需不启用）。</summary>
+    public bool ShowInputHint
+    {
+        get => GetValue(ShowInputHintProperty);
+        set => SetValue(ShowInputHintProperty, value);
+    }
+
+    /// <summary>用户插入时允许的字符语法；默认 <see cref="ValueTextFormat.Text"/>。</summary>
+    /// <remarks>
+    /// 它是视图输入行为，与 <c>EscapeInput</c>（解释/高亮）正交；模块解析器仍是值合法性的权威。
+    /// 程序化写入不经过它。
+    /// </remarks>
+    public ValueTextFormat TextFormat
+    {
+        get => GetValue(TextFormatProperty);
+        set => SetValue(TextFormatProperty, value);
     }
 
     /// <summary>编辑叶子的最小高度（显示叶子不受此限制）。</summary>
@@ -411,17 +444,7 @@ public sealed class ModuleTextSurface : ModuleElement
     }
     private void ApplyValueNotice(ValueNotice? notice)
     {
-        // 外观通道先于本方法执行：Notice 为空时不清圈，否则模块刚设的红框会被本控件擦掉。
-        if (notice is { Severity: ValueNoticeSeverity.Error or ValueNoticeSeverity.Warning }
-            && _errorRing is not null)
-        {
-            SetTokenBrush(
-                _errorRing,
-                Border.BorderBrushProperty,
-                notice.Severity == ValueNoticeSeverity.Error ? "SemanticError" : "SemanticWarn");
-            _errorRing.IsVisible = true;
-        }
-
+        // 红圈只属于外观通道（模块用 SetOutlineRole 驱动）；Notice 这里只负责原因提示。
         if (notice is { Message.Length: > 0 })
         {
             if (!_noticeToolTipActive)
@@ -501,6 +524,7 @@ public sealed class ModuleTextSurface : ModuleElement
         _editing.UserEdited += OnEditingUserEdited;
         _editing.ProjectionChanged += OnEditingProjectionChanged;
         _editing.SetMarkerMode(ShowControlCharacterMarkers);
+        _editing.SetFormat(TextFormat);
 
         _input.LostFocus += OnInputLostFocus;
         _input.GotFocus += OnInputGotFocus;
@@ -508,6 +532,7 @@ public sealed class ModuleTextSurface : ModuleElement
         // **Tunnel** 才能抢在 TextBox 自己处理 Enter（插入 `\n`）之前；
         // 冒泡阶段它已经标了 Handled，提交档位永远收不到回车。
         _input.AddHandler(KeyDownEvent, OnInputKeyDown, RoutingStrategies.Tunnel);
+        _input.AddHandler(InputElement.TextInputEvent, OnInputTextInput, RoutingStrategies.Tunnel);
     }
 
     private void UnhookInput()
@@ -520,6 +545,7 @@ public sealed class ModuleTextSurface : ModuleElement
         _input.LostFocus -= OnInputLostFocus;
         _input.GotFocus -= OnInputGotFocus;
         _input.RemoveHandler(KeyDownEvent, OnInputKeyDown);
+        _input.RemoveHandler(InputElement.TextInputEvent, OnInputTextInput);
 
         if (_editing is not null)
         {
@@ -593,8 +619,54 @@ public sealed class ModuleTextSurface : ModuleElement
         }
 
         ApplyMarks();
+        ApplyPlaceholder();
         SyncActiveText();
     }
+
+    /// <summary>按当前格式/转义/只读状态刷新空值提示；有内容时由 TextBox 原生隐藏。</summary>
+    private void ApplyPlaceholder()
+    {
+        if (_input is null)
+        {
+            return;
+        }
+
+        var hint = ShowInputHint && !IsReadOnlyEffective && _mode == TextSurfaceMode.Input
+            ? ResolveInputHint()
+            : null;
+
+        if (string.Equals(hint, _placeholderText, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _placeholderText = hint;
+        _input.PlaceholderText = hint;
+    }
+
+    private string? ResolveInputHint()
+    {
+        var key = TextFormat == ValueTextFormat.Text && EscapeInput
+            ? "moduleText.format.escaped.hint"
+            : KeyedHint(TextFormat);
+
+        return key.Length > 0
+            && TextCatalog.TryGet(typeof(ModuleTextSurface).Assembly, key, out var text)
+            && text.Length > 0
+                ? text
+                : null;
+    }
+
+    private static string KeyedHint(ValueTextFormat format) => format switch
+    {
+        ValueTextFormat.Hex => "moduleText.format.hex.hint",
+        ValueTextFormat.SignedWhole => "moduleText.format.signedWhole.hint",
+        ValueTextFormat.NonNegativeWhole => "moduleText.format.nonNegativeWhole.hint",
+        ValueTextFormat.PositiveWhole => "moduleText.format.positiveWhole.hint",
+        ValueTextFormat.Real => "moduleText.format.real.hint",
+        ValueTextFormat.IpAddress => "moduleText.format.ipAddress.hint",
+        _ => "moduleText.format.text.hint",
+    };
 
     private void SyncActiveText()
     {
@@ -717,6 +789,20 @@ public sealed class ModuleTextSurface : ModuleElement
         if (_focusRing is not null && !IsReadOnlyEffective)
         {
             _focusRing.IsVisible = true;
+        }
+    }
+
+    /// <summary>键入的整段文本一个合法字符都没有时提前吞掉；混合内容交给 Raw 收口统一过滤。</summary>
+    private void OnInputTextInput(object? sender, TextInputEventArgs e)
+    {
+        if (IsReadOnlyEffective || _editing is null || e.Text is not { Length: > 0 } text)
+        {
+            return;
+        }
+
+        if (ValueTextFormats.Filter(TextFormat, text).Length == 0)
+        {
+            e.Handled = true;
         }
     }
 
@@ -1059,6 +1145,16 @@ public sealed class ModuleTextSurface : ModuleElement
         else if (change.Property == EscapeInputProperty)
         {
             UpdateMarkOverlays();
+            ApplyPlaceholder();
+        }
+        else if (change.Property == ShowInputHintProperty)
+        {
+            ApplyPlaceholder();
+        }
+        else if (change.Property == TextFormatProperty)
+        {
+            _editing?.SetFormat(TextFormat);
+            ApplyPlaceholder();
         }
     }
 
@@ -1122,9 +1218,22 @@ public sealed class ModuleTextSurface : ModuleElement
 
     private void ResolveContext()
     {
-        if (_context is null && this.FindAncestorOfType<ModuleViewHost>() is { } host)
+        if (_context is not null)
+        {
+            return;
+        }
+
+        if (this.FindAncestorOfType<ModuleViewHost>() is { } host)
         {
             _context = host.Context;
+            return;
+        }
+
+        // 预览器没有宿主：设计上下文挂在视图 DataContext 上。
+        if (DataContext is IModuleViewContext context)
+        {
+            _context = context;
+            Refresh(context);
         }
     }
 }

@@ -39,8 +39,8 @@ public sealed class ModuleContext : IModuleContext, IDisposable
     private readonly List<string> _inputs = [];
     private readonly HashSet<string> _persistentInputs = new(StringComparer.Ordinal);
     private readonly List<ValueDeclaration> _values = [];
-    private readonly Dictionary<string, ValueNotice> _valueNotices = new(StringComparer.Ordinal);
-    private readonly Lock _valueNoticeGate = new();
+    private readonly Dictionary<string, ValueValidity> _valueValidities = new(StringComparer.Ordinal);
+    private readonly Lock _valueValidityGate = new();
     private readonly List<(string Name, string Title)> _commands = [];
     private readonly List<ExternalAccessDeclaration> _externalAccesses = [];
     private readonly Dictionary<string, ReceiveHandler> _receiveHandlers = new(StringComparer.Ordinal);
@@ -230,21 +230,21 @@ public sealed class ModuleContext : IModuleContext, IDisposable
     /// <inheritdoc />
     public IModuleValues Values { get; }
 
-    /// <summary>读某一格当前的结论（控件侧呈现用）。</summary>
+    /// <summary>读某一格当前的有效性结论（控件侧呈现用）。</summary>
     /// <param name="name">值名。</param>
-    /// <param name="notice">结论；没有 ⇒ <see langword="null"/>。</param>
-    /// <returns>是否有该值。</returns>
-    public bool TryGetValueNotice(string name, out ValueNotice? notice)
+    /// <param name="validity">结论；没有 ⇒ <see cref="ValueValidity.Valid"/>。</param>
+    /// <returns>是否有该值的结论。</returns>
+    public bool TryGetValueValidity(string name, out ValueValidity validity)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
-            notice = null;
+            validity = ValueValidity.Valid;
             return false;
         }
 
-        lock (_valueNoticeGate)
+        lock (_valueValidityGate)
         {
-            return _valueNotices.TryGetValue(name, out notice);
+            return _valueValidities.TryGetValue(name, out validity);
         }
     }
 
@@ -304,9 +304,9 @@ public sealed class ModuleContext : IModuleContext, IDisposable
             ViewState.SetInputValue(value.Name, null);
         }
 
-        lock (_valueNoticeGate)
+        lock (_valueValidityGate)
         {
-            _valueNotices.Clear();
+            _valueValidities.Clear();
         }
     }
 
@@ -668,22 +668,38 @@ public sealed class ModuleContext : IModuleContext, IDisposable
         }
 
         /// <inheritdoc />
-        public void Report(string name, ValueNotice? notice)
+        public ValueValidity ReadValidity(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return ValueValidity.Valid;
+            }
+
+            lock (owner._valueValidityGate)
+            {
+                return owner._valueValidities.TryGetValue(name, out var validity)
+                    ? validity
+                    : ValueValidity.Valid;
+            }
+        }
+
+        /// <inheritdoc />
+        public void ReportValidity(string name, ValueValidity validity)
         {
             if (string.IsNullOrWhiteSpace(name))
             {
                 return;
             }
 
-            lock (owner._valueNoticeGate)
+            lock (owner._valueValidityGate)
             {
-                if (notice is null)
+                if (validity == ValueValidity.Valid)
                 {
-                    _ = owner._valueNotices.Remove(name);
+                    _ = owner._valueValidities.Remove(name);
                 }
                 else
                 {
-                    owner._valueNotices[name] = notice;
+                    owner._valueValidities[name] = validity;
                 }
             }
         }

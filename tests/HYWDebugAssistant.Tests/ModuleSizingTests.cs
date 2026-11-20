@@ -1,6 +1,7 @@
 using HYWDebugAssistant.Access.Parameters;
 using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Sdk.Ui.Controls;
+using HYWDebugAssistant.Sdk.Ui.Geometry;
 using HYWDebugAssistant.Ui.ViewModels;
 using NSubstitute;
 using Shouldly;
@@ -110,6 +111,36 @@ public class ModuleSizingTests
         context.ReadLatest("latestIndex").ShouldBeNull();
         context.ReadLatest("rate").ShouldBeNull();
         context.ReadText("status").Lines.ShouldBeEmpty();
+    }
+
+    /// <summary>窄模块的地板比高模块小：声明 120 宽时按 120 生效（不再被旧地板 160 夹）。</summary>
+    [Fact]
+    public void 声明更窄的宽度时按声明生效()
+    {
+        var module = Create();
+        module.SetWindowSize(
+            width: 120,
+            height: 360,
+            initialWidth: 150,
+            initialHeight: 420);
+
+        module.EffectiveMinWidth.ShouldBe(120);
+        module.StartupWindowWidth.ShouldBe(150);
+        module.EffectiveMinHeight.ShouldBe(360);
+    }
+
+    /// <summary>低于框架宽度地板时仍夹到地板。</summary>
+    [Fact]
+    public void 宽度低于框架地板时夹到地板()
+    {
+        var module = Create();
+        module.SetWindowSize(
+            width: PortMarkerMetrics.MinWindowWidth - 20,
+            height: 300,
+            initialWidth: 0,
+            initialHeight: 0);
+
+        module.EffectiveMinWidth.ShouldBe(PortMarkerMetrics.MinWindowWidth);
     }
 
     private static ModuleViewViewModel Create()

@@ -123,7 +123,7 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     private bool _legacyInputsMigrated;
 
     /// <summary>已标红的输入（避免每拍重复写外观）。</summary>
-    private readonly HashSet<string> _alertedInputs = new(StringComparer.Ordinal);
+    private readonly InputValidity _validity = new();
 
     /// <summary>本拍帧头/帧尾是否非法（保留上一次有效值）。</summary>
     private bool _headerInvalid;
@@ -316,8 +316,8 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
 
         if (reportAlerts)
         {
-            SetInputAlert(context, HeaderHexInput, headerInvalid);
-            SetInputAlert(context, FooterHexInput, footerInvalid);
+            _validity.Set(context, HeaderHexInput, headerInvalid, headerInvalid ? RawToWaveformText.Get(RawToWaveformText.HexHint) : null);
+            _validity.Set(context, FooterHexInput, footerInvalid, footerInvalid ? RawToWaveformText.Get(RawToWaveformText.HexHint) : null);
         }
 
         var prefix = context.Values.ReadText(PrefixInput) ?? string.Empty;
@@ -337,25 +337,6 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
 
         invalid = false;
         return bytes;
-    }
-
-    /// <summary>把某一格的"格式无效"落到外观（只在该格状态变化时写一次）。</summary>
-    private void SetInputAlert(IModuleContext context, string source, bool alert)
-    {
-        if (alert)
-        {
-            if (_alertedInputs.Add(source))
-            {
-                context.Appearance.SetOutlineRole(source, ViewInkRoles.Danger);
-            }
-
-            return;
-        }
-
-        if (_alertedInputs.Remove(source))
-        {
-            context.Appearance.SetOutlineRole(source, null);
-        }
     }
 
     /// <summary>旧文本帧头/帧尾 → 十六进制串（一次性；迁移后清空旧值，避免清空新值后旧值复活）。</summary>

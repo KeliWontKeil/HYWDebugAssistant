@@ -8,6 +8,7 @@ using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Timing;
+using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
@@ -102,6 +103,7 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
 
     private readonly ChannelFrameFeed _feed = new();
     private readonly Dictionary<string, string> _lastText = new(StringComparer.Ordinal);
+    private readonly InputValidity _validity = new();
 
     private IModuleContext? _context;
     private IModuleTimer? _timer;
@@ -166,24 +168,16 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
         DeclareValue(context, SmoothingMsSource, ValueEditor.Number);
         DeclareValue(context, DecimalsSource, ValueEditor.Number);
         DeclareValue(context, FillFromZeroSource, ValueEditor.Boolean);
-        DeclareValue(context, ColorSource, ValueEditor.Enum, [
-            new ValueChoice("green", Tr(ScaleBarVerticalText.ColorGreen)),
-            new ValueChoice("blue", Tr(ScaleBarVerticalText.ColorBlue)),
-            new ValueChoice("orange", Tr(ScaleBarVerticalText.ColorOrange)),
-            new ValueChoice("red", Tr(ScaleBarVerticalText.ColorRed)),
-            new ValueChoice("purple", Tr(ScaleBarVerticalText.ColorPurple)),
-        ]);
+        DeclareValue(context, ColorSource, ValueEditor.Text);
     }
 
     private static void DeclareValue(
         IModuleContext context,
         string name,
-        ValueEditor editor,
-        IReadOnlyList<ValueChoice>? choices = null) =>
+        ValueEditor editor) =>
         context.Declaration.DeclareValue(new ValueDeclaration(name)
         {
             Editor = editor,
-            Choices = choices,
             Persistent = true,
             ResetWithModule = true,
         });
@@ -302,157 +296,222 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
         var defaults = ScaleBarSettings.Default;
         var candidate = _settings;
 
-        if (TryReadChanged(context, GroupSource, out var groupText))
+        if (TryReadChanged(context, GroupSource, out var groupText, out var groupCleared))
         {
-            if (TryParseInteger(groupText, out var group) && group >= 0)
+            if (groupCleared)
+            {
+                candidate = candidate with { GroupId = defaults.GroupId };
+                _validity.Set(context, GroupSource, false);
+            }
+            else if (TryParseInteger(groupText, out var group) && group >= 0)
             {
                 candidate = candidate with { GroupId = group };
-                ClearNotice(context, GroupSource);
+                _validity.Set(context, GroupSource, false);
             }
             else
             {
-                ReportInvalidInteger(context, GroupSource);
+                _validity.Set(context, GroupSource, true, Tr(ScaleBarVerticalText.InvalidInteger));
             }
         }
 
-        if (TryReadChanged(context, ChannelSource, out var channelText))
+        if (TryReadChanged(context, ChannelSource, out var channelText, out var channelCleared))
         {
-            if (TryParseInteger(channelText, out var channel) && channel >= 0)
+            if (channelCleared)
+            {
+                candidate = candidate with { Channel = defaults.Channel };
+                _validity.Set(context, ChannelSource, false);
+            }
+            else if (TryParseInteger(channelText, out var channel) && channel >= 0)
             {
                 candidate = candidate with { Channel = channel };
-                ClearNotice(context, ChannelSource);
+                _validity.Set(context, ChannelSource, false);
             }
             else
             {
-                ReportInvalidInteger(context, ChannelSource);
+                _validity.Set(context, ChannelSource, true, Tr(ScaleBarVerticalText.InvalidInteger));
             }
         }
 
-        if (TryReadChanged(context, MinimumSource, out var minimumText))
+        if (TryReadChanged(context, MinimumSource, out var minimumText, out var minimumCleared))
         {
-            if (minimumText.Length == 0)
+            if (minimumCleared)
             {
                 candidate = candidate with { Minimum = defaults.Minimum };
-                ClearNotice(context, MinimumSource);
             }
-            else if (TryParseDouble(minimumText, out var minimum))
+            else if (minimumText.Length > 0 && TryParseDouble(minimumText, out var minimum))
             {
                 candidate = candidate with { Minimum = minimum };
-                ClearNotice(context, MinimumSource);
-            }
-            else
-            {
-                ReportInvalidNumber(context, MinimumSource);
             }
         }
 
-        if (TryReadChanged(context, MaximumSource, out var maximumText))
+        if (TryReadChanged(context, MaximumSource, out var maximumText, out var maximumCleared))
         {
-            if (maximumText.Length == 0)
+            if (maximumCleared)
             {
                 candidate = candidate with { Maximum = defaults.Maximum };
-                ClearNotice(context, MaximumSource);
             }
-            else if (TryParseDouble(maximumText, out var maximum))
+            else if (maximumText.Length > 0 && TryParseDouble(maximumText, out var maximum))
             {
                 candidate = candidate with { Maximum = maximum };
-                ClearNotice(context, MaximumSource);
+            }
+        }
+
+        var minimumCurrent = context.Values.ReadText(MinimumSource);
+        var maximumCurrent = context.Values.ReadText(MaximumSource);
+        var minimumOk = minimumCurrent is null;
+        var maximumOk = maximumCurrent is null;
+        var minimumValue = defaults.Minimum;
+        var maximumValue = defaults.Maximum;
+        if (minimumCurrent is not null)
+        {
+            minimumOk = TryParseDouble(minimumCurrent, out minimumValue);
+        }
+
+        if (maximumCurrent is not null)
+        {
+            maximumOk = TryParseDouble(maximumCurrent, out maximumValue);
+        }
+
+        if (minimumOk && maximumOk)
+        {
+            if (maximumValue <= minimumValue)
+            {
+                var message = Tr(ScaleBarVerticalText.InvalidRange);
+                _validity.Set(context, MinimumSource, true, message);
+                _validity.Set(context, MaximumSource, true, message);
+                candidate = candidate with { Minimum = _settings.Minimum, Maximum = _settings.Maximum };
             }
             else
             {
-                ReportInvalidNumber(context, MaximumSource);
+                candidate = candidate with { Minimum = minimumValue, Maximum = maximumValue };
+                _validity.Set(context, MinimumSource, false);
+                _validity.Set(context, MaximumSource, false);
+            }
+        }
+        else
+        {
+            _validity.Set(context, MinimumSource, !minimumOk, Tr(ScaleBarVerticalText.InvalidNumber));
+            _validity.Set(context, MaximumSource, !maximumOk, Tr(ScaleBarVerticalText.InvalidNumber));
+        }
+
+        if (TryReadChanged(context, AutoZeroSource, out var autoZeroText, out var autoZeroCleared))
+        {
+            if (autoZeroCleared)
+            {
+                candidate = candidate with { AutoZero = defaults.AutoZero };
+            }
+            else if (bool.TryParse(autoZeroText.Trim(), out var autoZero))
+            {
+                candidate = candidate with { AutoZero = autoZero };
             }
         }
 
-        if (TryReadChanged(context, AutoZeroSource, out var autoZeroText))
+        if (TryReadChanged(context, ZeroDelaySource, out var delayText, out var delayCleared))
         {
-            candidate = candidate with
+            if (delayCleared)
             {
-                AutoZero = bool.TryParse(autoZeroText.Trim(), out var autoZero) ? autoZero : defaults.AutoZero,
-            };
+                candidate = candidate with { ZeroDelayMs = defaults.ZeroDelayMs };
+                _validity.Set(context, ZeroDelaySource, false);
+            }
+            else if (TryParseClamped(
+                         delayText,
+                         ScaleBarSettings.MinimumZeroDelayMs,
+                         ScaleBarSettings.MaximumZeroDelayMs,
+                         out var delay))
+            {
+                candidate = candidate with { ZeroDelayMs = delay };
+                _validity.Set(context, ZeroDelaySource, false);
+            }
+            else
+            {
+                _validity.Set(context, ZeroDelaySource, true, Tr(ScaleBarVerticalText.InvalidNumber));
+            }
         }
 
-        if (TryReadChanged(context, ZeroDelaySource, out var delayText))
-        {
-            candidate = candidate with
-            {
-                ZeroDelayMs = ParseClamped(
-                    delayText,
-                    defaults.ZeroDelayMs,
-                    ScaleBarSettings.MinimumZeroDelayMs,
-                    ScaleBarSettings.MaximumZeroDelayMs),
-            };
-        }
-
-        if (TryReadChanged(context, TitleSource, out var titleText))
+        if (TryReadChanged(context, TitleSource, out var titleText, out _))
         {
             candidate = candidate with { Title = titleText };
         }
 
-        if (TryReadChanged(context, UnitSource, out var unitText))
+        if (TryReadChanged(context, UnitSource, out var unitText, out _))
         {
             candidate = candidate with { Unit = unitText };
         }
 
-        if (TryReadChanged(context, SmoothingSource, out var smoothingText))
+        if (TryReadChanged(context, SmoothingSource, out var smoothingText, out var smoothingCleared))
+        {
+            if (smoothingCleared)
+            {
+                candidate = candidate with { Smoothing = defaults.Smoothing };
+            }
+            else if (bool.TryParse(smoothingText.Trim(), out var smoothing))
+            {
+                candidate = candidate with { Smoothing = smoothing };
+            }
+        }
+
+        if (TryReadChanged(context, SmoothingMsSource, out var smoothingMsText, out var smoothingMsCleared))
+        {
+            if (smoothingMsCleared)
+            {
+                candidate = candidate with { SmoothingMs = defaults.SmoothingMs };
+                _validity.Set(context, SmoothingMsSource, false);
+            }
+            else if (TryParseClamped(
+                         smoothingMsText,
+                         ScaleBarSettings.MinimumSmoothingMs,
+                         ScaleBarSettings.MaximumSmoothingMs,
+                         out var smoothingMs))
+            {
+                candidate = candidate with { SmoothingMs = smoothingMs };
+                _validity.Set(context, SmoothingMsSource, false);
+            }
+            else
+            {
+                _validity.Set(context, SmoothingMsSource, true, Tr(ScaleBarVerticalText.InvalidNumber));
+            }
+        }
+
+        if (TryReadChanged(context, DecimalsSource, out var decimalsText, out var decimalsCleared))
+        {
+            if (decimalsCleared)
+            {
+                candidate = candidate with { Decimals = defaults.Decimals };
+                _validity.Set(context, DecimalsSource, false);
+            }
+            else if (TryParseClamped(
+                         decimalsText,
+                         ScaleBarSettings.MinimumDecimals,
+                         ScaleBarSettings.MaximumDecimals,
+                         out var decimals))
+            {
+                candidate = candidate with { Decimals = decimals };
+                _validity.Set(context, DecimalsSource, false);
+            }
+            else
+            {
+                _validity.Set(context, DecimalsSource, true, Tr(ScaleBarVerticalText.InvalidNumber));
+            }
+        }
+
+        if (TryReadChanged(context, FillFromZeroSource, out var fillFromZeroText, out var fillFromZeroCleared))
+        {
+            if (fillFromZeroCleared)
+            {
+                candidate = candidate with { FillFromZero = defaults.FillFromZero };
+            }
+            else if (bool.TryParse(fillFromZeroText.Trim(), out var fillFromZero))
+            {
+                candidate = candidate with { FillFromZero = fillFromZero };
+            }
+        }
+
+        if (TryReadChanged(context, ColorSource, out var colorText, out var colorCleared))
         {
             candidate = candidate with
             {
-                Smoothing = bool.TryParse(smoothingText.Trim(), out var smoothing) ? smoothing : defaults.Smoothing,
+                Color = colorCleared ? defaults.Color : NormalizeColor(colorText),
             };
-        }
-
-        if (TryReadChanged(context, SmoothingMsSource, out var smoothingMsText))
-        {
-            candidate = candidate with
-            {
-                SmoothingMs = ParseClamped(
-                    smoothingMsText,
-                    defaults.SmoothingMs,
-                    ScaleBarSettings.MinimumSmoothingMs,
-                    ScaleBarSettings.MaximumSmoothingMs),
-            };
-        }
-
-        if (TryReadChanged(context, DecimalsSource, out var decimalsText))
-        {
-            candidate = candidate with
-            {
-                Decimals = ParseClamped(
-                    decimalsText,
-                    defaults.Decimals,
-                    ScaleBarSettings.MinimumDecimals,
-                    ScaleBarSettings.MaximumDecimals),
-            };
-        }
-
-        if (TryReadChanged(context, FillFromZeroSource, out var fillFromZeroText))
-        {
-            candidate = candidate with
-            {
-                FillFromZero = bool.TryParse(fillFromZeroText.Trim(), out var fillFromZero)
-                    ? fillFromZero
-                    : defaults.FillFromZero,
-            };
-        }
-
-        if (TryReadChanged(context, ColorSource, out var colorText) && colorText.Length > 0)
-        {
-            candidate = candidate with { Color = NormalizeColor(colorText, defaults.Color) };
-        }
-
-        if (candidate.Maximum <= candidate.Minimum)
-        {
-            // 只回退"范围这一对"，其余设置照常生效；用户下一步改对上限即可恢复。
-            var message = Tr(ScaleBarVerticalText.InvalidRange);
-            context.Values.Report(MinimumSource, new ValueNotice(ValueNoticeSeverity.Error, message));
-            context.Values.Report(MaximumSource, new ValueNotice(ValueNoticeSeverity.Error, message));
-            candidate = candidate with { Minimum = _settings.Minimum, Maximum = _settings.Maximum };
-        }
-        else
-        {
-            ClearNotice(context, MinimumSource);
-            ClearNotice(context, MaximumSource);
         }
 
         if (!candidate.Equals(_settings))
@@ -462,18 +521,24 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
         }
     }
 
-    /// <summary>读出某个值是否发生变化；值被清空时用哨兵表示（与"用户输入空串"区分）。</summary>
-    private bool TryReadChanged(IModuleContext context, string source, out string text)
+    /// <summary>读出某个值是否发生变化；`cleared` 区分“框架清空”（回默认）与“用户输入空串”（非法）。</summary>
+    private bool TryReadChanged(
+        IModuleContext context,
+        string source,
+        out string text,
+        out bool cleared)
     {
-        var current = context.Values.ReadText(source) ?? ClearedMarker;
-        if (_lastText.TryGetValue(source, out var previous) && string.Equals(previous, current, StringComparison.Ordinal))
+        var current = context.Values.ReadText(source);
+        cleared = current is null;
+        var marker = current ?? ClearedMarker;
+        if (_lastText.TryGetValue(source, out var previous) && string.Equals(previous, marker, StringComparison.Ordinal))
         {
             text = string.Empty;
             return false;
         }
 
-        _lastText[source] = current;
-        text = string.Equals(current, ClearedMarker, StringComparison.Ordinal) ? string.Empty : current;
+        _lastText[source] = marker;
+        text = current ?? string.Empty;
         return true;
     }
 
@@ -492,6 +557,7 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
         Accept(context, FillFromZeroSource, defaults.FillFromZero ? "true" : "false");
         Accept(context, ColorSource, defaults.Color);
         _lastText.Clear();
+        _validity.ClearAll(context);
     }
 
     private static void Accept(IModuleContext context, string source, string text) =>
@@ -622,38 +688,24 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
         context.Ports.Publish(source, buffer);
     }
 
-    private static void ClearNotice(IModuleContext context, string source) =>
-        context.Values.Report(source, null);
-
-    private static void ReportInvalidNumber(IModuleContext context, string source) =>
-        context.Values.Report(source, new ValueNotice(
-            ValueNoticeSeverity.Error,
-            Tr(ScaleBarVerticalText.InvalidNumber)));
-
-    private static void ReportInvalidInteger(IModuleContext context, string source) =>
-        context.Values.Report(source, new ValueNotice(
-            ValueNoticeSeverity.Error,
-            Tr(ScaleBarVerticalText.InvalidInteger)));
-
-    private static int ParseClamped(string text, int fallback, int minimum, int maximum)
+    private static bool TryParseClamped(string text, int minimum, int maximum, out int value)
     {
-        if (!int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+        value = 0;
+        if (!int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
         {
-            return fallback;
+            return false;
         }
 
-        return Math.Clamp(value, minimum, maximum);
+        value = Math.Clamp(parsed, minimum, maximum);
+        return true;
     }
 
     private static bool TryParseInteger(string text, out int value) =>
         int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
 
-    /// <summary>颜色角色只认五个稳定键；未知值回落到默认色。</summary>
-    private static string NormalizeColor(string text, string fallback)
-    {
-        var token = text.Trim();
-        return token is "green" or "blue" or "orange" or "red" or "purple" ? token : fallback;
-    }
+    /// <summary>颜色只认 <c>AARRGGBB</c>；空/非法回落到主题默认。</summary>
+    private static string NormalizeColor(string text) =>
+        ColorText.TryParseArgb(text, out var argb) ? ColorText.FormatArgb(argb) : string.Empty;
 
     private static bool TryParseDouble(string text, out double value) =>
         double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out value)

@@ -14,7 +14,7 @@ namespace HYWDebugAssistant.Access.Parameters;
 /// </para>
 /// <para>
 /// <b>端口号是动态下拉</b>（见 <see cref="GetChoices"/>）：可选值随插拔变化，写死在枚举里没有意义；
-/// 一个设备都没插上时它退回普通文本框（手打端口名仍然可用）。
+/// 一个设备都没插上时下拉为空，不退回普通文本框。
 /// </para>
 /// </remarks>
 public sealed class SerialConfig : IConfigurationChoices

@@ -196,13 +196,13 @@ public sealed class DesignModuleViewContext : IModuleViewContext
 
         return new ValueState(
             name,
-            Translate(field.Kind),
+            ValueEditorMapping.ToEditor(field.Kind),
             field.Value,
             field.Value,
             field.Choices?.Select(choice => new ValueChoice(choice.Value, choice.Title)).ToArray(),
             false,
             true,
-            null,
+            ValueValidity.Valid,
             0,
             IsKnown: true);
     }
@@ -218,14 +218,6 @@ public sealed class DesignModuleViewContext : IModuleViewContext
     {
         // 预览没有运行时值存储。
     }
-
-    private static ValueEditor Translate(ConfigFieldKind kind) => kind switch
-    {
-        ConfigFieldKind.Boolean => ValueEditor.Boolean,
-        ConfigFieldKind.WholeNumber or ConfigFieldKind.Number => ValueEditor.Number,
-        ConfigFieldKind.Enum => ValueEditor.Enum,
-        _ => ValueEditor.Text,
-    };
 
     /// <summary>读属性当前值的文本形态（配置实例构造失败 ⇒ 空串）。</summary>
     private string ReadValue(PropertyInfo property)

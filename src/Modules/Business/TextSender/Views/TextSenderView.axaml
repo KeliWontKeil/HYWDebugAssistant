@@ -32,40 +32,45 @@
               <!-- 发送格式：文本输入始终按 C 转义；CR、LF 两个勾选只控制真实回车。 -->
       <ui:ModuleLabel Width="64" Height="24" Classes="caption right"
                       VerticalAlignment="Center" Text="{loc:Tr view.newline}" />
-      <ui:ModuleCheckBox  Width="26" Height="24" IsChecked="True"
+      <ui:ModuleCheckBox  Width="26" Height="24" IsChecked="True" Margin="0,1,0,0"
                          Value="{x:Static views:TextSenderViewKeys.NewlineCr}"
                          Content="{loc:Tr view.newlineCr}" />
-      <ui:ModuleCheckBox Width="26" Height="24" IsChecked="True"
+      <ui:ModuleCheckBox Width="26" Height="24" IsChecked="True" Margin="0,1,0,0"
                          Value="{x:Static views:TextSenderViewKeys.NewlineLf}"
                          Content="{loc:Tr view.newlineLf}" />
     </StackPanel>
 
     <ui:ModuleTabs Grid.Row="1" StateKey="{x:Static views:TextSenderViewKeys.PagesStateKey}">
-      <TabItem Header="1"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:TextSenderViewKeys.Text1}"
+      <TabItem Header="1"><ui:ModuleTextSurface Mode="Input" TextFormat="Text" Value="{x:Static views:TextSenderViewKeys.Text1}"
+                                                ShowInputHint="True"
                                                 EscapeInput="True"
                                                 SubmitKeyValue="{x:Static views:TextSenderViewKeys.SubmitKey}"
                                                 EnterNewlineValue="{x:Static views:TextSenderViewKeys.EnterNewline}"
                                                 SubmitCommandName="{x:Static views:TextSenderViewKeys.Send}"
                                                 Multiline="True" CommitMode="OnChange" /></TabItem>
-      <TabItem Header="2"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:TextSenderViewKeys.Text2}"
+      <TabItem Header="2"><ui:ModuleTextSurface Mode="Input" TextFormat="Text" Value="{x:Static views:TextSenderViewKeys.Text2}"
+                                                ShowInputHint="True"
                                                 EscapeInput="True"
                                                 SubmitKeyValue="{x:Static views:TextSenderViewKeys.SubmitKey}"
                                                 EnterNewlineValue="{x:Static views:TextSenderViewKeys.EnterNewline}"
                                                 SubmitCommandName="{x:Static views:TextSenderViewKeys.Send}"
                                                 Multiline="True" CommitMode="OnChange" /></TabItem>
-      <TabItem Header="3"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:TextSenderViewKeys.Text3}"
+      <TabItem Header="3"><ui:ModuleTextSurface Mode="Input" TextFormat="Text" Value="{x:Static views:TextSenderViewKeys.Text3}"
+                                                ShowInputHint="True"
                                                 EscapeInput="True"
                                                 SubmitKeyValue="{x:Static views:TextSenderViewKeys.SubmitKey}"
                                                 EnterNewlineValue="{x:Static views:TextSenderViewKeys.EnterNewline}"
                                                 SubmitCommandName="{x:Static views:TextSenderViewKeys.Send}"
                                                 Multiline="True" CommitMode="OnChange" /></TabItem>
-      <TabItem Header="4"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:TextSenderViewKeys.Text4}"
+      <TabItem Header="4"><ui:ModuleTextSurface Mode="Input" TextFormat="Text" Value="{x:Static views:TextSenderViewKeys.Text4}"
+                                                ShowInputHint="True"
                                                 EscapeInput="True"
                                                 SubmitKeyValue="{x:Static views:TextSenderViewKeys.SubmitKey}"
                                                 EnterNewlineValue="{x:Static views:TextSenderViewKeys.EnterNewline}"
                                                 SubmitCommandName="{x:Static views:TextSenderViewKeys.Send}"
                                                 Multiline="True" CommitMode="OnChange" /></TabItem>
-      <TabItem Header="5"><ui:ModuleTextSurface Mode="Input" Value="{x:Static views:TextSenderViewKeys.Text5}"
+      <TabItem Header="5"><ui:ModuleTextSurface Mode="Input" TextFormat="Text" Value="{x:Static views:TextSenderViewKeys.Text5}"
+                                                ShowInputHint="True"
                                                 EscapeInput="True"
                                                 SubmitKeyValue="{x:Static views:TextSenderViewKeys.SubmitKey}"
                                                 EnterNewlineValue="{x:Static views:TextSenderViewKeys.EnterNewline}"
@@ -84,7 +89,7 @@
                       VerticalAlignment="Center" Text="{loc:Tr view.continuous}" />
 
       <!-- 间隔：输入框一条矩形，单位 `ms` 是紧挨着的普通标签。 -->
-      <ui:ModuleTextSurface Canvas.Left="188" Canvas.Top="4" Width="48" Height="24" Mode="Input"
+      <ui:ModuleTextSurface Canvas.Left="188" Canvas.Top="4" Width="48" Height="24" Mode="Input" TextFormat="NonNegativeWhole"
                             Value="{x:Static views:TextSenderViewKeys.Interval}" TextAlignment="Right" CommitMode="OnChange" />
       <ui:ModuleLabel Canvas.Left="237" Canvas.Top="4" Width="20" Height="24"
                       Classes="caption" Text="{loc:Tr view.intervalUnit}" />

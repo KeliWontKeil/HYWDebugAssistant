@@ -72,9 +72,20 @@ public partial class ModulePreviewChrome : UserControl
     /// <summary>把内容包进模块窗口外壳。</summary>
     /// <param name="content">模块视图内容（运行时是宿主，预览时是视图根内容）。</param>
     /// <param name="ports">视图声明的端口（空 = 只画外框）。</param>
-    public static Control Create(Control content, IReadOnlyList<ModulePort>? ports)
+    /// <param name="width">预览窗口宽（用于解析有效边：放不下的边会被换掉）。</param>
+    /// <param name="height">预览窗口高。</param>
+    public static Control Create(Control content, IReadOnlyList<ModulePort>? ports, double width, double height)
     {
         ArgumentNullException.ThrowIfNull(content);
+
+        if (ports is not null)
+        {
+            // 标记尺寸固定；放不下的边换到放得下的边（运行期同一份规则，此处只解析一次设计尺寸）。
+            foreach (var port in ports)
+            {
+                port.ResolveEdge(width, height);
+            }
+        }
 
         return new ModulePreviewChrome
         {
@@ -113,6 +124,10 @@ internal sealed class PreviewPortPanel : Panel
             }
 
             var marker = new Size(port.MarkerWidth, port.MarkerHeight);
+
+            // 与运行时同一契约：把确定尺寸显式交给容器，模板不再写固定宽高。
+            child.Width = marker.Width;
+            child.Height = marker.Height;
             child.Arrange(PortMarkerLayout.MarkerRect(port.Side, port.Offset, finalSize, marker));
         }
 

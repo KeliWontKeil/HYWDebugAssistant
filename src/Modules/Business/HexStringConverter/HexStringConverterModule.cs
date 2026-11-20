@@ -119,15 +119,6 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     /// <summary>派生值：输入面按 Enter 写入的换行档。</summary>
     public const string EnterNewlineSource = "enterNewline";
 
-    /// <summary>
-    /// 模块自己挑的**提示角色**（**相对色**）—— 框架只提供"设边框色"这个能力，不认识"红 = 失败"。
-    /// </summary>
-    /// <remarks>
-    /// 值只在这一处；用的是**配色表里的角色词**，不是色值 ⇒ 用户在设置里改那一支色、或换深浅主题，
-    /// 这一圈跟着变。要换观感就换词。
-    /// </remarks>
-    public const string AlertRole = ViewInkRoles.Danger;
-
     // ---------------------------------------------------------------- ② 声明块
 
     /// <inheritdoc />
@@ -222,6 +213,7 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
     /// 让输出停在另一页的结果上。
     /// </remarks>
     private readonly Dictionary<bool, (string Source, string Text)> _published = new();
+    private readonly InputValidity _validity = new();
 
     private NewlineMode _format = NewlineMode.CrLf;
     private bool _formatInitialized;
@@ -299,12 +291,12 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
 
         if (!ok)
         {
-            // **失败 ⇒ 清掉结果 + 只把这一格的边框标红**（不写文字提示：这一格的对错，边框说清就够）。
+            // **失败 ⇒ 清掉结果 + 把这一格标红并给出原因**（原因来自编解码器）。
             // 为什么**清掉**而不是留着上一次的结果：留着会让屏幕上同时有"新输入 + 旧结果"，
             // 而旧结果看起来像是这次算出来的 —— 那是最容易骗到自己的一种状态。
             LastFailure = failure;
             PublishResult(context, toHex, null);
-            context.Appearance.SetOutlineRole(source, AlertRole);
+            _validity.Set(context, source, true, failure);
             return false;
         }
 
@@ -314,14 +306,14 @@ public sealed class HexStringConverterModule : IModule, IActivitySource
         {
             // **空输入 ⇒ 静默**：清掉结果、清掉标色（用户还没写完不算错）。
             PublishResult(context, toHex, null);
-            context.Appearance.SetOutlineColor(source, null);
+            _validity.Set(context, source, false);
             return false;
         }
 
         PublishResult(context, toHex, result);
 
         // **成功 ⇒ 清掉标色**（回到主题给的边框）。
-        context.Appearance.SetOutlineColor(source, null);
+        _validity.Set(context, source, false);
         return true;
     }
 

@@ -95,7 +95,9 @@ public partial class MyView : ModuleView, IModuleViewElement
 - `InitialWidth/Height` 是唯一声明；`ModuleView` 在 setter 里把**窗口尺寸**直接镜像给预览器的 `Design.Width/Height`，不要再写 `d:DesignWidth/Height`。
 - 运行期根控件的布局 `MinWidth/MinHeight` 会自动归一为**内容区下限**（声明值 − chrome），因此 402 的窗口下限不会撑破 360 的内容区；`ModuleView.DeclaredMinWidth/Height` 保留含外框的声明值供窗口模型读取。
 - 内容放不下时内容区滚动，窗口不按内容长高。
-- 最小尺寸要容得下端口标记，否则标记会被裁掉。
+- **框架地板**：窗口最小宽 96 / 最小高 160（`PortMarkerMetrics.MinWindowWidth`/`MinWindowHeight`）。声明低于地板时被夹到地板；宽度地板比高度小，因为窄窗里上下边的标记会**换到左右边**（`PortMarkerLayout.FitEdge`，标记尺寸固定、不缩），而竖排按钮簇与左右边标记仍需要高度。
+- **窄窗 chrome**：窗口**实际宽度** < 200（`ModuleSurfaceMetrics.NarrowWidth`）时，右上角按钮簇改成竖排、左上角选中标题按字竖排 —— 判定在 `ModuleWindow` 里按 `Bounds` 做（不看模型里的 Width，所以预览器改尺寸也会切换），模块不用写响应式分支。
+- 最小尺寸还要容得下模块自己的内容（工具栏 + 可视化）：地板只是"chrome 放得下"的下限，不是"内容好看"的下限。
 
 ## 端口声明
 
@@ -120,14 +122,18 @@ public partial class MyView : ModuleView, IModuleViewElement
 - 内容区用 `Grid`：`*` 行/列吸收剩余空间，固定行放动作条与状态行。
 - **没有自适应需求的模块可以整块用一个 `Canvas`**（示例：串口、两个波形桥）：XAML 声明的窗口尺寸固定，`Min` 与 `Initial` 相等；内容区 = 窗口 − 固定 chrome。共有输入（组号、采样率这类）保持绝对坐标；只有随协议变化的帧信息行放进固定起点的纵向堆叠（`StackPanel`）：行隐藏即折叠、不留占位；统计与状态按惯例固定在底部——统计一行，状态句单独贴底，不再为它们套第二层行列容器。
 - 固定控件集中放在一个 `Canvas` 中，用 `Canvas.Left/Top` 精确摆放；坐标只写在 XAML，代码不写位置、不按内容改行高。
+- **设置面板正文也是固定尺寸表单**：根用 `Canvas` 绝对坐标，行高/列宽/间距由面板 XAML 统一；不再用 `Grid` 的自动行去承载表单。
 - `Canvas` 是“相对坐标容器”，不是窗口级绝对坐标：窗口变宽时由外层 `*` 区域吸收。
 - **结构常显，可选参数可隐藏**：组/通道/页签/动作等结构控件必须在 XAML 中常显；无选中项时用 `IsEnabled` 禁用。仅部分数据适用的参数行允许运行期用 `IsVisible` 隐藏，但 XAML 默认必须全显，保证预览器不调用 `Refresh` 时仍能定位全部控件。
 - **等分列之间要留间距**：相邻控件的 1 DIP 边框不要共边；列宽只做一次除法，右侧余量要覆盖布局取整的最坏外扩。否则在非整数宽度下，后绘制的按钮会盖住前一个（选中态边框最明显）。
 - 单位是普通标签（`ms`、`条`），不占用控件属性。
 - 开关文字是独立 `ModuleLabel`，放在轨道右侧；勾选框的文字是自带的 `Content`，方框与文字间距 2 DIP。
 - 颜色一律取主题 token 或角色词，不写死色值；排印档位用 `caption` / `hint` / `micro`。
-- 需要用户选色时走 `IModuleViewContext.ColorPicker`，不要自建色板。
-- 设置表单放不下时走**浮层面板标准**（见[控件](controls.md)）：正文是独立的 `Views/<Name>SettingsPanel.axaml`（可被预览器单独打开），模块视图只声明一个 `ModulePopupPanel` 并设置 `Anchor`。不要把大块设置硬塞进小型控件的活动区域，也不要在模块视图里自己开窗口或弹 Popup。
+- 需要用户选色时用 `ModuleColorField`（内部走 `IModuleViewContext.ColorPicker`），不要自建色板；颜色值存 `AARRGGBB`，空 = 主题默认。
+- 设置表单放不下时走**浮层面板标准**（见[控件](controls.md)）：正文是独立的 `Views/<Name>SettingsPanel.axaml`（可被预览器单独打开），模块视图只声明一个 `ModulePopupPanel` 并设置 `Anchor`。面板贴着锚点出现并跟随模块窗口，锚点按钮在打开期间高亮；不要把大块设置硬塞进小型控件的活动区域，也不要在模块视图里自己开窗口或弹 Popup。
+- **修改即应用**：`ModuleTextSurface` 默认 `CommitMode="OnChange"`，设置面板与普通模块输入不要加显式提交；只有配置字段这类“变更会重开会话”的明确需求才写 `OnExplicit` 并在视图注释说明。控件不判合法性；它只按本控件的 `TextFormat` 做字符准入（丢弃不允许的字符），模块解析失败时保留上一份有效值，文本不滚回；红圈/原因由模块 `InputValidity` 统一写。
+- **紧凑表单**：固定表单高度 = 最后一行底边 + 8 DIP，不保留无用底部空白；新增/删除行时同步改 `InitialHeight`。
+- **预览范围指示**：无可见边框的控件画虚线控件框；有可见边框的输入控件以自身边框为界，不叠第二条虚线；布局槽位画点线容器框。范围框是控件最终边界，不能靠留白猜。
 
 
 ## 颜色与排印
@@ -254,7 +260,7 @@ public sealed partial class MyView : ModuleView { }
 |---|---|---|
 | 控件没有样式、像裸控件 | 视图根不是 `ModuleView`，或预览宿主没有进入设计环境 | 根改成 `ModuleView`；预览宿主设置 `ModuleView.IsPreviewHost = true` |
 | 文案显示成键名 | 预览器读不到文本表 | 工程里加上[项目与包布局](project-layout.md)中的 `Content` 项 |
-| 值编辑器只剩虚线框、看不到控件 | 视图缺设计数据：值不是配置字段，或视图没有登记初值/编辑器 | 配置字段视图加 `[ModuleViewDesignData(typeof(配置类型))]`；模块自有值给 `ModuleConfigField` 写 `Value`、`Editor`、`InitialValue` |
+| 输入控件只剩虚线框、看不到内容 | 视图缺设计数据或预览值 | 配置字段视图加 `[ModuleViewDesignData(typeof(配置类型))]`；文本/数字给 `ModuleTextSurface` 写 `Value`、`Text`，枚举给 `ModuleSelect` 写 `Value`、`SelectedKey`，布尔给 `ModuleToggle` 写 `Value`、`IsChecked` |
 | 参数控件在预览里消失 | XAML 默认 `IsVisible=False`，只靠运行时 `Refresh` 打开 | 结构控件常显，可选参数行 XAML 默认全显，运行期再按数据隐藏 |
 | 预览里控件互相遮挡 | 运行期会隐藏的参数行/单元在预览里仍全显 | 正常、有意为之；以主应用运行期为准，不要改成 XAML 默认隐藏 |
 | 预览期出现虚线范围框、运行期消失 | 范围框是设计期定位辅助，由 `ModuleView.IsDesignEnvironment` 决定 | 正常；运行期不创建、不参与布局、命中或 PNG 捕获 |

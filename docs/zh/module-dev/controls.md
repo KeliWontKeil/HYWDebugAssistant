@@ -22,18 +22,18 @@
 | `ModuleLabel` | 一句话：静态文字、配置字段标题、文本显示源 | `Text`、`Field`、`Source`、`TextVerticalAlignment`；样式类 `caption` / `hint` / `micro` / `right` / `wrap` |
 | `ModuleNumeric` | 数值读数 | `Source`、`Quantity`（`None` / `Bytes`）、`Text`（预览值） |
 | `ModuleStatusLight` | 状态灯：底色来自模块设的**角色词** | `Source`；配合 `Appearance.SetOutlineRole(Source, role)` |
-| `ModuleTextSurface` | 文本面：日志显示或可编辑值 | `Mode`、`Value`、`CommitMode`、`Source`（仅显示）、`Text`、`Multiline`、`IsReadOnly`、`ShowNewlineMarks`、`ShowControlCharacterMarkers`、`EscapeInput`、`TextAlignment`、`MinEditorHeight`、`Commit()`、`SubmitKeyValue`、`SubmitCommandName`、`EnterNewlineValue` |
+| `ModuleTextSurface` | **唯一的文本/数字编辑器**：日志显示或可编辑值 | `Mode`、`Value`、`CommitMode`、`Source`（仅显示）、`Text`、`TextFormat`、`Multiline`、`IsReadOnly`、`ShowNewlineMarks`、`ShowControlCharacterMarkers`、`EscapeInput`、`ShowInputHint`、`TextAlignment`、`MinEditorHeight`、`Commit()`、`SubmitKeyValue`、`SubmitCommandName`、`EnterNewlineValue` |
 | `ModuleButton` | 命令按钮（可选右侧小箭头菜单） | `CommandName`、`Content`、`Icon`、`IconOwner`、`Appearance`、`MenuValue` |
 | `ModuleToggle` | 开关：勾选提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`CheckedChanged`（程序写回也触发） |
 | `ModuleCheckBox` | 勾选框：方框 + 勾形 + 右侧文字（间距 2 DIP），提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`Content`、`CheckedChanged` |
-| `ModuleConfigField` | 值编辑器（文本/数字/布尔/枚举） | `Value`（标题另用 `ModuleLabel`） |
 | `ModuleTabs` | 页签容器，选中页写入视图状态 | `StateKey`、`TabItem` 子项 |
-| `ModuleSelect` | 紧凑下拉 | `Value`、`CommitMode`、`SelectedKey`、`PreviewOptions`；旧 `Options`/`OptionSelected` 仅供结构选择 |
+| `ModuleSelect` | **枚举下拉**（配置字段或普通值；选项来自 `ValueState.Choices`） | `Value`、`CommitMode`、`SelectedKey`、`PreviewOptions`；旧 `Options`/`OptionSelected` 仅供结构选择 |
+| `ModuleColorField` | **颜色值编辑器**：色块，点开框架取色窗 | `Value`、`DefaultBrushToken`、`DialogTitle`、`ResetText`、`InitialColor` |
 | `ModuleSegmentedControl` | 互斥分段选择（文字/图标，可禁用） | `Value`、`CommitMode`、`SelectedKey`、`PreviewOptions`、`ShowLabels`、`IconSize`；旧 `Options`/`OptionSelected` 供结构选择 |
 | `ChartSurface` | 通用多序列绘图（全量点、X/Y 游标、参考线、PNG、左键平移/右键缩放/滚轮缩放） | `Series`、`DataVersion`、`XStart`、`XEnd`、`XStep`、`XAxisKind`、`YMin/Max`、`XTickStep/YTickStep`、`PlotInset`、`ReferenceLines`、`ShowCursors`、`ShowYCursors`、`WheelZoomStep`、`CapturePng()`、`PanRequested`、`ZoomRequested`、`WheelZoomRequested`；有无 Ctrl 都同时缩放 X/Y（模块负责在任一轴触界时整次拒绝） |
 | `RangeSelector` | 通用线性范围可视化/拖动 | `Minimum`、`Maximum`、`RangeStart/End`、`MinimumRangeSpan`、`TickStep`、`ShowTicks`、`ShowTickLabels`、`MinorTickStep`、`XAxisKind`、`HandleWidth`、`RangeChanged`、`LastChangeKind` |
-| `GaugeDial` | 指针仪表盘（单值、弧线刻度 + 指针 + 读数，可平滑） | `Minimum`/`Maximum`/`Value`、`Title`/`Unit`、`SweepAngle`、`ValueDecimals`、`MajorTickStep`、`MinorTickCount`、`ShowValue`、`SmoothingEnabled`/`SmoothingTimeMs`、`DialBrush`/`TrackBrush`/`TickBrush`/`TickLabelBrush`/`NeedleBrush`/`HubBrush`/`TitleBrush`/`ValueBrush`/`UnitBrush`/`OutOfRangeBrush` |
-| `ScaleBar` | 矩形细条刻度进度条（横向 / 纵向，Windows 进度条观感；**不含文字**） | `Orientation`、`Minimum`/`Maximum`/`Value`、`BarThickness`、`TickStep`、`MinorTickCount`、`ShowLabels`、`FillOrigin`（`Minimum`/`Zero`）、`Color`（`Success`/`Accent`/`Warning`/`Danger`/`Alternate`，映射主题 token）、`SmoothingEnabled`/`SmoothingTimeMs`、`TrackBrush`/`FrameBrush`/`TickBrush`/`TickLabelBrush` |
+| `GaugeDial` | 指针仪表盘（单值、弧线刻度 + 指针 + 读数，可平滑） | `Minimum`/`Maximum`/`Value`、`Title`/`Unit`、`Padding`、`SweepAngle`、`ValueDecimals`、`MajorTickStep`、`MinorTickCount`、`ShowValue`、`FillOrigin`（`Minimum`/`Zero`）、`SmoothingEnabled`/`SmoothingTimeMs`、`DialBrush`/`TrackBrush`/`TickBrush`/`TickLabelBrush`/`NeedleBrush`/`HubBrush`/`TitleBrush`/`ValueBrush`/`UnitBrush`/`OutOfRangeBrush` |
+| `ScaleBar` | 矩形细条刻度进度条（横向 / 纵向，Windows 进度条观感；**不含文字**） | `Orientation`、`Minimum`/`Maximum`/`Value`、`BarThickness`、`Padding`、`TickStep`、`MinorTickCount`、`ShowLabels`、`FillOrigin`（`Minimum`/`Zero`）、`FillBrush`（未覆盖时主题默认 `DefaultFillToken`）、`SmoothingEnabled`/`SmoothingTimeMs`、`TrackBrush`/`FrameBrush`/`TickBrush`/`TickLabelBrush` |
 | `AttitudeView` | 三轴姿态（坐标轴 / 方块 / 无人机） | `Roll`/`Pitch`/`Yaw`（度）、`RenderStyle`、`Zoom`、`ShowGrid`、`ShowLabels`、`SmoothingEnabled`/`SmoothingTimeMs`、`GridBrush`/`AxisXBrush`/`AxisYBrush`/`AxisZBrush`/`BodyBrush`/`BodyEdgeBrush`/`TextBrush` |
 | `ModulePopupPanel` | 浮层面板容器（独立窗口里显示，可放在模块之外） | `PanelType`（正文视图类型）、`Title`、`ResetCommandName`、`Anchor`、`IsOpen`、`Open()`/`Close()`/`Toggle()` |
 | `ModulePanelSurface` | 面板外壳（标题行 + 刷新/关闭 + 内容区），由容器创建 | `Title`、`ResetCommandName`、`IconOwner`、`CloseRequested`、`HeaderHeight` |
@@ -70,6 +70,8 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 - `Display`：只读、跟随尾部，适合日志与结果。`Source` 是显示源名，`ShowNewlineMarks` 决定是否画出数据里的换行字符；`Text` 是预览文本。真实不可显示字符由 `ShowControlCharacterMarkers`（默认随应用设置）显示为警示色 `⟨XX⟩` 或方框 `□`，模块不逐段上色；复制/保存得到原始字符。
 - `Input`：可编辑值。`Value` 是值名，`CommitMode` 决定交值时机；`Multiline` 控制多行，提交键由应用设置里的“多行输入提交键”决定（`Ctrl+Enter` / `Enter` / `None`）；`Commit()` 可主动交值（例如按钮点击时取当前编辑内容）。
 - **C 转义输入**：`EscapeInput="True"` 表示这个输入面的值按 C 字符串转义语法解释；控件只负责识别并把合法转义组画成蓝色，**不解码**。值本身仍是记法文本（例如 `\x0C`），复制/提交得到记法；模块在发送/转换时调用 `TextEscapes.Normalize` 解码。粘贴进来的真实不可显示字符仍按标记/方框显示，复制得到原字符。
+- **字符准入**：输入面的允许字符由本控件的 `TextFormat` 决定（`Text` / `Hex` / `SignedWhole` / `NonNegativeWhole` / `PositiveWhole` / `Real` / `IpAddress`），**不写进值声明**。键入、输入法、粘贴、拖放都走同一条过滤：**丢弃不允许的字符、保留允许的字符**；过滤后为空不产生编辑/提交/撤销。程序化写入（`Text=`、值层回写、持久化旧值）不经过准入。准入只挡字符，不判结构/范围/正负；例如 `PositiveWhole` 仍可键入 `0`，由模块判 >0。所有输入面都必须显式声明 `TextFormat`（AR-27）；纯文本写 `TextFormat="Text"`。
+- **空值提示**：`ShowInputHint="True"` 时，空且可编辑的输入面显示该格式的浅灰提示；有内容、只读、`Display` 不显示。提示文案在 Sdk.Ui 文本表（`moduleText.format.*.hint`），窄框可不启用；预览与运行期读的是同一个控件属性。
 - **回车写入哪种换行**：`EnterNewlineValue` 指定一个值名（`crlf` / `cr` / `lf` / `none`），不指定或未知时默认 `crlf`（写 `\r\n`）。TextSender 与转换器用它把 CR/LF 勾选框映射为回车档；单行输入不处理换行。回车事件在输入框的**隧道**阶段处理，避免 TextBox 抢先插入 `\n` 或吃掉提交档。
 - **已有换行的归一**：只要输入面设置了 `EnterNewlineValue`，换行档变化时控件会把当前输入框里的全部真实 `\r\n`/`\r`/`\n` 替换成目标序列；`none` 删除全部换行，并立即交值。首次显示持久化内容时也归一；没有该值名的输入面不参与（例如 HEX 十六进制输入）。C 转义记法里的 `\n` 不是真实换行，不参与归一。
 - **换行标记**：只读面与输入覆盖层对数据换行区分 `\r\n`=`↵`、单独 `\r`=`←`、单独 `\n`=`↓`；统一使用 `TextMuted`（可通过 `NewlineMarkBrush` 覆盖）。显示缓冲的内部哨兵不会进入复制/保存文本；复制保留真实换行种类（CRLF / CR / LF），通道换行按平台换行。
@@ -78,10 +80,11 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 规则：
 
 - `Display` 模式的文本来自 `Display.Append*` / `SetText`；`Input` 模式只读值状态、只按 `CommitMode` 交值。
-- **失焦提交**：`OnExplicit` 在提交键、`Commit()` 或**失焦**时交值；`OnChange` 已逐键交值。
+- **默认即时**：`CommitMode` 默认 `OnChange`；`OnExplicit` 只在明确的“配置变更会重开会话”等需求下使用，失焦也会提交。
+- **失败红框与原因分工**：输入有效性统一走 `InputValidity`：它写 `Danger` 外观轮廓，同时写 `ValueValidity`（是否无效 + 原因）；控件只画轮廓/悬停原因，不每帧擦圈。`ValueValidity.Warning/Info` 只给原因、不画圈。
 - 控件不读写视图状态；模块读值用 `context.Values.ReadText(值名)`。
 - 模块要回写“接受后的值”用 `context.Values.AcceptText(值名, 文本)`；控件会在下一帧读到。
-- 值的错误由模块 `context.Values.Report` 给出，控件只画结论。
+- 值的结论由模块 `context.Values.ReportValidity` 给出，也可用 `ReadValidity` 读回分类。
 
 ## 按钮与开关
 
@@ -94,28 +97,39 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 - 开关文字是独立的 `ModuleLabel`，放在轨道右侧。
 - `ModuleCheckBox` 与 `ModuleToggle` 是同一值语义的两种外观：勾选框把文字放在方框右侧（`Content`），适合需要更接近表单勾选观感的设置；文本发送器/转换器的 CR/LF 使用它。
 
-## 值编辑器
+## 输入控件选择
 
-`ModuleConfigField` 只写 `Value`；标题仍是独立的 `ModuleLabel`（配置字段标题可用 `Field` 从配置元数据取）：
+没有任何“按字段类型自动选编辑器”的宿主；视图按值类型**显式**选控件：
+
+| 值类型 | 控件 |
+|---|---|
+| 文本 / 数字 | `ModuleTextSurface Mode="Input" Value=... Text=预览值` |
+| 布尔 | `ModuleToggle` / `ModuleCheckBox` |
+| 枚举（下拉） | `ModuleSelect Value=... SelectedKey=预览值`；少量选项也可用 `ModuleSegmentedControl` |
+| 颜色 | `ModuleColorField Value=...` |
 
 ```xml
 <ui:ModuleLabel Classes="caption right" Field="{x:Static views:MyViewKeys.PortName}" />
-<ui:ModuleConfigField Value="{x:Static views:MyViewKeys.PortName}" />
+<ui:ModuleTextSurface Value="{x:Static views:MyViewKeys.PortName}" Text="COM1" />
+<ui:ModuleLabel Classes="caption right" Field="{x:Static views:MyViewKeys.BaudRate}" />
+<ui:ModuleSelect Value="{x:Static views:MyViewKeys.BaudRate}" />
 ```
 
 - 值可以是配置字段，也可以是模块声明的值；控件只按名字取 `ValueState`。
-- 支持的编辑器：布尔、整数、实数、文本、枚举（含动态选项下拉）。
-- **提交时机**：布尔与枚举点一下即交；文本 / 数字在回车、显式动作或失焦时交。需要"逐键生效"的内容改用 `ModuleTextSurface CommitMode="OnChange"`。
-- **提交键**：`SubmitKeyValue` 指定保存提交键档位的值名（`Enter` / `CtrlEnter`），`SubmitCommandName` 指定提交后要调的命令；没有 `SubmitKeyValue` 时现读 `context.MultilineSubmitKey`。要让本实例持久化，声明该值并在视图 `Refresh` 里调用 `ModuleViewDefaults.EnsureSubmitKey(context, 值名)`：只有值未知/为空时才从框架默认档位播种一次。
+- **提交时机**：`ModuleTextSurface` 默认 `OnChange`（逐键交值）；只有**配置字段**这类“改一次就会重开会话”的明确需求才显式写 `OnExplicit`（回车/失焦提交），并在视图注释说明原因。设置面板、普通模块输入不要加显式提交。布尔与枚举点一下即交。
+- **提交键**：`ModuleTextSurface` 的 `SubmitKeyValue` 指定保存提交键档位的值名（`Enter` / `CtrlEnter`），`SubmitCommandName` 指定提交后要调的命令；没有 `SubmitKeyValue` 时现读 `context.MultilineSubmitKey`。要让本实例持久化，声明该值并在视图 `Refresh` 里调用 `ModuleViewDefaults.EnsureSubmitKey(context, 值名)`：只有值未知/为空时才从框架默认档位播种一次。
 - 值的持久化、可选项与错误由值声明/框架决定，初值由 XAML 声明；控件不直接读写配置或视图状态。
 - 标题与说明用配置类型上的 `[ConfigurationField]` / 文本表，不在视图重复。
+- 枚举的选项来自 `ValueState.Choices`（`ModuleSelect` 自动读取），视图不再维护第二份选项表；`PreviewOptions` 只服务设计预览。
 - **没有自动生成的配置表单**：字段只有视图里画了控件才出现；不声明视图工厂的模块窗口只显示身份与状态。
-- 标准接入的参数字段用 `ExternalAccessFieldNames` 的常量（命名空间 `HYWDebugAssistant.Sdk.Access`），不写字符串字面量：
-
-```xml
-<ui:ModuleConfigField Value="{x:Static access:ExternalAccessFieldNames.PortName}" />
-```
+- 标准接入的参数字段用 `ExternalAccessFieldNames` 的常量（命名空间 `HYWDebugAssistant.Sdk.Access`），不写字符串字面量；文本/数字用 `ModuleTextSurface`，枚举用 `ModuleSelect`，布尔用 `ModuleToggle`。
+- **动态可选项**（本机串口、本机网卡地址等 `IConfigurationChoices` 字段）必须用 `ModuleSelect`：选项在运行期来自 `ValueState.Choices`；没有可选项时下拉为空，不要退回普通文本框。
 - 预览里没有运行时上下文时，视图类加 `[ModuleViewDesignData(typeof(MyConfig))]`；标准接入用**镜像配置类型**（字段名与运行时一致）。`[ModuleViewDesignData("serial")]` 只有预览宿主注册了该标准才生效，外部作者不要依赖它。
+- **预览范围指示**：每个控件在预览期都要有范围指示：无可见边框的控件画虚线控件框；有可见边框的输入控件以自身边框为界，不叠第二条虚线；布局槽位画点线容器框。范围框是控件最终边界，不能靠留白猜。
+- **紧凑布局**：控件按内容报尺寸；`Padding` 只给内部留白、`Margin` 只给外部间隙；固定表单高度 = 最后一行 + 边距，不留无用底部空白。
+- **绝对坐标优先**：没有尺寸自适应需求的固定表单/工具区优先根 `Canvas` 绝对坐标；`Grid` 只用于确实需要伸缩的区域。
+- **颜色**：用户选色一律走 `ModuleColorField` / 框架 `IModuleColorPicker`，不自建色板；初值取当前值或主题默认色。
+- **不随意扩展控件**：先用现有控件组合；不得为单点需求给通用控件加专用开关/字段；确需新能力时抽成通用、带文档与测试的能力。把文本/数字/布尔/枚举混在一个“自动宿主”里就是反例。
 
 ## 页签与选择
 
@@ -136,6 +150,7 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 
 - `ModuleTabs` 的 `StateKey` 是模块与视图共用的常量；用户切页写入视图状态，模块用 `ViewState.GetSelectedPage(StateKey)` 读。`StateKey` 为空时不持久化选中页。
 - `ModuleSelect` / `ModuleSegmentedControl` 绑定值：`Value` + `CommitMode`；用户选择后交值，选项在运行期来自 `ValueState.Choices`（视图给了带图标的静态 `Options` 时优先用视图选项）。
+- `ModuleSelect` 也走外观通道：只读时禁用、文字色/字号跟随外观、失败时 `:error` 红框由外观轮廓驱动（Notice 只给悬停原因）；枚举配置字段因此不再需要宿主代管。
 - `PreviewOptions` 只在设计环境且没有运行期选项时提供样例词表；它不参与运行期持久化。
 - 结构选择（组/通道 chips）仍是动作：用 `OptionSelected` 把选中键交给模块，不当作值。
 
@@ -168,12 +183,17 @@ surface.DataVersion++;          // 改了 Values/Count 后抬版本号才会重�
 - `Value`（姿态是 `Roll` / `Pitch` / `Yaw`）必须是有限实数；控件**没有"无数据"分支**——"数据停了一会儿该保持还是回零"由模块发布的目标值决定（模块的自动回零设置），控件不自行判断。
 - 平滑在控件内：按框架每帧 `Refresh` 的 dt 逼近目标值，差值落到阈值以下就对齐并停止重绘；`SmoothingEnabled` 关闭或 `SmoothingTimeMs <= 0` 时直接对齐。控件不起定时器。
 - `GaugeDial` / `ScaleBar` 在数值超出 `Minimum..Maximum` 时把指针/填充停在边界、读数改用 `OutOfRangeBrush`；收到的数值本身不被裁剪。
-- `ScaleBar` 的观感是**矩形细条**（Windows 进度条）：`BarThickness` 给条厚度（<= 0 用可用空间），填充内缩一圈；填充色由 `Color` 这个**角色**决定（映射主题 token，随深浅主题跟随），默认 `Success`（绿）。
+- `ScaleBar` 的观感是**矩形细条**（Windows 进度条）：`BarThickness` 给条厚度（<= 0 用可用空间），填充内缩一圈；填充色是 `FillBrush`，未覆盖时用主题给的 `DefaultFillToken`（`SemanticOk`，绿），用户选过色后由视图写入本地 ARGB。
 - `ScaleBar` **只画轨道、填充与刻度，不画标题/读数/单位**：那些文字由视图用 `ModuleLabel` / `ModuleNumeric` 拼（标题、单位各有标签，读数用 `ModuleNumeric Source=value Decimals=N`）。控件自带文字会逼出一条标题行，细条就缩不下去了。
 - `GaugeDial` 的指针与中心轴默认取 `SemanticError`（红）。
-- `GaugeDial` 的外沿留白有两条都得满足：**扣掉环线自身厚度**、**张角 ≥ 180° 时按半径本身限宽**（弧经过圆的左右极点，不是端点）；余量高度上下均分。端点数字与主刻度重合时只画一次（`0..100` 的 `100` 不会重影）。
+- `ScaleBar` 的刻度数字：横向在条下、纵向在条右；**纵向的数字旋转 −90°（竖着写，自下而上）**，所以纵向标签带只需约 14 DIP；刻度线与数字的间距 2 DIP。
+- 预览范围框有**两种角色**（`PreviewBoundsRole`）：**控件框**（虚线，控件最终边界）给标签/读数/勾选框与自绘控件（`GaugeDial`/`ScaleBar`/`AttitudeView` 实现 `IModulePreviewBoundsTarget` 声明"边界即绘制范围"）；**容器框**（点线、半透明，布局槽位）给背景不可见的 `Panel`/`Grid`/`Border`，包括模块内容区的根元素。两者线型不同，避免把一整片空白槽位误当成控件边界。自带轮廓的输入控件（`ModuleElement`，勾选框除外）不叠框；个别元素想关掉用 `ui:PreviewBounds.Show="False"`。需要"可见的槽位边框"时，在视图里显式放一个 `PreviewOnly` 边框（见 `WaveformDisplay` 的 `ChartLayoutFrame`），与虚线覆盖层职责不同。
+- 两个数据显示控件**按内容报尺寸**（`MeasureOverride`）：仪表报**方形**（圆的直径，圆心即控件中心）、横向条报"条 + 刻度带"的高度、纵向条报"条 + 标签带"的宽度。视图用 `Center`/`Left` 这类**非拉伸对齐**摆放，控件边界（= 预览虚线框）就紧贴绘制内容；`Margin` 是框外的布局间隙、`Padding` 是框内的留白，两者不再互相污染。
+- `Padding`（两个数据显示控件都有）：**四周留白（DIP）**，`0` = 刻度环/轨道外沿紧贴控件边框。它不是 `Thickness`：这两个控件只有一圈留白，非对称留白交给视图的布局。竖排刻度条的轨道从 `Padding` 处开始、刻度数字在它右侧。
+- `GaugeDial` 的圆心恒为控件中心，半径由短边决定：**扣掉环线自身厚度**后内接；标题/读数/单位画在圆内，**不参与尺寸计算**，改文字不会改变表盘大小。标题在圆上部、读数在圆心下方、单位紧贴读数；超宽文本按内圆弦长省略。端点数字用自己的精度（`200.12` 不会退化成 `200`），并且与邻近主刻度标签按文字宽度避让：端点优先，主刻度让位；端点恰好落在主刻度上时只画一次。
+- `GaugeDial.FillOrigin` 与 `ScaleBar.FillOrigin` 同口径：`Zero` 从零开始填充（零在量程外时夹到端点），`Minimum` 从下限开始；默认都是 `Zero`。
 - `AttitudeView` 的世界（地面网格、相机）固定，只有机体按三个角度旋转；`RenderStyle` 切换坐标轴 / 方块 / 无人机。
-- 颜色默认值在 `Themes/Controls.axaml`；调用方只换 token 或角色，不传字面颜色。
+- 颜色默认值在 `Themes/Controls.axaml`；视图不写死色值。用户选定的颜色是**数据**（如 `ScaleBar.FillBrush` 来自取色器），由视图把 `AARRGGBB` 变成画刷，而不是在 XAML 里写常量。
 
 ## 浮层面板（ModulePopupPanel + ModulePanelSurface）
 
@@ -194,7 +214,8 @@ surface.DataVersion++;          // 改了 Values/Count 后抬版本号才会重�
 3. **容器负责其余一切**：无边框、不透明、不可缩放、不进任务栏的独立 `Window`（`Owner` = 模块窗口）；标题行由 `ModulePanelSurface` 统一渲染（标题 + 刷新 + 关闭）；正文包进内部 `ModuleViewHost` 按帧刷新；关闭 = 关闭图标 / 再点齿轮 / `Esc` / 模块窗口关闭或隐藏；窗口复用，正文状态保留。
 
 - **面板必须提供两个图标键**：`icon.refresh`（恢复默认）与 `icon.close`（关闭），属主由容器按正文程序集给。
-- **尺寸与位置**：窗口 = 正文 `Initial` 尺寸 + 标题行；优先放模块右侧，放不下放左侧，再不行居中叠在模块上；始终夹在屏幕工作区内。
+- **面板正文布局**：固定尺寸表单用根 `Canvas` 绝对坐标（`Canvas.Left/Top`），坐标只写面板 XAML；行高、列宽、间距由面板自己统一，不再用行列容器自动排。面板高度按“最后一行底边 + 8 DIP”收紧，不保留无用底部空白；新增/删除行时同步改高度。
+- **尺寸与位置**：窗口 = 正文 `Initial` 尺寸 + 标题行；以 `Anchor` 的屏幕矩形为基准，优先右侧，放不下依次左侧/下方/上方，始终夹在工作区内；打开期间锚点按钮带 `panel-anchor` 高亮，模块窗口移动时面板逐帧跟随。`Anchor` 缺失时回退模块窗口右侧。
 - **不要用 `Popup` 或视图内浮层**：Popup 的落位/翻转/是否落 overlay 层由平台决定，还出现过贴在模块上的残留；视图内浮层被窗口裁切。两者都试过，统一用独立窗口。
 - **预览**：模块视图里只有齿轮（没有面板布局）；面板正文单独打开，另有 `<模块>-settings.png` 单独截图。
 - 面板正文要公共无参构造（与视图工厂同一规则）。

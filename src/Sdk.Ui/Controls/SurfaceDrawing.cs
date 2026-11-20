@@ -15,18 +15,29 @@ internal static class SurfaceDrawing
     /// <param name="text">候选文本。</param>
     public static bool HasText(string? text) => !string.IsNullOrWhiteSpace(text);
 
-    /// <summary>按给定字号与画刷构造一段文字。</summary>
+    /// <summary>按给定字号与画刷构造一段文字（可给最大宽度，超出省略）。</summary>
     /// <param name="text">文本。</param>
     /// <param name="fontSize">字号（DIP）。</param>
     /// <param name="brush">画刷。</param>
-    public static FormattedText Format(string text, double fontSize, IBrush brush) =>
-        new(
+    /// <param name="maxWidth">最大宽度（DIP；无穷/非正 = 不限制）。</param>
+    public static FormattedText Format(string text, double fontSize, IBrush brush, double maxWidth = double.PositiveInfinity)
+    {
+        var formatted = new FormattedText(
             text,
             CultureInfo.CurrentCulture,
             FlowDirection.LeftToRight,
             Typeface.Default,
             fontSize,
             brush);
+
+        if (double.IsFinite(maxWidth) && maxWidth > 0)
+        {
+            formatted.MaxTextWidth = maxWidth;
+            formatted.Trimming = TextTrimming.CharacterEllipsis;
+        }
+
+        return formatted;
+    }
 
     /// <summary>以 <paramref name="centerX"/> 为中心画一行，并夹在可用宽度内。</summary>
     /// <param name="context">绘制上下文。</param>

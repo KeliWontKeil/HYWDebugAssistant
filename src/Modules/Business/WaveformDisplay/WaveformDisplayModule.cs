@@ -158,7 +158,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     private readonly Dictionary<uint, DisplayGroupRuntime> _groups = [];
     private readonly List<uint> _groupOrder = [];
     private readonly Dictionary<string, string> _lastText = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _invalidInputs = new(StringComparer.Ordinal);
+    private readonly InputValidity _validity = new();
 
     private IModuleContext? _context;
     private IModuleTimer? _uiTimer;
@@ -188,8 +188,6 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     private int _maxRangeXTicks;
     private bool _xTickParseInvalid;
     private bool _yTickParseInvalid;
-    private bool _xTickAlerted;
-    private bool _yTickAlerted;
 
     private PendingSave _pendingSave;
     private DisplayGroupRuntime? _pendingGroup;
@@ -571,52 +569,30 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
         var xDense = IsDense(xSpan, xTick, _maxChartXTicks) || IsDense(xSpan, xTick, _maxRangeXTicks);
         var yDense = IsDense(ySpan, yTick, _maxChartYTicks);
-        SetTickAlert(context, XTickSource, _xTickParseInvalid || xDense, ref _xTickAlerted);
-        SetTickAlert(context, YTickSource, _yTickParseInvalid || yDense, ref _yTickAlerted);
+        _validity.Set(
+            context,
+            XTickSource,
+            _xTickParseInvalid || xDense,
+            _xTickParseInvalid ? Tr(WaveformDisplayText.InvalidNumber) : Tr(WaveformDisplayText.TickTooDense));
+        _validity.Set(
+            context,
+            YTickSource,
+            _yTickParseInvalid || yDense,
+            _yTickParseInvalid ? Tr(WaveformDisplayText.InvalidNumber) : Tr(WaveformDisplayText.TickTooDense));
     }
 
     private static bool IsDense(double span, double step, int readableLimit) =>
         readableLimit > 0 && step > 0 && span > 0 && span / step > readableLimit;
 
-    private static void SetTickAlert(IModuleContext context, string source, bool invalid, ref bool alerted)
-    {
-        if (invalid == alerted)
-        {
-            return;
-        }
-
-        alerted = invalid;
-        context.Appearance.SetOutlineRole(source, invalid ? AlertRole : null);
-    }
-
-    /// <summary>单个输入框的非刻度校验红框（同值不重复设置外观）。</summary>
-    private void SetInputValidity(IModuleContext context, string source, bool invalid)
-    {
-        if (invalid)
-        {
-            if (_invalidInputs.Add(source))
-            {
-                context.Appearance.SetOutlineRole(source, AlertRole);
-            }
-        }
-        else if (_invalidInputs.Remove(source))
-        {
-            context.Appearance.SetOutlineRole(source, null);
-        }
-    }
+    /// <summary>单个输入框的校验红框（同值不重复写；原因走统一有效性记账）。</summary>
+    private void SetInputValidity(IModuleContext context, string source, bool invalid) =>
+        _validity.Set(context, source, invalid, invalid ? Tr(WaveformDisplayText.InvalidNumber) : null);
 
     private void ClearInputAlerts(IModuleContext context)
     {
-        foreach (var source in _invalidInputs)
-        {
-            context.Appearance.SetOutlineRole(source, null);
-        }
-
-        _invalidInputs.Clear();
+        _validity.ClearAll(context);
         _xTickParseInvalid = false;
         _yTickParseInvalid = false;
-        SetTickAlert(context, XTickSource, false, ref _xTickAlerted);
-        SetTickAlert(context, YTickSource, false, ref _yTickAlerted);
     }
 
     private void OnCommand(IModuleContext context, string command)

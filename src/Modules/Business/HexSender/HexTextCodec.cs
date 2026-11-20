@@ -21,7 +21,7 @@ internal static class HexTextCodec
     /// <summary>
     /// 解析十六进制文本为字节序列。
     /// </summary>
-    /// <param name="text">输入的十六进制文本（框架已保证非法字符进不了输入框）。</param>
+    /// <param name="text">输入的十六进制文本；用户键入已由控件按值的 Hex 准入过滤，程序化/持久化值仍可能非法，所以这里仍须判。</param>
     /// <param name="bytes">解析结果（失败时为空）。</param>
     /// <param name="failure">失败原因（成功时为 <see langword="null"/>）—— 由调用方回报到**对应输入框**（红框）。</param>
     /// <returns>解析成功为 <see langword="true"/>。</returns>

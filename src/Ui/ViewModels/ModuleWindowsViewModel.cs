@@ -9,6 +9,7 @@ using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Formatting;
+using HYWDebugAssistant.Sdk.Ui.Geometry;
 using HYWDebugAssistant.Ui.Controls;
 using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.Runtime;
@@ -2284,6 +2285,23 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(module);
         ArgumentNullException.ThrowIfNull(marker);
+
+        // 提交兜底：这条边放不下标记（拖动侧已拒绝，这里防其它入口）⇒ 回滚并说明，不写入。
+        if (!PortMarkerLayout.Fits(marker.Side, module.Width, module.Height))
+        {
+            marker.Edge = fromEdge;
+            marker.Offset = fromOffset;
+
+            var shortEdge = TextCatalog.Get(
+                typeof(ModuleWindowsViewModel).Assembly,
+                "windows.notice.anchorEdgeTooShort",
+                module.Title,
+                marker.PortName,
+                PortMarkerMetrics.Length.ToString("0", CultureInfo.CurrentCulture));
+
+            RaiseNotice(shortEdge, isError: true);
+            return shortEdge;
+        }
 
         // 拖动不改「固定」态 ⇒ 回滚目标就是当前值
         var ok = TryWriteAnchorGeometry(

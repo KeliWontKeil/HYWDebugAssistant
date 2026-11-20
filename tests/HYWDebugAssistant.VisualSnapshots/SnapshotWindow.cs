@@ -23,7 +23,7 @@ internal static class SnapshotWindow
         {
             Width = width,
             Height = height,
-            Content = ModulePreviewChrome.Create(content, view?.Ports),
+            Content = ModulePreviewChrome.Create(content, view?.Ports, width, height),
         };
 
         return window;

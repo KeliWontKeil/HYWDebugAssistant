@@ -265,7 +265,7 @@ public class ModuleView : UserControl
             return;
         }
 
-        var targets = new List<Control>();
+        var targets = new List<PreviewBoundsTarget>();
         AddPreviewTarget(content, targets);
 
         foreach (var descendant in content.GetLogicalDescendants().OfType<Control>())
@@ -292,13 +292,20 @@ public class ModuleView : UserControl
         _previewInner = panel;
 
         // 预览外壳：外框 + 预留带 + 端口占位。运行时完全不创建。
-        Content = ModulePreviewChrome.Create(panel, Ports);
+        Content = ModulePreviewChrome.Create(panel, Ports, InitialWidth, InitialHeight);
     }
 
-    /// <summary>把一个控件加入预览框目标（标签、读数、勾选框与不可见的布局容器）。</summary>
+    /// <summary>把一个控件加入预览框目标（控件框或容器框）。</summary>
     /// <param name="control">候选控件。</param>
     /// <param name="targets">目标表。</param>
-    private static void AddPreviewTarget(Control control, List<Control> targets)
+    /// <remarks>
+    /// **两种角色**：控件（标签/读数/勾选框/自绘控件）给"虚线的控件框"，其边界就是绘制范围；
+    /// 不可见的布局容器（Panel/Grid/Border）给"点线的容器框"，那是槽位而不是控件边界 ——
+    /// 两者线型区分，既保留布局调试，又不会把一整片空白槽位误读成控件边界。
+    /// 需要"可见的槽位边框"时，在视图里显式放一个 `PreviewOnly` 边框（见 WaveformDisplay 的 ChartLayoutFrame），
+    /// 那是可见元素、与这里的虚线覆盖层职责不同。
+    /// </remarks>
+    private static void AddPreviewTarget(Control control, List<PreviewBoundsTarget> targets)
     {
         if (!PreviewBounds.GetShow(control) || control is PreviewBoundsOverlay)
         {
@@ -309,7 +316,15 @@ public class ModuleView : UserControl
         // 预览框必须覆盖“方框 + 文字”整个控件，而不是只框住那个小方框。
         if (control is ModuleLabel or ModuleNumeric or ModuleCheckBox)
         {
-            targets.Add(control);
+            targets.Add(new PreviewBoundsTarget(control, PreviewBoundsRole.Control));
+            return;
+        }
+
+        // 自绘控件（仪表盘 / 刻度条 / 姿态）自己画内容、没有可见边框：
+        // 由控件声明"边界即绘制范围"（`IModulePreviewBoundsTarget`），这里不写具体类型。
+        if (control is IModulePreviewBoundsTarget)
+        {
+            targets.Add(new PreviewBoundsTarget(control, PreviewBoundsRole.Control));
             return;
         }
 
@@ -321,7 +336,7 @@ public class ModuleView : UserControl
 
         if (control is Panel panel && IsInvisible(panel.Background))
         {
-            targets.Add(control);
+            targets.Add(new PreviewBoundsTarget(control, PreviewBoundsRole.Container));
             return;
         }
 
@@ -329,9 +344,13 @@ public class ModuleView : UserControl
             && border.BorderThickness == default
             && IsInvisible(border.Background))
         {
-            targets.Add(control);
+            targets.Add(new PreviewBoundsTarget(control, PreviewBoundsRole.Container));
         }
     }
+
+    /// <summary>背景是否"看不见"（null 或全透明）——看不见的容器才有必要补框。</summary>
+    private static bool IsInvisible(IBrush? brush) =>
+        brush is null || brush is ISolidColorBrush { Color.A: 0 };
 
     /// <summary>移除预览覆盖层并把内容还原为原来的根。</summary>
     private void DetachPreviewOverlay()
@@ -355,9 +374,6 @@ public class ModuleView : UserControl
         _previewOverlay = null;
         _previewInner = null;
     }
-
-    private static bool IsInvisible(IBrush? brush) =>
-        brush is null || brush is ISolidColorBrush { Color.A: 0 };
 
     /// <summary>当前应用是否已经挂了控件库主题（避免模块视图在运行时重复挂一套样式）。</summary>
     private static bool HasControlsTheme()

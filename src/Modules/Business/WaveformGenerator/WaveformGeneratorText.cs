@@ -43,6 +43,9 @@ internal static class WaveformGeneratorText
     public const string Running = "status.running";
     public const string Stopped = "status.stopped";
     public const string Invalid = "status.invalid";
+    public const string InvalidName = "view.invalidName";
+    public const string InvalidGroupId = "view.invalidGroupId";
+    public const string InvalidNumber = "view.invalidNumber";
     public const string RateUnsupported = "status.rateUnsupported";
     public const string Batch = "status.batch";
     public const string CarrierNyquist = "status.carrierNyquist";

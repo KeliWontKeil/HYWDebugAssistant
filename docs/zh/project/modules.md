@@ -35,7 +35,7 @@
 
 | 规则 | 具体做法 |
 |---|---|
-| 视图根 | 继承 `ModuleView`；用 `ModuleConfigField` 的视图必须写 `[ModuleViewDesignData(typeof(配置类型))]`，否则预览器里只剩虚线范围框 |
+| 视图根 | 继承 `ModuleView`；绑定配置字段的视图必须写 `[ModuleViewDesignData(typeof(配置类型))]`，否则预览器里看不到字段内容；文本/数字用 `ModuleTextSurface`，枚举用 `ModuleSelect`，布尔用 `ModuleToggle` |
 | 本地化（审计④） | `src/Modules` 下 `.cs` 字符串与 `.axaml` 属性值**不得含中文**。配置标题用 `[ConfigurationField(TitleKey = ...)]`，枚举协选项用 `[ConfigurationChoice("", TitleKey = ...)]`；键集中在一个 `*Text` 类的常量里，文案进 `resources/i18n/<程序集简名>/zh-Hans.json`；XAML 只写 `{loc:Tr 键}` |
 | 命名空间（AR-14） | 命名空间 = 项目名 + 目录名。`Codec/` 下的文件必须是 `<项目命名空间>.Codec`，不要把共享代码放进另一个命名空间 |
 | 端口几何 | 在 `Views/*.axaml` 的 `ModuleView.Ports` 里声明：接收口 `Top`、发送口 `Bottom`（与内置发送器/监视器一致，上下叠放即连）；跨窗口仍可用命名网络 |

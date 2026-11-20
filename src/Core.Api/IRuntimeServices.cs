@@ -295,13 +295,13 @@ public interface IRuntimeQuery
         return false;
     }
 
-    /// <summary>取某个值当前的结论（模块/框架最近一次报告；没有 ⇒ false）。</summary>
+    /// <summary>取某个值当前的有效性结论（模块/框架最近一次报告；没有 ⇒ false）。</summary>
     /// <param name="instanceId">实例 ID。</param>
     /// <param name="name">值名。</param>
-    /// <param name="notice">结论。</param>
-    bool TryGetValueNotice(string instanceId, string name, out ValueNotice? notice)
+    /// <param name="validity">结论。</param>
+    bool TryGetValueValidity(string instanceId, string name, out ValueValidity validity)
     {
-        notice = null;
+        validity = ValueValidity.Valid;
         return false;
     }
 }

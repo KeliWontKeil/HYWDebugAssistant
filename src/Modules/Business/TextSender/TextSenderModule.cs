@@ -125,29 +125,6 @@ public sealed class TextSenderModule : IModule, IActivitySource
     public const string StatusSource = "status";
 
     /// <summary>
-    /// 模块自己挑的**提示角色**（**相对色**）—— 框架只提供"设边框色"这个能力，不认识"红 = 失败"。
-    /// </summary>
-    /// <remarks>用角色词而不是色值：设置里改那一支色 / 换深浅主题时，这一圈跟着变。</remarks>
-    public const string AlertRole = ViewInkRoles.Danger;
-
-    /// <summary>
-    /// **发一条消息给界面**（写状态源；要标出"是哪一格不对"就同时给它上提示色）。
-    /// </summary>
-    /// <param name="context">模块上下文。</param>
-    /// <param name="message">消息文本；<see langword="null"/> ⇒ 清掉消息。</param>
-    /// <param name="subject">这一步说的是哪一格（源名）。</param>
-    /// <param name="alert">要不要把 <paramref name="subject"/> 标成提示色（false ⇒ 清掉标色）。</param>
-    /// <remarks>
-    /// 两件事分开表达：**消息**是文本（给人读的话），**颜色**是外观（模块自己的选择）。
-    /// 之所以不合成一个"成功/失败"参数：那会让框架替模块规定"失败必须长什么样"。
-    /// </remarks>
-    private static void Report(IModuleContext context, string? message, string subject, bool alert)
-    {
-        context.Display.SetText(StatusSource, message ?? string.Empty);
-        context.Appearance.SetOutlineRole(subject, alert ? AlertRole : null);
-    }
-
-    /// <summary>
     /// 数据类型标识 —— **PascalCase 短名**（不带作者前缀、不带版本）。
     /// </summary>
     /// <remarks>
@@ -450,6 +427,9 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// 先前那一格的红就**再也消不掉**了（这正是用户报的那条）。
     /// </remarks>
     private string? _shownAlertSource;
+
+    /// <summary>输入有效性的统一记账（红圈 + 原因）。</summary>
+    private readonly InputValidity _validity = new();
 
     /// <summary>**上一次写进状态源的那句话**（值没变就不重复写 —— 状态缓冲的版本号不该每拍变一次）。</summary>
     private string? _shownStatus;
@@ -830,19 +810,23 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// </remarks>
     private void ApplyVerdict(IModuleContext context, Verdict verdict)
     {
-        if (!string.Equals(_shownAlertSource, verdict.AlertSource, StringComparison.Ordinal))
+        var previous = _shownAlertSource;
+
+        if (previous is { Length: > 0 }
+            && !string.Equals(previous, verdict.AlertSource, StringComparison.Ordinal))
         {
-            if (_shownAlertSource is { Length: > 0 } shown)
-            {
-                context.Appearance.SetOutlineColor(shown, null);
-            }
+            _validity.Set(context, previous, false);
+        }
 
-            _shownAlertSource = verdict.AlertSource;
+        _shownAlertSource = verdict.AlertSource;
 
-            if (verdict.AlertSource is { Length: > 0 } next)
-            {
-                context.Appearance.SetOutlineRole(next, AlertRole);
-            }
+        if (verdict.AlertSource is { Length: > 0 } next)
+        {
+            _validity.Set(context, next, true, verdict.Message);
+        }
+        else if (previous is { Length: > 0 })
+        {
+            _validity.Set(context, previous, false);
         }
 
         var message = verdict.Message ?? string.Empty;

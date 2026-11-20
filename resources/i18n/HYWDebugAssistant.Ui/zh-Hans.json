@@ -112,6 +112,7 @@
     "windows.module.defaultTitle": "模块",
     "windows.notice.aligned": "网络标签已对齐：松手即可与 {0} 建立连接",
     "windows.notice.anchorFixed": "{0} {1}：锚点已固定",
+    "windows.notice.anchorEdgeTooShort": "{0} {1}：这条边放不下端口标记（需要 {2} DIP）",
     "windows.notice.anchorMoveFailed": "{0} {1}：锚点未移动 —— {2}",
     "windows.notice.anchorMoved": "{0} {1}：锚点已移动至{2}，位置 {3}",
     "windows.notice.anchorToggleFailed": "{0} {1}：固定状态未改变 —— {2}",

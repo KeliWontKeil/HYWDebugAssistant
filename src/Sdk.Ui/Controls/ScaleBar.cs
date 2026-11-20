@@ -1,7 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
-using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
 using HYWDebugAssistant.Sdk.Ui.Controls.Charting;
 
@@ -17,30 +16,11 @@ public enum ScaleFillOrigin
     Zero = 1,
 }
 
-/// <summary>填充颜色的**角色**（映射主题 token，随深浅主题与用户改色跟随）。</summary>
-public enum ScaleBarColor
-{
-    /// <summary>绿（成功色）。</summary>
-    Success = 0,
-
-    /// <summary>蓝（主题强调色）。</summary>
-    Accent = 1,
-
-    /// <summary>橙（警告色）。</summary>
-    Warning = 2,
-
-    /// <summary>红（错误色）。</summary>
-    Danger = 3,
-
-    /// <summary>第二强调色（紫）。</summary>
-    Alternate = 4,
-}
-
 /// <summary>矩形刻度进度条：一个目标值 → 矩形轨道 + 填充 + 刻度（横/纵两向）。</summary>
 /// <remarks>
 /// <para>
-/// 观感取"矩形细条"：轨道不走胶囊形，填充内缩一圈，默认绿色；颜色由
-/// <see cref="Color"/> 这个角色决定，只映射主题 token，不写死色值。
+/// 观感取"矩形细条"：轨道不走胶囊形，填充内缩一圈。填充色是 <see cref="FillBrush"/>：
+/// 未覆盖时用主题给的 <see cref="DefaultFillToken"/>；用户选过色后由视图写入本地 ARGB 画刷。
 /// </para>
 /// <para>
 /// **不含文字**：标题、读数、单位都由视图用标签拼（<see cref="ModuleLabel"/> /
@@ -52,7 +32,7 @@ public enum ScaleBarColor
 /// "保持还是回零"由模块发布的目标值决定。横/纵只是排布差异，刻度算法共用。
 /// </para>
 /// </remarks>
-public sealed class ScaleBar : Control, IModuleViewElement
+public sealed class ScaleBar : Control, IModuleViewElement, IModulePreviewBoundsTarget
 {
     /// <summary>排布方向。</summary>
     public static readonly StyledProperty<Orientation> OrientationProperty =
@@ -74,6 +54,12 @@ public sealed class ScaleBar : Control, IModuleViewElement
     public static readonly StyledProperty<double> BarThicknessProperty =
         AvaloniaProperty.Register<ScaleBar, double>(nameof(BarThickness), 14);
 
+    /// <summary>
+    /// **轨道与控件边框之间的留白**（DIP；0 = 轨道外沿紧贴控件边框）。
+    /// </summary>
+    public static readonly StyledProperty<double> PaddingProperty =
+        AvaloniaProperty.Register<ScaleBar, double>(nameof(Padding), 2);
+
     /// <summary>主刻度步长（&lt;= 0 = 自动）。</summary>
     public static readonly StyledProperty<double> TickStepProperty =
         AvaloniaProperty.Register<ScaleBar, double>(nameof(TickStep));
@@ -90,9 +76,12 @@ public sealed class ScaleBar : Control, IModuleViewElement
     public static readonly StyledProperty<ScaleFillOrigin> FillOriginProperty =
         AvaloniaProperty.Register<ScaleBar, ScaleFillOrigin>(nameof(FillOrigin), ScaleFillOrigin.Minimum);
 
-    /// <summary>填充颜色角色。</summary>
-    public static readonly StyledProperty<ScaleBarColor> ColorProperty =
-        AvaloniaProperty.Register<ScaleBar, ScaleBarColor>(nameof(Color), ScaleBarColor.Success);
+    /// <summary>填充画刷（未设置时用主题的 <see cref="DefaultFillToken"/>；用户选色后由视图覆盖）。</summary>
+    public static readonly StyledProperty<IBrush?> FillBrushProperty =
+        AvaloniaProperty.Register<ScaleBar, IBrush?>(nameof(FillBrush));
+
+    /// <summary>未覆盖时的填充色 token（主题默认）。</summary>
+    public const string DefaultFillToken = "SemanticOk";
 
     /// <summary>是否平滑。</summary>
     public static readonly StyledProperty<bool> SmoothingEnabledProperty =
@@ -122,15 +111,12 @@ public sealed class ScaleBar : Control, IModuleViewElement
     public static readonly StyledProperty<IBrush?> TickLabelBrushProperty =
         AvaloniaProperty.Register<ScaleBar, IBrush?>(nameof(TickLabelBrush));
 
-    /// <summary>填充画刷（内部：由 <see cref="Color"/> 绑定到主题 token）。</summary>
-    private static readonly StyledProperty<IBrush?> FillBrushProperty =
-        AvaloniaProperty.Register<ScaleBar, IBrush?>("FillBrush");
-
     private readonly AnimatedNumber _display = new();
 
     static ScaleBar()
     {
         AffectsRender<ScaleBar>(
+            PaddingProperty,
             OrientationProperty,
             MinimumProperty,
             MaximumProperty,
@@ -140,7 +126,7 @@ public sealed class ScaleBar : Control, IModuleViewElement
             MinorTickCountProperty,
             ShowLabelsProperty,
             FillOriginProperty,
-            ColorProperty,
+            FillBrushProperty,
             SmoothingEnabledProperty,
             SmoothingTimeMsProperty,
             FontSizeProperty,
@@ -186,6 +172,13 @@ public sealed class ScaleBar : Control, IModuleViewElement
         set => SetValue(BarThicknessProperty, value);
     }
 
+    /// <summary>轨道与控件边框之间的留白（DIP；0 = 紧贴边框）。</summary>
+    public double Padding
+    {
+        get => GetValue(PaddingProperty);
+        set => SetValue(PaddingProperty, value);
+    }
+
     /// <summary>主刻度步长（&lt;= 0 = 自动）。</summary>
     public double TickStep
     {
@@ -214,11 +207,11 @@ public sealed class ScaleBar : Control, IModuleViewElement
         set => SetValue(FillOriginProperty, value);
     }
 
-    /// <summary>填充颜色角色。</summary>
-    public ScaleBarColor Color
+    /// <summary>填充画刷（未设置时用主题的 <see cref="DefaultFillToken"/>）。</summary>
+    public IBrush? FillBrush
     {
-        get => GetValue(ColorProperty);
-        set => SetValue(ColorProperty, value);
+        get => GetValue(FillBrushProperty);
+        set => SetValue(FillBrushProperty, value);
     }
 
     /// <summary>是否平滑。</summary>
@@ -270,48 +263,6 @@ public sealed class ScaleBar : Control, IModuleViewElement
         set => SetValue(TickLabelBrushProperty, value);
     }
 
-    private IBrush? FillBrush => GetValue(FillBrushProperty);
-
-    /// <inheritdoc />
-    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
-    {
-        base.OnPropertyChanged(change);
-
-        if (change.Property == ColorProperty)
-        {
-            ApplyFillRole();
-        }
-    }
-
-    /// <inheritdoc />
-    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
-    {
-        base.OnAttachedToVisualTree(e);
-        ApplyFillRole();
-    }
-
-    /// <summary>把颜色角色落成主题 token（动态资源：换深浅主题/用户改色自动跟随）。</summary>
-    private void ApplyFillRole()
-    {
-        var token = TokenFor(Color);
-        if (token.Length == 0)
-        {
-            ClearValue(FillBrushProperty);
-            return;
-        }
-
-        this[!FillBrushProperty] = new DynamicResourceExtension(token);
-    }
-
-    private static string TokenFor(ScaleBarColor color) => color switch
-    {
-        ScaleBarColor.Accent => "AccentPrimary",
-        ScaleBarColor.Warning => "SemanticWarn",
-        ScaleBarColor.Danger => "SemanticError",
-        ScaleBarColor.Alternate => "AccentSecondary",
-        _ => "SemanticOk",
-    };
-
     /// <inheritdoc />
     public void Refresh(IModuleViewContext context)
     {
@@ -323,6 +274,37 @@ public sealed class ScaleBar : Control, IModuleViewElement
         {
             InvalidateVisual();
         }
+    }
+
+    /// <summary>
+    /// **按内容报尺寸**：横向只报"条 + 刻度带"的高度、纵向只报"条 + 标签带"的宽度，
+    /// 控件边界因此紧贴绘制内容（预览虚线框不再框住成片空白）。
+    /// </summary>
+    /// <param name="availableSize">可用尺寸。</param>
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        var padding = NormalizedPadding();
+        var fontSize = NormalizedFontSize();
+        var thickness = BarThickness > 0 && double.IsFinite(BarThickness) ? BarThickness : 14;
+
+        if (Orientation == Orientation.Horizontal)
+        {
+            var tickBand = ShowLabels ? Math.Max(fontSize * 1.9, 14) : 6;
+            var desiredHeight = (2 * padding) + thickness + tickBand;
+
+            return new Size(
+                double.IsFinite(availableSize.Width) ? availableSize.Width : 200,
+                double.IsFinite(availableSize.Height)
+                    ? Math.Min(availableSize.Height, desiredHeight)
+                    : desiredHeight);
+        }
+
+        var labelBand = ShowLabels ? Math.Max(fontSize * 1.6, 14) : Math.Max(padding, 4);
+        var desiredWidth = (2 * padding) + thickness + labelBand;
+
+        return new Size(
+            double.IsFinite(availableSize.Width) ? Math.Min(availableSize.Width, desiredWidth) : desiredWidth,
+            double.IsFinite(availableSize.Height) ? availableSize.Height : 200);
     }
 
     /// <inheritdoc />
@@ -350,16 +332,16 @@ public sealed class ScaleBar : Control, IModuleViewElement
 
     private void RenderHorizontal(DrawingContext context, double width, double height, double fontSize)
     {
-        const double inset = 2;
+        var padding = NormalizedPadding();
         var tickBand = ShowLabels ? Math.Max(fontSize * 1.9, 14) : 6;
-        var areaHeight = Math.Max(6, height - (2 * inset) - tickBand);
+        var areaHeight = Math.Max(6, height - (2 * padding) - tickBand);
         var thickness = BarThickness > 0 && double.IsFinite(BarThickness)
             ? Math.Min(BarThickness, areaHeight)
             : areaHeight;
         var bar = new Rect(
-            inset,
-            inset + ((areaHeight - thickness) / 2),
-            Math.Max(4, width - (2 * inset)),
+            padding,
+            padding + ((areaHeight - thickness) / 2),
+            Math.Max(4, width - (2 * padding)),
             Math.Max(4, thickness));
 
         DrawBarAndFill(context, bar, horizontal: true);
@@ -368,17 +350,17 @@ public sealed class ScaleBar : Control, IModuleViewElement
 
     private void RenderVertical(DrawingContext context, double width, double height, double fontSize)
     {
-        const double inset = 2;
-        var labelBand = ShowLabels ? Math.Max(fontSize * 4.2, 34) : 8;
-        var availableWidth = Math.Max(6, width - (2 * inset) - labelBand);
+        var padding = NormalizedPadding();
+        var labelBand = ShowLabels ? Math.Max(fontSize * 1.6, 14) : Math.Max(padding, 4);
+        var availableWidth = Math.Max(6, width - (2 * padding) - labelBand);
         var thickness = BarThickness > 0 && double.IsFinite(BarThickness)
             ? Math.Min(BarThickness, availableWidth)
             : availableWidth;
         var bar = new Rect(
-            inset + ((availableWidth - thickness) / 2),
-            inset,
+            padding,
+            padding,
             Math.Max(4, thickness),
-            Math.Max(8, height - (2 * inset)));
+            Math.Max(8, height - (2 * padding)));
 
         DrawBarAndFill(context, bar, horizontal: false);
         DrawTicksVertical(context, bar, fontSize);
@@ -482,7 +464,7 @@ public sealed class ScaleBar : Control, IModuleViewElement
                 fontSize * 0.9,
                 labelBrush);
             var left = Math.Clamp(x - (text.Width / 2), 0, Math.Max(0, width - text.Width));
-            context.DrawText(text, new Point(left, bar.Bottom + majorLength + 3));
+            context.DrawText(text, new Point(left, bar.Bottom + majorLength + 2));
         }
     }
 
@@ -531,12 +513,24 @@ public sealed class ScaleBar : Control, IModuleViewElement
                 SurfaceDrawing.FormatNumber(value, DecimalsForStep(majorStep)),
                 fontSize * 0.9,
                 labelBrush);
-            var top = Math.Clamp(y - (text.Height / 2), 0, Math.Max(0, Bounds.Height - text.Height));
-            var left = Math.Clamp(
-                bar.Right + majorLength + 3,
-                bar.Right + 2,
-                Math.Max(bar.Right + 2, Bounds.Width - text.Width));
-            context.DrawText(text, new Point(left, top));
+
+            // 纵向刻度条的数字**竖着写**（旋转 −90°，自下而上读，与端口标记同一阅读方向）：
+            // 旋转后文字的"宽"变成沿边长度、文字高度才占横向宽度 ⇒ 标签带只需 ~14 DIP。
+            // 绘制点先按 −90° 反算（与 `ChartSurface` 画 Y 轴标题同一手法）：旋转坐标系后，
+            // 局部点 (a,b) 落到控制坐标 (b, −a)。
+            var centerY = Math.Clamp(
+                y,
+                text.Width / 2,
+                Math.Max(text.Width / 2, Bounds.Height - (text.Width / 2)));
+            var centerX = bar.Right + majorLength + 2 + (text.Height / 2);
+            using (context.PushTransform(Matrix.CreateRotation(-Math.PI / 2)))
+            {
+                context.DrawText(
+                    text,
+                    new Point(
+                        -(centerY + (text.Width / 2)),
+                        centerX - (text.Height / 2)));
+            }
         }
     }
 
@@ -585,6 +579,9 @@ public sealed class ScaleBar : Control, IModuleViewElement
             }
         }
     }
+
+    private double NormalizedPadding() =>
+        double.IsFinite(Padding) && Padding > 0 ? Padding : 0;
 
     private double NormalizedMinimum() => double.IsFinite(Minimum) ? Minimum : 0;
 

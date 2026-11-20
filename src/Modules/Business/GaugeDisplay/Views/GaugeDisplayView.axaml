@@ -8,8 +8,8 @@
                x:Class="HYWDebugAssistant.Modules.GaugeDisplay.Views.GaugeDisplayView"
                x:CompileBindings="True"
                x:DataType="contracts:IModuleViewContext"
-               InitialWidth="300" InitialHeight="350"
-               MinWidth="300" MinHeight="300">
+               InitialWidth="300" InitialHeight="300"
+               MinWidth="200" MinHeight="200">
 
   <ui:ModuleView.Ports>
     <ui:ModulePort Name="{x:Static local:GaugeDisplayModule.InPort}"
@@ -22,19 +22,25 @@
     精简版：一行摘要 + 表盘。组/通道在设置面板里编辑；面板正文是独立视图（见 GaugeSettingsPanel）。
   -->
   <Panel>
-    <Grid RowDefinitions="24,*" RowSpacing="2" Margin="2">
-      <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="4">
-        <ui:ModuleLabel x:Name="Summary" Grid.Column="0" Classes="micro" VerticalAlignment="Center"
-                        Text="{loc:Tr view.summaryPreview}"
+    <Grid RowDefinitions="*" RowSpacing="0" Margin="0">
+      <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="0">
+        <ui:ModuleLabel x:Name="Summary" Grid.Column="0" Classes="micro"
+                        VerticalAlignment="Top" HorizontalAlignment="Right"
+                        Margin="0,4,0,0"                       Text="{loc:Tr view.summaryPreview}"
                         ToolTip.Tip="{loc:Tr view.summaryTip}" />
-        <ui:ModuleButton x:Name="SettingsButton" Grid.Column="1" Classes="icon" Width="24" Height="22"
+        <ui:ModuleButton x:Name="SettingsButton" Grid.Column="1" Classes="icon" Width="20" Height="20"
+                         VerticalAlignment="Top" HorizontalAlignment="Right"
                          Icon="{x:Static views:GaugeDisplayViewKeys.IconSettings}"
                          ToolTip.Tip="{loc:Tr view.settings}" />
       </Grid>
 
-      <ui:GaugeDial x:Name="Gauge" Grid.Row="1" Margin="2,2,2,0"
+      <ui:GaugeDial x:Name="Gauge" Grid.Row="0" Margin="0,0,0,0"
+                    HorizontalAlignment="Center" VerticalAlignment="Top"
                     Minimum="0" Maximum="100" Value="42"
+                    FillOrigin="Zero"
                     Title="{loc:Tr view.titlePreview}"
+                    Unit="{loc:Tr view.unitPreview}"
+                    Padding="0"
                     SweepAngle="240" ValueDecimals="2" MajorTickStep="0" MinorTickCount="4" />
     </Grid>
 

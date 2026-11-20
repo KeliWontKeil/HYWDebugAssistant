@@ -63,6 +63,25 @@ public enum ConfigFieldKind
 /// <param name="Title">显示文本。</param>
 public sealed record ConfigChoice(string Value, string Title);
 
+/// <summary>配置字段种类 → 值编辑器的**唯一映射**。</summary>
+/// <remarks>
+/// 生产呈现层、设计期上下文与值契约默认实现共用这一处，避免同一张表抄三份后漂移。
+/// 字段编辑器按 <see cref="ConfigFieldKind"/> 选编辑器属于控件行为，不是界面描述面。
+/// 文本准入格式属于视图输入行为，定义在 <c>ModuleTextSurface.TextFormat</c>，不在值声明里。
+/// </remarks>
+public static class ValueEditorMapping
+{
+    /// <summary>配置字段种类对应的值编辑器。</summary>
+    /// <param name="kind">字段种类。</param>
+    public static ValueEditor ToEditor(ConfigFieldKind kind) => kind switch
+    {
+        ConfigFieldKind.Boolean => ValueEditor.Boolean,
+        ConfigFieldKind.WholeNumber or ConfigFieldKind.Number => ValueEditor.Number,
+        ConfigFieldKind.Enum => ValueEditor.Enum,
+        _ => ValueEditor.Text,
+    };
+}
+
 /// <summary>控件把用户修改交出去的时机（纯操作行为，与值存在哪里无关）。</summary>
 public enum ValueCommitMode
 {
@@ -278,23 +297,15 @@ public interface IModuleViewContext
             return ValueState.Empty(name);
         }
 
-        var editor = field.Kind switch
-        {
-            ConfigFieldKind.Boolean => ValueEditor.Boolean,
-            ConfigFieldKind.WholeNumber or ConfigFieldKind.Number => ValueEditor.Number,
-            ConfigFieldKind.Enum => ValueEditor.Enum,
-            _ => ValueEditor.Text,
-        };
-
         return new ValueState(
             name,
-            editor,
+            ValueEditorMapping.ToEditor(field.Kind),
             field.Value,
             field.Value,
             field.Choices?.Select(choice => new ValueChoice(choice.Value, choice.Title)).ToArray(),
             false,
             true,
-            null,
+            ValueValidity.Valid,
             0,
             IsKnown: true);
     }

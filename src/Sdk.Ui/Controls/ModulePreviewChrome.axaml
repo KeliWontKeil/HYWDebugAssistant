@@ -23,9 +23,7 @@
         <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="ctrl:ModulePort">
             <Border Classes="previewPortMarker"
-                    Classes.send="{Binding IsSend}"
-                    Width="{Binding MarkerWidth}"
-                    Height="{Binding MarkerHeight}">
+                    Classes.send="{Binding IsSend}">
               <Panel>
                 <TextBlock Classes="previewPortName"
                            IsVisible="{Binding !IsVertical}"

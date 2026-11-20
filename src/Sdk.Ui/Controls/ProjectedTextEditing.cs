@@ -2,6 +2,7 @@ using System.Globalization;
 using Avalonia.Controls;
 using Avalonia.Input.Platform;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Values;
 
 namespace HYWDebugAssistant.Sdk.Ui.Controls;
 
@@ -29,6 +30,7 @@ internal sealed class ProjectedTextEditing
 
     private bool _suppress;
     private bool _markers = true;
+    private ValueTextFormat _format = ValueTextFormat.Text;
     private string _raw = string.Empty;
     private TextProjection _projection = TextProjection.Create(string.Empty, markers: true);
     private string _lastDisplay = string.Empty;
@@ -59,6 +61,9 @@ internal sealed class ProjectedTextEditing
 
     /// <summary>当前需要警示色叠画的标记区间。</summary>
     public IReadOnlyList<TextMarkerSpan> MarkerSpans => _projection.GetMarkerSpans();
+
+    /// <summary>当前用户输入的字符准入格式（程序化写入不经过它）。</summary>
+    public void SetFormat(ValueTextFormat format) => _format = format;
 
     /// <summary>标记模式（true = 标记，false = 方框）。</summary>
     public void SetMarkerMode(bool markers)
@@ -148,15 +153,22 @@ internal sealed class ProjectedTextEditing
     {
         ArgumentNullException.ThrowIfNull(text);
 
+        var filtered = ValueTextFormats.Filter(_format, text);
+
+        if (filtered.Length == 0 && text.Length > 0)
+        {
+            return;
+        }
+
         var start = Math.Min(_editor.SelectionStart, _editor.SelectionEnd);
         var end = Math.Max(_editor.SelectionStart, _editor.SelectionEnd);
         var (rawStart, rawEnd) = _projection.DisplayRangeToRaw(start, end);
 
         PushUndo(rawStart, EditKind.Replace);
-        _raw = string.Concat(_raw.AsSpan(0, rawStart), text, _raw.AsSpan(rawEnd));
+        _raw = string.Concat(_raw.AsSpan(0, rawStart), filtered, _raw.AsSpan(rawEnd));
         _redo.Clear();
 
-        var rawCaret = rawStart + text.Length;
+        var rawCaret = rawStart + filtered.Length;
         _projection = TextProjection.Create(_raw, _markers);
         _lastDisplay = _projection.Display;
 
@@ -376,6 +388,16 @@ internal sealed class ProjectedTextEditing
         }
 
         var inserted = display[oldChangedStart..newChangedEnd];
+        var filtered = ValueTextFormats.Filter(_format, inserted);
+
+        if (filtered.Length == 0 && inserted.Length > 0)
+        {
+            RestoreRejectedEdit(oldChangedStart, oldChangedEnd);
+            return;
+        }
+
+        inserted = filtered;
+
         var (rawStart, rawEnd) = oldProjection.DisplayRangeToRaw(oldChangedStart, oldChangedEnd);
         rawStart = Math.Clamp(rawStart, 0, oldRaw.Length);
         rawEnd = Math.Clamp(rawEnd, rawStart, oldRaw.Length);
@@ -384,8 +406,8 @@ internal sealed class ProjectedTextEditing
 
         if (string.Equals(newRaw, oldRaw, StringComparison.Ordinal))
         {
-            // 编辑只动了显示层（例如在标记内部改字），恢复规范投影。
-            RebuildProjection(preserveSelection: false);
+            // 编辑只动了显示层（例如在标记内部改字），恢复规范投影并保留选区。
+            RebuildProjection(preserveSelection: true);
             return;
         }
 
@@ -421,6 +443,30 @@ internal sealed class ProjectedTextEditing
 
         RaiseProjectionChanged();
         RaiseUserEdited();
+    }
+
+    /// <summary>一次用户插入全被过滤：恢复原显示与选区，不产生编辑/撤销/提交。</summary>
+    private void RestoreRejectedEdit(int oldChangedStart, int oldChangedEnd)
+    {
+        var start = Math.Clamp(oldChangedStart, 0, _lastDisplay.Length);
+        var end = Math.Clamp(oldChangedEnd, start, _lastDisplay.Length);
+
+        _suppress = true;
+        try
+        {
+            if (!string.Equals(_editor.Text, _lastDisplay, StringComparison.Ordinal))
+            {
+                _editor.Text = _lastDisplay;
+            }
+
+            _editor.SelectionStart = start;
+            _editor.SelectionEnd = end;
+            _editor.CaretIndex = start;
+        }
+        finally
+        {
+            _suppress = false;
+        }
     }
 
     private void RebuildProjection(bool preserveSelection)
