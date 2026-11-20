@@ -95,9 +95,6 @@ internal sealed class ChannelFrameFeed
     /// <summary>已发现的组（发现顺序）。</summary>
     public IReadOnlyList<uint> GroupIds => _order;
 
-    /// <summary>第一个被发现的组（0 = 还没有任何组）。</summary>
-    public uint FirstGroupId => _order.Count > 0 ? _order[0] : 0;
-
     /// <summary>取某个组的状态（未发现 ⇒ <see langword="null"/>）。</summary>
     /// <param name="groupId">组标识。</param>
     public ChannelGroupState? Group(uint groupId) =>

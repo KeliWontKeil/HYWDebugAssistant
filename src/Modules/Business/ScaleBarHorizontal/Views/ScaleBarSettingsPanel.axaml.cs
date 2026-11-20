@@ -3,7 +3,7 @@ using HYWDebugAssistant.Sdk.Ui.Controls;
 
 namespace HYWDebugAssistant.Modules.ScaleBarHorizontal.Views;
 
-/// <summary>横向刻度条的设置面板正文（独立视图：预览器可单独打开）。</summary>
+/// <summary>横向进度条的设置面板正文（独立视图：预览器可单独打开）。</summary>
 [ModuleViewDesignData(typeof(ScaleBarDesignData))]
 public sealed partial class ScaleBarSettingsPanel : ModuleView
 {

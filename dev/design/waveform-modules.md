@@ -274,7 +274,7 @@ GeneratorChannelConfig
 
 - 三列（内容 960×320）：左 `*` `ChartSurface` 预览（无标题、无轴标题、1 周期参考虚线、不开游标）；中 560 固定表单（内部 540×288 `Canvas`）；右 150 发送 + 底部状态 14。
 - 组行 → 组参数 → 通道行 → 通道名/启用 → 波形类型使用固定坐标；组参数行包含频率、周期、**每周期点数**、采样率。波形参数块为 3 列 `StackPanel + Grid`（每组一行）：基波行（偏移/幅值/相位）、方波行（占空比）、载波行（载波频率/调制比/载波相位）。每格 180×24，内部子列 72/64/44：标签右对齐，输入等宽 64，单位 44。发送区同样绝对定位。窗口变宽只让左列图表吸收，不推动按钮/输入框。
-- 旧 UI 外壳：组行 = `通道组` 标签 + `GroupChips` + 加组 + 删组；通道行 = `通道` 标签 + `ChannelChips` + 加通道 + 删通道。两行同一 `ModuleSegmentedControl`、同一行高、同一加/垃圾桶样式；无减号。
+- 旧 UI 外壳：组行 = `通道组` 标签 + `GroupChips` + 加组 + 删组；通道行 = `通道` 标签 + `ChannelChips` + 加通道 + 删通道。chips 按组号/通道号升序显示（非法 0 排最后），option key 仍是配置索引，选中/编辑/发送语义不变。两行同一 `ModuleSegmentedControl`、同一行高、同一加/垃圾桶样式；无减号。
 - 逻辑树：点组 chip → `selectGroup`，`activeChannelIndex=-1`；点通道 chip → `selectChannel`；组是父、通道是子；不恢复左侧树。
 - 组段常显：组名/组编号/组启用/**组频率/组周期/组每周期点数**/采样率；组频率和分辨率是唯一来源，所有通道共享。
 - 通道结构常显：通道名、通道启用、7 个波形类型图标+文字；无选中通道时这些结构控件禁用，参数块整体隐藏。
@@ -293,10 +293,10 @@ GeneratorChannelConfig
 
 **通道模型**
 
-- 通道身份 = 帧内位置序号；配置 `DisplayChannelConfig` 增加持久化 `Deleted`，删除后槽位保留、后续通道不重编号。
-- 运行期 `ChannelCount` 是槽位数，`PresentChannelCount` 是最近一帧的 `channelCount`；`IsPresent` 表示当前帧存在，`IsDeleted` 表示用户删除，`IsDisplayable = IsPresent && !IsDeleted`。
-- 帧通道数减少：保留配置、历史和 Y 锁存，只把 `index >= PresentChannelCount` 标记为缺失；缺失期间每帧追加 `NaN`，曲线断开，恢复后自然接回。
-- 帧通道数增加：只补新槽位；新通道历史从当前 `DisplayIndex` 开始（`ChannelHistory.StartIndex`），更早范围读 `NaN`，不伪造历史。
+- 通道身份 = 帧内位置序号；配置 `DisplayChannelConfig` 增加持久化 `Deleted` 和运行期 `Known`。`Known` 只在 `validMask` 置位时置真；从未有效的空洞不建行，删除后槽位保留、后续通道不重编号。
+- 运行期 `ChannelCount` 是槽位数，`PresentChannelCount` 是最近一帧的 `channelCount`，`LastValidMask` 是最近一帧的有效位；`IsPresent` 表示当前帧存在，`IsValid` 表示当前帧有效，`IsKnown` 表示曾出现，`IsDeleted` 表示用户删除，`IsDisplayable = IsKnown && IsPresent && IsValid && !IsDeleted`。
+- 缺失 = `!IsPresent || !IsValid`：通道数减少、掩码位为 0 都显示“缺失”；缺失期间每帧追加 `NaN`，曲线/Y 自动/快照/PNG 排除，但历史与配置保留，恢复后自然接回。从未 Known 的空洞不进入 meta/CSV/组头计数。
+- 通道数增加：只补新槽位；新通道历史从当前 `DisplayIndex` 开始（`ChannelHistory.StartIndex`），更早范围读 `NaN`，不伪造历史；只有该槽位首次有效时才标记 Known/建行。
 - 手动删除：清空该通道历史、`Deleted=true`；活动通道被删时选相邻未删除通道；`YFitChannel` 命中删除通道时回退 `-1`。
 - 所有通道都删除：移除该组配置、运行期与排序项，相关数据释放；同 `groupId` 的后续帧按新组重新发现（不保留删除墓碑）。
 - 缺失通道仍在右栏显示“缺失”，曲线/Y 自动/快照/PNG 排除；删除按钮仍可用。

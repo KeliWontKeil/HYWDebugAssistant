@@ -19,6 +19,9 @@ public sealed record DisplayChannelConfig
 
     /// <summary>本次显示中已移除该通道；槽位保留以维持帧内位置映射，下一帧仍报告时自动恢复。</summary>
     public bool Deleted { get; init; }
+
+    /// <summary>该槽位是否有有效样本历史；空洞不建行。</summary>
+    public bool Known { get; init; }
 }
 
 /// <summary>单组运行期显示状态（数据帧发现组时才存在；不是持久化对象）。</summary>

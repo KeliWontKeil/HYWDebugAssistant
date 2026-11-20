@@ -18,10 +18,63 @@ public class WaveformViewSnapshots
     private static readonly string[] GeneratorFormControls =
     [
         "GroupNameInput", "GroupIdInput", "FrequencyInput", "PeriodInput",
-        "ChannelNameInput", "ChannelEnabledToggle", "WaveformType",
+        "ChannelNumberInput", "ChannelNameInput", "ChannelEnabledToggle", "WaveformType",
         "PhaseInput", "AmplitudeInput", "DutyInput",
         "CarrierFrequencyInput", "ModulationIndexInput", "CarrierPhaseInput",
     ];
+
+    [Fact]
+    public async Task 波形发生器_组和通道chips按编号排序()
+    {
+        const string unsorted =
+            "{\"revision\":1,\"structureRevision\":1,\"groups\":["
+            + "{\"index\":0,\"id\":2,\"name\":\"G2\",\"enabled\":true,\"frequency\":10,\"resolution\":100,\"rate\":1000,"
+            + "\"channels\":[{\"index\":0,\"number\":1,\"name\":\"CH1\",\"kind\":\"sine\",\"enabled\":true,"
+            + "\"phase\":0,\"offset\":0,\"amplitude\":1,\"duty\":0.5,\"carrierFrequency\":100,\"modulationIndex\":0.8,\"carrierPhase\":0}]},"
+            + "{\"index\":1,\"id\":1,\"name\":\"G1\",\"enabled\":true,\"frequency\":10,\"resolution\":100,\"rate\":1000,"
+            + "\"channels\":["
+            + "{\"index\":0,\"number\":3,\"name\":\"CH3\",\"kind\":\"sine\",\"enabled\":true,"
+            + "\"phase\":0,\"offset\":0,\"amplitude\":1,\"duty\":0.5,\"carrierFrequency\":100,\"modulationIndex\":0.8,\"carrierPhase\":0},"
+            + "{\"index\":1,\"number\":1,\"name\":\"CH1\",\"kind\":\"square\",\"enabled\":true,"
+            + "\"phase\":0,\"offset\":0,\"amplitude\":0.5,\"duty\":0.5,\"carrierFrequency\":100,\"modulationIndex\":0.8,\"carrierPhase\":0}]}],"
+            + "\"activeGroupIndex\":1,\"activeChannelIndex\":0,\"oneShotPeriods\":5,"
+            + "\"estimatedFrames\":500,\"estimatedBytes\":140000,\"totalEstimatedFrames\":500,\"totalEstimatedBytes\":140000,"
+            + "\"dropped\":0,\"sending\":false,\"continuous\":false}";
+
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var context = new GeneratorSnapshotContext(snapshotOverride: unsorted);
+                var view = new WaveformGeneratorViewFactory().Create(context);
+                var host = new ModuleViewHost(context, view);
+                var window = SnapshotWindow.CreateFramed(host, view as ModuleView, 1002, 370);
+
+                try
+                {
+                    window.Show();
+                    SnapshotTool.Pump();
+                    host.Refresh();
+                    SnapshotTool.Pump();
+
+                    var groups = view.FindControl<ModuleSegmentedControl>("GroupChips");
+                    Assert.NotNull(groups);
+                    Assert.Equal(
+                        ["1 G1", "2 G2"],
+                        groups!.Options!.Select(option => option.Label));
+
+                    var channels = view.FindControl<ModuleSegmentedControl>("ChannelChips");
+                    Assert.NotNull(channels);
+                    Assert.Equal(
+                        ["1 CH1", "3 CH3"],
+                        channels!.Options!.Select(option => option.Label));
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+    }
 
     [Fact]
     public async Task 生成快照_波形发生器() =>
@@ -186,8 +239,8 @@ public class WaveformViewSnapshots
             () =>
             {
                 var view = new WaveformDisplayViewFactory().Create(new DisplaySnapshotContext());
-                Assert.Equal(1002, Design.GetWidth(view));
-                Assert.Equal(630, Design.GetHeight(view));
+                Assert.Equal(960, Design.GetWidth(view));
+                Assert.Equal(600, Design.GetHeight(view));
             },
             CancellationToken.None);
     }
@@ -303,25 +356,31 @@ public class WaveformViewSnapshots
         private readonly string _kind;
         private readonly bool _groupSelected;
 
-        public GeneratorSnapshotContext(string kind = "sine", bool groupSelected = false)
+        public GeneratorSnapshotContext(string kind = "sine", bool groupSelected = false, string? snapshotOverride = null)
         {
             _kind = kind;
             _groupSelected = groupSelected;
             var activeChannel = groupSelected ? -1 : 0;
+            if (snapshotOverride is not null)
+            {
+                _snapshot = snapshotOverride;
+                return;
+            }
+
             _snapshot =
                 "{\"revision\":1,\"structureRevision\":1,\"groups\":["
                 + "{\"index\":0,\"id\":1,\"name\":\"G1\",\"enabled\":true,\"frequency\":10,\"resolution\":100,\"rate\":1000,"
                 + "\"channels\":["
-                + "{\"index\":0,\"name\":\"CH1\",\"kind\":\""
+                + "{\"index\":0,\"number\":1,\"name\":\"CH1\",\"kind\":\""
                 + kind
                 + "\",\"enabled\":true,\"phase\":0,\"offset\":0,\"amplitude\":1,"
                 + "\"duty\":0.5,\"carrierFrequency\":100,\"modulationIndex\":0.8,\"carrierPhase\":0},"
-                + "{\"index\":1,\"name\":\"CH2\",\"kind\":\"square\",\"enabled\":true,"
+                + "{\"index\":1,\"number\":2,\"name\":\"CH2\",\"kind\":\"square\",\"enabled\":true,"
                 + "\"phase\":0,\"offset\":0,\"amplitude\":0.5,\"duty\":0.5,"
                 + "\"carrierFrequency\":100,\"modulationIndex\":0.8,\"carrierPhase\":0}]},"
                 + "{\"index\":1,\"id\":2,\"name\":\"G2\",\"enabled\":false,\"frequency\":5,\"resolution\":100,\"rate\":500,"
                 + "\"channels\":["
-                + "{\"index\":0,\"name\":\"CH1\",\"kind\":\"triangle\",\"enabled\":false,"
+                + "{\"index\":0,\"number\":1,\"name\":\"CH1\",\"kind\":\"triangle\",\"enabled\":false,"
                 + "\"phase\":0,\"offset\":0,\"amplitude\":1,\"duty\":0.5,"
                 + "\"carrierFrequency\":100,\"modulationIndex\":0.8,\"carrierPhase\":0}]}],"
                 + "\"activeGroupIndex\":0,\"activeChannelIndex\":" + activeChannel.ToString(System.Globalization.CultureInfo.InvariantCulture)

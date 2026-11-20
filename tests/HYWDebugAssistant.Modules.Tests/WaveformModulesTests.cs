@@ -793,6 +793,58 @@ public class WaveformModulesTests
     }
 
     [Fact]
+    public void 发生器_通道编号映射到帧槽位()
+    {
+        var context = new TestModuleContext();
+        context.Configuration.Write(new GeneratorConfig
+        {
+            Groups =
+            [
+                new GeneratorGroupConfig
+                {
+                    GroupId = 1,
+                    Resolution = 100,
+                    Channels =
+                    [
+                        GeneratorConfig.CreateChannel(1),
+                        GeneratorConfig.CreateChannel(3),
+                    ],
+                },
+            ],
+        });
+
+        var module = new WaveformGeneratorModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+        context.EnqueueCommand(WaveformGeneratorModule.SendOnceCommand);
+        module.PumpOnce(context);
+        context.Timers.AdvanceTo(TimeSpan.FromMilliseconds(500));
+
+        var frame = context.Sent[0].Payload;
+        WaveformFrameReader.TryRead(frame, out var view, out _).ShouldBeTrue();
+        view.ChannelCount.ShouldBe(3);
+        view.ValidMask.ShouldBe(0b101UL);
+        view.Samples[1].ShouldBe(0f, "编号 2 未配置，槽位保持无效");
+    }
+
+    [Fact]
+    public void 发生器_通道编号零或重复不生效()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformGeneratorModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        context.ViewState.SetInputText(WaveformGeneratorModule.ChannelNumberSource, "0");
+        module.OnStep(context, StepReason.Input);
+        context.Configuration.Read<GeneratorConfig>().Groups[0].Channels[0].ChannelNumber.ShouldBe(1);
+
+        context.ViewState.SetInputText(WaveformGeneratorModule.ChannelNumberSource, "1");
+        module.OnStep(context, StepReason.Input);
+        context.Configuration.Read<GeneratorConfig>().Groups[0].Channels[0].ChannelNumber.ShouldBe(1);
+    }
+
+    [Fact]
     public void 发生器_旧配置的通道频率应迁移为组频率()
     {
         var old = System.Text.Json.JsonSerializer.Deserialize<GeneratorConfig>(
@@ -1047,6 +1099,41 @@ public class WaveformModulesTests
         snapshot.XRangeStart.ShouldBe(0);
         snapshot.XRangeEnd.ShouldBe(39);
         snapshot.YAuto.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void 显示器_首帧只物化有效掩码通道()
+    {
+        var context = new TestModuleContext();
+        var module = new WaveformDisplayModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        DeliverMasked(context, 1, 0, 3, 0b101, [1f, 0f, 3f]);
+        module.OnStep(context, StepReason.Data);
+
+        var meta = DisplayMeta(context);
+        var channels = meta.GetProperty("channels");
+        channels.GetArrayLength().ShouldBe(2);
+        channels[0].GetProperty("index").GetInt32().ShouldBe(0);
+        channels[1].GetProperty("index").GetInt32().ShouldBe(2);
+        meta.GetProperty("groups")[0].GetProperty("channels").GetInt32().ShouldBe(2);
+
+        Snapshot(context)!.Channels.Count.ShouldBe(2);
+
+        // 通道 2 首次有效后才出现；再次无效时保留为缺失。
+        DeliverMasked(context, 1, 1, 3, 0b111, [1f, 2f, 3f]);
+        module.OnStep(context, StepReason.Data);
+        channels = DisplayMeta(context).GetProperty("channels");
+        channels.GetArrayLength().ShouldBe(3);
+        channels[1].GetProperty("index").GetInt32().ShouldBe(1);
+        channels[1].GetProperty("missing").GetBoolean().ShouldBeFalse();
+
+        DeliverMasked(context, 1, 2, 3, 0b101, [4f, 0f, 5f]);
+        module.OnStep(context, StepReason.Data);
+        channels = DisplayMeta(context).GetProperty("channels");
+        channels.GetArrayLength().ShouldBe(3);
+        channels[1].GetProperty("missing").GetBoolean().ShouldBeTrue();
     }
 
     [Fact]
@@ -2098,6 +2185,33 @@ public class WaveformModulesTests
             1000,
             values.Length,
             (1UL << values.Length) - 1,
+            samples);
+
+        context.Deliver(WaveformDisplayModule.InPort, frame);
+    }
+
+    private static void DeliverMasked(
+        TestModuleContext context,
+        uint groupId,
+        uint sequence,
+        int channelCount,
+        ulong validMask,
+        float[] values)
+    {
+        var frame = new byte[280];
+        var samples = new float[64];
+        for (var index = 0; index < values.Length; index++)
+        {
+            samples[index] = values[index];
+        }
+
+        WaveformFrameWriter.Write(
+            frame,
+            groupId,
+            sequence,
+            1000,
+            channelCount,
+            validMask,
             samples);
 
         context.Deliver(WaveformDisplayModule.InPort, frame);

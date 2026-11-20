@@ -15,18 +15,33 @@ internal sealed class DisplayGroupRuntime
     /// <summary>最新一帧声明的通道数；超出部分视为缺失。</summary>
     public int PresentChannelCount { get; private set; }
 
+    /// <summary>最新一帧的有效通道位掩码。</summary>
+    public ulong LastValidMask { get; private set; }
+
     /// <summary>每通道动态历史（与槽位一一对应）。</summary>
     public ChannelHistory[] Histories { get; private set; } = [];
 
     /// <summary>该序号在当前帧中是否存在。</summary>
     public bool IsPresent(int index) => index >= 0 && index < PresentChannelCount;
 
+    /// <summary>该序号在当前帧是否有效。</summary>
+    public bool IsValid(int index) =>
+        index >= 0 && index < PresentChannelCount && (LastValidMask & (1UL << index)) != 0;
+
+    /// <summary>该序号是否有过有效样本；空洞不建行。</summary>
+    public bool IsKnown(int index) =>
+        index >= 0 && index < Config.Channels.Count && Config.Channels[index].Known;
+
     /// <summary>该序号是否被用户删除。</summary>
     public bool IsDeleted(int index) =>
         index >= 0 && index < Config.Channels.Count && Config.Channels[index].Deleted;
 
     /// <summary>该序号当前是否应参与曲线/Y 自动/保存列。</summary>
-    public bool IsDisplayable(int index) => IsPresent(index) && !IsDeleted(index);
+    public bool IsDisplayable(int index) =>
+        IsKnown(index) && IsPresent(index) && IsValid(index) && !IsDeleted(index);
+
+    /// <summary>记录最新帧的有效位；位只在当前帧声明范围内生效。</summary>
+    public void SetValidMask(ulong mask) => LastValidMask = mask;
 
     /// <summary>模块自己的数据编号（每收到一帧 +1；可清零）。</summary>
     public long DisplayIndex { get; private set; }

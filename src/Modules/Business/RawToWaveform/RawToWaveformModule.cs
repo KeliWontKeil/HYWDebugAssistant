@@ -128,6 +128,7 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     /// <summary>本拍帧头/帧尾是否非法（保留上一次有效值）。</summary>
     private bool _headerInvalid;
     private bool _footerInvalid;
+    private bool _groupInvalid;
 
     /// <inheritdoc />
     public ReceiveMode Receive => ReceiveMode.Push;
@@ -311,17 +312,19 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
         // 帧头/帧尾是**十六进制字节串**；空/非法 ⇒ 保持上一次有效字节并标红。
         var header = ReadHex(context, HeaderHexInput, _settings.Header, out var headerInvalid);
         var footer = ReadHex(context, FooterHexInput, _settings.Footer, out var footerInvalid);
+        var groupId = ReadGroupId(context, GroupIdInput, _settings.GroupId, out var groupInvalid);
         _headerInvalid = headerInvalid;
         _footerInvalid = footerInvalid;
+        _groupInvalid = groupInvalid;
 
         if (reportAlerts)
         {
             _validity.Set(context, HeaderHexInput, headerInvalid, headerInvalid ? RawToWaveformText.Get(RawToWaveformText.HexHint) : null);
             _validity.Set(context, FooterHexInput, footerInvalid, footerInvalid ? RawToWaveformText.Get(RawToWaveformText.HexHint) : null);
+            _validity.Set(context, GroupIdInput, groupInvalid, groupInvalid ? RawToWaveformText.Get(RawToWaveformText.BadGroup) : null);
         }
 
         var prefix = context.Values.ReadText(PrefixInput) ?? string.Empty;
-        var groupId = ReadInt(context, GroupIdInput, _settings.GroupId, 1, int.MaxValue);
         var rateHz = ReadRate(context, RateInput, _settings.RateHz);
 
         return new Settings(protocol, header, footer, prefix, groupId, rateHz);
@@ -441,7 +444,9 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     {
         if (_settings.Protocol is not RawToWaveformProtocol.TextFrame)
         {
-            return RawToWaveformText.Get(RawToWaveformText.Ready);
+            return _groupInvalid
+                ? RawToWaveformText.Get(RawToWaveformText.BadGroup)
+                : RawToWaveformText.Get(RawToWaveformText.Ready);
         }
 
         if (_settings.Header.Length == 0 || _settings.Footer.Length == 0)
@@ -451,15 +456,24 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
 
         return _headerInvalid || _footerInvalid
             ? RawToWaveformText.Get(RawToWaveformText.BadHexKept)
-            : RawToWaveformText.Get(RawToWaveformText.Ready);
+            : _groupInvalid
+                ? RawToWaveformText.Get(RawToWaveformText.BadGroup)
+                : RawToWaveformText.Get(RawToWaveformText.Ready);
     }
 
-    private static int ReadInt(IModuleContext context, string name, int fallback, int minimum, int maximum)
+    private static int ReadGroupId(IModuleContext context, string name, int fallback, out bool invalid)
     {
         var text = context.Values.ReadText(name);
-        return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
-            ? Math.Clamp(value, minimum, maximum)
-            : fallback;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            invalid = false;
+            return fallback;
+        }
+
+        invalid = !int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            || value < 1;
+
+        return invalid ? fallback : value;
     }
 
     private static double ReadRate(IModuleContext context, string name, double fallback)
@@ -507,6 +521,11 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     private void OnRaw(ReadOnlySpan<byte> payload)
     {
         if (_context is not { } context)
+        {
+            return;
+        }
+
+        if (_groupInvalid)
         {
             return;
         }
@@ -578,8 +597,8 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
         writer.Clear();
         writer.WriteU16(WaveformContract.ChannelCountField, (ushort)count);
         writer.WriteU16(WaveformContract.PayloadBytesField, (ushort)(count * sizeof(float)));
-        // 内置波形显示器把 groupId == 0 判为格式不正确并丢弃整帧，这里兜底为 1。
-        writer.WriteU32(WaveformContract.GroupIdField, _settings.GroupId > 0 ? unchecked((uint)_settings.GroupId) : 1u);
+        // 内置波形显示器把 groupId == 0 判为格式不正确并丢弃整帧；组号解析已保证 >= 1，这里不再兜底。
+        writer.WriteU32(WaveformContract.GroupIdField, unchecked((uint)_settings.GroupId));
         writer.WriteU32(WaveformContract.SequenceField, unchecked(_sequence++));
         writer.WriteF32(WaveformContract.RateHzField, (float)_settings.RateHz);
         writer.WriteU64(

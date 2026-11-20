@@ -99,6 +99,11 @@ public sealed class ModulePopupPanel : Control, IModuleViewElement
 
         _isOpen = true;
         SetAnchorHighlight(true);
+        if (_context is { } context)
+        {
+            _surface?.BindContext(context);
+        }
+
         _host?.Refresh();
         if (_window.IsVisible)
         {
@@ -151,6 +156,7 @@ public sealed class ModulePopupPanel : Control, IModuleViewElement
         _context = context;
         if (_isOpen)
         {
+            _surface?.BindContext(context);
             _host?.Refresh();
             PlaceWindow();
         }
@@ -171,7 +177,9 @@ public sealed class ModulePopupPanel : Control, IModuleViewElement
         }
 
         _context ??= this.FindAncestorOfType<ModuleViewHost>()?.Context;
-        if (_context is null || PanelType is not { } panelType || Activator.CreateInstance(panelType) is not Control body)
+        if (_context is not { } context
+            || PanelType is not { } panelType
+            || Activator.CreateInstance(panelType) is not Control body)
         {
             return;
         }
@@ -179,7 +187,7 @@ public sealed class ModulePopupPanel : Control, IModuleViewElement
         var width = body is ModuleView bodyView && bodyView.InitialWidth > 0 ? bodyView.InitialWidth : 320;
         var height = body is ModuleView tallView && tallView.InitialHeight > 0 ? tallView.InitialHeight : 360;
 
-        _host = new ModuleViewHost(_context, body);
+        _host = new ModuleViewHost(context, body);
         _surface = new ModulePanelSurface
         {
             Title = Title,
@@ -187,6 +195,7 @@ public sealed class ModulePopupPanel : Control, IModuleViewElement
             IconOwner = panelType.Assembly,
             Content = _host,
         };
+        _surface.BindContext(context);
         _surface.CloseRequested += OnCloseRequested;
 
         _owner = TopLevel.GetTopLevel(this) as Window;

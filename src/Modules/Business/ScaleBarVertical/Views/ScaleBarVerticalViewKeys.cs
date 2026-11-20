@@ -1,6 +1,6 @@
 namespace HYWDebugAssistant.Modules.ScaleBarVertical.Views;
 
-/// <summary>纵向刻度条视图的键（XAML/代码只经本类引用）。</summary>
+/// <summary>纵向进度条视图的键（XAML/代码只经本类引用）。</summary>
 public static class ScaleBarVerticalViewKeys
 {
     public const string Value = ScaleBarVerticalModule.ValueSource;

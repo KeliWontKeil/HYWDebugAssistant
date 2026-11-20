@@ -9,6 +9,7 @@ public static class WaveformGeneratorViewKeys
 
     public const string GroupName = WaveformGeneratorModule.GroupNameSource;
     public const string GroupId = WaveformGeneratorModule.GroupIdSource;
+    public const string ChannelNumber = WaveformGeneratorModule.ChannelNumberSource;
     public const string ChannelName = WaveformGeneratorModule.ChannelNameSource;
     public const string Waveform = WaveformGeneratorModule.WaveformSource;
     public const string Frequency = WaveformGeneratorModule.FrequencySource;

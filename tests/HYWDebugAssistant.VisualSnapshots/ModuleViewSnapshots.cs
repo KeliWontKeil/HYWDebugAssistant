@@ -141,6 +141,56 @@ public class ModuleViewSnapshots
             },
             CancellationToken.None);
     }
+
+    /// <summary>
+    /// 生成设置面板**预览**截图（<c>modules\&lt;模块&gt;-settings-preview.png</c>）：正文不套模块窗口预留带，
+    /// 但必须保留控件虚线/容器点线范围框。
+    /// </summary>
+    /// <param name="panelType">面板正文类型。</param>
+    /// <param name="name">模块名（文件名用）。</param>
+    [Theory]
+    [MemberData(nameof(SettingsPanels))]
+    public async Task 生成快照_设置面板预览(Type panelType, string name)
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var previous = ModuleView.IsPreviewHost;
+                ModuleView.IsPreviewHost = true;
+
+                try
+                {
+                    var panel = (Control)Activator.CreateInstance(panelType)!;
+                    var view = (ModuleView)panel;
+
+                    var width = view.InitialWidth > 0 ? view.InitialWidth : 320;
+                    var height = view.InitialHeight > 0 ? view.InitialHeight : 360;
+
+                    var window = new Window
+                    {
+                        Width = width,
+                        Height = height,
+                        Content = panel,
+                    };
+
+                    window.Show();
+                    SnapshotTool.Pump();
+                    SnapshotTool.Pump();
+
+                    var overlay = panel.GetVisualDescendants().OfType<PreviewBoundsOverlay>().SingleOrDefault();
+                    Assert.NotNull(overlay);
+                    Assert.DoesNotContain(panel.GetVisualDescendants(), visual => visual is ModulePreviewChrome);
+
+                    SnapshotTool.Save(window, "modules/" + name + "-settings-preview.png");
+                    window.Close();
+                }
+                finally
+                {
+                    ModuleView.IsPreviewHost = previous;
+                }
+            },
+            CancellationToken.None);
+    }
     /// <summary>生成某模块的视图截图（<c>modules\&lt;模块&gt;.png</c> + 逐页签）。</summary>
     /// <param name="moduleType">模块入口类型。</param>
     /// <param name="factoryType">视图工厂类型。</param>
@@ -192,6 +242,78 @@ public class ModuleViewSnapshots
                     }
                 }
 
+                window.Close();
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>生成姿态模块的**视角面板展开**截图（<c>modules\AttitudeDisplay-viewcube.png</c>）。</summary>
+    [Fact]
+    public async Task 生成快照_姿态视角面板()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var probe = new TestModuleContext();
+                var module = new AttitudeDisplayModule();
+                module.OnRegistered(probe);
+                var context = new SnapshotContext(
+                    probe,
+                    BuildFields(typeof(NoConfig), typeof(AttitudeDisplayModule).Assembly));
+                var view = new AttitudeDisplayViewFactory().Create(context);
+                var host = new ModuleViewHost(context, view);
+                var (width, height) = WindowSize(view);
+                var window = SnapshotWindow.CreateFramed(host, view as ModuleView, width, height);
+
+                window.Show();
+                SnapshotTool.Pump();
+                host.Refresh();
+                SnapshotTool.Pump();
+
+                var attitude = window.GetVisualDescendants().OfType<AttitudeView>().First();
+                attitude.OpenViewSelector();
+                SnapshotTool.Pump();
+                host.Refresh();
+                SnapshotTool.Pump();
+
+                SnapshotTool.Save(window, "modules/AttitudeDisplay-viewcube.png");
+                window.Close();
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>生成姿态模块在“数据单位=弧度”下的底栏截图（<c>modules\AttitudeDisplay-rad.png</c>）。</summary>
+    [Fact]
+    public async Task 生成快照_姿态单位弧度()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var probe = new TestModuleContext();
+                var module = new AttitudeDisplayModule();
+                module.OnRegistered(probe);
+                const string meta =
+                    "{\"revision\":1,\"settings\":{\"group\":0,\"roll\":0,\"pitch\":1,\"yaw\":2,\"style\":\"cube\",\"unit\":\"rad\",\"smooth\":true,\"smoothMs\":120,\"zoom\":1,\"grid\":true,\"labels\":true}}";
+                var context = new SnapshotContext(
+                    probe,
+                    BuildFields(typeof(NoConfig), typeof(AttitudeDisplayModule).Assembly),
+                    meta);
+                var view = new AttitudeDisplayViewFactory().Create(context);
+                var host = new ModuleViewHost(context, view);
+                var (width, height) = WindowSize(view);
+                var window = SnapshotWindow.CreateFramed(host, view as ModuleView, width, height);
+
+                window.Show();
+                SnapshotTool.Pump();
+                host.Refresh();
+                SnapshotTool.Pump();
+
+                var badge = window.GetVisualDescendants()
+                    .OfType<ModuleLabel>()
+                    .First(label => label.Name == "UnitBadge");
+                Assert.Equal("数据单位 弧度", badge.Text);
+
+                SnapshotTool.Save(window, "modules/AttitudeDisplay-rad.png");
                 window.Close();
             },
             CancellationToken.None);
@@ -336,10 +458,15 @@ public class ModuleViewSnapshots
     private sealed class SnapshotContext : IModuleViewContext
     {
         private readonly IReadOnlyDictionary<string, ConfigFieldView> _fields;
+        private readonly string _text;
 
-        public SnapshotContext(TestModuleContext probe, IReadOnlyDictionary<string, ConfigFieldView> fields)
+        public SnapshotContext(
+            TestModuleContext probe,
+            IReadOnlyDictionary<string, ConfigFieldView> fields,
+            string text = "就绪")
         {
             _fields = fields;
+            _text = text;
             _ = probe;
         }
 
@@ -357,7 +484,7 @@ public class ModuleViewSnapshots
 
         public SeriesWindowSnapshot? ReadSeriesWindow(string source) => null;
 
-        public TextBufferSnapshot ReadText(string source) => new(["就绪"], 0, 20000);
+        public TextBufferSnapshot ReadText(string source) => new([_text], 0, 20000);
 
         public long ReadTextRevision(string source) => 0;
 

@@ -34,8 +34,8 @@
                          ToolTip.Tip="{loc:Tr view.settings}" />
       </Grid>
 
-      <ui:GaugeDial x:Name="Gauge" Grid.Row="0" Margin="0,0,0,0"
-                    HorizontalAlignment="Center" VerticalAlignment="Top"
+      <ui:GaugeDial x:Name="Gauge" Margin="0,0,0,-40"
+                    HorizontalAlignment="Center" VerticalAlignment="Stretch"
                     Minimum="0" Maximum="100" Value="42"
                     FillOrigin="Zero"
                     Title="{loc:Tr view.titlePreview}"

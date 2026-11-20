@@ -10,7 +10,7 @@ using HYWDebugAssistant.Sdk.Ui.Controls;
 
 namespace HYWDebugAssistant.Modules.ScaleBarVertical.Views;
 
-/// <summary>纵向刻度条视图：组/通道摘要 + 矩形刻度条 + 独立设置面板。</summary>
+/// <summary>纵向进度条视图：组/通道摘要 + 矩形进度条 + 独立设置面板。</summary>
 [ModuleViewDesignData(typeof(ScaleBarDesignData))]
 public sealed partial class ScaleBarVerticalView : ModuleView, IModuleViewElement
 {
@@ -90,8 +90,8 @@ public sealed partial class ScaleBarVerticalView : ModuleView, IModuleViewElemen
 
             ApplySettings(settings);
             UpdateSummary(
-                ReadInt(settings, "group", 0),
-                ReadInt(settings, "channel", 0));
+                ReadInt(settings, "group", 1),
+                ReadInt(settings, "channel", 1));
         }
         catch (JsonException)
         {
@@ -151,9 +151,7 @@ public sealed partial class ScaleBarVerticalView : ModuleView, IModuleViewElemen
             return;
         }
 
-        var groupText = group > 0
-            ? group.ToString(CultureInfo.InvariantCulture)
-            : Tr(ScaleBarVerticalText.SummaryAuto);
+        var groupText = group.ToString(CultureInfo.InvariantCulture);
         var text = Tr(ScaleBarVerticalText.Summary, groupText, channel);
         if (string.Equals(text, _summaryText, StringComparison.Ordinal))
         {

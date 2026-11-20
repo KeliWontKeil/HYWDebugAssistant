@@ -15,7 +15,7 @@ using HYWDebugAssistant.Sdk.Views;
 namespace HYWDebugAssistant.Modules.ScaleBarVertical;
 
 /// <summary>
-/// **纵向刻度条**：把波形帧里某一组的某一个通道显示成矩形刻度进度条（单通道）。
+/// **纵向进度条**：把波形帧里某一组的某一个通道显示成矩形刻度进度条（单通道）。
 /// </summary>
 /// <remarks>
 /// 本模块是"显示值该是多少"的唯一事实源：样本新鲜给样本，过期按自动回零设置给 0 或保持，
@@ -303,7 +303,7 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
                 candidate = candidate with { GroupId = defaults.GroupId };
                 _validity.Set(context, GroupSource, false);
             }
-            else if (TryParseInteger(groupText, out var group) && group >= 0)
+            else if (TryParseInteger(groupText, out var group) && group >= 1)
             {
                 candidate = candidate with { GroupId = group };
                 _validity.Set(context, GroupSource, false);
@@ -321,7 +321,8 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
                 candidate = candidate with { Channel = defaults.Channel };
                 _validity.Set(context, ChannelSource, false);
             }
-            else if (TryParseInteger(channelText, out var channel) && channel >= 0)
+            else if (TryParseInteger(channelText, out var channel)
+                     && channel is >= ScaleBarSettings.MinimumChannel and <= ScaleBarSettings.MaximumChannel)
             {
                 candidate = candidate with { Channel = channel };
                 _validity.Set(context, ChannelSource, false);
@@ -568,7 +569,7 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
         var groupId = EffectiveGroupId();
         var target = (float)_feed.Resolve(
             groupId,
-            _settings.Channel,
+            _settings.Channel - 1,
             nowMs,
             _settings.AutoZero,
             _settings.ZeroDelayMs);
@@ -589,26 +590,18 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
         }
     }
 
-    /// <summary>当前组：配置了具体组号就用它，0 表示跟随第一个出现的组。</summary>
-    private uint EffectiveGroupId() =>
-        _settings.GroupId > 0 ? (uint)_settings.GroupId : _feed.FirstGroupId;
+    /// <summary>当前组：组号是用户配置的 1 基标识；未发现就等待，不自动跟随。</summary>
+    private uint EffectiveGroupId() => (uint)_settings.GroupId;
 
     private string ResolveStatus(uint groupId, long nowMs)
     {
-        if (groupId == 0)
-        {
-            return Tr(ScaleBarVerticalText.Ready);
-        }
-
         var group = _feed.Group(groupId);
         if (group is null)
         {
-            return _settings.GroupId > 0
-                ? Tr(ScaleBarVerticalText.WaitingGroup, _settings.GroupId)
-                : Tr(ScaleBarVerticalText.Ready);
+            return Tr(ScaleBarVerticalText.WaitingGroup, _settings.GroupId);
         }
 
-        if (_settings.Channel >= group.ChannelCount)
+        if (_settings.Channel > group.ChannelCount)
         {
             return Tr(ScaleBarVerticalText.ChannelMissing, _settings.Channel, group.ChannelCount);
         }
@@ -620,7 +613,7 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
                 : Tr(ScaleBarVerticalText.Ready);
         }
 
-        if (!_feed.ChannelValid(groupId, _settings.Channel))
+        if (!_feed.ChannelValid(groupId, _settings.Channel - 1))
         {
             return Tr(ScaleBarVerticalText.ChannelInvalid, _settings.Channel);
         }

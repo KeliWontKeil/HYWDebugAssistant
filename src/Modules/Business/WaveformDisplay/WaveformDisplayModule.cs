@@ -1167,6 +1167,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                         var index = indexElement.GetInt32();
                         if (index >= 0
                             && index < selectedGroup.Config.Channels.Count
+                            && selectedGroup.IsKnown(index)
                             && !selectedGroup.IsDeleted(index))
                         {
                             _activeChannelIndex = index;
@@ -1271,7 +1272,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         Func<DisplayChannelConfig, DisplayChannelConfig> update)
     {
         var group = ActiveGroup;
-        if (group is null || index < 0 || index >= group.Config.Channels.Count || group.IsDeleted(index))
+        if (group is null || index < 0 || index >= group.Config.Channels.Count || !group.IsKnown(index) || group.IsDeleted(index))
         {
             return;
         }
@@ -1318,15 +1319,19 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         var newGroup = !groupExisted;
         var firstFrame = group.DisplayIndex == 0;
 
-        // 删除通道是“本次显示移除”，不是持久身份：下一帧仍报告该槽位时恢复。
-        // 否则用户删掉的通道会永久消失，直到整组重建；隐藏/显隐才是长期操作。
-        var revived = ReviveDeletedChannels(context, group, frame.ChannelCount);
-        var channelsChanged = revived || group.PresentChannelCount != frame.ChannelCount;
-
+        // 删除通道是“本次显示移除”，不是持久身份：下一帧的有效位仍报告该槽位时恢复。
+        // 未曾在 validMask 中出现过的空洞不建行；先扩槽位，再物化有效通道。
+        var channelsChanged = group.PresentChannelCount != frame.ChannelCount;
         if (channelsChanged)
         {
             EnsureGroupChannels(context, group, frame.ChannelCount);
         }
+
+        var knownChanged = MarkKnownChannels(context, group, frame.ChannelCount, frame.ValidMask);
+        var revived = ReviveDeletedChannels(context, group, frame.ChannelCount, frame.ValidMask);
+        var maskChanged = group.LastValidMask != frame.ValidMask;
+        group.SetValidMask(frame.ValidMask);
+        channelsChanged |= knownChanged || revived || maskChanged;
 
         if (frame.RateHz > 0 && float.IsFinite(frame.RateHz))
         {
@@ -1550,12 +1555,13 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     }
 
     /// <summary>
-    /// 数据帧仍包含某个槽位时恢复该通道。删除只清本帧显示，不改变槽位映射。
+    /// 数据帧的 validMask 置位时恢复已删除通道。删除只清本帧显示，不改变槽位映射。
     /// </summary>
     private bool ReviveDeletedChannels(
         IModuleContext context,
         DisplayGroupRuntime group,
-        int presentCount)
+        int presentCount,
+        ulong validMask)
     {
         var limit = Math.Min(presentCount, group.Config.Channels.Count);
         if (limit <= 0)
@@ -1567,7 +1573,9 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         var revived = false;
         for (var index = 0; index < limit; index++)
         {
-            if (!channels[index].Deleted)
+            if (!channels[index].Known
+                || !channels[index].Deleted
+                || (validMask & (1UL << index)) == 0)
             {
                 continue;
             }
@@ -1583,6 +1591,41 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         }
 
         return revived;
+    }
+
+    /// <summary>把当前帧 validMask 置位的槽位标记为“曾出现”；空洞不建行。</summary>
+    private bool MarkKnownChannels(
+        IModuleContext context,
+        DisplayGroupRuntime group,
+        int presentCount,
+        ulong validMask)
+    {
+        var limit = Math.Min(presentCount, group.Config.Channels.Count);
+        if (limit <= 0)
+        {
+            return false;
+        }
+
+        var channels = group.Config.Channels.ToList();
+        var changed = false;
+        for (var index = 0; index < limit; index++)
+        {
+            if ((validMask & (1UL << index)) == 0 || channels[index].Known)
+            {
+                continue;
+            }
+
+            channels[index] = channels[index] with { Known = true };
+            changed = true;
+        }
+
+        if (changed)
+        {
+            UpdateGroupConfig(context, group, group.Config with { Channels = channels });
+            _structureRevision++;
+        }
+
+        return changed;
     }
 
     private void EnsureGroupChannels(IModuleContext context, DisplayGroupRuntime group, int count)
@@ -1796,6 +1839,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         if (group is null
             || index < 0
             || index >= group.Config.Channels.Count
+            || !group.IsKnown(index)
             || group.IsDeleted(index))
         {
             return;
@@ -1804,7 +1848,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         group.DeleteChannel(index);
         var channels = group.Config.Channels.ToList();
         channels[index] = channels[index] with { Deleted = true };
-        if (channels.All(channel => channel.Deleted))
+        if (channels.All(channel => !channel.Known || channel.Deleted))
         {
             RemoveGroup(context, group);
             return;
@@ -1874,20 +1918,20 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     {
         for (var index = 0; index < group.Channels.Count; index++)
         {
-            if (!group.Channels[index].Deleted)
+            if (group.Channels[index].Known && !group.Channels[index].Deleted)
             {
                 return index;
             }
         }
 
-        return 0;
+        return -1;
     }
 
     private static int NextChannelIndex(DisplayGroupConfig group, int deletedIndex)
     {
         for (var index = deletedIndex + 1; index < group.Channels.Count; index++)
         {
-            if (!group.Channels[index].Deleted)
+            if (group.Channels[index].Known && !group.Channels[index].Deleted)
             {
                 return index;
             }
@@ -1895,13 +1939,13 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
         for (var index = deletedIndex - 1; index >= 0; index--)
         {
-            if (!group.Channels[index].Deleted)
+            if (group.Channels[index].Known && !group.Channels[index].Deleted)
             {
                 return index;
             }
         }
 
-        return 0;
+        return -1;
     }
 
     private void SetDefaultRange(DisplayGroupRuntime group)
@@ -2298,8 +2342,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         {
             var config = index < group.Config.Channels.Count ? group.Config.Channels[index] : null;
             if (config is null
-                || config.Deleted
-                || !group.IsPresent(index)
+                || !group.IsDisplayable(index)
                 || config.Visible == false
                 || index >= group.Histories.Length)
             {
@@ -2413,7 +2456,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             {
                 id,
                 name = GroupDisplayName(group),
-                channels = group.Config.Channels.Count(channel => !channel.Deleted),
+                channels = group.Config.Channels.Count(channel => channel.Known && !channel.Deleted),
                 dataCount = group.DisplayIndex,
                 declaredRate = group.DeclaredRateHz,
                 actualRate = group.ActualRateHz,
@@ -2432,14 +2475,14 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             ? null
             : active.Config.Channels
                 .Select((channel, index) => (channel, index))
-                .Where(item => !item.channel.Deleted)
+                .Where(item => item.channel.Known && !item.channel.Deleted)
                 .Select(item => new
                 {
                     index = item.index,
                     name = ChannelDisplayName(item.channel, item.index),
                     color = item.channel.ColorArgb,
                     visible = item.channel.Visible,
-                    missing = !active.IsPresent(item.index),
+                    missing = !active.IsPresent(item.index) || !active.IsValid(item.index),
                 })
                 .ToArray();
 
@@ -2689,7 +2732,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
                 for (var index = 0; index < group.Config.Channels.Count; index++)
                 {
                     var channel = group.Config.Channels[index];
-                    if (channel.Deleted)
+                    if (!channel.Known || channel.Deleted)
                     {
                         continue;
                     }

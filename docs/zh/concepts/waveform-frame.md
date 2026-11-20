@@ -75,10 +75,10 @@ new MeteringBlock
 ## 组、通道与完整性
 
 - 一帧只属于一个通道组，`groupId` 是唯一组键；一个端口可以混多个组，接收方自行分流。
-- 组内通道按 `0..channelCount-1` 标识；`channelCount` 逐帧有效，允许变化。
+- 组内通道按 `0..channelCount-1` 标识；`channelCount` 逐帧有效，允许变化。**用户看到的通道编号 = 槽位 + 1**；组号和通道编号都从 1 开始，0 不是合法标识。
 - `sequence` 只回答“这一组是否完整”，不得用于时间、样本位置或任何时序判据；模块可完全忽略。
 - 类型没有首帧/末帧、运行开始/结束、一次性发送边界；这些属于模块自己的状态机。
-- 名称、颜色、单位、量程、波形类型、周期、来源身份、时间戳等**不进帧**，属于模块配置/呈现。
+- 名称、颜色、单位、量程、波形类型、周期、来源身份、时间戳等**不进帧**，属于模块配置/呈现。用户可见的通道编号由槽位决定（槽位 +1），名称可独立修改；发生器的可配置通道编号同样映射到槽位 `编号 - 1`。
 
 ## 声明与校验清单
 
@@ -102,5 +102,5 @@ new MeteringBlock
 - [连接与组网](../guides/connect.md)：建网操作与失败查看位置
 - [波形显示器](../guides/modules/waveform-display.md) / [波形发生器](../guides/modules/waveform-generator.md)：两个内置消费/生产方
 - [原始 → 波形](../guides/modules/raw-to-waveform.md) / [波形 → 原始](../guides/modules/waveform-to-raw.md)：两个内置转换模块（原始字节流 ↔ 波形帧）
-- [指针仪表盘](../guides/modules/gauge-display.md) / [横向刻度条](../guides/modules/scale-bar-horizontal.md) / [纵向刻度条](../guides/modules/scale-bar-vertical.md) / [三轴姿态仪](../guides/modules/attitude-display.md)：四个内置显示模块（单通道仪表 / 单通道量条 / 三通道姿态）
+- [指针仪表盘](../guides/modules/gauge-display.md) / [横向进度条](../guides/modules/scale-bar-horizontal.md) / [纵向进度条](../guides/modules/scale-bar-vertical.md) / [三轴姿态仪](../guides/modules/attitude-display.md)：四个内置显示模块（单通道仪表 / 单通道量条 / 三通道姿态）
 - [发布与装载](../module-dev/publishing.md)：模块装载与重启规则

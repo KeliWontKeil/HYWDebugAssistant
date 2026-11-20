@@ -72,6 +72,13 @@ public class BusinessModulesBehaviorTests
         module.Send(context, "\\x41\\101\\v\\?\\a\\b\\f\\t", out _).ShouldBeTrue();
         SentText(context.Sent[^1].Payload).ShouldBe("AA\v?\a\b\f\t");
 
+        // 包尾的转义 CR/LF 不能被裁掉：发送载荷保留 0D / 0A 的顺序。
+        module.Send(context, "\\r", out _).ShouldBeTrue();
+        SentText(context.Sent[^1].Payload).ShouldBe("\r");
+
+        module.Send(context, "\\n\\r", out _).ShouldBeTrue();
+        SentText(context.Sent[^1].Payload).ShouldBe("\n\r");
+
         static string SentText(byte[] payload)
         {
             var length = (int)System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(payload);
@@ -402,6 +409,44 @@ public class BusinessModulesBehaviorTests
     }
 
     [Fact]
+    public void 数据显示器_包尾CR应落成单独CR且跨包CRLF仍合并()
+    {
+        var context = new TestModuleContext();
+        var module = new DataMonitorModule();
+        module.OnRegistered(context);
+
+        context.Deliver(DataMonitorModule.InPort, DataMonitorModule.BuildPayload("A\r"u8));
+        module.OnStep(context, HYWDebugAssistant.Sdk.Lifecycle.StepReason.Data);
+
+        ScreenOf(context, DataMonitorModule.LogSource)
+            .ShouldContain(HYWDebugAssistant.Sdk.Ui.Controls.NewlineEncoding.CrSentinel);
+
+        var merged = new TestModuleContext();
+        var mergedModule = new DataMonitorModule();
+        mergedModule.OnRegistered(merged);
+        merged.Deliver(DataMonitorModule.InPort, DataMonitorModule.BuildPayload("A\r"u8));
+        merged.Deliver(DataMonitorModule.InPort, DataMonitorModule.BuildPayload("\nB"u8));
+        mergedModule.OnStep(merged, HYWDebugAssistant.Sdk.Lifecycle.StepReason.Data);
+
+        var screen = ScreenOf(merged, DataMonitorModule.LogSource);
+        screen.ShouldContain(HYWDebugAssistant.Sdk.Ui.Controls.NewlineEncoding.CrLfSentinel);
+        screen.ShouldContain("B");
+    }
+
+    [Fact]
+    public void 数据显示器_尾随CR应出现在显示缓冲()
+    {
+        var context = new TestModuleContext();
+        var module = new DataMonitorModule();
+        module.OnRegistered(context);
+
+        module.HandlePacket(context, DataMonitorModule.BuildPayload("A\r"u8)).ShouldBe(1);
+
+        ScreenOf(context, DataMonitorModule.LogSource)
+            .ShouldContain(HYWDebugAssistant.Sdk.Ui.Controls.NewlineEncoding.CrSentinel);
+    }
+
+    [Fact]
     public void 数据显示器_控制字符应原样进入显示缓冲()
     {
         var text = DataMonitorModule.FormatLines(
@@ -648,7 +693,7 @@ public class BusinessModulesBehaviorTests
     }
 
     [Fact]
-    public void 转换器_换行档只作用于文本到HEX且转义始终解析()
+    public void 转换器_换行档只归一真实换行且转义保持原字符()
     {
         var context = new TestModuleContext();
         var module = new HexStringConverterModule();
@@ -657,7 +702,29 @@ public class BusinessModulesBehaviorTests
         context.ViewState.SetInputText(HexStringConverterModule.NewlineCrSource, "true");
         context.ViewState.SetInputText(HexStringConverterModule.NewlineLfSource, "true");
 
+        // 转义是显式字符：\n / \r 不受 CR/LF 勾选影响，\n\r 就是 0A 0D。
         module.Convert(context, "A\\nB", toHex: true, HexStringConverterModule.CharSourceOf(0))
+            .ShouldBeTrue();
+        module.LastHexResult.ShouldBe("41 0A 42");
+
+        module.Convert(context, "A\\rB", toHex: true, HexStringConverterModule.CharSourceOf(0))
+            .ShouldBeTrue();
+        module.LastHexResult.ShouldBe("41 0D 42");
+
+        module.Convert(context, "\\n\\r", toHex: true, HexStringConverterModule.CharSourceOf(0))
+            .ShouldBeTrue();
+        module.LastHexResult.ShouldBe("0A 0D");
+
+        // 真实换行才按勾选档归一。
+        module.Convert(context, "A\nB", toHex: true, HexStringConverterModule.CharSourceOf(0))
+            .ShouldBeTrue();
+        module.LastHexResult.ShouldBe("41 0D 0A 42");
+
+        module.Convert(context, "A\rB", toHex: true, HexStringConverterModule.CharSourceOf(0))
+            .ShouldBeTrue();
+        module.LastHexResult.ShouldBe("41 0D 0A 42");
+
+        module.Convert(context, "A\r\nB", toHex: true, HexStringConverterModule.CharSourceOf(0))
             .ShouldBeTrue();
         module.LastHexResult.ShouldBe("41 0D 0A 42");
 
@@ -681,6 +748,14 @@ public class BusinessModulesBehaviorTests
             .ShouldBeTrue();
         module.LastHexResult.ShouldBe("41 0A 42");
 
+        module.Convert(context, "A\\rB", toHex: true, HexStringConverterModule.CharSourceOf(0))
+            .ShouldBeTrue();
+        module.LastHexResult.ShouldBe("41 0D 42");
+
+        module.Convert(context, "A\r\nB", toHex: true, HexStringConverterModule.CharSourceOf(0))
+            .ShouldBeTrue();
+        module.LastHexResult.ShouldBe("41 0A 42");
+
         // 换行档只改文本→HEX；HEX→文本仍保持原字节。
         module.Convert(context, "41 0D 0A 42", toHex: false, HexStringConverterModule.HexSourceOf(0))
             .ShouldBeTrue();
@@ -690,6 +765,14 @@ public class BusinessModulesBehaviorTests
         context.ViewState.SetInputText(HexStringConverterModule.NewlineLfSource, "false");
 
         module.Convert(context, "A\\nB", toHex: true, HexStringConverterModule.CharSourceOf(0))
+            .ShouldBeTrue();
+        module.LastHexResult.ShouldBe("41 0A 42");
+
+        module.Convert(context, "A\\rB", toHex: true, HexStringConverterModule.CharSourceOf(0))
+            .ShouldBeTrue();
+        module.LastHexResult.ShouldBe("41 0D 42");
+
+        module.Convert(context, "A\r\nB", toHex: true, HexStringConverterModule.CharSourceOf(0))
             .ShouldBeTrue();
         module.LastHexResult.ShouldBe("41 42");
 

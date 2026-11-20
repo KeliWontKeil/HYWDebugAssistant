@@ -337,7 +337,7 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
                 candidate = candidate with { GroupId = defaults.GroupId };
                 _validity.Set(context, GroupSource, false);
             }
-            else if (TryParseInteger(groupText, out var group) && group >= 0)
+            else if (TryParseInteger(groupText, out var group) && group >= 1)
             {
                 candidate = candidate with { GroupId = group };
                 _validity.Set(context, GroupSource, false);
@@ -355,7 +355,8 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
                 candidate = candidate with { RollChannel = defaults.RollChannel };
                 _validity.Set(context, RollChannelSource, false);
             }
-            else if (TryParseInteger(rollText, out var roll) && roll >= 0)
+            else if (TryParseInteger(rollText, out var roll)
+                     && roll is >= 1 and <= AttitudeSettings.MaximumChannel)
             {
                 candidate = candidate with { RollChannel = roll };
                 _validity.Set(context, RollChannelSource, false);
@@ -373,7 +374,8 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
                 candidate = candidate with { PitchChannel = defaults.PitchChannel };
                 _validity.Set(context, PitchChannelSource, false);
             }
-            else if (TryParseInteger(pitchText, out var pitch) && pitch >= 0)
+            else if (TryParseInteger(pitchText, out var pitch)
+                     && pitch is >= 1 and <= AttitudeSettings.MaximumChannel)
             {
                 candidate = candidate with { PitchChannel = pitch };
                 _validity.Set(context, PitchChannelSource, false);
@@ -391,7 +393,8 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
                 candidate = candidate with { YawChannel = defaults.YawChannel };
                 _validity.Set(context, YawChannelSource, false);
             }
-            else if (TryParseInteger(yawText, out var yaw) && yaw >= 0)
+            else if (TryParseInteger(yawText, out var yaw)
+                     && yaw is >= 1 and <= AttitudeSettings.MaximumChannel)
             {
                 candidate = candidate with { YawChannel = yaw };
                 _validity.Set(context, YawChannelSource, false);
@@ -641,9 +644,8 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
         }
     }
 
-    /// <summary>当前组：配置了具体组号就用它，0 表示跟随第一个出现的组。</summary>
-    private uint EffectiveGroupId() =>
-        _settings.GroupId > 0 ? (uint)_settings.GroupId : _feed.FirstGroupId;
+    /// <summary>当前组：组号是用户配置的 1 基标识；未发现就等待，不自动跟随。</summary>
+    private uint EffectiveGroupId() => (uint)_settings.GroupId;
 
     private void PublishAngle(
         IModuleContext context,
@@ -656,7 +658,7 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
         int lostDelayMs,
         bool lostZero)
     {
-        var raw = _feed.Resolve(groupId, channel, nowMs, lostZero, lostDelayMs);
+        var raw = _feed.Resolve(groupId, channel - 1, nowMs, lostZero, lostDelayMs);
         var degrees = _settings.Unit == AttitudeAngleUnit.Radian ? raw * (180.0 / Math.PI) : raw;
         var value = (float)(invert ? -degrees : degrees);
 
@@ -672,30 +674,23 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
 
     private string ResolveStatus(uint groupId, long nowMs)
     {
-        if (groupId == 0)
-        {
-            return Tr(AttitudeDisplayText.Ready);
-        }
-
         var group = _feed.Group(groupId);
         if (group is null)
         {
-            return _settings.GroupId > 0
-                ? Tr(AttitudeDisplayText.WaitingGroup, _settings.GroupId)
-                : Tr(AttitudeDisplayText.Ready);
+            return Tr(AttitudeDisplayText.WaitingGroup, _settings.GroupId);
         }
 
-        if (_settings.RollChannel >= group.ChannelCount)
+        if (_settings.RollChannel > group.ChannelCount)
         {
             return Tr(AttitudeDisplayText.ChannelMissing, _settings.RollChannel, group.ChannelCount);
         }
 
-        if (_settings.PitchChannel >= group.ChannelCount)
+        if (_settings.PitchChannel > group.ChannelCount)
         {
             return Tr(AttitudeDisplayText.ChannelMissing, _settings.PitchChannel, group.ChannelCount);
         }
 
-        if (_settings.YawChannel >= group.ChannelCount)
+        if (_settings.YawChannel > group.ChannelCount)
         {
             return Tr(AttitudeDisplayText.ChannelMissing, _settings.YawChannel, group.ChannelCount);
         }
@@ -707,17 +702,17 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
                 : Tr(AttitudeDisplayText.Ready);
         }
 
-        if (!_feed.ChannelValid(groupId, _settings.RollChannel))
+        if (!_feed.ChannelValid(groupId, _settings.RollChannel - 1))
         {
             return Tr(AttitudeDisplayText.ChannelInvalid, _settings.RollChannel);
         }
 
-        if (!_feed.ChannelValid(groupId, _settings.PitchChannel))
+        if (!_feed.ChannelValid(groupId, _settings.PitchChannel - 1))
         {
             return Tr(AttitudeDisplayText.ChannelInvalid, _settings.PitchChannel);
         }
 
-        if (!_feed.ChannelValid(groupId, _settings.YawChannel))
+        if (!_feed.ChannelValid(groupId, _settings.YawChannel - 1))
         {
             return Tr(AttitudeDisplayText.ChannelInvalid, _settings.YawChannel);
         }

@@ -33,6 +33,7 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
     private readonly ModuleTextSurface? _groupNameInput;
     private readonly ModuleTextSurface? _groupIdInput;
     private readonly ModuleLabel? _groupRateLabel;
+    private readonly ModuleTextSurface? _channelNumberInput;
     private readonly ModuleTextSurface? _channelNameInput;
     private readonly ModuleToggle? _channelEnabledToggle;
     private readonly ModuleTextSurface? _frequencyInput;
@@ -74,6 +75,7 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
         _groupNameInput = this.FindControl<ModuleTextSurface>("GroupNameInput");
         _groupIdInput = this.FindControl<ModuleTextSurface>("GroupIdInput");
         _groupRateLabel = this.FindControl<ModuleLabel>("GroupRateLabel");
+        _channelNumberInput = this.FindControl<ModuleTextSurface>("ChannelNumberInput");
         _channelNameInput = this.FindControl<ModuleTextSurface>("ChannelNameInput");
         _channelEnabledToggle = this.FindControl<ModuleToggle>("ChannelEnabledToggle");
         _frequencyInput = this.FindControl<ModuleTextSurface>("FrequencyInput");
@@ -97,6 +99,7 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
 
         _channelControls =
         [
+            _channelNumberInput,
             _channelNameInput,
             _channelEnabledToggle,
             _waveformType,
@@ -202,11 +205,16 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
         }
 
         var options = new List<ModuleSegmentOption>(snapshot.Groups.Count);
-        foreach (var group in snapshot.Groups)
+        foreach (var group in snapshot.Groups
+                     .OrderBy(group => group.Id == 0 ? uint.MaxValue : group.Id)
+                     .ThenBy(group => group.Index))
         {
+            var name = string.IsNullOrWhiteSpace(group.Name)
+                ? "G" + (group.Index + 1).ToString(CultureInfo.InvariantCulture)
+                : group.Name;
             options.Add(new ModuleSegmentOption(
                 group.Index.ToString(CultureInfo.InvariantCulture),
-                string.IsNullOrWhiteSpace(group.Name) ? "G" + (group.Index + 1).ToString(CultureInfo.InvariantCulture) : group.Name,
+                group.Id.ToString(CultureInfo.InvariantCulture) + " " + name,
                 ToolTip: "G" + group.Id.ToString(CultureInfo.InvariantCulture)));
         }
 
@@ -224,11 +232,16 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
         }
 
         var options = new List<ModuleSegmentOption>(group.Channels.Count);
-        foreach (var channel in group.Channels)
+        foreach (var channel in group.Channels
+                     .OrderBy(channel => channel.Number <= 0 ? int.MaxValue : channel.Number)
+                     .ThenBy(channel => channel.Index))
         {
+            var name = string.IsNullOrWhiteSpace(channel.Name)
+                ? "CH" + channel.Number.ToString(CultureInfo.InvariantCulture)
+                : channel.Name;
             options.Add(new ModuleSegmentOption(
                 channel.Index.ToString(CultureInfo.InvariantCulture),
-                string.IsNullOrWhiteSpace(channel.Name) ? "CH" + (channel.Index + 1).ToString(CultureInfo.InvariantCulture) : channel.Name,
+                channel.Number.ToString(CultureInfo.InvariantCulture) + " " + name,
                 ToolTip: channel.Enabled ? null : Tr("view.disabled")));
         }
 
@@ -271,6 +284,7 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
         SetParameterVisibility(true, periodic, channel.Kind == "square", modulated);
 
         SetChannelEnabled(true);
+        SetInput(_channelNumberInput, channel.Number.ToString(CultureInfo.InvariantCulture));
         SetInput(_channelNameInput, channel.Name);
         if (_waveformType is not null)
         {
@@ -319,6 +333,7 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
 
     private void ClearChannelInputs()
     {
+        SetInput(_channelNumberInput, string.Empty);
         SetInput(_channelNameInput, string.Empty);
         SetInput(_phaseInput, string.Empty);
         SetInput(_offsetInput, string.Empty);
@@ -540,6 +555,7 @@ public sealed partial class WaveformGeneratorView : ModuleView, IModuleViewEleme
 
     private sealed record GeneratorChannelSnapshot(
         int Index,
+        int Number,
         string Name,
         string Kind,
         bool Enabled,

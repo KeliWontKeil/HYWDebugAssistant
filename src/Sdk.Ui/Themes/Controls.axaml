@@ -312,8 +312,14 @@
     <Setter Property="MinWidth" Value="0" />
     <Setter Property="MinHeight" Value="0" />
     <Setter Property="Padding" Value="0" />
-    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="2" />
+  </Style>
+
+  <Style Selector="Button.module-color-swatch:pointerover">
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
+    <Setter Property="BorderThickness" Value="1" />
   </Style>
 
   <Style Selector="Button.module-row-action">
@@ -323,13 +329,15 @@
     <Setter Property="Height" Value="18" />
     <Setter Property="Padding" Value="0" />
     <Setter Property="Background" Value="Transparent" />
-    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="2" />
     <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
   </Style>
 
   <Style Selector="Button.module-row-action:pointerover">
     <Setter Property="Background" Value="{DynamicResource SurfaceTabHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
     <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
   </Style>
 
@@ -349,6 +357,7 @@
 
   <Style Selector="ToggleButton.module-row-action:pointerover">
     <Setter Property="Background" Value="{DynamicResource SurfaceTabHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimary}" />
     <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
   </Style>
 
@@ -629,7 +638,7 @@
     <Setter Property="FontSize" Value="10" />
   </Style>
 
-  <!-- 三轴姿态：网格用边框色，三轴取方向/语义色，机体用表面色 + 强调棱线。 -->
+  <!-- 三轴姿态：网格用边框色，三轴取方向/语义色，机体用表面色 + 强调棱线；视角浮层用表面/主题色。 -->
   <Style Selector="ui|AttitudeView">
     <Setter Property="GridBrush" Value="{DynamicResource BorderDefault}" />
     <Setter Property="AxisXBrush" Value="{DynamicResource DirectionSend}" />
@@ -638,6 +647,8 @@
     <Setter Property="BodyBrush" Value="{DynamicResource SurfaceControlBrush}" />
     <Setter Property="BodyEdgeBrush" Value="{DynamicResource AccentStrong}" />
     <Setter Property="TextBrush" Value="{DynamicResource TextSecondary}" />
+    <Setter Property="ViewSurfaceBrush" Value="{DynamicResource BgChrome}" />
+    <Setter Property="ViewAccentBrush" Value="{DynamicResource AccentPrimary}" />
     <Setter Property="FontSize" Value="10" />
   </Style>
 

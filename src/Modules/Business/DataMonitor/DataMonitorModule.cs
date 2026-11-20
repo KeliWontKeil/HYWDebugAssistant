@@ -245,6 +245,9 @@ public sealed class DataMonitorModule : IModule, IActivitySource
         }
 
         // **"不换行"的包按 tick 合并成一次追加**（每包一次追加会让缓冲/视图按包数做复制）。
+        // 包尾 CR 在本 tick 内可能还在等下一包的 LF；tick 结束必须落成单独 CR，不能丢失。
+        _ = _formatter?.FlushPending(_tickBuilder);
+
         if (_tickBuilder.Length > 0)
         {
             context.Display.AppendText(LogSource, _tickBuilder.ToString());
@@ -267,6 +270,10 @@ public sealed class DataMonitorModule : IModule, IActivitySource
 
     /// <summary>本 tick 内所有"不换行"包合并后的缓冲（实例线程独占）。</summary>
     private readonly StringBuilder _tickBuilder = new();
+
+    /// <summary>跨包保留的换行状态：包尾 CR 要等下一包首字节决定 CRLF 还是单独 CR。</summary>
+    private MonitorLineFormatter? _formatter;
+    private MonitorFormat _formatterFormat;
 
     /// <summary>从持久化视图状态恢复四个显示开关（加载时先恢复 ViewState，再激活）。</summary>
     /// <param name="context">模块上下文。</param>
@@ -358,6 +365,8 @@ public sealed class DataMonitorModule : IModule, IActivitySource
         {
             if (string.Equals(command, ClearCommand, StringComparison.Ordinal))
             {
+                _formatter = null;
+                _formatterFormat = default;
                 ClearDisplay(context);
                 continue;
             }
@@ -459,6 +468,7 @@ public sealed class DataMonitorModule : IModule, IActivitySource
 
         _tickBuilder.Clear();
         var appended = ConsumePacket(context, payload, _tickBuilder);
+        _ = _formatter?.FlushPending(_tickBuilder);
 
         if (_tickBuilder.Length > 0)
         {
@@ -496,11 +506,13 @@ public sealed class DataMonitorModule : IModule, IActivitySource
             return 0;   // 空包不产出任何显示内容（也不该凭空多出一个空行）
         }
 
-        var formatter = new MonitorLineFormatter(CurrentFormat());
+        var formatter = GetFormatter();
         formatter.Render(content, DateTimeOffset.Now, _lineBuilder);
 
         if (formatter.BreakAfterPacket)
         {
+            // 通道换行之前先把包尾 CR 落地；否则 AppendLine 之后挂起的 CR 会被新行覆盖。
+            _ = formatter.FlushPending(_lineBuilder);
             context.Display.AppendLine(LogSource, _lineBuilder.ToString());
         }
         else
@@ -671,6 +683,25 @@ public sealed class DataMonitorModule : IModule, IActivitySource
     }
 
     private MonitorFormat CurrentFormat() => new(_hexView, _timestamp, _lineBreakPerPacket);
+
+    /// <summary>
+    /// 取本 tick 的 formatter；**跨包保留**，否则包尾 CR 的挂起状态和跨包 CRLF 都不成立。
+    /// </summary>
+    /// <remarks>
+    /// 格式只在 tick 开始时由输入更新一次；换格式时旧 formatter 的 pending 应已在上一 tick 末落地。
+    /// </remarks>
+    private MonitorLineFormatter GetFormatter()
+    {
+        var format = CurrentFormat();
+
+        if (_formatter is null || !_formatterFormat.Equals(format))
+        {
+            _formatter = new MonitorLineFormatter(format);
+            _formatterFormat = format;
+        }
+
+        return _formatter;
+    }
 
     private static bool IsTrue(string? text) =>
         string.Equals(text, "true", StringComparison.OrdinalIgnoreCase);

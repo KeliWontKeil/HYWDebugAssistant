@@ -125,6 +125,7 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
     /// <summary>本拍帧头/帧尾是否非法（保留上一次有效值）。</summary>
     private bool _headerInvalid;
     private bool _footerInvalid;
+    private bool _groupInvalid;
 
     // 编码路径的复用缓冲：稳态下不按帧分配字符数组与字节数组。
     private readonly char[] _textChars = new char[TextFrameCodec.MaxChars];
@@ -299,18 +300,20 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
         // 帧头/帧尾是**十六进制字节串**；空/非法 ⇒ 保持上一次有效字节并标红。
         var header = ReadHex(context, HeaderHexInput, _settings.Header, out var headerInvalid);
         var footer = ReadHex(context, FooterHexInput, _settings.Footer, out var footerInvalid);
+        var groupId = ReadGroupId(context, GroupIdInput, _settings.GroupId, out var groupInvalid);
         _headerInvalid = headerInvalid;
         _footerInvalid = footerInvalid;
+        _groupInvalid = groupInvalid;
 
         if (reportAlerts)
         {
             _validity.Set(context, HeaderHexInput, headerInvalid, headerInvalid ? WaveformToRawText.Get(WaveformToRawText.HexHint) : null);
             _validity.Set(context, FooterHexInput, footerInvalid, footerInvalid ? WaveformToRawText.Get(WaveformToRawText.HexHint) : null);
+            _validity.Set(context, GroupIdInput, groupInvalid, groupInvalid ? WaveformToRawText.Get(WaveformToRawText.BadGroup) : null);
         }
 
         var prefix = context.Values.ReadText(PrefixInput) ?? string.Empty;
         var decimals = ReadInt(context, DecimalsInput, _settings.Decimals, 0, MaxDecimals);
-        var groupId = ReadInt(context, GroupIdInput, _settings.GroupId, 1, int.MaxValue);
 
         return new Settings(protocol, header, footer, prefix, decimals, groupId);
     }
@@ -396,7 +399,9 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
     {
         if (_settings.Protocol is not WaveformToRawProtocol.TextFrame)
         {
-            return WaveformToRawText.Get(WaveformToRawText.Ready);
+            return _groupInvalid
+                ? WaveformToRawText.Get(WaveformToRawText.BadGroup)
+                : WaveformToRawText.Get(WaveformToRawText.Ready);
         }
 
         if (_settings.Header.Length == 0 || _settings.Footer.Length == 0)
@@ -406,7 +411,9 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
 
         return _headerInvalid || _footerInvalid
             ? WaveformToRawText.Get(WaveformToRawText.BadHexKept)
-            : WaveformToRawText.Get(WaveformToRawText.Ready);
+            : _groupInvalid
+                ? WaveformToRawText.Get(WaveformToRawText.BadGroup)
+                : WaveformToRawText.Get(WaveformToRawText.Ready);
     }
 
     /// <summary>值没变就什么都不做；变了才刷状态句（编码口径每帧直接读 <c>_settings</c>）。</summary>
@@ -441,6 +448,21 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
         settings.Protocol is not WaveformToRawProtocol.TextFrame
         || (settings.Header.Length > 0 && settings.Footer.Length > 0);
 
+    private static int ReadGroupId(IModuleContext context, string name, int fallback, out bool invalid)
+    {
+        var text = context.Values.ReadText(name);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            invalid = false;
+            return fallback;
+        }
+
+        invalid = !int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            || value < 1;
+
+        return invalid ? fallback : value;
+    }
+
     private static int ReadInt(IModuleContext context, string name, int fallback, int minimum, int maximum)
     {
         var text = context.Values.ReadText(name);
@@ -449,12 +471,17 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
             : fallback;
     }
 
-    /// <summary>本模块负责的通道组；0 是保留值，按 1 处理。</summary>
-    private uint ConfiguredGroupId => _settings.GroupId > 0 ? unchecked((uint)_settings.GroupId) : 1u;
+    /// <summary>本模块负责的通道组；组号解析保证 >=1，不再兜底 1。</summary>
+    private uint ConfiguredGroupId => unchecked((uint)_settings.GroupId);
 
     private void OnWave(ReadOnlySpan<byte> payload)
     {
         if (_context is not { } context)
+        {
+            return;
+        }
+
+        if (_groupInvalid)
         {
             return;
         }
@@ -468,6 +495,13 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
 
         var channelCount = reader.ReadU16(WaveformContract.ChannelCountField);
         var groupId = reader.ReadU32(WaveformContract.GroupIdField);
+        if (groupId == 0)
+        {
+            _dropped++;
+            PublishCounters(context);
+            return;
+        }
+
         if (channelCount is < 1 or > WaveformContract.MaxChannels)
         {
             _dropped++;

@@ -83,8 +83,8 @@ public sealed partial class GaugeDisplayView : ModuleView, IModuleViewElement
 
             ApplySettings(settings);
 
-            var group = ReadInt(settings, "group", 0);
-            var channel = ReadInt(settings, "channel", 0);
+            var group = ReadInt(settings, "group", 1);
+            var channel = ReadInt(settings, "channel", 1);
             UpdateSummary(group, channel);
         }
         catch (JsonException)
@@ -120,7 +120,7 @@ public sealed partial class GaugeDisplayView : ModuleView, IModuleViewElement
             return;
         }
 
-        var groupText = group > 0 ? group.ToString(CultureInfo.InvariantCulture) : Tr(GaugeDisplayText.SummaryAuto);
+        var groupText = group.ToString(CultureInfo.InvariantCulture);
         var text = Tr(GaugeDisplayText.Summary, groupText, channel);
         if (string.Equals(text, _summaryText, StringComparison.Ordinal))
         {

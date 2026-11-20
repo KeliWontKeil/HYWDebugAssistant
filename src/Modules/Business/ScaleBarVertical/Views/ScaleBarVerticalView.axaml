@@ -19,11 +19,11 @@
   </ui:ModuleView.Ports>
 
   <!--
-    文字带与横向刻度条同构：一条带 + 一根条；只是竖向模块把文字带放在条的**左侧**（沿条的长轴），
-    这样宽度方向只占一列文字，模块可以收窄；文字仍不由刻度条控件画。
+    文字带与横向进度条同构：一条带 + 一根条；只是竖向模块把文字带放在条的**左侧**（沿条的长轴），
+    这样宽度方向只占一列文字，模块可以收窄；文字仍不由进度条控件画。
   -->
   <Panel>
-    <Grid RowDefinitions="24,48,*" RowSpacing="2" Margin="2">
+    <Grid RowDefinitions="20,48,*" RowSpacing="2" Margin="2">
       <Grid Grid.Row="0" ColumnDefinitions="*,20" ColumnSpacing="4">
         <ui:ModuleLabel x:Name="Summary" Grid.Column="0" Classes="micro"
                         VerticalAlignment="Center" HorizontalAlignment="Right"

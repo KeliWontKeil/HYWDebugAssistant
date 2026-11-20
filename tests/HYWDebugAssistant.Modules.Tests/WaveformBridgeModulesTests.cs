@@ -188,7 +188,31 @@ public class WaveformBridgeModulesTests
     }
 
     [Fact]
-    public void 原始到波形_组号兜底为一_支持一单元多帧与六十四通道()
+    public void 原始到波形_支持一单元多帧与六十四通道()
+    {
+        _ = CreateDecoder(
+            RawToWaveformProtocol.TextFrame,
+            out var context,
+            (RawToWaveformModule.HeaderHexInput, "61 62"),
+            (RawToWaveformModule.FooterHexInput, "63 64"),
+            (RawToWaveformModule.GroupIdInput, "1"));
+
+        DeliverRaw(context, "ab 1 2 cd ab 3 cd");
+        context.Sent.Count.ShouldBe(2);
+
+        ReadWave(context.Sent[0].Payload, out var channels, out var groupId, out _, out _);
+        channels.ShouldBe(2);
+        groupId.ShouldBe(1u);
+
+        var numbers = string.Join(' ', Enumerable.Range(0, 64).Select(index => index.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        DeliverRaw(context, $"ab {numbers} cd");
+        ReadWave(context.Sent[2].Payload, out var wideChannels, out _, out _, out var wideSamples);
+        wideChannels.ShouldBe(64);
+        wideSamples[63].ShouldBe(63f);
+    }
+
+    [Fact]
+    public void 原始到波形_组号零不发送()
     {
         _ = CreateDecoder(
             RawToWaveformProtocol.TextFrame,
@@ -197,18 +221,10 @@ public class WaveformBridgeModulesTests
             (RawToWaveformModule.FooterHexInput, "63 64"),
             (RawToWaveformModule.GroupIdInput, "0"));
 
-        DeliverRaw(context, "ab 1 2 cd ab 3 cd");
-        context.Sent.Count.ShouldBe(2);
+        DeliverRaw(context, "ab 1 2 cd");
 
-        ReadWave(context.Sent[0].Payload, out var channels, out var groupId, out _, out _);
-        channels.ShouldBe(2);
-        groupId.ShouldBe(1u, "groupId 0 是保留值，发送端必须兜底");
-
-        var numbers = string.Join(' ', Enumerable.Range(0, 64).Select(index => index.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-        DeliverRaw(context, $"ab {numbers} cd");
-        ReadWave(context.Sent[2].Payload, out var wideChannels, out _, out _, out var wideSamples);
-        wideChannels.ShouldBe(64);
-        wideSamples[63].ShouldBe(63f);
+        context.Sent.ShouldBeEmpty();
+        context.ValueValidities[RawToWaveformModule.GroupIdInput].IsInvalid.ShouldBeTrue();
     }
 
     [Fact]

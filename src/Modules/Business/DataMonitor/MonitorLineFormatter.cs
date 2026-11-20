@@ -94,6 +94,28 @@ internal sealed class MonitorLineFormatter(MonitorFormat format)
         AppendDecoded(destination, payload);
     }
 
+    /// <summary>
+    /// 把挂起的包尾 CR 落成**单独 CR** 的显示标记；没有挂起时返回 <see langword="false"/>。
+    /// </summary>
+    /// <param name="destination">目标（追加，不清空）。</param>
+    /// <remarks>
+    /// 包尾 CR 先挂起是为了把跨包的 `0D 0A` 合成一个 CRLF；但批次/tick 结束后不能再等，
+    /// 否则最后一包的 CR 会永远不显示。调用点：tick 末、单包入口、通道换行前。
+    /// </remarks>
+    public bool FlushPending(StringBuilder destination)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+
+        if (!_pendingCarriageReturn)
+        {
+            return false;
+        }
+
+        _pendingCarriageReturn = false;
+        _ = destination.Append('\uF001').Append('\n');
+        return true;
+    }
+
     /// <summary>把一个数据包的字节渲染成一个字符串（测试/一次性路径用）。</summary>
     /// <param name="payload">本包的有效字节（已按 `len` 切片）。</param>
     /// <param name="timestamp">本包到达时间（仅当声明了时间戳时使用）。</param>

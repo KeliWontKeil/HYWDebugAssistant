@@ -10,12 +10,21 @@
     "moduleText.contextMenu.selectAll": "全选",
     "moduleText.contextMenu.undo": "撤销",
     "moduleText.format.text.hint": "文本",
-    "moduleText.format.escaped.hint": "C语言格式字符串，支持转义字符，如：9178Abc\\x0A\\x67",
+    "moduleText.format.escaped.hint": "C语言格式字符串，支持转义字符，如：9178Abc\\n\\x67",
     "moduleText.format.hex.hint": "十六进制字符串，如：0D 00 07 21",
     "moduleText.format.signedWhole.hint": "整数",
     "moduleText.format.nonNegativeWhole.hint": "非负整数",
     "moduleText.format.positiveWhole.hint": "正整数",
     "moduleText.format.real.hint": "任意实数",
-    "moduleText.format.ipAddress.hint": "IPv4/IPv6地址"
+    "moduleText.format.ipAddress.hint": "IPv4/IPv6地址",
+    "attitude.view.button": "视角（空格）",
+    "attitude.view.front": "前视",
+    "attitude.view.back": "后视",
+    "attitude.view.left": "左视",
+    "attitude.view.right": "右视",
+    "attitude.view.top": "上视",
+    "attitude.view.bottom": "下视",
+    "attitude.view.isometric": "等轴测",
+    "attitude.view.custom": "自定义视角"
   }
 }

@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Text.Json;
 using HYWDebugAssistant.Modules.AttitudeDisplay;
+using HYWDebugAssistant.Modules.AttitudeDisplay.Views;
 using HYWDebugAssistant.Modules.GaugeDisplay;
 using HYWDebugAssistant.Modules.ScaleBarHorizontal;
 using HYWDebugAssistant.Modules.ScaleBarVertical;
@@ -19,7 +20,7 @@ using GaugeFrameResult = HYWDebugAssistant.Modules.GaugeDisplay.FrameApplyResult
 namespace HYWDebugAssistant.Modules.Tests;
 
 /// <summary>
-/// **四个终端显示模块**（指针仪表盘 / 横向刻度条 / 纵向刻度条 / 三轴姿态仪）的共用机制：
+/// **四个终端显示模块**（指针仪表盘 / 横向进度条 / 纵向进度条 / 三轴姿态仪）的共用机制：
 /// 契约与波形帧生产方一致、值初值无重复、图标可解析、组/通道路由与目标值规则、三轴单位与反相。
 /// </summary>
 /// <remarks>
@@ -118,22 +119,20 @@ public class ChannelDisplayModulesTests
     }
 
     [Fact]
-    public void 组发现_首个组可自动跟随_通道掩码按帧生效()
+    public void 组发现_通道掩码按帧生效()
     {
         var feed = new GaugeFeed();
-        feed.FirstGroupId.ShouldBe(0u);
 
         feed.ApplyFrame(Frame(7, 2, 0b01, [1f, 2f]), 0)
             .HasFlag(GaugeFrameResult.StructureChanged)
             .ShouldBeTrue();
-        feed.FirstGroupId.ShouldBe(7u);
+        feed.GroupIds.ShouldBe([7u]);
         feed.HasChannel(7, 1).ShouldBeTrue();
         feed.HasChannel(7, 2).ShouldBeFalse();
         feed.ChannelValid(7, 0).ShouldBeTrue();
         feed.ChannelValid(7, 1).ShouldBeFalse();
 
         feed.ApplyFrame(Frame(9, 1, 0b1, [5f]), 1);
-        feed.FirstGroupId.ShouldBe(7u);
         feed.GroupIds.ShouldBe([7u, 9u]);
     }
 
@@ -159,18 +158,42 @@ public class ChannelDisplayModulesTests
         var module = new GaugeDisplayModule();
         module.OnRegistered(context);
 
-        // 组 0 = 自动跟随第一个组；通道号 1（0 起）→ 取第二个通道。
-        context.ViewState.SetInputText(GaugeDisplayModule.ChannelSource, "1");
+        // 组号/通道号都是 1 基；显式组 3、通道 2 → 帧槽位 1。
+        context.ViewState.SetInputText(GaugeDisplayModule.GroupSource, "3");
+        context.ViewState.SetInputText(GaugeDisplayModule.ChannelSource, "2");
 
         context.Deliver(PortName, Frame(3, 2, 0b11, [2.5f, 8f]));
         module.PumpOnce(context);
 
         Published(context, GaugeDisplayModule.ValueSource).ShouldBe(8f, 1e-6);
 
-        // 改成通道 0 后下一拍取第一个通道。
-        context.ViewState.SetInputText(GaugeDisplayModule.ChannelSource, "0");
+        // 改成通道 1 后下一拍取第一个槽位。
+        context.ViewState.SetInputText(GaugeDisplayModule.ChannelSource, "1");
         module.PumpOnce(context);
         Published(context, GaugeDisplayModule.ValueSource).ShouldBe(2.5f, 1e-6);
+    }
+
+    [Fact]
+    public void 仪表盘_组号和通道号零非法()
+    {
+        var context = new TestModuleContext();
+        var module = new GaugeDisplayModule();
+        module.OnRegistered(context);
+
+        context.ViewState.SetInputText(GaugeDisplayModule.GroupSource, "0");
+        context.ViewState.SetInputText(GaugeDisplayModule.ChannelSource, "0");
+        module.PumpOnce(context);
+
+        // 0 不生效：保留默认组 1 / 通道 1，不自动跟随，也不改写成别的编号。
+        ReadMetaInt(context, GaugeDisplayModule.MetaSource, "group").ShouldBe(1);
+        ReadMetaInt(context, GaugeDisplayModule.MetaSource, "channel").ShouldBe(1);
+
+        context.ViewState.SetInputText(GaugeDisplayModule.GroupSource, "2");
+        context.ViewState.SetInputText(GaugeDisplayModule.ChannelSource, "2");
+        module.PumpOnce(context);
+
+        ReadMetaInt(context, GaugeDisplayModule.MetaSource, "group").ShouldBe(2);
+        ReadMetaInt(context, GaugeDisplayModule.MetaSource, "channel").ShouldBe(2);
     }
 
     [Fact]
@@ -191,8 +214,15 @@ public class ChannelDisplayModulesTests
         Published(context, AttitudeDisplayModule.YawSource).ShouldBe(0f, 0.01f);
     }
 
+    [Theory]
+    [InlineData(0, "0.0° / 0.000 rad")]
+    [InlineData(180, "180.0° / 3.142 rad")]
+    [InlineData(-90, "-90.0° / -1.571 rad")]
+    public void 三轴姿态_底栏同时显示角度与弧度(double degrees, string expected) =>
+        AttitudeDisplayView.FormatAngles(degrees).ShouldBe(expected);
+
     [Fact]
-    public void 刻度条颜色_十六进制写入元数据_空与非法回默认()
+    public void 进度条颜色_十六进制写入元数据_空与非法回默认()
     {
         var context = new TestModuleContext();
         var module = new ScaleBarHorizontalModule();

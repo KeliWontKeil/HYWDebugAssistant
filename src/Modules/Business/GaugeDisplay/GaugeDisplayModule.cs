@@ -295,7 +295,7 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
                 candidate = candidate with { GroupId = defaults.GroupId };
                 _validity.Set(context, GroupSource, false);
             }
-            else if (TryParseInteger(groupText, out var group) && group >= 0)
+            else if (TryParseInteger(groupText, out var group) && group >= 1)
             {
                 candidate = candidate with { GroupId = group };
                 _validity.Set(context, GroupSource, false);
@@ -313,7 +313,8 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
                 candidate = candidate with { Channel = defaults.Channel };
                 _validity.Set(context, ChannelSource, false);
             }
-            else if (TryParseInteger(channelText, out var channel) && channel >= 0)
+            else if (TryParseInteger(channelText, out var channel)
+                     && channel is >= GaugeSettings.MinimumChannel and <= GaugeSettings.MaximumChannel)
             {
                 candidate = candidate with { Channel = channel };
                 _validity.Set(context, ChannelSource, false);
@@ -553,7 +554,7 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
         var groupId = EffectiveGroupId();
         var target = (float)_feed.Resolve(
             groupId,
-            _settings.Channel,
+            _settings.Channel - 1,
             nowMs,
             _settings.AutoZero,
             _settings.ZeroDelayMs);
@@ -574,26 +575,18 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
         }
     }
 
-    /// <summary>当前组：配置了具体组号就用它，0 表示跟随第一个出现的组。</summary>
-    private uint EffectiveGroupId() =>
-        _settings.GroupId > 0 ? (uint)_settings.GroupId : _feed.FirstGroupId;
+    /// <summary>当前组：组号是用户配置的 1 基标识；未发现就等待，不自动跟随。</summary>
+    private uint EffectiveGroupId() => (uint)_settings.GroupId;
 
     private string ResolveStatus(uint groupId, long nowMs)
     {
-        if (groupId == 0)
-        {
-            return Tr(GaugeDisplayText.Ready);
-        }
-
         var group = _feed.Group(groupId);
         if (group is null)
         {
-            return _settings.GroupId > 0
-                ? Tr(GaugeDisplayText.WaitingGroup, _settings.GroupId)
-                : Tr(GaugeDisplayText.Ready);
+            return Tr(GaugeDisplayText.WaitingGroup, _settings.GroupId);
         }
 
-        if (_settings.Channel >= group.ChannelCount)
+        if (_settings.Channel > group.ChannelCount)
         {
             return Tr(GaugeDisplayText.ChannelMissing, _settings.Channel, group.ChannelCount);
         }
@@ -605,7 +598,7 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
                 : Tr(GaugeDisplayText.Ready);
         }
 
-        if (!_feed.ChannelValid(groupId, _settings.Channel))
+        if (!_feed.ChannelValid(groupId, _settings.Channel - 1))
         {
             return Tr(GaugeDisplayText.ChannelInvalid, _settings.Channel);
         }

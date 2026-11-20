@@ -13,7 +13,6 @@ internal static class GaugeDisplayText
     public const string ChannelTip = "view.channelTip";
     public const string Settings = "view.settings";
     public const string Summary = "view.summary";
-    public const string SummaryAuto = "view.summaryAuto";
     public const string SummaryPreview = "view.summaryPreview";
     public const string SummaryTip = "view.summaryTip";
     public const string ResetSettings = "view.resetSettings";

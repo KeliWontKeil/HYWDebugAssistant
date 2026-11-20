@@ -37,6 +37,7 @@ public sealed class ModulePanelSurface : ContentControl
     private ModuleButton? _reset;
     private ModuleButton? _close;
     private ContentPresenter? _contentPresenter;
+    private IModuleViewContext? _context;
 
     /// <summary>标题行的两枚图标按钮的属主程序集（模块程序集）。</summary>
     public Assembly? IconOwner { get; set; }
@@ -135,6 +136,21 @@ public sealed class ModulePanelSurface : ContentControl
         }
     }
 
+    /// <summary>
+    /// 把视图上下文交给标题行按钮。
+    /// </summary>
+    /// <param name="context">取数 / 提交 / 命令入口。</param>
+    /// <remarks>
+    /// 外壳住在面板独立窗口里，不在正文 <see cref="ModuleViewHost"/> 的祖先链上；
+    /// 刷新按钮无法像正文控件那样自己找到上下文，必须由容器显式绑定。
+    /// </remarks>
+    internal void BindContext(IModuleViewContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        _context = context;
+        ApplyContext();
+    }
+
     private void ApplyReset()
     {
         if (_reset is null)
@@ -145,6 +161,19 @@ public sealed class ModulePanelSurface : ContentControl
         var command = ResetCommandName ?? string.Empty;
         _reset.CommandName = command;
         _reset.IsVisible = command.Length > 0;
+        ApplyContext();
+    }
+
+    /// <summary>刷新按钮挂到当前上下文；模板重建后由 <see cref="ApplyReset"/> 重新调用。</summary>
+    private void ApplyContext()
+    {
+        if (_reset is null || _context is not { } context)
+        {
+            return;
+        }
+
+        _reset.Attach(context);
+        _reset.Refresh(context);
     }
 
     private void OnCloseClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

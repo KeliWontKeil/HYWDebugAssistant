@@ -27,6 +27,9 @@ internal static class RawToWaveformText
     /// <summary>帧头/帧尾格式无效，但仍在用上一次有效值。</summary>
     public const string BadHexKept = "state.bad-hex-kept";
 
+    /// <summary>组号必须是 1 基正整数。</summary>
+    public const string BadGroup = "state.bad-group";
+
     /// <summary>帧头/帧尾输入框的悬停提示。</summary>
     public const string HexHint = "view.hexHint";
 

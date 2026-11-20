@@ -32,7 +32,8 @@
        · 同一拥有者各语言的**键集合**与每个键的**占位符集合**（`{0}` / `{1}`…）一致；
        · 值里不得出现**字面反斜杠 + n**（两个字符）——换行必须写成 JSON 转义，否则界面原样显示 `\n`
          （白名单：路径示例 `hosting.package.assemblyMissing` 的 `bin\{1}\net10.0`；
-         协议语法示例 `proto.fireWater.def` / `proto.fireWater.sample` 需要用户看见字面 `\n`）。
+         协议语法示例 `proto.fireWater.def` / `proto.fireWater.sample`；
+         C 转义提示 `moduleText.format.escaped.hint` —— 都需要用户看见字面 `\n`）。
 
     ③b **框架图标清单**（`resources/icons/<程序集简名>/icons.json`）
        · 可解析、`entries` 是对象、文件名固定 `icons.json`（一个拥有者一张清单）；
@@ -111,11 +112,13 @@ if (-not (Test-Path -LiteralPath $root -PathType Container)) {
 
 # 文本值里允许出现"反斜杠 + n"字面量的键。两类例外：
 #   ① 路径示例：`bin\{1}\net10.0` 的 `\n` 是分隔符 + 目录名，不是换行；
-#   ② 协议语法示例：FireWater 的 `...\n` 必须让用户看见字面 `\n`（不是换行）。
+#   ② 协议语法示例：FireWater 的 `...\n` 必须让用户看见字面 `\n`（不是换行）；
+#   ③ 转义输入提示：C 转义语法本身的示例必须让用户看见 `\n`。
 $literalBackslashNewlineAllowed = @(
     'hosting.package.assemblyMissing',
     'proto.fireWater.def',
-    'proto.fireWater.sample')
+    'proto.fireWater.sample',
+    'moduleText.format.escaped.hint')
 
 # 壁纸体积上限的**来源**是 ThemeStore.MaxWallpaperBytes；下面只是缺省值，
 # 读到源码定义后会覆盖它，并核对两者一致（不接受"脚本比运行期松"）。
@@ -706,7 +709,8 @@ foreach ($table in ($tableFiles | Sort-Object { $_.File.FullName })) {
 
         # 换行必须写成 JSON 转义（解析后的值是**真正的换行**）。若值里出现"反斜杠 + n"两个字面字符，
         # 界面会原样显示 `\n`——`TextCatalog` 不做二次反转义（实测端口标记的悬停提示就是这样坏掉的）。
-        # 白名单只放**路径示例**（`bin\{1}\net10.0` 里的 `\n` 是分隔符 + 目录名，不是换行）。
+        # 白名单只放**确实需要用户看见字面 `\n`** 的示例：路径、协议语法、C 转义提示。
+        # 地址见 $literalBackslashNewlineAllowed，逐键登记；不是全局豁免。
         if ($value -match '\\n' -and $literalBackslashNewlineAllowed -notcontains $key) {
             Add-Problem "${relative}:${line}" ("键 '{0}' 含字面反斜杠 + n（两个字符）——换行必须写成 JSON 转义" -f $key)
         }

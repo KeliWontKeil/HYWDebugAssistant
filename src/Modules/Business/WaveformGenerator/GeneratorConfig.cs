@@ -30,6 +30,9 @@ public enum WaveformKind
 /// <summary>单通道波形参数。</summary>
 public sealed record GeneratorChannelConfig
 {
+    /// <summary>通道编号（1–64；对应波形帧槽位 = 编号 - 1）。</summary>
+    public int? ChannelNumber { get; init; }
+
     /// <summary>通道名（仅本模块 UI；不上线）。</summary>
     public string Name { get; init; } = "CH1";
 
@@ -140,15 +143,16 @@ public sealed record GeneratorConfig
                 Name = "G1",
                 FrequencyHz = 10,
                 Resolution = 100,
-                Channels = [new GeneratorChannelConfig { Name = "CH1" }],
+                Channels = [new GeneratorChannelConfig { ChannelNumber = 1, Name = "CH1" }],
             },
         ],
     };
 
     /// <summary>造一个默认通道。</summary>
-    public static GeneratorChannelConfig CreateChannel(int index) => new()
+    public static GeneratorChannelConfig CreateChannel(int number) => new()
     {
-        Name = "CH" + (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
+        ChannelNumber = number,
+        Name = "CH" + number.ToString(System.Globalization.CultureInfo.InvariantCulture),
     };
 
     /// <summary>造一个默认组。</summary>
@@ -158,6 +162,6 @@ public sealed record GeneratorConfig
         Name = "G" + (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
         FrequencyHz = 10,
         Resolution = 100,
-        Channels = [CreateChannel(0)],
+        Channels = [CreateChannel(1)],
     };
 }

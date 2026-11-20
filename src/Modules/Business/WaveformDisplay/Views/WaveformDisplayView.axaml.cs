@@ -431,20 +431,31 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
     {
         var row = new Grid
         {
-            Height = 20,
-            ColumnDefinitions = new ColumnDefinitions("16,*,72,18,18,18"),
+            Height = 22,
+            ColumnDefinitions = new ColumnDefinitions("18,14,*,72,18,18,18"),
             ClipToBounds = true,
             Background = channel.Index == _activeChannelIndex
                 ? FindBrush("SurfaceTabHoverBrush")
                 : Brushes.Transparent,
         };
 
+        var number = new ModuleLabel
+        {
+            Text = (channel.Index + 1).ToString(CultureInfo.InvariantCulture),
+            FontSize = 10,
+            Foreground = FindBrush("TextSecondary", FallbackText),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 2, 0),
+        };
+        row.Children.Add(number);
+
         var color = ResolveChannelBrush(channel);
         var colorButton = new Button
         {
             Width = 12,
             Height = 12,
-            Margin = new Thickness(2, 0, 1, 0),
+            Margin = new Thickness(1, 0, 1, 0),
             Background = color,
             Tag = channel.Index,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
@@ -453,6 +464,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
         colorButton.Classes.Add("module-color-swatch");
         colorButton.Click += (_, _) => OpenColorPicker(colorButton, channel);
         ToolTip.SetTip(colorButton, Tr("view.color"));
+        Grid.SetColumn(colorButton, 1);
         row.Children.Add(colorButton);
 
         var name = new TextBox
@@ -461,16 +473,19 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
                 ? Tr("view.channelFallback").Replace("{0}", (channel.Index + 1).ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
                 : channel.Name,
             FontSize = 11,
-            Padding = new Thickness(1, 0),
+            Padding = new Thickness(2, 0),
+            Margin = new Thickness(0, 1),
             Background = Brushes.Transparent,
+            BorderBrush = FindBrush("BorderDefault", FallbackBorder),
             BorderThickness = new Thickness(0),
+            CornerRadius = new CornerRadius(0),
             VerticalContentAlignment = VerticalAlignment.Center,
             MinWidth = 0,
             Tag = channel.Index,
         };
         name.KeyDown += OnChannelNameKeyDown;
         name.LostFocus += OnChannelNameLostFocus;
-        Grid.SetColumn(name, 1);
+        Grid.SetColumn(name, 2);
         row.Children.Add(name);
 
         var readout = new ModuleLabel
@@ -482,7 +497,7 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             Margin = new Thickness(2, 0, 3, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
-        Grid.SetColumn(readout, 2);
+        Grid.SetColumn(readout, 3);
         row.Children.Add(readout);
 
         var hide = MakeToggleButton("icon.group.hide", Tr("view.hideCurve"), channel.Visible);
@@ -497,17 +512,17 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
                 visible = !(current?.Visible ?? channel.Visible),
             });
         };
-        Grid.SetColumn(hide, 3);
+        Grid.SetColumn(hide, 4);
         row.Children.Add(hide);
 
         var fit = MakeToggleButton("icon.group.fit-y", Tr("view.fitY"), false);
         fit.Click += (_, _) => SubmitAction(new { op = "fitY", index = channel.Index });
-        Grid.SetColumn(fit, 4);
+        Grid.SetColumn(fit, 5);
         row.Children.Add(fit);
 
         var delete = MakeCommandButton("icon.group.delete", Tr("view.deleteChannel"));
         delete.Click += (_, _) => SubmitAction(new { op = "deleteChannel", index = channel.Index });
-        Grid.SetColumn(delete, 5);
+        Grid.SetColumn(delete, 6);
         row.Children.Add(delete);
 
         row.PointerPressed += (_, args) =>
@@ -1097,8 +1112,6 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             Width = 18,
             Height = 18,
             Padding = new Thickness(0),
-            Background = Brushes.Transparent,
-            BorderThickness = new Thickness(0),
             IsChecked = isChecked,
             Content = new IconControl
             {
@@ -1120,8 +1133,6 @@ public sealed partial class WaveformDisplayView : ModuleView, IModuleViewElement
             Width = 18,
             Height = 18,
             Padding = new Thickness(0),
-            Background = Brushes.Transparent,
-            BorderThickness = new Thickness(0),
             Content = new IconControl
             {
                 IconKey = iconKey,

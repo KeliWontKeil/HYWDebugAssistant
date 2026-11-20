@@ -514,7 +514,7 @@ public sealed class ScaleBar : Control, IModuleViewElement, IModulePreviewBounds
                 fontSize * 0.9,
                 labelBrush);
 
-            // 纵向刻度条的数字**竖着写**（旋转 −90°，自下而上读，与端口标记同一阅读方向）：
+            // 纵向进度条的数字**竖着写**（旋转 −90°，自下而上读，与端口标记同一阅读方向）：
             // 旋转后文字的"宽"变成沿边长度、文字高度才占横向宽度 ⇒ 标签带只需 ~14 DIP。
             // 绘制点先按 −90° 反算（与 `ChartSurface` 画 Y 轴标题同一手法）：旋转坐标系后，
             // 局部点 (a,b) 落到控制坐标 (b, −a)。

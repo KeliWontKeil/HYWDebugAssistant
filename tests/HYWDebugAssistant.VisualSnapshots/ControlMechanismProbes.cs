@@ -730,6 +730,56 @@ public class ControlMechanismProbes
     }
 
     [Fact]
+    public async Task 文本面_转义末尾光标应停在Raw末尾()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var surface = new ModuleTextSurface
+                {
+                    Mode = TextSurfaceMode.Input,
+                    Value = "probe-escape-caret",
+                    EscapeInput = true,
+                    Multiline = true,
+                    FontSize = 20,
+                    Width = 300,
+                    Height = 140,
+                };
+                var window = new Window { Width = 360, Height = 200, Content = surface };
+
+                try
+                {
+                    window.Show();
+                    SnapshotTool.Pump();
+                    var box = surface.GetVisualDescendants().OfType<TextBox>().First();
+                    box.Focus();
+                    SnapshotTool.Pump();
+
+                    foreach (var character in @"\n\r")
+                    {
+                        window.KeyTextInput(character.ToString());
+                        SnapshotTool.Pump();
+                    }
+
+                    Assert.Equal(@"\n\r", surface.Text);
+                    Assert.Equal(4, box.CaretIndex);
+
+                    var overlay = surface.GetVisualDescendants().OfType<NewlineMarkOverlay>().First();
+                    Assert.NotNull(overlay.EscapeSpans);
+                    Assert.Equal(2, overlay.EscapeSpans!.Count);
+                    Assert.Equal(0, overlay.EscapeSpans[0].Start);
+                    Assert.Equal(2, overlay.EscapeSpans[1].Start);
+                    SnapshotTool.Save(window, Path.Combine("controls", "escape-caret.png"));
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
     public async Task 文本面_输入编辑_复制剪切撤销使用Raw()
     {
         await SnapshotSession.Shared.Dispatch(

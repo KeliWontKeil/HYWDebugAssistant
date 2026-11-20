@@ -1,6 +1,6 @@
 namespace HYWDebugAssistant.Modules.ScaleBarVertical;
 
-/// <summary>纵向刻度条设置（值声明负责持久化；这里只是运行期快照）。</summary>
+/// <summary>纵向进度条设置（值声明负责持久化；这里只是运行期快照）。</summary>
 internal sealed record ScaleBarSettings
 {
     /// <summary>回零延时下限（毫秒）。</summary>
@@ -21,14 +21,17 @@ internal sealed record ScaleBarSettings
     /// <summary>小数位上限。</summary>
     public const int MaximumDecimals = 4;
 
-    /// <summary>通道号上限（与帧内通道槽位数一致）。</summary>
-    public const int MaximumChannel = WaveformFrameContract.MaxChannels - 1;
+    /// <summary>通道号下限（用户编号 1 基）。</summary>
+    public const int MinimumChannel = 1;
 
-    /// <summary>组号（0 = 自动跟随第一个出现的组）。</summary>
-    public int GroupId { get; init; }
+    /// <summary>通道号上限（用户编号 1 基；内部槽位 = Channel - 1）。</summary>
+    public const int MaximumChannel = WaveformFrameContract.MaxChannels;
 
-    /// <summary>通道号（0 起）。</summary>
-    public int Channel { get; init; }
+    /// <summary>组号（1 基正整数；无效时等待该组，不自动跟随）。</summary>
+    public int GroupId { get; init; } = 1;
+
+    /// <summary>通道号（1 基正整数；内部帧槽位 = Channel - 1）。</summary>
+    public int Channel { get; init; } = 1;
 
     /// <summary>量程下限。</summary>
     public double Minimum { get; init; }

@@ -174,6 +174,10 @@ public sealed class ModuleButton : Button, IModuleViewElement
 
     /// <summary>挂在视图里时记住取数入口（点下去要用）。</summary>
     /// <param name="context">视图上下文。</param>
+    /// <remarks>
+    /// 面板外壳的标题行不在正文 <see cref="ModuleViewHost"/> 的祖先链上，
+    /// 由 <see cref="ModulePanelSurface"/> 显式调用本方法；普通按钮挂树时仍自动查找宿主。
+    /// </remarks>
     internal void Attach(IModuleViewContext context) => _context = context;
 
     /// <inheritdoc />

@@ -34,7 +34,7 @@
 | `RangeSelector` | 通用线性范围可视化/拖动 | `Minimum`、`Maximum`、`RangeStart/End`、`MinimumRangeSpan`、`TickStep`、`ShowTicks`、`ShowTickLabels`、`MinorTickStep`、`XAxisKind`、`HandleWidth`、`RangeChanged`、`LastChangeKind` |
 | `GaugeDial` | 指针仪表盘（单值、弧线刻度 + 指针 + 读数，可平滑） | `Minimum`/`Maximum`/`Value`、`Title`/`Unit`、`Padding`、`SweepAngle`、`ValueDecimals`、`MajorTickStep`、`MinorTickCount`、`ShowValue`、`FillOrigin`（`Minimum`/`Zero`）、`SmoothingEnabled`/`SmoothingTimeMs`、`DialBrush`/`TrackBrush`/`TickBrush`/`TickLabelBrush`/`NeedleBrush`/`HubBrush`/`TitleBrush`/`ValueBrush`/`UnitBrush`/`OutOfRangeBrush` |
 | `ScaleBar` | 矩形细条刻度进度条（横向 / 纵向，Windows 进度条观感；**不含文字**） | `Orientation`、`Minimum`/`Maximum`/`Value`、`BarThickness`、`Padding`、`TickStep`、`MinorTickCount`、`ShowLabels`、`FillOrigin`（`Minimum`/`Zero`）、`FillBrush`（未覆盖时主题默认 `DefaultFillToken`）、`SmoothingEnabled`/`SmoothingTimeMs`、`TrackBrush`/`FrameBrush`/`TickBrush`/`TickLabelBrush` |
-| `AttitudeView` | 三轴姿态（坐标轴 / 方块 / 无人机） | `Roll`/`Pitch`/`Yaw`（度）、`RenderStyle`、`Zoom`、`ShowGrid`、`ShowLabels`、`SmoothingEnabled`/`SmoothingTimeMs`、`GridBrush`/`AxisXBrush`/`AxisYBrush`/`AxisZBrush`/`BodyBrush`/`BodyEdgeBrush`/`TextBrush` |
+| `AttitudeView` | 三轴姿态（坐标轴 / 方块 / 无人机）；默认等轴测；左键拖动视角；左上角按钮/空格打开七视角面板；左下角地面参考轴 | `Roll`/`Pitch`/`Yaw`（度）、`RenderStyle`、`Zoom`、`ShowGrid`、`ShowLabels`、`SmoothingEnabled`/`SmoothingTimeMs`、`GridBrush`/`AxisXBrush`/`AxisYBrush`/`AxisZBrush`/`BodyBrush`/`BodyEdgeBrush`/`TextBrush`/`ViewSurfaceBrush`/`ViewAccentBrush` |
 | `ModulePopupPanel` | 浮层面板容器（独立窗口里显示，可放在模块之外） | `PanelType`（正文视图类型）、`Title`、`ResetCommandName`、`Anchor`、`IsOpen`、`Open()`/`Close()`/`Toggle()` |
 | `ModulePanelSurface` | 面板外壳（标题行 + 刷新/关闭 + 内容区），由容器创建 | `Title`、`ResetCommandName`、`IconOwner`、`CloseRequested`、`HeaderHeight` |
 | `Icon` | 模块图标 | `IconKey`、`Owner` |
@@ -125,7 +125,7 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 - 标准接入的参数字段用 `ExternalAccessFieldNames` 的常量（命名空间 `HYWDebugAssistant.Sdk.Access`），不写字符串字面量；文本/数字用 `ModuleTextSurface`，枚举用 `ModuleSelect`，布尔用 `ModuleToggle`。
 - **动态可选项**（本机串口、本机网卡地址等 `IConfigurationChoices` 字段）必须用 `ModuleSelect`：选项在运行期来自 `ValueState.Choices`；没有可选项时下拉为空，不要退回普通文本框。
 - 预览里没有运行时上下文时，视图类加 `[ModuleViewDesignData(typeof(MyConfig))]`；标准接入用**镜像配置类型**（字段名与运行时一致）。`[ModuleViewDesignData("serial")]` 只有预览宿主注册了该标准才生效，外部作者不要依赖它。
-- **预览范围指示**：每个控件在预览期都要有范围指示：无可见边框的控件画虚线控件框；有可见边框的输入控件以自身边框为界，不叠第二条虚线；布局槽位画点线容器框。范围框是控件最终边界，不能靠留白猜。
+- **预览范围指示**：每个控件在预览期都要有范围指示：无可见边框的控件画虚线控件框；有可见边框的输入控件以自身边框为界，不叠第二条虚线；布局槽位画点线容器框。范围框是控件最终边界，不能靠留白猜。设置面板正文与模块视图一样画范围框；区别只在：它不是模块窗口，预览时不套 `ModulePreviewChrome` 的端口预留带。
 - **紧凑布局**：控件按内容报尺寸；`Padding` 只给内部留白、`Margin` 只给外部间隙；固定表单高度 = 最后一行 + 边距，不留无用底部空白。
 - **绝对坐标优先**：没有尺寸自适应需求的固定表单/工具区优先根 `Canvas` 绝对坐标；`Grid` 只用于确实需要伸缩的区域。
 - **颜色**：用户选色一律走 `ModuleColorField` / 框架 `IModuleColorPicker`，不自建色板；初值取当前值或主题默认色。
@@ -176,7 +176,7 @@ surface.DataVersion++;          // 改了 Values/Count 后抬版本号才会重�
 
 `RangeSelector` 是独立的范围可视化控件：拖两端/中间触发 `RangeChanged`，`LastChangeKind` 标识 `Start/End/Body/New`；轨道占满自身宽度，不接收图表 inset。
 
-## 数据显示控件（表盘 / 刻度条 / 姿态）
+## 数据显示控件（表盘 / 进度条 / 姿态）
 
 `GaugeDial`、`ScaleBar`、`AttitudeView` 是同一条口径：**只画目标值**。
 
@@ -187,19 +187,21 @@ surface.DataVersion++;          // 改了 Values/Count 后抬版本号才会重�
 - `ScaleBar` **只画轨道、填充与刻度，不画标题/读数/单位**：那些文字由视图用 `ModuleLabel` / `ModuleNumeric` 拼（标题、单位各有标签，读数用 `ModuleNumeric Source=value Decimals=N`）。控件自带文字会逼出一条标题行，细条就缩不下去了。
 - `GaugeDial` 的指针与中心轴默认取 `SemanticError`（红）。
 - `ScaleBar` 的刻度数字：横向在条下、纵向在条右；**纵向的数字旋转 −90°（竖着写，自下而上）**，所以纵向标签带只需约 14 DIP；刻度线与数字的间距 2 DIP。
-- 预览范围框有**两种角色**（`PreviewBoundsRole`）：**控件框**（虚线，控件最终边界）给标签/读数/勾选框与自绘控件（`GaugeDial`/`ScaleBar`/`AttitudeView` 实现 `IModulePreviewBoundsTarget` 声明"边界即绘制范围"）；**容器框**（点线、半透明，布局槽位）给背景不可见的 `Panel`/`Grid`/`Border`，包括模块内容区的根元素。两者线型不同，避免把一整片空白槽位误当成控件边界。自带轮廓的输入控件（`ModuleElement`，勾选框除外）不叠框；个别元素想关掉用 `ui:PreviewBounds.Show="False"`。需要"可见的槽位边框"时，在视图里显式放一个 `PreviewOnly` 边框（见 `WaveformDisplay` 的 `ChartLayoutFrame`），与虚线覆盖层职责不同。
+- 预览范围框有**两种角色**（`PreviewBoundsRole`）：**控件框**（虚线，控件最终边界）给标签/读数/勾选框与自绘控件（`GaugeDial`/`ScaleBar`/`AttitudeView` 实现 `IModulePreviewBoundsTarget` 声明"边界即绘制范围"）；**容器框**（点线、半透明，布局槽位）给背景不可见的 `Panel`/`Grid`/`Border`，包括模块内容区的根元素。两者线型不同，避免把一整片空白槽位误当成控件边界。自带轮廓的输入控件（`ModuleElement`，勾选框除外）不叠框；个别元素想关掉用 `ui:PreviewBounds.Show="False"`。需要"可见的槽位边框"时，在视图里显式放一个 `PreviewOnly` 边框（见 `WaveformDisplay` 的 `ChartLayoutFrame`），与虚线覆盖层职责不同。设置面板正文也收集范围框；它只是不套模块窗口的端口预留带。
 - 两个数据显示控件**按内容报尺寸**（`MeasureOverride`）：仪表报**方形**（圆的直径，圆心即控件中心）、横向条报"条 + 刻度带"的高度、纵向条报"条 + 标签带"的宽度。视图用 `Center`/`Left` 这类**非拉伸对齐**摆放，控件边界（= 预览虚线框）就紧贴绘制内容；`Margin` 是框外的布局间隙、`Padding` 是框内的留白，两者不再互相污染。
-- `Padding`（两个数据显示控件都有）：**四周留白（DIP）**，`0` = 刻度环/轨道外沿紧贴控件边框。它不是 `Thickness`：这两个控件只有一圈留白，非对称留白交给视图的布局。竖排刻度条的轨道从 `Padding` 处开始、刻度数字在它右侧。
+- `Padding`（两个数据显示控件都有）：**四周留白（DIP）**，`0` = 刻度环/轨道外沿紧贴控件边框。它不是 `Thickness`：这两个控件只有一圈留白，非对称留白交给视图的布局。竖排进度条的轨道从 `Padding` 处开始、刻度数字在它右侧。
 - `GaugeDial` 的圆心恒为控件中心，半径由短边决定：**扣掉环线自身厚度**后内接；标题/读数/单位画在圆内，**不参与尺寸计算**，改文字不会改变表盘大小。标题在圆上部、读数在圆心下方、单位紧贴读数；超宽文本按内圆弦长省略。端点数字用自己的精度（`200.12` 不会退化成 `200`），并且与邻近主刻度标签按文字宽度避让：端点优先，主刻度让位；端点恰好落在主刻度上时只画一次。
 - `GaugeDial.FillOrigin` 与 `ScaleBar.FillOrigin` 同口径：`Zero` 从零开始填充（零在量程外时夹到端点），`Minimum` 从下限开始；默认都是 `Zero`。
-- `AttitudeView` 的世界（地面网格、相机）固定，只有机体按三个角度旋转；`RenderStyle` 切换坐标轴 / 方块 / 无人机。
+- `AttitudeView` 的世界（地面网格、机体轴、左下地面参考轴）固定，相机可在世界坐标系里拖动/预设，**默认等轴测**，机体按三个角度旋转；视角与机体姿态互不影响。`RenderStyle` 切换坐标轴 / 方块 / 无人机。
+- `AttitudeView` 的视角交互全部在控件内：左键在姿态区拖动（按钮/面板本身除外）；左上角按钮或空格（姿态区有焦点时）打开 4 列 × 3 行七视角面板（等轴测在上视右侧）；点一个立即应用并关闭。`Esc`/点面板外/失焦关闭；视角不写模块设置、`meta` 或视图状态，**不持久化**。
+- `AttitudeView` 的七视角图标是**固定等轴的透明线框立方体 + 单面高亮**，不按预设旋转立方体；`ViewSurfaceBrush` 是面板/按钮面底色，`ViewAccentBrush` 是目标面、悬停/选中底与激活边框，默认取 `BgChrome` / `AccentPrimary`。`ShowLabels` 同时控制机体轴与地面参考轴的标签。
 - 颜色默认值在 `Themes/Controls.axaml`；视图不写死色值。用户选定的颜色是**数据**（如 `ScaleBar.FillBrush` 来自取色器），由视图把 `AARRGGBB` 变成画刷，而不是在 XAML 里写常量。
 
 ## 浮层面板（ModulePopupPanel + ModulePanelSurface）
 
 模块窗口会裁切视图，**视图内的浮层出不了模块窗口**；面板还要能在预览器里单独看。这是统一标准（三件套），模块只做前两件：
 
-1. **面板正文 = 一个独立视图**：`Views/<Name>SettingsPanel.axaml`，继承 `ModuleView`，在 XAML 里声明自己的 `InitialWidth`/`InitialHeight`（表单区尺寸），并带 `[ModuleViewDesignData]`。预览器可以直接打开这个文件单独看表单，模块视图因此不再被面板挡住。
+1. **面板正文 = 一个独立视图**：`Views/<Name>SettingsPanel.axaml`，继承 `ModuleView`，在 XAML 里声明自己的 `InitialWidth`/`InitialHeight`（表单区尺寸），并带 `[ModuleViewDesignData]`。预览器可以直接打开这个文件单独看表单：正文不套模块窗口的 `ModulePreviewChrome` 预留带，因此坐标与运行期正文一致；虚线控件框/点线容器框照常显示。模块视图因此不再被面板挡住。
 2. **模块视图只声明容器**：
 
 ```xml
@@ -217,10 +219,10 @@ surface.DataVersion++;          // 改了 Values/Count 后抬版本号才会重�
 - **面板正文布局**：固定尺寸表单用根 `Canvas` 绝对坐标（`Canvas.Left/Top`），坐标只写面板 XAML；行高、列宽、间距由面板自己统一，不再用行列容器自动排。面板高度按“最后一行底边 + 8 DIP”收紧，不保留无用底部空白；新增/删除行时同步改高度。
 - **尺寸与位置**：窗口 = 正文 `Initial` 尺寸 + 标题行；以 `Anchor` 的屏幕矩形为基准，优先右侧，放不下依次左侧/下方/上方，始终夹在工作区内；打开期间锚点按钮带 `panel-anchor` 高亮，模块窗口移动时面板逐帧跟随。`Anchor` 缺失时回退模块窗口右侧。
 - **不要用 `Popup` 或视图内浮层**：Popup 的落位/翻转/是否落 overlay 层由平台决定，还出现过贴在模块上的残留；视图内浮层被窗口裁切。两者都试过，统一用独立窗口。
-- **预览**：模块视图里只有齿轮（没有面板布局）；面板正文单独打开，另有 `<模块>-settings.png` 单独截图。
+- **预览**：模块视图里只有齿轮（没有面板布局）；面板正文单独打开时只渲染正文（运行期标题行/外框由容器提供），不套模块窗口预留带，范围框照常显示；另有 `<模块>-settings.png`（不带范围框）与 `<模块>-settings-preview.png`（带范围框）两类截图。
 - 面板正文要公共无参构造（与视图工厂同一规则）。
 - 容器铺在模块视图最上层但不参与命中（`IsHitTestVisible=false`）：齿轮与表盘的点击照常。
-- 标题行的刷新按钮走模块的 `resetSettings` 命令（`ResetCommandName`），行为与原来一致：只重置设置，不动组/通道。
+- 标题行的刷新按钮走模块的 `resetSettings` 命令（`ResetCommandName`），行为与原来一致：只重置设置，不动组/通道。**实现约束**：外壳住在独立窗口里，不在正文 `ModuleViewHost` 的祖先链上，容器必须把视图上下文显式交给标题行按钮；只设 `ResetCommandName` 不会触发命令。
 ## 图标
 
 `ModuleButton` 的 `Icon` 会自动用所在 `ModuleView` 的程序集作图标表拥有者，模块视图里只写键即可；内容被托管到模块视图之外（浮层面板）时用 `IconOwner` 显式给属主：

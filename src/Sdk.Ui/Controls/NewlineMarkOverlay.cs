@@ -62,6 +62,7 @@ public sealed class NewlineMarkOverlay : Control
     private readonly Dictionary<string, FormattedText> _markerTexts = [];
     private double _markFontSize;
     private double _markerFontSize;
+    private Typeface _markerTypeface;
     private IBrush? _markerBrush;
 
     /// <summary>创建绘制层（不参与命中、不参与布局输入）。</summary>
@@ -246,6 +247,10 @@ public sealed class NewlineMarkOverlay : Control
 
             if (lineEnd > lineStart)
             {
+                // 相邻转义段合并成一次绘制：分开测量 `\n` 与 `\r` 会让第二段相对原生 TextLayout
+                // 产生亚像素偏移，光标停在末尾时看起来就"错位"。
+                var merged = new List<(int Start, int End)>();
+
                 foreach (var span in spans)
                 {
                     var spanStart = Math.Max(span.Start, lineStart);
@@ -256,6 +261,18 @@ public sealed class NewlineMarkOverlay : Control
                         continue;
                     }
 
+                    if (merged.Count > 0 && spanStart <= merged[^1].End)
+                    {
+                        merged[^1] = (merged[^1].Start, Math.Max(merged[^1].End, spanEnd));
+                    }
+                    else
+                    {
+                        merged.Add((spanStart, spanEnd));
+                    }
+                }
+
+                foreach (var (spanStart, spanEnd) in merged)
+                {
                     var length = spanEnd - spanStart;
                     var piece = text.Substring(spanStart, length);
                     var formatted = MarkerFormatted(target, piece, brush);
@@ -289,23 +306,30 @@ public sealed class NewlineMarkOverlay : Control
     private FormattedText MarkerFormatted(Control target, string text, IBrush brush)
     {
         var size = FontSizeOf(target);
+        var typeface = TypefaceOf(target);
 
         if (_markerTexts.TryGetValue(text, out var cached)
             && Math.Abs(_markerFontSize - size) < 0.01
+            && _markerTypeface.Equals(typeface)
             && ReferenceEquals(_markerBrush, brush))
         {
             return cached;
         }
 
+        if (!_markerTypeface.Equals(typeface))
+        {
+            _markerTexts.Clear();
+        }
+
         _markerFontSize = size;
+        _markerTypeface = typeface;
         _markerBrush = brush;
 
-        var family = target is TextBlock block ? block.FontFamily : FontFamilyOf(target);
         var formatted = new FormattedText(
             text,
             CultureInfo.CurrentCulture,
             FlowDirection.LeftToRight,
-            new Typeface(family),
+            typeface,
             size,
             brush);
 
@@ -479,6 +503,17 @@ public sealed class NewlineMarkOverlay : Control
 
     private static FontFamily FontFamilyOf(Control target) =>
         target is TextBlock block ? block.FontFamily : ((TemplatedControl)target).FontFamily;
+
+    private static Typeface TypefaceOf(Control target) => target switch
+    {
+        TextBlock block => new Typeface(block.FontFamily, block.FontStyle, block.FontWeight, block.FontStretch),
+        TemplatedControl templated => new Typeface(
+            templated.FontFamily,
+            templated.FontStyle,
+            templated.FontWeight,
+            templated.FontStretch),
+        _ => new Typeface(FontFamilyOf(target)),
+    };
 
     private void Resubscribe(Control? target)
     {

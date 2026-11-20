@@ -251,7 +251,8 @@ public class ModuleView : UserControl
     /// </summary>
     /// <remarks>
     /// 不依赖窗口的 AdornerLayer：不同预览宿主是否提供该层并不稳定；这里把覆盖层放在
-    /// 视图自身的可视树里，位置与截图都只由模块视图决定。
+    /// 视图自身的可视树里，位置与截图都只由模块视图决定。设置面板正文不套模块窗口预留带，
+    /// 但范围框与模块视图一样保留。
     /// </remarks>
     private void AttachPreviewOverlay()
     {
@@ -291,9 +292,17 @@ public class ModuleView : UserControl
         panel.Children.Add(_previewOverlay);
         _previewInner = panel;
 
-        // 预览外壳：外框 + 预留带 + 端口占位。运行时完全不创建。
-        Content = ModulePreviewChrome.Create(panel, Ports, InitialWidth, InitialHeight);
+        // 模块窗口的预览外壳：外框 + 预留带 + 端口占位。运行时完全不创建。
+        // 设置面板正文不是模块窗口：它运行期直接铺在 ModulePanelSurface 内容区，正文从 (0,0) 起，
+        // 不能套这层端口预留带，否则预览坐标会整体偏移 20/22 DIP。范围框仍由上面的 panel 承担。
+        Content = IsSettingsPanelBody
+            ? panel
+            : ModulePreviewChrome.Create(panel, Ports, InitialWidth, InitialHeight);
     }
+
+    /// <summary>设置面板正文按命名约定识别（与 AR-18 对 `*SettingsPanel.axaml` 的口径一致）。</summary>
+    private bool IsSettingsPanelBody =>
+        GetType().Name.EndsWith("SettingsPanel", StringComparison.Ordinal);
 
     /// <summary>把一个控件加入预览框目标（控件框或容器框）。</summary>
     /// <param name="control">候选控件。</param>
@@ -320,7 +329,7 @@ public class ModuleView : UserControl
             return;
         }
 
-        // 自绘控件（仪表盘 / 刻度条 / 姿态）自己画内容、没有可见边框：
+        // 自绘控件（仪表盘 / 进度条 / 姿态）自己画内容、没有可见边框：
         // 由控件声明"边界即绘制范围"（`IModulePreviewBoundsTarget`），这里不写具体类型。
         if (control is IModulePreviewBoundsTarget)
         {

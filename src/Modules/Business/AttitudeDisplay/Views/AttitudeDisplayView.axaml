@@ -8,8 +8,8 @@
                x:Class="HYWDebugAssistant.Modules.AttitudeDisplay.Views.AttitudeDisplayView"
                x:CompileBindings="True"
                x:DataType="contracts:IModuleViewContext"
-               InitialWidth="440" InitialHeight="480"
-               MinWidth="360" MinHeight="400">
+               InitialWidth="400" InitialHeight="400"
+               MinWidth="200" MinHeight="200">
 
   <ui:ModuleView.Ports>
     <ui:ModulePort Name="{x:Static local:AttitudeDisplayModule.InPort}"
@@ -19,12 +19,12 @@
   </ui:ModuleView.Ports>
 
   <Panel>
-    <Grid RowDefinitions="24,*,18" RowSpacing="2" Margin="2">
+    <Grid RowDefinitions="20,*,18" RowSpacing="2" Margin="2">
       <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="4">
         <ui:ModuleLabel x:Name="Summary" Grid.Column="0" Classes="micro" VerticalAlignment="Center"
                         Text="{loc:Tr view.summaryPreview}"
                         ToolTip.Tip="{loc:Tr view.summaryTip}" />
-        <ui:ModuleButton x:Name="SettingsButton" Grid.Column="1" Classes="icon" Width="24" Height="22"
+        <ui:ModuleButton x:Name="SettingsButton" Grid.Column="1" Classes="icon" Width="20" Height="20"
                          Icon="{x:Static views:AttitudeDisplayViewKeys.IconSettings}"
                          ToolTip.Tip="{loc:Tr view.settings}" />
       </Grid>
@@ -33,24 +33,34 @@
                        Roll="12" Pitch="-8" Yaw="30"
                        RenderStyle="Cube" Zoom="1" ShowGrid="True" ShowLabels="True" />
 
-      <Grid Grid.Row="2" ColumnDefinitions="*,*,*" ColumnSpacing="6">
-        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2">
-          <ui:ModuleLabel Classes="micro" VerticalAlignment="Center" Text="R" />
-          <ui:ModuleNumeric Source="{x:Static views:AttitudeDisplayViewKeys.Roll}" Text="12.0" />
-          <ui:ModuleLabel Classes="micro" VerticalAlignment="Center" Text="°" />
-        </StackPanel>
+      <Grid Grid.Row="2" ColumnDefinitions="Auto,*,*,*" ColumnSpacing="4">
+        <Grid Grid.Column="1" ColumnDefinitions="Auto,*" ColumnSpacing="2">
+          <ui:ModuleLabel Grid.Column="0" Classes="micro" VerticalAlignment="Center" Text="ROLL" />
+          <ui:ModuleLabel x:Name="RollReadout" Grid.Column="1" Classes="micro" VerticalAlignment="Center"
+                          Text="12.0° / 0.209 rad" TextTrimming="CharacterEllipsis" />
+        </Grid>
 
-        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2">
-          <ui:ModuleLabel Classes="micro" VerticalAlignment="Center" Text="P" />
-          <ui:ModuleNumeric Source="{x:Static views:AttitudeDisplayViewKeys.Pitch}" Text="-8.0" />
-          <ui:ModuleLabel Classes="micro" VerticalAlignment="Center" Text="°" />
-        </StackPanel>
+        <Grid Grid.Column="2" ColumnDefinitions="Auto,*" ColumnSpacing="2">
+          <ui:ModuleLabel Grid.Column="0" Classes="micro" VerticalAlignment="Center" Text="PITCH" />
+          <ui:ModuleLabel x:Name="PitchReadout" Grid.Column="1" Classes="micro" VerticalAlignment="Center"
+                          Text="-8.0° / -0.140 rad" TextTrimming="CharacterEllipsis" />
+        </Grid>
 
-        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
-          <ui:ModuleLabel Classes="micro" VerticalAlignment="Center" Text="Y" />
-          <ui:ModuleNumeric Source="{x:Static views:AttitudeDisplayViewKeys.Yaw}" Text="30.0" />
-          <ui:ModuleLabel Classes="micro" VerticalAlignment="Center" Text="°" />
-        </StackPanel>
+        <Grid Grid.Column="3" ColumnDefinitions="Auto,*" ColumnSpacing="2">
+          <ui:ModuleLabel Grid.Column="0" Classes="micro" VerticalAlignment="Center" Text="YAW" />
+          <ui:ModuleLabel x:Name="YawReadout" Grid.Column="1" Classes="micro" VerticalAlignment="Center"
+                          Text="30.0° / 0.524 rad" TextTrimming="CharacterEllipsis" />
+        </Grid>
+
+        <Border Grid.Column="0" VerticalAlignment="Center"
+                Padding="3,1" CornerRadius="2"
+                Background="{DynamicResource BgChrome}"
+                BorderBrush="{DynamicResource BorderDefault}">
+          <ui:ModuleLabel x:Name="UnitBadge" Classes="micro"
+                          VerticalAlignment="Center"
+                          Text="{loc:Tr view.dataUnitDegree}"
+                          ToolTip.Tip="{loc:Tr view.dataUnitTip}" />
+        </Border>
       </Grid>
     </Grid>
 

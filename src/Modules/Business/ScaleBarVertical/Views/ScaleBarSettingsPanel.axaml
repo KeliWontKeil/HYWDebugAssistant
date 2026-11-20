@@ -7,106 +7,107 @@
                x:Class="HYWDebugAssistant.Modules.ScaleBarVertical.Views.ScaleBarSettingsPanel"
                x:CompileBindings="True"
                x:DataType="contracts:IModuleViewContext"
-               InitialWidth="300" InitialHeight="368">
+               InitialWidth="170" InitialHeight="192">
 
   <!-- 面板正文 = 独立视图：固定尺寸表单用 Canvas 绝对坐标，坐标只写在这里。 -->
   <Canvas ClipToBounds="True">
-    <ui:ModuleLabel Canvas.Left="8" Canvas.Top="8" Width="20" Height="22"
+    <ui:ModuleLabel Canvas.Left="4" Canvas.Top="0" Width="32" Height="22"
                     Classes="caption right" VerticalAlignment="Center"
                     Text="{loc:Tr view.group}" />
-    <ui:ModuleTextSurface Canvas.Left="32" Canvas.Top="8" Width="64" Height="22"
-                          Mode="Input" TextFormat="NonNegativeWhole" CommitMode="OnChange"
+    <ui:ModuleTextSurface Canvas.Left="38" Canvas.Top="0" Width="32" Height="22"
+                          Mode="Input" TextFormat="PositiveWhole" CommitMode="OnChange"
                           Value="{x:Static views:ScaleBarVerticalViewKeys.Group}"
-                          Text="0"
+                          Text="1"
                           ToolTip.Tip="{loc:Tr view.groupTip}" />
-    <ui:ModuleLabel Canvas.Left="104" Canvas.Top="8" Width="36" Height="22"
+    <ui:ModuleLabel Canvas.Left="72" Canvas.Top="0" Width="36" Height="22"
                     Classes="caption right" VerticalAlignment="Center"
                     Text="{loc:Tr view.channel}" />
-    <ui:ModuleTextSurface Canvas.Left="144" Canvas.Top="8" Width="148" Height="22"
-                          Mode="Input" TextFormat="NonNegativeWhole" CommitMode="OnChange"
+    <ui:ModuleTextSurface Canvas.Left="110" Canvas.Top="0" Width="32" Height="22"
+                          Mode="Input" TextFormat="PositiveWhole" CommitMode="OnChange"
                           Value="{x:Static views:ScaleBarVerticalViewKeys.Channel}"
-                          Text="0"
+                          Text="1"
                           ToolTip.Tip="{loc:Tr view.channelTip}" />
 
-    <ui:ModuleLabel Canvas.Left="8" Canvas.Top="38" Width="84" Height="22"
+    <ui:ModuleLabel Canvas.Left="4" Canvas.Top="24" Width="32" Height="22"
                     Classes="caption right" VerticalAlignment="Center"
                     Text="{loc:Tr view.minimum}" />
-    <ui:ModuleTextSurface Canvas.Left="96" Canvas.Top="38" Width="196" Height="22"
+    <ui:ModuleTextSurface Canvas.Left="38" Canvas.Top="24" Width="32" Height="22"
                           Mode="Input" TextFormat="Real" CommitMode="OnChange"
                           Value="{x:Static views:ScaleBarVerticalViewKeys.Minimum}"
                           Text="0" />
 
-    <ui:ModuleLabel Canvas.Left="8" Canvas.Top="68" Width="84" Height="22"
+    <ui:ModuleLabel Canvas.Left="72" Canvas.Top="24" Width="36" Height="22"
                     Classes="caption right" VerticalAlignment="Center"
                     Text="{loc:Tr view.maximum}" />
-    <ui:ModuleTextSurface Canvas.Left="96" Canvas.Top="68" Width="196" Height="22"
+    <ui:ModuleTextSurface Canvas.Left="110" Canvas.Top="24" Width="32" Height="22"
                           Mode="Input" TextFormat="Real" CommitMode="OnChange"
                           Value="{x:Static views:ScaleBarVerticalViewKeys.Maximum}"
                           Text="100" />
 
-    <ui:ModuleLabel Canvas.Left="8" Canvas.Top="98" Width="84" Height="22"
+    <ui:ModuleLabel Canvas.Left="4" Canvas.Top="48" Width="48" Height="22"
+                    Classes="caption right" VerticalAlignment="Center"
+                    Text="{loc:Tr view.decimals}" />
+    <ui:ModuleTextSurface Canvas.Left="54" Canvas.Top="48" Width="24" Height="22"
+                          Mode="Input" TextFormat="NonNegativeWhole" CommitMode="OnChange"
+                          Value="{x:Static views:ScaleBarVerticalViewKeys.Decimals}"
+                          Text="2" />
+
+    <ui:ModuleLabel Canvas.Left="80" Canvas.Top="48" Width="36" Height="22"
                     Classes="caption right" VerticalAlignment="Center"
                     Text="{loc:Tr view.color}" />
-    <ui:ModuleColorField Canvas.Left="96" Canvas.Top="98" Width="44" Height="22"
+    <ui:ModuleColorField Canvas.Left="118" Canvas.Top="48" Width="44" Height="22"
                          Value="{x:Static views:ScaleBarVerticalViewKeys.Color}"
                          DefaultBrushToken="{x:Static ui:ScaleBar.DefaultFillToken}"
                          DialogTitle="{loc:Tr view.colorTitle}"
                          ResetText="{loc:Tr view.colorReset}"
                          ToolTip.Tip="{loc:Tr view.color}" />
 
-    <ui:ModuleCheckBox Canvas.Left="8" Canvas.Top="128" Width="284" Height="24"
+    <ui:ModuleCheckBox Canvas.Left="4" Canvas.Top="71" Width="80" Height="24"
                        IsChecked="True"
                        Content="{loc:Tr view.fillFromZero}"
                        Value="{x:Static views:ScaleBarVerticalViewKeys.FillFromZero}" />
 
-    <ui:ModuleCheckBox Canvas.Left="8" Canvas.Top="158" Width="284" Height="24"
+    <ui:ModuleCheckBox Canvas.Left="86" Canvas.Top="71" Width="80" Height="24"
                        IsChecked="True"
                        Content="{loc:Tr view.autoZero}"
                        Value="{x:Static views:ScaleBarVerticalViewKeys.AutoZero}" />
 
-    <ui:ModuleLabel Canvas.Left="8" Canvas.Top="188" Width="84" Height="22"
+    <ui:ModuleLabel Canvas.Left="4" Canvas.Top="96" Width="76" Height="22"
                     Classes="caption right" VerticalAlignment="Center"
                     Text="{loc:Tr view.zeroDelay}" />
-    <ui:ModuleTextSurface Canvas.Left="96" Canvas.Top="188" Width="196" Height="22"
+    <ui:ModuleTextSurface Canvas.Left="82" Canvas.Top="96" Width="54" Height="22"
                           Mode="Input" TextFormat="NonNegativeWhole" CommitMode="OnChange"
                           Value="{x:Static views:ScaleBarVerticalViewKeys.ZeroDelay}"
                           Text="800" />
 
-    <ui:ModuleLabel Canvas.Left="8" Canvas.Top="218" Width="84" Height="22"
+    <ui:ModuleLabel Canvas.Left="4" Canvas.Top="120" Width="36" Height="22"
                     Classes="caption right" VerticalAlignment="Center"
                     Text="{loc:Tr view.barText}" />
-    <ui:ModuleTextSurface Canvas.Left="96" Canvas.Top="218" Width="196" Height="22"
+    <ui:ModuleTextSurface Canvas.Left="42" Canvas.Top="120" Width="120" Height="22"
                           Mode="Input" TextFormat="Text" CommitMode="OnChange"
                           Value="{x:Static views:ScaleBarVerticalViewKeys.Title}"
                           Text="" />
 
-    <ui:ModuleLabel Canvas.Left="8" Canvas.Top="248" Width="84" Height="22"
+    <ui:ModuleLabel Canvas.Left="4" Canvas.Top="144" Width="36" Height="22"
                     Classes="caption right" VerticalAlignment="Center"
                     Text="{loc:Tr view.unit}" />
-    <ui:ModuleTextSurface Canvas.Left="96" Canvas.Top="248" Width="196" Height="22"
+    <ui:ModuleTextSurface Canvas.Left="42" Canvas.Top="144" Width="120" Height="22"
                           Mode="Input" TextFormat="Text" CommitMode="OnChange"
                           Value="{x:Static views:ScaleBarVerticalViewKeys.Unit}"
                           Text="" />
 
-    <ui:ModuleCheckBox Canvas.Left="8" Canvas.Top="278" Width="284" Height="24"
+    <ui:ModuleCheckBox Canvas.Left="4" Canvas.Top="167" Width="64" Height="24"
                        IsChecked="True"
                        Content="{loc:Tr view.smoothing}"
                        Value="{x:Static views:ScaleBarVerticalViewKeys.Smoothing}" />
 
-    <ui:ModuleLabel Canvas.Left="8" Canvas.Top="308" Width="84" Height="22"
+    <ui:ModuleLabel Canvas.Left="70" Canvas.Top="168" Width="54" Height="22"
                     Classes="caption right" VerticalAlignment="Center"
                     Text="{loc:Tr view.smoothingMs}" />
-    <ui:ModuleTextSurface Canvas.Left="96" Canvas.Top="308" Width="196" Height="22"
+    <ui:ModuleTextSurface Canvas.Left="126" Canvas.Top="168" Width="38" Height="22"
                           Mode="Input" TextFormat="NonNegativeWhole" CommitMode="OnChange"
                           Value="{x:Static views:ScaleBarVerticalViewKeys.SmoothingMs}"
                           Text="120" />
 
-    <ui:ModuleLabel Canvas.Left="8" Canvas.Top="338" Width="84" Height="22"
-                    Classes="caption right" VerticalAlignment="Center"
-                    Text="{loc:Tr view.decimals}" />
-    <ui:ModuleTextSurface Canvas.Left="96" Canvas.Top="338" Width="196" Height="22"
-                          Mode="Input" TextFormat="NonNegativeWhole" CommitMode="OnChange"
-                          Value="{x:Static views:ScaleBarVerticalViewKeys.Decimals}"
-                          Text="2" />
   </Canvas>
 </ui:ModuleView>

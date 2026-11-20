@@ -15,7 +15,6 @@ internal static class AttitudeDisplayText
     public const string ChannelTip = "view.channelTip";
     public const string Settings = "view.settings";
     public const string Summary = "view.summary";
-    public const string SummaryAuto = "view.summaryAuto";
     public const string SummaryPreview = "view.summaryPreview";
     public const string SummaryTip = "view.summaryTip";
     public const string ResetSettings = "view.resetSettings";
@@ -27,6 +26,9 @@ internal static class AttitudeDisplayText
     public const string Unit = "view.unit";
     public const string UnitDegree = "view.unitDegree";
     public const string UnitRadian = "view.unitRadian";
+    public const string DataUnitDegree = "view.dataUnitDegree";
+    public const string DataUnitRadian = "view.dataUnitRadian";
+    public const string DataUnitTip = "view.dataUnitTip";
     public const string Smoothing = "view.smoothing";
     public const string SmoothingMs = "view.smoothingMs";
     public const string Zoom = "view.zoom";

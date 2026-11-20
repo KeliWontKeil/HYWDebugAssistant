@@ -33,7 +33,7 @@
     <Project Path="src/Modules/Business/WaveformGenerator/HYWDebugAssistant.Modules.WaveformGenerator.csproj" />
     <Project Path="src/Modules/Business/RawToWaveform/HYWDebugAssistant.Modules.RawToWaveform.csproj" />
     <Project Path="src/Modules/Business/WaveformToRaw/HYWDebugAssistant.Modules.WaveformToRaw.csproj" />
-    <!-- 第五批（终端显示）：指针仪表盘 / 横向刻度条 / 纵向刻度条 / 三轴姿态仪；消费 WaveformFrame。 -->
+    <!-- 第五批（终端显示）：指针仪表盘 / 横向进度条 / 纵向进度条 / 三轴姿态仪；消费 WaveformFrame。 -->
     <Project Path="src/Modules/Business/GaugeDisplay/HYWDebugAssistant.Modules.GaugeDisplay.csproj" />
     <Project Path="src/Modules/Business/ScaleBarHorizontal/HYWDebugAssistant.Modules.ScaleBarHorizontal.csproj" />
     <Project Path="src/Modules/Business/ScaleBarVertical/HYWDebugAssistant.Modules.ScaleBarVertical.csproj" />

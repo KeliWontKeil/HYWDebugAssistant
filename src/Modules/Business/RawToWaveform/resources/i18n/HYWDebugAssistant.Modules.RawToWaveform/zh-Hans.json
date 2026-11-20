@@ -18,6 +18,7 @@
     "state.bad-config": "帧头与帧尾不能为空",
     "state.bad-hex": "帧头/帧尾必须是两位一组的十六进制（如 0A FF）",
     "state.bad-hex-kept": "帧头/帧尾格式无效，仍使用上一次有效值",
+    "state.bad-group": "组号必须是未占用的正整数（从 1 开始）",
     "view.hexHint": "两位一组十六进制，空白分隔，如 0A FF",
     "field.protocol": "协议",
     "field.header": "帧头(HEX)",

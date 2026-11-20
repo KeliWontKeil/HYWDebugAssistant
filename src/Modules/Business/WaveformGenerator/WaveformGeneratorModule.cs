@@ -54,6 +54,9 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
     /// <summary>选中组 ID。</summary>
     public const string GroupIdSource = "groupId";
 
+    /// <summary>选中通道编号（1–64）。</summary>
+    public const string ChannelNumberSource = "channelNumber";
+
     /// <summary>选中通道名。</summary>
     public const string ChannelNameSource = "channelName";
 
@@ -190,6 +193,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
 
         DeclareValue(context, GroupNameSource, ValueEditor.Text);
         DeclareValue(context, GroupIdSource, ValueEditor.Number);
+        DeclareValue(context, ChannelNumberSource, ValueEditor.Number);
         DeclareValue(context, ChannelNameSource, ValueEditor.Text);
         DeclareValue(context, WaveformSource, ValueEditor.Enum, [
             new ValueChoice("sine", Tr(WaveformGeneratorText.Sine)),
@@ -284,6 +288,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
     [
         GroupNameSource,
         GroupIdSource,
+        ChannelNumberSource,
         ChannelNameSource,
         FrequencySource,
         PeriodSource,
@@ -362,22 +367,11 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
             groups.RemoveRange(GeneratorConfig.MaxGroups, groups.Count - GeneratorConfig.MaxGroups);
         }
 
-        var used = new HashSet<uint>();
         for (var groupIndex = 0; groupIndex < groups.Count; groupIndex++)
         {
             var group = groups[groupIndex];
+            // 组号是用户编辑值：0/重复不自动改号；发送前校验会拒绝，由用户修正。
             var id = group.GroupId;
-            if (id == 0 || !used.Add(id))
-            {
-                var candidate = 1u;
-                while (used.Contains(candidate))
-                {
-                    candidate++;
-                }
-
-                id = candidate;
-                _ = used.Add(id);
-            }
 
             var channels = group.Channels.ToList();
             if (channels.Count == 0)
@@ -409,10 +403,14 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
             for (var channelIndex = 0; channelIndex < channels.Count; channelIndex++)
             {
                 var channel = channels[channelIndex];
+                // 新字段缺失（旧配置）按列表位置补 1 基编号；显式 0/重复留给校验报错，不静默改号。
+                var number = channel.ChannelNumber ?? (channelIndex + 1);
                 var name = channel.Name;
                 if (string.IsNullOrWhiteSpace(name))
                 {
-                    name = "CH" + (channelIndex + 1).ToString(CultureInfo.InvariantCulture);
+                    name = "CH" + (number is >= 1 and <= GeneratorConfig.MaxChannels
+                        ? number
+                        : channelIndex + 1).ToString(CultureInfo.InvariantCulture);
                 }
 
                 if (name.Length > GeneratorConfig.MaxNameLength)
@@ -428,6 +426,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
 
                 channels[channelIndex] = channel with
                 {
+                    ChannelNumber = number,
                     Name = name,
                     CarrierFrequencyHz = carrier,
                     ModulationIndex = modulation,
@@ -664,6 +663,21 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
 
                 break;
 
+            case ChannelNumberSource:
+                if (int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var channelNumber)
+                    && channelNumber is >= 1 and <= GeneratorConfig.MaxChannels
+                    && IsChannelNumberAvailable(channelNumber))
+                {
+                    _structureRevision++;
+                    UpdateSelectedChannel(context, channel => channel with { ChannelNumber = channelNumber });
+                }
+                else
+                {
+                    PublishStatus(Tr(WaveformGeneratorText.Invalid));
+                }
+
+                break;
+
             case ChannelNameSource:
                 if (TryNonEmptyName(text, out var channelName))
                 {
@@ -882,6 +896,10 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
             uint.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)
             && id != 0
             && IsGroupIdAvailable(id), Tr(WaveformGeneratorText.InvalidGroupId));
+        Validate(context, ChannelNumberSource, text =>
+            int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var number)
+            && number is >= 1 and <= GeneratorConfig.MaxChannels
+            && IsChannelNumberAvailable(number), Tr(WaveformGeneratorText.InvalidNumber));
         Validate(context, ChannelNameSource, text => TryNonEmptyName(text, out _), Tr(WaveformGeneratorText.InvalidName));
         Validate(context, FrequencySource, text => TryPositive(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
         Validate(context, PeriodSource, text => TryPositive(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
@@ -1151,7 +1169,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
 
         StopForStructureChange(context);
         var channels = group.Channels.ToList();
-        channels.Add(GeneratorConfig.CreateChannel(channels.Count));
+        channels.Add(GeneratorConfig.CreateChannel(NextChannelNumber(group)));
         var groups = _config.Groups.ToList();
         groups[targetIndex] = group with { Channels = channels };
         _config = _config with
@@ -1234,6 +1252,42 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         return true;
     }
 
+    private bool IsChannelNumberAvailable(int channelNumber)
+    {
+        var group = SelectedGroup;
+        if (group is null)
+        {
+            return false;
+        }
+
+        var activeIndex = Math.Clamp(_config.ActiveChannelIndex, 0, group.Channels.Count - 1);
+        for (var index = 0; index < group.Channels.Count; index++)
+        {
+            if (index != activeIndex && group.Channels[index].ChannelNumber == channelNumber)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool HasValidChannelNumbers(GeneratorGroupConfig group)
+    {
+        var used = new HashSet<int>();
+        foreach (var channel in group.Channels)
+        {
+            if (channel.ChannelNumber is not int number
+                || number is < 1 or > GeneratorConfig.MaxChannels
+                || !used.Add(number))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private uint NextGroupId()
     {
         var candidate = 1u;
@@ -1245,12 +1299,35 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         return candidate;
     }
 
+    private static int NextChannelNumber(GeneratorGroupConfig group)
+    {
+        var used = new HashSet<int>();
+        foreach (var channel in group.Channels)
+        {
+            if (channel.ChannelNumber is int number)
+            {
+                _ = used.Add(number);
+            }
+        }
+
+        for (var candidate = 1; candidate <= GeneratorConfig.MaxChannels; candidate++)
+        {
+            if (!used.Contains(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return GeneratorConfig.MaxChannels;
+    }
+
     private bool StartSending(IModuleContext context, bool continuous)
     {
         RebuildRuntimes(context);
 
         var totalRate = 0d;
         var batch = 1;
+        var groupIds = new HashSet<uint>();
         foreach (var group in _config.Groups)
         {
             if (!group.Enabled)
@@ -1258,7 +1335,10 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
                 continue;
             }
 
-            if (group.Resolution is < 2 or > 4096
+            if (group.GroupId == 0
+                || !groupIds.Add(group.GroupId)
+                || !HasValidChannelNumbers(group)
+                || group.Resolution is < 2 or > 4096
                 || !double.IsFinite(group.FrequencyHz)
                 || group.FrequencyHz <= 0)
             {
@@ -1478,21 +1558,35 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
     private void SendFrame(GeneratorRuntime runtime, double rate, IModuleContext context)
     {
         var group = runtime.Config;
-        var channelCount = Math.Clamp(group.Channels.Count, 1, WaveformFrameContract.MaxChannels);
+        var channelCount = group.Channels
+            .Select(channel => channel.ChannelNumber ?? 0)
+            .DefaultIfEmpty(1)
+            .Max();
+        channelCount = Math.Clamp(channelCount, 1, WaveformFrameContract.MaxChannels);
         var time = (runtime.SentFrames / rate);
         var mask = 0UL;
 
-        for (var index = 0; index < channelCount; index++)
+        // 通道号是帧槽位号：编号 n 的样本必须落在 samples[n-1]。
+        Array.Clear(runtime.Samples, 0, channelCount);
+
+        foreach (var channel in group.Channels)
         {
-            var channel = group.Channels[index];
+            if (channel.ChannelNumber is not int number
+                || number is < 1 or > WaveformFrameContract.MaxChannels)
+            {
+                continue;
+            }
+
+            var index = number - 1;
+            if (index >= channelCount)
+            {
+                continue;
+            }
+
             if (channel.Enabled)
             {
                 runtime.Samples[index] = WaveformMath.Sample(channel, group.FrequencyHz, time, runtime.Random);
                 mask |= 1UL << index;
-            }
-            else
-            {
-                runtime.Samples[index] = 0;
             }
         }
 
@@ -1612,6 +1706,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
             return;
         }
 
+        SetInput(context, ChannelNumberSource, (channel.ChannelNumber ?? 0).ToString(CultureInfo.InvariantCulture));
         SetInput(context, ChannelNameSource, channel.Name);
         SetInput(context, WaveformSource, WaveformMath.KindKey(channel.Kind));
         SetInput(context, PhaseSource, Format(channel.PhaseDegrees));
@@ -1668,6 +1763,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
                 channels = group.Channels.Select((channel, channelIndex) => new
                 {
                     index = channelIndex,
+                    number = channel.ChannelNumber ?? 0,
                     name = channel.Name,
                     kind = WaveformMath.KindKey(channel.Kind),
                     enabled = channel.Enabled,

@@ -50,8 +50,8 @@
                         HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
             <ui:ModuleSegmentedControl x:Name="GroupChips" Height="22" SelectedKey="0">
               <ui:ModuleSegmentedControl.PreviewOptions>
-                <ui:ModuleSegmentOption Key="0" Label="G1" />
-                <ui:ModuleSegmentOption Key="1" Label="G2" />
+                <ui:ModuleSegmentOption Key="0" Label="1 G1" />
+                <ui:ModuleSegmentOption Key="1" Label="2 G2" />
               </ui:ModuleSegmentedControl.PreviewOptions>
             </ui:ModuleSegmentedControl>
           </ScrollViewer>
@@ -117,8 +117,8 @@
                         HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
             <ui:ModuleSegmentedControl x:Name="ChannelChips" Height="22" SelectedKey="0">
               <ui:ModuleSegmentedControl.PreviewOptions>
-                <ui:ModuleSegmentOption Key="0" Label="CH1" />
-                <ui:ModuleSegmentOption Key="1" Label="CH2" />
+                <ui:ModuleSegmentOption Key="0" Label="1 CH1" />
+                <ui:ModuleSegmentOption Key="1" Label="2 CH2" />
               </ui:ModuleSegmentedControl.PreviewOptions>
             </ui:ModuleSegmentedControl>
           </ScrollViewer>
@@ -133,10 +133,16 @@
                            Icon="{x:Static views:WaveformGeneratorViewKeys.IconTrash}"
                            ToolTip.Tip="{loc:Tr view.removeChannel}" />
 
-          <!-- 4. 通道名/启用 + 波形选择。 -->
+          <!-- 4. 通道编号/名称/启用 + 波形选择。 -->
           <ui:ModuleLabel Canvas.Left="0" Canvas.Top="114" Width="42" Height="22" Classes="caption right"
+                          VerticalAlignment="Center" Text="{loc:Tr view.channelNumber}" />
+          <ui:ModuleTextSurface x:Name="ChannelNumberInput" Canvas.Left="46" Canvas.Top="114" Width="48" Height="22"
+                                Mode="Input" TextFormat="PositiveWhole" Text="1"
+                                CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.ChannelNumber}"
+                                ToolTip.Tip="{loc:Tr view.channelNumberTip}" />
+          <ui:ModuleLabel Canvas.Left="100" Canvas.Top="114" Width="42" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.channelName}" />
-          <ui:ModuleTextSurface x:Name="ChannelNameInput" Canvas.Left="46" Canvas.Top="114" Width="180" Height="22"
+          <ui:ModuleTextSurface x:Name="ChannelNameInput" Canvas.Left="146" Canvas.Top="114" Width="298" Height="22"
                                 Mode="Input" TextFormat="Text" Text="CH1"
                                 CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.ChannelName}" />
           <ui:ModuleToggle x:Name="ChannelEnabledToggle" Canvas.Left="452" Canvas.Top="114" Width="36" Height="22"

@@ -33,17 +33,20 @@ internal sealed record AttitudeSettings
     /// <summary>缩放上限。</summary>
     public const double MaximumZoom = 3;
 
-    /// <summary>组号（0 = 自动跟随第一个出现的组）。</summary>
-    public int GroupId { get; init; }
+    /// <summary>通道号上限（用户编号 1 基；内部槽位 = 通道号 - 1）。</summary>
+    public const int MaximumChannel = WaveformFrameContract.MaxChannels;
 
-    /// <summary>横滚通道号（0 起）。</summary>
-    public int RollChannel { get; init; }
+    /// <summary>组号（1 基正整数；无效时等待该组，不自动跟随）。</summary>
+    public int GroupId { get; init; } = 1;
 
-    /// <summary>俯仰通道号（0 起）。</summary>
-    public int PitchChannel { get; init; } = 1;
+    /// <summary>横滚通道号（1 基）。</summary>
+    public int RollChannel { get; init; } = 1;
 
-    /// <summary>偏航通道号（0 起）。</summary>
-    public int YawChannel { get; init; } = 2;
+    /// <summary>俯仰通道号（1 基）。</summary>
+    public int PitchChannel { get; init; } = 2;
+
+    /// <summary>偏航通道号（1 基）。</summary>
+    public int YawChannel { get; init; } = 3;
 
     /// <summary>渲染物。</summary>
     public AttitudeRenderStyle Style { get; init; } = AttitudeRenderStyle.Cube;

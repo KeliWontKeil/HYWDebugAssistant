@@ -110,7 +110,7 @@ public sealed class ModuleColorField : Button, IModuleViewElement
             var state = context.ReadValue(Value);
             if (state.IsKnown)
             {
-                text = state.Value ?? string.Empty;
+                text = state.Value;
                 IsEnabled = !state.IsReadOnly && state.IsEnabled;
             }
         }
@@ -148,9 +148,19 @@ public sealed class ModuleColorField : Button, IModuleViewElement
         }
     }
 
-    /// <summary>把“默认色 token”解析成实际 ARGB，供取色窗当初值。</summary>
-    private uint? ResolveDefaultArgb()
+    /// <summary>取用户此刻**看见的颜色**作为取色窗初值。</summary>
+    /// <remarks>
+    /// 空值/非法值时色块显示的是 <see cref="DefaultBrushToken"/> 解析后的画刷；
+    /// 这里直接读 <c>Background</c>，不重新查资源 —— 面板外壳在独立窗口里，
+    /// 只靠 <c>TryFindResource</c> 可能拿不到主题里已经解析好的画刷，最终把初值丢成灰色。
+    /// </remarks>
+    private uint? ResolveDisplayedArgb()
     {
+        if (Background is ISolidColorBrush displayed)
+        {
+            return ColorText.ToArgb(displayed.Color);
+        }
+
         if (DefaultBrushToken.Length == 0
             || !this.TryFindResource(DefaultBrushToken, out var resource)
             || resource is not ISolidColorBrush brush)
@@ -159,6 +169,32 @@ public sealed class ModuleColorField : Button, IModuleViewElement
         }
 
         return ColorText.ToArgb(brush.Color);
+    }
+
+    /// <summary>取色窗初值：当前值 → 设计预览色 → 色块实际显示色。</summary>
+    private uint? ResolvePickerInitial()
+    {
+        var text = _lastValue;
+        if (_context is { } context && Value.Length > 0)
+        {
+            var state = context.ReadValue(Value);
+            if (state.IsKnown)
+            {
+                text = state.Value;
+            }
+        }
+
+        if (ColorText.TryParseArgb(text, out var current))
+        {
+            return current;
+        }
+
+        if (ColorText.TryParseArgb(InitialColor, out var preview))
+        {
+            return preview;
+        }
+
+        return ResolveDisplayedArgb();
     }
 
     private async void OnClick(object? sender, RoutedEventArgs e)
@@ -177,11 +213,7 @@ public sealed class ModuleColorField : Button, IModuleViewElement
             return;
         }
 
-        uint? initial = ColorText.TryParseArgb(_lastValue, out var current)
-            ? current
-            : ColorText.TryParseArgb(InitialColor, out var preview)
-                ? preview
-                : ResolveDefaultArgb();
+        var initial = ResolvePickerInitial();
 
         var owner = TopLevel.GetTopLevel(this) as Window;
         ModuleColorPickResult result;
