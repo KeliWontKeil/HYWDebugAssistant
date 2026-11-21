@@ -263,7 +263,7 @@ public class WaveformBridgeModulesTests
 
         // 只改输入文本（等价用户逐键键入），不按回车、不失焦。
         context.EnqueueInput(RawToWaveformModule.HeaderHexInput, "78 79");
-        module.OnStep(context, StepReason.Data);
+        module.OnStep(context, StepReason.Data | StepReason.Input);
 
         DeliverRaw(context, "ab 2 cd");
         context.Sent.Count.ShouldBe(1, "帧头已换成 xy，旧帧头不该再出帧");
@@ -364,11 +364,11 @@ public class WaveformBridgeModulesTests
         rate.ShouldBe(500f);
 
         context.EnqueueInput(RawToWaveformModule.RateInput, "abc");
-        module.OnStep(context, StepReason.Data);
+        module.OnStep(context, StepReason.Data | StepReason.Input);
 
         DeliverRaw(context, "ab 2 cd");
-        ReadWave(context.Sent[1].Payload, out _, out _, out var stillRate, out _);
-        stillRate.ShouldBe(500f, "非法采样率不该改掉上一次的有效值");
+        context.Sent.Count.ShouldBe(1, "非法采样率应停止出帧");
+        context.ValueValidities[RawToWaveformModule.RateInput].IsInvalid.ShouldBeTrue();
     }
 
     // ---------------------------------------------------------------- 辅助

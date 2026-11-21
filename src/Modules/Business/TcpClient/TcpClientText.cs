@@ -20,8 +20,10 @@ public static class TcpClientText
     public const string StatusFailedFrameworkInternal = "status.failed.frameworkInternal";
     public const string StatusFailedParametersNotRegistered = "status.failed.parametersNotRegistered";
     public const string StatusFailedAddressEmpty = "status.failed.addressEmpty";
+    public const string StatusFailedAddressInvalid = "status.failed.addressInvalid";
     public const string StatusFailedWildcardAddress = "status.failed.wildcardAddressNotAllowed";
     public const string StatusFailedPortOutOfRange = "status.failed.portOutOfRange";
+    public const string StatusFailedTimeoutOutOfRange = "status.failed.timeoutOutOfRange";
     public const string StatusFailedConnectTimeout = "status.failed.connectTimeout";
     public const string StatusFailedConnectionRefused = "status.failed.connectionRefused";
     public const string StatusFailedPeerClosed = "status.failed.peerClosed";
@@ -30,6 +32,7 @@ public static class TcpClientText
     public const string StatusFailedWriteFailed = "status.failed.writeFailed";
     public const string StatusFailedUnknown = "status.failed.unknown";
     public const string StatusRejected = "status.rejected";
+    public const string StatusConfigNotReady = "status.configNotReady";
     public const string StatusRxSaturated = "status.rxSaturated";
     public const string StatusTxSaturated = "status.txSaturated";
     public const string StatusReceiveLost = "status.receiveLost";

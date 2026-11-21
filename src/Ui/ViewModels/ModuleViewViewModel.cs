@@ -315,6 +315,15 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// </remarks>
     public int Layer { get; set; }
 
+    /// <summary>
+    /// **自动落位的放置层号**（运行期；不持久化）。
+    /// </summary>
+    /// <remarks>
+    /// 不是叠放层：它只表示自动落位时这个模块属于第几层网格。同一放置层内不能重叠，
+    /// 跨放置层可以重叠；每层网格起点相对下一层有坐标偏移。用户拖动/缩放不修改它。
+    /// </remarks>
+    public int PlacementSheet { get; set; }
+
     /// <summary>模块标识字面量（同一模块类型的所有实例共享；用于外部展示编号的分组）。</summary>
     public string ModuleId { get; }
 

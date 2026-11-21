@@ -12,6 +12,7 @@ public static class HexSenderText
     public const string SentTitle = "view.sentTitle";
     public const string SentUnit = "view.sentUnit";
     public const string StatusIntervalInvalid = "status.intervalInvalid";
+    public const string StatusIntervalZeroHint = "status.intervalZeroHint";
     public const string StatusIntervalInvalidContinuous = "status.intervalInvalidContinuous";
     public const string StatusIntervalEmptyContinuous = "status.intervalEmptyContinuous";
     public const string StatusPageEmpty = "status.pageEmpty";

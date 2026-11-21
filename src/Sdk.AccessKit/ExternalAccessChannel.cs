@@ -42,6 +42,8 @@ public sealed class ExternalAccessChannel
     private bool? _lastCanOpen;
     private bool? _lastCanClose;
     private bool? _lastCanEdit;
+    private bool _openReady = true;
+    private string? _openReadyReason;
 
     /// <summary>创建一条接入通道（模块在 <c>OnRegistered</c> 里建一次）。</summary>
     /// <param name="context">模块上下文。</param>
@@ -66,6 +68,17 @@ public sealed class ExternalAccessChannel
 
     /// <summary>该接入的当前快照（没有这条接入时是 <see cref="ExternalAccessSnapshot.None"/>）。</summary>
     public ExternalAccessSnapshot Snapshot => _context.Access.GetSnapshot(_spec.AccessName);
+
+    /// <summary>
+    /// 声明当前配置是否允许打开；未就绪时 Open 置灰，状态句使用给定原因。
+    /// </summary>
+    /// <param name="ready">配置是否完整且可打开。</param>
+    /// <param name="reason">未就绪原因（空 = 不覆盖状态句）。</param>
+    public void SetOpenReadiness(bool ready, string? reason = null)
+    {
+        _openReady = ready;
+        _openReadyReason = reason;
+    }
 
     /// <summary>
     /// 进入活动态时挂上原始数据回调并发布首拍状态。
@@ -105,7 +118,10 @@ public sealed class ExternalAccessChannel
 
         if (string.Equals(commandName, spec.OpenCommand, StringComparison.Ordinal))
         {
-            if (!snapshot.Suspended
+            // **动作边界闸门**：按钮置灰只是界面；命令/快捷键/程序化请求也必须在这里被拒绝，
+            // 否则“非法地址不发起连接”只对鼠标点击成立。
+            if (_openReady
+                && !snapshot.Suspended
                 && snapshot.State is ExternalAccessState.Closed or ExternalAccessState.Faulted)
             {
                 _ = _context.Access.RequestOpen(spec.AccessName);
@@ -142,7 +158,8 @@ public sealed class ExternalAccessChannel
         var spec = _spec;
         var snapshot = Snapshot;
 
-        var canOpen = !snapshot.Suspended
+        var canOpen = _openReady
+            && !snapshot.Suspended
             && snapshot.State is ExternalAccessState.Closed or ExternalAccessState.Faulted;
         var canClose = !snapshot.Suspended
             && snapshot.State is ExternalAccessState.Open or ExternalAccessState.Opening;
@@ -162,6 +179,12 @@ public sealed class ExternalAccessChannel
         }
 
         var presentation = BuildPresentation(snapshot);
+        if (!_openReady
+            && !string.IsNullOrEmpty(_openReadyReason)
+            && snapshot.State is ExternalAccessState.Closed or ExternalAccessState.Faulted)
+        {
+            presentation = new StatusPresentation(_openReadyReason, ViewInkRoles.Warning, presentation.DropRole);
+        }
 
         if (!string.Equals(presentation.Text, _lastStateText, StringComparison.Ordinal))
         {

@@ -155,6 +155,7 @@ public void OnStep(IModuleContext context, StepReason reason)
 - 不实现 `IActivitySource` 的模块**收不到**命令与输入：没有单步就没有消费时机。
 - 控件值用 `context.Values.ReadText(名字)` 读取；它已经是当前有效值（持久化值，或框架在激活前播种的 XAML 初值）。
 - 需要“用户正在编辑但尚未提交”的内容时，把控件的 `CommitMode` 设为 `OnChange`，而不是依赖回车。
+- **配置字段例外**：它们会重开会话，用 `OnExplicit`；键入中的文本由控件经 `PreviewValue` 投递为输入事件，模块在 `OnInput(source, text)` 里收下并在校验时优先使用（见[校验与错误行为](validation.md)）。`Values.ReadText` 对配置字段仍是已提交配置。
 - 模块接受/规范化的值用 `context.Values.AcceptText`；字段有效性用 `context.Values.ReportValidity`，读回分类用 `ReadValidity`。
 - **提交时机是控件属性**：`OnChange` 逐键交值，`OnExplicit` 在回车/动作/失焦时交值。模块不判断控件属于哪种。
 - **持久化归值声明，初值归 XAML**：`Persistent` / `ResetWithModule` 写在 `ValueDeclaration` 上；视图可见值的默认值只写在控件 XAML 初值（`Text` / `IsChecked` / `SelectedKey` / `InitialValue`）。控件不持有持久化语义。

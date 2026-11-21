@@ -7,17 +7,13 @@ internal static class WaveformGeneratorText
     public const string Description = "module.description";
     public const string RoleGenerate = "role.generate";
 
-    public const string PreviewTitle = "view.previewTitle";
     public const string Waveform = "view.waveform";
     public const string Frequency = "view.frequency";
     public const string Period = "view.period";
     public const string Amplitude = "view.amplitude";
-    public const string Periods = "view.periods";
-    public const string Continuous = "view.continuous";
     public const string StartContinuous = "view.startContinuous";
     public const string Send = "view.send";
     public const string Stop = "view.stop";
-    public const string Status = "view.status";
     public const string Group = "view.group";
     public const string GroupName = "view.groupName";
     public const string GroupId = "view.groupId";
@@ -31,12 +27,8 @@ internal static class WaveformGeneratorText
     public const string ModulationIndex = "view.modulationIndex";
     public const string CarrierPhase = "view.carrierPhase";
     public const string Enabled = "view.enabled";
-    public const string GroupEnabled = "view.groupEnabled";
     public const string TotalEstimate = "view.totalEstimate";
-    public const string Add = "view.add";
-    public const string Remove = "view.remove";
     public const string UnitHz = "view.unitHz";
-    public const string UnitSecond = "view.unitSecond";
     public const string UnitDegree = "view.unitDegree";
 
     public const string Ready = "status.ready";
@@ -45,12 +37,26 @@ internal static class WaveformGeneratorText
     public const string Invalid = "status.invalid";
     public const string InvalidName = "view.invalidName";
     public const string InvalidGroupId = "view.invalidGroupId";
+    public const string DuplicateGroupId = "view.duplicateGroupId";
+    public const string InvalidChannelNumber = "view.invalidChannelNumber";
+    public const string DuplicateChannelNumber = "view.duplicateChannelNumber";
+    public const string InvalidResolution = "view.invalidResolution";
+    public const string InvalidFrequency = "view.invalidFrequency";
+    public const string InvalidCarrier = "view.invalidCarrier";
+    public const string NoEnabledChannels = "status.noEnabledChannels";
     public const string InvalidNumber = "view.invalidNumber";
     public const string RateUnsupported = "status.rateUnsupported";
     public const string Batch = "status.batch";
     public const string CarrierNyquist = "status.carrierNyquist";
     public const string Dropped = "status.dropped";
     public const string StructureStopped = "status.structureStopped";
+    public const string DiscardedInvalid = "status.discardedInvalid";
+    public const string BlockedByFields = "status.blockedByFields";
+    public const string GroupLimit = "status.groupLimit";
+    public const string ChannelLimit = "status.channelLimit";
+    public const string LastGroup = "status.lastGroup";
+    public const string LastChannel = "status.lastChannel";
+    public const string ActionInvalid = "status.actionInvalid";
 
     public const string Sine = "waveform.sine";
     public const string Square = "waveform.square";

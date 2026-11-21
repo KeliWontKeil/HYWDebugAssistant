@@ -72,6 +72,30 @@ public class ModuleLayerIntegrationTests
         c.PixelRect.Left.ShouldBe(beforeC + 10);
     }
 
+    [Fact]
+    public void 拖贴壳组不应带走其他层的贴壳组()
+    {
+        using var harness = new LayerHarness();
+        var windows = harness.Windows;
+
+        var a = windows.Modules.Single(module => module.InstanceId == "a");
+        var b = windows.Modules.Single(module => module.InstanceId == "b");
+        var c = windows.Modules.Single(module => module.InstanceId == "c");
+
+        var startA = a.PixelRect.Left;
+        var startB = b.PixelRect.Left;
+        var startC = c.PixelRect.Left;
+
+        windows.BeginDrag("a", pointerX: 50, pointerY: 50, independent: false).ShouldBeTrue();
+        windows.DragTo(pointerX: 60, pointerY: 50);
+
+        a.PixelRect.Left.ShouldBe(startA + 10);
+        c.PixelRect.Left.ShouldBe(startC + 10, "同层贴壳组随外壳移动");
+        b.PixelRect.Left.ShouldBe(startB, "其他层的贴壳组不得被拖走");
+
+        windows.EndDrag();
+    }
+
     private sealed class LayerHarness : IDisposable
     {
         public LayerHarness()

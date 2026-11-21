@@ -531,6 +531,90 @@ public class ControlMechanismProbes
     }
 
     [Fact]
+    public async Task 文本面_普通文本输入后光标在插入点之后()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var context = new InputFormatContext();
+                var surface = new ModuleTextSurface
+                {
+                    Value = "probe-typing-caret",
+                    Text = "ab",
+                    ShowInputHint = false,
+                    Width = 220,
+                    Height = 32,
+                    DataContext = context,
+                };
+
+                var window = new Window { Width = 260, Height = 80, Content = surface };
+
+                try
+                {
+                    window.Show();
+                    SnapshotTool.Pump();
+
+                    var box = surface.GetVisualDescendants().OfType<TextBox>().First();
+                    box.Focus();
+                    box.CaretIndex = 2;
+                    SnapshotTool.Pump();
+
+                    window.KeyTextInput("c");
+                    SnapshotTool.Pump();
+
+                    Assert.Equal("abc", surface.Text);
+                    Assert.Equal(3, box.CaretIndex);
+
+                    box.CaretIndex = 1;
+                    SnapshotTool.Pump();
+                    window.KeyTextInput("x");
+                    SnapshotTool.Pump();
+
+                    Assert.Equal("axbc", surface.Text);
+                    Assert.Equal(2, box.CaretIndex);
+
+                    SnapshotTool.Save(window, "caret-module-typing.png");
+
+                    box.CaretIndex = 4;
+                    SnapshotTool.Pump();
+                    SnapshotTool.Save(window, "caret-module-end.png");
+                }
+                finally
+                {
+                    window.Close();
+                }
+
+                // 原生 TextBox 对照：同样的文本与光标位置，供人眼判断 1 px 回退是否来自框架。
+                var native = new TextBox
+                {
+                    Text = "axbc",
+                    Width = 220,
+                    Height = 32,
+                };
+                var nativeWindow = new Window { Width = 260, Height = 80, Content = native };
+
+                try
+                {
+                    nativeWindow.Show();
+                    SnapshotTool.Pump();
+                    native.Focus();
+                    native.CaretIndex = 2;
+                    SnapshotTool.Pump();
+                    SnapshotTool.Save(nativeWindow, "caret-native-mid.png");
+
+                    native.CaretIndex = 4;
+                    SnapshotTool.Pump();
+                    SnapshotTool.Save(nativeWindow, "caret-native-end.png");
+                }
+                finally
+                {
+                    nativeWindow.Close();
+                }
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
     public async Task 文本面_输入面应投影不可显示字符并保留Raw()
     {
         await SnapshotSession.Shared.Dispatch(
@@ -1073,9 +1157,199 @@ public class ControlMechanismProbes
             CancellationToken.None);
     }
 
+    [Fact]
+    public async Task 文本面_用户编辑只投递一次预览_刷新不再投递()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var context = new InputFormatContext();
+                var surface = new ModuleTextSurface
+                {
+                    Value = "probe-preview",
+                    CommitMode = ValueCommitMode.OnExplicit,
+                    Width = 220,
+                    Height = 32,
+                    DataContext = context,
+                };
+
+                var window = new Window { Width = 260, Height = 80, Content = surface };
+
+                try
+                {
+                    window.Show();
+                    SnapshotTool.Pump();
+
+                    // 首次同步：显示当前值并投递一次预览。
+                    surface.Refresh(context);
+                    Assert.Single(context.Previews);
+
+                    var box = surface.GetVisualDescendants().OfType<TextBox>().First();
+                    box.Text = "abc";
+                    SnapshotTool.Pump();
+
+                    Assert.Equal(2, context.Previews.Count);
+                    Assert.Equal("abc", context.Previews[^1].Text);
+
+                    // 普通刷新不再是“输入事件”：预览次数保持不变。
+                    surface.Refresh(context);
+                    surface.Refresh(context);
+                    SnapshotTool.Pump();
+
+                    Assert.Equal(2, context.Previews.Count);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task 下拉_选项消失时清空选中并提交空值()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var context = new DynamicSelectContext();
+                var select = new ModuleSelect
+                {
+                    Value = "port",
+                    Width = 180,
+                    Height = 24,
+                };
+
+                var window = new Window { Width = 240, Height = 80, Content = select };
+
+                try
+                {
+                    window.Show();
+                    SnapshotTool.Pump();
+
+                    context.State = DynamicSelectContext.StateOf("COM2", ["COM1", "COM2"]);
+                    select.Refresh(context);
+                    SnapshotTool.Pump();
+                    Assert.Equal(2, select.Options.Count);
+                    Assert.Equal(1, select.SelectedIndex);
+                    Assert.Empty(context.Commits);
+
+                    // 当前值从完整快照里消失：清显示 + 通过值通道提交一次空值。
+                    context.State = DynamicSelectContext.StateOf("COM2", ["COM1"]);
+                    select.Refresh(context);
+                    SnapshotTool.Pump();
+                    Assert.Single(select.Options);
+                    Assert.Equal(-1, select.SelectedIndex);
+                    Assert.Single(context.Commits);
+                    Assert.Equal(string.Empty, context.Commits[0]);
+
+                    // 同一状态再刷新：不重复提交。
+                    select.Refresh(context);
+                    SnapshotTool.Pump();
+                    Assert.Single(context.Commits);
+
+                    // 空表 = 动态字段现在没有可选项。
+                    context.State = DynamicSelectContext.StateOf(string.Empty, []);
+                    select.Refresh(context);
+                    SnapshotTool.Pump();
+                    Assert.Empty(select.Options);
+                    Assert.Equal(-1, select.SelectedIndex);
+
+                    // 选项恢复：按已保存的键自动选回。
+                    context.State = DynamicSelectContext.StateOf("COM2", ["COM1", "COM2"]);
+                    select.Refresh(context);
+                    SnapshotTool.Pump();
+                    Assert.Equal(1, select.SelectedIndex);
+
+                    // 字段禁用（会话打开）时不同步、不清活动值。
+                    context.State = DynamicSelectContext.StateOf("COM2", ["COM1"], enabled: false);
+                    select.Refresh(context);
+                    SnapshotTool.Pump();
+                    Assert.Equal(2, select.Options.Count);
+                    Assert.Equal(1, select.SelectedIndex);
+                    Assert.Single(context.Commits);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+    }
+
+    private sealed class DynamicSelectContext : IModuleViewContext
+    {
+        public ValueState State { get; set; } = StateOf(string.Empty, []);
+
+        public List<string> Commits { get; } = [];
+
+        public static ValueState StateOf(string value, string[] choices, bool enabled = true, bool readOnly = false) =>
+            new(
+                "port",
+                ValueEditor.Enum,
+                value,
+                value,
+                choices.Select(choice => new ValueChoice(choice, choice)).ToArray(),
+                readOnly,
+                enabled,
+                ValueValidity.Valid,
+                0,
+                IsKnown: true);
+
+        public string InstanceId => "probe-select";
+
+        public IModuleColorPicker? ColorPicker => null;
+
+        public double? ReadLatest(string source) => null;
+
+        public IReadOnlyList<double> ReadSeries(string source) => [];
+
+        public SeriesWindowSnapshot? ReadSeriesWindow(string source) => null;
+
+        public TextBufferSnapshot ReadText(string source) => TextBufferSnapshot.Empty;
+
+        public long ReadTextRevision(string source) => 0;
+
+        public bool SubmitInput(string source, string text) => true;
+
+        public CommandOutcome InvokeCommand(string command) => CommandOutcome.Ok;
+
+        public ConfigFieldView? ReadField(string fieldName) => null;
+
+        public CommandOutcome UpdateField(string fieldName, string value) => CommandOutcome.Ok;
+
+        public ViewAppearance Appearance(string source) => ViewAppearance.None;
+
+        public string? ReadInputText(string source) => null;
+
+        public void WriteInputText(string source, string text)
+        {
+        }
+
+        public void CommitValue(string name, string text) => Commits.Add(text);
+
+        public void RegisterViewDefault(string name, string value)
+        {
+        }
+
+        public int? SelectedPage(string stateKey) => null;
+
+        public void SetSelectedPage(string stateKey, int page)
+        {
+        }
+
+        public string MultilineSubmitKey => "CtrlEnter";
+
+        public double WheelZoomStep => 1.2;
+
+        public ValueState ReadValue(string name) => State;
+    }
+
     private sealed class InputFormatContext : IModuleViewContext
     {
         public List<string> Commits { get; } = [];
+
+        public List<(string Name, string Text)> Previews { get; } = [];
 
         public string InstanceId => "probe-format";
 
@@ -1092,6 +1366,12 @@ public class ControlMechanismProbes
         public long ReadTextRevision(string source) => 0;
 
         public bool SubmitInput(string source, string text) => true;
+
+        public void PreviewValue(string name, string text)
+        {
+            Previews.Add((name, text));
+            _value = text;
+        }
 
         public CommandOutcome InvokeCommand(string command) => CommandOutcome.Ok;
 

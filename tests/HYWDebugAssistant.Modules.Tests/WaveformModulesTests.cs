@@ -728,6 +728,39 @@ public class WaveformModulesTests
         LastEnabled(context, WaveformGeneratorModule.StopCommand).ShouldBe(false);
     }
 
+    [Fact]
+    public void 发生器_配置非法时发送按钮应禁用()
+    {
+        var context = new TestModuleContext();
+        context.Configuration.Write(new GeneratorConfig
+        {
+            Groups =
+            [
+                new GeneratorGroupConfig
+                {
+                    GroupId = 0,
+                    Resolution = 100,
+                    Channels = [new GeneratorChannelConfig()],
+                },
+            ],
+        });
+
+        var module = new WaveformGeneratorModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        LastEnabled(context, WaveformGeneratorModule.StartContinuousCommand).ShouldBe(false);
+        LastEnabled(context, WaveformGeneratorModule.SendOnceCommand).ShouldBe(false);
+        context.ValueValidities[WaveformGeneratorModule.GroupIdSource].IsInvalid.ShouldBeTrue();
+
+        context.ViewState.SetInputText(WaveformGeneratorModule.GroupIdSource, "1");
+        module.PumpOnce(context);
+
+        LastEnabled(context, WaveformGeneratorModule.StartContinuousCommand).ShouldBe(true);
+        LastEnabled(context, WaveformGeneratorModule.SendOnceCommand).ShouldBe(true);
+        context.ValueValidities.ContainsKey(WaveformGeneratorModule.GroupIdSource).ShouldBeFalse();
+    }
+
     private static bool? LastEnabled(TestModuleContext context, string command) =>
         context.AppearanceReports
             .LastOrDefault(report => string.Equals(report.SourceName, command, StringComparison.Ordinal)
@@ -825,6 +858,81 @@ public class WaveformModulesTests
         view.ChannelCount.ShouldBe(3);
         view.ValidMask.ShouldBe(0b101UL);
         view.Samples[1].ShouldBe(0f, "编号 2 未配置，槽位保持无效");
+    }
+
+    [Fact]
+    public void 发生器_通道编号重复应给出具体原因_不是就绪()
+    {
+        var context = new TestModuleContext();
+        context.Configuration.Write(new GeneratorConfig
+        {
+            Groups =
+            [
+                new GeneratorGroupConfig
+                {
+                    GroupId = 1,
+                    Resolution = 100,
+                    Channels =
+                    [
+                        new GeneratorChannelConfig { ChannelNumber = 1 },
+                        new GeneratorChannelConfig { ChannelNumber = 2 },
+                    ],
+                },
+            ],
+        });
+
+        var module = new WaveformGeneratorModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        context.ViewState.SetInputText(WaveformGeneratorModule.ChannelNumberSource, "2");
+        module.OnStep(context, StepReason.Input);
+
+        var validity = context.ValueValidities[WaveformGeneratorModule.ChannelNumberSource];
+        validity.IsInvalid.ShouldBeTrue();
+        LastEnabled(context, WaveformGeneratorModule.StartContinuousCommand).ShouldBe(false);
+    }
+
+    [Fact]
+    public void 发生器_切换组时旧错误值应提示未应用()
+    {
+        var context = new TestModuleContext();
+        context.Configuration.Write(new GeneratorConfig
+        {
+            Groups =
+            [
+                new GeneratorGroupConfig
+                {
+                    GroupId = 1,
+                    Name = "G1",
+                    Resolution = 100,
+                    Channels = [new GeneratorChannelConfig { ChannelNumber = 1 }],
+                },
+                new GeneratorGroupConfig
+                {
+                    GroupId = 2,
+                    Name = "G2",
+                    Resolution = 100,
+                    Channels = [new GeneratorChannelConfig { ChannelNumber = 1 }],
+                },
+            ],
+        });
+
+        var module = new WaveformGeneratorModule();
+        module.OnRegistered(context);
+        module.OnStep(context, StepReason.Start);
+
+        context.ViewState.SetInputText(WaveformGeneratorModule.GroupIdSource, "2");
+        module.OnStep(context, StepReason.Input);
+        context.ValueValidities[WaveformGeneratorModule.GroupIdSource].IsInvalid.ShouldBeTrue();
+
+        context.EnqueueInput(
+            WaveformGeneratorModule.ActionSource,
+            "{\"op\":\"selectGroup\",\"groupIndex\":1}");
+        module.PumpOnce(context);
+
+        context.ValueValidities.ContainsKey(WaveformGeneratorModule.GroupIdSource).ShouldBeFalse();
+        LastEnabled(context, WaveformGeneratorModule.StartContinuousCommand).ShouldBe(true);
     }
 
     [Fact]

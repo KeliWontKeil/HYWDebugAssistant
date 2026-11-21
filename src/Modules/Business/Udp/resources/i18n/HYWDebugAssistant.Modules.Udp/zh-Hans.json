@@ -14,6 +14,8 @@
     "status.failed.parametersNotRegistered": "接入参数未就绪",
     "status.failed.portInUse": "端口已被占用：{0}",
     "status.failed.portOutOfRange": "本地端口超出范围：{0}",
+    "status.failed.targetPortOutOfRange": "目标端口超出范围：{0}",
+    "status.configNotReady": "参数未就绪，已禁用绑定",
     "status.failed.readFailed": "接收失败",
     "status.failed.unknown": "绑定失败（未知原因）",
     "status.failed.wildcardAddressNotAllowed": "目标地址不能是通配地址：{0}",

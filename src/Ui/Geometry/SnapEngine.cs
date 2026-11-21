@@ -19,7 +19,12 @@ public readonly record struct GuideLine(bool IsVertical, double Position, double
 /// <remarks>级别由「参照线的来源 + 交叉轴条件」派生，不另写一套判断。</remarks>
 public enum SnapKind
 {
-    /// <summary>边缘对齐（左/右/上/下分别对齐）——最低级；**与距离无关**（跨屏对齐用它）。</summary>
+    /// <summary>
+    /// **结果宽/高等于另一模块**（仅缩放产生）——最低级；没有共享边，只有尺寸关系。
+    /// </summary>
+    Size = -1,
+
+    /// <summary>边缘对齐（左/右/上/下分别对齐）——**与距离无关**（跨屏对齐用它）。</summary>
     Edge = 0,
 
     /// <summary>**模块中心线**对齐。</summary>
@@ -149,11 +154,13 @@ public readonly record struct SnapMemory(double? XLine, double? YLine);
 ///   <item><b>级别由「线来源 + 交叉轴条件」派生</b>：贴合 &gt; 端口锚点 &gt; 中心线 &gt; 边缘对齐；</item>
 ///   <item><b>同坐标候选去重</b>：两条候选位置相差 ≤1px 时只保留级别最高的 ——
 ///     消除"端口在 0.5 与模块中心线"这类**重复登记**（同一坐标只登记一次，级别最高的那条胜出）；</item>
-///   <item><b>不做网格吸附</b>；<b>调用方决定"何时用"</b>（当前 = 拖动中实时吸附）；</item>
-///   <item><b>组关系由位置派生</b>（C5-1）：只保存位置，不单独存储（见 <see cref="FindGroups"/>）。</item>
+///   <item><b>不做网格吸附</b>；<b>调用方决定"何时用"</b>（当前 = 拖动与缩放中实时吸附）；</item>
+///   <item><b>组关系由位置派生</b>（C5-1）：只保存位置，不单独存储；组解析在 UI 层按
+///     <b>同层 + 贴合</b>完成（`ModuleWindowsViewModel.GroupOfNode`），本类只提供
+///     <see cref="AreJoined"/> 这个纯几何相邻谓词；</item>
 /// </list>
 /// </remarks>
-public static class SnapEngine
+public static partial class SnapEngine
 {
     /// <summary>**对齐类**候选的容差（px）——窄：对齐只是"看着整齐"，不该抢用户的手感。</summary>
     public const double DefaultTolerance = 4;
@@ -180,7 +187,8 @@ public static class SnapEngine
         double LineCoordinate,
         bool AlignsX,
         double LineStart,
-        double LineEnd);
+        double LineEnd,
+        string? ReferenceId = null);
 
     /// <summary>
     /// 由**其他模块外框**生成参照线（4 条边 + 1 条中心线，两个轴各一批）。
@@ -417,9 +425,14 @@ public static class SnapEngine
     }
 
     /// <summary>
-    /// **贴合谓词**（C5-1）：两模块的边缘在容差内贴合即视为拼接。
+    /// **贴合谓词**（C5-1）：两模块的边缘在容差内贴合即视为几何相邻。
     /// </summary>
-    /// <remarks>竖直边贴合（左右相邻）要求**竖直方向有重叠**，水平边贴合同理。</remarks>
+    /// <remarks>
+    /// 这是**纯几何**谓词，**不含层**：两个模块可以几何贴合但位于不同层。
+    /// 竖直边贴合（左右相邻）要求**竖直方向有重叠**，水平边贴合同理。
+    /// 成组必须由调用方叠加层判断（见 `ModuleWindowsViewModel.GroupOfNode`）；
+    /// 直接用本谓词分组会产生跨层拼接。
+    /// </remarks>
     /// <param name="a">模块 A 矩形。</param>
     /// <param name="b">模块 B 矩形。</param>
     /// <param name="tolerance">容差（px）——默认取贴合容差。</param>
@@ -444,82 +457,6 @@ public static class SnapEngine
 
         return (flushLeftRight && verticalOverlap > tolerance)
             || (flushTopBottom && horizontalOverlap > tolerance);
-    }
-
-    /// <summary>**拼接组**（C5-1）：贴合关系的连通分量（并查集）。</summary>
-    /// <param name="modules">(实例 ID, 矩形) 列表。</param>
-    /// <param name="tolerance">拼接容差（px）。</param>
-    /// <returns>每个分量的实例 ID 列表（按输入顺序，仅含 ≥2 个成员的分量）。</returns>
-    public static IReadOnlyList<IReadOnlyList<string>> FindGroups(
-        IReadOnlyList<(string Id, CanvasRect Rect)> modules,
-        double tolerance = FlushTolerance)
-    {
-        ArgumentNullException.ThrowIfNull(modules);
-
-        var parent = new int[modules.Count];
-        for (var i = 0; i < parent.Length; i++)
-        {
-            parent[i] = i;
-        }
-
-        for (var i = 0; i < modules.Count; i++)
-        {
-            for (var j = i + 1; j < modules.Count; j++)
-            {
-                if (AreJoined(modules[i].Rect, modules[j].Rect, tolerance))
-                {
-                    Union(parent, i, j);
-                }
-            }
-        }
-
-        var order = new List<int>();
-        var buckets = new Dictionary<int, List<string>>();
-        for (var i = 0; i < modules.Count; i++)
-        {
-            var root = Find(parent, i);
-            if (!buckets.TryGetValue(root, out var bucket))
-            {
-                bucket = [];
-                buckets[root] = bucket;
-                order.Add(root);
-            }
-
-            bucket.Add(modules[i].Id);
-        }
-
-        var groups = new List<IReadOnlyList<string>>();
-        foreach (var root in order)
-        {
-            if (buckets[root].Count > 1)
-            {
-                groups.Add(buckets[root]);
-            }
-        }
-
-        return groups;
-    }
-
-    /// <summary>取某实例所在的拼接组（含自身）。</summary>
-    /// <param name="instanceId">实例 ID。</param>
-    /// <param name="modules">(实例 ID, 矩形) 列表。</param>
-    /// <param name="tolerance">拼接容差（px）。</param>
-    public static IReadOnlyList<string> GroupOf(
-        string instanceId,
-        IReadOnlyList<(string Id, CanvasRect Rect)> modules,
-        double tolerance = FlushTolerance)
-    {
-        ArgumentNullException.ThrowIfNull(modules);
-
-        foreach (var group in FindGroups(modules, tolerance))
-        {
-            if (group.Contains(instanceId, StringComparer.Ordinal))
-            {
-                return group;
-            }
-        }
-
-        return [instanceId];
     }
 
     // ---------------------------------------------------------------- 候选收集
@@ -673,7 +610,7 @@ public static class SnapEngine
         Candidate? best = null;
         foreach (var candidate in candidates)
         {
-            var band = candidate.Kind == SnapKind.Flush ? flushTolerance : alignTolerance;
+            var band = candidate.Kind is SnapKind.Flush or SnapKind.Size ? flushTolerance : alignTolerance;
             if (Math.Abs(candidate.Delta) > band)
             {
                 continue;
@@ -693,27 +630,4 @@ public static class SnapEngine
     /// <summary>两区间之间的间隙（0 = 重叠或相接）。</summary>
     private static double Gap(double aStart, double aEnd, double bStart, double bEnd) =>
         Math.Max(0, Math.Max(aStart - bEnd, bStart - aEnd));
-
-    // ---------------------------------------------------------------- 并查集
-
-    private static int Find(int[] parent, int index)
-    {
-        while (parent[index] != index)
-        {
-            parent[index] = parent[parent[index]];
-            index = parent[index];
-        }
-
-        return index;
-    }
-
-    private static void Union(int[] parent, int left, int right)
-    {
-        var leftRoot = Find(parent, left);
-        var rightRoot = Find(parent, right);
-        if (leftRoot != rightRoot)
-        {
-            parent[rightRoot] = leftRoot;
-        }
-    }
 }

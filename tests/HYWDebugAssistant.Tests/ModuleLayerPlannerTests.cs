@@ -10,6 +10,7 @@ namespace HYWDebugAssistant.Tests;
 /// <remarks>
 /// 同层实体必须两两不重合；一个实体压住更低实体时，层号 = 下方重叠实体的最大层号 + 1。
 /// 不重叠的模块即使 z-order 不同也保持同层，否则模块间将永远无法拼接。
+/// **层先于组**：贴合不能反向把不同层模块并成同层。
 /// </remarks>
 public class ModuleLayerPlannerTests
 {
@@ -49,5 +50,29 @@ public class ModuleLayerPlannerTests
 
         shellLayers["top"].ShouldBe(1, "压在外壳上的模块与外壳分层");
         shellLayers["side"].ShouldBe(0, "贴在外壳右侧、不重合的模块仍在 0 层");
+    }
+
+    [Fact]
+    public void 贴合但不同层的模块不得被合并()
+    {
+        // c 在 a 下方并与 a 重合 ⇒ a 升到 1 层；b 与 a 贴合，但不与 c 重合 ⇒ b 仍在 0 层。
+        var c = new CanvasRect(0, 0, 100, 100);
+        var a = new CanvasRect(0, 0, 100, 100);
+        var b = new CanvasRect(100, 0, 100, 100);
+
+        var layers = ModuleLayerPlanner.Plan(
+            [("c", c), ("a", a), ("b", b)],
+            shell: null,
+            zOrder: id => id switch
+            {
+                "c" => 0,
+                "a" => 1,
+                "b" => 2,
+                _ => int.MinValue,
+            });
+
+        layers["a"].ShouldBe(1);
+        layers["b"].ShouldBe(0);
+        SnapEngine.AreJoined(a, b).ShouldBeTrue("几何上贴边，但层不同就不能成组");
     }
 }

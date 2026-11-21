@@ -122,6 +122,7 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
     private readonly ChannelFrameFeed _feed = new();
     private readonly Dictionary<string, string> _lastText = new(StringComparer.Ordinal);
     private readonly InputValidity _validity = new();
+    private bool _channelConflict;
     private readonly float[] _lastPublished = new float[AxisCount];
     private readonly bool[] _hasPublished = new bool[AxisCount];
 
@@ -344,7 +345,7 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
             }
             else
             {
-                _validity.Set(context, GroupSource, true, Tr(AttitudeDisplayText.InvalidInteger));
+                _validity.Set(context, GroupSource, true, Tr(AttitudeDisplayText.InvalidInteger), ValueValidityOrigin.Format);
             }
         }
 
@@ -363,7 +364,7 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
             }
             else
             {
-                _validity.Set(context, RollChannelSource, true, Tr(AttitudeDisplayText.InvalidInteger));
+                _validity.Set(context, RollChannelSource, true, Tr(AttitudeDisplayText.InvalidInteger), ValueValidityOrigin.Format);
             }
         }
 
@@ -382,7 +383,7 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
             }
             else
             {
-                _validity.Set(context, PitchChannelSource, true, Tr(AttitudeDisplayText.InvalidInteger));
+                _validity.Set(context, PitchChannelSource, true, Tr(AttitudeDisplayText.InvalidInteger), ValueValidityOrigin.Format);
             }
         }
 
@@ -401,7 +402,55 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
             }
             else
             {
-                _validity.Set(context, YawChannelSource, true, Tr(AttitudeDisplayText.InvalidInteger));
+                _validity.Set(context, YawChannelSource, true, Tr(AttitudeDisplayText.InvalidInteger), ValueValidityOrigin.Format);
+            }
+        }
+
+        // **从当前三个文本框判定冲突**，而不是从前面按“变化”拼出来的 candidate：
+        // candidate 在冲突时会被回退成 _settings，下一拍再算就不冲突了，红只能活一拍。
+        var rollCurrent = context.Values.ReadText(RollChannelSource);
+        var pitchCurrent = context.Values.ReadText(PitchChannelSource);
+        var yawCurrent = context.Values.ReadText(YawChannelSource);
+        var rollParsed = TryParseChannel(rollCurrent ?? string.Empty, out var rollNumber);
+        var pitchParsed = TryParseChannel(pitchCurrent ?? string.Empty, out var pitchNumber);
+        var yawParsed = TryParseChannel(yawCurrent ?? string.Empty, out var yawNumber);
+        var channelConflict = rollParsed
+            && pitchParsed
+            && yawParsed
+            && (rollNumber == pitchNumber || rollNumber == yawNumber || pitchNumber == yawNumber);
+
+        if (channelConflict)
+        {
+            _channelConflict = true;
+            candidate = candidate with
+            {
+                RollChannel = _settings.RollChannel,
+                PitchChannel = _settings.PitchChannel,
+                YawChannel = _settings.YawChannel,
+            };
+            var message = Tr(AttitudeDisplayText.InvalidChannelConflict);
+            _validity.Set(context, RollChannelSource, true, message);
+            _validity.Set(context, PitchChannelSource, true, message);
+            _validity.Set(context, YawChannelSource, true, message);
+        }
+        else if (_channelConflict)
+        {
+            _channelConflict = false;
+
+            // 只撤冲突这一笔；仍然非法的那一格由它自己的逐字段结论继续标红。
+            if (rollParsed)
+            {
+                _validity.Set(context, RollChannelSource, false);
+            }
+
+            if (pitchParsed)
+            {
+                _validity.Set(context, PitchChannelSource, false);
+            }
+
+            if (yawParsed)
+            {
+                _validity.Set(context, YawChannelSource, false);
             }
         }
 
@@ -448,7 +497,7 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
                 candidate = candidate with { SmoothingMs = defaults.SmoothingMs };
                 _validity.Set(context, SmoothingMsSource, false);
             }
-            else if (TryParseClamped(
+            else if (TryParseInRange(
                          smoothingMsText,
                          AttitudeSettings.MinimumSmoothingMs,
                          AttitudeSettings.MaximumSmoothingMs,
@@ -459,7 +508,7 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
             }
             else
             {
-                _validity.Set(context, SmoothingMsSource, true, Tr(AttitudeDisplayText.InvalidNumber));
+                _validity.Set(context, SmoothingMsSource, true, Tr(AttitudeDisplayText.InvalidNumber), ValueValidityOrigin.Format);
             }
         }
 
@@ -477,7 +526,7 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
             }
             else
             {
-                _validity.Set(context, ZoomSource, true, Tr(AttitudeDisplayText.InvalidNumber));
+                _validity.Set(context, ZoomSource, true, Tr(AttitudeDisplayText.InvalidNumber), ValueValidityOrigin.Format);
             }
         }
 
@@ -560,7 +609,7 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
                 candidate = candidate with { LostDelayMs = defaults.LostDelayMs };
                 _validity.Set(context, LostDelaySource, false);
             }
-            else if (TryParseClamped(
+            else if (TryParseInRange(
                          lostDelayText,
                          AttitudeSettings.MinimumLostDelayMs,
                          AttitudeSettings.MaximumLostDelayMs,
@@ -571,7 +620,7 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
             }
             else
             {
-                _validity.Set(context, LostDelaySource, true, Tr(AttitudeDisplayText.InvalidNumber));
+                _validity.Set(context, LostDelaySource, true, Tr(AttitudeDisplayText.InvalidNumber), ValueValidityOrigin.Format);
             }
         }
 
@@ -822,15 +871,21 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
     private static string UnitToken(AttitudeAngleUnit unit) =>
         unit == AttitudeAngleUnit.Radian ? "rad" : "deg";
 
-    private static bool TryParseClamped(string text, int minimum, int maximum, out int value)
+    private static bool TryParseChannel(string text, out int value) =>
+        TryParseInteger(text, out value)
+        && value is >= 1 and <= AttitudeSettings.MaximumChannel;
+
+    private static bool TryParseInRange(string text, int minimum, int maximum, out int value)
     {
         value = 0;
-        if (!int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+        if (!int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            || parsed < minimum
+            || parsed > maximum)
         {
             return false;
         }
 
-        value = Math.Clamp(parsed, minimum, maximum);
+        value = parsed;
         return true;
     }
 
@@ -838,12 +893,14 @@ public sealed class AttitudeDisplayModule : IModule, IActivitySource, IDisposabl
     {
         value = 0;
         if (!double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
-            || !double.IsFinite(parsed))
+            || !double.IsFinite(parsed)
+            || parsed < AttitudeSettings.MinimumZoom
+            || parsed > AttitudeSettings.MaximumZoom)
         {
             return false;
         }
 
-        value = Math.Clamp(parsed, AttitudeSettings.MinimumZoom, AttitudeSettings.MaximumZoom);
+        value = parsed;
         return true;
     }
 

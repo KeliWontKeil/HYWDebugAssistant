@@ -286,7 +286,8 @@ public partial class ModuleWindow : Window
             return;
         }
 
-        if (controller.BeginResize(module.InstanceId, ResolveHandle(handle.Name)))
+        var (x, y) = ScreenPoint(e);
+        if (controller.BeginResize(module.InstanceId, ResolveHandle(handle.Name), x, y))
         {
             _resizing = true;
             e.Pointer.Capture(handle);
@@ -312,7 +313,7 @@ public partial class ModuleWindow : Window
 
         if (_resizing)
         {
-            _pendingPointer = (x, y, null);
+            _pendingPointer = (x, y, e.KeyModifiers.HasFlag(KeyModifiers.Alt) ? false : null);
             SchedulePointerFlush();
             e.Handled = true;
             return;
@@ -360,7 +361,7 @@ public partial class ModuleWindow : Window
 
         if (_resizing)
         {
-            controller.ResizeTo(pointer.X, pointer.Y);
+            controller.ResizeTo(pointer.X, pointer.Y, pointer.SnapEnabled);
         }
         else if (_dragging)
         {

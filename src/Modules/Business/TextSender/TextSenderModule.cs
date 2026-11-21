@@ -434,6 +434,8 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// <summary>**上一次写进状态源的那句话**（值没变就不重复写 —— 状态缓冲的版本号不该每拍变一次）。</summary>
     private string? _shownStatus;
 
+    private bool? _lastContinuousEnabled;
+
 
 
     /// <summary>**当前页的输入源名**（换页判据）。</summary>
@@ -611,6 +613,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
 
         // ④ 判定（纯函数）：只看"这一拍要发的那一份内容"与"刚被拒过没有"，红与话据此算出来
         var verdict = Evaluate(context, senderPage, outgoing, askedAndRefused);
+        ApplyContinuousControl(context);
 
         // ⑤ **只在"这次 toggle 被处理"或"被迫关掉"时写回开关那一格**。
         // 每个普通 step 都把模块算出的值写回会覆盖并发到达的用户意图：
@@ -656,6 +659,20 @@ public sealed class TextSenderModule : IModule, IActivitySource
     }
 
     /// <summary>
+    /// <summary>连续开关只在间隔可用且大于 0 时成立；把结论落到按钮可用态。</summary>
+    private void ApplyContinuousControl(IModuleContext context)
+    {
+        var canContinuous = _intervalState == IntervalState.Usable && _intervalMs is > 0;
+        if (_lastContinuousEnabled == canContinuous)
+        {
+            return;
+        }
+
+        _lastContinuousEnabled = canContinuous;
+        context.Appearance.SetEnabled(ContinuousSource, canContinuous);
+    }
+
+    /// <summary>
     /// **一次判定的结论**：这一拍该说哪句话、哪一格该红、这一页能不能发出去。
     /// </summary>
     /// <param name="CanSend">这一页现在发得出去（内容非空）。</param>
@@ -665,7 +682,7 @@ public sealed class TextSenderModule : IModule, IActivitySource
     /// <b>`CanSend` 只描述"这一页能不能发"，不是"开关成不成立"</b> —— 后者只看 `interval` 那一格
     /// （见 <see cref="ToggleStands"/>）。两者混在一起就会出现"空页把开关也拨回去"这种错。
     /// </remarks>
-    private readonly record struct Verdict(bool CanSend, string? Message, string? AlertSource);
+    private readonly record struct Verdict(bool CanSend, string? Message, string? AlertSource, bool IsWarning = false);
 
     /// <summary>间隔那一格**现在填的这份**的状态。</summary>
     private enum IntervalState
@@ -771,6 +788,16 @@ public sealed class TextSenderModule : IModule, IActivitySource
                 IntervalSource);
         }
 
+        // ②b 0 在“只单次发送”的语境下不是错误，但要显式告诉用户连续发送为什么不可用。
+        if (_intervalState == IntervalState.Usable && _intervalMs is 0)
+        {
+            return new Verdict(
+                !pageEmpty,
+                Tr(TextSenderText.StatusIntervalZeroHint),
+                null,
+                IsWarning: true);
+        }
+
         // ③ 想连续发送，而那一格是空的 ⇒ 红粘在那一格上（原因还在就一直挂着）
         if (_intervalState == IntervalState.Empty && wantsContinuous)
         {
@@ -827,6 +854,15 @@ public sealed class TextSenderModule : IModule, IActivitySource
         else if (previous is { Length: > 0 })
         {
             _validity.Set(context, previous, false);
+        }
+
+        if (verdict.IsWarning && verdict.Message is { Length: > 0 } warning)
+        {
+            _validity.SetWarning(context, IntervalSource, warning);
+        }
+        else
+        {
+            _validity.ClearWarning(context, IntervalSource);
         }
 
         var message = verdict.Message ?? string.Empty;

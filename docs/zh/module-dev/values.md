@@ -65,9 +65,26 @@ context.Values.AcceptText(MyModule.HeaderValue, normalized);
 context.Values.ReportValidity(MyModule.HeaderValue, ValueValidity.Error("帧头不能为空"));
 ```
 
-`ReportValidity(ValueValidity.Valid)` 收起结论；`ValueValidity.Warning(...)` / `Info(...)` 只给悬停原因、不画红圈。模块可以随时用 `context.Values.ReadValidity(值名)` 读回 `IsInvalid` 与 `Notice`，据此分类状态（例如状态文本栏）；本轮不要求改变现有模块的状态逻辑。
+`ReportValidity(ValueValidity.Valid)` 收起结论；`ValueValidity.Warning(...)` / `Info(...)` 只给悬停原因、不画红圈。模块可以随时用 `context.Values.ReadValidity(值名)` 读回 `IsInvalid` 与 `Notice`，据此分类状态（例如状态文本栏）；跨字段、动作闸门与报错文本的完整口径见[校验与错误行为](validation.md)。
 
 **红圈与原因**：输入有效性统一走 `InputValidity`（它写外观轮廓 + `ValueValidity`）。控件只画结论，不判断什么算错，也不靠 Notice 清红圈。
+
+### 配置字段的实时编辑
+
+配置字段会重开会话，所以用 `CommitMode="OnExplicit"`：键入过程**不写配置**。控件把用户正在编辑的文本经 `PreviewValue` 投递为输入事件：
+
+```text
+控件键入 → PreviewValue(name, text) → SubmitInput(name, text)
+模块 OnInput(source, text) → 记住本字段草稿 → ValidateConfiguration()
+```
+
+- 模块校验时用“草稿优先、没有草稿才读已提交配置”；草稿与配置相等时丢弃草稿。
+- 回车/失焦才 `CommitValue`；框架写回配置后调用 `OnConfigurationChanged`，模块重新校验。
+- `Values.ReadText` 对配置字段读的是**已提交配置**，不是控件里正在编辑的文本；编辑中的文本只经 `OnInput` 的 `text` 参数进入模块。
+- 首次显示某值时，控件投递一次预览，让模块校验界面此刻显示的内容；普通刷新不再投递。
+
+`InputValidity.Set` 的 `origin` 用于区分字段自身问题（`Format`：解析/越界）与模块规则（`Module`：必填缺失、重复、冲突、Nyquist 等）。同一字段两者同时命中时 `Module` 优先；纯 `Format` 错误不写状态行。`SetWarning` 只给悬停 warning，不画红圈。
+
 
 ## 初值与持久化
 

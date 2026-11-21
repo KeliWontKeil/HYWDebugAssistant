@@ -22,6 +22,70 @@ namespace HYWDebugAssistant.Modules.Tests;
 public sealed class ExternalAccessAdapterTests
 {
     [Fact]
+    public void TcpClient_普通刷新不校验_非法地址时动作边界拒绝打开()
+    {
+        var context = new TestModuleContext();
+        context.Configuration.Write(new TcpClientConfig
+        {
+            RemoteHost = "999.999.999.999",
+            RemotePort = 5000,
+            ConnectTimeout = 5,
+        });
+
+        var module = new HYWDebugAssistant.Modules.TcpClient.TcpClientModule();
+        module.OnRegistered(context);
+        module.OnActivated();
+
+        // 普通状态刷新不解析配置：红/按钮尚未结算。
+        module.OnWork();
+        context.ValueValidities.ContainsKey(ExternalAccessFieldNames.RemoteHost).ShouldBeFalse(
+            "普通状态刷新不应解析配置");
+
+        module.OnStep(context, HYWDebugAssistant.Sdk.Lifecycle.StepReason.Start);
+        context.ValueValidities[ExternalAccessFieldNames.RemoteHost].IsInvalid.ShouldBeTrue();
+        LastEnabled(context, HYWDebugAssistant.Modules.TcpClient.TcpClientModule.OpenCommand).ShouldBe(false);
+
+        // 绕过按钮：命令也不能拿非法/旧地址发起连接。
+        context.EnqueueCommand(HYWDebugAssistant.Modules.TcpClient.TcpClientModule.OpenCommand);
+        module.OnStep(context, HYWDebugAssistant.Sdk.Lifecycle.StepReason.Command);
+        context.Access.OpenRequests.ShouldBeEmpty();
+
+        // 输入事件携带新文本，模块按草稿重新校验；合法后按钮与动作都恢复。
+        context.EnqueueInput(ExternalAccessFieldNames.RemoteHost, "127.0.0.1");
+        module.OnStep(context, HYWDebugAssistant.Sdk.Lifecycle.StepReason.Input);
+        context.ValueValidities.ContainsKey(ExternalAccessFieldNames.RemoteHost).ShouldBeFalse();
+        LastEnabled(context, HYWDebugAssistant.Modules.TcpClient.TcpClientModule.OpenCommand).ShouldBe(true);
+
+        context.EnqueueCommand(HYWDebugAssistant.Modules.TcpClient.TcpClientModule.OpenCommand);
+        module.OnStep(context, HYWDebugAssistant.Sdk.Lifecycle.StepReason.Command);
+        context.Access.OpenRequests.ShouldContain(HYWDebugAssistant.Modules.TcpClient.TcpClientModule.AccessName);
+    }
+
+    [Fact]
+    public void 串口模块_未选端口时Open应禁用()
+    {
+        var context = new TestModuleContext();
+        context.Configuration.Write(new SerialConfig { PortName = string.Empty });
+        var module = new SerialModule();
+        module.OnRegistered(context);
+        module.OnActivated();
+        module.OnStep(context, HYWDebugAssistant.Sdk.Lifecycle.StepReason.Start);
+
+        LastEnabled(context, SerialModule.OpenCommand).ShouldBe(false);
+
+        context.Configuration.Write(new SerialConfig { PortName = "COM_TEST" });
+        module.OnStep(context, HYWDebugAssistant.Sdk.Lifecycle.StepReason.Start);
+
+        LastEnabled(context, SerialModule.OpenCommand).ShouldBe(true);
+    }
+
+    private static bool? LastEnabled(TestModuleContext context, string source) =>
+        context.AppearanceReports
+            .LastOrDefault(report => string.Equals(report.SourceName, source, StringComparison.Ordinal)
+                && report.Enabled is not null)
+            .Enabled;
+
+    [Fact]
     public void 串口适配件_打开后应能收数据并写出_关闭应释放()
     {
         var transport = new FakeSerialTransport();
@@ -429,6 +493,7 @@ public sealed class ExternalAccessAdapterTests
         var context = new TestModuleContext();
         var module = new SerialModule();
         module.OnRegistered(context);
+        context.Configuration.Write(new SerialConfig { PortName = "COM_TEST" });
 
         var portProblems = new List<string>();
         context.ApplyPortSpecs(

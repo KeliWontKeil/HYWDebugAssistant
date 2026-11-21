@@ -17,7 +17,9 @@ namespace HYWDebugAssistant.Sdk.Configuration;
 /// <list type="bullet">
 ///   <item>会被**反复调用**（生成表单时、每次展开下拉时）⇒ 实现应当廉价，必要时自己缓存；</item>
 ///   <item>实现**不得抛异常、不得阻塞** —— 它跑在界面线程上；失败就返回空表；</item>
-///   <item>当前值由框架保证留在选项里（否则表单会把已存的值显示成列表里的第一项，等于骗人）。</item>
+///   <item>当前值是否留在选项里由 <see cref="KeepCurrentChoiceWhenUnavailable"/> 决定：
+///     默认 true（已保存值仍有意义）；false 表示选项是环境的完整快照，当前值消失时控件显示空选择，
+///     并通过值通道清空该值。设备/网卡这类“当下有哪些”的字段应返回 false。</item>
 /// </list>
 /// </remarks>
 public interface IConfigurationChoices
@@ -43,7 +45,8 @@ public interface IConfigurationChoices
     /// </summary>
     /// <remarks>
     /// 默认 true：值随环境变化但已保存的当前值仍有意义（例如手打地址）。
-    /// 串口这类“当前端口已经不存在”的字段返回 false，避免消失的设备继续出现在下拉里。
+    /// 设备/网卡这类“当下有哪些”的字段返回 false：选项是环境的完整快照，当前值消失时
+    /// 下拉控件显示空选择并通过值通道清空该值，模块随后按空值禁用动作。
     /// </remarks>
     bool KeepCurrentChoiceWhenUnavailable => true;
 }

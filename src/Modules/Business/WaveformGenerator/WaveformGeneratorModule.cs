@@ -141,15 +141,19 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
     private readonly Dictionary<uint, GeneratorRuntime> _runtimes = [];
     private readonly Dictionary<IModuleTimer, GeneratorRuntime> _timerOwners = [];
     private readonly Dictionary<string, string> _lastText = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, FieldError> _fieldErrors = new(StringComparer.Ordinal);
     private readonly InputValidity _validity = new();
     private readonly byte[] _frame = new byte[WaveformFrameContract.SizeInBytes];
 
     private IModuleContext? _context;
     private GeneratorConfig _config = GeneratorConfig.CreateDefault();
     private bool _configLoaded;
+    private bool _textSeeded;
     private bool _sending;
     private bool _continuous;
     private bool? _lastSendEnabled;
+    private bool? _lastStopEnabled;
+    private string? _lastStatusText;
     private bool _limited;
     private long _revision;
     private long _structureRevision;
@@ -264,7 +268,14 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         }
 
         Pump(context);
-        PollTextInputs(context);
+
+        // 逐键文本在视图状态里：只有输入事件（或首次加载）才回读；数据/会话/定时器拍不读字段。
+        if (!_textSeeded || (reason & StepReason.Input) != 0)
+        {
+            _textSeeded = true;
+            PollTextInputs(context);
+        }
+
         SyncTimers(context);
     }
 
@@ -280,6 +291,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         }
 
         Pump(context);
+        _textSeeded = true;
         PollTextInputs(context);
         SyncTimers(context);
     }
@@ -351,7 +363,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         context.Configuration.Write(_config);
         RebuildRuntimes(context);
         PublishAll(context);
-        PublishStatus(Tr(WaveformGeneratorText.Ready));
+        ValidateAllInputs(context);
     }
 
     private void NormalizeConfig()
@@ -592,19 +604,22 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
 
     private void Pump(IModuleContext context)
     {
-        while (context.Inbox.TryDequeueCommand(out var command))
-        {
-            OnCommand(context, command);
-        }
-
+        // **先输入后命令**：刚改完参数就点“发送”时，发送前校验必须看到最新配置。
         while (context.Inbox.TryDequeueInput(out var source, out var text))
         {
             OnInput(context, source, text);
+        }
+
+        while (context.Inbox.TryDequeueCommand(out var command))
+        {
+            OnCommand(context, command);
         }
     }
 
     private void OnCommand(IModuleContext context, string command)
     {
+        var revision = _structureRevision;
+
         switch (command)
         {
             case AddGroupCommand:
@@ -628,6 +643,12 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
             case StopCommand:
                 StopSending(context);
                 break;
+        }
+
+        // 结构真的变了才重算；失败动作的原因（上限/最后一个）不能被“就绪”覆盖。
+        if (_structureRevision != revision)
+        {
+            ValidateAllInputs(context);
         }
     }
 
@@ -877,57 +898,187 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
                     }
                 }
 
-                break;
+                // 启停自己发布运行/停止状态与按钮；外层不再用“就绪”把它覆盖掉。
+                return;
 
             case ActionSource:
+                // OnAction 只在结构/选择真的变化时结算；失败动作的原因要留着。
                 OnAction(context, text);
-                break;
+                return;
         }
 
         // 字段级红框统一按“当前编辑文本”结算：合法值已应用；非法值保持原配置并标红。
         ValidateAllInputs(context);
     }
 
-    /// <summary>按当前输入文本重算所有字段的红框；不读写配置。</summary>
+    /// <summary>按当前输入文本重算所有字段的红框；先收集、后一次性应用，避免清除顺序互相覆盖。</summary>
     private void ValidateAllInputs(IModuleContext context)
     {
-        Validate(context, GroupNameSource, text => TryNonEmptyName(text, out _), Tr(WaveformGeneratorText.InvalidName));
-        Validate(context, GroupIdSource, text =>
-            uint.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)
-            && id != 0
-            && IsGroupIdAvailable(id), Tr(WaveformGeneratorText.InvalidGroupId));
-        Validate(context, ChannelNumberSource, text =>
-            int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var number)
-            && number is >= 1 and <= GeneratorConfig.MaxChannels
-            && IsChannelNumberAvailable(number), Tr(WaveformGeneratorText.InvalidNumber));
-        Validate(context, ChannelNameSource, text => TryNonEmptyName(text, out _), Tr(WaveformGeneratorText.InvalidName));
-        Validate(context, FrequencySource, text => TryPositive(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
-        Validate(context, PeriodSource, text => TryPositive(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
-        Validate(context, PhaseSource, text => TryFinite(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
-        Validate(context, OffsetSource, text => TryFinite(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
-        Validate(context, AmplitudeSource, text => TryFinite(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
-        Validate(context, ResolutionSource, text =>
-            int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var resolution)
-            && resolution is >= 2 and <= 4096, Tr(WaveformGeneratorText.InvalidNumber));
-        Validate(context, DutySource, text => TryFinite(text, out var duty) && duty is >= 0.01 and <= 0.99, Tr(WaveformGeneratorText.InvalidNumber));
-        Validate(context, CarrierFrequencySource, text => TryPositive(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
-        Validate(context, ModulationIndexSource, text =>
-            TryFinite(text, out var modulation)
-            && IsModulationIndexValid(SelectedChannel?.Kind ?? WaveformKind.Sine, modulation), Tr(WaveformGeneratorText.InvalidNumber));
-        Validate(context, CarrierPhaseSource, text => TryFinite(text, out _), Tr(WaveformGeneratorText.InvalidNumber));
-        Validate(context, OneShotPeriodsSource, text =>
-            int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var periods)
-            && periods is >= 1 and <= 1_000_000, Tr(WaveformGeneratorText.InvalidNumber));
+        var errors = new Dictionary<string, FieldError>(StringComparer.Ordinal);
+        var channelSelected = SelectedChannel is not null;
+        var group = SelectedGroup;
+        var channel = SelectedChannel;
+
+        string Read(string source) => context.Values.ReadText(source) ?? string.Empty;
+
+        void Record(string source, string message, ValueValidityOrigin origin)
+        {
+            // 同一字段 Module 规则优先于格式；格式结论不能把已成立的模块错误降级。
+            if (errors.TryGetValue(source, out var existing)
+                && existing.Origin == ValueValidityOrigin.Module
+                && origin == ValueValidityOrigin.Format)
+            {
+                return;
+            }
+
+            errors[source] = new FieldError(message, origin);
+        }
+
+        void Check(string source, bool ok, string message)
+        {
+            if (!ok)
+            {
+                Record(source, message, ValueValidityOrigin.Format);
+            }
+        }
+
+        Check(GroupNameSource, TryNonEmptyName(Read(GroupNameSource), out _), Tr(WaveformGeneratorText.InvalidName));
+
+        var groupIdText = Read(GroupIdSource);
+        var groupIdOk = uint.TryParse(
+                groupIdText.Trim(),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var groupId)
+            && groupId != 0;
+        Check(GroupIdSource, groupIdOk, Tr(WaveformGeneratorText.InvalidGroupId));
+        if (groupIdOk && !IsGroupIdAvailable(groupId))
+        {
+            Record(GroupIdSource, Tr(WaveformGeneratorText.DuplicateGroupId, groupId), ValueValidityOrigin.Module);
+        }
+
+        Check(
+            FrequencySource,
+            TryPositive(Read(FrequencySource), out _),
+            Tr(WaveformGeneratorText.InvalidNumber));
+        Check(
+            PeriodSource,
+            TryPositive(Read(PeriodSource), out _),
+            Tr(WaveformGeneratorText.InvalidNumber));
+        Check(
+            ResolutionSource,
+            int.TryParse(Read(ResolutionSource).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var resolution)
+            && resolution is >= 2 and <= 4096,
+            Tr(WaveformGeneratorText.InvalidNumber));
+        Check(
+            OneShotPeriodsSource,
+            int.TryParse(Read(OneShotPeriodsSource).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var periods)
+            && periods is >= 1 and <= 1_000_000,
+            Tr(WaveformGeneratorText.InvalidNumber));
+
+        if (channelSelected && channel is not null)
+        {
+            var channelNumberText = Read(ChannelNumberSource);
+            var numberOk = int.TryParse(
+                    channelNumberText.Trim(),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out var number)
+                && number is >= 1 and <= GeneratorConfig.MaxChannels;
+            Check(ChannelNumberSource, numberOk, Tr(WaveformGeneratorText.InvalidChannelNumber));
+            if (numberOk && !IsChannelNumberAvailable(number))
+            {
+                Record(
+                    ChannelNumberSource,
+                    Tr(WaveformGeneratorText.DuplicateChannelNumber, group.Name, number),
+                    ValueValidityOrigin.Module);
+            }
+
+            Check(ChannelNameSource, TryNonEmptyName(Read(ChannelNameSource), out _), Tr(WaveformGeneratorText.InvalidName));
+            Check(PhaseSource, TryFinite(Read(PhaseSource), out _), Tr(WaveformGeneratorText.InvalidNumber));
+            Check(OffsetSource, TryFinite(Read(OffsetSource), out _), Tr(WaveformGeneratorText.InvalidNumber));
+            Check(AmplitudeSource, TryFinite(Read(AmplitudeSource), out _), Tr(WaveformGeneratorText.InvalidNumber));
+            Check(
+                DutySource,
+                TryFinite(Read(DutySource), out var duty) && duty is >= 0.01 and <= 0.99,
+                Tr(WaveformGeneratorText.InvalidNumber));
+            Check(
+                CarrierFrequencySource,
+                TryPositive(Read(CarrierFrequencySource), out _),
+                Tr(WaveformGeneratorText.InvalidNumber));
+            Check(
+                ModulationIndexSource,
+                TryFinite(Read(ModulationIndexSource), out var modulation)
+                && IsModulationIndexValid(channel.Kind, modulation),
+                Tr(WaveformGeneratorText.InvalidNumber));
+            Check(
+                CarrierPhaseSource,
+                TryFinite(Read(CarrierPhaseSource), out _),
+                Tr(WaveformGeneratorText.InvalidNumber));
+
+            // Nyquist 用**当前文本**的解析值算；任一字段本身不合法就不叠一条关于旧值的规则错误。
+            if (group.Enabled
+                && channel.Enabled
+                && WaveformMath.IsModulated(channel.Kind)
+                && TryPositive(Read(FrequencySource), out var frequency)
+                && int.TryParse(
+                    Read(ResolutionSource).Trim(),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out var rateResolution)
+                && rateResolution is >= 2 and <= 4096
+                && TryPositive(Read(CarrierFrequencySource), out var carrierFrequency))
+            {
+                var rate = rateResolution * frequency;
+
+                if (2 * carrierFrequency > rate)
+                {
+                    var message = Tr(
+                        WaveformGeneratorText.CarrierNyquist,
+                        group.Name,
+                        channel.Name,
+                        rate,
+                        carrierFrequency);
+                    Record(CarrierFrequencySource, message, ValueValidityOrigin.Module);
+                    Record(FrequencySource, message, ValueValidityOrigin.Module);
+                    Record(ResolutionSource, message, ValueValidityOrigin.Module);
+                }
+            }
+        }
+
+        _fieldErrors.Clear();
+        foreach (var source in PolledTextSources)
+        {
+            if (!channelSelected && IsChannelField(source))
+            {
+                _validity.Set(context, source, false);
+                continue;
+            }
+
+            if (errors.TryGetValue(source, out var error))
+            {
+                _fieldErrors[source] = error;
+                _validity.Set(context, source, true, error.Message, error.Origin);
+            }
+            else
+            {
+                _validity.Set(context, source, false);
+            }
+        }
+
+        PublishSendControls(context);
     }
 
-    private void Validate(IModuleContext context, string source, Func<string, bool> isValid, string message)
-    {
-        var text = context.Values.ReadText(source);
-        if (text is not null)
-        {
-            _validity.Set(context, source, !isValid(text), message);
-        }
-    }
+    private static bool IsChannelField(string source) =>
+        source is ChannelNumberSource
+            or ChannelNameSource
+            or PhaseSource
+            or OffsetSource
+            or AmplitudeSource
+            or DutySource
+            or CarrierFrequencySource
+            or ModulationIndexSource
+            or CarrierPhaseSource;
 
     private void OnAction(IModuleContext context, string text)
     {
@@ -937,12 +1088,15 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
             var root = document.RootElement;
             if (!root.TryGetProperty("op", out var operation))
             {
-                PublishStatus(Tr(WaveformGeneratorText.Invalid));
+                PublishStatus(Tr(WaveformGeneratorText.ActionInvalid));
                 return;
             }
 
             var op = operation.GetString();
             var index = root.TryGetProperty("index", out var indexElement) ? indexElement.GetInt32() : 0;
+            var selectionChanged = false;
+            var discarded = false;
+            var revisionBefore = _structureRevision;
 
             switch (op)
             {
@@ -951,6 +1105,8 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
                     var groupIndex = ResolveGroupIndex(root, allowId: true);
                     if (groupIndex >= 0 && groupIndex < _config.Groups.Count)
                     {
+                        selectionChanged = true;
+                        discarded = _validity.HasAnyInvalid;
                         _config = _config with
                         {
                             ActiveGroupIndex = groupIndex,
@@ -971,6 +1127,8 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
                         && index >= 0
                         && index < _config.Groups[groupIndex].Channels.Count)
                     {
+                        selectionChanged = true;
+                        discarded = _validity.HasAnyInvalid;
                         _config = _config with
                         {
                             ActiveGroupIndex = groupIndex,
@@ -1022,10 +1180,21 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
 
                     break;
             }
+
+            // 结构/选择真的变了才重算；失败动作（上限/最后一个）的原因不能被“就绪”覆盖。
+            if (selectionChanged || _structureRevision != revisionBefore)
+            {
+                ValidateAllInputs(context);
+            }
+
+            if (selectionChanged)
+            {
+                PublishDiscardedIfNeeded(context, discarded);
+            }
         }
         catch (JsonException)
         {
-            PublishStatus(Tr(WaveformGeneratorText.Invalid));
+            PublishStatus(Tr(WaveformGeneratorText.ActionInvalid));
         }
     }
 
@@ -1096,6 +1265,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         channels[channelIndex] = channels[channelIndex] with { Enabled = enabled };
         groups[groupIndex] = group with { Channels = channels };
         _config = _config with { Groups = groups };
+        _structureRevision++;
         ApplyConfig(context);
     }
 
@@ -1103,7 +1273,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
     {
         if (_config.Groups.Count >= GeneratorConfig.MaxGroups)
         {
-            PublishStatus(Tr(WaveformGeneratorText.Invalid));
+            PublishStatus(Tr(WaveformGeneratorText.GroupLimit, GeneratorConfig.MaxGroups));
             return;
         }
 
@@ -1126,14 +1296,14 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
     {
         if (_config.Groups.Count <= 1)
         {
-            PublishStatus(Tr(WaveformGeneratorText.Invalid));
+            PublishStatus(Tr(WaveformGeneratorText.LastGroup));
             return;
         }
 
         var removeIndex = groupIndex ?? _config.ActiveGroupIndex;
         if (removeIndex < 0 || removeIndex >= _config.Groups.Count)
         {
-            PublishStatus(Tr(WaveformGeneratorText.Invalid));
+            PublishStatus(Tr(WaveformGeneratorText.ActionInvalid));
             return;
         }
 
@@ -1156,14 +1326,14 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         var targetIndex = groupIndex ?? Math.Clamp(_config.ActiveGroupIndex, 0, _config.Groups.Count - 1);
         if (targetIndex < 0 || targetIndex >= _config.Groups.Count)
         {
-            PublishStatus(Tr(WaveformGeneratorText.Invalid));
+            PublishStatus(Tr(WaveformGeneratorText.ActionInvalid));
             return;
         }
 
         var group = _config.Groups[targetIndex];
         if (group.Channels.Count >= GeneratorConfig.MaxChannels)
         {
-            PublishStatus(Tr(WaveformGeneratorText.Invalid));
+            PublishStatus(Tr(WaveformGeneratorText.ChannelLimit, GeneratorConfig.MaxChannels));
             return;
         }
 
@@ -1187,21 +1357,21 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         var targetGroupIndex = groupIndex ?? Math.Clamp(_config.ActiveGroupIndex, 0, _config.Groups.Count - 1);
         if (targetGroupIndex < 0 || targetGroupIndex >= _config.Groups.Count)
         {
-            PublishStatus(Tr(WaveformGeneratorText.Invalid));
+            PublishStatus(Tr(WaveformGeneratorText.ActionInvalid));
             return;
         }
 
         var group = _config.Groups[targetGroupIndex];
         if (group.Channels.Count <= 1)
         {
-            PublishStatus(Tr(WaveformGeneratorText.Invalid));
+            PublishStatus(Tr(WaveformGeneratorText.LastChannel));
             return;
         }
 
         var removeIndex = channelIndex ?? _config.ActiveChannelIndex;
         if (removeIndex < 0 || removeIndex >= group.Channels.Count)
         {
-            PublishStatus(Tr(WaveformGeneratorText.Invalid));
+            PublishStatus(Tr(WaveformGeneratorText.ActionInvalid));
             return;
         }
 
@@ -1272,19 +1442,29 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         return true;
     }
 
-    private static bool HasValidChannelNumbers(GeneratorGroupConfig group)
+    private static bool HasValidChannelNumbers(GeneratorGroupConfig group) =>
+        TryValidateChannelNumbers(group, out _);
+
+    private static bool TryValidateChannelNumbers(GeneratorGroupConfig group, out string? reason)
     {
         var used = new HashSet<int>();
         foreach (var channel in group.Channels)
         {
             if (channel.ChannelNumber is not int number
-                || number is < 1 or > GeneratorConfig.MaxChannels
-                || !used.Add(number))
+                || number is < 1 or > GeneratorConfig.MaxChannels)
             {
+                reason = Tr(WaveformGeneratorText.InvalidChannelNumber);
+                return false;
+            }
+
+            if (!used.Add(number))
+            {
+                reason = Tr(WaveformGeneratorText.DuplicateChannelNumber, group.Name, number);
                 return false;
             }
         }
 
+        reason = null;
         return true;
     }
 
@@ -1321,12 +1501,19 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         return GeneratorConfig.MaxChannels;
     }
 
-    private bool StartSending(IModuleContext context, bool continuous)
+    /// <summary>无副作用的发送前校验；按钮闸门与实际发送共用同一判据。</summary>
+    private bool TryValidateForSending(out string? reason, out double totalRate, out int batch)
     {
-        RebuildRuntimes(context);
+        reason = null;
+        totalRate = 0;
+        batch = 1;
 
-        var totalRate = 0d;
-        var batch = 1;
+        if (_config.OneShotPeriods is < 1 or > 1_000_000)
+        {
+            reason = Tr(WaveformGeneratorText.Invalid);
+            return false;
+        }
+
         var groupIds = new HashSet<uint>();
         foreach (var group in _config.Groups)
         {
@@ -1335,14 +1522,32 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
                 continue;
             }
 
-            if (group.GroupId == 0
-                || !groupIds.Add(group.GroupId)
-                || !HasValidChannelNumbers(group)
-                || group.Resolution is < 2 or > 4096
-                || !double.IsFinite(group.FrequencyHz)
-                || group.FrequencyHz <= 0)
+            if (group.GroupId == 0)
             {
-                PublishStatus(Tr(WaveformGeneratorText.Invalid));
+                reason = Tr(WaveformGeneratorText.InvalidGroupId);
+                return false;
+            }
+
+            if (!groupIds.Add(group.GroupId))
+            {
+                reason = Tr(WaveformGeneratorText.DuplicateGroupId, group.GroupId);
+                return false;
+            }
+
+            if (!TryValidateChannelNumbers(group, out reason))
+            {
+                return false;
+            }
+
+            if (group.Resolution is < 2 or > 4096)
+            {
+                reason = Tr(WaveformGeneratorText.InvalidResolution, group.Name);
+                return false;
+            }
+
+            if (!double.IsFinite(group.FrequencyHz) || group.FrequencyHz <= 0)
+            {
+                reason = Tr(WaveformGeneratorText.InvalidFrequency, group.Name);
                 return false;
             }
 
@@ -1354,7 +1559,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
 
             if (rate > GeneratorConfig.MaxGroupRateHz)
             {
-                PublishStatus(Tr(WaveformGeneratorText.RateUnsupported));
+                reason = Tr(WaveformGeneratorText.RateUnsupported);
                 return false;
             }
 
@@ -1369,19 +1574,19 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
                     || channel.CarrierFrequencyHz <= 0
                     || !IsModulationIndexValid(channel.Kind, channel.ModulationIndex))
                 {
-                    PublishStatus(Tr(WaveformGeneratorText.Invalid));
+                    reason = Tr(WaveformGeneratorText.InvalidCarrier, channel.Name);
                     return false;
                 }
 
                 if (WaveformMath.IsModulated(channel.Kind)
                     && 2 * channel.CarrierFrequencyHz > rate)
                 {
-                    PublishStatus(Tr(
+                    reason = Tr(
                         WaveformGeneratorText.CarrierNyquist,
                         group.Name,
                         channel.Name,
                         rate,
-                        channel.CarrierFrequencyHz));
+                        channel.CarrierFrequencyHz);
                     return false;
                 }
             }
@@ -1393,9 +1598,30 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
             }
         }
 
-        if (totalRate <= 0 || totalRate > GeneratorConfig.MaxTotalRateHz)
+        if (totalRate <= 0)
         {
-            PublishStatus(Tr(WaveformGeneratorText.RateUnsupported));
+            reason = Tr(WaveformGeneratorText.NoEnabledChannels);
+            return false;
+        }
+
+        if (totalRate > GeneratorConfig.MaxTotalRateHz)
+        {
+            reason = Tr(WaveformGeneratorText.RateUnsupported);
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool StartSending(IModuleContext context, bool continuous)
+    {
+        // 发动作前先结算一次字段：用户刚改完就点发送时，状态与按钮必须基于最新文本。
+        ValidateAllInputs(context);
+        RebuildRuntimes(context);
+
+        if (!TryValidateForSending(out _, out _, out var batch))
+        {
+            // 未就绪的原因已由 ValidateAllInputs → PublishSendControls 写进状态；不重复写。
             return false;
         }
 
@@ -1668,22 +1894,73 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
         PublishBool(context, GroupEnabledSource, SelectedGroup.Enabled);
         SetInput(context, ContinuousSource, _continuous ? "true" : "false");
         SetInput(context, GroupEnabledSource, SelectedGroup.Enabled ? "true" : "false");
-        PublishSendControls(context);
     }
 
-    /// <summary>发送命令闸门：空闲可发送、发送中只可停止；值不变不重写外观表。</summary>
-    private void PublishSendControls(IModuleContext context)
+    /// <summary>切换选择后，若旧设置的错误值已被丢弃而新对象无错，补一句“未应用”。</summary>
+    private void PublishDiscardedIfNeeded(IModuleContext context, bool discarded)
     {
-        var canStart = !_sending;
-        if (_lastSendEnabled == canStart)
+        if (!discarded || _validity.HasAnyInvalid)
         {
             return;
         }
 
-        _lastSendEnabled = canStart;
-        context.Appearance.SetEnabled(StartContinuousCommand, canStart);
-        context.Appearance.SetEnabled(SendOnceCommand, canStart);
-        context.Appearance.SetEnabled(StopCommand, !canStart);
+        _ = TryValidateForSending(out var reason, out _, out _);
+        if (reason is null)
+        {
+            PublishStatus(Tr(WaveformGeneratorText.DiscardedInvalid));
+        }
+    }
+
+    /// <summary>发送命令闸门：空闲且无字段错误、发送前校验通过时可用；发送中只可停止。</summary>
+    private void PublishSendControls(IModuleContext context)
+    {
+        var gateOk = TryValidateForSending(out var gateReason, out _, out _);
+        var hasErrors = _fieldErrors.Count > 0;
+        var canStart = !_sending && !hasErrors && gateOk;
+
+        // 发送中不覆盖运行状态；未发送时按“Module 字段错误 → 发送前校验 → 仅格式错误 → 就绪”取一句。
+        if (!_sending)
+        {
+            var status = FirstModuleError() ?? gateReason;
+            if (status is null)
+            {
+                status = hasErrors
+                    ? Tr(WaveformGeneratorText.BlockedByFields)
+                    : Tr(WaveformGeneratorText.Ready);
+            }
+
+            PublishStatus(status);
+        }
+
+        if (_lastSendEnabled != canStart)
+        {
+            _lastSendEnabled = canStart;
+            context.Appearance.SetEnabled(StartContinuousCommand, canStart);
+            context.Appearance.SetEnabled(SendOnceCommand, canStart);
+        }
+
+        // 停止只属于“正在发送”；空闲但配置非法时不能把停止点亮。
+        var canStop = _sending;
+        if (_lastStopEnabled != canStop)
+        {
+            _lastStopEnabled = canStop;
+            context.Appearance.SetEnabled(StopCommand, canStop);
+        }
+    }
+
+    /// <summary>按固定字段顺序取第一条模块规则错误；不依赖字典/集合的迭代顺序。</summary>
+    private string? FirstModuleError()
+    {
+        foreach (var source in PolledTextSources)
+        {
+            if (_fieldErrors.TryGetValue(source, out var error)
+                && error.Origin == ValueValidityOrigin.Module)
+            {
+                return error.Message;
+            }
+        }
+
+        return null;
     }
 
     private void PublishFields(IModuleContext context)
@@ -1883,6 +2160,12 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
 
     private void PublishStatus(string text)
     {
+        if (string.Equals(_lastStatusText, text, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastStatusText = text;
         if (_context is { } context)
         {
             PublishText(context, StatusSource, text);
@@ -1936,4 +2219,7 @@ public sealed class WaveformGeneratorModule : IModule, IActivitySource
 
         context.Values.AcceptText(source, text);
     }
+
+    /// <summary>一次结算里某个字段的结论；Module 优先于 Format。</summary>
+    private readonly record struct FieldError(string Message, ValueValidityOrigin Origin);
 }

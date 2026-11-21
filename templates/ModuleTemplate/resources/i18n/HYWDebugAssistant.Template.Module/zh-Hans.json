@@ -7,7 +7,6 @@
     "view.title": "模板",
     "view.interval": "间隔",
     "view.count": "事件数",
-    "view.state": "状态",
     "view.reset": "清零",
     "state.ready": "就绪",
     "state.received": "已收到数据",

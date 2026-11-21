@@ -129,6 +129,7 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     private bool _headerInvalid;
     private bool _footerInvalid;
     private bool _groupInvalid;
+    private bool _rateInvalid;
 
     /// <inheritdoc />
     public ReceiveMode Receive => ReceiveMode.Push;
@@ -253,7 +254,12 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
         ArgumentNullException.ThrowIfNull(context);
 
         MigrateLegacyInputs(context);
-        ApplySettings(context);
+
+        // 设置只在输入/动作/激活/配置变更时重读；数据帧使用已生效的那一份。
+        if ((reason & (StepReason.Start | StepReason.Input | StepReason.Command)) != 0)
+        {
+            ApplySettings(context);
+        }
 
         while (context.Inbox.TryDequeueCommand(out var command))
         {
@@ -309,30 +315,67 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
                 ? parsed
                 : _settings.Protocol;
 
-        // 帧头/帧尾是**十六进制字节串**；空/非法 ⇒ 保持上一次有效字节并标红。
-        var header = ReadHex(context, HeaderHexInput, _settings.Header, out var headerInvalid);
-        var footer = ReadHex(context, FooterHexInput, _settings.Footer, out var footerInvalid);
+        // 帧头/帧尾只属于自定义文本帧；其它协议不读这两个字段，也不把它们的旧红留着。
+        var isTextFrame = protocol is RawToWaveformProtocol.TextFrame;
+        byte[] header;
+        byte[] footer;
+        bool headerInvalid;
+        bool footerInvalid;
+        if (isTextFrame)
+        {
+            header = ReadHex(context, HeaderHexInput, _settings.Header, out headerInvalid);
+            footer = ReadHex(context, FooterHexInput, _settings.Footer, out footerInvalid);
+        }
+        else
+        {
+            header = _settings.Header;
+            footer = _settings.Footer;
+            headerInvalid = false;
+            footerInvalid = false;
+        }
+
         var groupId = ReadGroupId(context, GroupIdInput, _settings.GroupId, out var groupInvalid);
+        var prefix = context.Values.ReadText(PrefixInput) ?? string.Empty;
+        var rateHz = ReadRate(context, RateInput, _settings.RateHz, out var rateInvalid);
         _headerInvalid = headerInvalid;
         _footerInvalid = footerInvalid;
         _groupInvalid = groupInvalid;
+        _rateInvalid = rateInvalid;
 
         if (reportAlerts)
         {
-            _validity.Set(context, HeaderHexInput, headerInvalid, headerInvalid ? RawToWaveformText.Get(RawToWaveformText.HexHint) : null);
-            _validity.Set(context, FooterHexInput, footerInvalid, footerInvalid ? RawToWaveformText.Get(RawToWaveformText.HexHint) : null);
+            _validity.Set(
+                context,
+                HeaderHexInput,
+                headerInvalid,
+                headerInvalid ? RawToWaveformText.Get(RawToWaveformText.HexHint) : null);
+            _validity.Set(
+                context,
+                FooterHexInput,
+                footerInvalid,
+                footerInvalid ? RawToWaveformText.Get(RawToWaveformText.HexHint) : null);
             _validity.Set(context, GroupIdInput, groupInvalid, groupInvalid ? RawToWaveformText.Get(RawToWaveformText.BadGroup) : null);
+            _validity.Set(
+                context,
+                RateInput,
+                rateInvalid,
+                rateInvalid ? RawToWaveformText.Get(RawToWaveformText.InvalidRate) : null);
         }
-
-        var prefix = context.Values.ReadText(PrefixInput) ?? string.Empty;
-        var rateHz = ReadRate(context, RateInput, _settings.RateHz);
 
         return new Settings(protocol, header, footer, prefix, groupId, rateHz);
     }
 
     private static byte[] ReadHex(IModuleContext context, string name, byte[] fallback, out bool invalid)
     {
-        if (!HexInput.TryParse(context.Values.ReadText(name), out var bytes))
+        var text = context.Values.ReadText(name);
+        if (text is null)
+        {
+            // 框架清空（还原/移除）才回默认；用户把文本清空是“必填缺失”，不是同一件事。
+            invalid = false;
+            return fallback;
+        }
+
+        if (!HexInput.TryParse(text, out var bytes))
         {
             invalid = true;
             return fallback;
@@ -442,11 +485,20 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
     /// <summary>当前配置对应的状态句（无有效帧头/帧尾 → 配置错误；有但非法 → 仍用上次有效值）。</summary>
     private string StatusForSettings()
     {
+        if (_groupInvalid)
+        {
+            return RawToWaveformText.Get(RawToWaveformText.BadGroup);
+        }
+
+        if (_rateInvalid)
+        {
+            return RawToWaveformText.Get(RawToWaveformText.InvalidRate);
+        }
+
+        // 帧头/帧尾只对自定义文本帧有意义；其它协议不拿它们的旧值说话。
         if (_settings.Protocol is not RawToWaveformProtocol.TextFrame)
         {
-            return _groupInvalid
-                ? RawToWaveformText.Get(RawToWaveformText.BadGroup)
-                : RawToWaveformText.Get(RawToWaveformText.Ready);
+            return RawToWaveformText.Get(RawToWaveformText.Ready);
         }
 
         if (_settings.Header.Length == 0 || _settings.Footer.Length == 0)
@@ -456,17 +508,21 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
 
         return _headerInvalid || _footerInvalid
             ? RawToWaveformText.Get(RawToWaveformText.BadHexKept)
-            : _groupInvalid
-                ? RawToWaveformText.Get(RawToWaveformText.BadGroup)
-                : RawToWaveformText.Get(RawToWaveformText.Ready);
+            : RawToWaveformText.Get(RawToWaveformText.Ready);
     }
 
     private static int ReadGroupId(IModuleContext context, string name, int fallback, out bool invalid)
     {
         var text = context.Values.ReadText(name);
-        if (string.IsNullOrWhiteSpace(text))
+        if (text is null)
         {
             invalid = false;
+            return fallback;
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            invalid = true;
             return fallback;
         }
 
@@ -476,14 +532,25 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
         return invalid ? fallback : value;
     }
 
-    private static double ReadRate(IModuleContext context, string name, double fallback)
+    private static double ReadRate(IModuleContext context, string name, double fallback, out bool invalid)
     {
         var text = context.Values.ReadText(name);
-        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
-            && double.IsFinite(value)
-            && value > 0
-                ? value
-                : fallback;
+        if (text is null)
+        {
+            invalid = false;
+            return fallback;
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            invalid = true;
+            return fallback;
+        }
+
+        invalid = !double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+            || !double.IsFinite(value)
+            || value <= 0;
+        return invalid ? fallback : value;
     }
 
     private void BuildDecoder(IModuleContext context)
@@ -526,6 +593,11 @@ public sealed class RawToWaveformModule : IModule, IActivitySource
         }
 
         if (_groupInvalid)
+        {
+            return;
+        }
+
+        if (_rateInvalid)
         {
             return;
         }

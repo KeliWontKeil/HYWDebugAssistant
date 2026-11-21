@@ -7,12 +7,8 @@ internal static class WaveformDisplayText
     public const string Description = "module.description";
     public const string RoleDisplay = "role.display";
 
-    public const string Group = "view.group";
-    public const string GroupName = "view.groupName";
     public const string GroupFallback = "view.groupFallback";
-    public const string ChannelName = "view.channelName";
     public const string ChannelFallback = "view.channelFallback";
-    public const string Status = "view.status";
 
     public const string Clear = "view.clear";
     public const string Reset = "view.reset";
@@ -32,5 +28,7 @@ internal static class WaveformDisplayText
     public const string Invalid = "status.invalid";
     public const string Cleared = "status.cleared";
     public const string InvalidNumber = "view.invalidNumber";
+    public const string XRangeConflict = "view.xRangeConflict";
+    public const string YRangeConflict = "view.yRangeConflict";
     public const string TickTooDense = "view.tickTooDense";
 }

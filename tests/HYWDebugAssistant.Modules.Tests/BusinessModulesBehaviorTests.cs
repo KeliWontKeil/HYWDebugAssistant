@@ -787,6 +787,84 @@ public class BusinessModulesBehaviorTests
     /// <remarks>
     /// 判据取"最后一条 `SetText`"：消息是**替换**语义（只有当前值），所以最后一条就是屏幕上的那一句。
     /// </remarks>
+    [Fact]
+    public void 文本发送器_间隔0给出警告但不标红()
+    {
+        var context = new TestModuleContext();
+        var module = new TextSenderModule();
+        module.OnRegistered(context);
+        context.ViewState.SetInputText(TextSenderModule.TextSourceOf(0), "hello");
+        context.ViewState.SetInputText(TextSenderModule.IntervalSource, "0");
+        module.PumpOnce(context);
+
+        var validity = context.ValueValidities[TextSenderModule.IntervalSource];
+        validity.IsInvalid.ShouldBeFalse();
+        validity.Notice!.Severity.ShouldBe(HYWDebugAssistant.Sdk.Values.ValueNoticeSeverity.Warning);
+        Message(context).ShouldNotBeNullOrWhiteSpace();
+        LastEnabled(context, TextSenderModule.ContinuousSource).ShouldBe(false);
+    }
+
+    [Fact]
+    public void 文本发送器_间隔不可用时连续开关禁用()
+    {
+        var context = new TestModuleContext();
+        var module = new TextSenderModule();
+        module.OnRegistered(context);
+
+        context.ViewState.SetInputText(TextSenderModule.IntervalSource, string.Empty);
+        module.PumpOnce(context);
+        LastEnabled(context, TextSenderModule.ContinuousSource).ShouldBe(false);
+
+        context.ViewState.SetInputText(TextSenderModule.IntervalSource, "20");
+        module.PumpOnce(context);
+        LastEnabled(context, TextSenderModule.ContinuousSource).ShouldBe(true);
+    }
+
+    [Fact]
+    public void 文本发送器_间隔0时程序化连续请求被拒并标红()
+    {
+        var context = new TestModuleContext();
+        var module = new TextSenderModule();
+        module.OnRegistered(context);
+        context.ViewState.SetInputText(TextSenderModule.TextSourceOf(0), "hello");
+        context.ViewState.SetInputText(TextSenderModule.IntervalSource, "0");
+        context.EnqueueInput(TextSenderModule.ContinuousSource, "true");
+        module.PumpOnce(context);
+
+        context.ValueValidities[TextSenderModule.IntervalSource].IsInvalid.ShouldBeTrue();
+        module.IsContinuous.ShouldBeFalse();
+        LastEnabled(context, TextSenderModule.ContinuousSource).ShouldBe(false);
+        Message(context).ShouldNotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public void 十六进制发送器_语法非法时发送禁用_间隔不可用时连续禁用()
+    {
+        var context = new TestModuleContext();
+        var module = new HexSenderModule();
+        module.OnRegistered(context);
+
+        context.ViewState.SetInputText(HexSenderModule.HexSourceOf(0), "0A 0");
+        context.ViewState.SetInputText(HexSenderModule.IntervalSource, string.Empty);
+        module.PumpOnce(context);
+
+        LastEnabled(context, HexSenderModule.SendCommand).ShouldBe(false);
+        LastEnabled(context, HexSenderModule.ContinuousSource).ShouldBe(false);
+
+        context.ViewState.SetInputText(HexSenderModule.HexSourceOf(0), "0A 0B");
+        context.ViewState.SetInputText(HexSenderModule.IntervalSource, "20");
+        module.PumpOnce(context);
+
+        LastEnabled(context, HexSenderModule.SendCommand).ShouldBe(true);
+        LastEnabled(context, HexSenderModule.ContinuousSource).ShouldBe(true);
+    }
+
+    private static bool? LastEnabled(TestModuleContext context, string source) =>
+        context.AppearanceReports
+            .LastOrDefault(report => string.Equals(report.SourceName, source, StringComparison.Ordinal)
+                && report.Enabled is not null)
+            .Enabled;
+
     private static string? Message(TestModuleContext context) =>
         context.SetTexts.Count == 0 ? null : context.SetTexts[^1].Text;
 

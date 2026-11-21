@@ -17,6 +17,7 @@ public static class TextSenderText
 
     /// <summary>间隔填错（未要求连续发送）。</summary>
     public const string StatusIntervalInvalid = "status.intervalInvalid";
+    public const string StatusIntervalZeroHint = "status.intervalZeroHint";
 
     /// <summary>间隔填错（连续发送开着）。</summary>
     public const string StatusIntervalInvalidContinuous = "status.intervalInvalidContinuous";

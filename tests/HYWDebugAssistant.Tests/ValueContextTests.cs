@@ -1,10 +1,13 @@
+using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Services;
 using HYWDebugAssistant.Hosting.Registry;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Lifecycle;
+using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Ui.ModuleViews;
+using NSubstitute;
 using Shouldly;
 using Xunit;
 
@@ -220,6 +223,29 @@ public class ValueContextTests
 
         context.CommitValue(EnumValueModule.Field, "Second");
         context.ReadValue(EnumValueModule.Field).Value.ShouldBe("Second");
+    }
+
+    [Fact]
+    public void 配置字段预览_只投递输入_不写视图状态或配置()
+    {
+        var field = new ConfigFieldView("Host", "Host", ConfigFieldKind.Text, "127.0.0.1");
+        var query = Substitute.For<IRuntimeQuery>();
+        var command = Substitute.For<IRuntimeCommand>();
+        var viewState = Substitute.For<IViewStateAccess>();
+
+        var presenter = new ModuleValuePresenter(
+            "p1",
+            name => string.Equals(name, "Host", StringComparison.Ordinal) ? field : null,
+            _ => ViewAppearance.None,
+            query,
+            command,
+            viewState);
+
+        presenter.PreviewValue("Host", "999.999.999.999");
+
+        command.Received(1).SubmitInput("p1", "Host", "999.999.999.999");
+        command.DidNotReceiveWithAnyArgs().UpdateConfigurationField(default!, default!, default!);
+        viewState.DidNotReceiveWithAnyArgs().SetInputText(default!, default!, default!);
     }
 
     /// <summary>测试模块：一个配置字段，OnRegistered 读取以登记 Schema。</summary>

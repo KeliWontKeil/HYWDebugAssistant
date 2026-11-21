@@ -16,7 +16,6 @@ public static class DataMonitorText
     public const string StatusSaved = "status.saved";
     public const string StatusSaveFailed = "status.saveFailed";
     public const string StatusSaveNoPath = "status.saveNoPath";
-    public const string StatusSaveError = "status.saveError";
     public const string StatusUnknownCommand = "status.unknownCommand";
     public const string StatusShortDatagram = "status.shortDatagram";
     public const string StatusSavedLog = "status.savedLog";

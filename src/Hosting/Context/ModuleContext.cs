@@ -652,7 +652,8 @@ public sealed class ModuleContext : IModuleContext, IDisposable
                 return owner.ViewState.GetInputText(name);
             }
 
-            // 配置字段也是值：按名字读取当前配置属性（模块不需要知道它存在哪份配置对象里）。
+            // 配置字段也是值：读的是**已提交配置**。用户正在编辑的文本属于控件，
+            // 由控件经 PreviewValue 投递输入事件交给模块；值面不保存第二份“编辑中文本”。
             return owner.ReadConfigurationFieldText(name);
         }
 

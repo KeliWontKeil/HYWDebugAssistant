@@ -135,6 +135,8 @@ public sealed class SerialModule : IModule, IActivitySource
         context.Declaration.DeclareCommand(CloseCommand, Tr(SerialText.Close));
         context.Declaration.DeclareCommand(ClearCountersCommand, Tr(SerialText.ViewClearCounters));
 
+        context.Declaration.DeclareInput(ExternalAccessFieldNames.PortName);
+
         // 模块只声明"接入名 + 标准标识"；适配器与参数类型都由框架按标准创建/登记。
         context.Declaration.DeclareExternalAccess(new ExternalAccessDeclaration(AccessName, ExternalAccessStandardIds.Serial)
         {
@@ -158,31 +160,73 @@ public sealed class SerialModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        // **先输入后命令**：刚选完串口就点“打开”时，命令必须看到最新校验结论。
+        while (context.Inbox.TryDequeueInput(out var source, out var text))
+        {
+            OnInput(source, text);
+        }
+
         while (context.Inbox.TryDequeueCommand(out var command))
         {
             OnCommand(command);
         }
 
-        while (context.Inbox.TryDequeueInput(out var source, out var text))
+        if ((reason & StepReason.Start) != 0)
         {
-            OnInput(source, text);
+            ValidateConfiguration();
         }
 
         OnWork();
     }
 
     /// <summary>执行一条命令（step 与直接测试共用）。</summary>
-    public void OnCommand(string commandName) => _ = _channel?.HandleCommand(commandName);
-
-    /// <summary>输入回调（本模块没有输入语义）。</summary>
-    public static void OnInput(string sourceName, string text)
+    public void OnCommand(string commandName)
     {
-        _ = sourceName;
+        if (_context is not null)
+        {
+            ValidateConfiguration();
+        }
+
+        _ = _channel?.HandleCommand(commandName);
+    }
+
+    /// <summary>输入回调：只由选择变化事件触发。</summary>
+    public void OnInput(string sourceName, string text)
+    {
         _ = text;
+        if (sourceName == ExternalAccessFieldNames.PortName)
+        {
+            ValidateConfiguration();
+        }
+    }
+
+    /// <summary>配置被框架写回（还原/导入/字段提交）：重算就绪态。</summary>
+    public void OnConfigurationChanged()
+    {
+        if (_context is not null)
+        {
+            ValidateConfiguration();
+            OnWork();
+        }
     }
 
     /// <summary>发布状态（step 与直接测试共用）。</summary>
     public void OnWork() => _channel?.PublishStatus();
+
+    /// <summary>配置校验：只由输入/动作/生命周期事件调用。</summary>
+    private void ValidateConfiguration()
+    {
+        if (_context is not { } context)
+        {
+            return;
+        }
+
+        var port = context.Values.ReadText("PortName");
+        var ready = !string.IsNullOrWhiteSpace(port);
+        _channel?.SetOpenReadiness(
+            ready,
+            ready ? null : Tr(SerialText.StatusFailedPortNotSelected));
+    }
 
     /// <summary>外部原始字节到达（实例线程）：组帧并从 <c>rx</c> 口发出。</summary>
     /// <param name="payload">原始字节块（长度由框架的单元上限决定）。</param>

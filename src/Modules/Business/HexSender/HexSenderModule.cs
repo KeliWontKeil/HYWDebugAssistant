@@ -297,6 +297,10 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// <summary>**界面上现在红着的那一格**（源名）—— 唯一记录"红"的地方。</summary>
     private string? _shownAlertSource;
 
+    private bool? _lastSendCommandEnabled;
+    private bool? _lastContinuousEnabled;
+    private string? _shownStatus;
+
     /// <summary>输入有效性的统一记账（红圈 + 原因）。</summary>
     private readonly InputValidity _validity = new();
 
@@ -475,6 +479,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
 
         // ④ 判定（纯函数）：只看"这一拍要发的那一份内容"与"刚被拒过没有"
         var verdict = Evaluate(context, senderPage, outgoing, askedAndRefused);
+        ApplySendControls(context, outgoing.Length == 0, verdict);
 
         // ⑤ **只在"这次 toggle 被处理"或"被迫关掉"时写回开关那一格**。
         // 每个普通 step 都把模块算出的值写回会覆盖并发到达的用户意图。
@@ -526,7 +531,7 @@ public sealed class HexSenderModule : IModule, IActivitySource
     /// <b>`CanSend` 只描述"这一页能不能发"，不是"开关成不成立"</b> —— 后者只看 `interval` 那一格
     /// （见 <see cref="ToggleStands"/>）。混在一起就会出现"空页把开关也拨回去"这种错。
     /// </remarks>
-    private readonly record struct Verdict(bool CanSend, string? Message, string? AlertSource);
+    private readonly record struct Verdict(bool CanSend, string? Message, string? AlertSource, bool IsWarning = false);
 
     /// <summary>间隔那一格**现在填的这份**的状态。</summary>
     private enum IntervalState
@@ -557,6 +562,28 @@ public sealed class HexSenderModule : IModule, IActivitySource
 
         // 0 是合法输入值，但不是合法的连续发送周期。
         return _intervalState == IntervalState.Usable && _intervalMs is > 0;
+    }
+
+    /// <summary>把当前页的“可发送/可连续”落到按钮可用态；值不变不重写外观。</summary>
+    /// <param name="context">模块上下文。</param>
+    /// <param name="pageEmpty">当前页内容为空（发送按钮保留可点，点击给一次反馈）。</param>
+    /// <param name="verdict">本拍判定；发送按钮与判定同源，避免两套判据分叉。</param>
+    private void ApplySendControls(IModuleContext context, bool pageEmpty, Verdict verdict)
+    {
+        var canSend = pageEmpty || verdict.CanSend;
+        var canContinuous = ToggleStands(context);
+
+        if (_lastSendCommandEnabled != canSend)
+        {
+            _lastSendCommandEnabled = canSend;
+            context.Appearance.SetEnabled(SendCommand, canSend);
+        }
+
+        if (_lastContinuousEnabled != canContinuous)
+        {
+            _lastContinuousEnabled = canContinuous;
+            context.Appearance.SetEnabled(ContinuousSource, canContinuous);
+        }
     }
 
     /// <summary>
@@ -612,6 +639,16 @@ public sealed class HexSenderModule : IModule, IActivitySource
         if (!pageEmpty && !HexTextCodec.TryParse(outgoing, out _, out var parseFailure))
         {
             return new Verdict(false, Tr(HexSenderText.StatusConvertError, parseFailure), pageSource);
+        }
+
+        // ③b 0 在“只单次发送”的语境下不是错误，但要显式告诉用户连续发送为什么不可用。
+        if (_intervalState == IntervalState.Usable && _intervalMs is 0)
+        {
+            return new Verdict(
+                !pageEmpty,
+                Tr(HexSenderText.StatusIntervalZeroHint),
+                null,
+                IsWarning: true);
         }
 
         // ④ 想连续发送，而那一格是空的 ⇒ 红粘在那一格上（原因还在就一直挂着）
@@ -673,7 +710,20 @@ public sealed class HexSenderModule : IModule, IActivitySource
             _validity.Set(context, previous, false);
         }
 
-        context.Display.SetText(StatusSource, verdict.Message ?? string.Empty);
+        if (verdict.IsWarning && verdict.Message is { Length: > 0 } warning)
+        {
+            _validity.SetWarning(context, IntervalSource, warning);
+        }
+        else
+        {
+            _validity.ClearWarning(context, IntervalSource);
+        }
+
+        if (!string.Equals(_shownStatus, verdict.Message, StringComparison.Ordinal))
+        {
+            _shownStatus = verdict.Message;
+            context.Display.SetText(StatusSource, verdict.Message ?? string.Empty);
+        }
     }
 
     /// <summary>

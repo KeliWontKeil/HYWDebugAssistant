@@ -122,6 +122,8 @@
     "windows.notice.networkCleared": "{0} {1}：已清除网络名",
     "windows.notice.networkFailed": "{0} {1}：网络名未生效 —— {2}",
     "windows.notice.networkSet": "{0} {1}：网络名已设为「{2}」",
+    "windows.notice.resizeHeightAligned": "{0}：高度已与 {1} 对齐",
+    "windows.notice.resizeWidthAligned": "{0}：宽度已与 {1} 对齐",
     "windows.overview.summary": "模块{0} 隐藏{1} 屏幕外{2}",
     "windows.overview.hidden": "已隐藏",
     "windows.overview.offScreen": "屏幕外",

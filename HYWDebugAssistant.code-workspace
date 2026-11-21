@@ -5,6 +5,9 @@
 		}
 	],
 	"settings": {
-		"window.zoomLevel": -0.2
+		"window.zoomLevel": -0.2,
+		"files.exclude": {
+			"**/.cs": true
+		}
 	}
 }

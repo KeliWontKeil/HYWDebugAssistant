@@ -172,6 +172,9 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
     private bool _historyLimited;
     private long _snapshotVersion;
     private long _lastLargeBuildMs;
+    private bool? _lastSaveSelectionEnabled;
+    private bool? _lastSaveAllEnabled;
+    private bool? _lastSaveImageEnabled;
 
     // 无数据时的会话级默认视口（真正有数据后，组运行期范围/配置才是唯一事实源）。
     private long _defaultRangeStart;
@@ -585,8 +588,18 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         readableLimit > 0 && step > 0 && span > 0 && span / step > readableLimit;
 
     /// <summary>单个输入框的校验红框（同值不重复写；原因走统一有效性记账）。</summary>
-    private void SetInputValidity(IModuleContext context, string source, bool invalid) =>
-        _validity.Set(context, source, invalid, invalid ? Tr(WaveformDisplayText.InvalidNumber) : null);
+    private void SetInputValidity(
+        IModuleContext context,
+        string source,
+        bool invalid,
+        string? message = null,
+        ValueValidityOrigin origin = ValueValidityOrigin.Format) =>
+        _validity.Set(
+            context,
+            source,
+            invalid,
+            invalid ? message ?? Tr(WaveformDisplayText.InvalidNumber) : null,
+            origin);
 
     private void ClearInputAlerts(IModuleContext context)
     {
@@ -827,7 +840,9 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
         if (rangeEnd <= rangeStart)
         {
-            SetInputValidity(context, startInput ? XStartSource : XEndSource, invalid: true);
+            var message = Tr(WaveformDisplayText.XRangeConflict);
+            SetInputValidity(context, XStartSource, invalid: true, message, ValueValidityOrigin.Module);
+            SetInputValidity(context, XEndSource, invalid: true, message, ValueValidityOrigin.Module);
             return;
         }
 
@@ -855,7 +870,9 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             var yMax = minInput ? _defaultYMax : value;
             if (yMax <= yMin)
             {
-                SetInputValidity(context, minInput ? YMinSource : YMaxSource, invalid: true);
+                var message = Tr(WaveformDisplayText.YRangeConflict);
+                SetInputValidity(context, YMinSource, invalid: true, message, ValueValidityOrigin.Module);
+                SetInputValidity(context, YMaxSource, invalid: true, message, ValueValidityOrigin.Module);
                 return;
             }
 
@@ -886,7 +903,9 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
         var nextMax = minInput ? currentMax : value;
         if (nextMax <= nextMin)
         {
-            SetInputValidity(context, minInput ? YMinSource : YMaxSource, invalid: true);
+            var message = Tr(WaveformDisplayText.YRangeConflict);
+            SetInputValidity(context, YMinSource, invalid: true, message, ValueValidityOrigin.Module);
+            SetInputValidity(context, YMaxSource, invalid: true, message, ValueValidityOrigin.Module);
             return;
         }
 
@@ -2440,6 +2459,31 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
             ? _settings.CustomRateHz
             : group?.DeclaredRateHz ?? 0;
 
+    /// <summary>保存动作按“有没有可保存的数据”闸门；值不变不重写外观。</summary>
+    private void PublishSaveControls(IModuleContext context)
+    {
+        var hasRange = ActiveGroup is { HasRange: true };
+        var hasAny = _groups.Values.Any(group => group.HasRange);
+
+        if (_lastSaveSelectionEnabled != hasRange)
+        {
+            _lastSaveSelectionEnabled = hasRange;
+            context.Appearance.SetEnabled(SaveSelectionCommand, hasRange);
+        }
+
+        if (_lastSaveAllEnabled != hasAny)
+        {
+            _lastSaveAllEnabled = hasAny;
+            context.Appearance.SetEnabled(SaveAllCommand, hasAny);
+        }
+
+        if (_lastSaveImageEnabled != hasRange)
+        {
+            _lastSaveImageEnabled = hasRange;
+            context.Appearance.SetEnabled(SaveImageCommand, hasRange);
+        }
+    }
+
     private void PublishMeta(IModuleContext context)
     {
         var active = ActiveGroup;
@@ -2488,6 +2532,7 @@ public sealed class WaveformDisplayModule : IModule, IActivitySource, IDisposabl
 
         var settings = _settings;
         UpdateTickAlerts(context);
+        PublishSaveControls(context);
         var snapshot = new
         {
             revision = ++_metaRevision,

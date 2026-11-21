@@ -310,7 +310,7 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
             }
             else
             {
-                _validity.Set(context, GroupSource, true, Tr(ScaleBarVerticalText.InvalidInteger));
+                _validity.Set(context, GroupSource, true, Tr(ScaleBarVerticalText.InvalidInteger), ValueValidityOrigin.Format);
             }
         }
 
@@ -329,7 +329,7 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
             }
             else
             {
-                _validity.Set(context, ChannelSource, true, Tr(ScaleBarVerticalText.InvalidInteger));
+                _validity.Set(context, ChannelSource, true, Tr(ScaleBarVerticalText.InvalidInteger), ValueValidityOrigin.Format);
             }
         }
 
@@ -414,7 +414,7 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
                 candidate = candidate with { ZeroDelayMs = defaults.ZeroDelayMs };
                 _validity.Set(context, ZeroDelaySource, false);
             }
-            else if (TryParseClamped(
+            else if (TryParseInRange(
                          delayText,
                          ScaleBarSettings.MinimumZeroDelayMs,
                          ScaleBarSettings.MaximumZeroDelayMs,
@@ -425,7 +425,7 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
             }
             else
             {
-                _validity.Set(context, ZeroDelaySource, true, Tr(ScaleBarVerticalText.InvalidNumber));
+                _validity.Set(context, ZeroDelaySource, true, Tr(ScaleBarVerticalText.InvalidNumber), ValueValidityOrigin.Format);
             }
         }
 
@@ -458,7 +458,7 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
                 candidate = candidate with { SmoothingMs = defaults.SmoothingMs };
                 _validity.Set(context, SmoothingMsSource, false);
             }
-            else if (TryParseClamped(
+            else if (TryParseInRange(
                          smoothingMsText,
                          ScaleBarSettings.MinimumSmoothingMs,
                          ScaleBarSettings.MaximumSmoothingMs,
@@ -469,7 +469,7 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
             }
             else
             {
-                _validity.Set(context, SmoothingMsSource, true, Tr(ScaleBarVerticalText.InvalidNumber));
+                _validity.Set(context, SmoothingMsSource, true, Tr(ScaleBarVerticalText.InvalidNumber), ValueValidityOrigin.Format);
             }
         }
 
@@ -480,7 +480,7 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
                 candidate = candidate with { Decimals = defaults.Decimals };
                 _validity.Set(context, DecimalsSource, false);
             }
-            else if (TryParseClamped(
+            else if (TryParseInRange(
                          decimalsText,
                          ScaleBarSettings.MinimumDecimals,
                          ScaleBarSettings.MaximumDecimals,
@@ -491,7 +491,7 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
             }
             else
             {
-                _validity.Set(context, DecimalsSource, true, Tr(ScaleBarVerticalText.InvalidNumber));
+                _validity.Set(context, DecimalsSource, true, Tr(ScaleBarVerticalText.InvalidNumber), ValueValidityOrigin.Format);
             }
         }
 
@@ -681,15 +681,17 @@ public sealed class ScaleBarVerticalModule : IModule, IActivitySource, IDisposab
         context.Ports.Publish(source, buffer);
     }
 
-    private static bool TryParseClamped(string text, int minimum, int maximum, out int value)
+    private static bool TryParseInRange(string text, int minimum, int maximum, out int value)
     {
         value = 0;
-        if (!int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+        if (!int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            || parsed < minimum
+            || parsed > maximum)
         {
             return false;
         }
 
-        value = Math.Clamp(parsed, minimum, maximum);
+        value = parsed;
         return true;
     }
 

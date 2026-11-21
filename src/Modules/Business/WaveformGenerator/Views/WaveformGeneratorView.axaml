@@ -67,14 +67,14 @@
                            ToolTip.Tip="{loc:Tr view.removeGroup}" />
 
           <!-- 2. 组参数：频率/周期/每周期点数属于组，所有通道共享。 -->
-          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="26" Width="42" Height="22" Classes="caption right"
+          <ui:ModuleLabel Canvas.Left="100" Canvas.Top="26" Width="42" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.groupName}" />
-          <ui:ModuleTextSurface x:Name="GroupNameInput" Canvas.Left="46" Canvas.Top="26" Width="180" Height="22"
+          <ui:ModuleTextSurface x:Name="GroupNameInput" Canvas.Left="146" Canvas.Top="26" Width="100" Height="22"
                                 Mode="Input" TextFormat="Text" Text="G1"
                                 CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.GroupName}" />
-          <ui:ModuleLabel Canvas.Left="236" Canvas.Top="26" Width="42" Height="22" Classes="caption right"
+          <ui:ModuleLabel Canvas.Left="0" Canvas.Top="26" Width="42" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.groupId}" />
-          <ui:ModuleTextSurface x:Name="GroupIdInput" Canvas.Left="282" Canvas.Top="26" Width="72" Height="22"
+          <ui:ModuleTextSurface x:Name="GroupIdInput" Canvas.Left="46" Canvas.Top="26" Width="48" Height="22"
                                 Mode="Input" TextFormat="PositiveWhole" Text="1"
                                 CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.GroupId}" />
           <ui:ModuleToggle Canvas.Left="452" Canvas.Top="26" Width="36" Height="22" IsChecked="True"
@@ -142,7 +142,7 @@
                                 ToolTip.Tip="{loc:Tr view.channelNumberTip}" />
           <ui:ModuleLabel Canvas.Left="100" Canvas.Top="114" Width="42" Height="22" Classes="caption right"
                           VerticalAlignment="Center" Text="{loc:Tr view.channelName}" />
-          <ui:ModuleTextSurface x:Name="ChannelNameInput" Canvas.Left="146" Canvas.Top="114" Width="298" Height="22"
+          <ui:ModuleTextSurface x:Name="ChannelNameInput" Canvas.Left="146" Canvas.Top="114" Width="100" Height="22"
                                 Mode="Input" TextFormat="Text" Text="CH1"
                                 CommitMode="OnChange" Value="{x:Static views:WaveformGeneratorViewKeys.ChannelName}" />
           <ui:ModuleToggle x:Name="ChannelEnabledToggle" Canvas.Left="452" Canvas.Top="114" Width="36" Height="22"

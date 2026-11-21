@@ -11,7 +11,6 @@ internal static class TemplateText
     public const string ViewTitle = "view.title";
     public const string Interval = "view.interval";
     public const string Count = "view.count";
-    public const string State = "view.state";
     public const string Reset = "view.reset";
     public const string Ready = "state.ready";
     public const string Received = "state.received";

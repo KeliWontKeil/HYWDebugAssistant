@@ -425,16 +425,24 @@ internal sealed class ProjectedTextEditing
         _lastDisplay = _projection.Display;
 
         var rawCaret = Math.Clamp(rawStart + inserted.Length, 0, _raw.Length);
+        var identityDisplay = string.Equals(_projection.Display, _raw, StringComparison.Ordinal);
+        var editorAlreadyShowsDisplay = string.Equals(_editor.Text, _lastDisplay, StringComparison.Ordinal);
 
         _suppress = true;
         try
         {
-            if (!string.Equals(_editor.Text, _lastDisplay, StringComparison.Ordinal))
+            if (!editorAlreadyShowsDisplay)
             {
                 _editor.Text = _lastDisplay;
             }
 
-            SetCaretFromRaw(rawCaret);
+            // 普通文本（无标记/转义投影）时编辑器的文本已经等于显示文本，原生 TextBox
+            // 已把光标放在插入点；再写一次 CaretIndex 只会制造一次多余的位置回退。
+            // 只有过滤/替换后文本真的变了，或投影不是 identity 时才需要重算光标。
+            if (!identityDisplay || !editorAlreadyShowsDisplay)
+            {
+                SetCaretFromRaw(rawCaret);
+            }
         }
         finally
         {

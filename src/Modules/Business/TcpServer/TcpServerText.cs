@@ -23,6 +23,7 @@ public static class TcpServerText
     public const string StatusFailedParametersNotRegistered = "status.failed.parametersNotRegistered";
     public const string StatusFailedAddressInvalid = "status.failed.addressInvalid";
     public const string StatusFailedPortOutOfRange = "status.failed.portOutOfRange";
+    public const string StatusFailedMaxConnectionsOutOfRange = "status.failed.maxConnectionsOutOfRange";
     public const string StatusFailedPortInUse = "status.failed.portInUse";
     public const string StatusFailedListenFailed = "status.failed.listenFailed";
     public const string StatusFailedAcceptFailed = "status.failed.acceptFailed";
@@ -37,5 +38,6 @@ public static class TcpServerText
     public const string StatusSendLost = "status.sendLost";
     public const string StatusTxBacklog = "status.txBacklog";
     public const string StatusSuspended = "status.suspended";
+    public const string StatusConfigNotReady = "status.configNotReady";
     public const string StatusIdle = "status.idle";
 }

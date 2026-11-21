@@ -302,7 +302,7 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
             }
             else
             {
-                _validity.Set(context, GroupSource, true, Tr(GaugeDisplayText.InvalidInteger));
+                _validity.Set(context, GroupSource, true, Tr(GaugeDisplayText.InvalidInteger), ValueValidityOrigin.Format);
             }
         }
 
@@ -321,7 +321,7 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
             }
             else
             {
-                _validity.Set(context, ChannelSource, true, Tr(GaugeDisplayText.InvalidInteger));
+                _validity.Set(context, ChannelSource, true, Tr(GaugeDisplayText.InvalidInteger), ValueValidityOrigin.Format);
             }
         }
 
@@ -420,7 +420,7 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
                 candidate = candidate with { ZeroDelayMs = defaults.ZeroDelayMs };
                 _validity.Set(context, ZeroDelaySource, false);
             }
-            else if (TryParseClamped(
+            else if (TryParseInRange(
                          delayText,
                          GaugeSettings.MinimumZeroDelayMs,
                          GaugeSettings.MaximumZeroDelayMs,
@@ -431,7 +431,7 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
             }
             else
             {
-                _validity.Set(context, ZeroDelaySource, true, Tr(GaugeDisplayText.InvalidNumber));
+                _validity.Set(context, ZeroDelaySource, true, Tr(GaugeDisplayText.InvalidNumber), ValueValidityOrigin.Format);
             }
         }
 
@@ -464,7 +464,7 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
                 candidate = candidate with { SmoothingMs = defaults.SmoothingMs };
                 _validity.Set(context, SmoothingMsSource, false);
             }
-            else if (TryParseClamped(
+            else if (TryParseInRange(
                          smoothingMsText,
                          GaugeSettings.MinimumSmoothingMs,
                          GaugeSettings.MaximumSmoothingMs,
@@ -475,7 +475,7 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
             }
             else
             {
-                _validity.Set(context, SmoothingMsSource, true, Tr(GaugeDisplayText.InvalidNumber));
+                _validity.Set(context, SmoothingMsSource, true, Tr(GaugeDisplayText.InvalidNumber), ValueValidityOrigin.Format);
             }
         }
 
@@ -486,7 +486,7 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
                 candidate = candidate with { Decimals = defaults.Decimals };
                 _validity.Set(context, DecimalsSource, false);
             }
-            else if (TryParseClamped(
+            else if (TryParseInRange(
                          decimalsText,
                          GaugeSettings.MinimumDecimals,
                          GaugeSettings.MaximumDecimals,
@@ -497,7 +497,7 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
             }
             else
             {
-                _validity.Set(context, DecimalsSource, true, Tr(GaugeDisplayText.InvalidNumber));
+                _validity.Set(context, DecimalsSource, true, Tr(GaugeDisplayText.InvalidNumber), ValueValidityOrigin.Format);
             }
         }
 
@@ -665,15 +665,17 @@ public sealed class GaugeDisplayModule : IModule, IActivitySource, IDisposable
         context.Ports.Publish(source, buffer);
     }
 
-    private static bool TryParseClamped(string text, int minimum, int maximum, out int value)
+    private static bool TryParseInRange(string text, int minimum, int maximum, out int value)
     {
         value = 0;
-        if (!int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+        if (!int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            || parsed < minimum
+            || parsed > maximum)
         {
             return false;
         }
 
-        value = Math.Clamp(parsed, minimum, maximum);
+        value = parsed;
         return true;
     }
 

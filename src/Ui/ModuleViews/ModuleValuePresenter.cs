@@ -90,6 +90,28 @@ internal sealed class ModuleValuePresenter
             IsKnown: true);
     }
 
+    /// <summary>把正在编辑的文本交给值层：配置字段只投递输入事件，声明值写视图状态。</summary>
+    /// <remarks>
+    /// 配置字段的“当前文本”归控件所有；模块在 <c>OnInput(source, text)</c> 里接收它，
+    /// 不通过值面读取，也不在键入过程中写配置。声明值仍以视图状态为存放处。
+    /// </remarks>
+    internal void PreviewValue(string name, string text)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
+        // 配置字段不是声明值：它们要靠输入事件知道“这一格正在被编辑”。
+        if (_readField(name) is not null)
+        {
+            _ = _command.SubmitInput(_instanceId, name, text);
+            return;
+        }
+
+        _viewState?.SetInputText(_instanceId, name, text);
+    }
+
     /// <summary>把一个编辑结果交给后端；失败结论只影响该值。</summary>
     internal void CommitValue(string name, string text)
     {
@@ -100,8 +122,16 @@ internal sealed class ModuleValuePresenter
             return;
         }
 
-        if (_readField(name) is not null)
+        if (_readField(name) is { } field)
         {
+            // 模块已把当前文本判为无效（红框/悬停原因）时不写配置：
+            // 非法输入必须保留上一份有效值，不能因为失焦/回车把它提交进去。
+            if (_query.TryGetValueValidity(_instanceId, name, out var moduleValidity)
+                && moduleValidity.IsInvalid)
+            {
+                return;
+            }
+
             var result = _command.UpdateConfigurationField(_instanceId, name, text);
 
             SetValidity(
@@ -109,6 +139,14 @@ internal sealed class ModuleValuePresenter
                 result.Succeeded
                     ? ValueValidity.Valid
                     : ValueValidity.Error(string.Join("；", result.Failures)));
+
+            // 文本字段已在 PreviewValue 逐键投递；离散配置字段（下拉/开关）在提交时补一次，
+            // 让网络模块的地址/端口选择也能走同一事件驱动校验。
+            if (result.Succeeded && field.Kind is not ConfigFieldKind.Text)
+            {
+                _ = _command.SubmitInput(_instanceId, name, text);
+            }
+
             return;
         }
 

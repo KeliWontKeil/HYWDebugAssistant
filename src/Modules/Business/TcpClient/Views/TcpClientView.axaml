@@ -32,7 +32,7 @@
 
     <ui:ModuleLabel Canvas.Left="0" Canvas.Top="1" Width="56" Height="24"
                     Classes="caption right" Field="{x:Static views:TcpClientViewKeys.RemoteHost}" />
-    <!-- 配置变更会重开会话：这里显式用回车/失焦提交，其余模块输入默认逐键生效。 -->
+    <!-- 配置变更会重开会话：回车/失焦提交；键入过程经预览输入实时校验，不写配置。 -->
     <ui:ModuleTextSurface Canvas.Left="60" Canvas.Top="1" Width="108" Height="24"
                           Mode="Input" TextFormat="Text" CommitMode="OnExplicit"
                           Value="{x:Static views:TcpClientViewKeys.RemoteHost}" />

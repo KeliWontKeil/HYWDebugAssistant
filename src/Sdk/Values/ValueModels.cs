@@ -34,6 +34,16 @@ public enum ValueNoticeSeverity
     Error = 2,
 }
 
+/// <summary>无效/警告结论的来源，用于同一字段上“格式错误”和“模块规则错误”的优先级。</summary>
+public enum ValueValidityOrigin
+{
+    /// <summary>输入格式、空值等字段自身问题。</summary>
+    Format = 0,
+
+    /// <summary>符合格式但违反模块规则（重复、冲突、生成条件等）。</summary>
+    Module = 1,
+}
+
 /// <summary>某个值当前的那一句结论（错误 / 警告 / 提示）。</summary>
 /// <param name="Severity">严重程度。</param>
 /// <param name="Message">给人看的一句话。</param>
@@ -52,10 +62,14 @@ public readonly record struct ValueValidity(bool IsInvalid, ValueNotice? Notice)
     /// <summary>有效且没有结论。</summary>
     public static readonly ValueValidity Valid = new(false, null);
 
+    /// <summary>结论来源；未指定时为模块规则。</summary>
+    public ValueValidityOrigin Origin { get; init; } = ValueValidityOrigin.Module;
+
     /// <summary>无效并给一句原因。</summary>
     /// <param name="message">原因。</param>
-    public static ValueValidity Error(string message) =>
-        new(true, new ValueNotice(ValueNoticeSeverity.Error, message));
+    /// <param name="origin">来源（格式或模块规则）。</param>
+    public static ValueValidity Error(string message, ValueValidityOrigin origin = ValueValidityOrigin.Module) =>
+        new(true, new ValueNotice(ValueNoticeSeverity.Error, message)) { Origin = origin };
 
     /// <summary>有效但给一句警告。</summary>
     /// <param name="message">警告。</param>

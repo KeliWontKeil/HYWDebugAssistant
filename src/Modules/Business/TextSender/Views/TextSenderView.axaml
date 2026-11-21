@@ -89,7 +89,7 @@
                       VerticalAlignment="Center" Text="{loc:Tr view.continuous}" />
 
       <!-- 间隔：输入框一条矩形，单位 `ms` 是紧挨着的普通标签。 -->
-      <ui:ModuleTextSurface Canvas.Left="188" Canvas.Top="4" Width="48" Height="24" Mode="Input" TextFormat="NonNegativeWhole"
+      <ui:ModuleTextSurface Canvas.Left="188" Canvas.Top="4" Width="48" Height="24" Mode="Input" TextFormat="PositiveWhole"
                             Value="{x:Static views:TextSenderViewKeys.Interval}" TextAlignment="Right" CommitMode="OnChange" />
       <ui:ModuleLabel Canvas.Left="237" Canvas.Top="4" Width="20" Height="24"
                       Classes="caption" Text="{loc:Tr view.intervalUnit}" />

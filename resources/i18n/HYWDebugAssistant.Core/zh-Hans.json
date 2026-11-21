@@ -194,6 +194,7 @@
     "core.services.schema.duplicateField": "字段名在多份配置中重复：{0}",
     "core.services.schema.enumOptions": "可选项必须是：{0}",
     "core.services.schema.integerFormat": "整数格式不正确",
+  "core.services.schema.range": "超出允许范围（{0} … {1}）",
     "core.services.schema.noEditableFields": "该模块的配置项均不可编辑",
     "core.services.schema.noFields": "该模块没有可编辑的配置项",
     "core.services.schema.notObject": "当前配置无法序列化为对象",

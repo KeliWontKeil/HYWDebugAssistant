@@ -306,6 +306,9 @@ internal sealed class ModuleViewContext : IModuleViewContext
     }
 
     /// <inheritdoc />
+    public void PreviewValue(string name, string text) => _values.PreviewValue(name, text);
+
+    /// <inheritdoc />
     public ValueState ReadValue(string name) => _values.ReadValue(name);
 
     /// <inheritdoc />

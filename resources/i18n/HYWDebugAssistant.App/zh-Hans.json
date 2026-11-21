@@ -1,6 +1,6 @@
 {
   "language": "zh-Hans",
   "entries": {
-    "app.startup.moduleRootsScanned": "模块来源根已扫描（{0} 个根）：已加载 {1} 个，失败 {2} 个 —— {3}（详见「模块清单」）"
+    "app.startup.moduleRootsScanned": "模块来源已扫描（{0} 个）：已加载 {1}个，失败{2}个，{3}（详见「模块清单」）"
   }
 }

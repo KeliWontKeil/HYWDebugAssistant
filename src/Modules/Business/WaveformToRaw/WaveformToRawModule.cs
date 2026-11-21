@@ -252,7 +252,12 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
         ArgumentNullException.ThrowIfNull(context);
 
         MigrateLegacyInputs(context);
-        ApplySettings(context);
+
+        // 设置只在输入/动作/激活/配置变更时重读；数据帧使用已生效的那一份。
+        if ((reason & (StepReason.Start | StepReason.Input | StepReason.Command)) != 0)
+        {
+            ApplySettings(context);
+        }
 
         while (context.Inbox.TryDequeueCommand(out var command))
         {
@@ -297,30 +302,66 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
                 ? parsed
                 : _settings.Protocol;
 
-        // 帧头/帧尾是**十六进制字节串**；空/非法 ⇒ 保持上一次有效字节并标红。
-        var header = ReadHex(context, HeaderHexInput, _settings.Header, out var headerInvalid);
-        var footer = ReadHex(context, FooterHexInput, _settings.Footer, out var footerInvalid);
+        // 帧头/帧尾只属于自定义文本帧；其它协议不读这两个字段，也不把它们的旧红留着。
+        var isTextFrame = protocol is WaveformToRawProtocol.TextFrame;
+        byte[] header;
+        byte[] footer;
+        bool headerInvalid;
+        bool footerInvalid;
+        if (isTextFrame)
+        {
+            header = ReadHex(context, HeaderHexInput, _settings.Header, out headerInvalid);
+            footer = ReadHex(context, FooterHexInput, _settings.Footer, out footerInvalid);
+        }
+        else
+        {
+            header = _settings.Header;
+            footer = _settings.Footer;
+            headerInvalid = false;
+            footerInvalid = false;
+        }
+
         var groupId = ReadGroupId(context, GroupIdInput, _settings.GroupId, out var groupInvalid);
+        var prefix = context.Values.ReadText(PrefixInput) ?? string.Empty;
+        var decimals = ReadInt(context, DecimalsInput, _settings.Decimals, 0, MaxDecimals, out var decimalsInvalid);
         _headerInvalid = headerInvalid;
         _footerInvalid = footerInvalid;
         _groupInvalid = groupInvalid;
 
         if (reportAlerts)
         {
-            _validity.Set(context, HeaderHexInput, headerInvalid, headerInvalid ? WaveformToRawText.Get(WaveformToRawText.HexHint) : null);
-            _validity.Set(context, FooterHexInput, footerInvalid, footerInvalid ? WaveformToRawText.Get(WaveformToRawText.HexHint) : null);
+            _validity.Set(
+                context,
+                HeaderHexInput,
+                headerInvalid,
+                headerInvalid ? WaveformToRawText.Get(WaveformToRawText.HexHint) : null);
+            _validity.Set(
+                context,
+                FooterHexInput,
+                footerInvalid,
+                footerInvalid ? WaveformToRawText.Get(WaveformToRawText.HexHint) : null);
             _validity.Set(context, GroupIdInput, groupInvalid, groupInvalid ? WaveformToRawText.Get(WaveformToRawText.BadGroup) : null);
+            _validity.Set(
+                context,
+                DecimalsInput,
+                decimalsInvalid,
+                decimalsInvalid ? WaveformToRawText.Get(WaveformToRawText.InvalidDecimals) : null);
         }
-
-        var prefix = context.Values.ReadText(PrefixInput) ?? string.Empty;
-        var decimals = ReadInt(context, DecimalsInput, _settings.Decimals, 0, MaxDecimals);
 
         return new Settings(protocol, header, footer, prefix, decimals, groupId);
     }
 
     private static byte[] ReadHex(IModuleContext context, string name, byte[] fallback, out bool invalid)
     {
-        if (!HexInput.TryParse(context.Values.ReadText(name), out var bytes))
+        var text = context.Values.ReadText(name);
+        if (text is null)
+        {
+            // 框架清空（还原/移除）才回默认；用户把文本清空是“必填缺失”，不是同一件事。
+            invalid = false;
+            return fallback;
+        }
+
+        if (!HexInput.TryParse(text, out var bytes))
         {
             invalid = true;
             return fallback;
@@ -451,9 +492,15 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
     private static int ReadGroupId(IModuleContext context, string name, int fallback, out bool invalid)
     {
         var text = context.Values.ReadText(name);
-        if (string.IsNullOrWhiteSpace(text))
+        if (text is null)
         {
             invalid = false;
+            return fallback;
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            invalid = true;
             return fallback;
         }
 
@@ -463,12 +510,19 @@ public sealed class WaveformToRawModule : IModule, IActivitySource
         return invalid ? fallback : value;
     }
 
-    private static int ReadInt(IModuleContext context, string name, int fallback, int minimum, int maximum)
+    private static int ReadInt(IModuleContext context, string name, int fallback, int minimum, int maximum, out bool invalid)
     {
         var text = context.Values.ReadText(name);
-        return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
-            ? Math.Clamp(value, minimum, maximum)
-            : fallback;
+        if (text is null)
+        {
+            invalid = false;
+            return fallback;
+        }
+
+        invalid = !int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            || value < minimum
+            || value > maximum;
+        return invalid ? fallback : value;
     }
 
     /// <summary>本模块负责的通道组；组号解析保证 >=1，不再兜底 1。</summary>

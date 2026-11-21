@@ -88,6 +88,7 @@ public sealed class ModuleTextSurface : ModuleElement
     private bool _showNewlineMarks = true;
     private string? _placeholderText;
     private bool _valueRegistered;
+    private bool _valueLoaded;
     private string _committedValue = string.Empty;
     private NewlineMode? _lastNewlineMode;
     private object? _baseToolTip;
@@ -386,12 +387,26 @@ public sealed class ModuleTextSurface : ModuleElement
             _committedValue = state.Value;
         }
 
-        // 用户正在输入时不覆盖本地意图；失焦后下一帧接受值层的有效值。
+        // **首次同步是“视图挂上值”的事件**：把当前值显示出来并投递一次预览，
+        // 让模块按界面此刻显示的内容校验；视图重开时也借此把上一窗口的未提交草稿恢复为已保存值。
+        if (!_valueLoaded)
+        {
+            _valueLoaded = true;
+            SetSurfaceText(state.Value, null);
+            context.PreviewValue(Value, state.Value);
+            ApplyValueNotice(state.Notice);
+            return;
+        }
+
+        // 普通刷新只同步显示：用户正在输入时不覆盖本地意图；值层已判无效时保留用户文本。
+        // 这里**不再**投递预览——预览只属于用户编辑与首同步。
         if (!_input.IsKeyboardFocusWithin
+            && !state.IsInvalid
             && !string.Equals(currentText, state.Value, StringComparison.Ordinal))
         {
             SetSurfaceText(state.Value, null);
         }
+
         ApplyValueNotice(state.Notice);
     }
 
@@ -752,6 +767,7 @@ public sealed class ModuleTextSurface : ModuleElement
         }
 
         _textValue = text;
+        _context.PreviewValue(Value, text);
 
         // 提交时机是控件的操作属性：即时档每次修改都交给值层，显式档等 Enter/Commit。
         if (CommitMode == ValueCommitMode.OnChange)

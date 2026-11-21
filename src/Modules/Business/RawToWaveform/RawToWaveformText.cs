@@ -9,8 +9,6 @@ internal static class RawToWaveformText
     public const string Description = "module.description";
     public const string RoleDecode = "role.decode";
     public const string RoleEmit = "role.emit";
-    public const string Header = "view.header";
-    public const string Footer = "view.footer";
     public const string Channels = "view.channels";
     public const string GroupShort = "view.groupShort";
     public const string Frames = "view.frames";
@@ -19,7 +17,6 @@ internal static class RawToWaveformText
     public const string Ready = "state.ready";
     public const string Converting = "state.converting";
     public const string ResetDone = "state.reset";
-    public const string BadConfig = "state.bad-config";
 
     /// <summary>帧头/帧尾没有可用的十六进制值。</summary>
     public const string BadHex = "state.bad-hex";
@@ -29,6 +26,7 @@ internal static class RawToWaveformText
 
     /// <summary>组号必须是 1 基正整数。</summary>
     public const string BadGroup = "state.bad-group";
+    public const string InvalidRate = "state.invalid-rate";
 
     /// <summary>帧头/帧尾输入框的悬停提示。</summary>
     public const string HexHint = "view.hexHint";

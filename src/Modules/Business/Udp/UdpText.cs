@@ -22,6 +22,7 @@ public static class UdpText
     public const string StatusFailedAddressInvalid = "status.failed.addressInvalid";
     public const string StatusFailedWildcardAddress = "status.failed.wildcardAddressNotAllowed";
     public const string StatusFailedPortOutOfRange = "status.failed.portOutOfRange";
+    public const string StatusFailedTargetPortOutOfRange = "status.failed.targetPortOutOfRange";
     public const string StatusFailedPortInUse = "status.failed.portInUse";
     public const string StatusFailedBindFailed = "status.failed.bindFailed";
     public const string StatusFailedOpenFailed = "status.failed.openFailed";
@@ -35,5 +36,6 @@ public static class UdpText
     public const string StatusSendLost = "status.sendLost";
     public const string StatusTxBacklog = "status.txBacklog";
     public const string StatusSuspended = "status.suspended";
+    public const string StatusConfigNotReady = "status.configNotReady";
     public const string StatusIdle = "status.idle";
 }

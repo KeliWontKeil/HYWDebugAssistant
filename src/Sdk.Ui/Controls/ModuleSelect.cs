@@ -59,6 +59,7 @@ public sealed class ModuleSelect : ComboBox, IModuleViewElement, IModuleElementI
     private IModuleViewContext? _context;
     private IReadOnlyList<ModuleSelectOption> _options = [];
     private string _selectedKey = string.Empty;
+    private string? _autoClearedValue;
     private bool _appearanceInvalid;
 
     /// <summary>造一个通用下拉。</summary>
@@ -104,7 +105,7 @@ public sealed class ModuleSelect : ComboBox, IModuleViewElement, IModuleElementI
     /// </summary>
     public AvaloniaList<ModuleSelectOption> PreviewOptions { get; } = [];
 
-    /// <summary>当前选中项的键（不存在时保持原选中，不静默选第一项）。</summary>
+    /// <summary>当前选中项的键（不在当前选项时显示为空选择；不静默选第一项）。</summary>
     public string SelectedKey
     {
         get => _selectedKey;
@@ -197,7 +198,16 @@ public sealed class ModuleSelect : ComboBox, IModuleViewElement, IModuleElementI
             return;
         }
 
-        if (state.Choices is { Count: > 0 } choices)
+        if (!state.IsEnabled || state.IsReadOnly)
+        {
+            // 活动会话/只读：当前值是会话事实，不在这里程序化改选项或清值。
+            // 字段恢复可编辑后的下一次刷新再与当前可用集合同步。
+            UpdateErrorRing();
+            ApplyNoticeToolTip(state.Notice);
+            return;
+        }
+
+        if (state.Choices is { } choices)
         {
             var options = choices
                 .Select(choice => new ModuleSelectOption(choice.Value, choice.Title))
@@ -206,6 +216,23 @@ public sealed class ModuleSelect : ComboBox, IModuleViewElement, IModuleElementI
             if (!SameOptions(_options, options))
             {
                 Options = options;
+            }
+
+            // 动态选项是环境的**完整快照**：当前值不在里面，说明它已不可用。
+            // 清空是同步的自然结果——通过正常值通道提交一次空值，不是额外的“清设备”命令。
+            var value = state.Value;
+            var available = value.Length == 0
+                || choices.Any(choice => string.Equals(choice.Value, value, StringComparison.Ordinal));
+
+            if (available)
+            {
+                _autoClearedValue = null;
+            }
+            else if (!state.IsInvalid
+                     && !string.Equals(_autoClearedValue, value, StringComparison.Ordinal))
+            {
+                _autoClearedValue = value;
+                context.CommitValue(Value, string.Empty);
             }
         }
 
@@ -275,7 +302,21 @@ public sealed class ModuleSelect : ComboBox, IModuleViewElement, IModuleElementI
             }
         }
 
-        if (index < 0 || SelectedIndex == index)
+        if (index < 0)
+        {
+            // 键已不在当前可用集合里：清掉视觉选中，不静默选第一项。
+            // 值本身由 Refresh 通过值通道清空；这里只处理选择显示。
+            if (SelectedIndex >= 0)
+            {
+                _syncing = true;
+                SelectedIndex = -1;
+                _syncing = false;
+            }
+
+            return;
+        }
+
+        if (SelectedIndex == index)
         {
             return;
         }

@@ -132,6 +132,19 @@ internal static class ConfigurationSchemaBuilder
             return false;
         }
 
+        var metadata = targetProperty.GetCustomAttribute<ConfigurationFieldAttribute>();
+        if (metadata is not null
+            && double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var numeric)
+            && ((double.IsFinite(metadata.Minimum) && numeric < metadata.Minimum)
+                || (double.IsFinite(metadata.Maximum) && numeric > metadata.Maximum)))
+        {
+            failure = $"{DisplayName(targetProperty)}：{CoreText.Get(
+                "core.services.schema.range",
+                OrNull(metadata.Minimum)?.ToString(CultureInfo.InvariantCulture) ?? "-",
+                OrNull(metadata.Maximum)?.ToString(CultureInfo.InvariantCulture) ?? "-")}";
+            return false;
+        }
+
         node[targetProperty.Name] = jsonValue;
 
         try
@@ -184,7 +197,8 @@ internal static class ConfigurationSchemaBuilder
         // **动态可选项**：配置对象自己知道"现在有哪些"（如本机当前可用的外部设备）⇒ 该字段改为**下拉**呈现。
         // 返回 `null` 才表示"这个字段不是动态字段"；**空表表示"是动态字段但现在没有可选项"**（两件事不能混同）。
         // 当前值是否留在选项里由 provider 决定：保留可避免把已存值显示成第一项；
-        // 不保留则下拉框显示为空选择，这是“这里现在没有可用值”，不生成额外报错。
+        // 不保留则选项是环境的完整快照——下拉控件显示空选择，并通过值通道清空已保存值，
+        // 模块随后按空值禁用动作。这是选项同步的自然结果，不是额外命令。
         if (configuration is IConfigurationChoices provider && provider.GetChoices(property.Name) is { } dynamic)
         {
             var list = new List<ConfigurationFieldChoice>();

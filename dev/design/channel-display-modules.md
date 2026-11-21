@@ -84,7 +84,7 @@
 | 姿态：`settings.style` / `unit` / `zoom` / `grid` / `labels` / `invertRoll|Pitch|Yaw` / `lostZero` / `lostDelay` | 枚举/布尔/数字 | 见表 | 渲染物只在浮层面板里 |
 
 - 命令 `resetSettings` 只重置 `settings.*`，不动 `input.*`；值被清空（模块"还原"）时按默认重新解析。
-- 上下界互逆或数字非法：不应用该设置，`Values.Report` 一条结论，保留上一份有效设置；可归一化项夹紧后生效。用户输入空串按非法处理；只有框架清空值（`ReadText` 为 `null`，还原/移除值）才回默认。
+- 上下界互逆或数字非法：不应用该设置，`Values.Report` 一条结论，保留上一份有效设置；**不做静默夹紧**。用户输入空串按非法处理；只有框架清空值（`ReadText` 为 `null`，还原/移除值）才回默认。
 
 ### 4.4 值编辑器职责拆分（本轮修正）
 

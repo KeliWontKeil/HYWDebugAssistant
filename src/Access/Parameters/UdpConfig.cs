@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Sockets;
 using HYWDebugAssistant.Sdk.Configuration;
 
 namespace HYWDebugAssistant.Access.Parameters;
@@ -30,7 +28,7 @@ public sealed class UdpConfig : IConfigurationChoices
     public string LocalAddress { get; set; } = "127.0.0.1";
 
     /// <summary>本地绑定端口。</summary>
-    [ConfigurationField(TitleKey = UdpConfigText.LocalPort, GroupKey = UdpConfigText.GroupLocal, Minimum = 1, Maximum = 65535)]
+    [ConfigurationField(TitleKey = UdpConfigText.LocalPort, GroupKey = UdpConfigText.GroupLocal, Minimum = 0, Maximum = 65535)]
     public int LocalPort { get; set; } = 60721;
 
     /// <summary>默认目标地址（留空 = 只收不发）。</summary>
@@ -52,36 +50,19 @@ public sealed class UdpConfig : IConfigurationChoices
     public bool Broadcast { get; set; }
 
     /// <inheritdoc />
-    public IReadOnlyList<string>? GetChoices(string fieldName)
-    {
-        if (!string.Equals(fieldName, nameof(LocalAddress), StringComparison.Ordinal))
-        {
-            return null;
-        }
+    /// <remarks>
+    /// 只对<b>本地地址</b>给动态选项；列表来自 <see cref="LocalAddressCatalog"/>，
+    /// 严格同步本机当前可用地址（最多 500 ms 过期）。当前地址消失时由下拉控件按值通道清空。
+    /// 目标地址是文本框，没有“可用值”来源。
+    /// </remarks>
+    public IReadOnlyList<string>? GetChoices(string fieldName) =>
+        string.Equals(fieldName, nameof(LocalAddress), StringComparison.Ordinal)
+            ? LocalAddressCatalog.Addresses
+            : null;
 
-        var list = new List<string> { AnyAddress, IPAddress.Loopback.ToString() };
+    /// <inheritdoc />
+    public long GetChoicesRevision() => LocalAddressCatalog.Revision;
 
-        try
-        {
-            foreach (var address in Dns.GetHostAddresses(Dns.GetHostName()))
-            {
-                if (address.AddressFamily != AddressFamily.InterNetwork)
-                {
-                    continue;
-                }
-
-                var text = address.ToString();
-                if (!list.Contains(text, StringComparer.Ordinal))
-                {
-                    list.Add(text);
-                }
-            }
-        }
-        catch (Exception ex) when (ex is SocketException or ArgumentException)
-        {
-            // 环境取不到就报"现在一个都没有"：仍然是动态下拉（还有 0.0.0.0 这一项）。
-        }
-
-        return list;
-    }
+    /// <inheritdoc />
+    public bool KeepCurrentChoiceWhenUnavailable => false;
 }

@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Net;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Access;
 using HYWDebugAssistant.Sdk.AccessKit;
@@ -7,6 +9,7 @@ using HYWDebugAssistant.Sdk.Lifecycle;
 using HYWDebugAssistant.Sdk.Ports;
 using HYWDebugAssistant.Sdk.Reporting;
 using HYWDebugAssistant.Sdk.Text;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 
 namespace HYWDebugAssistant.Modules.Udp;
@@ -98,6 +101,8 @@ public sealed class UdpModule : IModule, IActivitySource
         ClearCountersCommand);
 
     private readonly byte[] _frame = new byte[RawBytesCodec.FrameSize];
+    private readonly InputValidity _validity = new();
+    private readonly Dictionary<string, string> _drafts = new(StringComparer.Ordinal);
     private IModuleContext? _context;
     private ExternalAccessChannel? _channel;
 
@@ -136,6 +141,11 @@ public sealed class UdpModule : IModule, IActivitySource
         context.Declaration.DeclareCommand(CloseCommand, Tr(UdpText.Close));
         context.Declaration.DeclareCommand(ClearCountersCommand, Tr(UdpText.ViewClearCounters));
 
+        context.Declaration.DeclareInput(ExternalAccessFieldNames.LocalAddress);
+        context.Declaration.DeclareInput(ExternalAccessFieldNames.LocalPort);
+        context.Declaration.DeclareInput(ExternalAccessFieldNames.RemoteAddress);
+        context.Declaration.DeclareInput(ExternalAccessFieldNames.RemotePort);
+
         // 模块只声明"接入名 + 标准标识"；适配器与参数类型都由框架按标准创建/登记。
         context.Declaration.DeclareExternalAccess(new ExternalAccessDeclaration(AccessName, ExternalAccessStandardIds.Udp)
         {
@@ -158,31 +168,215 @@ public sealed class UdpModule : IModule, IActivitySource
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        // **先输入后命令**：刚改完字段就点“绑定”时，命令必须看到最新校验结论。
+        while (context.Inbox.TryDequeueInput(out var source, out var text))
+        {
+            OnInput(source, text);
+        }
+
         while (context.Inbox.TryDequeueCommand(out var command))
         {
             OnCommand(command);
         }
 
-        while (context.Inbox.TryDequeueInput(out var source, out var text))
+        if ((reason & StepReason.Start) != 0)
         {
-            OnInput(source, text);
+            ValidateConfiguration();
         }
 
         OnWork();
     }
 
     /// <summary>执行一条命令（step 与直接测试共用）。</summary>
-    public void OnCommand(string commandName) => _ = _channel?.HandleCommand(commandName);
-
-    /// <summary>输入回调（本模块没有输入语义）。</summary>
-    public static void OnInput(string sourceName, string text)
+    public void OnCommand(string commandName)
     {
-        _ = sourceName;
-        _ = text;
+        if (_context is not null)
+        {
+            ValidateConfiguration();
+        }
+
+        _ = _channel?.HandleCommand(commandName);
+    }
+
+    /// <summary>输入回调：只由文本框/选择变化事件触发。</summary>
+    public void OnInput(string sourceName, string text)
+    {
+        if (IsConfigurationField(sourceName))
+        {
+            _drafts[sourceName] = text;
+            ValidateConfiguration();
+        }
+    }
+
+    /// <summary>配置被框架写回（还原/导入/字段提交）：按新配置重算，已结清的草稿自然丢弃。</summary>
+    public void OnConfigurationChanged()
+    {
+        if (_context is not null)
+        {
+            ValidateConfiguration();
+            OnWork();
+        }
     }
 
     /// <summary>发布状态（step 与直接测试共用）。</summary>
     public void OnWork() => _channel?.PublishStatus();
+
+    private static bool IsConfigurationField(string source) =>
+        source is ExternalAccessFieldNames.LocalAddress
+            or ExternalAccessFieldNames.LocalPort
+            or ExternalAccessFieldNames.RemoteAddress
+            or ExternalAccessFieldNames.RemotePort;
+
+    /// <summary>字段当前文本：编辑草稿优先，没有草稿才看已提交配置。</summary>
+    private string? ReadField(string name)
+    {
+        if (!_drafts.TryGetValue(name, out var draft))
+        {
+            return _context?.Values.ReadText(name);
+        }
+
+        var committed = _context?.Values.ReadText(name);
+        if (string.Equals(draft, committed, StringComparison.Ordinal))
+        {
+            _ = _drafts.Remove(name);
+            return committed;
+        }
+
+        return draft;
+    }
+
+    /// <summary>配置校验：只由输入/动作/Start/配置变更调用。</summary>
+    private void ValidateConfiguration()
+    {
+        if (_context is not { } context)
+        {
+            return;
+        }
+
+        var addressText = ReadField(ExternalAccessFieldNames.LocalAddress);
+        var address = (addressText ?? string.Empty).Trim();
+        var addressEmpty = address.Length == 0;
+        var addressOk = !addressEmpty && IPAddress.TryParse(address, out _);
+
+        var portText = ReadField(ExternalAccessFieldNames.LocalPort);
+        var portDigits = (portText ?? string.Empty).Trim();
+        var portOk = int.TryParse(portDigits, NumberStyles.Integer, CultureInfo.InvariantCulture, out var port)
+            && port is >= 0 and <= 65535;
+        var portEmpty = portDigits.Length == 0;
+
+        // 本地地址是下拉：空只表示“还没选”，不把“本机没有可用项”画成用户格式错误。
+        _validity.Set(
+            context,
+            ExternalAccessFieldNames.LocalAddress,
+            !addressEmpty && !addressOk,
+            addressOk ? null : Tr(UdpText.StatusFailedAddressInvalid, address),
+            ValueValidityOrigin.Format);
+        _validity.Set(
+            context,
+            ExternalAccessFieldNames.LocalPort,
+            portText is not null && !portOk,
+            portOk ? null : Tr(UdpText.StatusFailedPortOutOfRange, portDigits),
+            portEmpty ? ValueValidityOrigin.Module : ValueValidityOrigin.Format);
+
+        var targetAddress = (ReadField(ExternalAccessFieldNames.RemoteAddress) ?? string.Empty).Trim();
+        var targetAddressEmpty = targetAddress.Length == 0;
+        var targetWildcard = false;
+        var targetAddressOk = targetAddressEmpty || TryParseTargetAddress(targetAddress, out targetWildcard);
+        _validity.Set(
+            context,
+            ExternalAccessFieldNames.RemoteAddress,
+            !targetAddressEmpty && !targetAddressOk,
+            targetAddressOk
+                ? null
+                : targetWildcard
+                    ? Tr(UdpText.StatusFailedWildcardAddress, targetAddress)
+                    : Tr(UdpText.StatusFailedAddressInvalid, targetAddress),
+            ValueValidityOrigin.Format);
+
+        var targetPortText = ReadField(ExternalAccessFieldNames.RemotePort);
+        var targetPortDigits = (targetPortText ?? string.Empty).Trim();
+        var targetPortEmpty = targetPortDigits.Length == 0;
+        var targetPortOk = int.TryParse(targetPortDigits, NumberStyles.Integer, CultureInfo.InvariantCulture, out var targetPort)
+            && targetPort is >= 0 and <= 65535
+            && (targetAddressEmpty || targetPort > 0);
+        _validity.Set(
+            context,
+            ExternalAccessFieldNames.RemotePort,
+            !targetPortOk && (targetPortDigits.Length > 0 || !targetAddressEmpty),
+            targetPortOk ? null : Tr(UdpText.StatusFailedTargetPortOutOfRange, targetPortDigits),
+            targetPortEmpty ? ValueValidityOrigin.Module : ValueValidityOrigin.Format);
+
+        // 未就绪时状态句只说“参数未就绪”，具体原因留在字段悬停里；目标错误不阻止只收。
+        var blockedByEmpty = addressEmpty || portEmpty;
+        _channel?.SetOpenReadiness(
+            addressOk && portOk,
+            blockedByEmpty ? Tr(UdpText.StatusConfigNotReady) : null);
+    }
+
+    /// <summary>目标地址：空有效；非空必须是 IP 或主机名，且不能是通配地址。</summary>
+    private static bool TryParseTargetAddress(string text, out bool wildcard)
+    {
+        wildcard = false;
+        if (text.Length == 0)
+        {
+            return true;
+        }
+
+        if (string.Equals(text, "*", StringComparison.Ordinal))
+        {
+            wildcard = true;
+            return false;
+        }
+
+        if (text.IndexOf(':') < 0 && IsDigitsAndDots(text))
+        {
+            if (CountDots(text) != 3 || !IPAddress.TryParse(text, out var literal))
+            {
+                return false;
+            }
+
+            wildcard = IsAnyAddress(literal);
+            return !wildcard;
+        }
+
+        if (IPAddress.TryParse(text, out var address))
+        {
+            wildcard = IsAnyAddress(address);
+            return !wildcard;
+        }
+
+        return Uri.CheckHostName(text) is UriHostNameType.Dns or UriHostNameType.IPv4 or UriHostNameType.IPv6;
+    }
+
+    private static bool IsAnyAddress(IPAddress address) =>
+        address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any);
+
+    private static bool IsDigitsAndDots(string text)
+    {
+        foreach (var character in text)
+        {
+            if (!char.IsAsciiDigit(character) && character != '.')
+            {
+                return false;
+            }
+        }
+
+        return text.Length > 0;
+    }
+
+    private static int CountDots(string text)
+    {
+        var count = 0;
+        foreach (var character in text)
+        {
+            if (character == '.')
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
 
     /// <summary>外部原始字节到达（实例线程）：组帧并从 <c>rx</c> 口发出。</summary>
     /// <param name="payload">原始字节块（长度由框架的单元上限决定）。</param>

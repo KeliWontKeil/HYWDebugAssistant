@@ -285,6 +285,19 @@ public interface IModuleViewContext
     void WriteInputText(string source, string text);
 
     /// <summary>
+    /// **值的编辑预览**：把用户正在编辑的文本交给值层，但不提交、不写配置。
+    /// </summary>
+    /// <param name="name">值名。</param>
+    /// <param name="text">当前文本。</param>
+    /// <remarks>
+    /// 它是控件唯一允许使用的“实时编辑”值契约：用于 OnExplicit 字段在键入时就能被模块校验，
+    /// 又不会把半成品值写进配置。真正的提交仍走 <see cref="CommitValue"/>。
+    /// </remarks>
+    void PreviewValue(string name, string text)
+    {
+    }
+
+    /// <summary>
     /// 读一个值此刻对视图呈现的全部事实（当前值、默认、可选项、只读/禁用、结论、变更号）。
     /// </summary>
     /// <param name="name">值名。</param>

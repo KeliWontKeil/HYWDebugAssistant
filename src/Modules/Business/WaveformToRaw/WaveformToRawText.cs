@@ -9,8 +9,6 @@ internal static class WaveformToRawText
     public const string Description = "module.description";
     public const string RoleIngest = "role.ingest";
     public const string RoleEmit = "role.emit";
-    public const string Header = "view.header";
-    public const string Footer = "view.footer";
     public const string Channels = "view.channels";
     public const string GroupShort = "view.groupShort";
     public const string Frames = "view.frames";
@@ -19,7 +17,6 @@ internal static class WaveformToRawText
     public const string Ready = "state.ready";
     public const string Converting = "state.converting";
     public const string ResetDone = "state.reset";
-    public const string BadConfig = "state.bad-config";
     public const string GroupFiltered = "state.group-filtered";
 
     /// <summary>帧头/帧尾没有可用的十六进制值。</summary>
@@ -33,6 +30,7 @@ internal static class WaveformToRawText
 
     /// <summary>帧头/帧尾输入框的悬停提示。</summary>
     public const string HexHint = "view.hexHint";
+    public const string InvalidDecimals = "view.invalidDecimals";
 
     /// <summary>配置字段标题：协议。</summary>
     public const string FieldProtocol = "field.protocol";
@@ -48,9 +46,6 @@ internal static class WaveformToRawText
 
     /// <summary>配置字段标题：小数位数。</summary>
     public const string FieldDecimals = "field.decimals";
-
-    /// <summary>配置字段标题：通道组编号。</summary>
-    public const string FieldGroup = "field.group";
 
     /// <summary>协选项：自定义文本帧。</summary>
     public const string ChoiceTextFrame = "choice.textFrame";

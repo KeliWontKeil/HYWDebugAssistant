@@ -197,6 +197,39 @@ public class ChannelDisplayModulesTests
     }
 
     [Fact]
+    public void 三轴姿态_通道重复时三格都标红且持续()
+    {
+        var context = new TestModuleContext();
+        var module = new AttitudeDisplayModule();
+        module.OnRegistered(context);
+
+        // 真实视图会同时有这三个框；只设一个会让冲突判定因“另一格不可解析”而走不到。
+        context.ViewState.SetInputText(AttitudeDisplayModule.RollChannelSource, "1");
+        context.ViewState.SetInputText(AttitudeDisplayModule.PitchChannelSource, "2");
+        context.ViewState.SetInputText(AttitudeDisplayModule.YawChannelSource, "3");
+        module.PumpOnce(context);
+
+        context.ViewState.SetInputText(AttitudeDisplayModule.RollChannelSource, "2");
+        module.PumpOnce(context);
+
+        context.ValueValidities[AttitudeDisplayModule.RollChannelSource].IsInvalid.ShouldBeTrue();
+        context.ValueValidities[AttitudeDisplayModule.PitchChannelSource].IsInvalid.ShouldBeTrue();
+        context.ValueValidities[AttitudeDisplayModule.YawChannelSource].IsInvalid.ShouldBeTrue();
+
+        // 再走一拍：红必须还在（冲突按当前文本判定，不因配置回退而消失）。
+        module.PumpOnce(context);
+        context.ValueValidities[AttitudeDisplayModule.RollChannelSource].IsInvalid.ShouldBeTrue();
+        context.ValueValidities[AttitudeDisplayModule.PitchChannelSource].IsInvalid.ShouldBeTrue();
+        context.ValueValidities[AttitudeDisplayModule.YawChannelSource].IsInvalid.ShouldBeTrue();
+
+        context.ViewState.SetInputText(AttitudeDisplayModule.RollChannelSource, "1");
+        module.PumpOnce(context);
+        context.ValueValidities.ContainsKey(AttitudeDisplayModule.RollChannelSource).ShouldBeFalse();
+        context.ValueValidities.ContainsKey(AttitudeDisplayModule.PitchChannelSource).ShouldBeFalse();
+        context.ValueValidities.ContainsKey(AttitudeDisplayModule.YawChannelSource).ShouldBeFalse();
+    }
+
+    [Fact]
     public void 三轴姿态_按单位换算并支持反相()
     {
         var context = new TestModuleContext();
