@@ -30,6 +30,7 @@
     <ProjectReference Include="..\..\src\Access\HYWDebugAssistant.Access.csproj" />
     <!-- 业务模块：随第一个模块落地时在此逐个加入（模块只引 Sdk；测试项目可跨层引用） -->
     <ProjectReference Include="..\..\src\Modules\Business\TextSender\HYWDebugAssistant.Modules.TextSender.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\CommandSender\HYWDebugAssistant.Modules.CommandSender.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\HexSender\HYWDebugAssistant.Modules.HexSender.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\DataMonitor\HYWDebugAssistant.Modules.DataMonitor.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\HexStringConverter\HYWDebugAssistant.Modules.HexStringConverter.csproj" />

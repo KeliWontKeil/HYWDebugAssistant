@@ -45,6 +45,7 @@
     <ProjectReference Include="..\..\src\Modules\Business\TcpServer\HYWDebugAssistant.Modules.TcpServer.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\Udp\HYWDebugAssistant.Modules.Udp.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\TextSender\HYWDebugAssistant.Modules.TextSender.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\CommandSender\HYWDebugAssistant.Modules.CommandSender.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\HexSender\HYWDebugAssistant.Modules.HexSender.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\DataMonitor\HYWDebugAssistant.Modules.DataMonitor.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\HexStringConverter\HYWDebugAssistant.Modules.HexStringConverter.csproj" />

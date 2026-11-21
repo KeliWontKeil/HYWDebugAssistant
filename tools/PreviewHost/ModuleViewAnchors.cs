@@ -1,4 +1,5 @@
 using HYWDebugAssistant.Modules.AttitudeDisplay.Views;
+using HYWDebugAssistant.Modules.CommandSender.Views;
 using HYWDebugAssistant.Modules.DataMonitor.Views;
 using HYWDebugAssistant.Modules.GaugeDisplay.Views;
 using HYWDebugAssistant.Modules.HexSender.Views;
@@ -32,6 +33,7 @@ internal static class ModuleViewAnchors
     public static readonly Type[] All =
     [
         typeof(AttitudeDisplayView),
+        typeof(CommandSenderView),
         typeof(DataMonitorView),
         typeof(GaugeDisplayView),
         typeof(HexSenderView),

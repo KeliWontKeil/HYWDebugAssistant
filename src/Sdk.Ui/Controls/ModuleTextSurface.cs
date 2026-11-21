@@ -66,6 +66,10 @@ public sealed class ModuleTextSurface : ModuleElement
     public static readonly StyledProperty<bool> ShowInputHintProperty =
         AvaloniaProperty.Register<ModuleTextSurface, bool>(nameof(ShowInputHint));
 
+    /// <summary>覆盖默认格式提示的浅灰文字；空串 = 仍按 <see cref="TextFormat"/> 取默认提示。</summary>
+    public static readonly StyledProperty<string> InputHintProperty =
+        AvaloniaProperty.Register<ModuleTextSurface, string>(nameof(InputHint), defaultValue: string.Empty);
+
     /// <summary>用户插入时允许的字符语法；只影响准入，不改变值/合法性判断。</summary>
     public static readonly StyledProperty<ValueTextFormat> TextFormatProperty =
         AvaloniaProperty.Register<ModuleTextSurface, ValueTextFormat>(
@@ -259,6 +263,13 @@ public sealed class ModuleTextSurface : ModuleElement
     {
         get => GetValue(ShowInputHintProperty);
         set => SetValue(ShowInputHintProperty, value);
+    }
+
+    /// <summary>覆盖默认格式提示的浅灰文字；空串 = 仍按 <see cref="TextFormat"/> 取默认提示。</summary>
+    public string InputHint
+    {
+        get => GetValue(InputHintProperty);
+        set => SetValue(InputHintProperty, value);
     }
 
     /// <summary>用户插入时允许的字符语法；默认 <see cref="ValueTextFormat.Text"/>。</summary>
@@ -661,6 +672,11 @@ public sealed class ModuleTextSurface : ModuleElement
 
     private string? ResolveInputHint()
     {
+        if (!string.IsNullOrEmpty(InputHint))
+        {
+            return InputHint;
+        }
+
         var key = TextFormat == ValueTextFormat.Text && EscapeInput
             ? "moduleText.format.escaped.hint"
             : KeyedHint(TextFormat);
@@ -1164,6 +1180,10 @@ public sealed class ModuleTextSurface : ModuleElement
             ApplyPlaceholder();
         }
         else if (change.Property == ShowInputHintProperty)
+        {
+            ApplyPlaceholder();
+        }
+        else if (change.Property == InputHintProperty)
         {
             ApplyPlaceholder();
         }

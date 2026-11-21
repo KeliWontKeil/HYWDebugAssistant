@@ -9,6 +9,8 @@ using Avalonia.VisualTree;
 using HYWDebugAssistant.Access.Parameters;
 using HYWDebugAssistant.Modules.AttitudeDisplay;
 using HYWDebugAssistant.Modules.AttitudeDisplay.Views;
+using HYWDebugAssistant.Modules.CommandSender;
+using HYWDebugAssistant.Modules.CommandSender.Views;
 using HYWDebugAssistant.Modules.DataMonitor;
 using HYWDebugAssistant.Modules.DataMonitor.Views;
 using HYWDebugAssistant.Modules.GaugeDisplay;
@@ -39,6 +41,7 @@ using HYWDebugAssistant.Sdk.Testing;
 using HYWDebugAssistant.Sdk.Text;
 using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
+using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
 using HorizontalSettingsPanel = HYWDebugAssistant.Modules.ScaleBarHorizontal.Views.ScaleBarSettingsPanel;
 using VerticalSettingsPanel = HYWDebugAssistant.Modules.ScaleBarVertical.Views.ScaleBarSettingsPanel;
@@ -66,6 +69,7 @@ public class ModuleViewSnapshots
         { typeof(TcpServerModule), typeof(TcpServerViewFactory), typeof(TcpServerConfig) },
         { typeof(UdpModule), typeof(UdpViewFactory), typeof(UdpConfig) },
         { typeof(TextSenderModule), typeof(TextSenderViewFactory), typeof(NoConfig) },
+        { typeof(CommandSenderModule), typeof(CommandSenderViewFactory), typeof(NoConfig) },
         { typeof(HexSenderModule), typeof(HexSenderViewFactory), typeof(NoConfig) },
         { typeof(DataMonitorModule), typeof(DataMonitorViewFactory), typeof(NoConfig) },
         { typeof(HexStringConverterModule), typeof(HexStringConverterViewFactory), typeof(NoConfig) },
@@ -242,6 +246,75 @@ public class ModuleViewSnapshots
                     }
                 }
 
+                window.Close();
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>
+    /// 生成指令发送器**带真实模块状态**的截图（<c>modules\CommandSender-filled.png</c>）：
+    /// 两行、勾选顺序 2/1、HEX 行、状态栏，用来人眼复核行内控件与序号标记。
+    /// </summary>
+    [Fact]
+    public async Task 生成快照_指令发送器列表()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var probe = new TestModuleContext();
+                var module = new CommandSenderModule();
+                module.OnRegistered(probe);
+                module.OnStep(probe, StepReason.Start);
+
+                probe.EnqueueCommand(CommandSenderModule.AddCommand);
+                module.OnStep(probe, StepReason.Command);
+
+                probe.ViewState.SetInputText(
+                    CommandSenderModule.SlotValue(0, SlotField.Label),
+                    "开机");
+                probe.ViewState.SetInputText(
+                    CommandSenderModule.SlotValue(0, SlotField.Content),
+                    "AT+START");
+                probe.ViewState.SetInputText(
+                    CommandSenderModule.SlotValue(1, SlotField.Label),
+                    "查询");
+                probe.ViewState.SetInputText(
+                    CommandSenderModule.SlotValue(1, SlotField.Content),
+                    "41 54 2B 51 3F");
+                probe.ViewState.SetInputText(
+                    CommandSenderModule.SlotValue(1, SlotField.Hex),
+                    "true");
+                probe.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[1,0]");
+                probe.ViewState.SetInputText(CommandSenderModule.IntervalValue, "500");
+                module.OnStep(probe, StepReason.Input);
+
+                Assert.Equal(
+                    "开机",
+                    probe.Values.ReadText(CommandSenderModule.SlotValue(0, SlotField.Label)));
+                Assert.Equal(
+                    "AT+START",
+                    probe.Values.ReadText(CommandSenderModule.SlotValue(0, SlotField.Content)));
+                Assert.Equal(
+                    "41 54 2B 51 3F",
+                    probe.Values.ReadText(CommandSenderModule.SlotValue(1, SlotField.Content)));
+
+                var context = new SnapshotContext(
+                    probe,
+                    BuildFields(typeof(NoConfig), typeof(CommandSenderModule).Assembly));
+                Assert.Equal(
+                    "AT+START",
+                    context.ReadValue(CommandSenderModule.SlotValue(0, SlotField.Content)).Value);
+                var view = new CommandSenderViewFactory().Create(context);
+                var host = new ModuleViewHost(context, view);
+                var (width, height) = WindowSize(view);
+                var window = SnapshotWindow.CreateFramed(host, view as ModuleView, width, height);
+
+                window.Show();
+                SnapshotTool.Pump();
+                host.Refresh();
+                SnapshotTool.Pump();
+
+                SnapshotTool.Save(window, "modules/CommandSender-filled.png");
                 window.Close();
             },
             CancellationToken.None);
@@ -458,6 +531,7 @@ public class ModuleViewSnapshots
     private sealed class SnapshotContext : IModuleViewContext
     {
         private readonly IReadOnlyDictionary<string, ConfigFieldView> _fields;
+        private readonly TestModuleContext _probe;
         private readonly string _text;
 
         public SnapshotContext(
@@ -466,8 +540,8 @@ public class ModuleViewSnapshots
             string text = "就绪")
         {
             _fields = fields;
+            _probe = probe;
             _text = text;
-            _ = probe;
         }
 
         public string InstanceId => "snapshot";
@@ -478,13 +552,29 @@ public class ModuleViewSnapshots
 
         public double WheelZoomStep => 1.2;
 
-        public double? ReadLatest(string source) => 42;
+        public double? ReadLatest(string source) =>
+            _probe.Published.TryGetValue(source, out var values)
+                && values.Count > 0
+                && values[^1].Length >= sizeof(ulong)
+                ? BitConverter.ToUInt64(values[^1], 0)
+                : 42;
 
         public IReadOnlyList<double> ReadSeries(string source) => [42];
 
         public SeriesWindowSnapshot? ReadSeriesWindow(string source) => null;
 
-        public TextBufferSnapshot ReadText(string source) => new([_text], 0, 20000);
+        public TextBufferSnapshot ReadText(string source)
+        {
+            for (var index = _probe.SetTexts.Count - 1; index >= 0; index--)
+            {
+                if (string.Equals(_probe.SetTexts[index].SourceName, source, StringComparison.Ordinal))
+                {
+                    return new([_probe.SetTexts[index].Text], 0, 20000);
+                }
+            }
+
+            return new([_text], 0, 20000);
+        }
 
         public long ReadTextRevision(string source) => 0;
 
@@ -497,12 +587,57 @@ public class ModuleViewSnapshots
 
         public CommandOutcome UpdateField(string fieldName, string value) => CommandOutcome.Ok;
 
-        public ViewAppearance Appearance(string source) => ViewAppearance.None;
-
-        public string? ReadInputText(string source) => null;
-
-        public void WriteInputText(string source, string text)
+        public ViewAppearance Appearance(string source)
         {
+            for (var index = _probe.AppearanceReports.Count - 1; index >= 0; index--)
+            {
+                var report = _probe.AppearanceReports[index];
+                if (string.Equals(report.SourceName, source, StringComparison.Ordinal))
+                {
+                    return new ViewAppearance { Enabled = report.Enabled };
+                }
+            }
+
+            return ViewAppearance.None;
+        }
+
+        public string? ReadInputText(string source) => _probe.ViewState.GetInputText(source);
+
+        public void WriteInputText(string source, string text) => _probe.ViewState.SetInputText(source, text);
+
+        public ValueState ReadValue(string name)
+        {
+            var text = _probe.Values.ReadText(name);
+
+            if (text is null)
+            {
+                return ValueState.Empty(name);
+            }
+
+            var declaration = _probe.DeclaredValues
+                .FirstOrDefault(value => string.Equals(value.Name, name, StringComparison.Ordinal));
+
+            return new ValueState(
+                name,
+                declaration?.Editor ?? ValueEditor.Text,
+                text,
+                string.Empty,
+                null,
+                IsReadOnly: false,
+                IsEnabled: true,
+                _probe.Values.ReadValidity(name),
+                0,
+                IsKnown: true);
+        }
+
+        public void CommitValue(string name, string text) => _probe.Values.AcceptText(name, text);
+
+        public void RegisterViewDefault(string name, string value)
+        {
+            if (_probe.Values.ReadText(name) is null)
+            {
+                _probe.Values.AcceptText(name, value);
+            }
         }
 
         public int? SelectedPage(string stateKey) => null;

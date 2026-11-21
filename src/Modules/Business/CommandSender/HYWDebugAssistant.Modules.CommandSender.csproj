@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    业务模块：指令发送器 `hyw/command-sender`（多组字符串发送器）。
+    与第三方模块同构同路径：只引 Sdk / Sdk.Ui；不引 Access、不直接引 UI 框架、不引其他模块。
+  -->
+  <PropertyGroup>
+    <!-- 包目录名（artifacts\modules\<Configuration>\command-sender\ 与应用输出 modules\command-sender\） -->
+    <ModulePackageName>command-sender</ModulePackageName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Sdk\HYWDebugAssistant.Sdk.csproj" />
+    <ProjectReference Include="..\..\..\Sdk.Ui\HYWDebugAssistant.Sdk.Ui.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 模块清单随构建输出 -->
+    <None Update="module.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 模块文本表：包内 i18n/<程序集简名>/<culture>.json -->
+    <Content Include="resources\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -45,6 +45,17 @@
       </Setter>
     </ControlTheme>
 
+    <ControlTheme x:Key="{x:Type ui:ModuleValueList}" TargetType="ui:ModuleValueList">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <ContentPresenter Name="PART_ContentPresenter"
+                            Content="{TemplateBinding Content}"
+                            HorizontalContentAlignment="Stretch"
+                            VerticalContentAlignment="Stretch" />
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+
     <!--
       图标：画面由 `Viewbox` 按 SVG 的 `viewBox` 等比缩放（留白一起保留），显示尺寸取 `Glyph.icon` 的声明；
       填充色跟随控件前景 ⇒ 按钮的 `:pointerover` / `:pressed` 换前景时图标自动跟着走。
@@ -265,6 +276,10 @@
 
   <Style Selector="ui|ModuleCheckBox">
     <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleCheckBox}}" />
+  </Style>
+
+  <Style Selector="ui|ModuleValueList">
+    <Setter Property="Theme" Value="{DynamicResource {x:Type ui:ModuleValueList}}" />
   </Style>
 
 

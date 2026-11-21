@@ -22,11 +22,12 @@
 | `ModuleLabel` | 一句话：静态文字、配置字段标题、文本显示源 | `Text`、`Field`、`Source`、`TextVerticalAlignment`；样式类 `caption` / `hint` / `micro` / `right` / `wrap` |
 | `ModuleNumeric` | 数值读数 | `Source`、`Quantity`（`None` / `Bytes`）、`Text`（预览值） |
 | `ModuleStatusLight` | 状态灯：底色来自模块设的**角色词** | `Source`；配合 `Appearance.SetOutlineRole(Source, role)` |
-| `ModuleTextSurface` | **唯一的文本/数字编辑器**：日志显示或可编辑值 | `Mode`、`Value`、`CommitMode`、`Source`（仅显示）、`Text`、`TextFormat`、`Multiline`、`IsReadOnly`、`ShowNewlineMarks`、`ShowControlCharacterMarkers`、`EscapeInput`、`ShowInputHint`、`TextAlignment`、`MinEditorHeight`、`Commit()`、`SubmitKeyValue`、`SubmitCommandName`、`EnterNewlineValue` |
+| `ModuleTextSurface` | **唯一的文本/数字编辑器**：日志显示或可编辑值 | `Mode`、`Value`、`CommitMode`、`Source`（仅显示）、`Text`、`TextFormat`、`Multiline`、`IsReadOnly`、`ShowNewlineMarks`、`ShowControlCharacterMarkers`、`EscapeInput`、`ShowInputHint`、`InputHint`、`TextAlignment`、`MinEditorHeight`、`Commit()`、`SubmitKeyValue`、`SubmitCommandName`、`EnterNewlineValue` |
 | `ModuleButton` | 命令按钮（可选右侧小箭头菜单） | `CommandName`、`Content`、`Icon`、`IconOwner`、`Appearance`、`MenuValue` |
 | `ModuleToggle` | 开关：勾选提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`CheckedChanged`（程序写回也触发） |
 | `ModuleCheckBox` | 勾选框：方框 + 勾形 + 右侧文字（间距 2 DIP），提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`Content`、`CheckedChanged` |
 | `ModuleTabs` | 页签容器，选中页写入视图状态 | `StateKey`、`TabItem` 子项 |
+| `ModuleValueList` | **值名驱动的行列表**：每行多字段编辑器、带序号的勾选框、行内动作；不新增数据通道 | `Rows`、`SelectionValue`、`FilterValue`、`DeleteIcon`、`SendText`、`ContentMaxHeight`、`PreviewRowCount`、`RowAction`、`FocusRow()` |
 | `ModuleSelect` | **枚举下拉**（配置字段或普通值；选项来自 `ValueState.Choices`） | `Value`、`CommitMode`、`SelectedKey`、`PreviewOptions`；旧 `Options`/`OptionSelected` 仅供结构选择 |
 | `ModuleColorField` | **颜色值编辑器**：色块，点开框架取色窗 | `Value`、`DefaultBrushToken`、`DialogTitle`、`ResetText`、`InitialColor` |
 | `ModuleSegmentedControl` | 互斥分段选择（文字/图标，可禁用） | `Value`、`CommitMode`、`SelectedKey`、`PreviewOptions`、`ShowLabels`、`IconSize`；旧 `Options`/`OptionSelected` 供结构选择 |
@@ -71,7 +72,7 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 - `Input`：可编辑值。`Value` 是值名，`CommitMode` 决定交值时机；`Multiline` 控制多行，提交键由应用设置里的“多行输入提交键”决定（`Ctrl+Enter` / `Enter` / `None`）；`Commit()` 可主动交值（例如按钮点击时取当前编辑内容）。
 - **C 转义输入**：`EscapeInput="True"` 表示这个输入面的值按 C 字符串转义语法解释；控件只负责识别并把合法转义组画成蓝色，**不解码**。值本身仍是记法文本（例如 `\x0C`），复制/提交得到记法；模块在发送/转换时调用 `TextEscapes.Normalize` 解码。粘贴进来的真实不可显示字符仍按标记/方框显示，复制得到原字符。
 - **字符准入**：输入面的允许字符由本控件的 `TextFormat` 决定（`Text` / `Hex` / `SignedWhole` / `NonNegativeWhole` / `PositiveWhole` / `Real` / `IpAddress`），**不写进值声明**。键入、输入法、粘贴、拖放都走同一条过滤：**丢弃不允许的字符、保留允许的字符**；过滤后为空不产生编辑/提交/撤销。程序化写入（`Text=`、值层回写、持久化旧值）不经过准入。准入只挡字符，不判结构/范围/正负；例如 `PositiveWhole` 仍可键入 `0`，由模块判 >0。所有输入面都必须显式声明 `TextFormat`（AR-27）；纯文本写 `TextFormat="Text"`。
-- **空值提示**：`ShowInputHint="True"` 时，空且可编辑的输入面显示该格式的浅灰提示；有内容、只读、`Display` 不显示。提示文案在 Sdk.Ui 文本表（`moduleText.format.*.hint`），窄框可不启用；预览与运行期读的是同一个控件属性。
+- **空值提示**：`ShowInputHint="True"` 时，空且可编辑的输入面显示该格式的浅灰提示；有内容、只读、`Display` 不显示。提示文案默认取 Sdk.Ui 文本表（`moduleText.format.*.hint`）；需要业务文案时用 `InputHint` 覆盖（搜索框的「搜索指令标签...」就是这样），空串仍回落格式提示。窄框可不启用；预览与运行期读的是同一个控件属性。
 - **回车写入哪种换行**：`EnterNewlineValue` 指定一个值名（`crlf` / `cr` / `lf` / `none`），不指定或未知时默认 `crlf`（写 `\r\n`）。TextSender 与转换器用它把 CR/LF 勾选框映射为回车档；单行输入不处理换行。回车事件在输入框的**隧道**阶段处理，避免 TextBox 抢先插入 `\n` 或吃掉提交档。
 - **已有换行的归一**：只要输入面设置了 `EnterNewlineValue`，换行档变化时控件会把当前输入框里的全部真实 `\r\n`/`\r`/`\n` 替换成目标序列；`none` 删除全部换行，并立即交值。首次显示持久化内容时也归一；没有该值名的输入面不参与（例如 HEX 十六进制输入）。C 转义记法里的 `\n` 不是真实换行，不参与归一。
 - **换行标记**：只读面与输入覆盖层对数据换行区分 `\r\n`=`↵`、单独 `\r`=`←`、单独 `\n`=`↓`；统一使用 `TextMuted`（可通过 `NewlineMarkBrush` 覆盖）。显示缓冲的内部哨兵不会进入复制/保存文本；复制保留真实换行种类（CRLF / CR / LF），通道换行按平台换行。
@@ -153,6 +154,41 @@ context.Appearance.SetOutlineRole(LinkSource, null);                  // 回空�
 - `ModuleSelect` 也走外观通道：只读时禁用、文字色/字号跟随外观、失败时 `:error` 红框由外观轮廓驱动（Notice 只给悬停原因）；枚举配置字段因此不再需要宿主代管。
 - `PreviewOptions` 只在设计环境且没有运行期选项时提供样例词表；它不参与运行期持久化。
 - 结构选择（组/通道 chips）仍是动作：用 `OptionSelected` 把选中键交给模块，不当作值。
+
+## 值名列表
+
+`ModuleValueList` 是“行容器”，不是新的数据通道：视图把每行的 6 个**已声明值名**交给它，子编辑器仍走 `ReadValue` / `CommitValue`，因此宿主根上下文即可刷新，不需要作用域。
+
+```xml
+<ui:ModuleValueList x:Name="List"
+                    SelectionValue="{x:Static local:MyModule.Selection}"
+                    FilterValue="{x:Static local:MyModule.Search}"
+                    SendText="{loc:Tr view.send}"
+                    ContentMaxHeight="96" />
+```
+
+```csharp
+var list = this.FindControl<ModuleValueList>("List")!;
+list.Rows =
+[
+    new ModuleValueListRow("0", "cmd0Label", "cmd0Content",
+                           "cmd0Hex", "cmd0Cr", "cmd0Lf", "cmd0Newline"),
+];
+list.RowAction += (_, action) =>
+{
+    // action.RowId / action.Action（"send" / "delete"）交给模块解释，框架不认识语义。
+    _ = context.SubmitInput(MyModule.ActionInput, $"{{\"op\":\"{action.Action}\",\"slot\":{action.RowId}}}");
+};
+```
+
+- `Rows` 只在**引用变化**时重建（视图在顺序值变化时整体换一个新列表）；值编辑不会重建，避免打断正在编辑的控件。
+- 勾选框显示 1 基序号，序号就是点击顺序；勾选顺序写入 `SelectionValue`（JSON 整数数组，按勾选先后），模块读这个值决定批量/连续发送顺序。
+- `FilterValue` 是搜索值名；按标签/内容做不区分大小写的包含匹配，不改勾选。
+- 行内发送按钮由控件按**内容值是否无效**实时禁用；批量/连续的禁用由模块用 `Appearance.SetEnabled(命令名/值名, false)` 统一决定。
+- `ContentMaxHeight` 控制多行内容的最大高度；`PreviewRowCount` 只在设计环境没有 `Rows` 时画占位行。
+- `DeleteIcon` 是行内删除按钮的图标键（空 = 文字「×」）；模块视图把它指向本模块图标表，控件在行内按钮上加图标。
+- `RowAction` 只抛出 `RowId` 与 `Action` 两个字符串；删除哪一行、发哪一行由模块解释。控件不删值、不写配置、不持久化。
+- 行内子编辑器的值必须已由模块 `DeclareValue` 声明；控件不会替你造值，也不接受“列表数据源”这种新机制。
 
 ## 图表
 

@@ -31,6 +31,9 @@ public class HostingPackageTests
     private static string TextSenderPackage => Path.Combine(
         RepoRoot, "src", "Modules", "Business", "TextSender", "bin", Configuration, "net10.0");
 
+    private static string CommandSenderPackage => Path.Combine(
+        RepoRoot, "src", "Modules", "Business", "CommandSender", "bin", Configuration, "net10.0");
+
     private static int EndpointPort(ExternalAccessSnapshot snapshot)
     {
         var endpoint = snapshot.Endpoint;
@@ -51,6 +54,20 @@ public class HostingPackageTests
 
             Thread.Sleep(10);
         }
+    }
+
+    [Fact]
+    public void 加载指令发送器包_应成功并解析出目录名与入口类型()
+    {
+        var result = ModulePackageLoader.Load(CommandSenderPackage);
+
+        result.Succeeded.ShouldBeTrue(result.FailureReason);
+        var package = result.Package!;
+        package.Id.ToString().ShouldBe("hyw/command-sender");
+        package.EntryType.Name.ShouldBe("CommandSenderModule");
+        package.DefinitionAttribute.DisplayNameKey.ShouldBe("module.title");
+        ModuleDefinition.FromPackage(package).DisplayName.ShouldBe("指令发送器"); // i18n-test-data: 断言随包文本解析出的模块标题
+
     }
 
     [Fact]

@@ -1,0 +1,7 @@
+{
+  "id": "hyw/command-sender",
+  "entryAssembly": "HYWDebugAssistant.Modules.CommandSender.dll",
+  "entryType": "HYWDebugAssistant.Modules.CommandSender.CommandSenderModule",
+  "dependsOn": [],
+  "resources": ["resources/i18n", "resources/icons"]
+}

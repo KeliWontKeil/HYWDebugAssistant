@@ -1,4 +1,5 @@
 using HYWDebugAssistant.Access;
+using HYWDebugAssistant.Modules.CommandSender;
 using HYWDebugAssistant.Modules.DataMonitor;
 using HYWDebugAssistant.Modules.HexSender;
 using HYWDebugAssistant.Modules.HexStringConverter;
@@ -62,6 +63,32 @@ public class BusinessModulesContractTests
         var role = probe.DeclaredRoles.ShouldHaveSingleItem();
         role.Id.ShouldBe("text-send");
         role.Outputs.ShouldBe(["out"]);
+        role.Inputs.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void 指令发送器_声明面应自洽且与两个发送器同型()
+    {
+        var probe = ModuleContract.Probe(
+            typeof(CommandSenderModule),
+            portSpecs: Specs("CommandSender", typeof(CommandSenderModule)));
+
+        probe.Problems.ShouldBeEmpty();
+        probe.Advisories.ShouldBeEmpty();
+
+        var type = probe.DataTypes.ShouldHaveSingleItem();
+        type.TypeId.ShouldBe("RawBytes");
+        ContractShape.AreSame(type.Shape, RawBytesShape).ShouldBeTrue();
+
+        var port = probe.Ports.ShouldHaveSingleItem();
+        port.Name.ShouldBe(CommandSenderModule.OutPort);
+        port.Direction.ShouldBe(PortDirection.Send);
+        port.Edge.ShouldBe(PortEdge.Bottom);
+        port.TypeId.ShouldBe("RawBytes");
+
+        var role = probe.DeclaredRoles.ShouldHaveSingleItem();
+        role.Id.ShouldBe(CommandSenderModule.RoleId);
+        role.Outputs.ShouldBe([CommandSenderModule.OutPort]);
         role.Inputs.ShouldBeEmpty();
     }
 

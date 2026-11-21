@@ -1,0 +1,89 @@
+<ui:ModuleView xmlns="https://github.com/avaloniaui"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+                xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+                xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
+                xmlns:views="using:HYWDebugAssistant.Modules.CommandSender.Views"
+                xmlns:local="using:HYWDebugAssistant.Modules.CommandSender"
+                x:Class="HYWDebugAssistant.Modules.CommandSender.Views.CommandSenderView"
+                x:CompileBindings="True"
+                x:DataType="contracts:IModuleViewContext"
+                InitialWidth="400" InitialHeight="400"
+                MinWidth="400" MinHeight="400">
+
+  <ui:ModuleView.Ports>
+    <ui:ModulePort Name="{x:Static local:CommandSenderModule.OutPort}"
+                   Direction="Send"
+                   TypeId="{x:Static local:CommandSenderModule.RawBytesTypeId}"
+                   Edge="Bottom" />
+  </ui:ModuleView.Ports>
+
+  <Grid RowDefinitions="28,3,26,3,*,3,18" Margin="8,5,8,4">
+    <!-- 动作条 1：新建 / 全部发送 / 连续发送 / 间隔 -->
+    <Canvas Grid.Row="0" Height="28" ClipToBounds="True">
+      <ui:ModuleButton Canvas.Left="0" Canvas.Top="2" Width="72" Height="24"
+                       Appearance="Accent"
+                       CommandName="{x:Static views:CommandSenderViewKeys.SendAll}"
+                       Content="{loc:Tr view.sendAll}" />
+      <ui:ModuleToggle Canvas.Left="86" Canvas.Top="2" Width="36" Height="18"
+                       Value="{x:Static views:CommandSenderViewKeys.Continuous}"
+                       IsChecked="False" />
+      <ui:ModuleLabel Canvas.Left="124" Canvas.Top="2" Width="52" Height="22"
+                      Classes="caption" Text="{loc:Tr view.continuous}" />
+      <ui:ModuleTextSurface Canvas.Left="178" Canvas.Top="2" Width="44" Height="22"
+                            Mode="Input" TextFormat="PositiveWhole"
+                            Value="{x:Static views:CommandSenderViewKeys.Interval}"
+                            Text="500" TextAlignment="Right" CommitMode="OnChange" />
+      <ui:ModuleLabel Canvas.Left="224" Canvas.Top="2" Width="18" Height="22"
+                      Classes="caption" Text="{loc:Tr view.intervalUnit}" />
+    </Canvas>
+
+    <!-- 动作条 2：搜索 / 导入 / 另存为 -->
+    <Canvas Grid.Row="2" Height="26" ClipToBounds="True">
+      <ui:ModuleButton Canvas.Left="0" Canvas.Top="1" Width="24" Height="24"
+                       Classes="icon"
+                       CommandName="{x:Static views:CommandSenderViewKeys.Add}"
+                       Icon="{x:Static views:CommandSenderViewKeys.IconAdd}"
+                       Appearance="Accent"
+                       ToolTip.Tip="{loc:Tr view.add}" />
+      <ui:ModuleTextSurface Canvas.Left="26" Canvas.Top="2" Width="180" Height="22"
+                            Mode="Input" TextFormat="Text"
+                            InputHint="{loc:Tr view.searchHint}"
+                            Value="{x:Static views:CommandSenderViewKeys.Search}"
+                            ShowInputHint="True" CommitMode="OnChange" />
+      <ui:ModuleButton Canvas.Left="210" Canvas.Top="0" Width="64" Height="26"
+                       CommandName="{x:Static views:CommandSenderViewKeys.Import}"
+                       Content="{loc:Tr view.import}" />
+      <ui:ModuleButton Canvas.Left="276" Canvas.Top="0" Width="64" Height="26"
+                       CommandName="{x:Static views:CommandSenderViewKeys.SaveAs}"
+                       Content="{loc:Tr view.saveAs}" />
+    </Canvas>
+
+    <Border Grid.Row="4"
+            BorderThickness="1"
+            BorderBrush="{DynamicResource BorderDefault}"
+            CornerRadius="3"
+            ClipToBounds="True">
+      <ui:ModuleValueList x:Name="List"
+                          Margin="0"
+                          SelectionValue="{x:Static views:CommandSenderViewKeys.Selection}"
+                          FilterValue="{x:Static views:CommandSenderViewKeys.Search}"
+                          DeleteIcon="{x:Static views:CommandSenderViewKeys.IconTrash}"
+                          SendText="{loc:Tr view.send}"
+                          ContentMaxHeight="96" />
+    </Border>
+
+    <!-- 提示栏：状态句 + 已发送包数 -->
+    <Grid Grid.Row="6" ColumnDefinitions="*,Auto,2,Auto,2,Auto">
+      <ui:ModuleLabel Grid.Column="0" Classes="caption"
+                      Text="{loc:Tr view.statusPreview}"
+                      Source="{x:Static views:CommandSenderViewKeys.Status}"
+                      TextTrimming="CharacterEllipsis" />
+      <ui:ModuleLabel Grid.Column="1" Classes="caption"
+                      Text="{loc:Tr view.sentTitle}" />
+      <ui:ModuleNumeric Grid.Column="3" Source="{x:Static views:CommandSenderViewKeys.Sent}" Text="0" />
+      <ui:ModuleLabel Grid.Column="5" Classes="caption"
+                      Text="{loc:Tr view.sentUnit}" />
+    </Grid>
+  </Grid>
+</ui:ModuleView>
