@@ -10,8 +10,9 @@
        · `resources/` 下的每个子树都必须在脚本里**登记访问模式**（当前：`seeds` = 投放、
          `i18n` = 文本表、`icons` = 图标表，后两者都就地读）；
          出现未登记的子树即判红（新增资源类别必须登记）；
-       · `seeds/` 下只允许**已登记的目标子树**（当前仅 `settings/`）；
-       · 每个**叶子目录单元**都必须有清单：主题包 = `theme.json`；
+       · `seeds/` 下只允许**已登记的目标子树**（当前：`settings/`、`composites/`）；
+       · 每个**投放单元**都必须有清单：主题包 = `theme.json`，组合件 = `composite.json`；
+       · 组合件的 `assets/` 是单元的资产目录，不是独立单元；它必须是纯文件叶子；
        · 设置基线不手工入库：仓库里不得出现 `seeds/settings/settings.json`
          （默认值的唯一来源是代码；发布时由 `--emit-default-settings` 生成到导出目录）。
 
@@ -23,6 +24,12 @@
        · `wallpaper` 是**同目录单文件名**且文件存在、是 PNG（magic bytes）、体积不超过上限。
          上限与 `src/Core/Themes/ThemeStore.cs` 的 `MaxWallpaperBytes` **同值**（本脚本会读那份定义核对，
          两处不一致即判红——否则"审计通过"与"运行期拒收"会各说各话）。
+
+    ②b **种子组合件合法**（每个 `seeds/composites/<名称>/`）
+       · `composite.json` 可解析；`name` 非空；`instances` 非空；
+       · 每个实例有 `instanceId`（单元内唯一）与两段 `moduleId`；
+       · `asset` 是**单元内相对路径**，不得越界、必须存在——否则示例在用户机器上是空框；
+       · 只查结构闭合，不查内容意图：出厂示例与用户保存的组合件是同一格式。
 
     ③ **文本表**（每份 `resources/i18n/<程序集简名>/*.json`）
        · 可解析、`entries` 是对象；
@@ -431,8 +438,22 @@ $resourceSubtrees = [ordered]@{
     'icons' = '就地读（只读；运行时按 <拥有者>/glyphs.json 加载）'
 }
 
+# seeds/<目标子树>/ 与程序目录同构：键就是目标目录名，取自路径常量（不手写），
+# 每种单元说清"投放成什么"。新增种子类别必须在这里登记，否则叶子单元判定会判红。
+$storageComposites = Get-StringConstant -Path (Join-Path $root $storagePathsRel) -Name 'CompositesDirectoryName'
+$compositesDirectoryName = 'composites'
+
+if ($null -eq $storageComposites) {
+    Add-Problem $storagePathsRel '读不到 CompositesDirectoryName（种子目标目录名必须是常量，审计要核对它）'
+}
+elseif ($storageComposites.Value -ne $compositesDirectoryName) {
+    Add-Problem "${storagePathsRel}:$($storageComposites.Line)" `
+        ("CompositesDirectoryName = '{0}'，审计口径是 '{1}'" -f $storageComposites.Value, $compositesDirectoryName)
+}
+
 $registeredSubtrees = [ordered]@{
-    'settings' = '设置（单文件 settings.json + 外观主题包）'
+    'settings'                = '设置（单文件 settings.json + 外观主题包）'
+    $compositesDirectoryName  = '组合件（<名称>/composite.json + 可选 assets/）'
 }
 
 # ---- 跨层一致性：`resources` 目录名与两个类别名（i18n / icons）在三处出现，必须同值 ----
@@ -507,6 +528,7 @@ foreach ($kind in @($textPacksDirectoryName, $iconsPacksDirectoryName)) {
 }
 
 $themePackageCount = 0
+$compositeUnitCount = 0
 
 if (-not (Test-Path -LiteralPath $resourcesRoot)) {
     $script:notes.Add('没有 resources/：视为"没有出厂种子"（契约允许的合法状态）')
@@ -536,7 +558,8 @@ if (Test-Path -LiteralPath $sourceSettingsSeed) {
 if (Test-Path -LiteralPath $seedsRoot -PathType Container) {
     foreach ($entry in (Get-ChildItem -LiteralPath $seedsRoot -Force | Sort-Object Name)) {
         if (-not $entry.PSIsContainer) {
-            Add-Problem (Get-RelPath $entry.FullName) 'seeds/ 下只允许已登记的目标子树（当前仅 settings/）'
+            Add-Problem (Get-RelPath $entry.FullName) `
+                ("seeds/ 下只允许已登记的目标子树（当前：{0}）" -f ($registeredSubtrees.Keys -join ', '))
         }
         elseif (-not $registeredSubtrees.Contains($entry.Name)) {
             Add-Problem (Get-RelPath $entry.FullName) `
@@ -547,9 +570,15 @@ if (Test-Path -LiteralPath $seedsRoot -PathType Container) {
     foreach ($directory in @(Get-LeafDirectories -Directory $seedsRoot)) {
         $relative = Get-RelPath $directory
         $unit = [System.IO.Path]::GetRelativePath($seedsRoot, $directory).Replace('\', '/')
+
+        # 组合件单元与它的 assets/ 由下面的组合件循环校验（单元不是"叶子=单元"的形状：
+        # 有 assets/ 时单元本身不是叶子，没有 assets/ 时又是叶子，两种都得放行到这里之外）。
+        if ([regex]::IsMatch($unit, "^$compositesDirectoryName/[^/]+(/assets)?$")) { continue }
+
         $match = [regex]::Match($unit, '^settings/appearance/themes/(?<id>[^/]+)$')
         if (-not $match.Success) {
-            Add-Problem $relative '未登记的叶子目录单元（没有清单；主题包必须是 settings/appearance/themes/<id>/）'
+            Add-Problem $relative `
+                ('未登记的叶子目录单元（没有清单；主题包必须是 settings/appearance/themes/<id>/，组合件必须是 <名称>/composite.json）')
             continue
         }
 
@@ -625,6 +654,79 @@ if (Test-Path -LiteralPath $seedsRoot -PathType Container) {
                             Add-Problem $wallpaperRel '不是 PNG（magic bytes 不符）'
                         }
                     }
+                }
+            }
+        }
+    }
+
+    # 组合件单元：`seeds/composites/<名称>/composite.json`（+ 可选 `assets/`）。
+    # 出厂示例与用户保存的组合件是同一格式，所以这里只查**结构闭合**，不查内容意图：
+    # 清单可解析、实例有标识且模块标识成两段、引用的资产在单元内且存在。
+    $compositesSeedRoot = Join-Path $seedsRoot $compositesDirectoryName
+    if (Test-Path -LiteralPath $compositesSeedRoot -PathType Container) {
+        $compositeUnitFullRoot = [System.IO.Path]::GetFullPath($compositesSeedRoot) + [System.IO.Path]::DirectorySeparatorChar
+
+        foreach ($unitDirectory in (Get-ChildItem -LiteralPath $compositesSeedRoot -Directory -Force | Sort-Object Name)) {
+            $relative = Get-RelPath $unitDirectory
+            $manifestPath = Join-Path $unitDirectory 'composite.json'
+            $manifestRel = "$relative/composite.json"
+
+            if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+                Add-Problem $relative '组合件缺少清单 composite.json（一个目录 = 一个投放单元，必须有清单）'
+                continue
+            }
+
+            $raw = ''
+            try {
+                $raw = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8
+                $manifest = $raw | ConvertFrom-Json
+            }
+            catch {
+                Add-Problem $manifestRel "composite.json 无法解析：$($_.Exception.Message)"
+                continue
+            }
+
+            $compositeUnitCount++
+
+            if ([string]::IsNullOrWhiteSpace([string]$manifest.name)) {
+                Add-Problem "$($manifestRel):$(Get-FirstLineNumber -Path $manifestPath -Pattern '"name"')" `
+                    '组合件缺少 name（示例在用户界面上没有名字）'
+            }
+
+            $instances = @($manifest.instances)
+            if ($instances.Count -eq 0) {
+                Add-Problem "$($manifestRel):$(Get-FirstLineNumber -Path $manifestPath -Pattern '"instances"')" `
+                    '组合件没有实例（instances 为空，投放后是空组合）'
+            }
+
+            $instanceIds = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            foreach ($instance in $instances) {
+                $instanceId = [string]$instance.instanceId
+                $moduleId = [string]$instance.moduleId
+
+                if ([string]::IsNullOrWhiteSpace($instanceId)) {
+                    Add-Problem $manifestRel '有实例缺少 instanceId'
+                }
+                elseif (-not $instanceIds.Add($instanceId)) {
+                    Add-Problem $manifestRel ("实例标识重复：'{0}'（实例标识是连接与保存的指认依据）" -f $instanceId)
+                }
+
+                if ($moduleId -notmatch '^[a-z0-9-]+/[a-z0-9-]+$') {
+                    Add-Problem $manifestRel ("实例 '{0}' 的 moduleId 不是两段标识：'{1}'" -f $instanceId, $moduleId)
+                }
+            }
+
+            # 资产是单元内的相对路径：越界或缺失会让示例在用户机器上变成空框。
+            foreach ($assetMatch in [regex]::Matches($raw, '"asset"\s*:\s*"(?<path>[^"]*)"')) {
+                $asset = $assetMatch.Groups['path'].Value
+                if ([string]::IsNullOrWhiteSpace($asset)) { continue }
+
+                $assetPath = [System.IO.Path]::GetFullPath((Join-Path $unitDirectory $asset.Replace('/', [System.IO.Path]::DirectorySeparatorChar)))
+                if (-not $assetPath.StartsWith($compositeUnitFullRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                    Add-Problem $manifestRel ("资产路径不得越出组合件目录：'{0}'" -f $asset)
+                }
+                elseif (-not (Test-Path -LiteralPath $assetPath -PathType Leaf)) {
+                    Add-Problem $manifestRel ("资产文件不存在：'{0}'" -f $asset)
                 }
             }
         }
@@ -1657,8 +1759,8 @@ else {
 
 $tableCount = @($tables).Count
 $iconTableCount = @($iconTables).Count
-Write-Host ("资源：种子主题包 {0} 个 · 文本表 {1} 份（{2} 个拥有者）· 图标表 {3} 份 · 可本地化层扫描文件 {4} 个 · 测试文案断言 {5} 处" -f `
-    $themePackageCount, $tableCount, @($byOwner).Count, $iconTableCount, $localizableScanned, $testCopyCount) -ForegroundColor DarkCyan
+Write-Host ("资源：种子主题包 {0} 个 · 种子组合件 {1} 个 · 文本表 {2} 份（{3} 个拥有者）· 图标表 {4} 份 · 可本地化层扫描文件 {5} 个 · 测试文案断言 {6} 处" -f `
+    $themePackageCount, $compositeUnitCount, $tableCount, @($byOwner).Count, $iconTableCount, $localizableScanned, $testCopyCount) -ForegroundColor DarkCyan
 
 foreach ($note in $script:notes) { Write-Host ("[note] " + $note) -ForegroundColor DarkGray }
 
