@@ -137,8 +137,11 @@ try {
 
     # 开发符号与 XML 文档不属于产品；保留 .deps.json / .runtimeconfig.json / 原生库。
     # 模块包里的 pdb 也一并去掉（运行时不需要）。
-    Get-ChildItem -LiteralPath $temp -Recurse -File -Include '*.pdb', '*.xml' -ErrorAction SilentlyContinue |
-        Remove-Item -Force -ErrorAction SilentlyContinue
+    # 逐个删而不是管道接 Remove-Item：管道形式在部分壳层里拿不到路径操作数。
+    $devArtifacts = @(Get-ChildItem -LiteralPath $temp -Recurse -File -Include '*.pdb', '*.xml' -ErrorAction SilentlyContinue)
+    foreach ($devArtifact in $devArtifacts) {
+        Remove-Item -LiteralPath $devArtifact.FullName -Force -ErrorAction SilentlyContinue
+    }
 
     # ------------------------------------------------------------ 自包含检查
     $isWindowsTarget = $rid -like 'win-*'
