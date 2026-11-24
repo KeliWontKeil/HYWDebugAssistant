@@ -102,7 +102,7 @@
         <StackPanel Orientation="Horizontal" Spacing="2"
                     HorizontalAlignment="Right" VerticalAlignment="Center">
           <ui:ModuleLabel Classes="caption" Text="{loc:Tr view.sentTitle}" />
-          <ui:ModuleNumeric Source="{x:Static views:TextSenderViewKeys.Sent}" Text="0" />
+          <ui:ModuleNumeric Source="{x:Static views:TextSenderViewKeys.Sent}" Text="0" Margin="0,0,0,0"/>
           <ui:ModuleLabel Classes="caption" Text="{loc:Tr view.sentUnit}" />
         </StackPanel>
       </Grid>

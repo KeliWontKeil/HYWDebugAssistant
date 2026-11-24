@@ -3,6 +3,7 @@ using HYWDebugAssistant.Modules.CommandSender;
 using HYWDebugAssistant.Modules.DataMonitor;
 using HYWDebugAssistant.Modules.HexSender;
 using HYWDebugAssistant.Modules.HexStringConverter;
+using HYWDebugAssistant.Modules.ImageFrame;
 using HYWDebugAssistant.Modules.Serial;
 using HYWDebugAssistant.Modules.TcpClient;
 using HYWDebugAssistant.Modules.TcpServer;
@@ -131,6 +132,19 @@ public class BusinessModulesContractTests
         role.Id.ShouldBe("monitor");
         role.Inputs.ShouldBe(["in"]);
         role.Outputs.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void 图片框_零口零角色应自洽且不出建议()
+    {
+        var probe = ModuleContract.Probe(typeof(ImageFrameModule));
+
+        probe.Problems.ShouldBeEmpty();
+        probe.Advisories.ShouldBeEmpty("零口零角色合法且不出建议");
+
+        probe.Ports.ShouldBeEmpty();
+        probe.DataTypes.ShouldBeEmpty();
+        probe.DeclaredRoles.ShouldBeEmpty();
     }
 
     [Fact]

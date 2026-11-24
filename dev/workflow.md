@@ -50,6 +50,15 @@
 - 打包规则只有一份：`build/module-package.targets`，仓库内模块（`src/Modules/Directory.Build.targets` 导入）与外部作者（`Module.Build` 包）共用。
 - 包内 XML 文档是模块作者拿不到源码时的 API 语义来源，四个运行时/作者程序集都必须带。
 
+## 模块设计取舍
+
+新增内置模块或改 `Sdk.Ui` 控件前，先按 [`docs/zh/project/module-design.md`](../docs/zh/project/module-design.md) 的检查表把需求映射到现有通道：
+
+- 先看值 / 显示源 / 输入 / 命令 / 外观 / 文件定时器能否覆盖；固定值池可以承载动态行。
+- 只有“现有控件组合不出布局”才新增控件；控件只消费真实值名和命令，不新增数据通道。
+- 新增 `Declare*`、收件箱事件、持久化字段、视图状态 API 之前，必须指出哪条现有通道失败；没有证据不加。
+- 最近案例：指令发送器最终是 256×6 声明值 + `order` / `selection` 值 + `ModuleValueList`，框架侧零数据通道改动。
+
 ## 已知环境问题
 
 | 现象 | 原因 | 处理 |

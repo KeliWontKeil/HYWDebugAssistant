@@ -31,7 +31,7 @@ public static class StoragePaths
     /// <summary>一个组合件包内的封面文件名。</summary>
     public const string CompositeCoverFileName = "cover.png";
 
-    /// <summary>一个组合件包内的资产子目录名（模块壁纸等）。</summary>
+    /// <summary>一个组合件包内的资产子目录名（模块壁纸、控件图片等）。</summary>
     public const string CompositeAssetsDirectoryName = "assets";
 
     /// <summary>设置目录名（= `<程序目录>\settings`；设置文件与外观主题都在其下）。</summary>

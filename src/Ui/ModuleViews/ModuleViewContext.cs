@@ -35,6 +35,8 @@ internal sealed class ModuleViewContext : IModuleViewContext
     private readonly Func<string>? _multilineSubmitKey;
     private readonly Func<double>? _wheelZoomStep;
     private readonly IModuleColorPicker? _colorPicker;
+    private readonly IModuleImagePicker? _imagePicker;
+    private readonly IModuleViewImageStore _viewImageStore;
     private readonly SurfaceSourceReader _reader;
     private readonly Dictionary<string, ViewAppearance> _appearances = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ConfigFieldView?> _fieldCache = new(StringComparer.Ordinal);
@@ -56,7 +58,8 @@ internal sealed class ModuleViewContext : IModuleViewContext
         IViewStateAccess? viewState,
         Func<string>? multilineSubmitKey,
         IModuleColorPicker? colorPicker = null,
-        Func<double>? wheelZoomStep = null)
+        Func<double>? wheelZoomStep = null,
+        IModuleImagePicker? imagePicker = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(instanceId);
         ArgumentNullException.ThrowIfNull(query);
@@ -69,6 +72,8 @@ internal sealed class ModuleViewContext : IModuleViewContext
         _multilineSubmitKey = multilineSubmitKey;
         _wheelZoomStep = wheelZoomStep;
         _colorPicker = colorPicker;
+        _imagePicker = imagePicker;
+        _viewImageStore = new ModuleViewImageStore(instanceId, query, command);
         _reader = new SurfaceSourceReader(query, viewState);
         _values = new ModuleValuePresenter(instanceId, ReadField, Appearance, query, command, viewState);
     }
@@ -78,6 +83,12 @@ internal sealed class ModuleViewContext : IModuleViewContext
 
     /// <inheritdoc />
     public IModuleColorPicker? ColorPicker => _colorPicker;
+
+    /// <inheritdoc />
+    public IModuleImagePicker? ImagePicker => _imagePicker;
+
+    /// <inheritdoc />
+    public IModuleViewImageStore ViewImageStore => _viewImageStore;
 
     /// <inheritdoc />
     public string MultilineSubmitKey => _multilineSubmitKey?.Invoke() ?? "CtrlEnter";

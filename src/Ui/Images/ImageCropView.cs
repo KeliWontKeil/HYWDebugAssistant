@@ -63,6 +63,36 @@ public sealed class ImageCropView : Control
         InvalidateVisual();
     }
 
+    /// <summary>返回当前裁切的源图矩形（无图 ⇒ null）。</summary>
+    public ImageCropSelection? CaptureSelection()
+    {
+        if (Source is not { } source)
+        {
+            return null;
+        }
+
+        var math = _math;
+        if (math is null)
+        {
+            var viewSize = Bounds.Size;
+            if (viewSize.Width <= 0 || viewSize.Height <= 0)
+            {
+                return null;
+            }
+
+            math = new ImageCropMath(
+                new Size(source.PixelSize.Width, source.PixelSize.Height),
+                viewSize,
+                AspectRatio);
+            _math = math;
+        }
+
+        var rect = math.SourceRect;
+        return rect.Width > 0 && rect.Height > 0
+            ? new ImageCropSelection(source.PixelSize, rect)
+            : null;
+    }
+
     /// <summary>把当前裁切结果编码为 PNG（无图 ⇒ null）。</summary>
     public byte[]? CapturePng()
     {

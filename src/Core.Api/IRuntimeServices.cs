@@ -114,6 +114,14 @@ public interface IRuntimeQuery
     /// <param name="instanceId">实例 ID。</param>
     ModuleWallpaperView? GetModuleWallpaper(string instanceId);
 
+    /// <summary>某模块控件的持久化图片（无 ⇒ null）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    ModuleViewImageAssetView? GetModuleViewImage(string instanceId);
+
+    /// <summary>某模块控件图片的版本（无图 ⇒ 0；不复制字节）。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    long GetModuleViewImageRevision(string instanceId);
+
     /// <summary>本次启动从工作区恢复的外壳绝对矩形；没有工作区 ⇒ null。</summary>
     WorkspacePlacementView? GetWorkspacePlacement();
 
@@ -373,6 +381,12 @@ public interface IRuntimeCommand
 
     /// <summary>设置/清除某模块实例的壁纸（null = 清除）；只影响该模块。</summary>
     CommandResult SetModuleWallpaper(string instanceId, byte[]? png);
+
+    /// <summary>设置/清除某模块控件的持久化图片（null = 清除）；不影响模块壁纸。</summary>
+    /// <param name="instanceId">实例 ID。</param>
+    /// <param name="bytes">图片字节；null/空 = 清除。</param>
+    /// <param name="crop">归一化裁切。</param>
+    CommandResult SetModuleViewImage(string instanceId, byte[]? bytes, ViewImageCrop crop);
 
     /// <summary>严格持久化关闭行为（写盘失败即回滚并返回失败）。</summary>
     /// <param name="behavior"><c>Ask</c> / <c>Save</c> / <c>Discard</c>。</param>

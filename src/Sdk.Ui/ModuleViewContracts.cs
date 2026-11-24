@@ -189,6 +189,24 @@ public interface IModuleViewContext
     /// </remarks>
     IModuleColorPicker? ColorPicker { get; }
 
+    /// <summary>
+    /// 框架图片选择/裁切服务（可空：设计期或未接线时不可选图）。
+    /// </summary>
+    /// <remarks>
+    /// 视图应优先使用它打开框架统一图片选择器，而不是直接访问系统文件选择器；
+    /// 设计期/快照上下文返回 <see langword="null"/>。
+    /// </remarks>
+    IModuleImagePicker? ImagePicker => null;
+
+    /// <summary>
+    /// 当前模块视图控件的持久化图片状态（可空：设计期/测试未接线）。
+    /// </summary>
+    /// <remarks>
+    /// 图片属于控件内容，不属于模块壁纸；字节随组合件/工作区的 <c>viewState</c> 持久化。
+    /// 设计期与快照上下文返回 <see langword="null"/>。
+    /// </remarks>
+    IModuleViewImageStore? ViewImageStore => null;
+
     /// <summary>取某显示源的最新数值（无值 ⇒ <see langword="null"/>）。</summary>
     /// <param name="source">显示源名（模块声明过）。</param>
     double? ReadLatest(string source);

@@ -1001,7 +1001,7 @@ public class CoreRuntimeTests
 
     // ------------------------------------------------------------ 测试辅助
 
-    private static ModuleDefinition TestDefinition(string name, Type entryType) =>
+    internal static ModuleDefinition TestDefinition(string name, Type entryType) =>
         new(ModuleId.Create("test", name),
             name, string.Empty, [], ModuleCapability.None, [], true,
             entryType, TestViewPackages.For(entryType), string.Empty);

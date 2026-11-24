@@ -1,0 +1,13 @@
+{
+  "language": "zh-Hans",
+  "entries": {
+    "module.title": "图片框",
+    "module.description": "在工作区或模块组合展示本地图片或GIF动图",
+    "view.emptyHint": "右键选择图片",
+    "view.loadingHint": "正在加载图片...",
+    "view.errorHint": "图片加载失败，右键重新选择",
+    "view.changeImage": "更换图片...",
+    "view.clearImage": "清除图片",
+    "view.pickTitle": "选择图片"
+  }
+}

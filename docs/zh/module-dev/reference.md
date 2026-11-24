@@ -339,12 +339,34 @@ public sealed class MyViewFactory : IModuleViewFactory
 | `MultilineSubmitKey` | 当前多行提交键档位（`CtrlEnter`/`Enter`/`None`） |
 | `WheelZoomStep` | 波形曲线区每格滚轮缩放系数（应用设置，默认 1.2） |
 | `ColorPicker` | 框架调色窗口（可空）；`SuggestedColors` + `PickAsync` |
+| `ImagePicker` | 框架图片选择/裁切窗口（可空）；`PickAsync(owner, aspect, title)` 返回原始字节与源图裁切矩形 |
+| `ViewImageStore` | 当前视图控件的持久化图片（可空）；`Revision` + `Read` / `Write` 字节与裁切，随 `viewState` 保存 |
 
 自定义元件：继承 `ModuleElement`（或实现 `IModuleViewElement`），框架每帧调用 `Refresh(context)`；值没变就不要碰视觉，刷新不要重建控件树。`ModuleViewHost` 先落外观、再调刷新。
 
 ### 取色
 
 `IModuleColorPicker.SuggestedColors` 给出推荐色，`PickAsync(owner, initialArgb, title, resetText)` 打开框架调色窗口，返回 `Confirmed`、`ColorArgb`、`Reset`。设计期 `ColorPicker` 可能为 `null`，不要弹窗。
+
+### 选择图片
+
+`IModuleImagePicker.PickAsync(owner, aspectRatio, title)` 打开框架统一的文件选择 + 裁切窗口，返回 `Confirmed`、`Bytes`、`SourceSize`、`CropRect`（源图像素坐标）。`aspectRatio` 传图片控件内容区的宽高比；`ImagePicker` 可能为 `null`，设计期/测试不要弹窗。视图把原始字节和归一化裁切交给控件图片状态。
+
+### 控件图片状态
+
+`IModuleViewImageStore` 读写**当前视图控件自己的持久化图片**：
+
+```csharp
+public readonly record struct ModuleViewImage(byte[] Bytes, Rect? Crop);
+
+long Revision { get; }
+ModuleViewImage? Read();
+bool Write(byte[]? bytes, Rect? crop);
+```
+
+- 图片保存在 `viewState.image`，字节在组合件/工作区的 `assets/<hash>.<真实扩展名>`；与模块壁纸共用同一个实例资源槽机制与命名规则，但用途（`ViewImage` / `Wallpaper`）不同、互不影响。
+- `Revision` 用于避免每帧复制字节；`ViewImageStore` 可能为 `null`。
+- 清除图片只清 `ViewImage` 槽；模块壁纸仍由模块窗口自己的壁纸通道管理。
 
 ## 收件箱
 

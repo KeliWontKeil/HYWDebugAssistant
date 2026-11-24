@@ -90,6 +90,7 @@
 | 连不上、收不到数据 | [声明面](contracts.md)、[实现](implementation.md) 的收发与外部接入 |
 | 命令不执行、输入收不到 | [实现](implementation.md) 的“收件箱”、[自发活动与定时器](activity.md) |
 | 报文被切碎或粘包 | [外部接入](../concepts/access.md) 的“块边界不承诺” |
+| 想为动态行 / 选择顺序新增数据通道或上下文成员 | [模块设计取舍](../project/module-design.md)：先映射现有值 / 输入 / 命令 / 控件 |
 
 ## 相关
 

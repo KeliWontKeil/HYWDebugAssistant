@@ -123,16 +123,32 @@ public sealed partial class ModuleRuntime
             notices = noteList;
 
             // 壁纸按实例收集：JSON 只写包内相对引用，字节放 Assets 由包存储落到 assets/。
+            // 壁纸与控件图片共用同一个 assets/ 命名规则（assets/<sha256>.<ext>）；引用即文件名。
             var assets = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-            var wallpapers = CaptureWallpapers();
+            var wallpapers = CaptureAssets(ModuleInstanceAssetKind.Wallpaper);
             foreach (var record in instances)
             {
                 if (wallpapers.TryGetValue(record.InstanceId, out var wallpaper))
                 {
-                    var hash = NormalizeRef(wallpaper.Ref);
-                    record.Wallpaper = $"assets/{hash}.png";
-                    assets[hash] = wallpaper.Png;
+                    record.Wallpaper = wallpaper.Ref;
+                    assets[wallpaper.Ref] = wallpaper.Bytes;
                 }
+            }
+
+            // 控件图片属于 viewState，不属于模块壁纸；引用与字节分别落到 viewState.image / Assets。
+            var viewImages = CaptureAssets(ModuleInstanceAssetKind.ViewImage);
+            foreach (var record in instances)
+            {
+                if (!viewImages.TryGetValue(record.InstanceId, out var image))
+                {
+                    continue;
+                }
+
+                record.ViewState = (record.ViewState ?? ViewStateSnapshot.Empty) with
+                {
+                    Image = new ViewImageStateSnapshot(image.Ref, image.Crop),
+                };
+                assets[image.Ref] = image.Bytes;
             }
 
             return new Composite
@@ -379,6 +395,7 @@ public sealed partial class ModuleRuntime
         RestoreViewState(record);
         SeedValueDefaults(instance!);
         RestoreWallpaper(record);
+        RestoreViewImage(record);
         RestoreConfiguration(instance!, record, notices);
         ActivateInstance(instance!, record.Enabled);
         return true;
@@ -416,7 +433,8 @@ public sealed partial class ModuleRuntime
     {
         if (record.ViewState is { IsEmpty: false } snapshot && ViewState is Services.ViewStateStore store)
         {
-            store.Restore(record.InstanceId, snapshot);
+            // 控件图片由 RestoreViewImage 单独恢复；ViewStateStore 只拥有输入/页/折叠。
+            store.Restore(record.InstanceId, snapshot with { Image = null });
         }
     }
 
@@ -428,16 +446,34 @@ public sealed partial class ModuleRuntime
             return;
         }
 
-        var hash = NormalizeRef(reference);
-        if (hash.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+        var normalized = CompositeAssetRef.Normalize(reference);
+        if (normalized is null
+            || _loadedSource?.Assets.TryGetValue(normalized, out var png) != true
+            || png is not { Length: > 0 })
         {
-            hash = hash[..^4];
+            return;
         }
 
-        if (_loadedSource?.Assets.TryGetValue(hash, out var png) == true)
+        RestoreAsset(record.InstanceId, ModuleInstanceAssetKind.Wallpaper, normalized, png, ViewImageCrop.Full);
+    }
+
+    /// <summary>把控件图片从 viewState.image 恢复成运行时资产。</summary>
+    private void RestoreViewImage(CompositeInstanceRecord record)
+    {
+        if (record.ViewState?.Image is not { AssetRef.Length: > 0 } image)
         {
-            RestoreWallpaper(record.InstanceId, hash, png);
+            return;
         }
+
+        var normalized = CompositeAssetRef.Normalize(image.AssetRef);
+        if (normalized is null
+            || _loadedSource?.Assets.TryGetValue(normalized, out var bytes) != true
+            || bytes is not { Length: > 0 })
+        {
+            return;
+        }
+
+        RestoreAsset(record.InstanceId, ModuleInstanceAssetKind.ViewImage, normalized, bytes, image.Crop);
     }
 
     private bool TryInstantiate(string instanceId, ModuleDefinition definition, out ModuleInstance? instance, out string? failure)

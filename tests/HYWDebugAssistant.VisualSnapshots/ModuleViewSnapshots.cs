@@ -1,12 +1,19 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using Avalonia;
+using SkiaSharp;
 using Avalonia.Controls;
 using Avalonia.LogicalTree;
 using Avalonia.VisualTree;
 using HYWDebugAssistant.Access.Parameters;
+using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Core.Runtime;
+using HYWDebugAssistant.Core.Services;
+using HYWDebugAssistant.Hosting.Registry;
 using HYWDebugAssistant.Modules.AttitudeDisplay;
 using HYWDebugAssistant.Modules.AttitudeDisplay.Views;
 using HYWDebugAssistant.Modules.CommandSender;
@@ -19,6 +26,8 @@ using HYWDebugAssistant.Modules.HexSender;
 using HYWDebugAssistant.Modules.HexSender.Views;
 using HYWDebugAssistant.Modules.HexStringConverter;
 using HYWDebugAssistant.Modules.HexStringConverter.Views;
+using HYWDebugAssistant.Modules.ImageFrame;
+using HYWDebugAssistant.Modules.ImageFrame.Views;
 using HYWDebugAssistant.Modules.ScaleBarHorizontal;
 using HYWDebugAssistant.Modules.ScaleBarHorizontal.Views;
 using HYWDebugAssistant.Modules.ScaleBarVertical;
@@ -43,6 +52,7 @@ using HYWDebugAssistant.Sdk.Ui;
 using HYWDebugAssistant.Sdk.Ui.Controls;
 using HYWDebugAssistant.Sdk.Values;
 using HYWDebugAssistant.Sdk.Views;
+using HYWDebugAssistant.Ui.ViewModels;
 using HorizontalSettingsPanel = HYWDebugAssistant.Modules.ScaleBarHorizontal.Views.ScaleBarSettingsPanel;
 using VerticalSettingsPanel = HYWDebugAssistant.Modules.ScaleBarVertical.Views.ScaleBarSettingsPanel;
 using Xunit;
@@ -77,6 +87,7 @@ public class ModuleViewSnapshots
         { typeof(ScaleBarHorizontalModule), typeof(ScaleBarHorizontalViewFactory), typeof(NoConfig) },
         { typeof(ScaleBarVerticalModule), typeof(ScaleBarVerticalViewFactory), typeof(NoConfig) },
         { typeof(AttitudeDisplayModule), typeof(AttitudeDisplayViewFactory), typeof(NoConfig) },
+        { typeof(ImageFrameModule), typeof(ImageFrameViewFactory), typeof(NoConfig) },
     };
 
     /// <summary>四个终端显示模块的设置面板正文（独立视图，单独渲染成人眼可核对的图）。</summary>
@@ -320,6 +331,262 @@ public class ModuleViewSnapshots
             CancellationToken.None);
     }
 
+    /// <summary>
+    /// 生成图片框**带真实图片**的截图（<c>modules\ImageFrame-filled.png</c>）：
+    /// 临时写一张 64×64 PNG，等控件完成加载后按 360×240 窗口截图。
+    /// </summary>
+    [Fact]
+    public async Task 生成快照_图片框填充图片()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var path = Path.Combine(
+                    Path.GetTempPath(),
+                    "hyw-image-frame-" + Guid.NewGuid().ToString("N") + ".png");
+                WriteSamplePng(path);
+
+                try
+                {
+                    var probe = new TestModuleContext();
+                    var context = new SnapshotContext(
+                        probe,
+                        BuildFields(typeof(NoConfig), typeof(ImageFrameModule).Assembly),
+                        viewImageStore: new SnapshotViewImageStore(File.ReadAllBytes(path), null));
+                    var view = new ImageFrameViewFactory().Create(context);
+                    var host = new ModuleViewHost(context, view);
+                    var (width, height) = WindowSize(view);
+                    var window = SnapshotWindow.CreateFramed(host, view as ModuleView, width, height);
+
+                    window.Show();
+                    SnapshotTool.Pump();
+                    host.Refresh();
+                    SnapshotTool.Pump();
+
+                    var surface = window.GetVisualDescendants().OfType<ModuleImageSurface>().First();
+                    for (var attempt = 0; attempt < 50 && !surface.HasImage; attempt++)
+                    {
+                        Thread.Sleep(10);
+                        SnapshotTool.Pump();
+                        host.Refresh();
+                    }
+
+                    Assert.True(surface.HasImage, "临时 PNG 应已加载到 ModuleImageSurface：" + surface.LastError);
+                    SnapshotTool.Save(window, "modules/ImageFrame-filled.png");
+                    window.Close();
+                }
+                finally
+                {
+                    try
+                    {
+                        File.Delete(path);
+                    }
+                    catch (IOException)
+                    {
+                    }
+                }
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>
+    /// 生成图片框**加载 GIF 动图**的截图（<c>modules\ImageFrame-gif.png</c>）：
+    /// 验证文件路径 → GIF 解码 → WriteableBitmap 帧的完整接入。
+    /// </summary>
+    [Fact]
+    public async Task 生成快照_图片框加载GIF()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                const string gif =
+                    "R0lGODlhAwACAIEAAP8AAAD/AAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQJCgACACwAAAAAAwACAAAICAABBABAUEBAACH5BAgUAAAALAAAAAADAAIAgQAA/wAAAAAAAAAAAAgGAAEIHBgQADs=";
+
+                var path = Path.Combine(
+                    Path.GetTempPath(),
+                    "hyw-image-frame-" + Guid.NewGuid().ToString("N") + ".gif");
+                File.WriteAllBytes(path, Convert.FromBase64String(gif));
+
+                try
+                {
+                    var probe = new TestModuleContext();
+                    var context = new SnapshotContext(
+                        probe,
+                        BuildFields(typeof(NoConfig), typeof(ImageFrameModule).Assembly),
+                        viewImageStore: new SnapshotViewImageStore(File.ReadAllBytes(path), null));
+                    var view = new ImageFrameViewFactory().Create(context);
+                    var host = new ModuleViewHost(context, view);
+                    var (width, height) = WindowSize(view);
+                    var window = SnapshotWindow.CreateFramed(host, view as ModuleView, width, height);
+
+                    window.Show();
+                    SnapshotTool.Pump();
+                    host.Refresh();
+                    SnapshotTool.Pump();
+
+                    var surface = window.GetVisualDescendants().OfType<ModuleImageSurface>().First();
+                    for (var attempt = 0; attempt < 50 && !surface.HasImage; attempt++)
+                    {
+                        Thread.Sleep(10);
+                        SnapshotTool.Pump();
+                        host.Refresh();
+                    }
+
+                    Assert.True(surface.HasImage, "GIF 应已加载到 ModuleImageSurface：" + surface.LastError);
+                    SnapshotTool.Save(window, "modules/ImageFrame-gif.png");
+                    window.Close();
+                }
+                finally
+                {
+                    try
+                    {
+                        File.Delete(path);
+                    }
+                    catch (IOException)
+                    {
+                    }
+                }
+            },
+            CancellationToken.None);
+    }
+
+    private static void WriteSamplePng(string path)
+    {
+        using var bitmap = new SKBitmap(64, 64);
+        using (var canvas = new SKCanvas(bitmap))
+        {
+            canvas.Clear(new SKColor(30, 90, 160));
+            using var paint = new SKPaint { Color = new SKColor(220, 80, 60) };
+            canvas.DrawRect(new SKRect(0, 0, 32, 32), paint);
+            paint.Color = new SKColor(240, 190, 60);
+            canvas.DrawRect(new SKRect(32, 32, 64, 64), paint);
+        }
+
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+        using var stream = File.Create(path);
+        data.SaveTo(stream);
+    }
+
+    /// <summary>
+    /// 生成图片框**带裁切**的截图（<c>modules\ImageFrame-cropped.png</c>）：
+    /// 写入归一化裁切值，验证源矩形裁切与铺满绘制。
+    /// </summary>
+    [Fact]
+    public async Task 生成快照_图片框裁切()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var path = Path.Combine(
+                    Path.GetTempPath(),
+                    "hyw-image-frame-" + Guid.NewGuid().ToString("N") + ".png");
+                WriteSamplePng(path);
+
+                try
+                {
+                    var probe = new TestModuleContext();
+                    var context = new SnapshotContext(
+                        probe,
+                        BuildFields(typeof(NoConfig), typeof(ImageFrameModule).Assembly),
+                        viewImageStore: new SnapshotViewImageStore(
+                            File.ReadAllBytes(path),
+                            new Rect(0.1, 0.2, 0.5, 0.6)));
+                    var view = new ImageFrameViewFactory().Create(context);
+                    var host = new ModuleViewHost(context, view);
+                    var (width, height) = WindowSize(view);
+                    var window = SnapshotWindow.CreateFramed(host, view as ModuleView, width, height);
+
+                    window.Show();
+                    SnapshotTool.Pump();
+                    host.Refresh();
+                    SnapshotTool.Pump();
+
+                    var surface = window.GetVisualDescendants().OfType<ModuleImageSurface>().First();
+                    for (var attempt = 0; attempt < 50 && !surface.HasImage; attempt++)
+                    {
+                        Thread.Sleep(10);
+                        SnapshotTool.Pump();
+                        host.Refresh();
+                    }
+
+                    Assert.True(surface.HasImage, "临时 PNG 应已加载到 ModuleImageSurface：" + surface.LastError);
+                    SnapshotTool.Save(window, "modules/ImageFrame-cropped.png");
+                    window.Close();
+                }
+                finally
+                {
+                    try
+                    {
+                        File.Delete(path);
+                    }
+                    catch (IOException)
+                    {
+                    }
+                }
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>
+    /// 生成图片框**从控件图片状态直接解码**的截图（<c>modules\ImageFrame-asset.png</c>）。
+    /// 这是纯视觉夹具；真实持久化由服务/组合件测试覆盖。
+    /// </summary>
+    [Fact]
+    public async Task 生成快照_图片框资产字节()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var path = Path.Combine(
+                    Path.GetTempPath(),
+                    "hyw-image-frame-" + Guid.NewGuid().ToString("N") + ".png");
+                WriteSamplePng(path);
+
+                try
+                {
+                    var probe = new TestModuleContext();
+
+                    var context = new SnapshotContext(
+                        probe,
+                        BuildFields(typeof(NoConfig), typeof(ImageFrameModule).Assembly),
+                        viewImageStore: new SnapshotViewImageStore(File.ReadAllBytes(path), null));
+                    var view = new ImageFrameViewFactory().Create(context);
+                    var host = new ModuleViewHost(context, view);
+                    var (width, height) = WindowSize(view);
+                    var window = SnapshotWindow.CreateFramed(host, view as ModuleView, width, height);
+
+                    window.Show();
+                    SnapshotTool.Pump();
+                    host.Refresh();
+                    SnapshotTool.Pump();
+
+                    var surface = window.GetVisualDescendants().OfType<ModuleImageSurface>().First();
+                    for (var attempt = 0; attempt < 50 && !surface.HasImage; attempt++)
+                    {
+                        Thread.Sleep(10);
+                        SnapshotTool.Pump();
+                        host.Refresh();
+                    }
+
+                    Assert.True(surface.HasImage, "图片资产字节应已加载到 ModuleImageSurface：" + surface.LastError);
+                    SnapshotTool.Save(window, "modules/ImageFrame-asset.png");
+                    window.Close();
+                }
+                finally
+                {
+                    try
+                    {
+                        File.Delete(path);
+                    }
+                    catch (IOException)
+                    {
+                    }
+                }
+            },
+            CancellationToken.None);
+    }
+
     /// <summary>生成姿态模块的**视角面板展开**截图（<c>modules\AttitudeDisplay-viewcube.png</c>）。</summary>
     [Fact]
     public async Task 生成快照_姿态视角面板()
@@ -450,6 +717,96 @@ public class ModuleViewSnapshots
             CancellationToken.None);
     }
 
+    /// <summary>
+    /// 真实运行时下的图片框/壁纸独立性回归：控件图片不随模块壁纸清除而消失。
+    /// </summary>
+    [Fact]
+    public async Task 图片框与模块壁纸独立()
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var path = Path.Combine(
+                    Path.GetTempPath(),
+                    "hyw-image-frame-" + Guid.NewGuid().ToString("N") + ".png");
+                WriteSamplePng(path);
+
+                try
+                {
+                    var viewState = new ViewStateStore();
+                    using var runtime = new ModuleRuntime(viewState: viewState);
+                    var services = new RuntimeServices(runtime);
+                    var definition = new ModuleDefinition(
+                        ModuleId.Create("hyw", "image-frame"),
+                        "图片框",
+                        string.Empty,
+                        ["other"],
+                        ModuleCapability.None,
+                        [],
+                        false,
+                        typeof(ImageFrameModule),
+                        string.Empty,
+                        string.Empty,
+                        viewFactory: typeof(ImageFrameViewFactory));
+
+                    Assert.True(services.Registry.TryRegister(definition, out var failure), failure);
+                    Assert.True(services.AddModule("img", "hyw/image-frame").Succeeded);
+                    Assert.True(services.SetModuleViewImage(
+                        "img",
+                        File.ReadAllBytes(path),
+                        ViewImageCrop.Full).Succeeded);
+                    Assert.True(services.SetModuleWallpaper("img", [1, 2, 3]).Succeeded);
+
+                    var instance = services.GetInstances().Single(item => item.InstanceId == "img");
+                    var viewModel = new ModuleViewViewModel(instance, null, services, services, 0, 0, viewState);
+                    var host = viewModel.EnsureView();
+                    Assert.NotNull(host);
+                    var view = host!.Content as ModuleView;
+                    Assert.NotNull(view);
+
+                    var (width, height) = WindowSize(view!);
+                    var window = SnapshotWindow.CreateFramed(host, view!, width, height);
+                    window.Show();
+                    SnapshotTool.Pump();
+                    host.Refresh();
+                    SnapshotTool.Pump();
+
+                    var surface = window.GetVisualDescendants().OfType<ModuleImageSurface>().First();
+                    for (var attempt = 0; attempt < 50 && !surface.HasImage; attempt++)
+                    {
+                        Thread.Sleep(10);
+                        SnapshotTool.Pump();
+                        host.Refresh();
+                    }
+
+                    Assert.True(surface.HasImage, "控件图片应已加载：" + surface.LastError);
+
+                    Assert.True(services.SetModuleWallpaper("img", null).Succeeded);
+                    host.Refresh();
+                    SnapshotTool.Pump();
+                    Assert.True(surface.HasImage, "清除模块壁纸不应清除控件图片");
+
+                    Assert.True(services.SetModuleViewImage("img", null, ViewImageCrop.Full).Succeeded);
+                    host.Refresh();
+                    SnapshotTool.Pump();
+                    Assert.False(surface.HasImage, "清除控件图片后应为空态");
+
+                    window.Close();
+                }
+                finally
+                {
+                    try
+                    {
+                        File.Delete(path);
+                    }
+                    catch (IOException)
+                    {
+                    }
+                }
+            },
+            CancellationToken.None);
+    }
+
     /// <summary>截图窗口尺寸 = 视图声明的实际窗口尺寸（含外框）。</summary>
     private static (double Width, double Height) WindowSize(Control view)
     {
@@ -537,16 +894,20 @@ public class ModuleViewSnapshots
         public SnapshotContext(
             TestModuleContext probe,
             IReadOnlyDictionary<string, ConfigFieldView> fields,
-            string text = "就绪")
+            string text = "就绪",
+            IModuleViewImageStore? viewImageStore = null)
         {
             _fields = fields;
             _probe = probe;
             _text = text;
+            ViewImageStore = viewImageStore;
         }
 
         public string InstanceId => "snapshot";
 
         public IModuleColorPicker? ColorPicker => null;
+
+        public IModuleViewImageStore? ViewImageStore { get; }
 
         public string MultilineSubmitKey => "CtrlEnter";
 
@@ -644,6 +1005,23 @@ public class ModuleViewSnapshots
 
         public void SetSelectedPage(string stateKey, int page)
         {
+        }
+    }
+
+    private sealed class SnapshotViewImageStore(byte[]? bytes, Rect? crop) : IModuleViewImageStore
+    {
+        private ModuleViewImage? _image = bytes is null ? null : new ModuleViewImage(bytes, crop);
+        private long _revision = bytes is null ? 0 : 1;
+
+        public long Revision => _revision;
+
+        public ModuleViewImage? Read() => _image;
+
+        public bool Write(byte[]? data, Rect? newCrop)
+        {
+            _image = data is { Length: > 0 } ? new ModuleViewImage(data, newCrop) : null;
+            _revision++;
+            return true;
         }
     }
 }

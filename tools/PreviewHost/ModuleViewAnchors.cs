@@ -4,6 +4,7 @@ using HYWDebugAssistant.Modules.DataMonitor.Views;
 using HYWDebugAssistant.Modules.GaugeDisplay.Views;
 using HYWDebugAssistant.Modules.HexSender.Views;
 using HYWDebugAssistant.Modules.HexStringConverter.Views;
+using HYWDebugAssistant.Modules.ImageFrame.Views;
 using HYWDebugAssistant.Modules.ScaleBarHorizontal.Views;
 using HYWDebugAssistant.Modules.ScaleBarVertical.Views;
 using HYWDebugAssistant.Modules.Serial.Views;
@@ -38,6 +39,7 @@ internal static class ModuleViewAnchors
         typeof(GaugeDisplayView),
         typeof(HexSenderView),
         typeof(HexStringConverterView),
+        typeof(ImageFrameView),
         typeof(ScaleBarHorizontalView),
         typeof(ScaleBarVerticalView),
         typeof(SerialView),

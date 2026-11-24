@@ -82,7 +82,8 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         IRuntimeCommand command,
         IViewStateAccess? viewState = null,
         TimeSpan? noticeLifetime = null,
-        IModuleColorPicker? colorPicker = null)
+        IModuleColorPicker? colorPicker = null,
+        IModuleImagePicker? imagePicker = null)
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(command);
@@ -92,7 +93,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         _noticeLifetime = noticeLifetime ?? DefaultNoticeLifetime;
 
         Hotkeys = new HotkeyService(this);
-        Windows = new ModuleWindowsViewModel(query, command, viewState, colorPicker);
+        Windows = new ModuleWindowsViewModel(query, command, viewState, colorPicker, imagePicker);
         Performance = new PerformanceMonitorViewModel();
         Composites = new CompositePageViewModel(query, command, Windows);
 

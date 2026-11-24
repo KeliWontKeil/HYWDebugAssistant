@@ -760,9 +760,55 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             return null;
         }
 
-        return _runtime.GetWallpaper(instanceId) is { } asset
-            ? new ModuleWallpaperView(asset.Revision, asset.Png)
+        return _runtime.GetAsset(instanceId, ModuleInstanceAssetKind.Wallpaper) is { } asset
+            ? new ModuleWallpaperView(asset.Revision, asset.Bytes)
             : null;
+    }
+
+    /// <inheritdoc />
+    public ModuleViewImageAssetView? GetModuleViewImage(string instanceId)
+    {
+        if (string.IsNullOrWhiteSpace(instanceId))
+        {
+            return null;
+        }
+
+        return _runtime.GetAsset(instanceId, ModuleInstanceAssetKind.ViewImage) is { } asset
+            ? new ModuleViewImageAssetView(asset.Revision, asset.Bytes, asset.Crop)
+            : null;
+    }
+
+    /// <inheritdoc />
+    public long GetModuleViewImageRevision(string instanceId) =>
+        string.IsNullOrWhiteSpace(instanceId)
+            ? 0
+            : _runtime.GetAssetRevision(instanceId, ModuleInstanceAssetKind.ViewImage);
+
+    /// <inheritdoc />
+    public CommandResult SetModuleViewImage(string instanceId, byte[]? bytes, ViewImageCrop crop)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
+
+        if (bytes is { Length: > 0 })
+        {
+            if (bytes.Length > CompositeAssetRef.MaxAssetBytes)
+            {
+                return CommandResult.Fail([CoreText.Get("core.runtime.imageTooLarge")]);
+            }
+
+            if (ImageAssetFormat.DetectExtension(bytes) is not { } extension)
+            {
+                return CommandResult.Fail([CoreText.Get("core.runtime.imageFormatUnsupported")]);
+            }
+
+            return _runtime.SetAsset(instanceId, ModuleInstanceAssetKind.ViewImage, bytes, crop, extension)
+                ? CommandResult.Ok()
+                : CommandResult.Fail([CoreText.Get("core.runtime.instanceMissing", instanceId)]);
+        }
+
+        return _runtime.SetAsset(instanceId, ModuleInstanceAssetKind.ViewImage, null, crop, "png")
+            ? CommandResult.Ok()
+            : CommandResult.Fail([CoreText.Get("core.runtime.instanceMissing", instanceId)]);
     }
 
     /// <inheritdoc />
@@ -770,7 +816,12 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
 
-        if (!_runtime.SetWallpaper(instanceId, png))
+        if (png is { Length: > 0 } && png.Length > CompositeAssetRef.MaxAssetBytes)
+        {
+            return CommandResult.Fail([CoreText.Get("core.runtime.imageTooLarge")]);
+        }
+
+        if (!_runtime.SetAsset(instanceId, ModuleInstanceAssetKind.Wallpaper, png, ViewImageCrop.Full, "png"))
         {
             return CommandResult.Fail([CoreText.Get("core.runtime.instanceMissing", instanceId)]);
         }
@@ -938,6 +989,9 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             {
                 File.Copy(sourceCover, CompositeFileStore.CoverPathFor(target), overwrite: true);
             }
+
+            // 扁平组合件的 assets/ 与 JSON 同目录；导入时一并复制到默认目录的 assets/。
+            CopyAssetFiles(sourceDirectory!, Path.GetDirectoryName(target)!);
 
             var notices = new List<string> { CoreText.Get("core.services.composite.imported", target) };
             if (inspection.MissingModules.Count > 0)
@@ -1231,14 +1285,35 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             File.Copy(cover, Path.Combine(target, StoragePaths.CompositeCoverFileName), overwrite: true);
         }
 
-        var assets = Path.Combine(source, StoragePaths.CompositeAssetsDirectoryName);
-        if (Directory.Exists(assets))
+        CopyAssetFiles(source, target);
+    }
+
+    /// <summary>把源目录 <c>assets/</c> 中符合内容寻址命名的文件复制到目标目录（同名即同内容）。</summary>
+    /// <param name="sourceDirectory">源目录（含 <c>assets/</c>）。</param>
+    /// <param name="targetDirectory">目标目录（在其下创建 <c>assets/</c>）。</param>
+    private static void CopyAssetFiles(string sourceDirectory, string targetDirectory)
+    {
+        var sourceAssets = Path.Combine(sourceDirectory, StoragePaths.CompositeAssetsDirectoryName);
+        if (!Directory.Exists(sourceAssets))
         {
-            var targetAssets = Path.Combine(target, StoragePaths.CompositeAssetsDirectoryName);
-            _ = Directory.CreateDirectory(targetAssets);
-            foreach (var file in Directory.EnumerateFiles(assets, "*.png", SearchOption.TopDirectoryOnly))
+            return;
+        }
+
+        var targetAssets = Path.Combine(targetDirectory, StoragePaths.CompositeAssetsDirectoryName);
+        _ = Directory.CreateDirectory(targetAssets);
+
+        foreach (var file in Directory.EnumerateFiles(sourceAssets, "*", SearchOption.TopDirectoryOnly))
+        {
+            var name = Path.GetFileName(file);
+            if (!CompositeAssetRef.IsValidFileName(name))
             {
-                File.Copy(file, Path.Combine(targetAssets, Path.GetFileName(file)), overwrite: true);
+                continue;
+            }
+
+            var destination = Path.Combine(targetAssets, name);
+            if (!File.Exists(destination))
+            {
+                File.Copy(file, destination, overwrite: false);
             }
         }
     }
@@ -2487,7 +2562,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 instance.Definition.WindowHeight,
                 instance.Definition.MinWidth,
                 instance.Definition.MinHeight),
-            WallpaperRevision: _runtime.GetWallpaperRevision(instance.InstanceId));
+            WallpaperRevision: _runtime.GetAssetRevision(instance.InstanceId, ModuleInstanceAssetKind.Wallpaper));
     }
 
     /// <summary>占位实例视图（模块定义缺失/版本不兼容）：无活动、无口，只有 ID 与声明归属。</summary>

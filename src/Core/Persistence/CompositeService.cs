@@ -68,16 +68,28 @@ public sealed class CompositeService
 
         var composite = _runtime.CaptureComposite(compositeName, instanceIds, out var notices);
 
-        if (!CompositeStore.TryWrite(filePath, CompositeSerializer.ToJsonObject(composite), out var error))
+        try
         {
-            var failure = CoreText.Get("core.composite.saveFailed", error);
+            WriteAssets(composite, Path.GetDirectoryName(Path.GetFullPath(filePath)));
+
+            if (!CompositeStore.TryWrite(filePath, CompositeSerializer.ToJsonObject(composite), out var error))
+            {
+                var failure = CoreText.Get("core.composite.saveFailed", error);
+                _issues.Report($"composite:{compositeName}", new IssueReport(
+                    IssueCategory.ConfigurationError, IssueSeverity.Error, failure));
+
+                return CommandResult.Fail([failure]);
+            }
+
+            return CommandResult.Ok(notices);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            var failure = CoreText.Get("core.composite.saveFailed", ex.Message);
             _issues.Report($"composite:{compositeName}", new IssueReport(
                 IssueCategory.ConfigurationError, IssueSeverity.Error, failure));
-
             return CommandResult.Fail([failure]);
         }
-
-        return CommandResult.Ok(notices);
     }
 
     /// <summary>
@@ -109,26 +121,14 @@ public sealed class CompositeService
                 ? CompositeFileStore.DocumentPathFor(directory)
                 : Path.Combine(directory, documentFileName);
 
+            WriteAssets(composite, directory);
+
             if (!CompositeStore.TryWrite(document, CompositeSerializer.ToJsonObject(composite), out var error))
             {
                 var failure = CoreText.Get("core.composite.saveFailed", error);
                 _issues.Report($"composite:{compositeName}", new IssueReport(
                     IssueCategory.ConfigurationError, IssueSeverity.Error, failure));
                 return CommandResult.Fail([failure]);
-            }
-
-            var assets = Path.Combine(directory, "assets");
-            if (composite.Assets.Count > 0)
-            {
-                _ = Directory.CreateDirectory(assets);
-                foreach (var (hash, png) in composite.Assets)
-                {
-                    var path = Path.Combine(assets, hash + ".png");
-                    if (!File.Exists(path))
-                    {
-                        File.WriteAllBytes(path, png);
-                    }
-                }
             }
 
             return CommandResult.Ok(notices);
@@ -245,7 +245,36 @@ public sealed class CompositeService
         return new CompositeInspection(composite.Instances.Count, [.. missing], null);
     }
 
-    /// <summary>从包目录读壁纸资产；缺失/非法只丢该资产并记 Warning，不影响组合其余内容。</summary>
+    /// <summary>把组合件资产写到文档同目录的 <c>assets/</c>（扁平 JSON 也写，保证图片可随件恢复）。</summary>
+    private static void WriteAssets(Composite composite, string? directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || composite.Assets.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var (reference, bytes) in composite.Assets)
+        {
+            if (!CompositeAssetRef.TryParse(reference, out var normalized, out _))
+            {
+                continue;
+            }
+
+            var path = Path.Combine(directory, normalized.Replace('/', Path.DirectorySeparatorChar));
+            var parent = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(parent))
+            {
+                _ = Directory.CreateDirectory(parent);
+            }
+
+            if (!File.Exists(path))
+            {
+                File.WriteAllBytes(path, bytes);
+            }
+        }
+    }
+
+    /// <summary>从包目录读资产（壁纸与控件图片）；缺失/非法只丢该资产并记 Warning，不影响组合其余内容。</summary>
     private void LoadAssets(Composite composite, string documentPath)
     {
         var directory = Path.GetDirectoryName(Path.GetFullPath(documentPath));
@@ -257,42 +286,65 @@ public sealed class CompositeService
         var assets = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         foreach (var record in composite.Instances)
         {
-            if (record.Wallpaper is not { Length: > 0 } reference)
-            {
-                continue;
-            }
-
-            var hash = Path.GetFileName(reference);
-            if (hash.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
-            {
-                hash = hash[..^4];
-            }
-
-            if (hash.Length != 64 || hash.Any(ch => !Uri.IsHexDigit(ch)))
-            {
-                _issues.Report($"composite:{composite.Name}", new IssueReport(
-                    IssueCategory.ConfigurationError, IssueSeverity.Warning,
-                    CoreText.Get("core.composite.wallpaperInvalidReference", reference)));
-                continue;
-            }
-
-            var path = Path.Combine(directory, "assets", hash + ".png");
-            try
-            {
-                if (File.Exists(path) && new FileInfo(path).Length is > 0 and <= 32L * 1024 * 1024)
-                {
-                    assets[hash] = File.ReadAllBytes(path);
-                }
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                _issues.Report($"composite:{composite.Name}", new IssueReport(
-                    IssueCategory.ConfigurationError, IssueSeverity.Warning,
-                    CoreText.Get("core.composite.wallpaperReadFailed", path, ex.Message)));
-            }
+            LoadAsset(composite, directory, assets, record.Wallpaper);
+            LoadAsset(composite, directory, assets, record.ViewState?.Image?.AssetRef);
         }
 
         composite.Assets = assets;
+    }
+
+    private void LoadAsset(
+        Composite composite,
+        string directory,
+        Dictionary<string, byte[]> assets,
+        string? reference)
+    {
+        if (reference is not { Length: > 0 })
+        {
+            return;
+        }
+
+        if (!CompositeAssetRef.TryParse(reference, out var normalized, out _))
+        {
+            _issues.Report($"composite:{composite.Name}", new IssueReport(
+                IssueCategory.ConfigurationError, IssueSeverity.Warning,
+                CoreText.Get("core.composite.assetInvalidReference", reference)));
+            return;
+        }
+
+        if (assets.ContainsKey(normalized))
+        {
+            return;
+        }
+
+        var path = Path.Combine(directory, normalized.Replace('/', Path.DirectorySeparatorChar));
+        try
+        {
+            var file = new FileInfo(path);
+            if (!file.Exists)
+            {
+                _issues.Report($"composite:{composite.Name}", new IssueReport(
+                    IssueCategory.ConfigurationError, IssueSeverity.Warning,
+                    CoreText.Get("core.composite.assetMissing", reference)));
+                return;
+            }
+
+            if (file.Length is <= 0 or > CompositeAssetRef.MaxAssetBytes)
+            {
+                _issues.Report($"composite:{composite.Name}", new IssueReport(
+                    IssueCategory.ConfigurationError, IssueSeverity.Warning,
+                    CoreText.Get("core.composite.assetSizeInvalid", path)));
+                return;
+            }
+
+            assets[normalized] = File.ReadAllBytes(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _issues.Report($"composite:{composite.Name}", new IssueReport(
+                IssueCategory.ConfigurationError, IssueSeverity.Warning,
+                CoreText.Get("core.composite.assetReadFailed", path, ex.Message)));
+        }
     }
 
     // ---------------------------------------------------------------- 内部

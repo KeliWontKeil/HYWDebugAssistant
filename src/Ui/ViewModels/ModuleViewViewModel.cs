@@ -185,6 +185,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// <summary>视图状态存储（**可空**：设计期与未接线的调用点不传）。</summary>
     private readonly IViewStateAccess? _viewState;
     private readonly IModuleColorPicker? _colorPicker;
+    private readonly IModuleImagePicker? _imagePicker;
 
     /// <summary>
     /// **多行文本输入的提交键**——由 <see cref="ModuleWindowsViewModel"/> 从应用级设置下发。
@@ -242,7 +243,8 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         double fallbackX,
         double fallbackY,
         IViewStateAccess? viewState = null,
-        IModuleColorPicker? colorPicker = null)
+        IModuleColorPicker? colorPicker = null,
+        IModuleImagePicker? imagePicker = null)
     {
         ArgumentNullException.ThrowIfNull(view);
         ArgumentNullException.ThrowIfNull(query);
@@ -252,6 +254,7 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
         _command = command;
         _viewState = viewState;
         _colorPicker = colorPicker;
+        _imagePicker = imagePicker;
         // 尺寸来自视图根 .axaml：InitialWidth/InitialHeight（实例化默认窗口尺寸，含外框）与
         // MinWidth/MinHeight（运行期下限，含外框）是两个独立事实；ModuleDefinition 尺寸不再读取。
         EffectiveMaxWidth = null;
@@ -776,7 +779,8 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
             _viewState,
             () => MultilineSubmitKey,
             _colorPicker,
-            () => WheelZoomStep);
+            () => WheelZoomStep,
+            _imagePicker);
 
         try
         {

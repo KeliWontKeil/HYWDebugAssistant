@@ -653,6 +653,12 @@
     <Setter Property="FontSize" Value="10" />
   </Style>
 
+  <!-- 图片面：空态/错误提示用弱化文字色，字号与模块说明文字一致。 -->
+  <Style Selector="ui|ModuleImageSurface">
+    <Setter Property="HintBrush" Value="{DynamicResource TextMuted}" />
+    <Setter Property="HintFontSize" Value="12" />
+  </Style>
+
   <!-- 三轴姿态：网格用边框色，三轴取方向/语义色，机体用表面色 + 强调棱线；视角浮层用表面/主题色。 -->
   <Style Selector="ui|AttitudeView">
     <Setter Property="GridBrush" Value="{DynamicResource BorderDefault}" />

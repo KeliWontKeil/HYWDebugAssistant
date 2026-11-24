@@ -69,7 +69,8 @@ internal static class CompositionRoot
             provider.GetRequiredService<IRuntimeQuery>(),
             provider.GetRequiredService<IRuntimeCommand>(),
             provider.GetRequiredService<IViewStateAccess>(),
-            colorPicker: new FrameworkModuleColorPicker()));
+            colorPicker: new FrameworkModuleColorPicker(),
+            imagePicker: new FrameworkModuleImagePicker()));
 
         var provider = services.BuildServiceProvider();
 

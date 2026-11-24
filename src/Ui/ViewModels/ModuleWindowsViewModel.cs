@@ -219,7 +219,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         IRuntimeQuery query,
         IRuntimeCommand command,
         IViewStateAccess? viewState = null,
-        IModuleColorPicker? colorPicker = null)
+        IModuleColorPicker? colorPicker = null,
+        IModuleImagePicker? imagePicker = null)
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(command);
@@ -228,10 +229,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _command = command;
         _viewState = viewState;
         _colorPicker = colorPicker;
+        _imagePicker = imagePicker;
     }
 
     private readonly IViewStateAccess? _viewState;
     private readonly IModuleColorPicker? _colorPicker;
+    private readonly IModuleImagePicker? _imagePicker;
 
     /// <summary>模块窗口（每个模块一项）。</summary>
     public ObservableCollection<ModuleViewViewModel> Modules { get; } = [];
@@ -2866,7 +2869,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                 fallbackX: 0,
                 fallbackY: 0,
                 _viewState,
-                _colorPicker)
+                _colorPicker,
+                _imagePicker)
             {
                 WallpaperVeilOpacity = WallpaperVeilOpacity,
             };

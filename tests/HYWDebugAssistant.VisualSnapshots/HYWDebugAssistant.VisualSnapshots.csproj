@@ -58,6 +58,7 @@
     <ProjectReference Include="..\..\src\Modules\Business\ScaleBarHorizontal\HYWDebugAssistant.Modules.ScaleBarHorizontal.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\ScaleBarVertical\HYWDebugAssistant.Modules.ScaleBarVertical.csproj" />
     <ProjectReference Include="..\..\src\Modules\Business\AttitudeDisplay\HYWDebugAssistant.Modules.AttitudeDisplay.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Business\ImageFrame\HYWDebugAssistant.Modules.ImageFrame.csproj" />
   </ItemGroup>
 
 </Project>

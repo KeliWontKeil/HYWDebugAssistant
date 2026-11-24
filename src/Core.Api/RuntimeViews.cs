@@ -904,6 +904,12 @@ public readonly record struct WorkspacePlacementView(double X, double Y, double 
 /// <param name="Png">PNG 字节。</param>
 public sealed record ModuleWallpaperView(long Revision, byte[] Png);
 
+/// <summary>模块控件的持久化图片状态（字节 + 归一化裁切；无图片时查询返回 null）。</summary>
+/// <param name="Revision">版本号（每次设置/清除/加载递增）。</param>
+/// <param name="Bytes">图片原始字节。</param>
+/// <param name="Crop">归一化裁切。</param>
+public sealed record ModuleViewImageAssetView(long Revision, byte[] Bytes, ViewImageCrop Crop);
+
 /// <summary>组合文件导入结果（复制到默认目录后的目标路径）。</summary>
 /// <param name="Succeeded">是否成功（含“已存在且复用”）。</param>
 /// <param name="TargetPath">默认目录中的目标文件（失败时为空）。</param>

@@ -564,9 +564,10 @@ public sealed partial class ModuleRuntime : IDisposable
         {
             RemoveInstanceCore(instanceId);
 
-            // 视图状态/模块壁纸随实例移除清理（关闭模块即丢；保存过的副本在组合件/工作区里）
+            // 视图状态/模块壁纸/控件图片随实例移除清理（关闭模块即丢；保存过的副本在组合件/工作区里）
             ViewState?.RemoveInstance(instanceId);
-            RemoveWallpaper(instanceId);
+            RemoveAsset(instanceId, ModuleInstanceAssetKind.Wallpaper);
+            RemoveAsset(instanceId, ModuleInstanceAssetKind.ViewImage);
         }
 
         // **每次变更都重算派生网络**：布局（拖动/缩放）· 增删启停 · 标签变更 · 加载

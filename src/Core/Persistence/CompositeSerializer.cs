@@ -36,6 +36,13 @@ public static class CompositeSerializer
     private const string InputTextsField = "inputTexts";
     private const string SelectedPagesField = "selectedPages";
     private const string CollapsedField = "collapsed";
+    private const string ImageField = "image";
+    private const string AssetField = "asset";
+    private const string CropField = "crop";
+    private const string CropXField = "x";
+    private const string CropYField = "y";
+    private const string CropWidthField = "w";
+    private const string CropHeightField = "h";
     private const string PresentationField = "presentation";
     private const string WallpaperField = "wallpaper";
     private const string PortsField = "ports";
@@ -143,7 +150,7 @@ public static class CompositeSerializer
                 Configuration = entry[ConfigurationField] as JsonObject,
                 ViewState = ReadViewState(entry, instanceId, issues),
                 Wallpaper = entry[PresentationField] is JsonObject presentation
-                    ? NormalizeWallpaper(ReadString(presentation, WallpaperField))
+                    ? NormalizeAsset(ReadString(presentation, WallpaperField))
                     : null,
                 Ports = ReadPorts(entry, instanceId, issues),
                 Fragment = entry,
@@ -361,6 +368,21 @@ public static class CompositeSerializer
                     }
 
                     node[CollapsedField] = collapsed;
+                }
+
+                if (viewState.Image is { } image)
+                {
+                    node[ImageField] = new JsonObject
+                    {
+                        [AssetField] = image.AssetRef,
+                        [CropField] = new JsonObject
+                        {
+                            [CropXField] = image.Crop.X,
+                            [CropYField] = image.Crop.Y,
+                            [CropWidthField] = image.Crop.Width,
+                            [CropHeightField] = image.Crop.Height,
+                        },
+                    };
                 }
 
                 entry[ViewStateField] = node;
@@ -753,20 +775,43 @@ public static class CompositeSerializer
             }
         }
 
-        var snapshot = new HYWDebugAssistant.Core.Api.ViewStateSnapshot(inputs, pages, collapsed);
+        HYWDebugAssistant.Core.Api.ViewImageStateSnapshot? image = null;
+        if (node[ImageField] is JsonObject imageNode
+            && NormalizeAsset(ReadString(imageNode, AssetField)) is { Length: > 0 } asset)
+        {
+            image = new HYWDebugAssistant.Core.Api.ViewImageStateSnapshot(
+                asset,
+                ReadViewImageCrop(imageNode[CropField] as JsonObject));
+        }
+
+        var snapshot = new HYWDebugAssistant.Core.Api.ViewStateSnapshot(inputs, pages, collapsed)
+        {
+            Image = image,
+        };
         return snapshot.IsEmpty ? null : snapshot;
     }
 
-    private static string? NormalizeWallpaper(string? wallpaper)
+    private static HYWDebugAssistant.Core.Api.ViewImageCrop ReadViewImageCrop(JsonObject? node)
     {
-        if (string.IsNullOrWhiteSpace(wallpaper))
+        if (node is null
+            || !TryReadDouble(node, CropXField, out var x)
+            || !TryReadDouble(node, CropYField, out var y)
+            || !TryReadDouble(node, CropWidthField, out var width)
+            || !TryReadDouble(node, CropHeightField, out var height))
         {
-            return null;
+            return HYWDebugAssistant.Core.Api.ViewImageCrop.Full;
         }
 
-        var value = wallpaper.Replace('\\', '/').Trim();
-        return value.StartsWith("assets/", StringComparison.OrdinalIgnoreCase) ? value : null;
+        x = Math.Clamp(x, 0, 1);
+        y = Math.Clamp(y, 0, 1);
+        width = Math.Clamp(width, 0, 1 - x);
+        height = Math.Clamp(height, 0, 1 - y);
+        return width > 0 && height > 0
+            ? new HYWDebugAssistant.Core.Api.ViewImageCrop(x, y, width, height)
+            : HYWDebugAssistant.Core.Api.ViewImageCrop.Full;
     }
+
+    private static string? NormalizeAsset(string? asset) => CompositeAssetRef.Normalize(asset);
 
     private static List<PortGeometryView> ReadPorts(JsonObject entry, string instanceId, List<string> issues)
     {

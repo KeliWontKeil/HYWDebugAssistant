@@ -1,0 +1,37 @@
+<ui:ModuleView xmlns="https://github.com/avaloniaui"
+               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+               xmlns:ui="using:HYWDebugAssistant.Sdk.Ui.Controls"
+               xmlns:loc="using:HYWDebugAssistant.Sdk.Ui.Controls"
+               xmlns:contracts="using:HYWDebugAssistant.Sdk.Ui"
+               x:Class="HYWDebugAssistant.Modules.ImageFrame.Views.ImageFrameView"
+               x:CompileBindings="True"
+               x:DataType="contracts:IModuleViewContext"
+               InitialWidth="360" InitialHeight="240"
+               MinWidth="160" MinHeight="120">
+
+  <!--
+    图片框：内容区只有图片面，没有工具栏/按钮。
+    右键菜单挂在透明根面板上，空态也能命中；更换图片由框架图片选择/裁切服务完成。
+    图片与裁切属于控件持久化状态，不接触模块壁纸。
+  -->
+  <Panel Background="Transparent" ClipToBounds="True">
+    <Panel.ContextMenu>
+      <ContextMenu>
+        <MenuItem x:Name="ChangeImageItem"
+                  Header="{loc:Tr view.changeImage}"
+                  Click="OnChangeImage" />
+        <Separator />
+        <MenuItem x:Name="ClearImageItem"
+                  IsEnabled="False"
+                  Header="{loc:Tr view.clearImage}"
+                  Click="OnClearImage" />
+      </ContextMenu>
+    </Panel.ContextMenu>
+
+    <ui:ModuleImageSurface x:Name="Image"
+                           EmptyHint="{loc:Tr view.emptyHint}"
+                           LoadingHint="{loc:Tr view.loadingHint}"
+                           ErrorHint="{loc:Tr view.errorHint}"
+                           Stretch="UniformToFill" />
+  </Panel>
+</ui:ModuleView>

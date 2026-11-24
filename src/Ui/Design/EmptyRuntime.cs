@@ -240,6 +240,12 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     public ModuleWallpaperView? GetModuleWallpaper(string instanceId) => null;
 
     /// <inheritdoc />
+    public ModuleViewImageAssetView? GetModuleViewImage(string instanceId) => null;
+
+    /// <inheritdoc />
+    public long GetModuleViewImageRevision(string instanceId) => 0;
+
+    /// <inheritdoc />
     public WorkspacePlacementView? GetWorkspacePlacement() => null;
 
     /// <inheritdoc />
@@ -320,6 +326,10 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
 
     /// <inheritdoc />
     public CommandResult SetModuleWallpaper(string instanceId, byte[]? png) => CommandResult.Ok();
+
+    /// <inheritdoc />
+    public CommandResult SetModuleViewImage(string instanceId, byte[]? bytes, ViewImageCrop crop) =>
+        CommandResult.Ok();
 
     /// <inheritdoc />
     public CommandResult SetWorkspaceExitBehavior(string behavior) => CommandResult.Ok();

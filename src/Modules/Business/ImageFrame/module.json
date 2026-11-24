@@ -1,0 +1,7 @@
+{
+  "id": "hyw/image-frame",
+  "entryAssembly": "HYWDebugAssistant.Modules.ImageFrame.dll",
+  "entryType": "HYWDebugAssistant.Modules.ImageFrame.ImageFrameModule",
+  "dependsOn": [],
+  "resources": ["resources/i18n"]
+}

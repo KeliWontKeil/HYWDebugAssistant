@@ -81,7 +81,7 @@
                       TextTrimming="CharacterEllipsis" />
       <ui:ModuleLabel Grid.Column="1" Classes="caption"
                       Text="{loc:Tr view.sentTitle}" />
-      <ui:ModuleNumeric Grid.Column="3" Source="{x:Static views:CommandSenderViewKeys.Sent}" Text="0" />
+      <ui:ModuleNumeric Grid.Column="3" Source="{x:Static views:CommandSenderViewKeys.Sent}" Text="0" Margin="0,0,0,0"/>
       <ui:ModuleLabel Grid.Column="5" Classes="caption"
                       Text="{loc:Tr view.sentUnit}" />
     </Grid>

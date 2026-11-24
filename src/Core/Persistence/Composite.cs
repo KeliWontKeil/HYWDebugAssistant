@@ -33,8 +33,9 @@ public sealed class Composite
     public IReadOnlyList<ModuleLayoutView> Layout { get; set; } = [];
 
     /// <summary>
-    /// 组合件包内的图片资产（键 = 纯 sha256；值 = PNG 字节）。不写进 JSON，
-    /// 由 <c>CompositeService</c> 在保存/加载时与 <c>assets/</c> 目录互转。
+    /// 组合件包内的图片资产（键 = 包内相对引用 <c>assets/&lt;sha256&gt;.&lt;ext&gt;</c>；值 = 图片字节）。
+    /// 不写进 JSON，由 <c>CompositeService</c> 在保存/加载时与 <c>assets/</c> 目录互转。
+    /// 壁纸与控件图片共用同一套命名规则；同一份字节落到同一个引用。
     /// </summary>
     public IReadOnlyDictionary<string, byte[]> Assets { get; set; } =
         new Dictionary<string, byte[]>(StringComparer.Ordinal);

@@ -28,6 +28,7 @@
 | `ModuleCheckBox` | 勾选框：方框 + 勾形 + 右侧文字（间距 2 DIP），提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`Content`、`CheckedChanged` |
 | `ModuleTabs` | 页签容器，选中页写入视图状态 | `StateKey`、`TabItem` 子项 |
 | `ModuleValueList` | **值名驱动的行列表**：每行多字段编辑器、带序号的勾选框、行内动作；不新增数据通道 | `Rows`、`SelectionValue`、`FilterValue`、`DeleteIcon`、`SendText`、`ContentMaxHeight`、`PreviewRowCount`、`RowAction`、`FocusRow()` |
+| `ModuleImageSurface` | **显示图片字节**：静态图与 GIF 动画，自带空态/加载/错误提示；支持归一化裁切 | `ImageBytes`、`Crop`、`EmptyHint`、`LoadingHint`、`ErrorHint`、`Stretch`、`HintBrush`、`HintFontSize` |
 | `ModuleSelect` | **枚举下拉**（配置字段或普通值；选项来自 `ValueState.Choices`） | `Value`、`CommitMode`、`SelectedKey`、`PreviewOptions`；旧 `Options`/`OptionSelected` 仅供结构选择 |
 | `ModuleColorField` | **颜色值编辑器**：色块，点开框架取色窗 | `Value`、`DefaultBrushToken`、`DialogTitle`、`ResetText`、`InitialColor` |
 | `ModuleSegmentedControl` | 互斥分段选择（文字/图标，可禁用） | `Value`、`CommitMode`、`SelectedKey`、`PreviewOptions`、`ShowLabels`、`IconSize`；旧 `Options`/`OptionSelected` 供结构选择 |
@@ -189,6 +190,28 @@ list.RowAction += (_, action) =>
 - `DeleteIcon` 是行内删除按钮的图标键（空 = 文字「×」）；模块视图把它指向本模块图标表，控件在行内按钮上加图标。
 - `RowAction` 只抛出 `RowId` 与 `Action` 两个字符串；删除哪一行、发哪一行由模块解释。控件不删值、不写配置、不持久化。
 - 行内子编辑器的值必须已由模块 `DeclareValue` 声明；控件不会替你造值，也不接受“列表数据源”这种新机制。
+- 这类容器只组合现有值，不新增数据通道；什么时候才新增控件或框架机制见[模块设计取舍](../project/module-design.md)。
+
+## 图片面
+
+`ModuleImageSurface` 只绘制控件图片字节，不读文件、不读模块值、不提交值：
+
+```xml
+<ui:ModuleImageSurface x:Name="Image"
+                       EmptyHint="{loc:Tr view.emptyHint}"
+                       LoadingHint="{loc:Tr view.loadingHint}"
+                       ErrorHint="{loc:Tr view.errorHint}"
+                       Stretch="UniformToFill" />
+```
+
+- `ImageBytes` 由视图从 `IModuleViewContext.ViewImageStore` 读取后设置；控件本身不负责选文件或持久化。
+- 空态/加载/错误文案由模块传入；控件本身不写业务文案。`HintBrush` 默认取主题 `TextMuted`。
+- `Stretch` 支持 `Uniform` / `UniformToFill` / `Fill` / `None`；默认 `Uniform`。壁纸式铺满用 `UniformToFill`。
+- `Crop` 是归一化源图矩形（`0–1`，`Rect?`）；`null`/非法 = 整图。只改变绘制源矩形，不重新解码。
+- `ImageBytes` 为空 = 空态；GIF 帧解析异步执行，失败显示 `ErrorHint`，不抛到界面。
+- 静态图支持 Avalonia 能解码的 PNG/JPEG/BMP/WebP；GIF 动画由 `Sdk.Ui` 内部解码器播放。动图 WebP/APNG 只显示首帧。
+- 需要“选择图片 + 按模块长宽比裁切”时，视图使用 `IModuleViewContext.ImagePicker`；持久化用 `IModuleViewContext.ViewImageStore`（见[接口参考](reference.md)）。
+- 图片是控件状态，不是模块壁纸，也不是模块值；不要把它接到 `ModuleWallpaper`。
 
 ## 图表
 
