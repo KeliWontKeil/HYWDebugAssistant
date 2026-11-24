@@ -15,67 +15,6 @@ public class WaveformViewSnapshots
 {
     private static readonly IModuleColorPicker ColorPicker = new SnapshotColorPicker();
 
-    private static readonly string[] GeneratorFormControls =
-    [
-        "GroupNameInput", "GroupIdInput", "FrequencyInput", "PeriodInput",
-        "ChannelNumberInput", "ChannelNameInput", "ChannelEnabledToggle", "WaveformType",
-        "PhaseInput", "AmplitudeInput", "DutyInput",
-        "CarrierFrequencyInput", "ModulationIndexInput", "CarrierPhaseInput",
-    ];
-
-    [Fact]
-    public async Task 波形发生器_组和通道chips按编号排序()
-    {
-        const string unsorted =
-            "{\"revision\":1,\"structureRevision\":1,\"groups\":["
-            + "{\"index\":0,\"id\":2,\"name\":\"G2\",\"enabled\":true,\"frequency\":10,\"resolution\":100,\"rate\":1000,"
-            + "\"channels\":[{\"index\":0,\"number\":1,\"name\":\"CH1\",\"kind\":\"sine\",\"enabled\":true,"
-            + "\"phase\":0,\"offset\":0,\"amplitude\":1,\"duty\":0.5,\"carrierFrequency\":100,\"modulationIndex\":0.8,\"carrierPhase\":0}]},"
-            + "{\"index\":1,\"id\":1,\"name\":\"G1\",\"enabled\":true,\"frequency\":10,\"resolution\":100,\"rate\":1000,"
-            + "\"channels\":["
-            + "{\"index\":0,\"number\":3,\"name\":\"CH3\",\"kind\":\"sine\",\"enabled\":true,"
-            + "\"phase\":0,\"offset\":0,\"amplitude\":1,\"duty\":0.5,\"carrierFrequency\":100,\"modulationIndex\":0.8,\"carrierPhase\":0},"
-            + "{\"index\":1,\"number\":1,\"name\":\"CH1\",\"kind\":\"square\",\"enabled\":true,"
-            + "\"phase\":0,\"offset\":0,\"amplitude\":0.5,\"duty\":0.5,\"carrierFrequency\":100,\"modulationIndex\":0.8,\"carrierPhase\":0}]}],"
-            + "\"activeGroupIndex\":1,\"activeChannelIndex\":0,\"oneShotPeriods\":5,"
-            + "\"estimatedFrames\":500,\"estimatedBytes\":140000,\"totalEstimatedFrames\":500,\"totalEstimatedBytes\":140000,"
-            + "\"dropped\":0,\"sending\":false,\"continuous\":false}";
-
-        await SnapshotSession.Shared.Dispatch(
-            () =>
-            {
-                var context = new GeneratorSnapshotContext(snapshotOverride: unsorted);
-                var view = new WaveformGeneratorViewFactory().Create(context);
-                var host = new ModuleViewHost(context, view);
-                var window = SnapshotWindow.CreateFramed(host, view as ModuleView, 1002, 370);
-
-                try
-                {
-                    window.Show();
-                    SnapshotTool.Pump();
-                    host.Refresh();
-                    SnapshotTool.Pump();
-
-                    var groups = view.FindControl<ModuleSegmentedControl>("GroupChips");
-                    Assert.NotNull(groups);
-                    Assert.Equal(
-                        ["1 G1", "2 G2"],
-                        groups!.Options!.Select(option => option.Label));
-
-                    var channels = view.FindControl<ModuleSegmentedControl>("ChannelChips");
-                    Assert.NotNull(channels);
-                    Assert.Equal(
-                        ["1 CH1", "3 CH3"],
-                        channels!.Options!.Select(option => option.Label));
-                }
-                finally
-                {
-                    window.Close();
-                }
-            },
-            CancellationToken.None);
-    }
-
     [Fact]
     public async Task 生成快照_波形发生器() =>
         await SaveAsync(
@@ -131,90 +70,6 @@ public class WaveformViewSnapshots
             "modules/waveform-display-preview.png");
 
     [Fact]
-    public async Task 发生器_无刷新时参数控件应完整可见()
-    {
-        await SnapshotSession.Shared.Dispatch(
-            () =>
-            {
-                var view = new WaveformGeneratorViewFactory().Create(new GeneratorSnapshotContext());
-                var host = new ModuleViewHost(new GeneratorSnapshotContext(), view);
-                var window = SnapshotWindow.CreateFramed(host, view as ModuleView, 1002, 370);
-                window.Show();
-                SnapshotTool.Pump();
-
-                foreach (var name in GeneratorFormControls)
-                {
-                    var control = view.FindControl<Control>(name);
-                    Assert.NotNull(control);
-                    Assert.True(control!.IsVisible, name + " 在无刷新预览中不可见");
-                }
-
-                window.Close();
-            },
-            CancellationToken.None);
-    }
-
-    [Fact]
-    public async Task 发生器_参数行应随波形隐藏()
-    {
-        await SnapshotSession.Shared.Dispatch(
-            () =>
-            {
-                var sine = VisibilityFor("sine");
-                Assert.True(sine.Base);
-                Assert.True(sine.Phase);
-                Assert.False(sine.Duty);
-                Assert.False(sine.Carrier);
-
-                var square = VisibilityFor("square");
-                Assert.True(square.Base);
-                Assert.True(square.Duty);
-                Assert.False(square.Carrier);
-
-                var spwm = VisibilityFor("spwm");
-                Assert.True(spwm.Base);
-                Assert.False(spwm.Duty);
-                Assert.True(spwm.Carrier);
-
-                var noise = VisibilityFor("noise");
-                Assert.True(noise.Base);
-                Assert.False(noise.Phase);
-
-                var groupSelected = VisibilityFor("sine", groupSelected: true);
-                Assert.False(groupSelected.Parameters);
-            },
-            CancellationToken.None);
-    }
-
-    private static (bool Parameters, bool Base, bool Phase, bool Duty, bool Carrier) VisibilityFor(
-        string kind,
-        bool groupSelected = false)
-    {
-        var context = new GeneratorSnapshotContext(kind, groupSelected);
-        var view = new WaveformGeneratorViewFactory().Create(context);
-        var host = new ModuleViewHost(context, view);
-        var window = SnapshotWindow.CreateFramed(host, view as ModuleView, 1002, 370);
-
-        try
-        {
-            window.Show();
-            SnapshotTool.Pump();
-            host.Refresh();
-            SnapshotTool.Pump();
-            return (
-                view.FindControl<Control>("ParameterRows")?.IsVisible ?? false,
-                view.FindControl<Control>("BaseParameterRow")?.IsVisible ?? false,
-                view.FindControl<Control>("PhaseCell")?.IsVisible ?? false,
-                view.FindControl<Control>("DutyParameterRow")?.IsVisible ?? false,
-                view.FindControl<Control>("CarrierParameterRow")?.IsVisible ?? false);
-        }
-        finally
-        {
-            window.Close();
-        }
-    }
-
-    [Fact]
     public async Task 生成快照_波形显示器() =>
         await SaveAsync(
             new WaveformDisplayViewFactory(),
@@ -231,19 +86,6 @@ public class WaveformViewSnapshots
             1002,
             630,
             "modules/waveform-display-empty.png");
-
-    [Fact]
-    public async Task 波形显示器_初始尺寸应镜像给设计预览属性()
-    {
-        await SnapshotSession.Shared.Dispatch(
-            () =>
-            {
-                var view = new WaveformDisplayViewFactory().Create(new DisplaySnapshotContext());
-                Assert.Equal(960, Design.GetWidth(view));
-                Assert.Equal(600, Design.GetHeight(view));
-            },
-            CancellationToken.None);
-    }
 
     private static async Task SavePreviewAsync(
         IModuleViewFactory factory,

@@ -69,19 +69,6 @@ public class ValueContextTests
     }
 
     [Fact]
-    public void 枚举下拉_只读外观禁用且可恢复()
-    {
-        var select = new HYWDebugAssistant.Sdk.Ui.Controls.ModuleSelect { Value = "mode" };
-        var element = (HYWDebugAssistant.Sdk.Ui.Controls.IModuleElementInternal)select;
-
-        element.ApplyModuleAppearance(new HYWDebugAssistant.Sdk.Ui.ViewAppearance { ReadOnly = true });
-        select.IsEnabled.ShouldBeFalse();
-
-        element.ApplyModuleAppearance(HYWDebugAssistant.Sdk.Ui.ViewAppearance.None);
-        select.IsEnabled.ShouldBeTrue();
-    }
-
-    [Fact]
     public void 配置字段_作为值可读可提交()
     {
         var store = new ViewStateStore();

@@ -369,3 +369,6 @@ FodyWeavers.xsd
 .venv-docs/
 .docs-env-freeze.txt
 docs/tools/__pycache__/
+
+# 助手工作记忆（本地过程记录，不属于交付物）
+.workbuddy/

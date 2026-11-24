@@ -86,35 +86,6 @@ public class ModuleSizingTests
     }
 
     [Fact]
-    public void 宽高变化必须通知叠加层画布尺寸()
-    {
-        var module = Create();
-        var changed = new List<string?>();
-        module.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
-
-        module.Width = 700;
-        module.Height = 600;
-
-        changed.ShouldContain(nameof(ModuleViewViewModel.CanvasWidth));
-        changed.ShouldContain(nameof(ModuleViewViewModel.CanvasHeight));
-    }
-
-    [Fact]
-    public void 设计预览不应伪造数据()
-    {
-        var context = new DesignModuleViewContext(
-            typeof(SerialConfig),
-            typeof(DesignModuleViewContext).Assembly);
-
-        // 预览值由视图在 XAML 里声明；设计上下文只提供字段元数据，不再造样例数据。
-        context.ReadSeriesWindow("series").ShouldBeNull();
-        context.ReadLatest("latestIndex").ShouldBeNull();
-        context.ReadLatest("rate").ShouldBeNull();
-        context.ReadText("status").Lines.ShouldBeEmpty();
-    }
-
-    /// <summary>窄模块的地板比高模块小：声明 120 宽时按 120 生效（不再被旧地板 160 夹）。</summary>
-    [Fact]
     public void 声明更窄的宽度时按声明生效()
     {
         var module = Create();

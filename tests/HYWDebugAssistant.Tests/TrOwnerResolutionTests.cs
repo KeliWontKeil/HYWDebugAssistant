@@ -10,19 +10,19 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// **`{loc:Tr key}` 的探针**：编译期 XAML 里 <c>ProvideValue</c> 到底能不能定位到"表的属主程序集"。
+/// **`{loc:Tr key}` 的属主解析**：编译期 XAML 里 <c>ProvideValue</c> 能不能定位到"表的属主程序集"。
 /// </summary>
 /// <remarks>
-/// 钉住的行为：属主解析顺序是 ① <c>IUriContext.BaseUri</c>（`DataTemplate` 里唯一能拿到属主的路径）
+/// 判据：属主解析顺序是 ① <c>IUriContext.BaseUri</c>（`DataTemplate` 里唯一能拿到属主的路径）
 /// → ② 目标对象 → ③ 根对象 → ④ 兜底；框架程序集（`Avalonia.*`）**不查表**（查了只会得到一条假"目录缺失"），
 /// 但四处都找不到时仍返回**可见缺失标记**，不返回空白。
 /// 表来自 <see cref="TextCatalogTestRoot"/> 造的临时根（与产品同一套目录布局）。
 /// </remarks>
 [Collection(nameof(TextCatalogTests))]
-public class TrExtensionProbeTests : IDisposable
+public class TrOwnerResolutionTests : IDisposable
 {
     /// <summary>本测试程序集的 URI host（`avares://&lt;程序集简名&gt;/...` 的 host 就是程序集简名）。</summary>
-    private static readonly string ProbeAssemblyName = typeof(TrExtensionProbeTests).Assembly.GetName().Name!;
+    private static readonly string ProbeAssemblyName = typeof(TrOwnerResolutionTests).Assembly.GetName().Name!;
 
     private readonly TextCatalogTestRoot _tables = TextCatalogTestRoot.CreateWithProbeTables();
 

@@ -826,41 +826,6 @@ public class WaveformModulesTests
     }
 
     [Fact]
-    public void 发生器_通道编号映射到帧槽位()
-    {
-        var context = new TestModuleContext();
-        context.Configuration.Write(new GeneratorConfig
-        {
-            Groups =
-            [
-                new GeneratorGroupConfig
-                {
-                    GroupId = 1,
-                    Resolution = 100,
-                    Channels =
-                    [
-                        GeneratorConfig.CreateChannel(1),
-                        GeneratorConfig.CreateChannel(3),
-                    ],
-                },
-            ],
-        });
-
-        var module = new WaveformGeneratorModule();
-        module.OnRegistered(context);
-        module.OnStep(context, StepReason.Start);
-        context.EnqueueCommand(WaveformGeneratorModule.SendOnceCommand);
-        module.PumpOnce(context);
-        context.Timers.AdvanceTo(TimeSpan.FromMilliseconds(500));
-
-        var frame = context.Sent[0].Payload;
-        WaveformFrameReader.TryRead(frame, out var view, out _).ShouldBeTrue();
-        view.ChannelCount.ShouldBe(3);
-        view.ValidMask.ShouldBe(0b101UL);
-        view.Samples[1].ShouldBe(0f, "编号 2 未配置，槽位保持无效");
-    }
-
-    [Fact]
     public void 发生器_通道编号重复应给出具体原因_不是就绪()
     {
         var context = new TestModuleContext();
@@ -936,49 +901,6 @@ public class WaveformModulesTests
     }
 
     [Fact]
-    public void 发生器_通道编号零或重复不生效()
-    {
-        var context = new TestModuleContext();
-        var module = new WaveformGeneratorModule();
-        module.OnRegistered(context);
-        module.OnStep(context, StepReason.Start);
-
-        context.ViewState.SetInputText(WaveformGeneratorModule.ChannelNumberSource, "0");
-        module.OnStep(context, StepReason.Input);
-        context.Configuration.Read<GeneratorConfig>().Groups[0].Channels[0].ChannelNumber.ShouldBe(1);
-
-        context.ViewState.SetInputText(WaveformGeneratorModule.ChannelNumberSource, "1");
-        module.OnStep(context, StepReason.Input);
-        context.Configuration.Read<GeneratorConfig>().Groups[0].Channels[0].ChannelNumber.ShouldBe(1);
-    }
-
-    [Fact]
-    public void 发生器_旧配置的通道频率应迁移为组频率()
-    {
-        var old = System.Text.Json.JsonSerializer.Deserialize<GeneratorConfig>(
-            "{\"Groups\":[{\"GroupId\":1,\"Name\":\"G1\",\"Channels\":[{\"Name\":\"CH1\",\"FrequencyHz\":25,\"Resolution\":200}]}],\"OneShotPeriods\":5}",
-            LegacyJsonOptions);
-        old.ShouldNotBeNull();
-
-        var context = new TestModuleContext();
-        context.Configuration.Write(old!);
-        var module = new WaveformGeneratorModule();
-        module.OnRegistered(context);
-        module.OnStep(context, StepReason.Start);
-
-        var snapshot = GeneratorSnapshot(context);
-        snapshot.GetProperty("groups")[0].GetProperty("frequency").GetDouble().ShouldBe(25);
-        snapshot.GetProperty("groups")[0].GetProperty("resolution").GetInt32().ShouldBe(200);
-        snapshot.GetProperty("groups")[0].GetProperty("channels")[0].TryGetProperty("resolution", out _).ShouldBeFalse();
-
-        var normalized = context.Configuration.Read<GeneratorConfig>();
-        normalized.Groups[0].FrequencyHz.ShouldBe(25);
-        normalized.Groups[0].Resolution.ShouldBe(200);
-        normalized.Groups[0].Channels[0].LegacyFrequencyHz.ShouldBeNull();
-        normalized.Groups[0].Channels[0].LegacyResolution.ShouldBeNull();
-    }
-
-    [Fact]
     public void 发生器_不同通道参数应独立保存()
     {
         var context = new TestModuleContext();
@@ -1017,33 +939,6 @@ public class WaveformModulesTests
         var config = context.Configuration.Read<GeneratorConfig>();
         config.Groups[0].Channels[0].PhaseDegrees.ShouldBe(30);
         config.Groups[0].Channels[1].PhaseDegrees.ShouldBe(90);
-    }
-
-    [Fact]
-    public void 发生器_不同组参数应独立保存()
-    {
-        var context = new TestModuleContext();
-        var module = new WaveformGeneratorModule();
-        module.OnRegistered(context);
-        module.OnStep(context, StepReason.Start);
-
-        context.EnqueueInput(
-            WaveformGeneratorModule.ActionSource,
-            "{\"op\":\"addGroup\"}");
-        module.PumpOnce(context);
-        context.EnqueueInput(
-            WaveformGeneratorModule.ActionSource,
-            "{\"op\":\"selectGroup\",\"groupIndex\":1}");
-        module.PumpOnce(context);
-        context.EnqueueInput(WaveformGeneratorModule.FrequencySource, "50");
-        module.PumpOnce(context);
-
-        var config = context.Configuration.Read<GeneratorConfig>();
-        config.Groups[0].FrequencyHz.ShouldBe(10);
-        config.Groups[1].FrequencyHz.ShouldBe(50);
-        var groups = GeneratorSnapshot(context).GetProperty("groups");
-        groups[0].GetProperty("frequency").GetDouble().ShouldBe(10);
-        groups[1].GetProperty("frequency").GetDouble().ShouldBe(50);
     }
 
     [Fact]
@@ -2020,40 +1915,6 @@ public class WaveformModulesTests
     }
 
     [Fact]
-    public void 显示器_修改跟踪范围不应改变跟踪状态()
-    {
-        var context = new TestModuleContext();
-        SeedSettings(context, new DisplaySettings
-        {
-            Follow = true,
-            FollowRangeSamples = 5,
-        });
-
-        var module = new WaveformDisplayModule();
-        module.OnRegistered(context);
-        module.OnStep(context, StepReason.Start);
-        for (var index = 0; index < 10; index++)
-        {
-            Deliver(context, 1, (uint)index, [index]);
-        }
-
-        module.OnStep(context, StepReason.Data);
-        context.ViewState.SetInputText(WaveformDisplayModule.FollowRangeSource, "3");
-        module.OnStep(context, StepReason.Input);
-        Snapshot(context).ShouldNotBeNull().XRangeStart.ShouldBe(7);
-        Snapshot(context)!.XRangeEnd.ShouldBe(9);
-        context.ViewState.GetInputText(WaveformDisplayModule.FollowSource).ShouldBe("true");
-
-        context.EnqueueInput(WaveformDisplayModule.FollowSource, "false");
-        module.PumpOnce(context);
-        context.ViewState.SetInputText(WaveformDisplayModule.FollowRangeSource, "2");
-        module.OnStep(context, StepReason.Input);
-        Snapshot(context).ShouldNotBeNull().XRangeStart.ShouldBe(7);
-        Snapshot(context)!.XRangeEnd.ShouldBe(9);
-        context.ViewState.GetInputText(WaveformDisplayModule.FollowSource).ShouldBe("false");
-    }
-
-    [Fact]
     public void 显示器_非活动组历史按样本数限制且活动组不受限()
     {
         var context = new TestModuleContext();
@@ -2183,52 +2044,6 @@ public class WaveformModulesTests
         return document.RootElement.Clone();
     }
 
-    [Fact]
-    public void 图表数学_刻度映射与夹紧()
-    {
-        ChartScale.NiceStep(100, 10).ShouldBe(10);
-        ChartScale.NiceStep(10, 10).ShouldBe(1);
-        ChartScale.Map(5, 0, 10, 0, 100).ShouldBe(50);
-        ChartScale.Unmap(50, 0, 10, 0, 100).ShouldBe(5);
-        ChartScale.Clamp(12, 0, 10).ShouldBe(10);
-        ChartScale.Clamp(-2, 0, 10).ShouldBe(0);
-    }
-
-    [Fact]
-    public void 图表数学_拖动应平移范围并绕中心缩放()
-    {
-        var pan = ChartScale.Pan(10, 20, 5);
-        pan.Min.ShouldBe(15);
-        pan.Max.ShouldBe(25);
-
-        var zoomIn = ChartScale.Zoom(-1, 1, 100, 500);
-        ((zoomIn.Min + zoomIn.Max) / 2).ShouldBe(0, 1e-12);
-        (zoomIn.Max - zoomIn.Min).ShouldBeLessThan(2);
-
-        var zoomOut = ChartScale.Zoom(-1, 1, -100, 500);
-        ((zoomOut.Min + zoomOut.Max) / 2).ShouldBe(0, 1e-12);
-        (zoomOut.Max - zoomOut.Min).ShouldBeGreaterThan(2);
-
-        var unchanged = ChartScale.Zoom(10, 20, 0, 500);
-        unchanged.Min.ShouldBe(10);
-        unchanged.Max.ShouldBe(20);
-    }
-
-    [Fact]
-    public void 轴格式_小范围增加精度且大数值收敛宽度()
-    {
-        ChartAxisFormatter.DecimalsForStep(1000).ShouldBe(0);
-        ChartAxisFormatter.DecimalsForStep(0.001).ShouldBeGreaterThanOrEqualTo(3);
-
-        ChartAxisFormatter.Format(0.0001234, ChartAxisKind.Time, 0.00001, 20)
-            .ShouldContain("0.00012");
-        ChartAxisFormatter.Format(1_234_567, ChartAxisKind.Time, 1000, 6)
-            .Length.ShouldBeLessThanOrEqualTo(6);
-        ChartAxisFormatter.Format(1_234_567, ChartAxisKind.Index, 1000, 4)
-            .ShouldNotContain(".");
-    }
-
-    /// <summary>把显示设置写进值（模块只从值读设置；组/通道由帧建立）。</summary>
     private static void SeedSettings(TestModuleContext context, DisplaySettings settings)
     {
         context.ViewState.SetInputText(

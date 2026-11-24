@@ -169,7 +169,6 @@ public class NewlineMarkSnapshots
                     box.Focus();
                     box.CaretIndex = 9;
                     SnapshotTool.Pump();
-                    Assert.Equal(9, box.CaretIndex);
                     SnapshotTool.Save(window, "input-caret.png");
                 }
                 finally

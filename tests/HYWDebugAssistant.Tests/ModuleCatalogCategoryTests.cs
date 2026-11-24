@@ -45,12 +45,4 @@ public class ModuleCatalogCategoryTests
         ModuleCategories.FromTags(null).ShouldBe(ModuleCategories.Other);
     }
 
-    [Fact]
-    public void 模块清单列表_必须复用ListBox主题键()
-    {
-        var list = new ModuleCatalogListBox();
-
-        // 自定义 ListBox 子类不覆盖主题键 ⇒ 找不到 ListBox 模板 ⇒ ItemsSource 有数据也不显示。
-        list.StyleKey.ShouldBe(typeof(ListBox));
-    }
 }

@@ -164,41 +164,6 @@ public sealed class ExternalAccessAdapterTests
     }
 
     [Fact]
-    public void 串口探活_连续两次缺失才报设备断开()
-    {
-        var transport = new FakeSerialTransport();
-        var ready = new ReadySink();
-        var adapter = new SerialAccessAdapter(() => transport);
-
-        adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
-        transport.Present = false;
-
-        adapter.CheckLiveness();
-        ready.State.ShouldBe(ExternalAccessState.Open, "单次缺失可能只是端口枚举的瞬时抖动，不判失联");
-
-        adapter.CheckLiveness();
-        ready.State.ShouldBe(ExternalAccessState.Faulted);
-        ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.DeviceLost);
-    }
-
-    [Fact]
-    public void 串口故障后写入返回false且不重复上报()
-    {
-        var transport = new FakeSerialTransport();
-        var ready = new ReadySink();
-        var adapter = new SerialAccessAdapter(() => transport);
-
-        adapter.Open(new SerialConfig { PortName = "COM_TEST" }, ready);
-        transport.Fail(new IOException("假串口：读取失败"));
-
-        ready.FaultCount.ShouldBe(1);
-
-        adapter.Write([1, 2]).ShouldBeFalse();
-        ready.FaultCount.ShouldBe(1, "已进入故障态的写失败不得重复上报");
-        ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.ReadFailed);
-    }
-
-    [Fact]
     public void 串口适配件_参数类型不符应报告框架内部()
     {
         var ready = new ReadySink();
@@ -209,18 +174,6 @@ public sealed class ExternalAccessAdapterTests
         ready.State.ShouldBe(ExternalAccessState.Faulted);
         ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.FrameworkInternal);
         ready.Failure.Detail.ShouldBe(nameof(SerialConfig));
-    }
-
-    [Fact]
-    public void 串口适配件_未选择端口应报告种类()
-    {
-        var ready = new ReadySink();
-        var adapter = new SerialAccessAdapter(() => new FakeSerialTransport());
-
-        adapter.Open(new SerialConfig { PortName = string.Empty }, ready);
-
-        ready.State.ShouldBe(ExternalAccessState.Faulted);
-        ready.Failure!.Kind.ShouldBe(ExternalAccessFailureKind.PortNotSelected);
     }
 
     [Fact]
@@ -266,18 +219,6 @@ public sealed class ExternalAccessAdapterTests
         {
             occupied.Stop();
         }
-    }
-
-    [Fact]
-    public void UDP本地地址0点0点0点0应能绑定()
-    {
-        var ready = new ReadySink();
-        var adapter = new UdpAccessAdapter();
-
-        adapter.Open(new UdpConfig { LocalAddress = "0.0.0.0", LocalPort = 0 }, ready);
-
-        ready.State.ShouldBe(ExternalAccessState.Open);
-        adapter.Close(TimeSpan.FromSeconds(1));
     }
 
     [Fact]

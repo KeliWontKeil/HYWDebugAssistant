@@ -1,0 +1,240 @@
+{
+  "name": "串口示波器",
+  "savedAt": "2026-11-24T20:14:45.6483230+08:00",
+  "instances": [
+    {
+      "instanceId": "image-frame-11",
+      "moduleId": "hyw/image-frame",
+      "enabled": true,
+      "viewState": {
+        "image": {
+          "asset": "assets/7e97b2a4ff205ba2f07e32af3479af3a6bfce66306b6fb870d5f3bcaa5204026.gif",
+          "crop": {
+            "x": 0.0671957671957672,
+            "y": -0,
+            "w": 0.8656084656084655,
+            "h": 1
+          }
+        }
+      }
+    },
+    {
+      "instanceId": "data-monitor-10",
+      "moduleId": "hyw/data-monitor",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "paused": "false",
+          "wrap": "false",
+          "hexView": "false",
+          "timestamp": "false"
+        }
+      },
+      "ports": {
+        "in": {
+          "offset": 0.11363636363636365,
+          "locked": true,
+          "edge": "Right",
+          "label": "2"
+        }
+      }
+    },
+    {
+      "instanceId": "raw-to-waveform-9",
+      "moduleId": "hyw/raw-to-waveform",
+      "enabled": true,
+      "configuration": {
+        "HYWDebugAssistant.Modules.RawToWaveform.RawToWaveformConfig": {
+          "Protocol": "TextFrame"
+        }
+      },
+      "viewState": {
+        "inputTexts": {
+          "groupId": "1",
+          "rateHz": "1000",
+          "headerHex": "61 62",
+          "footerHex": "63 64",
+          "prefix": ""
+        }
+      },
+      "ports": {
+        "raw": {
+          "offset": 0.5,
+          "locked": true,
+          "edge": "Top",
+          "label": "2"
+        },
+        "wave": {
+          "offset": 0.5,
+          "label": "3"
+        }
+      }
+    },
+    {
+      "instanceId": "text-sender-8",
+      "moduleId": "hyw/text-sender",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "newlineCr": "true",
+          "newlineLf": "true",
+          "text1": "",
+          "text2": "",
+          "text3": "",
+          "text4": "",
+          "text5": "",
+          "interval": "",
+          "submitKey": "CtrlEnter"
+        }
+      },
+      "ports": {
+        "out": {
+          "offset": 0.8629032258064515,
+          "locked": false,
+          "edge": "Right",
+          "label": "1"
+        }
+      }
+    },
+    {
+      "instanceId": "waveform-display-7",
+      "moduleId": "hyw/waveform-display",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "xTick": "0",
+          "follow": "true",
+          "followRange": "256",
+          "yTick": "0",
+          "paused": "false",
+          "cursors": "true",
+          "xAxisMode": "index",
+          "customRate": "100",
+          "useCustomRate": "false",
+          "keepInactive": "true",
+          "historyLimit": "0"
+        }
+      },
+      "ports": {
+        "in": {
+          "offset": 0.6252086811352254,
+          "locked": false,
+          "edge": "Top",
+          "label": "3"
+        }
+      }
+    },
+    {
+      "instanceId": "serial-6",
+      "moduleId": "hyw/serial",
+      "enabled": true,
+      "configuration": {
+        "HYWDebugAssistant.Access.Parameters.SerialConfig": {
+          "PortName": "",
+          "BaudRate": "Baud115200",
+          "DataBits": "Eight",
+          "StopBits": "One",
+          "Parity": "None",
+          "KeepCurrentChoiceWhenUnavailable": false
+        }
+      },
+      "ports": {
+        "rx": {
+          "offset": 0.5,
+          "locked": true,
+          "edge": "Bottom",
+          "label": "2"
+        },
+        "tx": {
+          "offset": 0.7540322580645161,
+          "locked": false,
+          "edge": "Left",
+          "label": "1"
+        }
+      }
+    }
+  ],
+  "networks": [
+    {
+      "name": "1",
+      "sources": [
+        "text-sender-8.out"
+      ],
+      "targets": [
+        "serial-6.tx"
+      ],
+      "unresolved": []
+    },
+    {
+      "name": "2",
+      "sources": [
+        "serial-6.rx"
+      ],
+      "targets": [
+        "data-monitor-10.in",
+        "raw-to-waveform-9.raw"
+      ],
+      "unresolved": []
+    },
+    {
+      "name": "3",
+      "sources": [
+        "raw-to-waveform-9.wave"
+      ],
+      "targets": [
+        "waveform-display-7.in"
+      ],
+      "unresolved": []
+    }
+  ],
+  "layout": {
+    "image-frame-11": {
+      "x": 1724,
+      "y": 159.2,
+      "width": 160,
+      "height": 200,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "data-monitor-10": {
+      "x": 524,
+      "y": 359.2,
+      "width": 400,
+      "height": 600,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "raw-to-waveform-9": {
+      "x": 1324,
+      "y": 159.2,
+      "width": 400,
+      "height": 200,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "text-sender-8": {
+      "x": 524,
+      "y": 159.2,
+      "width": 400,
+      "height": 200,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "waveform-display-7": {
+      "x": 924,
+      "y": 359.2,
+      "width": 960,
+      "height": 600,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "serial-6": {
+      "x": 924,
+      "y": 159.2,
+      "width": 400,
+      "height": 200,
+      "viewVisible": true,
+      "scale": 1.25
+    }
+  }
+}

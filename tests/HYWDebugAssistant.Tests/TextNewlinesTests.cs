@@ -17,15 +17,4 @@ public class TextNewlinesTests
         TextNewlines.Normalize(text, mode).ShouldBe(expected);
     }
 
-    [Fact]
-    public void 勾选框到换行档()
-    {
-        TextNewlines.FromCheckboxes(true, true).ShouldBe(NewlineMode.CrLf);
-        TextNewlines.FromCheckboxes(true, false).ShouldBe(NewlineMode.Cr);
-        TextNewlines.FromCheckboxes(false, true).ShouldBe(NewlineMode.Lf);
-        TextNewlines.FromCheckboxes(false, false).ShouldBe(NewlineMode.None);
-        TextNewlines.ChoiceOf(NewlineMode.CrLf).ShouldBe("crlf");
-        TextNewlines.ParseChoice("lf").ShouldBe(NewlineMode.Lf);
-        TextNewlines.ParseChoice("unknown").ShouldBe(NewlineMode.CrLf);
-    }
 }

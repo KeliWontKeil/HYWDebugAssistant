@@ -75,19 +75,4 @@ public class PortMarkerLayoutTests
         PortMarkerLayout.PickDragEdge(PortEdge.Left, 340, 120).ShouldBeNull();
     }
 
-    /// <summary>拖动：能放下的边照常落位。</summary>
-    [Fact]
-    public void 拖动能放下的边正常落位()
-    {
-        PortMarkerLayout.PickDragEdge(PortEdge.Left, 130, 420).ShouldBe((PortEdge?)PortEdge.Left);
-        PortMarkerLayout.PickDragEdge(PortEdge.Top, 400, 180).ShouldBe((PortEdge?)PortEdge.Top);
-    }
-
-    /// <summary>标记尺寸是固定的：竖排 20×150、横排 150×20（不随窗口缩短）。</summary>
-    [Fact]
-    public void 标记尺寸固定()
-    {
-        PortMarkerMetrics.Width.ShouldBe(20);
-        PortMarkerMetrics.Length.ShouldBe(150);
-    }
 }

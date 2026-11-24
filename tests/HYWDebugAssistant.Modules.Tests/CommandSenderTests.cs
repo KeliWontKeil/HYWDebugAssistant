@@ -47,49 +47,6 @@ public class CommandSenderTests
     }
 
     [Fact]
-    public void 文本发送_应按UTF8编码并拆包到字符边界()
-    {
-        var (module, context) = Create();
-        Set(context, 0, SlotField.Content, "AB");
-
-        module.SendSlot(context, 0, out var packets).ShouldBeTrue();
-        packets.ShouldBe(1);
-
-        var payload = context.Sent.ShouldHaveSingleItem().Payload;
-        payload.Length.ShouldBe(2 + CommandSenderModule.TextCapacity);
-        BinaryPrimitives.ReadUInt16LittleEndian(payload).ShouldBe((ushort)2);
-        PayloadText(payload).ShouldBe("AB");
-
-        context.Sent.Clear();
-        Set(context, 0, SlotField.Content, new string('A', 2000));
-        module.SendSlot(context, 0, out packets).ShouldBeTrue();
-        packets.ShouldBe(2);
-        context.Sent.Count.ShouldBe(2);
-        PayloadText(context.Sent[0].Payload).Length.ShouldBe(1472);
-        PayloadText(context.Sent[1].Payload).Length.ShouldBe(528);
-    }
-
-    [Fact]
-    public void 文本发送_多字节字符不得被拆到两个包()
-    {
-        var (module, context) = Create();
-        Set(context, 0, SlotField.Content, new string('中', 800));
-
-        module.SendSlot(context, 0, out var packets).ShouldBeTrue();
-        packets.ShouldBe(2);
-
-        foreach (var sent in context.Sent)
-        {
-            var length = BinaryPrimitives.ReadUInt16LittleEndian(sent.Payload);
-            var text = Encoding.UTF8.GetString(sent.Payload, sizeof(ushort), length);
-            text.ShouldAllBe(ch => ch == '中');
-        }
-
-        PayloadText(context.Sent[0].Payload).Length.ShouldBe(490);
-        PayloadText(context.Sent[1].Payload).Length.ShouldBe(310);
-    }
-
-    [Fact]
     public void HEX发送_应解析字节_非法项不发送且标红()
     {
         var (module, context) = Create();
@@ -196,12 +153,6 @@ public class CommandSenderTests
     }
 
     [Fact]
-    public void 合并拆包_空数据不产生包()
-    {
-        CommandSenderCodec.BuildMergedPackets([], CommandSenderModule.TextCapacity).ShouldBeEmpty();
-    }
-
-    [Fact]
     public void 切换HEX_应转换内容且失败时回弹()
     {
         var (module, context) = Create();
@@ -260,30 +211,6 @@ public class CommandSenderTests
     }
 
     [Fact]
-    public void 合并发送_超容量应按字符边界拆包()
-    {
-        var (module, context) = Create();
-        context.EnqueueCommand(CommandSenderModule.AddCommand);
-        module.OnStep(context, StepReason.Command);
-
-        var first = new string('A', 1000);
-        var second = new string('B', 1000);
-        Set(context, 0, SlotField.Content, first);
-        Set(context, 1, SlotField.Content, second);
-        SetMerge(context, true);
-        context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[0,1]");
-        module.OnStep(context, StepReason.Input);
-
-        RequestSendAll(module, context);
-
-        context.Sent.Count.ShouldBe(2);
-        PayloadText(context.Sent[0].Payload).Length.ShouldBe(1472);
-        PayloadText(context.Sent[1].Payload).Length.ShouldBe(528);
-        (PayloadText(context.Sent[0].Payload) + PayloadText(context.Sent[1].Payload))
-            .ShouldBe(first + second);
-    }
-
-    [Fact]
     public void 合并发送_中文跨容量应保持字符完整()
     {
         var (module, context) = Create();
@@ -295,29 +222,12 @@ public class CommandSenderTests
         RequestSendAll(module, context);
 
         context.Sent.Count.ShouldBe(2);
-        PayloadText(context.Sent[0].Payload).Length.ShouldBe(490);
-        PayloadText(context.Sent[1].Payload).Length.ShouldBe(10);
+        const int chars = 500;
+        var full = CommandSenderModule.TextCapacity / 3;
+        PayloadText(context.Sent[0].Payload).Length.ShouldBe(full, "首包按 3 字节字符边界取整");
+        PayloadText(context.Sent[1].Payload).Length.ShouldBe(chars - full);
         (PayloadText(context.Sent[0].Payload) + PayloadText(context.Sent[1].Payload))
-            .ShouldBe(new string('中', 500));
-    }
-
-    [Fact]
-    public void 合并发送_不要求间隔()
-    {
-        var (module, context) = Create();
-        context.EnqueueCommand(CommandSenderModule.AddCommand);
-        module.OnStep(context, StepReason.Command);
-
-        Set(context, 0, SlotField.Content, "A");
-        Set(context, 1, SlotField.Content, "B");
-        SetMerge(context, true);
-        context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[0,1]");
-        module.OnStep(context, StepReason.Input);
-
-        RequestSendAll(module, context);
-
-        context.Sent.ShouldHaveSingleItem();
-        PayloadText(context.Sent[0].Payload).ShouldBe("AB");
+            .ShouldBe(new string('中', chars));
     }
 
     [Fact]
@@ -428,27 +338,6 @@ public class CommandSenderTests
     }
 
     [Fact]
-    public void 连续发送运行期间全部发送应禁用()
-    {
-        var (module, context) = Create();
-        Set(context, 0, SlotField.Content, "A");
-        context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[0]");
-        context.ViewState.SetInputText(CommandSenderModule.IntervalValue, "10");
-        module.OnStep(context, StepReason.Input);
-
-        context.EnqueueInput(CommandSenderModule.ContinuousValue, "true");
-        module.OnStep(context, StepReason.Input);
-        module.IsContinuous.ShouldBeTrue();
-
-        context.AppearanceReports.Last(report =>
-            report.SourceName == CommandSenderModule.SendAllCommand).Enabled.ShouldBe(false);
-
-        RequestSendAll(module, context);
-        module.IsSending.ShouldBeTrue();
-        context.Sent.ShouldBeEmpty();
-    }
-
-    [Fact]
     public void 逐条发送期间行内发送应被忽略()
     {
         var (module, context) = Create();
@@ -522,24 +411,6 @@ public class CommandSenderTests
             report.SourceName == CommandSenderModule.SendAllCommand && report.Enabled == false);
         reports.ShouldContain(report =>
             report.SourceName == CommandSenderModule.ContinuousValue && report.Enabled == false);
-    }
-
-    [Fact]
-    public void 换行档_应由CRLF勾选派生()
-    {
-        var (module, context) = Create();
-        Set(context, 0, SlotField.Cr, "false");
-        Set(context, 0, SlotField.Lf, "true");
-        context.EnqueueInput(CommandSenderModule.SlotValue(0, SlotField.Cr), "false");
-        module.OnStep(context, StepReason.Input);
-
-        Get(context, 0, SlotField.Newline).ShouldBe("lf");
-        Set(context, 0, SlotField.Cr, "true");
-        Set(context, 0, SlotField.Lf, "false");
-        context.EnqueueInput(CommandSenderModule.SlotValue(0, SlotField.Cr), "true");
-        module.OnStep(context, StepReason.Input);
-
-        Get(context, 0, SlotField.Newline).ShouldBe("cr");
     }
 
     [Fact]

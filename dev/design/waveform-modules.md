@@ -1,8 +1,6 @@
 # 波形显示器与波形发生器模块设计
 
-> 状态：**XAML 单一尺寸源、响应式图表 + 固定控件 Canvas、组频率归属、游标/数据轴与发生器表单重构已完成**（待人工验收）。数据帧约定见 [`waveform-frame.md`](waveform-frame.md)（`WaveformFrame`，280 B）。
->
-> 本文是波形两模块、配套控件与组合方式的**唯一设计口径**。进度只在 [`../status.md`](../status.md) 维护；本文不重复现状读数。
+> 本文是波形两模块、配套控件与组合方式的**唯一设计口径**。数据帧约定见 [`waveform-frame.md`](waveform-frame.md)（`WaveformFrame`，280 B）。
 
 ## 1. 定位与范围
 
@@ -139,7 +137,7 @@ RangeSelector（X 范围可视化） + x 输入 + y 输入 + 局部保存
 ### 4.5 窗口尺寸事实
 
 - **两个独立事实**：模块视图根 `.axaml` 的 `InitialWidth/InitialHeight`（实例化默认）与 `MinWidth/MinHeight`（运行期下限）。
-- 实际外框 = 内容 + `ModuleSurfaceMetrics` chrome；chrome 由框架加一次，不在本轮统一。
+- 实际外框 = 内容 + `ModuleSurfaceMetrics` chrome；chrome 由框架加一次，不在本文范围。
 - `InitialWidth/Height` 是唯一字面量；`ModuleView` 把同一值镜像给预览器的 `Design.Width/Height`，因此不再写 `d:DesignWidth/Height`。`[ModuleDefinition]` 的 Window/Min 尺寸已废弃，内置模块不得声明。
 - 初始尺寸用于新建/还原；最小尺寸用于运行期夹紧。持久化布局优先，但夹到有效区间。
 - 不允许 `Math.Max(ModuleDefinition, XAML)` 的双源合并。
@@ -375,7 +373,7 @@ GeneratorChannelConfig
 - **局部保存**：当前 X 范围；CSV 宽表 `sample_index,time_seconds,<channel names>`；选择/全部都按绝对样本索引；NaN 写空。未删除通道保留列，因此缺失通道的缺失区间为空；已删除通道不出现。
 - **全部保存**：活动组 `[0,latest]`。
 - **PNG**：模块请求路径 → 视图 `CapturePng()` → 写盘 → `imageResult` 回投；只捕获图表本身。
-- 保存格式只有 CSV/PNG；JPG 不作为本轮范围。
+- 保存格式只有 CSV/PNG；JPG 不在当前范围。
 - 大数据量分批流式写；状态显示进度；导出期间继续接收。
 
 ### 7.5 布局与交互
@@ -441,7 +439,7 @@ GeneratorChannelConfig
 - 载波形状固定对称三角波；死区/锯齿载波若需要，需另立参数与控件。
 - 组名/组 ID/组频率/组周期的生成器编辑在组段；显示器组名可编辑。
 - 框架取色服务注入链（Sdk.Ui → Ui → FrameworkUi → App）是新的模块视图接口面；设计期/测试必须允许 `ColorPicker=null`。
-- JPG、FFT、跨重启 X 范围持久化不在本轮。
+- JPG、FFT、跨重启 X 范围持久化不在当前范围。
 
 ## 12. 相关
 

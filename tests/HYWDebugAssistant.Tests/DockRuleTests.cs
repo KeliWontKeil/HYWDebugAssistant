@@ -18,9 +18,8 @@ namespace HYWDebugAssistant.Tests;
 /// **"接触且对齐"建网判定**（<c>DockRule</c>）的回归网。
 /// </summary>
 /// <remarks>
-/// 判据只有三条：① 跨缩放时按**物理投影**判接触；② **接触且标记对齐**才建网（两条独立条件）；
-/// ③ 打了标签的口退出接触建网（标签是命名网络的唯一机制）。
-/// 契约不兼容的拒绝由 <c>CoreRuntimeTests.对齐建网_契约不兼容时不得建网</c> 覆盖。
+/// 本文件只保留"跨缩放时按物理投影判接触"这一条；其余建网判定（接触、标记对齐、重合、
+/// 标签退出、契约不兼容）由 <c>CoreRuntimeTests.对齐建网_*</c> 走真实变更入口覆盖。
 /// </remarks>
 public class DockRuleTests
 {
@@ -39,77 +38,6 @@ public class DockRuleTests
         horizontal.ShouldBeTrue();
     }
 
-    /// <summary>**标记必须对齐**，且两个模块不能重合 —— 与“接触”是独立条件。</summary>
-    [Fact]
-    public void 建网_几何不满足时不得建网()
-    {
-        using var runtime = new ModuleRuntime();
-        AddModule(runtime, "s", "sender", typeof(SenderModule));
-        AddModule(runtime, "r", "receiver", typeof(ReceiverModule));
-
-        Place(runtime, "s", 0, 0, 300, 200);
-        Place(runtime, "r", 300, 0, 300, 200);
-
-        // 偏移 0.5 vs 0.05 ⇒ 中心相差 90px（容差 12px）
-        SetPortOffset(runtime, "s", "out", 0.05);
-
-        runtime.Content.Networks.ShouldBeEmpty("接触但标记错开 90px ⇒ 不建网（严防误建）");
-
-        // 对齐之后建网（证明上一条不是"什么都不连"）
-        SetPortOffset(runtime, "s", "out", 0.5);
-        runtime.Content.Networks.ShouldHaveSingleItem();
-
-        // 1px 重叠：边仍在接触容差内、标记也对齐，但重合不是接触 ⇒ 不得建网。
-        Place(runtime, "r", 299, 0, 300, 200);
-        runtime.Content.Networks.ShouldBeEmpty("两个模块重合时不得建网");
-    }
-
-    /// <summary>
-    /// **x 轴相等、上下相邻**也能建网：接触面是水平线，端口必须挂在下/上边且标记对齐。
-    /// </summary>
-    /// <remarks>
-    /// 这条用例把“上下拼接本身”与“拖动预览是否刷新”分开：Core 判定通过后，UI 不高亮就只能是
-    /// 预览刷新链路的问题，而不是 `DockRule` 的上下路径坏了。
-    /// </remarks>
-    [Fact]
-    public void 上下拼接_标记对齐时应建网()
-    {
-        using var runtime = new ModuleRuntime();
-        AddModule(runtime, "s", "sender", typeof(SenderModule));
-        AddModule(runtime, "r", "receiver", typeof(ReceiverModule));
-
-        Place(runtime, "s", 0, 0, 300, 200);
-        Place(runtime, "r", 0, 200, 300, 200);
-
-        SetPort(runtime, "s", "out", 0.5, PortEdge.Bottom);
-        SetPort(runtime, "r", "in", 0.5, PortEdge.Top);
-
-        runtime.Content.Networks.ShouldHaveSingleItem("x 相等、上下贴边、标记对齐 ⇒ 应建网");
-
-        // 标记沿接触面错开 ⇒ 仍不建网（对齐是独立条件）
-        SetPort(runtime, "s", "out", 0.05, PortEdge.Bottom);
-        runtime.Content.Networks.ShouldBeEmpty("上下接触但标记错开 ⇒ 不建网");
-    }
-
-    /// <summary>**打了标签的口不参与**接触建网（标签 = 命名网络的唯一机制，两种机制不混用）。</summary>
-    [Fact]
-    public void 建网_打了标签的口不参与()
-    {
-        using var runtime = new ModuleRuntime();
-        AddModule(runtime, "s", "sender", typeof(SenderModule));
-        AddModule(runtime, "r", "receiver", typeof(ReceiverModule));
-
-        Place(runtime, "s", 0, 0, 300, 200);
-        Place(runtime, "r", 300, 0, 300, 200);
-
-        SetLabel(runtime, "s", "out", "bus");
-
-        runtime.Content.Networks.ShouldBeEmpty("发送口打了标签 ⇒ 退出接触建网（等同名接收端）");
-    }
-
-    // ------------------------------------------------------------ 辅助
-
-    /// <summary>摆放模块（写入布局）并触发一次推导（等价于"拖动结束提交"）。</summary>
     private static void Place(ModuleRuntime runtime, string instanceId, double x, double y, double width, double height) =>
         runtime.Apply(ChangeSet.OfOne(new UpdateModuleLayoutOperation(
             new ModuleLayoutView(instanceId, x, y, width, height)))).Applied.ShouldBeTrue();

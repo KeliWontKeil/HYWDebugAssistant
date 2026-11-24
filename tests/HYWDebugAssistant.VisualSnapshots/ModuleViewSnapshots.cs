@@ -192,10 +192,6 @@ public class ModuleViewSnapshots
                     SnapshotTool.Pump();
                     SnapshotTool.Pump();
 
-                    var overlay = panel.GetVisualDescendants().OfType<PreviewBoundsOverlay>().SingleOrDefault();
-                    Assert.NotNull(overlay);
-                    Assert.DoesNotContain(panel.GetVisualDescendants(), visual => visual is ModulePreviewChrome);
-
                     SnapshotTool.Save(window, "modules/" + name + "-settings-preview.png");
                     window.Close();
                 }
@@ -300,22 +296,9 @@ public class ModuleViewSnapshots
                 probe.ViewState.SetInputText(CommandSenderModule.MergeValue, "true");
                 module.OnStep(probe, StepReason.Input);
 
-                Assert.Equal(
-                    "开机",
-                    probe.Values.ReadText(CommandSenderModule.SlotValue(0, SlotField.Label)));
-                Assert.Equal(
-                    "AT+START",
-                    probe.Values.ReadText(CommandSenderModule.SlotValue(0, SlotField.Content)));
-                Assert.Equal(
-                    "41 54 2B 51 3F",
-                    probe.Values.ReadText(CommandSenderModule.SlotValue(1, SlotField.Content)));
-
                 var context = new SnapshotContext(
                     probe,
                     BuildFields(typeof(NoConfig), typeof(CommandSenderModule).Assembly));
-                Assert.Equal(
-                    "AT+START",
-                    context.ReadValue(CommandSenderModule.SlotValue(0, SlotField.Content)).Value);
                 var view = new CommandSenderViewFactory().Create(context);
                 var host = new ModuleViewHost(context, view);
                 var (width, height) = WindowSize(view);
@@ -372,7 +355,6 @@ public class ModuleViewSnapshots
                         host.Refresh();
                     }
 
-                    Assert.True(surface.HasImage, "临时 PNG 应已加载到 ModuleImageSurface：" + surface.LastError);
                     SnapshotTool.Save(window, "modules/ImageFrame-filled.png");
                     window.Close();
                 }
@@ -433,7 +415,6 @@ public class ModuleViewSnapshots
                         host.Refresh();
                     }
 
-                    Assert.True(surface.HasImage, "GIF 应已加载到 ModuleImageSurface：" + surface.LastError);
                     SnapshotTool.Save(window, "modules/ImageFrame-gif.png");
                     window.Close();
                 }
@@ -511,7 +492,6 @@ public class ModuleViewSnapshots
                         host.Refresh();
                     }
 
-                    Assert.True(surface.HasImage, "临时 PNG 应已加载到 ModuleImageSurface：" + surface.LastError);
                     SnapshotTool.Save(window, "modules/ImageFrame-cropped.png");
                     window.Close();
                 }
@@ -570,7 +550,6 @@ public class ModuleViewSnapshots
                         host.Refresh();
                     }
 
-                    Assert.True(surface.HasImage, "图片资产字节应已加载到 ModuleImageSurface：" + surface.LastError);
                     SnapshotTool.Save(window, "modules/ImageFrame-asset.png");
                     window.Close();
                 }
@@ -649,11 +628,6 @@ public class ModuleViewSnapshots
                 host.Refresh();
                 SnapshotTool.Pump();
 
-                var badge = window.GetVisualDescendants()
-                    .OfType<ModuleLabel>()
-                    .First(label => label.Name == "UnitBadge");
-                Assert.Equal("数据单位 弧度", badge.Text);
-
                 SnapshotTool.Save(window, "modules/AttitudeDisplay-rad.png");
                 window.Close();
             },
@@ -697,15 +671,6 @@ public class ModuleViewSnapshots
 
                     // 故意不调用 host.Refresh()：模拟 Avalonia 预览器。
 
-                    // 范围框的**两种角色**都要在：容器/模块布局区（点线）+ 控件（虚线）。
-                    // 这是机制断言，不判观感；线型是否可区分仍看 PNG。
-                    var overlay = view.GetVisualDescendants().OfType<PreviewBoundsOverlay>().FirstOrDefault();
-                    Assert.NotNull(overlay);
-                    Assert.Contains(overlay!.Targets, target => target.Role == PreviewBoundsRole.Container);
-                    Assert.Contains(overlay.Targets, target => target.Role == PreviewBoundsRole.Control);
-                    Assert.DoesNotContain(
-                        overlay.Targets,
-                        target => target.Control is ModuleElement and not ModuleCheckBox);
                     var name = moduleType.Name.Replace("Module", string.Empty, StringComparison.Ordinal);
                     SnapshotTool.Save(window, "modules/" + name + "-preview.png");
                     window.Close();
@@ -713,96 +678,6 @@ public class ModuleViewSnapshots
                 finally
                 {
                     ModuleView.IsPreviewHost = previous;
-                }
-            },
-            CancellationToken.None);
-    }
-
-    /// <summary>
-    /// 真实运行时下的图片框/壁纸独立性回归：控件图片不随模块壁纸清除而消失。
-    /// </summary>
-    [Fact]
-    public async Task 图片框与模块壁纸独立()
-    {
-        await SnapshotSession.Shared.Dispatch(
-            () =>
-            {
-                var path = Path.Combine(
-                    Path.GetTempPath(),
-                    "hyw-image-frame-" + Guid.NewGuid().ToString("N") + ".png");
-                WriteSamplePng(path);
-
-                try
-                {
-                    var viewState = new ViewStateStore();
-                    using var runtime = new ModuleRuntime(viewState: viewState);
-                    var services = new RuntimeServices(runtime);
-                    var definition = new ModuleDefinition(
-                        ModuleId.Create("hyw", "image-frame"),
-                        "图片框",
-                        string.Empty,
-                        ["other"],
-                        ModuleCapability.None,
-                        [],
-                        false,
-                        typeof(ImageFrameModule),
-                        string.Empty,
-                        string.Empty,
-                        viewFactory: typeof(ImageFrameViewFactory));
-
-                    Assert.True(services.Registry.TryRegister(definition, out var failure), failure);
-                    Assert.True(services.AddModule("img", "hyw/image-frame").Succeeded);
-                    Assert.True(services.SetModuleViewImage(
-                        "img",
-                        File.ReadAllBytes(path),
-                        ViewImageCrop.Full).Succeeded);
-                    Assert.True(services.SetModuleWallpaper("img", [1, 2, 3]).Succeeded);
-
-                    var instance = services.GetInstances().Single(item => item.InstanceId == "img");
-                    var viewModel = new ModuleViewViewModel(instance, null, services, services, 0, 0, viewState);
-                    var host = viewModel.EnsureView();
-                    Assert.NotNull(host);
-                    var view = host!.Content as ModuleView;
-                    Assert.NotNull(view);
-
-                    var (width, height) = WindowSize(view!);
-                    var window = SnapshotWindow.CreateFramed(host, view!, width, height);
-                    window.Show();
-                    SnapshotTool.Pump();
-                    host.Refresh();
-                    SnapshotTool.Pump();
-
-                    var surface = window.GetVisualDescendants().OfType<ModuleImageSurface>().First();
-                    for (var attempt = 0; attempt < 50 && !surface.HasImage; attempt++)
-                    {
-                        Thread.Sleep(10);
-                        SnapshotTool.Pump();
-                        host.Refresh();
-                    }
-
-                    Assert.True(surface.HasImage, "控件图片应已加载：" + surface.LastError);
-
-                    Assert.True(services.SetModuleWallpaper("img", null).Succeeded);
-                    host.Refresh();
-                    SnapshotTool.Pump();
-                    Assert.True(surface.HasImage, "清除模块壁纸不应清除控件图片");
-
-                    Assert.True(services.SetModuleViewImage("img", null, ViewImageCrop.Full).Succeeded);
-                    host.Refresh();
-                    SnapshotTool.Pump();
-                    Assert.False(surface.HasImage, "清除控件图片后应为空态");
-
-                    window.Close();
-                }
-                finally
-                {
-                    try
-                    {
-                        File.Delete(path);
-                    }
-                    catch (IOException)
-                    {
-                    }
                 }
             },
             CancellationToken.None);

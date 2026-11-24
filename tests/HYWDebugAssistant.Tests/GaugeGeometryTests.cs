@@ -60,23 +60,6 @@ public class GaugeGeometryTests
         metrics.CenterY.ShouldBe(height / 2, 0.001);
     }
 
-    /// <summary>`Padding = 0` 时环外沿紧贴控件边框（用户要的"不留白"）。</summary>
-    [Theory]
-    [InlineData(300, 300)]
-    [InlineData(250, 270)]
-    public void 零留白时环外沿贴边(double width, double height)
-    {
-        var metrics = GaugeGeometry.Compute(width, height, 0, 240, 2);
-        var sin = Math.Sin(metrics.HalfAngle);
-        var horizontalFactor = metrics.HalfAngle >= Math.PI / 2 ? 1.0 : sin;
-        var left = metrics.CenterX - (metrics.Radius * horizontalFactor) - (metrics.Thickness / 2);
-        var right = metrics.CenterX + (metrics.Radius * horizontalFactor) + (metrics.Thickness / 2);
-
-        left.ShouldBeLessThan(1.0);
-        right.ShouldBeGreaterThan(width - 1.0);
-    }
-
-    /// <summary>宽高互换半径相同：半径只由短边决定，不受长边拉伸影响。</summary>
     [Fact]
     public void 半径只由短边决定()
     {

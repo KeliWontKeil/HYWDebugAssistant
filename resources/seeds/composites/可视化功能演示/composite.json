@@ -1,0 +1,603 @@
+{
+  "name": "可视化功能演示",
+  "savedAt": "2026-11-24T20:24:29.2030179+08:00",
+  "instances": [
+    {
+      "instanceId": "attitude-display-21",
+      "moduleId": "hyw/attitude-display",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "input.group": "4",
+          "input.roll": "1",
+          "input.pitch": "2",
+          "input.yaw": "3",
+          "settings.style": "cube",
+          "settings.unit": "deg",
+          "settings.zoom": "1",
+          "settings.grid": "true",
+          "settings.labels": "true",
+          "settings.invertRoll": "false",
+          "settings.invertPitch": "false",
+          "settings.invertYaw": "false",
+          "settings.lostDelay": "1000",
+          "settings.lostZero": "true",
+          "settings.smoothing": "true",
+          "settings.smoothingMs": "120"
+        }
+      },
+      "ports": {
+        "in": {
+          "offset": 0.5,
+          "label": "1"
+        }
+      }
+    },
+    {
+      "instanceId": "gauge-display-20",
+      "moduleId": "hyw/gauge-display",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "input.group": "3",
+          "input.channel": "1",
+          "settings.minimum": "0",
+          "settings.maximum": "100",
+          "settings.decimals": "2",
+          "settings.fillFromZero": "true",
+          "settings.autoZero": "true",
+          "settings.zeroDelay": "800",
+          "settings.title": "",
+          "settings.unit": "",
+          "settings.smoothing": "true",
+          "settings.smoothingMs": "120"
+        }
+      },
+      "ports": {
+        "in": {
+          "offset": 0.5,
+          "label": "1"
+        }
+      }
+    },
+    {
+      "instanceId": "scale-bar-horizontal-19",
+      "moduleId": "hyw/scale-bar-horizontal",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "input.group": "1",
+          "input.channel": "1",
+          "settings.minimum": "0",
+          "settings.maximum": "100",
+          "settings.decimals": "2",
+          "settings.fillFromZero": "true",
+          "settings.autoZero": "true",
+          "settings.zeroDelay": "800",
+          "settings.title": "",
+          "settings.unit": "",
+          "settings.smoothing": "true",
+          "settings.smoothingMs": "120"
+        }
+      },
+      "ports": {
+        "in": {
+          "offset": 0.5,
+          "label": "1"
+        }
+      }
+    },
+    {
+      "instanceId": "scale-bar-vertical-18",
+      "moduleId": "hyw/scale-bar-vertical",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "input.group": "2",
+          "input.channel": "4",
+          "settings.minimum": "0",
+          "settings.maximum": "100",
+          "settings.decimals": "2",
+          "settings.fillFromZero": "true",
+          "settings.autoZero": "true",
+          "settings.zeroDelay": "800",
+          "settings.title": "",
+          "settings.unit": "",
+          "settings.smoothing": "true",
+          "settings.smoothingMs": "120"
+        }
+      },
+      "ports": {
+        "in": {
+          "offset": 0.5,
+          "label": "1"
+        }
+      }
+    },
+    {
+      "instanceId": "scale-bar-horizontal-12",
+      "moduleId": "hyw/scale-bar-horizontal",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "input.group": "1",
+          "input.channel": "2",
+          "settings.minimum": "0",
+          "settings.maximum": "100",
+          "settings.decimals": "2",
+          "settings.fillFromZero": "true",
+          "settings.autoZero": "true",
+          "settings.zeroDelay": "800",
+          "settings.title": "",
+          "settings.unit": "",
+          "settings.smoothing": "true",
+          "settings.smoothingMs": "120"
+        }
+      },
+      "ports": {
+        "in": {
+          "offset": 0.5,
+          "label": "1"
+        }
+      }
+    },
+    {
+      "instanceId": "scale-bar-horizontal-13",
+      "moduleId": "hyw/scale-bar-horizontal",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "input.group": "1",
+          "input.channel": "3",
+          "settings.minimum": "0",
+          "settings.maximum": "100",
+          "settings.decimals": "2",
+          "settings.fillFromZero": "true",
+          "settings.autoZero": "true",
+          "settings.zeroDelay": "800",
+          "settings.title": "",
+          "settings.unit": "",
+          "settings.smoothing": "true",
+          "settings.smoothingMs": "120"
+        }
+      },
+      "ports": {
+        "in": {
+          "offset": 0.5,
+          "label": "1"
+        }
+      }
+    },
+    {
+      "instanceId": "scale-bar-vertical-15",
+      "moduleId": "hyw/scale-bar-vertical",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "input.group": "2",
+          "input.channel": "1",
+          "settings.minimum": "0",
+          "settings.maximum": "100",
+          "settings.decimals": "2",
+          "settings.fillFromZero": "true",
+          "settings.autoZero": "true",
+          "settings.zeroDelay": "800",
+          "settings.title": "",
+          "settings.unit": "",
+          "settings.smoothing": "true",
+          "settings.smoothingMs": "120"
+        }
+      },
+      "ports": {
+        "in": {
+          "offset": 0.5,
+          "label": "1"
+        }
+      }
+    },
+    {
+      "instanceId": "scale-bar-vertical-16",
+      "moduleId": "hyw/scale-bar-vertical",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "input.group": "2",
+          "input.channel": "3",
+          "settings.minimum": "0",
+          "settings.maximum": "100",
+          "settings.decimals": "2",
+          "settings.fillFromZero": "true",
+          "settings.autoZero": "true",
+          "settings.zeroDelay": "800",
+          "settings.title": "",
+          "settings.unit": "",
+          "settings.smoothing": "true",
+          "settings.smoothingMs": "120"
+        }
+      },
+      "ports": {
+        "in": {
+          "offset": 0.5,
+          "label": "1"
+        }
+      }
+    },
+    {
+      "instanceId": "scale-bar-vertical-17",
+      "moduleId": "hyw/scale-bar-vertical",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "input.group": "2",
+          "input.channel": "2",
+          "settings.minimum": "0",
+          "settings.maximum": "100",
+          "settings.decimals": "2",
+          "settings.fillFromZero": "true",
+          "settings.autoZero": "true",
+          "settings.zeroDelay": "800",
+          "settings.title": "",
+          "settings.unit": "",
+          "settings.smoothing": "true",
+          "settings.smoothingMs": "120"
+        }
+      },
+      "ports": {
+        "in": {
+          "offset": 0.5,
+          "label": "1"
+        }
+      }
+    },
+    {
+      "instanceId": "gauge-display-22",
+      "moduleId": "hyw/gauge-display",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "input.group": "3",
+          "input.channel": "2",
+          "settings.minimum": "0",
+          "settings.maximum": "100",
+          "settings.decimals": "2",
+          "settings.fillFromZero": "true",
+          "settings.autoZero": "true",
+          "settings.zeroDelay": "800",
+          "settings.title": "",
+          "settings.unit": "",
+          "settings.smoothing": "true",
+          "settings.smoothingMs": "120"
+        }
+      },
+      "ports": {
+        "in": {
+          "offset": 0.5,
+          "label": "1"
+        }
+      }
+    },
+    {
+      "instanceId": "waveform-generator-24",
+      "moduleId": "hyw/waveform-generator",
+      "enabled": true,
+      "configuration": {
+        "HYWDebugAssistant.Modules.WaveformGenerator.GeneratorConfig": {
+          "Groups": [
+            {
+              "GroupId": 1,
+              "Name": "G1",
+              "Enabled": true,
+              "FrequencyHz": 1,
+              "Resolution": 1000,
+              "Channels": [
+                {
+                  "ChannelNumber": 1,
+                  "Name": "CH1",
+                  "Kind": "Sine",
+                  "PhaseDegrees": 0,
+                  "Offset": 40,
+                  "Amplitude": 40,
+                  "DutyCycle": 0.5,
+                  "CarrierFrequencyHz": 100,
+                  "ModulationIndex": 0.8,
+                  "CarrierPhaseDegrees": 0,
+                  "Enabled": true
+                },
+                {
+                  "ChannelNumber": 2,
+                  "Name": "CH2",
+                  "Kind": "Triangle",
+                  "PhaseDegrees": 0,
+                  "Offset": 30,
+                  "Amplitude": 30,
+                  "DutyCycle": 0.5,
+                  "CarrierFrequencyHz": 100,
+                  "ModulationIndex": 0.8,
+                  "CarrierPhaseDegrees": 0,
+                  "Enabled": true
+                },
+                {
+                  "ChannelNumber": 3,
+                  "Name": "CH3",
+                  "Kind": "Saddle",
+                  "PhaseDegrees": 0,
+                  "Offset": 50,
+                  "Amplitude": 50,
+                  "DutyCycle": 0.5,
+                  "CarrierFrequencyHz": 100,
+                  "ModulationIndex": 0.8,
+                  "CarrierPhaseDegrees": 0,
+                  "Enabled": true
+                }
+              ]
+            },
+            {
+              "GroupId": 2,
+              "Name": "G2",
+              "Enabled": true,
+              "FrequencyHz": 1,
+              "Resolution": 1000,
+              "Channels": [
+                {
+                  "ChannelNumber": 1,
+                  "Name": "CH1",
+                  "Kind": "Sine",
+                  "PhaseDegrees": 15,
+                  "Offset": 50,
+                  "Amplitude": 50,
+                  "DutyCycle": 0.5,
+                  "CarrierFrequencyHz": 100,
+                  "ModulationIndex": 0.8,
+                  "CarrierPhaseDegrees": 0,
+                  "Enabled": true
+                },
+                {
+                  "ChannelNumber": 2,
+                  "Name": "CH2",
+                  "Kind": "Sine",
+                  "PhaseDegrees": 30,
+                  "Offset": 50,
+                  "Amplitude": 50,
+                  "DutyCycle": 0.5,
+                  "CarrierFrequencyHz": 100,
+                  "ModulationIndex": 0.8,
+                  "CarrierPhaseDegrees": 0,
+                  "Enabled": true
+                },
+                {
+                  "ChannelNumber": 3,
+                  "Name": "CH3",
+                  "Kind": "Sine",
+                  "PhaseDegrees": 45,
+                  "Offset": 50,
+                  "Amplitude": 50,
+                  "DutyCycle": 0.5,
+                  "CarrierFrequencyHz": 100,
+                  "ModulationIndex": 0.8,
+                  "CarrierPhaseDegrees": 0,
+                  "Enabled": true
+                },
+                {
+                  "ChannelNumber": 4,
+                  "Name": "CH4",
+                  "Kind": "Sine",
+                  "PhaseDegrees": 60,
+                  "Offset": 50,
+                  "Amplitude": 50,
+                  "DutyCycle": 0.5,
+                  "CarrierFrequencyHz": 100,
+                  "ModulationIndex": 0.8,
+                  "CarrierPhaseDegrees": 0,
+                  "Enabled": true
+                }
+              ]
+            },
+            {
+              "GroupId": 3,
+              "Name": "G3",
+              "Enabled": true,
+              "FrequencyHz": 1,
+              "Resolution": 1000,
+              "Channels": [
+                {
+                  "ChannelNumber": 1,
+                  "Name": "CH1",
+                  "Kind": "Sine",
+                  "PhaseDegrees": 0,
+                  "Offset": 40,
+                  "Amplitude": 40,
+                  "DutyCycle": 0.5,
+                  "CarrierFrequencyHz": 100,
+                  "ModulationIndex": 0.8,
+                  "CarrierPhaseDegrees": 0,
+                  "Enabled": true
+                },
+                {
+                  "ChannelNumber": 2,
+                  "Name": "CH2",
+                  "Kind": "Triangle",
+                  "PhaseDegrees": 45,
+                  "Offset": 50,
+                  "Amplitude": 50,
+                  "DutyCycle": 0.5,
+                  "CarrierFrequencyHz": 100,
+                  "ModulationIndex": 0.8,
+                  "CarrierPhaseDegrees": 0,
+                  "Enabled": true
+                }
+              ]
+            },
+            {
+              "GroupId": 4,
+              "Name": "G4",
+              "Enabled": true,
+              "FrequencyHz": 1,
+              "Resolution": 1000,
+              "Channels": [
+                {
+                  "ChannelNumber": 1,
+                  "Name": "CH1",
+                  "Kind": "Sine",
+                  "PhaseDegrees": 0,
+                  "Offset": 0,
+                  "Amplitude": 60,
+                  "DutyCycle": 0.5,
+                  "CarrierFrequencyHz": 100,
+                  "ModulationIndex": 0.8,
+                  "CarrierPhaseDegrees": 0,
+                  "Enabled": true
+                },
+                {
+                  "ChannelNumber": 2,
+                  "Name": "CH2",
+                  "Kind": "Sine",
+                  "PhaseDegrees": 75,
+                  "Offset": 0,
+                  "Amplitude": 50,
+                  "DutyCycle": 0.5,
+                  "CarrierFrequencyHz": 100,
+                  "ModulationIndex": 0.8,
+                  "CarrierPhaseDegrees": 0,
+                  "Enabled": true
+                },
+                {
+                  "ChannelNumber": 3,
+                  "Name": "CH3",
+                  "Kind": "Sine",
+                  "PhaseDegrees": 45,
+                  "Offset": 0,
+                  "Amplitude": 40,
+                  "DutyCycle": 0.5,
+                  "CarrierFrequencyHz": 100,
+                  "ModulationIndex": 0.8,
+                  "CarrierPhaseDegrees": 0,
+                  "Enabled": true
+                }
+              ]
+            }
+          ],
+          "OneShotPeriods": 5,
+          "ActiveGroupIndex": 1,
+          "ActiveChannelIndex": 3
+        }
+      },
+      "ports": {
+        "out": {
+          "offset": 0.5,
+          "label": "1"
+        }
+      }
+    }
+  ],
+  "networks": [
+    {
+      "name": "1",
+      "sources": [
+        "waveform-generator-24.out"
+      ],
+      "targets": [
+        "attitude-display-21.in",
+        "gauge-display-20.in",
+        "scale-bar-horizontal-19.in",
+        "scale-bar-vertical-18.in",
+        "scale-bar-horizontal-12.in",
+        "scale-bar-horizontal-13.in",
+        "scale-bar-vertical-15.in",
+        "scale-bar-vertical-16.in",
+        "scale-bar-vertical-17.in",
+        "gauge-display-22.in"
+      ],
+      "unresolved": []
+    }
+  ],
+  "layout": {
+    "attitude-display-21": {
+      "x": 1016,
+      "y": 648,
+      "width": 600,
+      "height": 400,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "gauge-display-20": {
+      "x": 1016,
+      "y": 348,
+      "width": 300,
+      "height": 300,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "scale-bar-horizontal-19": {
+      "x": 616,
+      "y": 348,
+      "width": 400,
+      "height": 100,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "scale-bar-vertical-18": {
+      "x": 916,
+      "y": 648,
+      "width": 100,
+      "height": 400,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "scale-bar-horizontal-12": {
+      "x": 616,
+      "y": 448,
+      "width": 400,
+      "height": 100,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "scale-bar-horizontal-13": {
+      "x": 616,
+      "y": 548,
+      "width": 400,
+      "height": 100,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "scale-bar-vertical-15": {
+      "x": 616,
+      "y": 648,
+      "width": 100,
+      "height": 400,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "scale-bar-vertical-16": {
+      "x": 816,
+      "y": 648,
+      "width": 100,
+      "height": 400,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "scale-bar-vertical-17": {
+      "x": 716,
+      "y": 648,
+      "width": 100,
+      "height": 400,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "gauge-display-22": {
+      "x": 1316,
+      "y": 348,
+      "width": 300,
+      "height": 300,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "waveform-generator-24": {
+      "x": 616,
+      "y": 48,
+      "width": 1000,
+      "height": 300,
+      "viewVisible": true,
+      "scale": 1.25
+    }
+  }
+}

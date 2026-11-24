@@ -39,118 +39,57 @@ public class BusinessModulesContractTests
     private static IReadOnlyList<PortDeclarationSpec> Specs(string folder, Type entryType) =>
         ModulePortSpecs.Read(folder, entryType.Assembly);
 
-    // ---------------------------------------------------------------- 基础四模块
+    // ---------------------------------------------------------------- 逐模块声明面
 
-    [Fact]
-    public void 文本发送器_声明面应自洽()
+    /// <summary>带口模块：声明面自洽、类型标识统一、口的分边与角色一致。</summary>
+    [Theory]
+    [InlineData(typeof(TextSenderModule), "TextSender", "text-send", false, "out:Send:Bottom")]
+    [InlineData(typeof(CommandSenderModule), "CommandSender", CommandSenderModule.RoleId, false, "out:Send:Bottom")]
+    [InlineData(typeof(HexSenderModule), "HexSender", HexSenderModule.RoleId, false, "out:Send:Bottom")]
+    [InlineData(typeof(DataMonitorModule), "DataMonitor", "monitor", false, "in:Receive:Top")]
+    [InlineData(typeof(SerialModule), "Serial", "serial", true, "rx:Send:Bottom,tx:Receive:Top")]
+    public void 带口模块_声明面应自洽(
+        Type entryType,
+        string folder,
+        string roleId,
+        bool externalCatalog,
+        string ports)
     {
-        var probe = ModuleContract.Probe(
-            typeof(TextSenderModule),
-            portSpecs: Specs("TextSender", typeof(TextSenderModule)));
+        var probe = externalCatalog
+            ? ModuleContract.Probe(entryType, catalog: new BuiltInExternalAccessCatalog(), portSpecs: Specs(folder, entryType))
+            : ModuleContract.Probe(entryType, portSpecs: Specs(folder, entryType));
 
         probe.Problems.ShouldBeEmpty();
         probe.Advisories.ShouldBeEmpty();
 
         var type = probe.DataTypes.ShouldHaveSingleItem();
-        type.TypeId.ShouldBe("RawBytes");
+        type.TypeId.ShouldBe("RawBytes", "**共用同一标识**才能与既有模块开箱即连（不同标识默认不兼容）");
         ContractShape.AreSame(type.Shape, RawBytesShape).ShouldBeTrue("形状 = { len: u16, data: bytes[1472] }（跨模块兼容的前提）");
 
-        var port = probe.Ports.ShouldHaveSingleItem();
-        port.Name.ShouldBe("out");
-        port.Direction.ShouldBe(PortDirection.Send);
-        port.Edge.ShouldBe(PortEdge.Bottom, "宽 > 高 ⇒ 口在下边（与显示器的上边配对）");
-        port.TypeId.ShouldBe("RawBytes");
+        var expected = ports.Split(',');
+        probe.Ports.Count.ShouldBe(expected.Length);
+        foreach (var item in expected)
+        {
+            var parts = item.Split(':');
+            var port = probe.Ports.Single(candidate => candidate.Name == parts[0]);
+            port.Direction.ShouldBe(Enum.Parse<PortDirection>(parts[1]));
+            port.Edge.ShouldBe(Enum.Parse<PortEdge>(parts[2]), "口朝向接触面：发送口在下、接收口在上，上下叠放即连");
+            port.TypeId.ShouldBe("RawBytes");
+        }
 
         var role = probe.DeclaredRoles.ShouldHaveSingleItem();
-        role.Id.ShouldBe("text-send");
-        role.Outputs.ShouldBe(["out"]);
-        role.Inputs.ShouldBeEmpty();
+        role.Id.ShouldBe(roleId);
+        role.Inputs.ShouldBe(probe.Ports.Where(port => port.Direction == PortDirection.Receive).Select(port => port.Name).ToArray());
+        role.Outputs.ShouldBe(probe.Ports.Where(port => port.Direction == PortDirection.Send).Select(port => port.Name).ToArray());
     }
 
-    [Fact]
-    public void 指令发送器_声明面应自洽且与两个发送器同型()
+    /// <summary>零口模块：合法、不出建议。</summary>
+    [Theory]
+    [InlineData(typeof(ImageFrameModule))]
+    [InlineData(typeof(HexStringConverterModule))]
+    public void 零口模块_声明面应自洽且不出建议(Type entryType)
     {
-        var probe = ModuleContract.Probe(
-            typeof(CommandSenderModule),
-            portSpecs: Specs("CommandSender", typeof(CommandSenderModule)));
-
-        probe.Problems.ShouldBeEmpty();
-        probe.Advisories.ShouldBeEmpty();
-
-        var type = probe.DataTypes.ShouldHaveSingleItem();
-        type.TypeId.ShouldBe("RawBytes");
-        ContractShape.AreSame(type.Shape, RawBytesShape).ShouldBeTrue();
-
-        var port = probe.Ports.ShouldHaveSingleItem();
-        port.Name.ShouldBe(CommandSenderModule.OutPort);
-        port.Direction.ShouldBe(PortDirection.Send);
-        port.Edge.ShouldBe(PortEdge.Bottom);
-        port.TypeId.ShouldBe("RawBytes");
-
-        var role = probe.DeclaredRoles.ShouldHaveSingleItem();
-        role.Id.ShouldBe(CommandSenderModule.RoleId);
-        role.Outputs.ShouldBe([CommandSenderModule.OutPort]);
-        role.Inputs.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public void 十六进制发送器_声明面应自洽且与文本发送器同型()
-    {
-        var probe = ModuleContract.Probe(
-            typeof(HexSenderModule),
-            portSpecs: Specs("HexSender", typeof(HexSenderModule)));
-
-        probe.Problems.ShouldBeEmpty();
-        probe.Advisories.ShouldBeEmpty();
-
-        var type = probe.DataTypes.ShouldHaveSingleItem();
-        type.TypeId.ShouldBe("RawBytes", "**共用同一标识**才能与显示器开箱即连（不同标识默认不兼容）");
-        ContractShape.AreSame(type.Shape, RawBytesShape).ShouldBeTrue();
-
-        var port = probe.Ports.ShouldHaveSingleItem();
-        port.Edge.ShouldBe(PortEdge.Bottom);
-    }
-
-    [Fact]
-    public void 数据显示器_声明面应自洽且口在上边()
-    {
-        var probe = ModuleContract.Probe(
-            typeof(DataMonitorModule),
-            portSpecs: Specs("DataMonitor", typeof(DataMonitorModule)));
-
-        probe.Problems.ShouldBeEmpty();
-        probe.Advisories.ShouldBeEmpty();
-
-        ContractShape.AreSame(probe.DataTypes.ShouldHaveSingleItem().Shape, RawBytesShape).ShouldBeTrue();
-
-        var port = probe.Ports.ShouldHaveSingleItem();
-        port.Name.ShouldBe("in");
-        port.Direction.ShouldBe(PortDirection.Receive);
-        port.Edge.ShouldBe(PortEdge.Top, "与两个发送器的下边配对 ⇒ 上下叠放即可连");
-
-        var role = probe.DeclaredRoles.ShouldHaveSingleItem();
-        role.Id.ShouldBe("monitor");
-        role.Inputs.ShouldBe(["in"]);
-        role.Outputs.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public void 图片框_零口零角色应自洽且不出建议()
-    {
-        var probe = ModuleContract.Probe(typeof(ImageFrameModule));
-
-        probe.Problems.ShouldBeEmpty();
-        probe.Advisories.ShouldBeEmpty("零口零角色合法且不出建议");
-
-        probe.Ports.ShouldBeEmpty();
-        probe.DataTypes.ShouldBeEmpty();
-        probe.DeclaredRoles.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public void 转换器_零口零角色应自洽且不出建议()
-    {
-        var probe = ModuleContract.Probe(typeof(HexStringConverterModule));
+        var probe = ModuleContract.Probe(entryType);
 
         probe.Problems.ShouldBeEmpty();
         probe.Advisories.ShouldBeEmpty("零口零角色**合法且不出建议**（建议的触发条件是'有口却零角色'）");
@@ -185,43 +124,6 @@ public class BusinessModulesContractTests
     }
 
     // ---------------------------------------------------------------- 外部接入四模块
-
-    /// <summary>
-    /// **串口**（第二批样板）：声明面自洽，且与四个基础模块**同型**（同标识 + 同形状 ⇒ 开箱即连）。
-    /// </summary>
-    [Fact]
-    public void 串口_声明面应自洽_且与四个基础模块同型()
-    {
-        var probe = ModuleContract.Probe(
-            typeof(SerialModule),
-            catalog: new BuiltInExternalAccessCatalog(),
-            portSpecs: Specs("Serial", typeof(SerialModule)));
-
-        probe.Problems.ShouldBeEmpty();
-        probe.Advisories.ShouldBeEmpty();
-
-        var type = probe.DataTypes.ShouldHaveSingleItem();
-        type.TypeId.ShouldBe("RawBytes", "**共用同一标识**才能与既有模块开箱即连（不同标识默认不兼容）");
-        ContractShape.AreSame(type.Shape, RawBytesShape).ShouldBeTrue("形状 = { len: u16, data: bytes[1472] }（跨模块兼容的前提）");
-
-        probe.Ports.Count.ShouldBe(2);
-
-        var rx = probe.Ports.Single(port => port.Name == "rx");
-        rx.Direction.ShouldBe(PortDirection.Send);
-        rx.TypeId.ShouldBe("RawBytes");
-        rx.Edge.ShouldBe(PortEdge.Bottom, "设备来的字节从下边出去（与数据监视器的上边配对）");
-
-        var tx = probe.Ports.Single(port => port.Name == "tx");
-        tx.Direction.ShouldBe(PortDirection.Receive);
-        tx.TypeId.ShouldBe("RawBytes");
-        tx.Edge.ShouldBe(PortEdge.Top, "发往设备的字节从上边进来（与发送器的下边配对）");
-
-        // **一个分块、一进一出、两侧同型** —— "一个通道 = 一个设备会话"在声明面的样子
-        var role = probe.DeclaredRoles.ShouldHaveSingleItem();
-        role.Id.ShouldBe("serial");
-        role.Inputs.ShouldBe(["tx"], "进 = 发往设备");
-        role.Outputs.ShouldBe(["rx"], "出 = 设备来的");
-    }
 
     /// <summary>
     /// **网络类模块**（TCP 客户端 / TCP 服务端 / UDP）：声明面自洽、与基础模块同型、口的分边正确。

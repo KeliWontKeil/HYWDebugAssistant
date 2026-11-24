@@ -69,6 +69,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# 原生工具（dotnet 等）输出 UTF-8；本机控制台代码页可能是 936（GBK），直接解码会把中文变成乱码，
+# 进而让"零用例"判定误判为失败。这里统一按 UTF-8 解码原生输出。
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 . (Join-Path $PSScriptRoot 'app-output.ps1')

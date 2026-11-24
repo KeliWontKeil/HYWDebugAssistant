@@ -1,0 +1,194 @@
+{
+  "name": "经典串口助手",
+  "savedAt": "2026-11-24T20:09:28.6553340+08:00",
+  "instances": [
+    {
+      "instanceId": "serial-1",
+      "moduleId": "hyw/serial",
+      "enabled": true,
+      "configuration": {
+        "HYWDebugAssistant.Access.Parameters.SerialConfig": {
+          "PortName": "",
+          "BaudRate": "Baud115200",
+          "DataBits": "Eight",
+          "StopBits": "One",
+          "Parity": "None",
+          "KeepCurrentChoiceWhenUnavailable": false
+        }
+      },
+      "ports": {
+        "rx": {
+          "offset": 0.5,
+          "label": "2"
+        },
+        "tx": {
+          "offset": 0.5,
+          "label": "1"
+        }
+      }
+    },
+    {
+      "instanceId": "text-sender-2",
+      "moduleId": "hyw/text-sender",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "newlineCr": "true",
+          "newlineLf": "true",
+          "text1": "",
+          "text2": "",
+          "text3": "",
+          "text4": "",
+          "text5": "",
+          "interval": "",
+          "submitKey": "CtrlEnter"
+        }
+      },
+      "ports": {
+        "out": {
+          "offset": 0.5,
+          "label": "1"
+        }
+      }
+    },
+    {
+      "instanceId": "data-monitor-3",
+      "moduleId": "hyw/data-monitor",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "paused": "false",
+          "wrap": "false",
+          "hexView": "false",
+          "timestamp": "false"
+        }
+      },
+      "ports": {
+        "in": {
+          "offset": 0.5,
+          "label": "2"
+        }
+      }
+    },
+    {
+      "instanceId": "command-sender-4",
+      "moduleId": "hyw/command-sender",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "interval": "500",
+          "cmd0Label": "指令 1",
+          "cmd0Content": "",
+          "cmd0Hex": "false",
+          "cmd0Cr": "true",
+          "cmd0Lf": "true",
+          "order": "[0,1,2]",
+          "cmd1Label": "指令 2",
+          "cmd1Content": "",
+          "cmd1Hex": "false",
+          "cmd1Cr": "true",
+          "cmd1Lf": "true",
+          "cmd2Label": "指令 3",
+          "cmd2Content": "",
+          "cmd2Hex": "false",
+          "cmd2Cr": "true",
+          "cmd2Lf": "true"
+        }
+      },
+      "ports": {
+        "out": {
+          "offset": 0.5,
+          "label": "1"
+        }
+      }
+    },
+    {
+      "instanceId": "hex-sender-5",
+      "moduleId": "hyw/hex-sender",
+      "enabled": true,
+      "viewState": {
+        "inputTexts": {
+          "hex1": "",
+          "hex2": "",
+          "hex3": "",
+          "hex4": "",
+          "hex5": "",
+          "interval": "",
+          "submitKey": "CtrlEnter"
+        }
+      },
+      "ports": {
+        "out": {
+          "offset": 0.5,
+          "label": "1"
+        }
+      }
+    }
+  ],
+  "networks": [
+    {
+      "name": "2",
+      "sources": [
+        "serial-1.rx"
+      ],
+      "targets": [
+        "data-monitor-3.in"
+      ],
+      "unresolved": []
+    },
+    {
+      "name": "1",
+      "sources": [
+        "text-sender-2.out",
+        "command-sender-4.out",
+        "hex-sender-5.out"
+      ],
+      "targets": [
+        "serial-1.tx"
+      ],
+      "unresolved": []
+    }
+  ],
+  "layout": {
+    "serial-1": {
+      "x": 1146.4,
+      "y": 192,
+      "width": 400,
+      "height": 200,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "text-sender-2": {
+      "x": 746.4,
+      "y": 192,
+      "width": 400,
+      "height": 200,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "data-monitor-3": {
+      "x": 1146.4,
+      "y": 392,
+      "width": 400,
+      "height": 600,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "command-sender-4": {
+      "x": 746.4,
+      "y": 592,
+      "width": 400,
+      "height": 400,
+      "viewVisible": true,
+      "scale": 1.25
+    },
+    "hex-sender-5": {
+      "x": 746.4,
+      "y": 392,
+      "width": 400,
+      "height": 200,
+      "viewVisible": true,
+      "scale": 1.25
+    }
+  }
+}

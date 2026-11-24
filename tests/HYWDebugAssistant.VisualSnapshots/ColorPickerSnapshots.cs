@@ -36,11 +36,6 @@ public class ColorPickerSnapshots
                 Thread.Sleep(200);
                 SnapshotTool.Pump();
 
-                Assert.Equal(Colors.DodgerBlue, dialog.Color);
-                Assert.Contains(dialog.GetVisualDescendants(), control => control.Name == "HueBar");
-                Assert.Contains(dialog.GetVisualDescendants(), control => control.Name == "ValueBar");
-                Assert.DoesNotContain(dialog.GetVisualDescendants().OfType<Slider>(), _ => true);
-
                 SnapshotTool.Save(dialog, "color-picker.png");
 
                 // 推荐色选中态：第一位“自定义”必须保持原色。

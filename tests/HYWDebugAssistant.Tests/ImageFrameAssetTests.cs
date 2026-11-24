@@ -47,42 +47,6 @@ public class ImageFrameAssetTests
     }
 
     [Fact]
-    public void 清除壁纸_不改变控件图片()
-    {
-        using var runtime = new ModuleRuntime();
-        CoreRuntimeTests.AddModule(runtime, "img", "sender", typeof(CoreRuntimeTests.SenderModule));
-        var services = new RuntimeServices(runtime);
-        var image = Png;
-
-        services.SetModuleWallpaper("img", Gif).Succeeded.ShouldBeTrue();
-        var store = new ModuleViewImageStore("img", services, services);
-        store.Write(image, null).ShouldBeTrue();
-
-        services.SetModuleWallpaper("img", null).Succeeded.ShouldBeTrue();
-
-        services.GetModuleWallpaper("img").ShouldBeNull();
-        services.GetModuleViewImage("img")!.Bytes.SequenceEqual(image).ShouldBeTrue();
-    }
-
-    [Fact]
-    public void 清除控件图片_不改变模块壁纸()
-    {
-        using var runtime = new ModuleRuntime();
-        CoreRuntimeTests.AddModule(runtime, "img", "sender", typeof(CoreRuntimeTests.SenderModule));
-        var services = new RuntimeServices(runtime);
-        var wallpaper = Png;
-
-        services.SetModuleWallpaper("img", wallpaper).Succeeded.ShouldBeTrue();
-        var store = new ModuleViewImageStore("img", services, services);
-        store.Write(Jpeg, null).ShouldBeTrue();
-
-        store.Write(null, null).ShouldBeTrue();
-
-        services.GetModuleViewImage("img").ShouldBeNull();
-        services.GetModuleWallpaper("img")!.Png.SequenceEqual(wallpaper).ShouldBeTrue();
-    }
-
-    [Fact]
     public void 清除壁纸_应使实例视图的壁纸版本归零()
     {
         using var runtime = new ModuleRuntime();

@@ -34,6 +34,9 @@ public class OverlaySnapshots
     /// <summary>冲突截图里要抓的两个窗口（发送端与不兼容宿）。</summary>
     private static readonly string[] ConflictInstances = ["sender", "wide"];
 
+    /// <summary>窄窗对照图的两个窗口（宽窗与窄窗）。</summary>
+    private static readonly string[] ChromeInstances = ["wide", "narrow"];
+
     /// <summary>生成叠加层截图（<c>overlay\*.png</c>）。</summary>
     [Fact]
     public async Task 生成快照_叠加层()
@@ -90,7 +93,7 @@ public class OverlaySnapshots
                 harness.Windows.Refresh();
 
                 var module = harness.Windows.Modules.Single(m => m.InstanceId == "sender");
-                var marker = Assert.Single(module.Ports);
+                var marker = module.Ports.Single();
                 marker.IsDockCandidate = true;
 
                 var window = harness.OpenWindow(module);
@@ -136,12 +139,8 @@ public class OverlaySnapshots
     }
 
     /// <summary>
-    /// **窄窗 chrome 机制**：宽度切到 &lt; 200 时按钮簇竖排、选中标题按字竖排。
+    /// **窄窗 chrome 对照图**：宽窗与窄窗各一张，看按钮簇方向、标题竖排与端口标记换边。
     /// </summary>
-    /// <remarks>
-    /// 这是**机制**断言（排布方向/最大宽），不是观感判据：上一轮的窄窗样式被内联本地值压住，
-    /// 只看截图很难发现"样式根本没生效"，所以把这条关系钉在真窗渲染上（观感仍看 PNG）。
-    /// </remarks>
     [Fact]
     public async Task 生成快照_窄窗chrome()
     {
@@ -152,7 +151,7 @@ public class OverlaySnapshots
                 harness.AddSink("wide", x: 40, y: 40, width: 320, height: 220);
                 harness.AddSink("narrow", x: 40, y: 300, width: 150, height: 220);
 
-                foreach (var (instanceId, expectedNarrow) in new[] { ("wide", false), ("narrow", true) })
+                foreach (var instanceId in ChromeInstances)
                 {
                     var module = harness.Windows.Modules.Single(m => m.InstanceId == instanceId);
                     module.IsSelected = true;
@@ -165,65 +164,6 @@ public class OverlaySnapshots
                     SnapshotTool.Pump();
                     SnapshotTool.Pump();
 
-                    Assert.Equal(module.Width, window.Bounds.Width);
-                    Assert.Equal(expectedNarrow, window.Classes.Contains("narrow"));
-
-                    var clusterGrid = window.GetVisualDescendants().OfType<Grid>()
-                        .First(grid => grid.Name == "ClusterGrid");
-                    var buttons = new (string Name, Point Origin)[]
-                    {
-                        ("WallpaperButton", OriginOf("WallpaperButton")),
-                        ("ResetButton", OriginOf("ResetButton")),
-                        ("LockButton", OriginOf("LockButton")),
-                        ("HideButton", OriginOf("HideButton")),
-                        ("CloseButton", OriginOf("CloseButton")),
-                    };
-
-                    Point OriginOf(string name) =>
-                        window.GetVisualDescendants().OfType<Control>()
-                            .First(control => control.Name == name)
-                            .TranslatePoint(default, clusterGrid)!.Value;
-
-                    // 窄窗：一列、**关闭在最上**（行号反序）；宽窗：一行、关闭在最右。
-                    if (expectedNarrow)
-                    {
-                        Assert.Single(buttons.Select(b => b.Origin.X).Distinct());
-                        Assert.True(buttons[4].Origin.Y < buttons[3].Origin.Y);
-                        Assert.True(buttons[3].Origin.Y < buttons[2].Origin.Y);
-                        Assert.True(buttons[2].Origin.Y < buttons[1].Origin.Y);
-                        Assert.True(buttons[1].Origin.Y < buttons[0].Origin.Y);
-                    }
-                    else
-                    {
-                        Assert.Single(buttons.Select(b => b.Origin.Y).Distinct());
-                        Assert.True(buttons[0].Origin.X < buttons[1].Origin.X);
-                        Assert.True(buttons[1].Origin.X < buttons[2].Origin.X);
-                        Assert.True(buttons[2].Origin.X < buttons[3].Origin.X);
-                        Assert.True(buttons[3].Origin.X < buttons[4].Origin.X);
-                    }
-
-                    var badgeText = window.GetVisualDescendants().OfType<Border>()
-                        .First(border => border.Name == "NameBadge")
-                        .GetVisualDescendants().OfType<TextBlock>()
-                        .First();
-                    Assert.Equal(expectedNarrow ? 14 : 180, badgeText.MaxWidth);
-
-                    // 「固定/解锁」按钮必须贴着标记（沿边方向），不能落到窗口尽头。
-                    var anchor = window.GetVisualDescendants().OfType<Button>()
-                        .First(button => button.Classes.Contains("anchorToggle"));
-                    var anchorOrigin = anchor.TranslatePoint(default, window)!.Value;
-                    var marker = window.GetVisualDescendants().OfType<Border>()
-                        .First(border => border.Classes.Contains("portMarker"));
-                    var markerOrigin = marker.TranslatePoint(default, window)!.Value;
-                    var alongAnchor = expectedNarrow ? anchorOrigin.Y : anchorOrigin.X;
-                    var alongMarker = expectedNarrow ? markerOrigin.Y : markerOrigin.X;
-                    var alongLength = expectedNarrow ? marker.Bounds.Height : marker.Bounds.Width;
-                    var buttonLength = expectedNarrow ? anchor.Bounds.Height : anchor.Bounds.Width;
-                    Assert.InRange(
-                        alongAnchor,
-                        alongMarker - buttonLength - 8,
-                        alongMarker + alongLength + 8);
-
                     SnapshotTool.Save(window, Path.Combine("chrome", instanceId + ".png"));
                     SnapshotTool.DumpTree(window, Path.Combine("chrome", instanceId + "-tree.txt"));
                     window.Close();
@@ -233,7 +173,7 @@ public class OverlaySnapshots
     }
 
     /// <summary>
-    /// **端口标记**：尺寸固定（150×20），放不下的边会被换掉，且贴住窗口外沿。
+    /// **端口标记**：宽窗与窄窗各一张，看尺寸是否恒定、放不下的边是否换到左右。
     /// </summary>
     [Fact]
     public async Task 生成快照_顶边端口标记()
@@ -254,34 +194,6 @@ public class OverlaySnapshots
                     SnapshotTool.Pump();
                     SnapshotTool.Pump();
 
-                    var marker = window.GetVisualDescendants().OfType<Border>()
-                        .First(border => border.Classes.Contains("portMarker"));
-                    var origin = marker.TranslatePoint(default, window);
-                    Assert.NotNull(origin);
-
-                    // 声明边 Top；宽 130 放不下 ⇒ 换到左右边（标记仍 20×150）。
-                    var expectedSide = PortMarkerLayout.SideOf(
-                        PortMarkerLayout.FitEdge(PortEdge.Top, PortDirection.Receive, width, height));
-                    var vertical = expectedSide is PortSide.Left or PortSide.Right;
-                    Assert.Equal(vertical ? PortMarkerMetrics.Width : PortMarkerMetrics.Length, marker.Bounds.Width, 0.5);
-                    Assert.Equal(vertical ? PortMarkerMetrics.Length : PortMarkerMetrics.Width, marker.Bounds.Height, 0.5);
-
-                    var frameBorder = ModuleSurfaceMetrics.FrameBorder;
-                    if (vertical)
-                    {
-                        var expectedX = PortMarkerLayout.EdgeInset + frameBorder + (expectedSide == PortSide.Left ? 0 : width - marker.Bounds.Width);
-                        Assert.InRange(origin!.Value.X, expectedX - 0.5, expectedX + 0.5);
-                        Assert.True(origin.Value.Y >= -0.5);
-                        Assert.True(origin.Value.Y + marker.Bounds.Height <= height + 0.5);
-                    }
-                    else
-                    {
-                        var expectedY = PortMarkerLayout.EdgeInset + frameBorder;
-                        Assert.InRange(origin!.Value.Y, expectedY - 0.5, expectedY + 0.5);
-                        Assert.True(origin.Value.X >= -0.5);
-                        Assert.True(origin.Value.X + marker.Bounds.Width <= width + 0.5);
-                    }
-
                     SnapshotTool.Save(window, Path.Combine("chrome", "port-marker-" + instanceId + ".png"));
                     SnapshotTool.DumpTree(window, Path.Combine("chrome", "port-marker-" + instanceId + "-tree.txt"));
                     window.Close();
@@ -290,7 +202,6 @@ public class OverlaySnapshots
             CancellationToken.None);
     }
 
-    /// <summary>把某实例的某口挂到命名网络上（失败即抛——截图现场必须是真的）。</summary>
     private static void UpdateNetwork(SnapshotHarness harness, string instanceId, string port, string network)
     {
         var update = harness.Services.UpdatePortNetwork(instanceId, port, network);

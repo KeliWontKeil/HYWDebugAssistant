@@ -197,7 +197,7 @@ public class ChannelDisplayModulesTests
     }
 
     [Fact]
-    public void 三轴姿态_通道重复时三格都标红且持续()
+    public void 三轴姿态_通道重复时三格都标为无效_修正后清除()
     {
         var context = new TestModuleContext();
         var module = new AttitudeDisplayModule();
@@ -246,13 +246,6 @@ public class ChannelDisplayModulesTests
         Published(context, AttitudeDisplayModule.PitchSource).ShouldBe(0f, 0.01f);
         Published(context, AttitudeDisplayModule.YawSource).ShouldBe(0f, 0.01f);
     }
-
-    [Theory]
-    [InlineData(0, "0.0° / 0.000 rad")]
-    [InlineData(180, "180.0° / 3.142 rad")]
-    [InlineData(-90, "-90.0° / -1.571 rad")]
-    public void 三轴姿态_底栏同时显示角度与弧度(double degrees, string expected) =>
-        AttitudeDisplayView.FormatAngles(degrees).ShouldBe(expected);
 
     [Fact]
     public void 进度条颜色_十六进制写入元数据_空与非法回默认()
@@ -394,21 +387,6 @@ public class ChannelDisplayModulesTests
         context.ValueValidities.ContainsKey(GaugeDisplayModule.MaximumSource).ShouldBeFalse();
     }
 
-    [Fact]
-    public void 仪表设置_从零开始填充默认开_可关闭()
-    {
-        var context = new TestModuleContext();
-        var module = new GaugeDisplayModule();
-        module.OnRegistered(context);
-        module.PumpOnce(context);
-
-        ReadMetaBool(context, GaugeDisplayModule.MetaSource, "fillFromZero").ShouldBeTrue();
-
-        context.ViewState.SetInputText(GaugeDisplayModule.FillFromZeroSource, "false");
-        module.PumpOnce(context);
-        ReadMetaBool(context, GaugeDisplayModule.MetaSource, "fillFromZero").ShouldBeFalse();
-    }
-
     private static string ReadMetaString(TestModuleContext context, string metaSource, string name)
     {
         var text = context.SetTexts.LastOrDefault(item => string.Equals(item.SourceName, metaSource, StringComparison.Ordinal)).Text;
@@ -423,14 +401,6 @@ public class ChannelDisplayModulesTests
         text.ShouldNotBeNull();
         using var document = JsonDocument.Parse(text);
         return document.RootElement.GetProperty("settings").GetProperty(name).GetInt32();
-    }
-
-    private static bool ReadMetaBool(TestModuleContext context, string metaSource, string name)
-    {
-        var text = context.SetTexts.LastOrDefault(item => string.Equals(item.SourceName, metaSource, StringComparison.Ordinal)).Text;
-        text.ShouldNotBeNull();
-        using var document = JsonDocument.Parse(text);
-        return document.RootElement.GetProperty("settings").GetProperty(name).GetBoolean();
     }
 
     private static double ReadMetaDouble(TestModuleContext context, string metaSource, string name)

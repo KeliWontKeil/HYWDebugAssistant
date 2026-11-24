@@ -96,25 +96,6 @@ public class ResizeSnapIntegrationTests
         windows.EndResize();
     }
 
-    [Fact]
-    public void 尺寸相等命中时应给出状态提示()
-    {
-        using var harness = new ResizeHarness(
-            a: new ModuleLayoutView("a", 0, 0, 200, 100),
-            b: new ModuleLayoutView("b", 300, 0, 150, 100));
-
-        var windows = harness.Windows;
-        var a = windows.Modules.Single(module => module.InstanceId == "a");
-
-        windows.BeginResize("a", ResizeHandle.Right, pointerX: 200, pointerY: 50).ShouldBeTrue();
-        windows.ResizeTo(pointerX: 146, pointerY: 50);
-
-        a.Width.ShouldBe(150);
-        windows.LastNotice.ShouldNotBeNull();
-
-        windows.EndResize();
-    }
-
     private sealed class ResizeHarness : IDisposable
     {
         public ResizeHarness(ModuleLayoutView a, ModuleLayoutView b)

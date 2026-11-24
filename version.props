@@ -3,8 +3,8 @@
   <!-- 全仓唯一的版本事实源（四段 = 大.小.修订.轮次）；只允许 tools/version.ps1 写入。 -->
   <PropertyGroup>
     <HywVersionMajor>0</HywVersionMajor>
-    <HywVersionMinor>1</HywVersionMinor>
-    <HywVersionPatch>1</HywVersionPatch>
+    <HywVersionMinor>2</HywVersionMinor>
+    <HywVersionPatch>0</HywVersionPatch>
     <HywVersionRound>0</HywVersionRound>
   </PropertyGroup>
 

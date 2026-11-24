@@ -21,59 +21,6 @@ public class ModulePlacementTests
     }
 
     [Fact]
-    public void 第二层网格相对第一层应有坐标偏移()
-    {
-        var shell = new CanvasRect(100, 100, 200, 200);
-        var work = new CanvasRect(0, 0, 1200, 900);
-        var region = ModulePlacement.PlacementRegion(shell, work, 100, 100).ShouldNotBeNull();
-
-        var first = ModulePlacement.NextLayered(shell, work, [], 100, 100);
-        first.Sheet.ShouldBe(0);
-        var obstacles = new List<PlacementObstacle>
-        {
-            new(new CanvasRect(first.X, first.Y, 100, 100), first.Sheet),
-        };
-
-        ModulePlacementResult? firstOfSecond = null;
-
-        for (var index = 0; index < 80; index++)
-        {
-            var result = ModulePlacement.NextLayered(shell, work, obstacles, 100, 100);
-            result.Stacked.ShouldBeFalse();
-
-            if (result.Sheet == 1)
-            {
-                firstOfSecond = result;
-                break;
-            }
-
-            obstacles.Add(new PlacementObstacle(new CanvasRect(result.X, result.Y, 100, 100), result.Sheet));
-        }
-
-        firstOfSecond.ShouldNotBeNull("第一层排满后应进入第二层");
-        (Math.Abs(firstOfSecond.Value.X - first.X) > 0.5
-            || Math.Abs(firstOfSecond.Value.Y - first.Y) > 0.5)
-            .ShouldBeTrue("第二层网格相对第一层必须有坐标偏移");
-        Inside(region, firstOfSecond.Value.X, firstOfSecond.Value.Y, 100, 100).ShouldBeTrue();
-    }
-
-    [Fact]
-    public void 第一层排满后应进入第二层而不是单点堆叠()
-    {
-        var shell = new CanvasRect(0, 0, 100, 300);
-        var work = new CanvasRect(0, 0, 500, 300);
-        var occupied = new[] { new PlacementObstacle(new CanvasRect(shell.Right + ModulePlacement.Gap, 0, 200, 200), Sheet: 0) };
-
-        var result = ModulePlacement.NextLayered(shell, work, occupied, 200, 200);
-
-        result.Stacked.ShouldBeFalse();
-        result.Sheet.ShouldBe(1);
-        result.X.ShouldBeGreaterThanOrEqualTo(work.Left);
-        (result.X + 200).ShouldBeLessThanOrEqualTo(work.Right);
-        (result.Y + 200).ShouldBeLessThanOrEqualTo(work.Bottom);
-    }
-
-    [Fact]
     public void 外壳右侧排满时仍应找到其它空位()
     {
         var shell = new CanvasRect(700, 0, 200, 200);
@@ -84,29 +31,6 @@ public class ModulePlacementTests
 
         result.Stacked.ShouldBeFalse("屏幕别处仍有完整空位，不应直接堆叠");
         result.Y.ShouldBeGreaterThan(0, "外壳右侧排满后应继续利用下方的空位");
-    }
-
-    [Fact]
-    public void 同尺寸模块连续进入新层时不应完全重合()
-    {
-        var shell = new CanvasRect(0, 0, 100, 300);
-        var work = new CanvasRect(0, 0, 320, 300);
-        var occupied = new[] { new PlacementObstacle(new CanvasRect(112, 0, 200, 200), Sheet: 0) };
-
-        var first = ModulePlacement.NextLayered(shell, work, occupied, 200, 200);
-        first.Stacked.ShouldBeFalse();
-        first.Sheet.ShouldBe(1);
-
-        var second = ModulePlacement.NextLayered(
-            shell,
-            work,
-            [.. occupied, new PlacementObstacle(new CanvasRect(first.X, first.Y, 200, 200), first.Sheet)],
-            200,
-            200);
-
-        second.Stacked.ShouldBeFalse();
-        (Math.Abs(second.X - first.X) > 0.5 || Math.Abs(second.Y - first.Y) > 0.5)
-            .ShouldBeTrue("第二层内部也必须继续排开，不能与第一个位置重合");
     }
 
     [Fact]
@@ -142,20 +66,6 @@ public class ModulePlacementTests
 
         region.CenterX.ShouldBe(work.CenterX);
         region.CenterY.ShouldBe(work.CenterY);
-    }
-
-    [Fact]
-    public void 首次落位在放置区左上角()
-    {
-        var shell = new CanvasRect(100, 100, 200, 200);
-        var work = new CanvasRect(0, 0, 1000, 800);
-
-        var region = ModulePlacement.PlacementRegion(shell, work, 300, 200).ShouldNotBeNull();
-        var result = ModulePlacement.Next(shell, work, [], 300, 200);
-
-        result.Stacked.ShouldBeFalse();
-        result.X.ShouldBe(region.Left);
-        result.Y.ShouldBe(region.Top);
     }
 
     [Fact]

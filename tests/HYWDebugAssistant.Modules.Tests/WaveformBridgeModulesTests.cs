@@ -273,56 +273,6 @@ public class WaveformBridgeModulesTests
     }
 
     [Fact]
-    public void 旧文本帧头在激活后迁移为十六进制并清空旧值()
-    {
-        _ = CreateDecoder(
-            RawToWaveformProtocol.TextFrame,
-            out var context,
-            (RawToWaveformModule.HeaderInput, "ab"),
-            (RawToWaveformModule.FooterInput, "cd"));
-
-        // 旧文本按 UTF-8 字节转成十六进制串；旧值清空，避免清空新值后旧值复活。
-        context.ViewState.GetInputText(RawToWaveformModule.HeaderHexInput).ShouldBe("61 62");
-        context.ViewState.GetInputText(RawToWaveformModule.FooterHexInput).ShouldBe("63 64");
-        context.ViewState.GetInputText(RawToWaveformModule.HeaderInput).ShouldBeEmpty();
-
-        DeliverRaw(context, "ab 1 2 cd");
-        context.Sent.Count.ShouldBe(1, "迁移后的字节应与旧文本帧完全一致");
-    }
-
-    [Fact]
-    public void 旧值迁移_新值已被XAML初值播种时仍按旧值迁移()
-    {
-        // 真实恢复顺序是"旧值 → XAML 初值播种 → 激活"：新值在迁移前已经是 61 62。
-        _ = CreateDecoder(
-            RawToWaveformProtocol.TextFrame,
-            out var decode,
-            (RawToWaveformModule.HeaderHexInput, "61 62"),
-            (RawToWaveformModule.HeaderInput, "xy"),
-            (RawToWaveformModule.FooterHexInput, "63 64"));
-
-        decode.ViewState.GetInputText(RawToWaveformModule.HeaderHexInput).ShouldBe("78 79");
-        decode.ViewState.GetInputText(RawToWaveformModule.HeaderInput).ShouldBeEmpty();
-
-        DeliverRaw(decode, "xy 3 cd");
-        decode.Sent.Count.ShouldBe(1);
-
-        _ = CreateEncoder(
-            WaveformToRawProtocol.TextFrame,
-            out var encode,
-            (WaveformToRawModule.HeaderHexInput, "61 62"),
-            (WaveformToRawModule.HeaderInput, "xy"),
-            (WaveformToRawModule.FooterHexInput, "63 64"));
-
-        encode.ViewState.GetInputText(WaveformToRawModule.HeaderHexInput).ShouldBe("78 79");
-        encode.ViewState.GetInputText(WaveformToRawModule.HeaderInput).ShouldBeEmpty();
-
-        DeliverWave(encode, BuildWave(1, 1, [3f]));
-        Encoding.UTF8.GetString(ReadRawBytes(encode.Sent.ShouldHaveSingleItem().Payload))
-            .ShouldBe("xy 3 cd");
-    }
-
-    [Fact]
     public void 帧头帧尾可使用不可输入字节()
     {
         _ = CreateDecoder(

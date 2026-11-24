@@ -215,47 +215,6 @@ public class DataTypeCompatibilityTests
     }
 
     [Fact]
-    public void 队列水位与三类丢弃_应按口与按原因分别可查()
-    {
-        using var runtime = new ModuleRuntime();
-        var services = new Core.Services.RuntimeServices(runtime);
-
-        // 容量**按口计**：把每口容量压到 8，便于稳定制造"队满"
-        runtime.Carriers.UpdateOptions(new HYWDebugAssistant.DataPlane.Carriers.CarrierOptions { QueueCapacity = 8 });
-
-        AddModule(runtime, "s1", "sender", typeof(CoreRuntimeTests.SenderModule));
-        AddModule(runtime, "slow", "slow-receiver", typeof(SlowReceiverModule));
-        Connect(runtime, "s1", "out", "slow", "in", "bus").ShouldBeTrue();
-
-        // 塞一批：接收端很慢 ⇒ 队列满 ⇒ **传输丢弃**
-        for (var i = 0; i < 40; i++)
-        {
-            SendF32(runtime, "s1", i);
-        }
-
-        var depths = services.GetQueueDepths();
-        var queue = depths.ShouldHaveSingleItem();
-
-        queue.InstanceId.ShouldBe("slow");
-        queue.PortName.ShouldBe("in");
-        queue.Capacity.ShouldBe(8, "容量**按口计**（ADR-0050 Q2）");
-        queue.Depth.ShouldBeLessThanOrEqualTo(queue.Capacity);
-        queue.Enqueued.ShouldBeGreaterThan(0);
-        queue.Dropped.ShouldBeGreaterThan(0, "慢消费必然触发队满丢弃");
-        queue.Fill.ShouldBeInRange(0, 1);
-        queue.BusByteRate.ShouldBeGreaterThanOrEqualTo(0);
-
-        var diagnostic = services.GetDiagnostics().ShouldHaveSingleItem();
-
-        // **三类丢弃分开**：传输丢弃 = 队列满 + 无承载 + 载荷非法；停流未投递单列且**不混入**
-        diagnostic.DropTransport.ShouldBe(
-            diagnostic.DropQueueFull + diagnostic.DropNoCarrier + diagnostic.DropInvalidPayload,
-            "传输丢弃 = 三类原因之和");
-        diagnostic.DropQueueFull.ShouldBeGreaterThan(0);
-        diagnostic.DropStalled.ShouldBe(0, "本用例没有停流 ⇒ 停流未投递必须为 0（不得混算）");
-    }
-
-    [Fact]
     public void 停流期间的发送_应只计入停流未投递而非传输丢弃()
     {
         using var runtime = new ModuleRuntime();

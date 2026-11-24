@@ -8,7 +8,7 @@
     1) 文档站结构检查（docs/build.ps1 -Mode Check：严格构建 + 导航完整性 + 生成内容自检），
        以及颜色口径审计（docs/tools/audit-colors.ps1）、资源与文本审计（tools/audit-resources.ps1）、
        注释布局数值审计（tools/audit-layout-comments.ps1）与版本纪律审计（tools/audit-versions.ps1）
-       —— 前四者同受 -SkipDocs 控制，版本审计始终执行（它不只看文档）
+       —— 前三者同受 -SkipDocs 控制，版本审计与截图工程零断言审计始终执行
     2) dotnet restore / build
     3) 校验内置模块包归拢（应用输出 modules\ + artifacts\modules\）
     4) 校验输出资源包（tools/verify-resources.ps1）+ 依赖许可审计（tools/audit-licenses.ps1，
@@ -47,6 +47,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# 原生工具（dotnet 等）输出 UTF-8；本机控制台代码页可能是 936（GBK），直接解码会把中文变成乱码，
+# 进而让"零用例"判定误判为失败。这里统一按 UTF-8 解码原生输出。
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 $root = $PSScriptRoot
 Set-Location $root
 
@@ -125,6 +130,12 @@ if (-not $SkipDocs) {
 Write-Host "===== 1e/6 版本纪律审计 =====" -ForegroundColor Cyan
 & (Join-Path $root 'tools\audit-versions.ps1')
 if ($LASTEXITCODE -ne 0) { throw '版本纪律审计未通过（见上方 文件:行号；判据见 tools/audit-versions.ps1 头部注释）' }
+
+# ---- 1f) 截图工程零断言审计（只读；判据见 tools/audit-snapshot-asserts.ps1 头部注释）----
+# 截图工具不是测试：断言放进去既不被门禁执行、又让人误以为有覆盖。它不查文档，不受 -SkipDocs 控制。
+Write-Host "===== 1f/6 截图工程零断言审计 =====" -ForegroundColor Cyan
+& (Join-Path $root 'tools\audit-snapshot-asserts.ps1')
+if ($LASTEXITCODE -ne 0) { throw '截图工程零断言审计未通过（见上方 文件:行号；判据见 tools/audit-snapshot-asserts.ps1 头部注释）' }
 
 Write-Host "===== 2/6 还原 =====" -ForegroundColor Cyan
 dotnet restore $sln

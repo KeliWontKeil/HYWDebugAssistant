@@ -367,6 +367,11 @@ public class CoreRuntimeTests
         Place(runtime, "r1", 300, 0, 300, 200);
         MovePort(runtime, "s1", "out", 0.05);
         runtime.Content.Networks.ShouldBeEmpty("接触但标记未对齐 → 不建网（严防误建）");
+
+        // ③ 1px 重叠：边仍在接触容差内、标记也对齐，但重合不是接触 ⇒ 不得建网
+        MovePort(runtime, "s1", "out", 0.5);
+        Place(runtime, "r1", 299, 0, 300, 200);
+        runtime.Content.Networks.ShouldBeEmpty("两个模块重合时不得建网");
     }
 
     [Fact]

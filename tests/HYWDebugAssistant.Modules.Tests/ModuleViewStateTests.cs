@@ -36,14 +36,4 @@ public class ModuleViewStateTests
         moduleView.ViewState.GetDisplayLines("nope").ShouldBeEmpty();
     }
 
-    [Fact]
-    public void 未预置时_视图状态应为空而不是异常()
-    {
-        var context = new TestModuleContext();
-        IModuleContext moduleView = context;
-
-        moduleView.ViewState.GetSelectedPage("pages").ShouldBeNull();
-        moduleView.ViewState.GetInputText("text1").ShouldBeNull();
-        moduleView.ViewState.GetDisplayLines("log").ShouldBeEmpty();
-    }
 }

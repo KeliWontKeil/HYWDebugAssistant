@@ -148,6 +148,19 @@ try {
 }
 finally {
     if ($createdWork -and (Test-Path -LiteralPath $work)) {
-        Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+        # 宿主进程退出后 Windows 释放文件句柄有延迟：重试几次再放弃（临时目录，不影响验证结论）。
+        for ($attempt = 0; $attempt -lt 10; $attempt++) {
+            try {
+                Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Stop
+            }
+            catch {
+                # 句柄还没释放：等一下再试。
+            }
+            if (-not (Test-Path -LiteralPath $work)) { break }
+            Start-Sleep -Milliseconds 200
+        }
+        if (Test-Path -LiteralPath $work) {
+            Write-Host "[standalone] 临时目录未能删除（进程句柄延迟释放）：$work" -ForegroundColor Yellow
+        }
     }
 }

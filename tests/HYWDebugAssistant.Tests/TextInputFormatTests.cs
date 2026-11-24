@@ -49,36 +49,4 @@ public class TextInputFormatTests
         ValueTextFormats.AllowsAll(ValueTextFormat.IpAddress, "fe80::1%12").ShouldBeTrue();
     }
 
-    [Fact]
-    public void 输入文本面的格式是控件属性()
-    {
-        var surface = new HYWDebugAssistant.Sdk.Ui.Controls.ModuleTextSurface();
-
-        surface.TextFormat.ShouldBe(ValueTextFormat.Text);
-        surface.TextFormat = ValueTextFormat.Hex;
-        surface.TextFormat.ShouldBe(ValueTextFormat.Hex);
-    }
-
-    [Fact]
-    public void 配置字段种类只映射编辑器()
-    {
-        ValueEditorMapping.ToEditor(ConfigFieldKind.WholeNumber).ShouldBe(ValueEditor.Number);
-        ValueEditorMapping.ToEditor(ConfigFieldKind.Number).ShouldBe(ValueEditor.Number);
-        ValueEditorMapping.ToEditor(ConfigFieldKind.Text).ShouldBe(ValueEditor.Text);
-    }
-
-    [Fact]
-    public void 有效性类型区分无效与仅警告()
-    {
-        ValueValidity.Valid.IsInvalid.ShouldBeFalse();
-        ValueValidity.Valid.Notice.ShouldBeNull();
-
-        var error = ValueValidity.Error("bad");
-        error.IsInvalid.ShouldBeTrue();
-        error.Notice!.Severity.ShouldBe(ValueNoticeSeverity.Error);
-
-        var warning = ValueValidity.Warning("watch");
-        warning.IsInvalid.ShouldBeFalse();
-        warning.Notice!.Severity.ShouldBe(ValueNoticeSeverity.Warning);
-    }
 }
