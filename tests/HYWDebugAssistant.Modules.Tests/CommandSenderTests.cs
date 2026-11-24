@@ -25,8 +25,20 @@ public class CommandSenderTests
     private static void Set(TestModuleContext context, int slot, SlotField field, string text) =>
         context.ViewState.SetInputText(CommandSenderModule.SlotValue(slot, field), text);
 
+    private static void SetMerge(TestModuleContext context, bool value) =>
+        context.ViewState.SetInputText(CommandSenderModule.MergeValue, value ? "true" : "false");
+
     private static string Get(TestModuleContext context, int slot, SlotField field) =>
         context.Values.ReadText(CommandSenderModule.SlotValue(slot, field)) ?? string.Empty;
+
+    private static bool IsSending(TestModuleContext context) =>
+        bool.TryParse(context.Values.ReadText(CommandSenderModule.SendingValue), out var value) && value;
+
+    private static void RequestSendAll(CommandSenderModule module, TestModuleContext context)
+    {
+        context.EnqueueCommand(CommandSenderModule.SendAllCommand);
+        module.OnStep(context, StepReason.Command);
+    }
 
     private static string PayloadText(byte[] payload)
     {
@@ -109,7 +121,7 @@ public class CommandSenderTests
     }
 
     [Fact]
-    public void 勾选顺序_应决定批量发送顺序()
+    public void 合并发送_应按勾选顺序拼成一条()
     {
         var (module, context) = Create();
         context.EnqueueCommand(CommandSenderModule.AddCommand);
@@ -119,13 +131,74 @@ public class CommandSenderTests
         Set(context, 1, SlotField.Content, "B");
         Set(context, 0, SlotField.Hex, "false");
         Set(context, 1, SlotField.Hex, "false");
+        SetMerge(context, true);
         context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[1,0]");
         module.OnStep(context, StepReason.Input);
 
-        module.SendSelection(context, out var packets).ShouldBeTrue();
-        packets.ShouldBe(2);
-        PayloadText(context.Sent[0].Payload).ShouldBe("B");
-        PayloadText(context.Sent[1].Payload).ShouldBe("A");
+        RequestSendAll(module, context);
+
+        context.Sent.ShouldHaveSingleItem();
+        PayloadText(context.Sent[0].Payload).ShouldBe("BA");
+        module.IsSending.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void 逐条发送_应按勾选顺序和间隔依次发送()
+    {
+        var (module, context) = Create();
+        context.EnqueueCommand(CommandSenderModule.AddCommand);
+        module.OnStep(context, StepReason.Command);
+        context.EnqueueCommand(CommandSenderModule.AddCommand);
+        module.OnStep(context, StepReason.Command);
+
+        Set(context, 0, SlotField.Content, "A");
+        Set(context, 1, SlotField.Content, "B");
+        Set(context, 2, SlotField.Content, "C");
+        SetMerge(context, false);
+        context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[0,1,2]");
+        context.ViewState.SetInputText(CommandSenderModule.IntervalValue, "10");
+        module.OnStep(context, StepReason.Input);
+
+        RequestSendAll(module, context);
+
+        context.Sent.Count.ShouldBe(1);
+        PayloadText(context.Sent[0].Payload).ShouldBe("A");
+        module.IsSending.ShouldBeTrue();
+        IsSending(context).ShouldBeTrue();
+        context.Timers.Timers.ShouldHaveSingleItem().IsEnabled.ShouldBeTrue();
+        context.AppearanceReports.Last(report =>
+            report.SourceName == CommandSenderModule.SendAllCommand).Enabled.ShouldBe(false);
+
+        context.Timers.AdvanceTo(TimeSpan.FromMilliseconds(10));
+        PayloadText(context.Sent[1].Payload).ShouldBe("B");
+        module.IsSending.ShouldBeTrue();
+
+        context.Timers.AdvanceTo(TimeSpan.FromMilliseconds(20));
+        PayloadText(context.Sent[2].Payload).ShouldBe("C");
+        module.IsSending.ShouldBeFalse();
+        IsSending(context).ShouldBeFalse();
+        context.Timers.Timers.ShouldHaveSingleItem().IsEnabled.ShouldBeFalse();
+        context.AppearanceReports.Last(report =>
+            report.SourceName == CommandSenderModule.SendAllCommand).Enabled.ShouldBe(true);
+    }
+
+    [Fact]
+    public void 合并拆包_非法UTF8按容量切分()
+    {
+        var data = new byte[2000];
+        Array.Fill(data, (byte)0xFF);
+
+        var packets = CommandSenderCodec.BuildMergedPackets(data, CommandSenderModule.TextCapacity);
+
+        packets.Count.ShouldBe(2);
+        BinaryPrimitives.ReadUInt16LittleEndian(packets[0]).ShouldBe((ushort)1472);
+        BinaryPrimitives.ReadUInt16LittleEndian(packets[1]).ShouldBe((ushort)528);
+    }
+
+    [Fact]
+    public void 合并拆包_空数据不产生包()
+    {
+        CommandSenderCodec.BuildMergedPackets([], CommandSenderModule.TextCapacity).ShouldBeEmpty();
     }
 
     [Fact]
@@ -187,6 +260,219 @@ public class CommandSenderTests
     }
 
     [Fact]
+    public void 合并发送_超容量应按字符边界拆包()
+    {
+        var (module, context) = Create();
+        context.EnqueueCommand(CommandSenderModule.AddCommand);
+        module.OnStep(context, StepReason.Command);
+
+        var first = new string('A', 1000);
+        var second = new string('B', 1000);
+        Set(context, 0, SlotField.Content, first);
+        Set(context, 1, SlotField.Content, second);
+        SetMerge(context, true);
+        context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[0,1]");
+        module.OnStep(context, StepReason.Input);
+
+        RequestSendAll(module, context);
+
+        context.Sent.Count.ShouldBe(2);
+        PayloadText(context.Sent[0].Payload).Length.ShouldBe(1472);
+        PayloadText(context.Sent[1].Payload).Length.ShouldBe(528);
+        (PayloadText(context.Sent[0].Payload) + PayloadText(context.Sent[1].Payload))
+            .ShouldBe(first + second);
+    }
+
+    [Fact]
+    public void 合并发送_中文跨容量应保持字符完整()
+    {
+        var (module, context) = Create();
+        Set(context, 0, SlotField.Content, new string('中', 500));
+        SetMerge(context, true);
+        context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[0]");
+        module.OnStep(context, StepReason.Input);
+
+        RequestSendAll(module, context);
+
+        context.Sent.Count.ShouldBe(2);
+        PayloadText(context.Sent[0].Payload).Length.ShouldBe(490);
+        PayloadText(context.Sent[1].Payload).Length.ShouldBe(10);
+        (PayloadText(context.Sent[0].Payload) + PayloadText(context.Sent[1].Payload))
+            .ShouldBe(new string('中', 500));
+    }
+
+    [Fact]
+    public void 合并发送_不要求间隔()
+    {
+        var (module, context) = Create();
+        context.EnqueueCommand(CommandSenderModule.AddCommand);
+        module.OnStep(context, StepReason.Command);
+
+        Set(context, 0, SlotField.Content, "A");
+        Set(context, 1, SlotField.Content, "B");
+        SetMerge(context, true);
+        context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[0,1]");
+        module.OnStep(context, StepReason.Input);
+
+        RequestSendAll(module, context);
+
+        context.Sent.ShouldHaveSingleItem();
+        PayloadText(context.Sent[0].Payload).ShouldBe("AB");
+    }
+
+    [Fact]
+    public void 逐条发送_单条不要求间隔()
+    {
+        var (module, context) = Create();
+        Set(context, 0, SlotField.Content, "A");
+        SetMerge(context, false);
+        context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[0]");
+        module.OnStep(context, StepReason.Input);
+
+        RequestSendAll(module, context);
+
+        context.Sent.ShouldHaveSingleItem();
+        PayloadText(context.Sent[0].Payload).ShouldBe("A");
+        module.IsSending.ShouldBeFalse();
+        context.Timers.Timers.ShouldHaveSingleItem().IsEnabled.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void 逐条发送_间隔缺失或为零时发送按钮禁用且不启动()
+    {
+        var (module, context) = Create();
+        context.EnqueueCommand(CommandSenderModule.AddCommand);
+        module.OnStep(context, StepReason.Command);
+
+        Set(context, 0, SlotField.Content, "A");
+        Set(context, 1, SlotField.Content, "B");
+        SetMerge(context, false);
+        context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[0,1]");
+        module.OnStep(context, StepReason.Input);
+
+        context.AppearanceReports.Last(report =>
+            report.SourceName == CommandSenderModule.SendAllCommand).Enabled.ShouldBe(false);
+
+        RequestSendAll(module, context);
+        context.Sent.ShouldBeEmpty();
+        module.IsSending.ShouldBeFalse();
+
+        context.ViewState.SetInputText(CommandSenderModule.IntervalValue, "0");
+        module.OnStep(context, StepReason.Input);
+        context.AppearanceReports.Last(report =>
+            report.SourceName == CommandSenderModule.SendAllCommand).Enabled.ShouldBe(false);
+
+        RequestSendAll(module, context);
+        context.Sent.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void 逐条发送_改变勾选应取消()
+    {
+        var (module, context) = Create();
+        context.EnqueueCommand(CommandSenderModule.AddCommand);
+        module.OnStep(context, StepReason.Command);
+
+        Set(context, 0, SlotField.Content, "A");
+        Set(context, 1, SlotField.Content, "B");
+        SetMerge(context, false);
+        context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[0,1]");
+        context.ViewState.SetInputText(CommandSenderModule.IntervalValue, "10");
+        module.OnStep(context, StepReason.Input);
+
+        RequestSendAll(module, context);
+        module.IsSending.ShouldBeTrue();
+
+        context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[0]");
+        module.OnStep(context, StepReason.Input);
+
+        module.IsSending.ShouldBeFalse();
+        IsSending(context).ShouldBeFalse();
+        context.Timers.Timers.ShouldHaveSingleItem().IsEnabled.ShouldBeFalse();
+        context.Sent.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void 连续发送_合并模式应每拍合并全部勾选项()
+    {
+        var (module, context) = Create();
+        context.EnqueueCommand(CommandSenderModule.AddCommand);
+        module.OnStep(context, StepReason.Command);
+
+        Set(context, 0, SlotField.Content, "A");
+        Set(context, 1, SlotField.Content, "B");
+        SetMerge(context, true);
+        context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[1,0]");
+        context.ViewState.SetInputText(CommandSenderModule.IntervalValue, "10");
+        module.OnStep(context, StepReason.Input);
+
+        context.EnqueueInput(CommandSenderModule.ContinuousValue, "true");
+        module.OnStep(context, StepReason.Input);
+
+        module.IsContinuous.ShouldBeTrue();
+        IsSending(context).ShouldBeTrue();
+        context.AppearanceReports.Last(report =>
+            report.SourceName == CommandSenderModule.SendAllCommand).Enabled.ShouldBe(false);
+
+        context.Timers.AdvanceTo(TimeSpan.FromMilliseconds(10));
+        context.Sent.ShouldHaveSingleItem();
+        PayloadText(context.Sent[0].Payload).ShouldBe("BA");
+
+        context.Timers.AdvanceTo(TimeSpan.FromMilliseconds(20));
+        context.Sent.Count.ShouldBe(2);
+        PayloadText(context.Sent[1].Payload).ShouldBe("BA");
+
+        context.EnqueueInput(CommandSenderModule.ContinuousValue, "false");
+        module.OnStep(context, StepReason.Input);
+        IsSending(context).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void 连续发送运行期间全部发送应禁用()
+    {
+        var (module, context) = Create();
+        Set(context, 0, SlotField.Content, "A");
+        context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[0]");
+        context.ViewState.SetInputText(CommandSenderModule.IntervalValue, "10");
+        module.OnStep(context, StepReason.Input);
+
+        context.EnqueueInput(CommandSenderModule.ContinuousValue, "true");
+        module.OnStep(context, StepReason.Input);
+        module.IsContinuous.ShouldBeTrue();
+
+        context.AppearanceReports.Last(report =>
+            report.SourceName == CommandSenderModule.SendAllCommand).Enabled.ShouldBe(false);
+
+        RequestSendAll(module, context);
+        module.IsSending.ShouldBeTrue();
+        context.Sent.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void 逐条发送期间行内发送应被忽略()
+    {
+        var (module, context) = Create();
+        context.EnqueueCommand(CommandSenderModule.AddCommand);
+        module.OnStep(context, StepReason.Command);
+
+        Set(context, 0, SlotField.Content, "A");
+        Set(context, 1, SlotField.Content, "B");
+        context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[0,1]");
+        context.ViewState.SetInputText(CommandSenderModule.IntervalValue, "10");
+        module.OnStep(context, StepReason.Input);
+
+        RequestSendAll(module, context);
+        context.Sent.Count.ShouldBe(1);
+
+        context.EnqueueInput(
+            CommandSenderModule.ActionSource,
+            JsonSerializer.Serialize(new { op = CommandSenderModule.ActionSend, slot = 1 }));
+        module.OnStep(context, StepReason.Input);
+
+        context.Sent.Count.ShouldBe(1);
+    }
+
+    [Fact]
     public void 导入导出_应往返并保持顺序()
     {
         var (module, context) = Create();
@@ -228,8 +514,7 @@ public class CommandSenderTests
         context.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[0]");
         module.OnStep(context, StepReason.Input);
 
-        module.SendSelection(context, out var packets).ShouldBeFalse();
-        packets.ShouldBe(0);
+        RequestSendAll(module, context);
         context.Sent.ShouldBeEmpty();
 
         var reports = context.AppearanceReports;

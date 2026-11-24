@@ -50,6 +50,7 @@ public readonly record struct ModuleValueListRowAction(string RowId, string Acti
 /// </para>
 /// <para>
 /// 行内发送按钮在该行内容值被判为无效时禁用；批量/连续的闸门由模块按勾选集合统一处理。
+/// 可选的 <see cref="SendInProgressValue"/> 再叠一层总闸：自动发送期间模块把该值置 true，行内发送一起禁用。
 /// </para>
 /// </remarks>
 public sealed class ModuleValueList : ModuleElement
@@ -123,6 +124,9 @@ public sealed class ModuleValueList : ModuleElement
 
     /// <summary>过滤词所在的值名（空 = 不过滤）。</summary>
     public string FilterValue { get; set; } = string.Empty;
+
+    /// <summary>发送进行中的值名（空 = 不设总闸；值为 true 时禁用全部行内发送）。</summary>
+    public string SendInProgressValue { get; set; } = string.Empty;
 
     /// <summary>行内删除按钮的图标键；空 = 用文字「×」。</summary>
     public string DeleteIcon
@@ -466,7 +470,7 @@ public sealed class ModuleValueList : ModuleElement
         visual.Lf.Refresh(context);
     }
 
-    private static void UpdateRow(IModuleViewContext context, RowVisual visual)
+    private void UpdateRow(IModuleViewContext context, RowVisual visual)
     {
         var hex = ReadBool(context, visual.Row.HexValue, fallback: false);
 
@@ -485,7 +489,9 @@ public sealed class ModuleValueList : ModuleElement
         }
 
         var contentState = context.ReadValue(visual.Row.ContentValue);
-        visual.Send.IsEnabled = !contentState.IsKnown || !contentState.IsInvalid;
+        var sending = SendInProgressValue.Length > 0
+            && ReadBool(context, SendInProgressValue, fallback: false);
+        visual.Send.IsEnabled = !sending && (!contentState.IsKnown || !contentState.IsInvalid);
     }
 
     // ---------------------------------------------------------------- 选择

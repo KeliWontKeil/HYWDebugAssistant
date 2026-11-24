@@ -1,8 +1,8 @@
 # 指令发送器（多组字符串发送器）：模块与列表控件设计计划
 
-> 状态：**已实现（v1.0）**。框架层只新增了 `ModuleValueList` 控件与主题，没有新增列表数据通道、上下文成员、宿主遍历或持久化 API；模块、测试、文档与截图均已落地，完整门禁通过。
+> 状态：**已实现（v1.1：合并发送）**。框架层只新增了 `ModuleValueList` 控件与主题，没有新增列表数据通道、上下文成员、宿主遍历或持久化 API；模块、测试、文档与截图均已落地，完整门禁通过。
 >
-> 已裁决并落地：D1 / D2 / D3 / D4 / D5 / D6 / D8 / D10。D7 明确为空内容不发送、不报错、不特殊处理。D9 收敛为“只新增控件”。
+> 已裁决并落地：D1 / D2 / D3 / D4 / D5 / D6 / D8 / D10。D7 明确为空内容不发送、不报错、不特殊处理。D9 收敛为“只新增控件”。v1.1 增加「合并发送」：全部发送与连续发送都按该开关决定“合并一次”还是“逐条”。
 >
 > 通用设计取舍（为什么没有列表数据通道、固定值池的边界）见 `docs/zh/project/module-design.md`。
 
@@ -65,6 +65,22 @@
 | 间隔范围 | 1–86 400 000 ms | 与两个发送器同口径 |
 | 行内边距 | 4 DIP | 1 DIP 分隔线 |
 
+### 2.2 合并发送与逐条发送（v1.1 追加）
+
+| 场景 | 行为 |
+|---|---|
+| 合并 + 全部发送 | 按勾选顺序拼接各条编码后的字节，一次逻辑发送；超过 1472 字节按容量拆包，命令之间无额外间隔 |
+| 合并 + 连续发送 | 每个间隔把全部勾选项合并发送一次，不是轮流单发 |
+| 不合并 + 全部发送（>1 条） | 首条立即，后续按 `interval` 逐条发送；发送期间主/行内发送按钮与连续开关禁用 |
+| 不合并 + 全部发送（=1 条） | 立即发送，不要求间隔 |
+| 不合并 + 连续发送 | 保持 v1.0：每拍发送一条，按勾选顺序循环 |
+
+- 合并开关是 UI 模式（`merge` 值，不持久化、不写指令集 JSON）；默认不勾选。
+- 逐条发送的快照（槽位与间隔）在启动时捕获；期间改勾选/顺序、删除、新建、导入会取消。
+- 连续发送与逐条序列互斥：连续运行期间「全部发送」禁用；逐条期间连续开关禁用。
+- `sending` 值是行内发送按钮的总闸：逐条序列或连续发送运行期间为 `true`。
+- 合并后的包数仍可能 >1（1472 上限）；“一条”是逻辑一条。
+
 ---
 
 ## 3. 框架侧：只新增 `ModuleValueList`
@@ -81,6 +97,7 @@ public sealed class ModuleValueList : ModuleElement
     public IList<ModuleValueListRow> Rows { get; }         // 由视图代码后置设置
     public string SelectionValue { get; set; } = "";       // 可选：选择顺序写入该值（JSON 数组）
     public string FilterValue { get; set; } = "";          // 可选：过滤词所在值
+    public string SendInProgressValue { get; set; } = "";  // 可选：true = 行内发送全禁用（自动发送中）
     public string SendText { get; set; } = "发送";         // 行内发送按钮文案
     public double ContentMaxHeight { get; set; } = 96;
     public int PreviewRowCount { get; set; } = 2;          // 仅设计期
@@ -133,6 +150,7 @@ public readonly record struct ModuleValueListRowAction(string RowId, string Acti
 5. 首次读 `SelectionValue` 恢复勾选顺序；用户勾选/取消时更新本地顺序、重排所有可见/隐藏行的序号，并 `context.CommitValue(SelectionValue, json)`。
 6. 行发送 / `×` → `RowAction`；视图转成输入。
 7. CR/LF 在 HEX 下是否可点：由模块 `Appearance.SetEnabled(CrValue/LfValue, false)` 控制，控件不判。
+8. 可选 `SendInProgressValue` 为 true 时，所有行内发送按钮禁用；模块的自动发送（逐条序列/连续）用这个总闸。
 
 **设计期**：`ModuleView.IsDesignEnvironment` 且 `Rows` 为空时，按 `PreviewRowCount` 造 2 行占位（值名为空、`Text` 写占位文本、复选框默认勾选、编号标记分别显示 1/2），让预览器能定位全部控件；运行期不走这条。
 

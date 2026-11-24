@@ -92,6 +92,12 @@ public sealed class CommandSenderModule : IModule, IActivitySource
     /// <summary>连续开关值名。</summary>
     public const string ContinuousValue = "continuous";
 
+    /// <summary>合并发送开关值名。</summary>
+    public const string MergeValue = "merge";
+
+    /// <summary>发送进行中闸门值名（行内发送按钮总闸）。</summary>
+    public const string SendingValue = "sending";
+
     /// <summary>已发送数据包数显示源。</summary>
     public const string SentSource = "sent";
 
@@ -151,7 +157,9 @@ public sealed class CommandSenderModule : IModule, IActivitySource
     private IntervalState _intervalState;
     private bool _continuous;
     private bool? _continuousRequest;
+    private bool _merge;
     private bool _sendAllRequested;
+    private SendSequence? _sequence;
     private int _cycleIndex;
     private bool _started;
     private bool _actionStatusShown;
@@ -175,6 +183,12 @@ public sealed class CommandSenderModule : IModule, IActivitySource
 
     /// <summary>当前是否连续发送。</summary>
     public bool IsContinuous => _continuous;
+
+    /// <summary>当前是否勾选“合并发送”。</summary>
+    public bool IsMerged => _merge;
+
+    /// <summary>当前是否处于自动发送（逐条序列或连续发送）。</summary>
+    public bool IsSending => _sequence is not null || _continuous;
 
     /// <summary>当前生效的间隔（毫秒）。</summary>
     public int? IntervalMilliseconds => _intervalMs;
@@ -229,18 +243,22 @@ public sealed class CommandSenderModule : IModule, IActivitySource
         SyncOrder(context);
         SyncSelection(context);
         SyncInterval(context);
+        SyncMerge(context);
         SyncSlots(context, start);
         ApplyContinuousRequest(context);
         SyncGates(context);
 
         if (_sendAllRequested)
         {
-            _ = SendSelection(context, out _);
+            StartSendAll(context);
         }
 
         foreach (var slot in _pendingSends)
         {
-            _ = SendSlot(context, slot, out _);
+            if (_sequence is null && !_continuous)
+            {
+                _ = SendSlot(context, slot, out _);
+            }
         }
 
         _pendingSends.Clear();
@@ -275,29 +293,208 @@ public sealed class CommandSenderModule : IModule, IActivitySource
         return SendSlots(context, [slot], publishStatus: true, out packets, out _);
     }
 
-    /// <summary>按勾选顺序发送全部勾选项（公开给模块级测试）。</summary>
-    /// <param name="context">上下文。</param>
-    /// <param name="packets">实际发出的数据包数。</param>
-    /// <returns>是否至少发出一个包。</returns>
-    public bool SendSelection(IModuleContext context, out int packets)
+    /// <summary>点“全部发送”：合并模式一次发出；逐条模式启动序列。</summary>
+    private void StartSendAll(IModuleContext context)
     {
-        ArgumentNullException.ThrowIfNull(context);
-        packets = 0;
+        if (_sequence is not null || _continuous)
+        {
+            return;
+        }
 
         var selected = ActiveSelection();
         if (selected.Count == 0)
         {
             PublishStatus(context, Tr(CommandSenderText.StatusNoSelection));
-            return false;
+            return;
         }
 
         if (FindInvalid(selected) is { } invalid)
         {
             PublishStatus(context, InvalidItemMessage(context, invalid));
+            return;
+        }
+
+        if (_merge)
+        {
+            _ = SendMerged(context, selected, publishStatus: true, out _, out _);
+            return;
+        }
+
+        if (selected.Count == 1)
+        {
+            _ = SendSlots(context, selected, publishStatus: true, out _, out _);
+            return;
+        }
+
+        if (_intervalState != IntervalState.Usable || _intervalMs is not > 0)
+        {
+            PublishStatus(context, Tr(CommandSenderText.StatusSequenceIntervalRequired, MaxIntervalMs));
+            return;
+        }
+
+        _sequence = new SendSequence(selected, _intervalMs.Value);
+        PublishStatus(context, Tr(
+            CommandSenderText.StatusSequenceStarted,
+            selected.Count,
+            _intervalMs.Value));
+        SyncSending(context);
+        AdvanceSequence(context);
+        SyncGates(context);
+    }
+
+    /// <summary>发送序列推进一条；完成时收尾，结构变化/非法时取消。</summary>
+    private void AdvanceSequence(IModuleContext context)
+    {
+        if (_sequence is not { } sequence)
+        {
+            return;
+        }
+
+        if (sequence.Index >= sequence.Slots.Count)
+        {
+            FinishSequence(context);
+            return;
+        }
+
+        var slot = sequence.Slots[sequence.Index++];
+
+        if (!_active.Contains(slot) || !_order.Contains(slot))
+        {
+            CancelSequence(context, Tr(CommandSenderText.StatusSequenceCanceled));
+            return;
+        }
+
+        if (FindInvalid([slot]) is { } invalid)
+        {
+            CancelSequence(context, InvalidItemMessage(context, invalid));
+            return;
+        }
+
+        _ = SendSlots(context, [slot], publishStatus: false, out var packets, out var failed);
+        sequence.Packets += packets;
+        sequence.Failed += failed;
+
+        if (sequence.Index >= sequence.Slots.Count)
+        {
+            FinishSequence(context);
+            return;
+        }
+
+        SyncTimer(context);
+    }
+
+    /// <summary>逐条序列完成：恢复按钮，发布汇总。</summary>
+    private void FinishSequence(IModuleContext context)
+    {
+        if (_sequence is not { } sequence)
+        {
+            return;
+        }
+
+        _sequence = null;
+        SyncSending(context);
+        SyncTimer(context);
+        _lastGateSignature = null;
+        SyncGates(context);
+
+        if (sequence.Failed > 0)
+        {
+            PublishStatus(context, Tr(CommandSenderText.StatusSentFailed, sequence.Packets, sequence.Failed));
+        }
+        else if (sequence.Packets > 0)
+        {
+            PublishStatus(context, Tr(CommandSenderText.StatusSent, sequence.Packets, sequence.Slots.Count));
+        }
+        else
+        {
+            PublishStatus(context, Tr(CommandSenderText.StatusReady));
+        }
+    }
+
+    /// <summary>逐条序列取消：恢复按钮并说明原因。</summary>
+    private void CancelSequence(IModuleContext context, string reason)
+    {
+        if (_sequence is null)
+        {
+            return;
+        }
+
+        _sequence = null;
+        SyncSending(context);
+        SyncTimer(context);
+        _lastGateSignature = null;
+        SyncGates(context);
+        PublishStatus(context, reason);
+    }
+
+    /// <summary>把全部勾选项合并成一次逻辑发送；返回是否至少发出一个包。</summary>
+    private bool SendMerged(
+        IModuleContext context,
+        List<int> slots,
+        bool publishStatus,
+        out int packets,
+        out int failed)
+    {
+        packets = 0;
+        failed = 0;
+        var bytes = new List<byte>();
+
+        foreach (var slot in slots)
+        {
+            var content = Read(context, SlotValue(slot, SlotField.Content));
+            var hex = ReadBool(context, SlotValue(slot, SlotField.Hex), fallback: false);
+
+            if (!CommandSenderCodec.TryEncodeContent(content, hex, out var encoded, out var failure))
+            {
+                PublishStatus(context, Tr(
+                    CommandSenderText.StatusInvalidItem,
+                    SlotOrdinal(slot),
+                    SlotLabel(context, slot),
+                    failure ?? string.Empty));
+                return false;
+            }
+
+            bytes.AddRange(encoded);
+        }
+
+        if (bytes.Count == 0)
+        {
             return false;
         }
 
-        return SendSlots(context, selected, publishStatus: true, out packets, out _);
+        var payloads = CommandSenderCodec.BuildMergedPackets(bytes.ToArray(), TextCapacity);
+
+        foreach (var payload in payloads)
+        {
+            if (context.Ports.TrySend(OutPort, payload))
+            {
+                packets++;
+            }
+            else
+            {
+                failed++;
+            }
+        }
+
+        if (packets > 0)
+        {
+            _sent += (ulong)packets;
+            PublishSent(context);
+        }
+
+        if (publishStatus)
+        {
+            if (failed > 0)
+            {
+                PublishStatus(context, Tr(CommandSenderText.StatusSentFailed, packets, failed));
+            }
+            else if (packets > 0)
+            {
+                PublishStatus(context, Tr(CommandSenderText.StatusSent, packets, slots.Count));
+            }
+        }
+
+        return packets > 0;
     }
 
     /// <summary>导入指令集 JSON（公开给模块级测试）；失败不改当前列表。</summary>
@@ -359,6 +556,8 @@ public sealed class CommandSenderModule : IModule, IActivitySource
             error = Tr(CommandSenderText.StatusImportTooMany, MaxSlots);
             return false;
         }
+
+        CancelSequence(context, Tr(CommandSenderText.StatusSequenceCanceled));
 
         foreach (var slot in _order.ToArray())
         {
@@ -470,6 +669,20 @@ public sealed class CommandSenderModule : IModule, IActivitySource
         });
 
         context.Declaration.DeclareValue(new ValueDeclaration(ContinuousValue)
+        {
+            Editor = ValueEditor.Boolean,
+            Persistent = false,
+            ResetWithModule = true,
+        });
+
+        context.Declaration.DeclareValue(new ValueDeclaration(MergeValue)
+        {
+            Editor = ValueEditor.Boolean,
+            Persistent = false,
+            ResetWithModule = true,
+        });
+
+        context.Declaration.DeclareValue(new ValueDeclaration(SendingValue)
         {
             Editor = ValueEditor.Boolean,
             Persistent = false,
@@ -631,6 +844,7 @@ public sealed class CommandSenderModule : IModule, IActivitySource
 
             if (!order.SequenceEqual(_order))
             {
+                CancelSequence(context, Tr(CommandSenderText.StatusSequenceCanceled));
                 _order.Clear();
                 _order.AddRange(order);
                 _active.Clear();
@@ -667,6 +881,12 @@ public sealed class CommandSenderModule : IModule, IActivitySource
         }
 
         _lastSelectionText = text;
+
+        if (_sequence is not null)
+        {
+            CancelSequence(context, Tr(CommandSenderText.StatusSequenceCanceled));
+        }
+
         _selection.Clear();
         _selection.AddRange(ParseSlots(text).Where(_active.Contains));
         _lastGateSignature = null;
@@ -713,6 +933,20 @@ public sealed class CommandSenderModule : IModule, IActivitySource
                 ValueValidityOrigin.Format);
         }
 
+        _lastGateSignature = null;
+    }
+
+    private void SyncMerge(IModuleContext context)
+    {
+        var merge = ReadBool(context, MergeValue, fallback: false);
+
+        if (merge == _merge)
+        {
+            return;
+        }
+
+        _merge = merge;
+        _cycleIndex = 0;
         _lastGateSignature = null;
     }
 
@@ -771,8 +1005,16 @@ public sealed class CommandSenderModule : IModule, IActivitySource
         if (!want)
         {
             _continuous = false;
+            SyncSending(context);
             SyncTimer(context);
             PublishStatus(context, Tr(CommandSenderText.StatusContinuousStopped));
+            return;
+        }
+
+        if (_sequence is not null)
+        {
+            _continuous = false;
+            WriteBool(context, ContinuousValue, false);
             return;
         }
 
@@ -780,6 +1022,7 @@ public sealed class CommandSenderModule : IModule, IActivitySource
         {
             _continuous = false;
             WriteBool(context, ContinuousValue, false);
+            SyncSending(context);
             SyncTimer(context);
             PublishStatus(context, reason);
             return;
@@ -787,22 +1030,25 @@ public sealed class CommandSenderModule : IModule, IActivitySource
 
         _continuous = true;
         _cycleIndex = 0;
+        SyncSending(context);
         SyncTimer(context);
-        PublishStatus(context, Tr(CommandSenderText.StatusContinuousStarted, _intervalMs ?? 0));
+        PublishStatus(context, _merge
+            ? Tr(CommandSenderText.StatusContinuousStartedMerged, _intervalMs ?? 0)
+            : Tr(CommandSenderText.StatusContinuousStarted, _intervalMs ?? 0));
     }
 
     private void SyncGates(IModuleContext context)
     {
         var selected = ActiveSelection();
         var invalid = FindInvalid(selected);
-        var canSendAll = selected.Count > 0 && invalid is null;
-        var canContinuous = canSendAll
+        var requiresInterval = !_merge && selected.Count > 1;
+        var intervalReady = !requiresInterval
+            || (_intervalState == IntervalState.Usable && _intervalMs is > 0);
+        var sendable = selected.Count > 0 && invalid is null;
+        var canContinuous = sendable
             && _intervalState == IntervalState.Usable
-            && _intervalMs is > 0;
-
-        SetEnabled(context, SendAllCommand, canSendAll, ref _lastSendAllEnabled);
-        SetEnabled(context, ContinuousValue, canContinuous, ref _lastContinuousEnabled);
-        SetEnabled(context, AddCommand, _order.Count < MaxSlots, ref _lastAddEnabled);
+            && _intervalMs is > 0
+            && _sequence is null;
 
         if (_continuous && !canContinuous)
         {
@@ -815,12 +1061,23 @@ public sealed class CommandSenderModule : IModule, IActivitySource
             }
         }
 
+        var canSendAll = sendable
+            && intervalReady
+            && !_continuous
+            && _sequence is null;
+
+        SetEnabled(context, SendAllCommand, canSendAll, ref _lastSendAllEnabled);
+        SetEnabled(context, ContinuousValue, canContinuous, ref _lastContinuousEnabled);
+        SetEnabled(context, AddCommand, _order.Count < MaxSlots, ref _lastAddEnabled);
+
+        SyncSending(context);
         SyncTimer(context);
 
         var signature = string.Join(',', selected)
             + "|" + (invalid?.ToString(CultureInfo.InvariantCulture) ?? string.Empty)
             + "|" + _intervalState
-            + "|" + (_intervalMs?.ToString(CultureInfo.InvariantCulture) ?? string.Empty);
+            + "|" + (_intervalMs?.ToString(CultureInfo.InvariantCulture) ?? string.Empty)
+            + "|" + (_merge ? "merge" : "single");
 
         if (string.Equals(signature, _lastGateSignature, StringComparison.Ordinal))
         {
@@ -829,7 +1086,7 @@ public sealed class CommandSenderModule : IModule, IActivitySource
 
         _lastGateSignature = signature;
 
-        if (_actionStatusShown)
+        if (_actionStatusShown || _sequence is not null)
         {
             return;
         }
@@ -841,6 +1098,10 @@ public sealed class CommandSenderModule : IModule, IActivitySource
         else if (invalid is { } bad)
         {
             PublishStatus(context, InvalidItemMessage(context, bad));
+        }
+        else if (!intervalReady)
+        {
+            PublishStatus(context, Tr(CommandSenderText.StatusSequenceIntervalRequired, MaxIntervalMs));
         }
         else
         {
@@ -912,7 +1173,18 @@ public sealed class CommandSenderModule : IModule, IActivitySource
 
     private void OnTimerTick(object? sender, EventArgs e)
     {
-        if (_context is not { } context || !_continuous)
+        if (_context is not { } context)
+        {
+            return;
+        }
+
+        if (_sequence is not null)
+        {
+            AdvanceSequence(context);
+            return;
+        }
+
+        if (!_continuous)
         {
             return;
         }
@@ -927,6 +1199,24 @@ public sealed class CommandSenderModule : IModule, IActivitySource
         if (selected.Count == 0)
         {
             StopContinuous(context, Tr(CommandSenderText.StatusNoSelection));
+            return;
+        }
+
+        if (_merge)
+        {
+            if (FindInvalid(selected) is { } mergedInvalid)
+            {
+                StopContinuous(context, InvalidItemMessage(context, mergedInvalid));
+                return;
+            }
+
+            _ = SendMerged(context, selected, publishStatus: false, out _, out var mergedFailed);
+
+            if (mergedFailed > 0)
+            {
+                PublishStatus(context, Tr(CommandSenderText.StatusSendFailed, mergedFailed));
+            }
+
             return;
         }
 
@@ -956,7 +1246,9 @@ public sealed class CommandSenderModule : IModule, IActivitySource
     {
         _continuous = false;
         WriteBool(context, ContinuousValue, false);
+        SyncSending(context);
         SyncTimer(context);
+        SyncGates(context);
         PublishStatus(context, reason);
     }
 
@@ -966,6 +1258,22 @@ public sealed class CommandSenderModule : IModule, IActivitySource
 
         if (_timer is null)
         {
+            return;
+        }
+
+        if (_sequence is { } sequence)
+        {
+            var desired = TimeSpan.FromMilliseconds(sequence.IntervalMs);
+            if (_timer.Interval != desired)
+            {
+                _timer.Interval = desired;
+            }
+
+            if (!_timer.IsEnabled)
+            {
+                _timer.Start();
+            }
+
             return;
         }
 
@@ -1068,6 +1376,8 @@ public sealed class CommandSenderModule : IModule, IActivitySource
 
     private void AddSlot(IModuleContext context)
     {
+        CancelSequence(context, Tr(CommandSenderText.StatusSequenceCanceled));
+
         var firstFree = FirstFreeSlot();
 
         if (firstFree < 0)
@@ -1086,6 +1396,8 @@ public sealed class CommandSenderModule : IModule, IActivitySource
 
     private void DeleteSlot(IModuleContext context, int slot)
     {
+        CancelSequence(context, Tr(CommandSenderText.StatusSequenceCanceled));
+
         if (!_order.Remove(slot))
         {
             return;
@@ -1212,7 +1524,7 @@ public sealed class CommandSenderModule : IModule, IActivitySource
             switch (op)
             {
                 case ActionSend:
-                    if (_active.Contains(slot))
+                    if (_sequence is null && !_continuous && _active.Contains(slot))
                     {
                         _pendingSends.Add(slot);
                     }
@@ -1408,6 +1720,10 @@ public sealed class CommandSenderModule : IModule, IActivitySource
         context.Appearance.SetEnabled(name, enabled);
     }
 
+    /// <summary>行内发送按钮总闸：任何自动发送（逐条序列或连续）进行中都禁用。</summary>
+    private void SyncSending(IModuleContext context) =>
+        WriteBool(context, SendingValue, _sequence is not null || _continuous);
+
     private static List<int> ParseSlots(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -1475,6 +1791,26 @@ public sealed class CommandSenderModule : IModule, IActivitySource
         public bool Hex { get; init; }
 
         public string? Error { get; init; }
+    }
+
+    /// <summary>一次“逐条发送”的快照：启动时的槽位顺序与间隔不随运行中编辑改变。</summary>
+    private sealed class SendSequence
+    {
+        public SendSequence(List<int> slots, int intervalMs)
+        {
+            Slots = slots;
+            IntervalMs = intervalMs;
+        }
+
+        public List<int> Slots { get; }
+
+        public int IntervalMs { get; }
+
+        public int Index { get; set; }
+
+        public int Packets { get; set; }
+
+        public int Failed { get; set; }
     }
 
     private enum IntervalState

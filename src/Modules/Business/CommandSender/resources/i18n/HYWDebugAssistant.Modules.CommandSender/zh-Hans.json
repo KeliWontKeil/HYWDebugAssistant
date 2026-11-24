@@ -7,6 +7,7 @@
     "view.add": "新建",
     "view.sendAll": "全部发送",
     "view.continuous": "连续发送",
+    "view.merge": "合并发送",
     "view.intervalUnit": "ms",
     "view.searchHint": "搜索指令标签...",
     "view.import": "导入",
@@ -41,6 +42,10 @@
     "status.unknownCommand": "未知命令：{0}",
     "status.unknownAction": "未知列表动作：{0}",
     "status.continuousStarted": "连续发送已开始（间隔 {0} ms）",
+    "status.continuousStartedMerged": "连续发送已开始（间隔 {0} ms，合并全部勾选项）",
+    "status.sequenceStarted": "逐条发送中（{0} 条，间隔 {1} ms）",
+    "status.sequenceCanceled": "逐条发送已取消",
+    "status.sequenceIntervalRequired": "逐条发送需要 1~{0} 的发送间隔（毫秒）",
     "status.continuousStopped": "连续发送已停止",
     "status.hexSegmentLength": "HEX 段「{0}」不是两位（{1} 位）",
     "status.hexNonHex": "HEX 段「{0}」含非十六进制字符「{1}」"

@@ -18,6 +18,12 @@ public static class CommandSenderViewKeys
     /// <summary>连续开关值。</summary>
     public const string Continuous = CommandSenderModule.ContinuousValue;
 
+    /// <summary>合并发送开关值。</summary>
+    public const string Merge = CommandSenderModule.MergeValue;
+
+    /// <summary>自动发送进行中闸门值。</summary>
+    public const string Sending = CommandSenderModule.SendingValue;
+
     /// <summary>已发送数据包数。</summary>
     public const string Sent = CommandSenderModule.SentSource;
 

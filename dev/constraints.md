@@ -84,7 +84,7 @@
 - 控件不自带文字：开关只画轨道与圆钮，文字是独立 `ModuleLabel`，统一放在开关右侧；勾选框例外，文字走 `Content`，方框与文字间距固定 2 DIP，宽度按内容声明。
 - 预览范围框：勾选框必须覆盖“方框 + 文字”整个控件矩形；14×14 方框只表达勾选态，不表达布局/命中区。
 - 两段按钮（主体 + 箭头）只能有一个状态写入者：命中区与指示区都取实际模板部件的几何，不要让父按钮和子区同时响应 `:pointerover`；点箭头不得触发主体命令。
-- 文字在标签矩形内的垂直对齐由 `ModuleTextElement.TextVerticalAlignment` 负责（默认居中）；不要用 `Padding` 或控件的 `VerticalAlignment` 代替——后者只决定控件在父容器里的位置。
+- 文字在标签矩形内的垂直对齐由 `ModuleTextElement.TextVerticalAlignment` 负责（默认居中）；不要用 `Padding` 或控件的 `VerticalAlignment` 代替——后者只决定控件在父容器里的位置。居中基准是**与字体无关的光学基线**（内容盒中心 + 0.35×字号），不是各字体的行盒半高；不要再按 `TextLayout.Height` 各自居中。
 - 预览值/初值在 XAML 声明：可输入控件写初始值，只读控件写预览值；运行期数据覆盖。视图代码不写另一套预览默认值，设计环境不调 `Refresh`。
 - 预览里运行期会隐藏的控件仍全显；它们与相邻控件重叠/遮挡是有意为之，不以预览遮挡判定布局缺陷，也不为预览改成 XAML 默认隐藏。
 - **控件只绑值名，不碰后端**：可编辑控件用 `Value` + `CommitMode`，只经 `IModuleViewContext.ReadValue/CommitValue/RegisterViewDefault` 取/交值；不得直接读配置、读写视图状态、调用 `SubmitInput`/`UpdateField`，也不得自己解析/校验/生成字段错误。

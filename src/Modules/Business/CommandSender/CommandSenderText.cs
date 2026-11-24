@@ -21,6 +21,9 @@ public static class CommandSenderText
     /// <summary>连续发送开关。</summary>
     public const string Continuous = "view.continuous";
 
+    /// <summary>合并发送开关。</summary>
+    public const string Merge = "view.merge";
+
     /// <summary>间隔单位。</summary>
     public const string IntervalUnit = "view.intervalUnit";
 
@@ -119,6 +122,18 @@ public static class CommandSenderText
 
     /// <summary>连续发送已开始。</summary>
     public const string StatusContinuousStarted = "status.continuousStarted";
+
+    /// <summary>连续发送（合并模式）已开始。</summary>
+    public const string StatusContinuousStartedMerged = "status.continuousStartedMerged";
+
+    /// <summary>逐条发送已开始。</summary>
+    public const string StatusSequenceStarted = "status.sequenceStarted";
+
+    /// <summary>逐条发送已取消。</summary>
+    public const string StatusSequenceCanceled = "status.sequenceCanceled";
+
+    /// <summary>逐条发送需要有效间隔。</summary>
+    public const string StatusSequenceIntervalRequired = "status.sequenceIntervalRequired";
 
     /// <summary>连续发送已停止。</summary>
     public const string StatusContinuousStopped = "status.continuousStopped";

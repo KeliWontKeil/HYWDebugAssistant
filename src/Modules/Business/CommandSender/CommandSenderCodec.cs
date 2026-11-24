@@ -51,46 +51,51 @@ public static class CommandSenderCodec
         packets = [];
         failure = null;
 
+        if (!TryEncodeContent(content, hex, out var bytes, out failure))
+        {
+            return false;
+        }
+
+        packets = SplitPackets(bytes, capacity, keepUtf8Boundary: !hex);
+        return true;
+    }
+
+    /// <summary>把一条内容编码成原始字节（文本按 C 转义 + UTF-8，HEX 按字节解析）。</summary>
+    /// <param name="content">内容原文。</param>
+    /// <param name="hex">是否按 HEX 解释。</param>
+    /// <param name="bytes">编码结果；空内容为空数组。</param>
+    /// <param name="failure">失败原因（成功为空）。</param>
+    /// <returns>是否成功。</returns>
+    public static bool TryEncodeContent(
+        string? content,
+        bool hex,
+        out byte[] bytes,
+        out string? failure)
+    {
+        failure = null;
+
         if (hex)
         {
-            if (!TryParseHex(content, out var bytes, out failure))
-            {
-                return false;
-            }
-
-            for (var offset = 0; offset < bytes.Length; offset += capacity)
-            {
-                var count = Math.Min(capacity, bytes.Length - offset);
-                packets.Add(BuildPayload(bytes.AsSpan(offset, count), capacity));
-            }
-
-            return true;
+            return TryParseHex(content, out bytes, out failure);
         }
 
-        var text = TextEscapes.Normalize(content);
-        var start = 0;
-
-        while (start < text.Length)
-        {
-            var charCount = CountCharsInChunk(text, start, capacity);
-            if (charCount == 0)
-            {
-                // 单字符都放不下（capacity < 4 的理论情形）：放弃该字符而不是切碎它。
-                start += char.IsHighSurrogate(text[start])
-                    && start + 1 < text.Length
-                    && char.IsLowSurrogate(text[start + 1])
-                    ? 2
-                    : 1;
-                continue;
-            }
-
-            var chunk = new byte[capacity];
-            var written = EncodeChunk(text, start, charCount, chunk);
-            packets.Add(BuildPayload(chunk.AsSpan(0, written), capacity));
-            start += charCount;
-        }
-
+        bytes = Encoding.UTF8.GetBytes(TextEscapes.Normalize(content));
         return true;
+    }
+
+    /// <summary>把多条指令拼接后的原始字节按容量拆成数据包。</summary>
+    /// <param name="data">拼接后的字节（命令之间没有分隔符）。</param>
+    /// <param name="capacity">单包 <c>data</c> 区长度（1472）。</param>
+    /// <returns>定长载荷；空数据返回空列表。</returns>
+    /// <remarks>
+    /// 合并后仍是一个逻辑内容：能按 UTF-8 解码时按字符边界拆包，避免把多字节字符切开；
+    /// 任意 HEX 字节拼出的内容不保证是 UTF-8，此时按容量固定切分。
+    /// </remarks>
+    public static List<byte[]> BuildMergedPackets(ReadOnlySpan<byte> data, int capacity)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
+
+        return SplitPackets(data, capacity, keepUtf8Boundary: TryDecodeUtf8(data, out _));
     }
 
     /// <summary>把一段文本按 UTF-8 转成 HEX 文本（大写、空格分隔）。</summary>
@@ -286,33 +291,39 @@ public static class CommandSenderCodec
         return payload;
     }
 
-    private static int CountCharsInChunk(string text, int start, int capacity)
+    /// <summary>按容量切包；需要时把边界回退到 UTF-8 字符起点。</summary>
+    private static List<byte[]> SplitPackets(
+        ReadOnlySpan<byte> bytes,
+        int capacity,
+        bool keepUtf8Boundary)
     {
-        var index = start;
-        var bytes = 0;
+        var packets = new List<byte[]>((bytes.Length + capacity - 1) / capacity);
+        var offset = 0;
 
-        while (index < text.Length)
+        while (offset < bytes.Length)
         {
-            var charLength = char.IsHighSurrogate(text[index])
-                && index + 1 < text.Length
-                && char.IsLowSurrogate(text[index + 1])
-                ? 2
-                : 1;
+            var count = Math.Min(capacity, bytes.Length - offset);
 
-            var charBytes = Encoding.UTF8.GetByteCount(text.AsSpan(index, charLength));
-
-            if (bytes + charBytes > capacity)
+            if (keepUtf8Boundary && offset + count < bytes.Length)
             {
-                break;
+                // 下一包的首字节若是续字节，说明边界落在多字节字符内部：向前回退到字符起点。
+                while (count > 0 && offset + count < bytes.Length
+                    && (bytes[offset + count] & 0xC0) == 0x80)
+                {
+                    count--;
+                }
+
+                if (count == 0)
+                {
+                    // capacity < 4 的理论情形：单字符都放不下，按容量硬切而不是死循环。
+                    count = Math.Min(capacity, bytes.Length - offset);
+                }
             }
 
-            bytes += charBytes;
-            index += charLength;
+            packets.Add(BuildPayload(bytes.Slice(offset, count), capacity));
+            offset += count;
         }
 
-        return index - start;
+        return packets;
     }
-
-    private static int EncodeChunk(string text, int start, int charCount, Span<byte> destination) =>
-        Encoding.UTF8.GetBytes(text.AsSpan(start, charCount), destination);
 }

@@ -297,6 +297,7 @@ public class ModuleViewSnapshots
                     "true");
                 probe.ViewState.SetInputText(CommandSenderModule.SelectionValue, "[1,0]");
                 probe.ViewState.SetInputText(CommandSenderModule.IntervalValue, "500");
+                probe.ViewState.SetInputText(CommandSenderModule.MergeValue, "true");
                 module.OnStep(probe, StepReason.Input);
 
                 Assert.Equal(

@@ -13,7 +13,7 @@
 - **开关不自带文字**：`ModuleToggle` 只画轨道与圆钮；标签是独立的 `ModuleLabel`，放在右侧。
 - **勾选框自带文字**：`ModuleCheckBox` 的方框与文字间距固定 2 DIP，文字走 `Content`，不再另加 `ModuleLabel`；控件宽度按内容声明，不要用透明留白占位。
 - **预览值写在 XAML**：可输入控件的初始值、只读控件的预览值直接写在控件自己的值属性上；运行期数据到达后覆盖。
-- **文字在控件矩形内的垂直对齐**由 `TextVerticalAlignment` 决定（`Top` / `Center` / `Bottom`，默认 `Center`）；它与控件自身的 `VerticalAlignment` 是两个维度。
+- **文字在控件矩形内的垂直对齐**由 `TextVerticalAlignment` 决定（`Top` / `Center` / `Bottom`，默认 `Center`）；它与控件自身的 `VerticalAlignment` 是两个维度。居中按**与字体无关的光学基线**（内容盒中心 + 0.35×字号）计算，标签和读数因此共享一条视觉中心线，不各自按字体行盒居中。
 
 ## 控件一览
 
@@ -27,7 +27,7 @@
 | `ModuleToggle` | 开关：勾选提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`CheckedChanged`（程序写回也触发） |
 | `ModuleCheckBox` | 勾选框：方框 + 勾形 + 右侧文字（间距 2 DIP），提交 `"true"` / `"false"` | `Value`、`CommitMode`、`IsChecked`、`Content`、`CheckedChanged` |
 | `ModuleTabs` | 页签容器，选中页写入视图状态 | `StateKey`、`TabItem` 子项 |
-| `ModuleValueList` | **值名驱动的行列表**：每行多字段编辑器、带序号的勾选框、行内动作；不新增数据通道 | `Rows`、`SelectionValue`、`FilterValue`、`DeleteIcon`、`SendText`、`ContentMaxHeight`、`PreviewRowCount`、`RowAction`、`FocusRow()` |
+| `ModuleValueList` | **值名驱动的行列表**：每行多字段编辑器、带序号的勾选框、行内动作；不新增数据通道 | `Rows`、`SelectionValue`、`FilterValue`、`SendInProgressValue`、`DeleteIcon`、`SendText`、`ContentMaxHeight`、`PreviewRowCount`、`RowAction`、`FocusRow()` |
 | `ModuleImageSurface` | **显示图片字节**：静态图与 GIF 动画，自带空态/加载/错误提示；支持归一化裁切 | `ImageBytes`、`Crop`、`EmptyHint`、`LoadingHint`、`ErrorHint`、`Stretch`、`HintBrush`、`HintFontSize` |
 | `ModuleSelect` | **枚举下拉**（配置字段或普通值；选项来自 `ValueState.Choices`） | `Value`、`CommitMode`、`SelectedKey`、`PreviewOptions`；旧 `Options`/`OptionSelected` 仅供结构选择 |
 | `ModuleColorField` | **颜色值编辑器**：色块，点开框架取色窗 | `Value`、`DefaultBrushToken`、`DialogTitle`、`ResetText`、`InitialColor` |

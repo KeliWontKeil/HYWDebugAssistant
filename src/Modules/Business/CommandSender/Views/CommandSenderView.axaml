@@ -36,6 +36,11 @@
                             Text="500" TextAlignment="Right" CommitMode="OnChange" />
       <ui:ModuleLabel Canvas.Left="224" Canvas.Top="2" Width="18" Height="22"
                       Classes="caption" Text="{loc:Tr view.intervalUnit}" />
+      <ui:ModuleCheckBox Canvas.Left="250" Canvas.Top="2" Width="76" Height="22"
+                         MinHeight="0"
+                         Value="{x:Static views:CommandSenderViewKeys.Merge}"
+                         Content="{loc:Tr view.merge}"
+                         IsChecked="False" />
     </Canvas>
 
     <!-- 动作条 2：搜索 / 导入 / 另存为 -->
@@ -68,6 +73,7 @@
                           Margin="0"
                           SelectionValue="{x:Static views:CommandSenderViewKeys.Selection}"
                           FilterValue="{x:Static views:CommandSenderViewKeys.Search}"
+                          SendInProgressValue="{x:Static views:CommandSenderViewKeys.Sending}"
                           DeleteIcon="{x:Static views:CommandSenderViewKeys.IconTrash}"
                           SendText="{loc:Tr view.send}"
                           ContentMaxHeight="96" />

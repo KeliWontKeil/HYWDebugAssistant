@@ -99,22 +99,16 @@ public abstract class ModuleTextElement : TextBlock, IModuleViewElement, IModule
     /// <summary>按当前对齐与内容盒计算文字需要下移多少。</summary>
     private double ComputeVerticalOffset()
     {
-        if (TextVerticalAlignment == VerticalAlignment.Top)
-        {
-            return 0;
-        }
-
         var padding = Padding;
         var available = Bounds.Height - padding.Top - padding.Bottom;
-        var free = available - TextLayout.Height;
 
-        // 文字比内容盒还高时交给 TextBlock 自己的默认行为，不再二次偏移。
-        if (free <= 0)
-        {
-            return 0;
-        }
-
-        return TextVerticalAlignment == VerticalAlignment.Bottom ? free : free / 2;
+        return ModuleTextVerticalMetrics.ComputeOffset(
+            available,
+            TextLayout.Height,
+            TextLayout.Baseline,
+            FontSize,
+            TextLayout.TextLines.Count,
+            TextVerticalAlignment);
     }
 }
 
