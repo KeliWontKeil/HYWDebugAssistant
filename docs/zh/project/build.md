@@ -37,10 +37,10 @@
 .\tools\release.ps1 -OutputDirectory D:\dist\<版本>
 ```
 
-- 产品 `HYWDebugAssistant-<版本>-<rid>/`：`dotnet publish` 自包含目录，含程序、内置模块（含模块运行期 `views/*.axaml`）、资源、设置种子、许可与 `release.json`；不含 SDK、样例、可编译源码、用户数据与开发符号/XML。
+- 产品 `HYWDebugAssistant-<版本>-<rid>/`：`dotnet publish` 自包含目录，含程序、内置模块（含模块运行期 `views/*.axaml`）、资源、设置种子、许可与 `release.json`；不含 SDK、样例、可编译源码、用户数据与开发符号/XML。只带目标平台需要的组件：Windows 目标不含其它平台后端与运行时调试组件。
 - SDK `HYWDebugAssistant.Sdk-<版本>/`：五个作者包、模块模板、本地 NuGet 源、README 与 `sdk.json`；不随产品发布。
 - 默认 `rid=win-x64`（承诺目标）；其他 RID 可以尝试，但不承诺编译/运行，元数据标记 `validation=unverified`。
-- `tools\package-release.ps1` 与 `tools\package-sdk.ps1` 是分步入口；`tools\verify-release.ps1` 校验已产出的目录。
+- `tools\package-release.ps1` 与 `tools\package-sdk.ps1` 是分步入口；`tools\verify-release.ps1` 校验已产出的目录：按 `release.json` 逐文件对账，多一个少一个都失败——所以就地运行过的目录（会生成 `settings\`、`composites\`）不能再作为分发源。
 - 安装器、压缩包、签名与自动更新暂不做；正式推送时再补。
 
 ## 分层验证
