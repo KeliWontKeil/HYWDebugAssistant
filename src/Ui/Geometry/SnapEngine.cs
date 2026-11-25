@@ -54,6 +54,15 @@ public enum SnapLineSource
 
     /// <summary>**外壳对齐边**（左/上/下）：两侧边都可用于对齐，但不产生贴合（不成组）。</summary>
     ShellAlign,
+
+    /// <summary>
+    /// **跨带模块的外框边**：只允许**贴合**（拼上），不产生边缘对齐。
+    /// </summary>
+    /// <remarks>
+    /// 拼接是"空间相接"，与层无关，所以贴得上的边必须能吸成 0 间隙（否则会出现"看着贴上了却没拼上"）；
+    /// 但边缘对齐是"整齐"语义，仍只认同带。这一条是"组的一端悬空在浅带上"时唯一的拼接出路。
+    /// </remarks>
+    CrossBandEdge,
 }
 
 /// <summary>外壳参照线的角色：拼合边 vs 纯对齐边。</summary>
@@ -75,7 +84,11 @@ public enum ShellLineRole
 /// <param name="End">线段终点。</param>
 /// <param name="Source">来源类别（决定候选级别）。</param>
 /// <param name="Owner">归属对象矩形（外框边/中心线/端口锚点有；外壳线为默认值 = 无归属）。</param>
-/// <param name="IsOwnerLow">仅 <see cref="SnapLineSource.FrameEdge"/> 有意义：是否为归属对象的**低侧**边（左/上）。</param>
+/// <param name="IsOwnerLow">仅外框边（<see cref="SnapLineSource.FrameEdge"/> / <see cref="SnapLineSource.CrossBandEdge"/>）有意义：是否为归属对象的**低侧**边（左/上）。</param>
+/// <param name="OwnerLayer">
+/// 归属对象所在的模块层 = 吸上它之后的**目标层**（外壳线与无归属线为 0 = 底板）。
+/// 它只用于判定"会不会压住目标层"，不参与候选排序（排序见 <see cref="SnapKind"/>）。
+/// </param>
 public readonly record struct SnapLine(
     bool AlignsX,
     double Coordinate,
@@ -83,7 +96,8 @@ public readonly record struct SnapLine(
     double End,
     SnapLineSource Source,
     CanvasRect Owner,
-    bool IsOwnerLow = false);
+    bool IsOwnerLow = false,
+    int OwnerLayer = 0);
 
 /// <summary>
 /// **外部参照线**（调用方用来表达"只暴露一条边的对象"，如外壳的右边缘）。
@@ -96,7 +110,7 @@ public readonly record struct SnapLine(
 /// 它**不是**一条特殊通道：由 <see cref="SnapEngine.LineOf"/> 转成
 /// <see cref="SnapLineSource.ShellEdge"/> 的 <see cref="SnapLine"/>，与模块外框线进同一张表。
 /// 外壳是**单侧锚点**：只接受被拖模块的低侧边（竖线为左边缘），
-/// 与 `AreNodesJoined` 的"模块左边缘贴外壳右边缘"保持同一侧。
+/// 与 <see cref="TilingGraph.IsShellGlued"/> 的"模块左边缘贴外壳右边缘"保持同一侧。
 /// 之所以不复用矩形：零宽矩形会被 <see cref="CanvasRect.IsValid"/>（要求正尺寸）过滤掉（P25）。
 /// </remarks>
 public readonly record struct SnapReferenceLine(
@@ -114,7 +128,8 @@ public readonly record struct SnapReferenceLine(
 /// <param name="Other">对方模块矩形（用于接近范围判定与辅助线长度）。</param>
 /// <param name="MovingOffset">被拖模块该端口在对齐轴上的**归一化位置**（0–1）。</param>
 /// <param name="MovingIndex">组吸附时该端口所属成员在 <c>moving</c> 列表里的下标（单模块为 0）。</param>
-public readonly record struct PortAnchorPair(bool AlignsX, double OtherCoordinate, CanvasRect Other, double MovingOffset, int MovingIndex = 0);
+/// <param name="OwnerLayer">对方模块所在的层（= 吸上它之后的目标层；端口只认同带）。</param>
+public readonly record struct PortAnchorPair(bool AlignsX, double OtherCoordinate, CanvasRect Other, double MovingOffset, int MovingIndex = 0, int OwnerLayer = 0);
 
 /// <summary>吸附结果（**纯函数**：只由"原始位置 + 参照线"决定，不含跨帧状态）。</summary>
 /// <param name="X">命中后的 X（未命中则等于输入）。</param>
@@ -156,7 +171,7 @@ public readonly record struct SnapMemory(double? XLine, double? YLine);
 ///     消除"端口在 0.5 与模块中心线"这类**重复登记**（同一坐标只登记一次，级别最高的那条胜出）；</item>
 ///   <item><b>不做网格吸附</b>；<b>调用方决定"何时用"</b>（当前 = 拖动与缩放中实时吸附）；</item>
 ///   <item><b>组关系由位置派生</b>（C5-1）：只保存位置，不单独存储；组解析在 UI 层按
-///     <b>同层 + 贴合</b>完成（`ModuleWindowsViewModel.GroupOfNode`），本类只提供
+///     <b>贴合 + 互不遮挡</b>完成（<see cref="TilingGraph"/>），本类只提供
 ///     <see cref="AreJoined"/> 这个纯几何相邻谓词；</item>
 /// </list>
 /// </remarks>
@@ -180,7 +195,8 @@ public static partial class SnapEngine
     /// <summary>辅助线在两端各外伸的长度（视觉取值，Gate C 微调）。</summary>
     private const double GuideOvershoot = 12;
 
-    /// <summary>吸附候选（内部）：级别 + 偏移 + 参照线坐标 + 该线的区间。</summary>
+    /// <summary>吸附候选（内部）：级别 + 偏移 + 参照线坐标 + 该线的区间 + **目标层**。</summary>
+    /// <param name="TargetLayer">吸上这条线之后的模块层（= 参照物所在层）：判定"会不会压住目标层"用。</param>
     private readonly record struct Candidate(
         SnapKind Kind,
         double Delta,
@@ -188,37 +204,68 @@ public static partial class SnapEngine
         bool AlignsX,
         double LineStart,
         double LineEnd,
+        int TargetLayer = 0,
         string? ReferenceId = null);
 
     /// <summary>
     /// 由**其他模块外框**生成参照线（4 条边 + 1 条中心线，两个轴各一批）。
     /// </summary>
     /// <param name="other">其他模块矩形。</param>
+    /// <param name="flushOnly">
+    /// true = 该模块与本次手势**不在同一带**：只贡献"能拼上的边"（<see cref="SnapLineSource.CrossBandEdge"/>），
+    /// 不带中心线、也不提供边缘对齐——对齐仍只认同带，拼接则跨带。
+    /// </param>
+    /// <param name="ownerLayer">该模块所在的层（写进每条线的 <see cref="SnapLine.OwnerLayer"/>）。</param>
     /// <returns>该模块提供的全部参照线。</returns>
-    public static IEnumerable<SnapLine> LinesOf(CanvasRect other)
+    public static IEnumerable<SnapLine> LinesOf(CanvasRect other, bool flushOnly = false, int ownerLayer = 0)
     {
         if (!other.IsValid)
         {
             return [];
         }
 
-        return
-        [
-            // 竖线（约束 X）：左右边 + 中心线
-            new SnapLine(true, other.Left, other.Top, other.Bottom, SnapLineSource.FrameEdge, other, IsOwnerLow: true),
-            new SnapLine(true, other.Right, other.Top, other.Bottom, SnapLineSource.FrameEdge, other, IsOwnerLow: false),
-            new SnapLine(true, other.CenterX, other.Top, other.Bottom, SnapLineSource.FrameCenter, other),
+        SnapLine[] lines = flushOnly
+            ?
+            [
+                // 只留 4 条外框边（跨带只用来"拼上"）；中心线只有对齐用途，直接省掉。
+                new SnapLine(true, other.Left, other.Top, other.Bottom, SnapLineSource.CrossBandEdge, other, IsOwnerLow: true),
+                new SnapLine(true, other.Right, other.Top, other.Bottom, SnapLineSource.CrossBandEdge, other, IsOwnerLow: false),
+                new SnapLine(false, other.Top, other.Left, other.Right, SnapLineSource.CrossBandEdge, other, IsOwnerLow: true),
+                new SnapLine(false, other.Bottom, other.Left, other.Right, SnapLineSource.CrossBandEdge, other, IsOwnerLow: false),
+            ]
+            :
+            [
+                // 竖线（约束 X）：左右边 + 中心线
+                new SnapLine(true, other.Left, other.Top, other.Bottom, SnapLineSource.FrameEdge, other, IsOwnerLow: true),
+                new SnapLine(true, other.Right, other.Top, other.Bottom, SnapLineSource.FrameEdge, other, IsOwnerLow: false),
+                new SnapLine(true, other.CenterX, other.Top, other.Bottom, SnapLineSource.FrameCenter, other),
 
-            // 横线（约束 Y）：上下边 + 中心线
-            new SnapLine(false, other.Top, other.Left, other.Right, SnapLineSource.FrameEdge, other, IsOwnerLow: true),
-            new SnapLine(false, other.Bottom, other.Left, other.Right, SnapLineSource.FrameEdge, other, IsOwnerLow: false),
-            new SnapLine(false, other.CenterY, other.Left, other.Right, SnapLineSource.FrameCenter, other),
-        ];
+                // 横线（约束 Y）：上下边 + 中心线
+                new SnapLine(false, other.Top, other.Left, other.Right, SnapLineSource.FrameEdge, other, IsOwnerLow: true),
+                new SnapLine(false, other.Bottom, other.Left, other.Right, SnapLineSource.FrameEdge, other, IsOwnerLow: false),
+                new SnapLine(false, other.CenterY, other.Left, other.Right, SnapLineSource.FrameCenter, other),
+            ];
+
+        if (ownerLayer == 0)
+        {
+            return lines;
+        }
+
+        for (var index = 0; index < lines.Length; index++)
+        {
+            lines[index] = lines[index] with { OwnerLayer = ownerLayer };
+        }
+
+        return lines;
     }
 
     /// <summary>由**外壳参照线**生成（右侧拼合边 / 其它对齐边）。</summary>
     /// <param name="line">外壳边（竖线或横线 + 线段范围 + 角色）。</param>
     /// <returns>一条 <see cref="SnapLineSource.ShellEdge"/> 或 <see cref="SnapLineSource.ShellAlign"/> 参照线。</returns>
+    /// <remarks>
+    /// 外壳线的 <see cref="SnapLine.OwnerLayer"/> 保持 0（外壳是层 0 的底板）：
+    /// 贴壳意味着"站在地板上贴墙"，所以地板这一层必须真有空位。
+    /// </remarks>
     public static SnapLine LineOf(SnapReferenceLine line) =>
         new(
             line.IsVertical,
@@ -259,12 +306,27 @@ public static partial class SnapEngine
     /// <param name="flushTolerance">贴合类容差（px）。</param>
     /// <param name="portReach">端口锚点的接近范围（px）。</param>
     /// <param name="obstacles">
-    /// 组外障碍矩形；若选中的平移会让任一成员与障碍重合，则本帧不吸附（返回原始位置）。
-    /// 这样吸附不会主动把模块/组叠到另一个模块上。
+    /// 组外障碍（**带层号**，见 <see cref="SnapObstacle"/>）：每条候选各自校验，
+    /// 只有"落位后会压住**目标层**"的那一条被剔除，其余候选照常参与，另一轴也不受牵连。
     /// </param>
     /// <param name="memory">上一帧的吸附记忆。</param>
     /// <exception cref="ArgumentException"><paramref name="moving"/> 为空。</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="anchorIndex"/> 越界。</exception>
+    /// <remarks>
+    /// <b>为什么障碍要按层判、而且逐候选判</b>：
+    /// <list type="bullet">
+    ///   <item>压在**更低层**的模块上是合法的（层就是为叠放引入的），把它当障碍会让密集布局里
+    ///     "目标位置背后有块东西"就再也拼不上；</item>
+    ///   <item>整帧一票否决会让一条坏候选连累另一轴合法的吸附，且不换下一个候选——用户看到的是"完全吸不上"。</item>
+    /// </list>
+    /// <para>
+    /// <b>判据为什么是充要的</b>：设参照件 R 在层 k（件内恒同层）。落位后"真的拼上"要求
+    /// 与 R 件任何成员都不重合；而本判据已排除"与层号 ≥ k 的模块重合"⇒ 必然满足。
+    /// 同时新模块的层 = 下层重叠件的最大层 + 1 ≤ k，又 R 在层 k 说明 R 压着层 k−1 的东西 ⇒ 层 ≥ k，
+    /// 故**层恰为 k**：整件不会被顶上去，参照件也不会被连累抬层。
+    /// 即：判据等价于"**该层有空间容纳它，才拼到这一层**"。
+    /// </para>
+    /// </remarks>
     public static SnapResult SnapGroup(
         IReadOnlyList<CanvasRect> moving,
         int anchorIndex,
@@ -273,7 +335,7 @@ public static partial class SnapEngine
         IReadOnlyList<PortAnchorPair>? portAnchors = null,
         double flushTolerance = FlushTolerance,
         double portReach = PortAlignReach,
-        IReadOnlyList<CanvasRect>? obstacles = null,
+        IReadOnlyList<SnapObstacle>? obstacles = null,
         SnapMemory memory = default)
     {
         ArgumentNullException.ThrowIfNull(moving);
@@ -314,24 +376,45 @@ public static partial class SnapEngine
         var dedupedY = Deduplicate(ys);
         var release = Math.Max(tolerance, flushTolerance) + 2;
 
-        var chosenX = PreferMemory(Best(dedupedX, tolerance, flushTolerance), dedupedX, memory.XLine, release);
-        var chosenY = PreferMemory(Best(dedupedY, tolerance, flushTolerance), dedupedY, memory.YLine, release);
+        bool AllowsOnX(Candidate candidate) => AllowsDelta(moving, candidate.Delta, 0, candidate.TargetLayer, obstacles);
+        bool AllowsOnY(Candidate candidate) => AllowsDelta(moving, 0, candidate.Delta, candidate.TargetLayer, obstacles);
+
+        var chosenX = PreferMemory(
+            Best(dedupedX, tolerance, flushTolerance, AllowsOnX),
+            dedupedX,
+            memory.XLine,
+            release,
+            AllowsOnX);
+
+        var chosenY = PreferMemory(
+            Best(dedupedY, tolerance, flushTolerance, AllowsOnY),
+            dedupedY,
+            memory.YLine,
+            release,
+            AllowsOnY);
+
+        // 两轴各自合法不代表**同时**合法（两轴都要吸时才可能）：按"双轴 → 只 X → 只 Y → 不吸附"退化。
+        // 双轴同时成立时，约束取两者中更严的那一层（层号大者）。
+        if (chosenX is { } bothX && chosenY is { } bothY
+            && !AllowsDelta(moving, bothX.Delta, bothY.Delta, Math.Max(bothX.TargetLayer, bothY.TargetLayer), obstacles))
+        {
+            if (AllowsOnX(bothX))
+            {
+                chosenY = null;
+            }
+            else if (AllowsOnY(bothY))
+            {
+                chosenX = null;
+            }
+            else
+            {
+                chosenX = null;
+                chosenY = null;
+            }
+        }
 
         var deltaX = chosenX?.Delta ?? 0;
         var deltaY = chosenY?.Delta ?? 0;
-
-        if (obstacles is { Count: > 0 })
-        {
-            foreach (var rect in moving)
-            {
-                var translated = rect.OffsetBy(deltaX, deltaY);
-                if (obstacles.Any(obstacle => RectsOverlap(translated, obstacle)))
-                {
-                    var raw = moving[anchorIndex];
-                    return new SnapResult(raw.X, raw.Y, false, false, null, null, []);
-                }
-            }
-        }
 
         var anchor = moving[anchorIndex];
         var x = anchor.X + deltaX;
@@ -385,13 +468,63 @@ public static partial class SnapEngine
         return width > epsilon && height > epsilon;
     }
 
+    /// <summary>
+    /// 该位移是否**允许**（不压住目标层的东西）。
+    /// </summary>
+    /// <param name="moving">组内成员矩形（原始位置）。</param>
+    /// <param name="deltaX">X 位移。</param>
+    /// <param name="deltaY">Y 位移。</param>
+    /// <param name="targetLayer">候选的目标层（参照物所在层）。</param>
+    /// <param name="obstacles">带层号的障碍；null = 不做该判定（单矩形入口与测试）。</param>
+    /// <remarks>
+    /// 判据见 <see cref="SnapObstacle.Blocks"/>：**目标层及以上**的模块都算挡住。
+    /// 之所以不能放宽到"任意层都挡"，是因为压在更低层上完全合法，会把密集布局里的拼接全部误杀。
+    /// </remarks>
+    private static bool AllowsDelta(
+        IReadOnlyList<CanvasRect> moving,
+        double deltaX,
+        double deltaY,
+        int targetLayer,
+        IReadOnlyList<SnapObstacle>? obstacles)
+    {
+        if (obstacles is not { Count: > 0 })
+        {
+            return true;
+        }
+
+        foreach (var rect in moving)
+        {
+            var translated = rect.OffsetBy(deltaX, deltaY);
+
+            foreach (var obstacle in obstacles)
+            {
+                if (obstacle.Blocks(targetLayer) && RectsOverlap(translated, obstacle.Rect))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>取整噪声容差：小于它的“重叠”视为同一条边。</summary>
     public const double OverlapEpsilon = 0.5;
 
     /// <summary>
     /// 吸附迟滞：上一帧的线仍在释放距离内时优先保持它，避免指针停在阈值附近时"吸/不吸"来回跳。
     /// </summary>
-    private static Candidate? PreferMemory(Candidate? chosen, List<Candidate> candidates, double? line, double release)
+    /// <param name="chosen">本帧几何上最优的候选（可能被记忆替换）。</param>
+    /// <param name="candidates">同轴全部候选。</param>
+    /// <param name="line">上一帧的参照线坐标。</param>
+    /// <param name="release">释放距离（px）。</param>
+    /// <param name="allowed">该候选是否可用（障碍判定；被记忆选中的候选同样要过这一关）。</param>
+    private static Candidate? PreferMemory(
+        Candidate? chosen,
+        List<Candidate> candidates,
+        double? line,
+        double release,
+        Func<Candidate, bool> allowed)
     {
         if (line is not { } rememberedLine)
         {
@@ -408,7 +541,7 @@ public static partial class SnapEngine
 
         foreach (var candidate in candidates)
         {
-            if (Math.Abs(candidate.LineCoordinate - rememberedLine) > 0.5)
+            if (Math.Abs(candidate.LineCoordinate - rememberedLine) > 0.5 || !allowed(candidate))
             {
                 continue;
             }
@@ -428,10 +561,10 @@ public static partial class SnapEngine
     /// **贴合谓词**（C5-1）：两模块的边缘在容差内贴合即视为几何相邻。
     /// </summary>
     /// <remarks>
-    /// 这是**纯几何**谓词，**不含层**：两个模块可以几何贴合但位于不同层。
+    /// 这是**纯几何**谓词，**不含层**：两个模块可以几何贴合但位于不同层（层号不同并不妨碍拼接）。
     /// 竖直边贴合（左右相邻）要求**竖直方向有重叠**，水平边贴合同理。
-    /// 成组必须由调用方叠加层判断（见 `ModuleWindowsViewModel.GroupOfNode`）；
-    /// 直接用本谓词分组会产生跨层拼接。
+    /// 成组不能直接用它：还需叠加"**互不遮挡**"（见 <see cref="TilingGraph"/>）——
+    /// 一个**压住**对方某块的模块贴得再近也不许拼，否则第二层的模块会拼到第一层的组上。
     /// </remarks>
     /// <param name="a">模块 A 矩形。</param>
     /// <param name="b">模块 B 矩形。</param>
@@ -491,7 +624,7 @@ public static partial class SnapEngine
             {
                 // 外壳右侧是拼合边：只有被拖模块的**低侧边（竖线的左边缘 / 横线的上边缘）**能贴上去。
                 // 另一侧若也参与，模块会以右边缘吸到外壳右边缘 —— 视觉上压在壳上，却不符合
-                // `AreNodesJoined` 的"模块左边缘贴外壳右边缘"成组判据。
+                // 贴壳判据（只有"模块左边缘贴外壳右边缘"才算拼上）。
                 var overlap = LineOverlap(moving, line);
                 var kind = overlap > MinOverlap ? SnapKind.Flush : SnapKind.Edge;
                 Add(0, kind, line, origin, size, target);
@@ -503,6 +636,24 @@ public static partial class SnapEngine
                 // 外壳的其它边只是对齐参照：两侧边都可以吸齐，但永远不产生贴合（不对齐成组判据）。
                 Add(0, SnapKind.Edge, line, origin, size, target);
                 Add(1, SnapKind.Edge, line, origin, size, target);
+                break;
+            }
+
+            case SnapLineSource.CrossBandEdge:
+            {
+                // 跨带边**只做拼上**：只有"朝外那条边落上去"（= 相接）才登记候选，
+                // 边缘对齐不登记 —— 对齐仍只认同带（层是"整齐"的度量，拼接不是）。
+                var overlap = CrossOverlap(moving, line);
+                if (FlushOrEdge(0, line, overlap) == SnapKind.Flush)
+                {
+                    Add(0, SnapKind.Flush, line, origin, size, target);
+                }
+
+                if (FlushOrEdge(1, line, overlap) == SnapKind.Flush)
+                {
+                    Add(1, SnapKind.Flush, line, origin, size, target);
+                }
+
                 break;
             }
 
@@ -536,14 +687,14 @@ public static partial class SnapEngine
             ? new SnapLine(true, pair.OtherCoordinate, pair.Other.Top, pair.Other.Bottom, SnapLineSource.PortAnchor, pair.Other)
             : new SnapLine(false, pair.OtherCoordinate, pair.Other.Left, pair.Other.Right, SnapLineSource.PortAnchor, pair.Other);
 
-        (pair.AlignsX ? xs : ys).Add(new Candidate(SnapKind.PortCenter, delta, line.Coordinate, line.AlignsX, line.Start, line.End));
+        (pair.AlignsX ? xs : ys).Add(new Candidate(SnapKind.PortCenter, delta, line.Coordinate, line.AlignsX, line.Start, line.End, pair.OwnerLayer));
     }
 
     /// <summary>把"锚点 → 线的坐标"换算成候选并加入该轴。</summary>
     private static void Add(double anchor, SnapKind kind, SnapLine line, double origin, double size, List<Candidate> target)
     {
         var position = line.Coordinate - (size * anchor);
-        target.Add(new Candidate(kind, position - origin, line.Coordinate, line.AlignsX, line.Start, line.End));
+        target.Add(new Candidate(kind, position - origin, line.Coordinate, line.AlignsX, line.Start, line.End, line.OwnerLayer));
     }
 
     /// <summary>外框边候选的级别：**朝外那条边**对上（= 相接）且交叉轴有重叠 → 贴合，否则边缘对齐。</summary>
@@ -567,7 +718,13 @@ public static partial class SnapEngine
         ? Math.Min(moving.Bottom, line.End) - Math.Max(moving.Top, line.Start)
         : Math.Min(moving.Right, line.End) - Math.Max(moving.Left, line.Start);
 
-    /// <summary>同坐标去重：位置相差 ≤1px 的候选只留级别最高的。</summary>
+    /// <summary>
+    /// 同坐标去重：位置相差 ≤1px 的候选只留级别最高的；**级别与距离都相同时留层号更大的**。
+    /// </summary>
+    /// <remarks>
+    /// 层号参与排序是为了"上层优先"：两个完全重合、大小相同的组给出的线坐标一模一样，
+    /// 新模块的几何判据对两者同时成立 —— 此时应归到**上面**那一层（高层的件在上面，抬它不抬别人）。
+    /// </remarks>
     private static List<Candidate> Deduplicate(List<Candidate> candidates)
     {
         if (candidates.Count < 2)
@@ -578,6 +735,7 @@ public static partial class SnapEngine
         var ordered = candidates
             .OrderByDescending(c => c.Kind)
             .ThenBy(c => Math.Abs(c.Delta))
+            .ThenByDescending(c => c.TargetLayer)
             .ToList();
 
         var kept = new List<Candidate>(ordered.Count);
@@ -604,27 +762,51 @@ public static partial class SnapEngine
         return kept;
     }
 
-    /// <summary>单轴选最好的候选：**级别高者优先，同级取偏移更小者**（各自按自己的容差判是否够近）。</summary>
-    private static Candidate? Best(List<Candidate> candidates, double alignTolerance, double flushTolerance)
+    /// <summary>
+    /// 单轴选最好的候选：**级别高者优先，同级取偏移更小者**（各自按自己的容差判是否够近）；
+    /// 级别与偏移都相同时取**层号更大**者（上层优先）。不合格的候选在 <paramref name="allowed"/> 里被跳过。
+    /// </summary>
+    private static Candidate? Best(
+        List<Candidate> candidates,
+        double alignTolerance,
+        double flushTolerance,
+        Func<Candidate, bool> allowed)
     {
         Candidate? best = null;
         foreach (var candidate in candidates)
         {
             var band = candidate.Kind is SnapKind.Flush or SnapKind.Size ? flushTolerance : alignTolerance;
-            if (Math.Abs(candidate.Delta) > band)
+            if (Math.Abs(candidate.Delta) > band || !allowed(candidate))
             {
                 continue;
             }
 
-            if (best is not { } current
-                || candidate.Kind > current.Kind
-                || (candidate.Kind == current.Kind && Math.Abs(candidate.Delta) < Math.Abs(current.Delta)))
+            if (best is not { } current || IsBetter(candidate, current))
             {
                 best = candidate;
             }
         }
 
         return best;
+    }
+
+    /// <summary>候选比较：级别优先，其次偏移更小，最后**层号更大**（上层优先）。</summary>
+    private static bool IsBetter(Candidate candidate, Candidate current)
+    {
+        if (candidate.Kind != current.Kind)
+        {
+            return candidate.Kind > current.Kind;
+        }
+
+        var distance = Math.Abs(candidate.Delta);
+        var currentDistance = Math.Abs(current.Delta);
+
+        if (Math.Abs(distance - currentDistance) > DuplicateEpsilon)
+        {
+            return distance < currentDistance;
+        }
+
+        return candidate.TargetLayer > current.TargetLayer;
     }
 
     /// <summary>两区间之间的间隙（0 = 重叠或相接）。</summary>

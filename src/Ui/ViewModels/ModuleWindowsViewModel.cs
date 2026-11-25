@@ -61,19 +61,11 @@ public enum ResizeHandle
 public sealed partial class ModuleWindowsViewModel : ViewModelBase
 {
     /// <summary>对齐类吸附容差（px）——**默认值**；实际值取设置里的「吸附距离」（见 <see cref="SnapDistance"/>）。</summary>
-    public const double SnapTolerance = SnapEngine.DefaultTolerance;
-
-    /// <summary>贴合（接触拼接）容差（px）——**宽**：拼接是主用途，值得给宽容差；同时它也是"是否算一组"的口径。</summary>
-    public const double GroupTolerance = SnapEngine.FlushTolerance;
-
-    /// <summary>
-    /// **外壳与模块"拼上"的容差**（px）——严格：只有**真的贴上**（吸附产生的 0 间隙，容许 1px 取整误差）才算。
-    /// </summary>
     /// <remarks>
-    /// 与 <see cref="GroupTolerance"/>（模块之间，8px）**刻意不同**：模块之间"差一点也算拼上"对拼装手感友好；
-    /// 但外壳用它会让"停在附近、没吸附"的模块在拖动主窗口时被一并带走。
+    /// 贴合/贴壳容差**不在这里**：它们只在 <see cref="TilingGraph"/> 定义一次（层与组必须用同一个值，
+    /// 两处各写一份正是"层说同层、组说不同组"的来源）。
     /// </remarks>
-    public const double ShellJoinTolerance = 1;
+    public const double SnapTolerance = SnapEngine.DefaultTolerance;
 
     /// <summary>
     /// **当前生效的吸附距离**（px）——设置项 `snapDistance`（默认 4，2–8），
@@ -473,7 +465,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// </summary>
     /// <param name="instanceId">被点击的实例 ID。</param>
     /// <remarks>
-    /// 组 = 与拖动同一份连通分量（<see cref="GroupOfNode"/> / <see cref="GroupTolerance"/>）；
+    /// 组 = 与拖动同一份范围（<see cref="GroupMembersOf"/>：拼接件；贴壳件是整个接地整体）；
     /// 过滤掉不存在与不可见（隐藏/占位）的成员；**锁定模块保留**（锁定只禁拖动）。
     /// 被点者不在可见组里（不存在/隐藏）⇒ 退回 <see cref="Select"/> 语义；不存在时不触发事件。
     /// </remarks>
@@ -485,7 +477,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             return;
         }
 
-        var group = GroupOfNode(instanceId)
+        var group = GroupMembersOf(instanceId)
             .Where(id => Find(id) is { IsViewVisible: true })
             .ToList();
 
@@ -782,9 +774,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// **按当前叠放顺序与几何重新派生模块层号**；返回是否有模块的层发生变化。
     /// </summary>
     /// <remarks>
-    /// **层先于组**：这里只调用 <see cref="ModuleLayerPlanner"/>，不读取任何贴合组；
-    /// 组的派生在 <see cref="GroupOfNode"/>（同层 + 贴合）。这样贴边不能反向把不同层模块并成同层。
-    /// 层号只用于吸附/成组过滤，不落盘；<see cref="ZOrderProvider"/> 为空时（无头测试/设计期）不规划。
+    /// **层不再当拼接判据**：这里只调用 <see cref="ModuleLayerPlanner"/>（它以拼接件为最小单位），
+    /// 分组走 <see cref="TilingGraph"/> 的"贴合 + 互不遮挡"。层只用于"谁压谁"的建模与
+    /// 对齐/端口/尺寸参照的带内过滤，不落盘；<see cref="ZOrderProvider"/> 为空时（无头测试/设计期）不规划。
     /// 外壳作为最底实体参与重合判断，但不属于任何“同层”模块组。
     /// </remarks>
     public bool RefreshLayers()
@@ -1178,10 +1170,10 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         // 拖动一个贴在外壳上的模块时，外壳窗口要跟着一起走（"视觉整体"）；见 _shellDragPxX/Y 与 ShellMoveRequested。
         _dragGroup = independent
             ? [instanceId]
-            : [.. GroupOfNode(instanceId).Where(id => Find(id) is not { IsLocked: true })];
+            : [.. DragScopeOf(instanceId).Where(id => Find(id) is not { IsLocked: true })];
 
-        // 拖一个贴壳组时**不**把其他层的贴壳组拉进来：外壳只随本组平移，其他层的组留在原处
-        // （它们会自然脱开）。只有直接拖外壳（TranslateShellGroup）才带走全部层的贴壳组。
+        // 拖一个贴壳件 = 拖整个贴壳整体（外壳 + 全部贴壳件，跨带）：外壳要走，贴壳件就必须全跟，
+        // 否则贴壳边被撕开（表现为"弹簧"）。只有直接拖外壳（TranslateShellGroup）取的是同一份集合。
 
         // 拖动**起点**的几何（拖动中按 Ctrl 拆分时，把已经被带走的其他成员**放回原位** —— 见 DetachDrag）
         // **整数物理像素矩形是整组位移的唯一基准**：整组每帧从起点 + 同一个整数位移重算，
@@ -1433,7 +1425,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         // 那一帧它就会被判成"已拼上"并跟着走
         // ⇒ 现象正是"经过模块时导致模块**错位粘连**（没有产生吸附行为却拼上去了）"。
         // ⇒ 冻结集合只在**一次拖动开始时**算一次（用移动前的外壳矩形），拖动过程中**不吸收新成员**。
-        _shellDragGroup ??= GroupOfNode(ShellNodeId, preMoveShellPixels);
+        _shellDragGroup ??= GroundedWhole(preMoveShellPixels);
 
         foreach (var module in Modules)
         {
@@ -1519,11 +1511,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             ? recordedPixels
             : module.PixelRect;
 
-        // 层是叠放顺序的派生值：每一帧先按当前几何/层序重算；若层变了，拖动期的候选上下文必须一起换。
-        if (RefreshLayers())
-        {
-            _dragContext = BuildSnapContext(_dragGroup, module.Layer, dragScale, includePorts: true, includeSizes: false);
-        }
+        // **候选上下文在 BeginDrag 冻结**（不按层变化重建）：拖动必须是"指针位置的纯函数"。
+        // 若中途按新层重建，靠近/离开某个带时对齐候选会整体换一批，位置就会跳变（阈值附近两态抖）。
+        // 层只影响对齐带的过滤，而拖动中位置由用户推动——按起手时的那一带最可预期。
 
         var pointer = new PixelPoint(ScreenPixels.ToPixel(pointerX), ScreenPixels.ToPixel(pointerY));
         var rawDeltaX = pointer.X - _dragStartPointer.X;
@@ -3495,7 +3485,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     private bool IsPeerAdjacent(ModuleViewViewModel module, string peerInstanceId) =>
         Find(peerInstanceId) is { } peer
         && peer.Rect.IsValid
-        && SnapEngine.AreJoined(module.PhysicalRect, peer.PhysicalRect, GroupTolerance);
+        && TilingGraph.AreFlush(module.PhysicalRect, peer.PhysicalRect);
     /// <summary>
     /// **速率文本**（每秒字节数）：**如实显示**，不做"低于阈值就显示占位符"的模糊化。
     /// </summary>
@@ -3506,74 +3496,125 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
 
     private static string FormatBytes(long bytes) => ByteQuantity.Format(bytes);
 
-    /// <summary>成组判定用的模块矩形 + 层（**物理像素**；不同缩放屏上才有共同单位）。</summary>
-    private IReadOnlyList<(string Id, CanvasRect Rect, int Layer)> ModuleRects() =>
-        [.. Modules.Where(m => m.IsViewVisible).Select(m => (m.InstanceId, m.PhysicalRect, m.Layer))];
+    /// <summary>外壳在**拼图图**里的节点 id（与实例 id 不会冲突）。唯一真源在 <see cref="TilingGraph.ShellNodeId"/>。</summary>
+    public const string ShellNodeId = TilingGraph.ShellNodeId;
 
-    /// <summary>外壳在**拼图图**里的节点 id（与实例 id 不会冲突）。</summary>
-    public const string ShellNodeId = "#shell";
-
-    /// <summary>拼图图的全部节点：外壳（若可用）+ 可见模块（成组判定的输入）。</summary>
-    /// <param name="shellOverridePixels">
-    /// 用指定的外壳**物理矩形**代替模型里的当前值（**分组判定要用移动前的几何**）。
-    /// </param>
-    private List<(string Id, CanvasRect Rect, int Layer)> TilingNodes(CanvasRect? shellOverridePixels = null)
+    /// <summary>可见模块 → 拼图节点（**物理像素**；跨屏缩放不同时才有共同单位）。</summary>
+    private List<TilingNode> TilingNodes()
     {
-        var nodes = ModuleRects().ToList();
-        var shell = shellOverridePixels ?? TryGetShellPhysical();
+        var nodes = new List<TilingNode>();
 
-        if (shell is { IsValid: true } validShell)
+        foreach (var module in Modules)
         {
-            nodes.Add((ShellNodeId, validShell, 0));
+            if (module.IsViewVisible)
+            {
+                nodes.Add(new TilingNode(module.InstanceId, module.PhysicalRect));
+            }
         }
 
         return nodes;
     }
 
     /// <summary>
-    /// 两节点是否"拼在一起"（成组谓词）。
+    /// 当前几何下的**拼接件**（一件 = 贴合闭包 + 件内两两不重合，供层规划与分组共用）。
     /// </summary>
+    /// <param name="shellOverridePixels">
+    /// 用指定的外壳**物理矩形**代替模型里的当前值（**分组判定必须用移动前的几何**）。
+    /// </param>
     /// <remarks>
-    /// <list type="bullet">
-    ///   <item>模块 ↔ 模块：先要求**同层**，再沿用 <see cref="SnapEngine.AreJoined"/>（相邻边贴合 + 交叉轴有重叠）；</item>
-    ///   <item><b>模块 ↔ 外壳：只有"模块左边缘贴外壳右边缘"算</b>（外壳只提供右边缘），
-    ///     不允许贴它的左/上/下边缘；<b>外壳是跨层锚点，不做层相等检查</b>；</item>
-    ///   <item><b>外壳用严格容差</b>（<see cref="ShellJoinTolerance"/>）：模块间用
-    ///     <see cref="GroupTolerance"/>（贴合容差 8px，"差一点也算拼上"对拼装手感友好），但**外壳不能用它** ——
-    ///     否则"停在离外壳 8px 处、根本没吸附"的模块也被判成已拼上，拖动主窗口时被一并带走，
-    ///     表现为"没产生吸附行为却粘在主窗口上"。
-    ///     外壳侧的判据是"**真的贴上了**"⇒ 吸附产生的 0 间隙（允许 1px 取整误差）。</item>
-    /// </list>
+    /// 没有叠放序（无头测试/设计期）时退回"全部同序"，分组仍按 id 序成立——分组不该依赖窗口技术。
     /// </remarks>
-    private static bool AreNodesJoined(
-        (string Id, CanvasRect Rect, int Layer) a,
-        (string Id, CanvasRect Rect, int Layer) b,
-        double tolerance)
+    private IReadOnlyList<TilingAssembly> BuildAssemblies(CanvasRect? shellOverridePixels = null)
     {
-        if (string.Equals(a.Id, ShellNodeId, StringComparison.Ordinal) || string.Equals(b.Id, ShellNodeId, StringComparison.Ordinal))
-        {
-            var (shell, module) = string.Equals(a.Id, ShellNodeId, StringComparison.Ordinal) ? (a.Rect, b.Rect) : (b.Rect, a.Rect);
-            if (SnapEngine.RectsOverlap(module, shell))
-            {
-                return false;   // 压在壳上不算贴壳
-            }
-
-            var overlap = Math.Min(module.Bottom, shell.Bottom) - Math.Max(module.Top, shell.Top);
-            return Math.Abs(module.Left - shell.Right) <= Math.Min(tolerance, ShellJoinTolerance)
-                && overlap > ShellJoinTolerance;
-        }
-
-        return a.Layer == b.Layer
-            && SnapEngine.AreJoined(a.Rect, b.Rect, tolerance);
+        var zOrder = ZOrderProvider ?? (_ => 0);
+        return TilingGraph.Build(TilingNodes(), shellOverridePixels ?? TryGetShellPhysical(), zOrder);
     }
 
     /// <summary>
-    /// 某模块当前所在的**模块组**（不包含外壳）：供“焦点进入任一模块 ⇒ 抬起整组”使用。
+    /// 某模块的**拖动 / 选择 / 抬升范围**（接地整体）：所在拼接件；若它是**贴壳件**，扩成整个贴壳整体。
+    /// </summary>
+    /// <param name="instanceId">模块实例 ID。</param>
+    /// <remarks>
+    /// <b>为什么贴壳件要连"全部贴壳件 + 外壳"一起走</b>：拖任一贴壳件必然带动外壳，外壳一动手，
+    /// 所有贴壳件都必须跟——否则贴壳边被撕开，表现为"模块之间像用弹簧连着、互相追赶"。
+    /// 所以"拖组合里的任一块 = 整组一起走"是正确语义，不是妥协。
+    /// <para>
+    /// <b>它与层是两件事</b>：层按**拼接件**算（贴壳件可以处在不同带，各自分层），
+    /// 拖动范围按**接地整体**算（跨带）。混成一件事会让一个贴壳件把全部贴壳件的层拉平。
+    /// </para>
+    /// </remarks>
+    private List<string> DragScopeOf(string instanceId)
+    {
+        var assemblies = BuildAssemblies();
+        var seed = assemblies.FirstOrDefault(assembly => assembly.Contains(instanceId));
+
+        if (seed is null)
+        {
+            return [instanceId];   // 不可见/已移除：只动自己
+        }
+
+        return seed.TouchesShell
+            ? CollectGroundedWhole(assemblies)
+            : [.. seed.Members.Select(member => member.Id)];
+    }
+
+    /// <summary>**接地整体**：外壳 + 全部贴壳件（跨带）。</summary>
+    /// <param name="assemblies">本次判定使用的拼接件（调用方按同一时刻的几何算好）。</param>
+    private static List<string> CollectGroundedWhole(IReadOnlyList<TilingAssembly> assemblies)
+    {
+        var whole = new List<string> { ShellNodeId };
+
+        foreach (var assembly in assemblies)
+        {
+            if (!assembly.TouchesShell)
+            {
+                continue;
+            }
+
+            foreach (var member in assembly.Members)
+            {
+                whole.Add(member.Id);
+            }
+        }
+
+        return whole;
+    }
+
+    /// <summary>**接地整体**的集合形态（拖动外壳时的跟随成员，含外壳节点）。</summary>
+    /// <param name="shellOverridePixels">用指定的外壳矩形参与判定（**移动前的几何**）。</param>
+    private HashSet<string> GroundedWhole(CanvasRect? shellOverridePixels = null) =>
+        new(CollectGroundedWhole(BuildAssemblies(shellOverridePixels)), StringComparer.Ordinal);
+
+    /// <summary>
+    /// 某模块当前所在的**模块组**（不包含外壳）：供"选中整组"使用（点击选中蓝框的范围）。
     /// </summary>
     /// <param name="instanceId">模块实例 ID。</param>
     /// <returns>实例 ID 列表（至少包含自身）。</returns>
+    /// <remarks>
+    /// 语义是**接地整体**：点一个贴壳件会选中全部贴壳件。这是"组"的可见口径，
+    /// 与逐帧位移的跟随范围一致——**不要**拿它去做抬窗（见 <see cref="AssemblyMembersOf"/>）。
+    /// </remarks>
     public IReadOnlyList<string> GroupMembersOf(string instanceId) =>
-        [.. GroupOfNode(instanceId).Where(id => !string.Equals(id, ShellNodeId, StringComparison.Ordinal) && Find(id) is not null)];
+        [.. DragScopeOf(instanceId).Where(id => !string.Equals(id, ShellNodeId, StringComparison.Ordinal) && Find(id) is not null)];
+
+    /// <summary>
+    /// 某模块所在的**拼接件**成员（不含外壳）：供**抬窗**使用。
+    /// </summary>
+    /// <param name="instanceId">模块实例 ID。</param>
+    /// <returns>实例 ID 列表（至少包含自身；找不到模型对象时只含自身）。</returns>
+    /// <remarks>
+    /// <b>抬窗 ≠ 位移</b>：位移要整块接地整体一起走（否则贴壳边被撕开），抬窗只是**叠放顺序**。
+    /// 同件成员两两不重合，抬哪一件都不会有视觉差异；反过来把接地整体抬上来，会把外壳和其他贴壳件
+    /// 一起越过，表现为"点一个模块，另外一块被顶上来、主窗口被压下去"。
+    /// </remarks>
+    public IReadOnlyList<string> AssemblyMembersOf(string instanceId)
+    {
+        var seed = BuildAssemblies().FirstOrDefault(assembly => assembly.Contains(instanceId));
+
+        return seed is null
+            ? [instanceId]
+            : [.. seed.Members.Select(member => member.Id).Where(id => Find(id) is not null)];
+    }
 
     /// <summary>
     /// 按**物理位移**平移一组模块（跨屏缩放变化后的组内重贴用）。
@@ -3603,74 +3644,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         }
     }
 
-    /// <summary>某节点所在的**拼图组**（同层贴合连通分量，含自身；外壳也参与）。</summary>
-    /// <param name="nodeId">起始节点 id（外壳用 <see cref="ShellNodeId"/>）。</param>
-    /// <param name="shellOverride">用指定的外壳矩形参与分组（**移动前的几何**）。</param>
-    /// <param name="layerFilter">
-    /// 只允许走到该层的模块；null = 从模块起点自动取它的层，从外壳起点（移动外壳）跨所有层。
-    /// 外壳本身不参与层比较，但经过外壳再往模块走时仍受此过滤。
-    /// </param>
-    /// <remarks>
-    /// **层先于组**：模块 ↔ 模块先要求同层，再看贴合；贴边不能反向并层。
-    /// 从模块起点出发时 filter = 该模块的层，因此不会跨层；只有从外壳起点（拖外壳）才跨层。
-    /// </remarks>
-    private HashSet<string> GroupOfNode(string nodeId, CanvasRect? shellOverride = null, int? layerFilter = null)
-    {
-        var filter = layerFilter;
-        if (filter is null
-            && !string.Equals(nodeId, ShellNodeId, StringComparison.Ordinal)
-            && Find(nodeId) is { } start)
-        {
-            filter = start.Layer;
-        }
-
-        var nodes = TilingNodes(shellOverride);
-        var group = new HashSet<string>(StringComparer.Ordinal) { nodeId };
-        var queue = new Queue<string>();
-        queue.Enqueue(nodeId);
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            var currentIndex = nodes.FindIndex(n => string.Equals(n.Id, current, StringComparison.Ordinal));
-            if (currentIndex < 0)
-            {
-                continue;
-            }
-
-            for (var i = 0; i < nodes.Count; i++)
-            {
-                if (i == currentIndex || group.Contains(nodes[i].Id))
-                {
-                    continue;
-                }
-
-                if (!AreNodesJoined(nodes[currentIndex], nodes[i], GroupTolerance))
-                {
-                    continue;
-                }
-
-                // 模块起点按层走；外壳是跨层锚点，本身不受层限制，但经它再往模块走仍受 filter 约束。
-                if (filter is { } layer
-                    && !string.Equals(nodes[i].Id, ShellNodeId, StringComparison.Ordinal)
-                    && nodes[i].Layer != layer)
-                {
-                    continue;
-                }
-
-                _ = group.Add(nodes[i].Id);
-                queue.Enqueue(nodes[i].Id);
-            }
-        }
-
-        return group;
-    }
-
     /// <summary>
-    /// **唯一**的吸附候选构建入口：所有候选都按同一层 + 同一排除集合产生。
+    /// **唯一**的吸附候选构建入口：对齐/端口/尺寸按同带，贴合与障碍跨带。
     /// </summary>
     /// <param name="movingIds">本次手势移动的实例（含外壳节点时外壳线被排除）。</param>
-    /// <param name="layer">本次手势所在的模块层。</param>
+    /// <param name="layer">本次手势所在的模块层（只用于**对齐/端口/尺寸**的带内过滤）。</param>
     /// <param name="scale">被移动窗口的缩放（把其它窗口的物理矩形换到同一 DIP 口径）。</param>
     /// <param name="includePorts">是否生成端口锚点候选（拖动为 true，缩放为 false）。</param>
     /// <param name="includeSizes">是否生成尺寸相等参照（缩放为 true，拖动为 false）。</param>
@@ -3684,44 +3662,53 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         var excluded = new HashSet<string>(movingIds, StringComparer.Ordinal);
 
         return new SnapContext(
-            layer,
             CollectLines(excluded, layer, scale),
             includePorts ? BuildPortAnchors(movingIds, excluded, layer, scale) : [],
             includeSizes ? CollectSizeReferences(excluded, layer, scale) : [],
-            BuildObstacles(excluded, layer, scale));
+            BuildObstacles(excluded, scale));
     }
 
-    /// <summary>组吸附的障碍矩形（同层组外可见模块 + 外壳），统一换算到被拖窗口 DIP。</summary>
-    private List<CanvasRect> BuildObstacles(
+    /// <summary>吸附的障碍（**全部**可见模块 + 外壳，均带层号），统一换算到被拖窗口 DIP。</summary>
+    /// <remarks>
+    /// <b>为什么不按带过滤、却要带层号</b>：障碍是"拼上"的否定面，但**压住更低层的模块是合法的**
+    /// （层就是为叠放引入的）。所以障碍表收全部可见模块，把层号交给 <see cref="SnapEngine.SnapGroup"/>
+    /// 逐候选判"会不会压住**目标层**"——按带过滤会误杀密集布局里的拼接，不分层则同样误杀。
+    /// 外壳例外：它是底板，任何目标层都不许重合（<see cref="SnapObstacle.AlwaysBlocks"/>），
+    /// 否则"拼上 = 贴边不压"就不成立。
+    /// </remarks>
+    private List<SnapObstacle> BuildObstacles(
         HashSet<string> excluded,
-        int layer,
         double scale)
     {
-        var obstacles = new List<CanvasRect>();
+        var obstacles = new List<SnapObstacle>();
 
         foreach (var module in Modules.Where(m => m.IsViewVisible
-            && m.Layer == layer
             && !excluded.Contains(m.InstanceId)))
         {
-            obstacles.Add(ToDragDip(module.PhysicalRect, scale));
+            obstacles.Add(new SnapObstacle(ToDragDip(module.PhysicalRect, scale), module.Layer));
         }
 
         // 外壳是跨层锚点：任何层都可以贴它，因此始终作为障碍（贴着但不重合才允许）。
         if (!excluded.Contains(ShellNodeId) && TryGetShellPhysical() is { } shell)
         {
-            obstacles.Add(ToDragDip(shell, scale));
+            obstacles.Add(new SnapObstacle(ToDragDip(shell, scale), Layer: 0, AlwaysBlocks: true));
         }
 
         return obstacles;
     }
 
     /// <summary>
-    /// **参照线**集合：同层其他模块的外框（4 边 + 中心线）+ 外壳边。
+    /// **参照线**集合：模块外框 + 外壳边。
     /// </summary>
     /// <remarks>
-    /// 外壳只是"**只暴露一条右边缘的对象**"，与模块进同一张线表（不做特殊通道）。
-    /// 同组成员与自身不提供外框线；**外壳在移动集合里时也不提供** —— 它跟着组一起走，
-    /// 留在起点的旧线会把被拖模块拉回去。跨层模块不进入本表。
+    /// <list type="bullet">
+    ///   <item><b>同带模块</b>：全套线（4 边 + 中心线），既可用于对齐，也可用于贴合；</item>
+    ///   <item><b>跨带模块</b>：只给 4 条外框边，且**只许贴合、不许对齐**（对齐是"整齐"语义，仍只认同带）。
+    ///     跨带贴合是必需的：组的某一段悬空在浅带上时，浅带模块只有靠它才能拼上去，否则**永远拼不上**；</item>
+    ///   <item>外壳只是"**只暴露一条右边缘的对象**"，与模块进同一张线表（不做特殊通道）；</item>
+    ///   <item>同组成员与自身不提供线；**外壳在移动集合里时也不提供** —— 它跟着组一起走，
+    ///     留在起点的旧线会把被拖模块拉回去。</item>
+    /// </list>
     /// </remarks>
     private List<SnapLine> CollectLines(
         HashSet<string> excluded,
@@ -3731,10 +3718,13 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         var lines = new List<SnapLine>();
 
         foreach (var module in Modules.Where(m => m.IsViewVisible
-            && m.Layer == layer
             && !excluded.Contains(m.InstanceId)))
         {
-            lines.AddRange(SnapEngine.LinesOf(ToDragDip(module.PhysicalRect, scale)));
+            var rect = ToDragDip(module.PhysicalRect, scale);
+            lines.AddRange(SnapEngine.LinesOf(
+                rect,
+                flushOnly: module.Layer != layer,
+                ownerLayer: module.Layer));
         }
 
         // 外壳是跨层锚点：任何层都能贴它；只在它跟着本组走时不再作为参照线。
@@ -3885,7 +3875,13 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
                             ? otherRect.X + (otherRect.Width * theirs.Offset)
                             : otherRect.Y + (otherRect.Height * theirs.Offset);
 
-                        pairs.Add(new PortAnchorPair(alignsX, otherCoordinate, otherRect, mine.Offset, memberIndex));
+                        pairs.Add(new PortAnchorPair(
+                            alignsX,
+                            otherCoordinate,
+                            otherRect,
+                            mine.Offset,
+                            memberIndex,
+                            other.Layer));
                     }
                 }
             }
@@ -3895,17 +3891,17 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 手势期间使用的带层候选快照。**只有 <see cref="BuildSnapContext"/> 能构造它**，
-    /// 拖动/缩放/障碍/尺寸都从这里取，避免出现第二条不按层过滤的候选路径。
+    /// 手势期间使用的候选快照（**在 BeginDrag/BeginResize 一次冻结**）。
+    /// 只有 <see cref="BuildSnapContext"/> 能构造它：拖动/缩放/障碍/尺寸都从这里取，
+    /// 避免出现第二条口径不同的候选路径（口径分叉 = 吸附结果与落手判定不一致）。
     /// </summary>
     private sealed record SnapContext(
-        int Layer,
         IReadOnlyList<SnapLine> Lines,
         IReadOnlyList<PortAnchorPair> PortAnchors,
         IReadOnlyList<ResizeSizeReference> SizeReferences,
-        IReadOnlyList<CanvasRect> Obstacles)
+        IReadOnlyList<SnapObstacle> Obstacles)
     {
-        public static readonly SnapContext Empty = new(0, [], [], [], []);
+        public static readonly SnapContext Empty = new([], [], [], []);
     }
 }
 

@@ -1,11 +1,3 @@
-using HYWDebugAssistant.Core.Api;
-using HYWDebugAssistant.Core.Runtime;
-using HYWDebugAssistant.Core.Services;
-using HYWDebugAssistant.Hosting.Registry;
-using HYWDebugAssistant.Sdk;
-using HYWDebugAssistant.Sdk.Context;
-using HYWDebugAssistant.Sdk.Lifecycle;
-using HYWDebugAssistant.Ui.Geometry;
 using HYWDebugAssistant.Ui.ViewModels;
 using Shouldly;
 using Xunit;
@@ -13,107 +5,72 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// **层隔离**：贴合只是几何谓词；不同层的模块即使贴边也不成组、不参与拖动/缩放候选。
+/// **带隔离的残余职责**：层不再决定"能不能拼"，但仍决定"跟谁对齐/参照尺寸"。
 /// </summary>
+/// <remarks>
+/// 拼接 = 贴合 + 互不遮挡（跨带）；对齐/端口/尺寸参照 = 同带。
+/// 把"同层"也当拼接门禁，跨带贴合就会被一律拒掉（组被抬层后另一端再也拼不上）。
+/// </remarks>
 public class LayerIsolationTests
 {
     [Fact]
-    public void 不同层的贴合模块不应成组也不应参与拖动吸附()
+    public void 跨带贴合仍应成组()
     {
-        using var harness = new IsolationHarness();
-        var windows = harness.Windows;
-
-        var a = windows.Modules.Single(module => module.InstanceId == "a");
-        var b = windows.Modules.Single(module => module.InstanceId == "b");
-
-        SnapEngine.AreJoined(a.PhysicalRect, b.PhysicalRect).ShouldBeTrue("先用几何证明两者确实贴边");
-        windows.GroupMembersOf("a").ShouldNotContain("b");
-        windows.GroupMembersOf("b").ShouldNotContain("a");
-
-        // 把 a 拖到与 b 正好贴合：拖动候选只取 a 的层，b 不参与，位置来自指针而不是吸附。
-        windows.BeginDrag("a", pointerX: 50, pointerY: 50, independent: false).ShouldBeTrue();
-        windows.DragTo(pointerX: 54, pointerY: 50);
-
-        a.PixelRect.Right.ShouldBe(104);
-        b.PixelRect.Left.ShouldBe(104);
-        windows.GroupMembersOf("a").ShouldNotContain("b", "层不同，贴边也不能在落手后合并");
-
-        windows.EndDrag();
-    }
-
-    [Fact]
-    public void 不同层模块不应提供缩放边或尺寸候选()
-    {
-        using var harness = new IsolationHarness();
-        var windows = harness.Windows;
-
-        var a = windows.Modules.Single(module => module.InstanceId == "a");
-
-        windows.BeginResize("a", ResizeHandle.Right, pointerX: 100, pointerY: 50).ShouldBeTrue();
-        windows.ResizeTo(pointerX: 101, pointerY: 50);
-
-        // b 的宽是 100；若跨层尺寸候选参与，a 会被吸回 100。a 当前层只有自己，故保持指针结果 101。
-        a.Width.ShouldBe(101);
-        a.PixelRect.Right.ShouldBe(101);
-
-        windows.EndResize();
-    }
-
-    private sealed class IsolationHarness : IDisposable
-    {
-        public IsolationHarness()
-        {
-            Runtime = new ModuleRuntime(issues: null, carrierOptions: null);
-            Services = new RuntimeServices(Runtime);
-
-            var definition = new ModuleDefinition(
-                ModuleId.Create("test", "layer-isolation"),
-                nameof(IsolationModule),
-                string.Empty,
-                [],
-                ModuleCapability.None,
-                [], true,
-                typeof(IsolationModule),
-                string.Empty,
-                string.Empty);
-
-            Services.Registry.TryRegister(definition, out var failure).ShouldBeTrue(failure);
-
-            Services.AddModule("a", "test/layer-isolation").Succeeded.ShouldBeTrue();
-            Services.AddModule("b", "test/layer-isolation").Succeeded.ShouldBeTrue();
-            Services.AddModule("c", "test/layer-isolation").Succeeded.ShouldBeTrue();
-
-            // c 在 a 下方且与 a 重合 ⇒ a 在 1 层；b 与 a 贴边（4px）但不与 c 重合 ⇒ b 在 0 层。
-            Services.UpdateModuleLayout(new ModuleLayoutView("c", 0, 0, 100, 100)).Succeeded.ShouldBeTrue();
-            Services.UpdateModuleLayout(new ModuleLayoutView("a", 0, 0, 100, 100)).Succeeded.ShouldBeTrue();
-            Services.UpdateModuleLayout(new ModuleLayoutView("b", 104, 0, 100, 100)).Succeeded.ShouldBeTrue();
-
-            Windows = new ModuleWindowsViewModel(Services, Services);
-            Windows.Refresh();
-            Windows.ZOrderProvider = id => id switch
+        // u 垫在 a 左半下面 ⇒ a 在 1 层；b 与 a 相距 4px（在贴合容差内）且不重合。
+        using var harness = new TilingHarness(
+            [
+                ("u", 0, 0, 150, 150),
+                ("a", 0, 0, 200, 200),
+                ("b", 204, 0, 200, 200),
+            ],
+            zOrder: id => id switch
             {
-                "c" => 0,
+                "u" => 0,
                 "a" => 1,
                 "b" => 2,
                 _ => int.MinValue,
-            };
-            Windows.RefreshLayers();
-        }
+            });
 
-        public ModuleRuntime Runtime { get; }
+        var windows = harness.Windows;
 
-        public RuntimeServices Services { get; }
+        harness.Module("a").Layer.ShouldBe(1, "a 压在 u 上 ⇒ 1 层");
+        harness.Module("b").Layer.ShouldBe(1, "b 与 a 是同一件 ⇒ 必须同层");
 
-        public ModuleWindowsViewModel Windows { get; }
-
-        public void Dispose() => Runtime.Dispose();
+        windows.GroupMembersOf("a").ShouldContain("b", "贴合且互不遮挡 ⇒ 成组，层号差多少都一样");
+        windows.GroupMembersOf("b").ShouldContain("a");
     }
 
-    [ModuleDefinition("test", "layer-isolation")]
-    public sealed class IsolationModule : IModule
+    [Fact]
+    public void 尺寸参照仍只认同带()
     {
-        public void OnRegistered(IModuleContext context)
-        {
-        }
+        // u（宽 180）在底部；g（宽 200）压住 u ⇒ 1 层；h（宽 220）单独在 0 层。
+        using var harness = new TilingHarness(
+            [
+                ("u", 0, 0, 180, 200),
+                ("g", 0, 0, 200, 200),
+                ("h", 400, 0, 220, 200),
+            ],
+            zOrder: id => id switch
+            {
+                "u" => 0,
+                "g" => 1,
+                "h" => 2,
+                _ => int.MinValue,
+            });
+
+        var windows = harness.Windows;
+        var h = harness.Module("h");
+
+        windows.BeginResize("h", ResizeHandle.Right, pointerX: 620, pointerY: 50).ShouldBeTrue();
+
+        // 同带的 u（宽 180）是参照：拖到 181 会被吸到 180。
+        windows.ResizeTo(pointerX: 581, pointerY: 50);
+        h.Width.ShouldBe(180, "同带模块的宽度是尺寸参照");
+
+        // 另一带的 g（宽 200）不是参照：拖到 201 不会被吸走。
+        windows.ResizeTo(pointerX: 601, pointerY: 50);
+        h.Width.ShouldBe(201, "跨带模块不提供尺寸参照（带隔离仍在）");
+
+        windows.EndResize();
     }
 }

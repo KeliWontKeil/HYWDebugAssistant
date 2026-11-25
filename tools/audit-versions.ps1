@@ -52,7 +52,9 @@ function Get-RelativePath([string]$path) {
     return $path.Substring($root.Length + 1).Replace('\', '/')
 }
 
-$excludedPath = '\\(\.git|\.vs|bin|obj|artifacts|BenchmarkDotNet\.Artifacts|node_modules|TestResults)\\'
+# `.workbuddy` 是助手的工作记忆（已被 .gitignore 排除，不进交付库），它不是产品的一部分，
+# 也不受版本纪律约束 —— 把它扫进来只会让"记了发布版本号"变成门禁红灯。
+$excludedPath = '\\(\.git|\.vs|\.workbuddy|bin|obj|artifacts|BenchmarkDotNet\.Artifacts|node_modules|TestResults)\\'
 
 # 章节号 / IP 字面量不是"产品版本"，先遮掉再判（只影响这一条规则）。
 function Get-MaskedLine([string]$line) {

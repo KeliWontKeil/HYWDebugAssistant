@@ -63,6 +63,23 @@ $devSymbols = @(Get-ChildItem -LiteralPath $product -Recurse -File |
     Where-Object { $_.Extension -in @('.pdb', '.xml') })
 if ($devSymbols.Count -gt 0) { Fail "产品目录包含开发符号/XML 文档：$($devSymbols[0].FullName)" }
 
+# Windows 目标只带自己的后端：其它平台后端与调试组件由 package-release 删掉，这里防它们再回来。
+if ([string]$release.rid -like 'win-*') {
+    $foreign = @(
+        'Avalonia.X11.dll', 'Avalonia.FreeDesktop.dll', 'Avalonia.FreeDesktop.AtSpi.dll',
+        'Avalonia.Native.dll', 'Avalonia.Metal.dll', 'Tmds.DBus.Protocol.dll',
+        'Avalonia.DesignerSupport.dll', 'createdump.exe', 'mscordaccore.dll', 'mscordbi.dll',
+        'Microsoft.DiaSymReader.Native.amd64.dll', 'msquic.dll', 'System.Net.Quic.dll'
+    )
+    $hits = @($foreign | Where-Object { Test-Path -LiteralPath (Join-Path $product $_) })
+    if ($hits.Count -gt 0) { Fail "产品目录含目标平台不需要的程序集：$($hits -join ', ')" }
+
+    # 反向护栏：Vulkan 后端被 Win32GlManager 无条件加载，删了窗口起不来。
+    if (-not (Test-Path -LiteralPath (Join-Path $product 'Avalonia.Vulkan.dll'))) {
+        Fail '产品目录缺少 Avalonia.Vulkan.dll（Win32 渲染后端必需）'
+    }
+}
+
 $entryName = if ([string]$release.rid -like 'win-*') { 'HYWDebugAssistant.App.exe' } else { 'HYWDebugAssistant.App' }
 RequireFile (Join-Path $product $entryName)
 
@@ -91,6 +108,30 @@ $seed = Join-Path $product 'resources\seeds\settings\settings.json'
 RequireFile $seed
 $frameworkTable = Join-Path $product 'resources\i18n\HYWDebugAssistant.FrameworkUi\zh-Hans.json'
 RequireFile $frameworkTable
+
+# 清单完整性：目录里的文件必须与 release.json 记录的集合一一对应。
+# 就地运行过产品（会生成 settings\、composites\）或手工改过产物都在这里暴露 ——
+# 这拦的是"目录看着还能跑，但已经不是当初校验过的那一份"。
+$expected = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+foreach ($record in @($release.app)) { [void]$expected.Add([string]$record.path) }
+[void]$expected.Add('release.json')
+foreach ($module in @($release.modules)) {
+    foreach ($file in @($module.files)) {
+        [void]$expected.Add("modules/$($module.package)/$([string]$file.path)")
+    }
+}
+foreach ($record in @($release.resources)) { [void]$expected.Add("resources/$([string]$record.path)") }
+
+$actual = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+foreach ($file in (Get-ChildItem -LiteralPath $product -Recurse -File)) {
+    if ($file.Name -in @('desktop.ini', 'Thumbs.db', '.DS_Store')) { continue }
+    [void]$actual.Add([System.IO.Path]::GetRelativePath($product, $file.FullName).Replace('\', '/'))
+}
+
+$extra = @($actual | Where-Object { -not $expected.Contains($_) })
+$absent = @($expected | Where-Object { -not $actual.Contains($_) })
+if ($extra.Count -gt 0) { Fail "产品目录有清单外的文件（就地运行过产物？）：$($extra[0])（共 $($extra.Count) 个）" }
+if ($absent.Count -gt 0) { Fail "产品目录缺少清单内的文件：$($absent[0])（共 $($absent.Count) 个）" }
 
 # ---------------------------------------------------------------- SDK
 RequireFile (Join-Path $sdk 'sdk.json')

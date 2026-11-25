@@ -79,6 +79,8 @@ try {
     Write-Host '[release] 完成：' -ForegroundColor Green
     Write-Host "  产品：$productTarget" -ForegroundColor Green
     Write-Host "  SDK ：$sdkTarget" -ForegroundColor Green
+    Write-Host '[release] 产品目录此刻是干净的分发源；就地运行会在其中生成 settings\ / composites\，' -ForegroundColor Yellow
+    Write-Host '          运行过的目录不要再拿去分发（verify-release.ps1 会因清单外的文件拒绝）。' -ForegroundColor Yellow
 }
 catch {
     # 发布失败：清理本次新建的产品/SDK 目录，避免留下半成品。

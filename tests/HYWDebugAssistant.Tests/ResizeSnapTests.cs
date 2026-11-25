@@ -208,7 +208,7 @@ public class ResizeSnapTests
             [],
             minWidth: 50,
             minHeight: 50,
-            obstacles: [other]);
+            obstacles: [new SnapObstacle(other, Layer: 0, AlwaysBlocks: true)]);
 
         result.Rect.Width.ShouldBe(296);
         result.SnappedX.ShouldBeFalse();
@@ -251,5 +251,5 @@ public class ResizeSnapTests
     }
 
     private static IReadOnlyList<SnapLine> Lines(params CanvasRect[] rects) =>
-        [.. rects.SelectMany(SnapEngine.LinesOf)];
+        [.. rects.SelectMany(rect => SnapEngine.LinesOf(rect))];
 }

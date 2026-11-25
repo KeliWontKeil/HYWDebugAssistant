@@ -9,7 +9,7 @@ namespace HYWDebugAssistant.Tests;
 /// </summary>
 /// <remarks>
 /// 若右边缘也能吸上去，模块会以右边缘对齐外壳右边缘 —— 视觉上压在壳上，
-/// 但 `AreNodesJoined` 只认左边缘 ⇒ 看起来吸上了却不成组。
+/// 但贴壳判据只认左边缘 ⇒ 看起来吸上了却不成组。
 /// </remarks>
 public class ShellSnapTests
 {

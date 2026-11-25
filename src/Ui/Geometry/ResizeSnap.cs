@@ -79,7 +79,9 @@ public static partial class SnapEngine
     /// <param name="maxHeight">最大高（DIP；null = 无上限）。</param>
     /// <param name="tolerance">边对齐容差（px）。</param>
     /// <param name="flushTolerance">贴合/尺寸相等容差（px）。</param>
-    /// <param name="obstacles">同层模块与外壳的障碍矩形。</param>
+    /// <param name="obstacles">
+    /// 同层模块与外壳的障碍（带层号）；缩放**不看层号**：任何重合都回落原始矩形（见下方说明）。
+    /// </param>
     /// <param name="memory">上一帧的吸附记忆。</param>
     /// <returns>吸附后的矩形、命中级别、辅助线与尺寸参照。</returns>
     /// <exception cref="ArgumentException"><paramref name="edges"/> 同时移动一对相对边。</exception>
@@ -94,7 +96,7 @@ public static partial class SnapEngine
         double? maxHeight = null,
         double tolerance = DefaultTolerance,
         double flushTolerance = FlushTolerance,
-        IReadOnlyList<CanvasRect>? obstacles = null,
+        IReadOnlyList<SnapObstacle>? obstacles = null,
         SnapMemory memory = default)
     {
         ArgumentNullException.ThrowIfNull(lines);
@@ -215,7 +217,9 @@ public static partial class SnapEngine
             return new ResizeSnapResult(raw, false, false, null, null, []);
         }
 
-        if (obstacles is { Count: > 0 } && obstacles.Any(obstacle => RectsOverlap(final, obstacle)))
+        // **缩放刻意不看层号**：缩放不改变"这块在哪个平面"，涨到压住别人就是不可接受的观感，
+        // 所以这里保持"任何重合都回落"。拖动才按目标层逐候选判（见 `SnapGroup`）。
+        if (obstacles is { Count: > 0 } && obstacles.Any(obstacle => RectsOverlap(final, obstacle.Rect)))
         {
             return new ResizeSnapResult(raw, false, false, null, null, []);
         }
@@ -307,8 +311,10 @@ public static partial class SnapEngine
         switch (line.Source)
         {
             case SnapLineSource.FrameEdge:
+            case SnapLineSource.CrossBandEdge:
             {
                 // 低侧边对上对方高侧边（或反之）才是接触；否则只是同侧边对齐。
+                // CrossBandEdge 理论上不可达（缩放上下文只喂同带线），并入本分支只为"来源枚举加值"时不会漏。
                 var contact = lowSide != line.IsOwnerLow;
                 var overlap = CrossOverlap(moving, line);
                 kind = contact && overlap > MinOverlap ? SnapKind.Flush : SnapKind.Edge;
@@ -379,7 +385,7 @@ public static partial class SnapEngine
             alignsX,
             0,
             0,
-            reference.Id));
+            ReferenceId: reference.Id));
     }
 
     /// <summary>把某一条边设到目标坐标，其余边不变。</summary>
@@ -418,14 +424,18 @@ public static partial class SnapEngine
             .ThenBy(candidate => candidate.ReferenceId ?? string.Empty, StringComparer.Ordinal)
             .ToList();
 
+    /// <summary>
+    /// 选一个候选（缩放不做逐候选分层校验：它的障碍判定是"整矩形一旦重合就回落"，见 <see cref="SnapResize"/>）。
+    /// </summary>
     private static Candidate? Choose(
         List<Candidate> candidates,
         double tolerance,
         double flushTolerance,
         double? rememberedLine) =>
         PreferMemory(
-            Best(candidates, tolerance, flushTolerance),
+            Best(candidates, tolerance, flushTolerance, static _ => true),
             candidates,
             rememberedLine,
-            Math.Max(tolerance, flushTolerance) + 2);
+            Math.Max(tolerance, flushTolerance) + 2,
+            static _ => true);
 }

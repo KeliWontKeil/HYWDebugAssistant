@@ -353,8 +353,12 @@ public sealed class ModuleWindowManager : IDisposable
     }
 
     /// <summary>
-    /// 焦点进入某个模块（不一定选中）⇒ 抬起它所在的**整个接触组**；单模块组等价于只抬自己。
+    /// 焦点进入某个模块（不一定选中）⇒ 抬起它所在的**拼接件**；单模块件等价于只抬自己。
     /// </summary>
+    /// <remarks>
+    /// 抬的是**件**，不是接地整体：位移要整块接地整体走（否则贴壳边被撕开），但叠放顺序没有这个约束。
+    /// 若把接地整体搬到最后，外壳会一起被越过 —— 表现为"点 B 却把另一块顶上来、主窗口被压下去"。
+    /// </remarks>
     private void OnModuleActivated(object? sender, EventArgs e)
     {
         if (sender is not ModuleWindow window)
@@ -368,9 +372,9 @@ public sealed class ModuleWindowManager : IDisposable
             return;
         }
 
-        var group = _controller.GroupMembersOf(instanceId).ToList();
+        var group = _controller.AssemblyMembersOf(instanceId).ToList();
         _ = group.Remove(instanceId);
-        group.Add(instanceId);   // 被激活的窗口最后抬 ⇒ 保持在组内最上
+        group.Add(instanceId);   // 被激活的窗口最后抬 ⇒ 保持在件内最上
 
         var windows = new List<Window>(group.Count);
         foreach (var id in group)

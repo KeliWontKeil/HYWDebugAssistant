@@ -176,7 +176,8 @@ T3 必须触发的三种情况：
 
 - 发布默认要求工作树干净并先跑 `build.ps1 -Configuration Release`；`-SkipGate` 只用于本地迭代。
 - 默认 `rid=win-x64`（承诺目标）；其他 RID 允许尝试，但不承诺编译/运行，元数据标记 `unverified`。
-- 用户数据目录（`settings/`、`workspace/`、`logs/`、`composites/`、`framework/`）与外部模块目录（`modules/external/`）不进入产品。
+- 用户数据目录（`settings/`、`workspace/`、`logs/`、`composites/`、`framework/`）与外部模块目录（`modules/external/`）不进入产品。产品目录就地运行会生成它们的同名目录，因此**运行过的目录不再作为分发源**：`verify-release.ps1` 按 `release.json` 逐文件对账，多一个或少一个都失败。
+- 产品只带目标平台需要的组件：Windows 目标去掉 Linux/macOS 后端（`Avalonia.X11` / `FreeDesktop` / `Native` / `Metal` / `Tmds.DBus.Protocol`）、设计器支持与运行时调试组件（`createdump` / `mscordac*` / `mscordbi` / `msquic` / `System.Net.Quic` / `DiaSymReader`）。`Avalonia.Vulkan.dll` **必须保留**：Win32 渲染后端初始化时无条件加载它，缺了直接抛异常、窗口不创建。
 - 不引入 RID 之外的备用发布形态；自包含文件夹是当前唯一产品形态。安装器/压缩包/签名/自动更新暂不做。
 - 模块项目构建时自动归拢到 `artifacts/modules/<配置>/<包名>/`，产品发布时镜像到发布目录的 `modules/`。
 - 模块包只含模块自有文件：模块清单、模块程序集与自有资源；宿主提供的程序集不进入包。

@@ -15,7 +15,7 @@
 ## 图标
 
 - 每个图标一个显式 SVG 文件，由拥有者的 `icons.json` 清单把键映射到相对路径。
-- 框架图标与模块图标使用两套图标集，均为宽松许可，声明在仓库根 `THIRD_PARTY_NOTICES.md`。
+- 图标取自 Fluent UI MDL2、Fluent UI System Icons（均 MIT）与 Lucide（ISC）三套开源图标集，均为宽松许可；完整声明见仓库根 `THIRD_PARTY_NOTICES.md`。
 - 界面通过图标目录取用，填充色跟随前景色；缺键或坏文件显示键名并记录诊断。
 - 界面与模块视图中不出现手绘路径或硬编码字形；SVG 只支持 `viewBox`、路径数据与填充规则。
 

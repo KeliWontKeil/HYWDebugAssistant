@@ -143,6 +143,46 @@ try {
         Remove-Item -LiteralPath $devArtifact.FullName -Force -ErrorAction SilentlyContinue
     }
 
+    # 运行时自带的诊断组件：崩溃转储与调试符号读取，正常使用用不到。
+    # 去掉后崩溃不再产出 dump —— 产品目录里本就不带调试手段，取舍是"少 8 MB 体积"。
+    $diagnostics = @(
+        'createdump.exe',
+        'mscordaccore.dll',
+        'mscordbi.dll',
+        'Microsoft.DiaSymReader.Native.amd64.dll',
+        'msquic.dll',
+        'System.Net.Quic.dll'
+    )
+    foreach ($name in $diagnostics) {
+        Remove-Item -LiteralPath (Join-Path $temp $name) -Force -ErrorAction SilentlyContinue
+    }
+
+    # mscordaccore_amd64_* 之类带版本号后缀，用通配收。
+    foreach ($file in @(Get-ChildItem -LiteralPath $temp -File -Filter 'mscordaccore_*' -ErrorAction SilentlyContinue)) {
+        Remove-Item -LiteralPath $file.FullName -Force -ErrorAction SilentlyContinue
+    }
+
+    # Windows 目标用不到的其它平台后端。
+    # **Avalonia.Vulkan 必须保留**：Win32GlManager 初始化时无条件加载它，缺了直接抛
+    # FileNotFoundException 且窗口不创建（实测）；X11 / FreeDesktop / Native / Metal 则只在
+    # 各自平台上加载，Windows 下删掉不影响启动。
+    if ($rid -like 'win-*') {
+        $otherPlatforms = @(
+            'Avalonia.X11.dll',
+            'Avalonia.FreeDesktop.dll',
+            'Avalonia.FreeDesktop.AtSpi.dll',
+            'Avalonia.Native.dll',
+            'Avalonia.Metal.dll',
+            'Tmds.DBus.Protocol.dll'
+        )
+        foreach ($name in $otherPlatforms) {
+            Remove-Item -LiteralPath (Join-Path $temp $name) -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # 设计器支持只在 VS 的 XAML 预览器里用；产品运行期不需要。
+    Remove-Item -LiteralPath (Join-Path $temp 'Avalonia.DesignerSupport.dll') -Force -ErrorAction SilentlyContinue
+
     # ------------------------------------------------------------ 自包含检查
     $isWindowsTarget = $rid -like 'win-*'
     $runtimeFiles = if ($isWindowsTarget) {
@@ -217,14 +257,19 @@ try {
     $readme = @"
 何译位调试助手 $version（$rid）
 
-启动：双击 $entryName（或从终端运行）。
-本目录是自包含产品：不需要另装 .NET 运行时；不包含安装器，也不包含压缩包。
-运行中的产品就是主应用，也是模块宿主；模块包导入这个进程。
-数据目录（首次运行时按需建立）：settings\、workspace\、composites\、logs\。
-modules\ 是内置模块包；resources\ 是出厂文本、图标与种子。
-模块开发工具链是独立发布的 SDK 目录，不在本目录中。
+启动：双击 $entryName。
 
-release.json 记录版本、源码提交与产物哈希。
+本产品自带 .NET 运行时，不需要另装。
+本目录既是程序目录也是数据目录：设置、组合件与工作区都保存在这里，
+把整个目录拷到别处即可带走全部配置。
+
+首次启动会在本目录建立 settings\、workspace\、composites\、logs\ 并投放出厂主题，
+大约需要十几秒；之后启动是即时的。
+
+modules\     内置模块包
+resources\   界面文本、图标与出厂主题
+
+第三方组件的版权与许可见 THIRD_PARTY_NOTICES.md。
 "@
     Set-Content -LiteralPath (Join-Path $temp 'README.txt') -Value $readme -Encoding utf8 -NoNewline
 
