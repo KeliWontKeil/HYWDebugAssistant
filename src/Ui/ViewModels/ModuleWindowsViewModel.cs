@@ -775,8 +775,8 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// </summary>
     /// <remarks>
     /// **层不再当拼接判据**：这里只调用 <see cref="ModuleLayerPlanner"/>（它以拼接件为最小单位），
-    /// 分组走 <see cref="TilingGraph"/> 的"贴合 + 互不遮挡"。层只用于"谁压谁"的建模与
-    /// 对齐/端口/尺寸参照的带内过滤，不落盘；<see cref="ZOrderProvider"/> 为空时（无头测试/设计期）不规划。
+    /// 分组走 <see cref="TilingGraph"/> 的"贴合 + 互不遮挡"。层只用于"谁压谁"的建模，以及吸附时
+    /// 判"落位新增的遮挡看不看得见"，不落盘；<see cref="ZOrderProvider"/> 为空时（无头测试/设计期）不规划。
     /// 外壳作为最底实体参与重合判断，但不属于任何“同层”模块组。
     /// </remarks>
     public bool RefreshLayers()
@@ -1203,7 +1203,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             }
         }
 
-        _dragContext = BuildSnapContext(_dragGroup, module.Layer, dragScale, includePorts: true, includeSizes: false);
+        _dragContext = BuildSnapContext(_dragGroup, dragScale, includePorts: true, includeSizes: false);
 
         _dragStartPointer = new PixelPoint(ScreenPixels.ToPixel(pointerX), ScreenPixels.ToPixel(pointerY));
 
@@ -1313,7 +1313,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _lastGroupDelta = null;
 
         var draggedScale = dragged.Scaling > 0 ? dragged.Scaling : 1;
-        _dragContext = BuildSnapContext(_dragGroup, dragged.Layer, draggedScale, includePorts: true, includeSizes: false);
+        _dragContext = BuildSnapContext(_dragGroup, draggedScale, includePorts: true, includeSizes: false);
 
         // 组变小 ⇒ 被放回原位的成员重新成为参照线/端口锚点（上下文已重建）。
         _snapMemory = default;
@@ -1511,9 +1511,9 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             ? recordedPixels
             : module.PixelRect;
 
-        // **候选上下文在 BeginDrag 冻结**（不按层变化重建）：拖动必须是"指针位置的纯函数"。
-        // 若中途按新层重建，靠近/离开某个带时对齐候选会整体换一批，位置就会跳变（阈值附近两态抖）。
-        // 层只影响对齐带的过滤，而拖动中位置由用户推动——按起手时的那一带最可预期。
+        // **候选上下文在 BeginDrag 冻结**（不按几何/层变化重建）：拖动必须是"指针位置的纯函数"。
+        // 若中途重建，靠近/离开某个参照物时候选会整体换一批，位置就会跳变（阈值附近两态抖）；
+        // "起点已重合"的豁免也按起手时的几何标定，中途重算会让它在拖动中翻面。
 
         var pointer = new PixelPoint(ScreenPixels.ToPixel(pointerX), ScreenPixels.ToPixel(pointerY));
         var rawDeltaX = pointer.X - _dragStartPointer.X;
@@ -2008,7 +2008,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             return false;
         }
 
-        // 层先于组：缩放开始前先按当前几何重算层，后续候选只取这一层的模块 + 外壳。
+        // 层先于候选：缩放开始前先按当前几何重算层，障碍上的层号与"起点已重合"的标定才准。
         RefreshLayers();
 
         _resizingId = instanceId;
@@ -2019,7 +2019,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         _resizeSizeNoticeKey = null;
 
         var scale = module.Scaling > 0 ? module.Scaling : 1;
-        _resizeContext = BuildSnapContext([instanceId], module.Layer, scale, includePorts: false, includeSizes: true);
+        _resizeContext = BuildSnapContext([instanceId], scale, includePorts: false, includeSizes: true);
 
         module.IsInteracting = true;
         module.ResizeEdges = (int)_resizeEdges;
@@ -3645,16 +3645,19 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// **唯一**的吸附候选构建入口：对齐/端口/尺寸按同带，贴合与障碍跨带。
+    /// **唯一**的吸附候选构建入口：参照线、端口、尺寸与障碍都从这里出。
     /// </summary>
     /// <param name="movingIds">本次手势移动的实例（含外壳节点时外壳线被排除）。</param>
-    /// <param name="layer">本次手势所在的模块层（只用于**对齐/端口/尺寸**的带内过滤）。</param>
     /// <param name="scale">被移动窗口的缩放（把其它窗口的物理矩形换到同一 DIP 口径）。</param>
     /// <param name="includePorts">是否生成端口锚点候选（拖动为 true，缩放为 false）。</param>
     /// <param name="includeSizes">是否生成尺寸相等参照（缩放为 true，拖动为 false）。</param>
+    /// <remarks>
+    /// <b>没有"当前带"这个参数</b>：候选不按层剪裁。层只用来判"落位会不会新增一个看得见的遮挡"，
+    /// 由每条候选自带的 <see cref="SnapLine.OwnerLayer"/> / <see cref="PortAnchorPair.OwnerLayer"/>
+    /// 与障碍上的层号分别作答。任何"只把某一带的线喂进来"的写法都会让贴合与对齐各自成判据。
+    /// </remarks>
     private SnapContext BuildSnapContext(
         IReadOnlyList<string> movingIds,
-        int layer,
         double scale,
         bool includePorts,
         bool includeSizes)
@@ -3662,36 +3665,68 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         var excluded = new HashSet<string>(movingIds, StringComparer.Ordinal);
 
         return new SnapContext(
-            CollectLines(excluded, layer, scale),
-            includePorts ? BuildPortAnchors(movingIds, excluded, layer, scale) : [],
-            includeSizes ? CollectSizeReferences(excluded, layer, scale) : [],
-            BuildObstacles(excluded, scale));
+            CollectLines(excluded, scale),
+            includePorts ? BuildPortAnchors(movingIds, excluded, scale) : [],
+            includeSizes ? CollectSizeReferences(excluded, scale) : [],
+            BuildObstacles(movingIds, excluded, scale));
     }
 
     /// <summary>吸附的障碍（**全部**可见模块 + 外壳，均带层号），统一换算到被拖窗口 DIP。</summary>
+    /// <param name="movingIds">本次手势移动的实例（用来标定"起点已重合"）。</param>
+    /// <param name="excluded">移动集合（不作障碍）。</param>
+    /// <param name="scale">被移动窗口的缩放。</param>
     /// <remarks>
+    /// <para>
     /// <b>为什么不按带过滤、却要带层号</b>：障碍是"拼上"的否定面，但**压住更低层的模块是合法的**
     /// （层就是为叠放引入的）。所以障碍表收全部可见模块，把层号交给 <see cref="SnapEngine.SnapGroup"/>
-    /// 逐候选判"会不会压住**目标层**"——按带过滤会误杀密集布局里的拼接，不分层则同样误杀。
-    /// 外壳例外：它是底板，任何目标层都不许重合（<see cref="SnapObstacle.AlwaysBlocks"/>），
-    /// 否则"拼上 = 贴边不压"就不成立。
+    /// 逐候选判"落位会不会新增一个看得见的遮挡"——按带过滤会误杀密集布局里的拼接，不分层则同样误杀。
+    /// </para>
+    /// <para>
+    /// <b>起点已重合的实体标 <see cref="SnapObstacle.AlreadyOverlaps"/></b>：判据问的是增量。
+    /// 一个压在主窗口上的模块（或任何两块叠在一起的情形）与障碍的重合在手势开始时就已经存在，
+    /// 若照常参与判定，它会让**每一条**候选都被判掉，用户看到的是"完全吸不上、连辅助线都没有"。
+    /// 这里按**手势起点**的几何一次性标定，因此拖动仍是指针位置的纯函数。
+    /// </para>
+    /// <para>
+    /// 外壳仍标 <see cref="SnapObstacle.AlwaysBlocks"/>（底板，任何目标层都不许新增重合），
+    /// 但它同样受"起点已重合"豁免 —— 否则贴着壳的模块永远吸不上任何东西。
+    /// </para>
     /// </remarks>
     private List<SnapObstacle> BuildObstacles(
+        IReadOnlyList<string> movingIds,
         HashSet<string> excluded,
         double scale)
     {
         var obstacles = new List<SnapObstacle>();
+        var moving = new List<CanvasRect>(movingIds.Count);
+
+        foreach (var memberId in movingIds)
+        {
+            if (Find(memberId) is { } member && member.PhysicalRect.IsValid)
+            {
+                moving.Add(ToDragDip(member.PhysicalRect, scale));
+            }
+        }
+
+        bool OverlapsMoving(CanvasRect rect) =>
+            moving.Any(member => SnapEngine.RectsOverlap(member, rect));
 
         foreach (var module in Modules.Where(m => m.IsViewVisible
             && !excluded.Contains(m.InstanceId)))
         {
-            obstacles.Add(new SnapObstacle(ToDragDip(module.PhysicalRect, scale), module.Layer));
+            var rect = ToDragDip(module.PhysicalRect, scale);
+            obstacles.Add(new SnapObstacle(rect, module.Layer, AlreadyOverlaps: OverlapsMoving(rect)));
         }
 
         // 外壳是跨层锚点：任何层都可以贴它，因此始终作为障碍（贴着但不重合才允许）。
         if (!excluded.Contains(ShellNodeId) && TryGetShellPhysical() is { } shell)
         {
-            obstacles.Add(new SnapObstacle(ToDragDip(shell, scale), Layer: 0, AlwaysBlocks: true));
+            var rect = ToDragDip(shell, scale);
+            obstacles.Add(new SnapObstacle(
+                rect,
+                Layer: 0,
+                AlwaysBlocks: true,
+                AlreadyOverlaps: OverlapsMoving(rect)));
         }
 
         return obstacles;
@@ -3700,11 +3735,12 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// <summary>
     /// **参照线**集合：模块外框 + 外壳边。
     /// </summary>
+    /// <param name="excluded">移动集合（不提供线）。</param>
+    /// <param name="scale">被移动窗口的缩放。</param>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item><b>同带模块</b>：全套线（4 边 + 中心线），既可用于对齐，也可用于贴合；</item>
-    ///   <item><b>跨带模块</b>：只给 4 条外框边，且**只许贴合、不许对齐**（对齐是"整齐"语义，仍只认同带）。
-    ///     跨带贴合是必需的：组的某一段悬空在浅带上时，浅带模块只有靠它才能拼上去，否则**永远拼不上**；</item>
+    ///   <item><b>每个模块都提供同一套线（4 边 + 2 中心线）</b>，既可用于贴合，也可用于对齐：
+    ///     层不参与"谁能跟谁对齐"，它只决定"落位新增的遮挡看不看得见"（见 <see cref="BuildObstacles"/>）；</item>
     ///   <item>外壳只是"**只暴露一条右边缘的对象**"，与模块进同一张线表（不做特殊通道）；</item>
     ///   <item>同组成员与自身不提供线；**外壳在移动集合里时也不提供** —— 它跟着组一起走，
     ///     留在起点的旧线会把被拖模块拉回去。</item>
@@ -3712,7 +3748,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     /// </remarks>
     private List<SnapLine> CollectLines(
         HashSet<string> excluded,
-        int layer,
         double scale)
     {
         var lines = new List<SnapLine>();
@@ -3721,10 +3756,7 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             && !excluded.Contains(m.InstanceId)))
         {
             var rect = ToDragDip(module.PhysicalRect, scale);
-            lines.AddRange(SnapEngine.LinesOf(
-                rect,
-                flushOnly: module.Layer != layer,
-                ownerLayer: module.Layer));
+            lines.AddRange(SnapEngine.LinesOf(rect, ownerLayer: module.Layer));
         }
 
         // 外壳是跨层锚点：任何层都能贴它；只在它跟着本组走时不再作为参照线。
@@ -3764,15 +3796,13 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
         return lines;
     }
 
-    /// <summary>同层模块的尺寸参照（稳定排序；用于缩放时“同宽/同高”）。</summary>
+    /// <summary>其它模块的尺寸参照（稳定排序；用于缩放时“同宽/同高”）。</summary>
     private List<ResizeSizeReference> CollectSizeReferences(
         HashSet<string> excluded,
-        int layer,
         double scale)
     {
         return Modules
             .Where(module => module.IsViewVisible
-                && module.Layer == layer
                 && !excluded.Contains(module.InstanceId)
                 && module.PhysicalRect.IsValid)
             .OrderBy(module => module.InstanceId, StringComparer.Ordinal)
@@ -3828,11 +3858,11 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
     ///   <item>接近范围由引擎按两模块的交叉轴间隙判定（不按缝隙大小猜邻接方向）。</item>
     /// </list>
     /// 同组成员与自身不参与；此通道**恒开**（不依赖"叠加信息层"开关）。
+    /// 端口不按层剪裁：层只在引擎里决定"落位新增的遮挡看不看得见"，不决定两个口能不能对齐。
     /// </remarks>
     private List<PortAnchorPair> BuildPortAnchors(
         IReadOnlyList<string> movingIds,
         HashSet<string> excluded,
-        int layer,
         double scale)
     {
         var pairs = new List<PortAnchorPair>();
@@ -3848,7 +3878,6 @@ public sealed partial class ModuleWindowsViewModel : ViewModelBase
             memberIndex++;
 
             foreach (var other in Modules.Where(m => m.IsViewVisible
-                && m.Layer == layer
                 && !excluded.Contains(m.InstanceId)))
             {
                 foreach (var mine in moving.Ports)

@@ -1,19 +1,19 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    构建与验证门禁：文档站检查 / 颜色 / 资源与文本 / 注释布局 / 版本纪律审计 → 还原 → 构建 → 模块包与资源校验 → 依赖许可审计 → 测试。
+    构建与验证门禁：文档站检查 / 颜色 / 资源与文本 / 注释布局 / 版本纪律 / 临时产物审计 → 还原 → 构建 → 模块包与资源校验 → 依赖许可审计 → 测试。
 
 .DESCRIPTION
     0) 清除被污染的环境变量 Platform（否则 MSBuild 会把它当作目标平台，报 MSB4126）
-    1) 文档站结构检查（docs/build.ps1 -Mode Check：严格构建 + 导航完整性 + 生成内容自检），
-       以及颜色口径审计（docs/tools/audit-colors.ps1）、资源与文本审计（tools/audit-resources.ps1）、
+    1) 文档站结构检查（docs/build.ps1 -Mode Check：严格构建 + 导航完整性），
+       以及颜色口径审计（tools/audit-colors.ps1）、资源与文本审计（tools/audit-resources.ps1）、
        注释布局数值审计（tools/audit-layout-comments.ps1）与版本纪律审计（tools/audit-versions.ps1）
-       —— 前三者同受 -SkipDocs 控制，版本审计与截图工程零断言审计始终执行
+       —— 前三者同受 -SkipDocs 控制；版本纪律、截图工程零断言与临时产物审计始终执行
     2) dotnet restore / build
     3) 校验内置模块包归拢（应用输出 modules\ + artifacts\modules\）
     4) 校验输出资源包（tools/verify-resources.ps1）+ 依赖许可审计（tools/audit-licenses.ps1，
        白名单：MIT/Apache-2.0/BSD 等宽松许可）
-    4c) 模块作者包：pack-sdk.ps1 生成四个包 → verify-sdk-packages.ps1 校验 dll / xml / 依赖组
+    4c) 模块作者包：pack-sdk.ps1 生成五个包 → verify-sdk-packages.ps1 校验 dll / xml / 依赖组
        （-SkipPack 可跳过；发布前不得跳过）
     5) dotnet test（默认排除压力/性能类别与截图工具；-IncludePressure / -IncludeSnapshots 按需打开）
 
@@ -137,6 +137,13 @@ Write-Host "===== 1f/6 截图工程零断言审计 =====" -ForegroundColor Cyan
 & (Join-Path $root 'tools\audit-snapshot-asserts.ps1')
 if ($LASTEXITCODE -ne 0) { throw '截图工程零断言审计未通过（见上方 文件:行号；判据见 tools/audit-snapshot-asserts.ps1 头部注释）' }
 
+# ---- 1g) 临时产物审计（只读；判据见 tools/audit-temp-artifacts.ps1 头部注释）----
+# `.gitignore` 只藏不清：裸名模式会让"藏起来"和"清干净"看起来一样。
+# 这条让多余临时根当场显形。它是纯文件系统检查（毫秒级），与文档无关，不受 -SkipDocs 控制。
+Write-Host "===== 1g/6 临时产物审计 =====" -ForegroundColor Cyan
+& (Join-Path $root 'tools\audit-temp-artifacts.ps1')
+if ($LASTEXITCODE -ne 0) { throw '临时产物审计未通过（见上方清单；登记表与规则见 dev/workflow.md「构建产物」）' }
+
 Write-Host "===== 2/6 还原 =====" -ForegroundColor Cyan
 dotnet restore $sln
 if ($LASTEXITCODE -ne 0) { throw '还原失败' }
@@ -238,7 +245,7 @@ $testNote = if ($SkipTests) { ' · 测试已跳过' } else { '' }
 $docNote = if ($SkipDocs) { ' · 文档检查已跳过' } else { '' }
 $packNote = if ($SkipPack) { ' · 作者包已跳过' } else { '' }
 Write-Host ""
-Write-Host "✅ 门禁全部通过：文档站 · 颜色 · 资源与文本 · 注释布局 · 版本纪律 · 构建成功 · 模块包与资源校验 · 作者包 · 许可合规$testNote$docNote$packNote" -ForegroundColor Green
+Write-Host "✅ 门禁全部通过：文档站 · 颜色 · 资源与文本 · 注释布局 · 版本纪律 · 临时产物 · 构建成功 · 模块包与资源校验 · 作者包 · 许可合规$testNote$docNote$packNote" -ForegroundColor Green
 
 if ($RunBenchmarks) {
     Write-Host ""

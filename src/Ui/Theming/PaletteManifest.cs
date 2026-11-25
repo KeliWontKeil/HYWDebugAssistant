@@ -36,7 +36,7 @@ public sealed record PaletteGroup(string Id, string Title, bool Expanded);
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item><b>三个消费者</b>：① 设置面板按它生成「主题色板」的行；② <c>docs/tools/audit-colors.ps1</c>
+///   <item><b>三个消费者</b>：① 设置面板按它生成「主题色板」的行；② <c>tools/audit-colors.ps1</c>
 ///     校验它与色板 XAML 一一对应、**派生规则与内置值一致**、角色词与词表一一对应；
 ///     ③ 主题应用器按它解析（覆盖 → 派生 → 内置）—— 于是应用器**不认识任何具体 token 名**；</item>
 ///   <item><b>它不含色值</b>：值只住在色板 XAML 里 —— 值写两处必然漂，而"有哪几支、谁跟随谁"写两处由审计守住；</item>

@@ -8,7 +8,7 @@
 
 | 需要 | 说明 |
 |---|---|
-| 独立的 SDK 目录 | 产品发布产物之外的 `HYWDebugAssistant.Sdk-<版本>/`：五个作者包、一个模块模板、README；获取与版本见 [SDK 与版本](sdk-version.md) |
+| 独立的 SDK 目录 | 产品发布产物之外的 `HYWDebugAssistant.Sdk-<版本>/`：五个作者包、一个模块模板、许可；获取与版本见 [SDK 与版本](sdk-version.md) |
 | .NET SDK | 版本见产品说明；模板的 `TargetFramework` 已写好 |
 | 可选：Avalonia 扩展 | VS 或 Rider 的 Avalonia 扩展，用来预览模块界面 |
 

@@ -1,5 +1,5 @@
-# MkDocs + Material for MkDocs（文档站构建依赖）
-# 由 docs/build.ps1 检查；升级时同步改这里并重跑 docs/build.ps1 -Mode Check。
+# MkDocs + Material for MkDocs（本地预览文档用；不是项目工具链的一部分）
+# 由 docs/build.ps1 读取；升级时同步改这里并重跑 docs/build.ps1 -Mode Check。
 mkdocs==1.6.1
 mkdocs-material==9.8.0
 pymdown-extensions==12.3

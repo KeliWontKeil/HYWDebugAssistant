@@ -316,11 +316,11 @@ public class ModuleViewSnapshots
     }
 
     /// <summary>
-    /// 生成图片框**带真实图片**的截图（<c>modules\ImageFrame-filled.png</c>）：
+    /// 生成图片显示器**带真实图片**的截图（<c>modules\ImageFrame-filled.png</c>）：
     /// 临时写一张 64×64 PNG，等控件完成加载后按 360×240 窗口截图。
     /// </summary>
     [Fact]
-    public async Task 生成快照_图片框填充图片()
+    public async Task 生成快照_图片显示器填充图片()
     {
         await SnapshotSession.Shared.Dispatch(
             () =>
@@ -373,11 +373,11 @@ public class ModuleViewSnapshots
     }
 
     /// <summary>
-    /// 生成图片框**加载 GIF 动图**的截图（<c>modules\ImageFrame-gif.png</c>）：
+    /// 生成图片显示器**加载 GIF 动图**的截图（<c>modules\ImageFrame-gif.png</c>）：
     /// 验证文件路径 → GIF 解码 → WriteableBitmap 帧的完整接入。
     /// </summary>
     [Fact]
-    public async Task 生成快照_图片框加载GIF()
+    public async Task 生成快照_图片显示器加载GIF()
     {
         await SnapshotSession.Shared.Dispatch(
             () =>
@@ -451,11 +451,11 @@ public class ModuleViewSnapshots
     }
 
     /// <summary>
-    /// 生成图片框**带裁切**的截图（<c>modules\ImageFrame-cropped.png</c>）：
+    /// 生成图片显示器**带裁切**的截图（<c>modules\ImageFrame-cropped.png</c>）：
     /// 写入归一化裁切值，验证源矩形裁切与铺满绘制。
     /// </summary>
     [Fact]
-    public async Task 生成快照_图片框裁切()
+    public async Task 生成快照_图片显示器裁切()
     {
         await SnapshotSession.Shared.Dispatch(
             () =>
@@ -510,11 +510,11 @@ public class ModuleViewSnapshots
     }
 
     /// <summary>
-    /// 生成图片框**从控件图片状态直接解码**的截图（<c>modules\ImageFrame-asset.png</c>）。
+    /// 生成图片显示器**从控件图片状态直接解码**的截图（<c>modules\ImageFrame-asset.png</c>）。
     /// 这是纯视觉夹具；真实持久化由服务/组合件测试覆盖。
     /// </summary>
     [Fact]
-    public async Task 生成快照_图片框资产字节()
+    public async Task 生成快照_图片显示器资产字节()
     {
         await SnapshotSession.Shared.Dispatch(
             () =>

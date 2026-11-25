@@ -74,7 +74,7 @@ public class HostingPackageTests
     }
 
     [Fact]
-    public void 加载图片框包_应成功并解析出目录名与入口类型()
+    public void 加载图片显示器包_应成功并解析出目录名与入口类型()
     {
         var result = ModulePackageLoader.Load(ImageFramePackage);
 
@@ -83,7 +83,7 @@ public class HostingPackageTests
         package.Id.ToString().ShouldBe("hyw/image-frame");
         package.EntryType.Name.ShouldBe("ImageFrameModule");
         package.DefinitionAttribute.DisplayNameKey.ShouldBe("module.title");
-        ModuleDefinition.FromPackage(package).DisplayName.ShouldBe("图片框"); // i18n-test-data: 断言随包文本解析出的模块标题
+        ModuleDefinition.FromPackage(package).DisplayName.ShouldBe("图片显示器"); // i18n-test-data: 断言随包文本解析出的模块标题
     }
 
     [Fact]

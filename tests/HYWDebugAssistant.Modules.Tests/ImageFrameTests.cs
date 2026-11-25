@@ -6,7 +6,7 @@ using Xunit;
 
 namespace HYWDebugAssistant.Modules.Tests;
 
-/// <summary>图片框只声明视图，不持有模块值/输入/端口。</summary>
+/// <summary>图片显示器只声明视图，不持有模块值/输入/端口。</summary>
 public class ImageFrameTests
 {
     [Fact]

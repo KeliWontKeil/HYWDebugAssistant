@@ -10,12 +10,10 @@
 HYWDebugAssistant-<版本>-win-x64/     # 主应用（产品，双击启动）
 HYWDebugAssistant.Sdk-<版本>/         # 作者工具链
   packages/                           # 五个 nupkg
-  template/ModuleTemplate/            # 模块模板
-  NuGet.config
-  README.txt
+  template/ModuleTemplate/            # 模块模板（含 NuGet.config）
 ```
 
-模板默认依赖 `template/ModuleTemplate/../../packages`，所以**先保持 SDK 目录完整**，在 SDK 根内构建；把模板单独复制到别处时，必须改 `NuGet.config` 的本地源。
+模板默认依赖 `template/ModuleTemplate/../../packages`，所以**先保持 SDK 目录完整**，在 SDK 根内构建；把模板单独复制到别处时，必须改模板 `NuGet.config` 的本地源。
 
 ## 1 复制模板
 

@@ -7,7 +7,7 @@ namespace HYWDebugAssistant.Ui.Images;
 
 /// <summary>全局图片选择入口：选文件 → 解码 → 按比例裁切。</summary>
 /// <remarks>
-/// 所有应用内图片选择（主题壁纸、模块壁纸、组合封面、模块图片框）都走这里；
+/// 所有应用内图片选择（主题壁纸、模块壁纸、组合封面、图片显示器）都走这里；
 /// <see cref="PickAsync"/> 返回裁切后的 PNG 字节，<see cref="PickSelectionAsync"/> 返回
 /// 原路径与源图裁切矩形（供需要保留 GIF 动图的调用方使用）。
 /// </remarks>

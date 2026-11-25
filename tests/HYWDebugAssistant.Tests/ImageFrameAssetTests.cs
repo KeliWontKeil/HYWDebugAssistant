@@ -9,7 +9,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// 图片框控件图片状态与模块壁纸的真实隔离/持久化测试。
+/// 图片显示器的控件图片状态与模块壁纸的真实隔离/持久化测试。
 /// 使用真实 RuntimeServices + ModuleViewImageStore，不经过假存储。
 /// </summary>
 public class ImageFrameAssetTests

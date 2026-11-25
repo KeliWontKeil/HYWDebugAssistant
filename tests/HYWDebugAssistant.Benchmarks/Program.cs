@@ -28,6 +28,11 @@ internal static class Program
 /// <remarks>
 /// `<c>ManualConfig</c>` 的构造函数给的是**空配置**（不含任何列提供者/导出器/日志器），
 /// 必须显式补齐——否则摘要表会打印成 "There are no columns to show"（数值拿不到）。
+/// <para>
+/// **输出去处固定在 `artifacts\benchmarks\`**：BenchmarkDotNet 默认丢一个
+/// `BenchmarkDotNet.Artifacts\` 到当前工作目录，等于在仓库根另开一个临时根；
+/// 临时产物只许落在 `artifacts\`（见 dev/workflow.md 的登记表与 tools/audit-temp-artifacts.ps1）。
+/// </para>
 /// </remarks>
 internal sealed class FirstRunConfig : ManualConfig
 {
@@ -43,8 +48,31 @@ internal sealed class FirstRunConfig : ManualConfig
         _ = AddDiagnoser(MemoryDiagnoser.Default);
         _ = AddLogger(ConsoleLogger.Default);
 
-        // Markdown 表格最便于回写文档；同时**保留结果文件**
-        // （BenchmarkDotNet.Artifacts/results/*.md，已在 .gitignore）。
+        // Markdown 表格最便于回写文档；同时**保留结果文件**（artifacts\benchmarks\results\*.md）。
         _ = AddExporter(MarkdownExporter.GitHub);
+
+        _ = WithArtifactsPath(Path.Combine(FindRepoRoot(), "artifacts", "benchmarks"));
+    }
+
+    /// <summary>从程序目录向上找解决方案根（结果不写进仓库根，也不写进程序输出目录）。</summary>
+    /// <remarks>
+    /// 与截图工具的仓库根定位同一判据。
+    /// 找不到就抛错：静默回落到"当前目录/默认路径"会让临时产物又一次跑出 artifacts。
+    /// </remarks>
+    private static string FindRepoRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory is not null)
+        {
+            if (directory.EnumerateFiles("*.slnx").Any() || directory.EnumerateFiles("*.sln").Any())
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException("未能定位仓库根目录（未找到 *.slnx/*.sln），无法确定基准输出去处");
     }
 }

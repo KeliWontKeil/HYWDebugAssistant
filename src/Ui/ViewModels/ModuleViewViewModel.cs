@@ -314,7 +314,8 @@ public sealed partial class ModuleViewViewModel : ViewModelBase
     /// </summary>
     /// <remarks>
     /// 不是用户配置、不写入布局/组合件；由 <c>ModuleLayerPlanner</c> 按叠放顺序与重合关系计算，
-    /// 只用于吸附/成组过滤。外壳不属于任何层，见 <c>ModuleWindowsViewModel</c> 的外壳分支。
+    /// 只用于吸附时判"落位新增的遮挡看不看得见"（不决定能不能拼、也不决定能不能对齐）。
+    /// 外壳不属于任何层，见 <c>ModuleWindowsViewModel</c> 的外壳分支。
     /// </remarks>
     public int Layer { get; set; }
 

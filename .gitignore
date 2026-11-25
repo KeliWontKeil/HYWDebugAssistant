@@ -56,12 +56,20 @@ nunit-*.xml
 dlldata.c
 
 # Benchmark Results
-BenchmarkDotNet.Artifacts/
+# 不单独忽略 `BenchmarkDotNet.Artifacts/`：基准已通过 Config.WithArtifactsPath 写进
+# `artifacts/benchmarks/`（见 tests/HYWDebugAssistant.Benchmarks/Program.cs）。
+# 保留一条忽略会让"基准又把结果丢回仓库根"这件事重新变成静默的。
 
 # .NET Core
 project.lock.json
 project.fragment.lock.json
-artifacts/
+
+# 临时产物只有**一个**根：仓库根的 `artifacts/`。
+# 这里必须写 `/artifacts/`（锚定根），不能写 `artifacts/`：
+# 裸名模式会匹配任意深度，把 `docs/artifacts/`（文档源目录里的构建垃圾）
+# 与各项目目录下的 `artifacts/`（历史残留）一起藏起来 —— 藏住的东西不会被清理，
+# 只会一直躺在那里冒充"仓库的一部分"。清理规则见 tools/audit-temp-artifacts.ps1。
+/artifacts/
 
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
@@ -365,10 +373,9 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
-# 文档站（MkDocs + Material）：本地虚拟环境与构建产物
+# 文档预览（MkDocs + Material）：本地虚拟环境；文档正文全部手写，仓库里没有生成脚本
 .venv-docs/
 .docs-env-freeze.txt
-docs/tools/__pycache__/
 
 # 助手工作记忆（本地过程记录，不属于交付物）
 .workbuddy/

@@ -40,7 +40,7 @@ nav:
           - 横向进度条: guides/modules/scale-bar-horizontal.md
           - 纵向进度条: guides/modules/scale-bar-vertical.md
           - 三轴姿态仪: guides/modules/attitude-display.md
-          - 图片框: guides/modules/image-frame.md
+          - 图片显示器: guides/modules/image-frame.md
       - 模块管理: guides/manage-modules.md
       - 窗口操作: guides/windows.md
       - 吸附与拼接: guides/puzzle.md

@@ -58,9 +58,10 @@
   </ItemGroup>
 
   <!--
-    **出厂种子镜像**（阶段 C）：仓库 `resources\**`（只读出厂种子，当前只有主题包）
+    **出厂种子镜像**：仓库 `resources\**`（只读出厂种子：主题包与示例组合件）
     原样复制到 `<应用输出>\resources\`。程序启动时由投放器把 `resources\seeds\` 合并进程序目录；
     用户数据（`settings\` / `workspace\` / `logs\` …）**不进发布、也不由构建写入**。
+    设置文件不在这里生成：它由应用首启动按代码默认值建立（发布目录同样不带预置设置）。
 
     两个通配源登记进**过期判定**（UpToDateCheckInput）：它们只出现在本目标的 Include 里、
     不是项目项 ⇒ MSBuild 与 VS 的"是否最新"判定看不见它们。不登记时：改一条文案 / 重编一个模块包后，
@@ -116,6 +117,11 @@
   <!--
     **发布目录也要带资源和内置模块**：`dotnet publish` 只复制项目项，不会自动带
     `AfterTargets=Build` 写进 `$(OutDir)` 的 resources/modules。发布目录另跑同样的镜像。
+
+    这两个目标与上面的 `StageResources` / `MirrorBuiltInModulePackages` 是**同一规则的
+    两份实现**（glob 与清空语义都相同，只有目标目录不同：`$(OutDir)` vs `$(PublishDir)`）。
+    合并成一个带参数的实现收益很低（MSBuild 里参数化目标目录反而更难读），
+    所以保持两份，但**改任何一份时必须同步另一份**——否则开发期正常、发布缺文件。
   -->
   <Target Name="StagePublishResources" AfterTargets="Publish">
     <ItemGroup>

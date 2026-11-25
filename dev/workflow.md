@@ -11,7 +11,7 @@
 | PowerShell | 7 及以上 |
 | 文档站（可选） | Python 3.11 及以上，安装 `docs/requirements.txt` 中的依赖 |
 
-文档站不是产品构建的必需项：只改代码时不需要安装 Python 依赖。
+项目工具链是 .NET、PowerShell 与 Visual Studio。mkdocs 只是**本地预览文档**的工具（一个 Python 程序），不是项目的持续开发工具：仓库里没有 Python 脚本参与构建、门禁或发布，文档正文全部手写。只改代码时不需要安装 Python 依赖。
 
 ## 常用命令
 
@@ -32,11 +32,30 @@
 
 ## 构建产物
 
+**临时产物只有一个根：仓库根的 `artifacts/`。** 根上不放散文件，子目录必须在下面这张登记表里。
+
+| `artifacts/` 子目录 | 谁写 | 可重建 |
+|---|---|---|
+| `modules/` | 模块构建（`build/module-package.targets`） | 是 |
+| `sdk-packages/` | `tools/pack-sdk.ps1` | 是 |
+| `docs-site/`、`docs-check/` | `docs/build.ps1` | 是 |
+| `snapshots/` | `VisualSnapshots`（人眼验收用） | 是 |
+| `benchmarks/` | `build.ps1 -RunBenchmarks`（`Config.WithArtifactsPath`） | 是 |
+| `release-manifests/` | `tools/package-release.ps1` / `package-sdk.ps1` | 是 |
+| `logs/` | 构建/测试的重定向输出 | 是 |
+| `theme-seeds/` | 手工（sakura 主题变体） | **否**——删前先转移 |
+
+规则：
+
+- **新增临时产物类别先登记再写代码**：`tools/audit-temp-artifacts.ps1` 的登记表是唯一处；未登记的子目录会让门禁判红。
+- **仓库根不许出现 `*.log` / `*.txt` / 其它临时目录**：需要留输出就写进 `artifacts/logs/`，一次性调试直接丢 `%TEMP%`。
+- **不许有第二个名为 `artifacts` 的目录**：`.gitignore` 里写的是根锚定的 `/artifacts/`，不再是裸名模式。裸名会匹配任意深度，于是某个会话在 `docs/` 或某个项目目录里跑一次工具留下的残留会被静默藏起来、然后一直冒充"仓库的一部分"。
+- 登记表里"可重建"的目录随时可整目录删除；`theme-seeds/` 是唯一手工产物。
+- `build/` **不是**临时目录：`build/module-package.props|targets` 是模块打包规则的唯一来源（`src/Modules/Directory.Build.targets` 导入，`ModuleBuild` 包按 NuGet 约定打进 `build\`），属版本库源文件。
 - 项目输出：`bin\<配置>\net10.0`，全仓只有一棵产物树。
 - 模块包：`artifacts/modules/<配置>/`，构建时自动归拢。
 - 应用输出中的 `modules/` 与 `resources/` 由构建镜像，不手工放入。
-- 文档站：`artifacts/docs-site/`，不进版本库。
-- 模块作者包：`artifacts/sdk-packages/`（五个包，按需清空重建）。
+- 应用输出目录里**也会留下运行期数据**（`settings/`、`composites/`）：`dev.ps1 -Mode Run` 在原目录启动应用，构建不清理它们。它们不是构建产物，也不是发布内容。
 
 ## 模块作者包
 
@@ -117,13 +136,14 @@ T3 必须触发的三种情况：
 4. 源码注释的布局数值审计。
 5. 版本纪律审计。
 6. 截图工程零断言审计。
-7. 还原与构建，要求 0 警告、0 错误。
-8. 内置模块包校验。
-9. 模块作者包：`tools/pack-sdk.ps1` 生成五个包，`tools/verify-sdk-packages.ps1` 校验 dll/xml/依赖组（`-SkipPack` 可跳过，发布前不得跳过）。
-10. 模块模板：`tools/verify-standalone-module.ps1` 用作者包构建模板，并由仓库内 `StandaloneModuleHost` 装入（门禁专用；该宿主不随产品/SDK 发布）。
-11. 输出资源包校验（逐文件与仓库一致）。
-12. 依赖许可审计。
-13. 测试：按项目逐个串行执行；默认排除压力 / 性能类别与截图工具（`-IncludePressure` / `-IncludeSnapshots` 按需打开）。
+7. 临时产物审计（`tools/audit-temp-artifacts.ps1`：只许一个临时根、根上不放散文件、子目录须已登记）。
+8. 还原与构建，要求 0 警告、0 错误。
+9. 内置模块包校验。
+10. 模块作者包：`tools/pack-sdk.ps1` 生成五个包，`tools/verify-sdk-packages.ps1` 校验 dll/xml/依赖组（`-SkipPack` 可跳过，发布前不得跳过）。
+11. 模块模板：`tools/verify-standalone-module.ps1` 用作者包构建模板，并由仓库内 `StandaloneModuleHost` 装入（门禁专用；该宿主不随产品/SDK 发布）。
+12. 输出资源包校验（逐文件与仓库一致）。
+13. 依赖许可审计。
+14. 测试：按项目逐个串行执行；默认排除压力 / 性能类别与截图工具（`-IncludePressure` / `-IncludeSnapshots` 按需打开）。
 
 任何一步失败都会终止门禁。跳过文档相关的检查只在明确不涉及 `docs/` 时使用；跳过作者包只在迭代期间使用。
 
@@ -159,31 +179,42 @@ T3 必须触发的三种情况：
 功能通过自测与人工验收后、提交前，按顺序做一遍：
 
 1. **删临时件**：本次为定位写的探针、临时用例、临时过滤词、一次性脚本全部删除；不留"以后可能用得上"。
-2. **删事故用例**：本次修掉的缺陷若属特定、非共性、修好后不可能复发的，不加常驻用例；发现已存在的同类用例，删。
-3. **过四问**：每条留下来的用例都要答得出——用户会看到什么坏结果？更外层是否已兜住？是否随无关重构变红？是否在钉某次事故的样子？任一答不上就删或合并。
-4. **查重复**：同一事实是否在模块测试 / 主测试 / 参考测试各有一份；只留最靠外一处。
-5. **清文档**：确认没有把未完成功能写进文档；需要更新的文档等开发者显式要求。
-6. **一次验证**：删改一次做完后跑一次 T2（有风险跑 T3），报告删除条数、留下的判据各兜什么。
+2. **清临时产物**：跑一次 `pwsh -NoProfile -File tools/audit-temp-artifacts.ps1`；按它报的清单删掉未登记的子目录、`artifacts/` 根的散文件、仓库根的 `*.log`。可重建的整目录删掉没有代价（下次构建会重造），`artifacts/theme-seeds/` 除外。
+3. **删事故用例**：本次修掉的缺陷若属特定、非共性、修好后不可能复发的，不加常驻用例；发现已存在的同类用例，删。
+4. **过四问**：每条留下来的用例都要答得出——用户会看到什么坏结果？更外层是否已兜住？是否随无关重构变红？是否在钉某次事故的样子？任一答不上就删或合并。
+5. **查重复**：同一事实是否在模块测试 / 主测试 / 参考测试各有一份；只留最靠外一处。
+6. **清文档**：确认没有把未完成功能写进文档；需要更新的文档等开发者显式要求。
+7. **写更新日志**：在 `docs/zh/about/changelog.md` 顶部补本版本一节（版本号从 `version.props` 抄写），写用户能感知的变化——新增、行为改动、修复；不写内部提交号与代码结构。文档正文全部手写，仓库里没有生成正文的脚本，漏写就是没有。
+8. **一次验证**：删改一次做完后跑一次 T2（有风险跑 T3），报告删除条数、留下的判据各兜什么。
 
 ## 打包与发布
 
-发布由 `tools/release.ps1 -OutputDirectory <仓库外空目录>` 统一驱动，产出两个**独立目录**（当前不压缩）：
+发布由 `tools/release.ps1 -OutputDirectory <工程目录>\<版本>` 统一驱动，产出两个**独立目录**（当前不压缩）。产物放在**工程目录下**（仓库的上一级，与仓库并列），不放其它磁盘目录；`-OutputDirectory` 只要求是仓库**外**的空目录或不存在路径。
+`-OutputDirectory` 在 `release.ps1` / `package-sdk.ps1` 里是**父目录**，在 `package-release.ps1` 里是**产品目录本身**。
 
-- **产品**：`HYWDebugAssistant-<版本>-<rid>/`，`dotnet publish` 自包含目录；只含程序、内置模块、资源、设置种子、许可与 `release.json`，不含 SDK、样例、源码、用户数据。
-- **SDK**：`HYWDebugAssistant.Sdk-<版本>/`，五个作者包、模板、本地 NuGet 源、README 与 `sdk.json`；不随产品发布。
+- **产品**：`HYWDebugAssistant-<版本>-<rid>/`，`dotnet publish` 自包含目录；只含程序、内置模块与资源，不含 SDK、样例、源码、用户数据。
+- **SDK**：`HYWDebugAssistant.Sdk-<版本>/`，五个作者包与模块模板（含模板自带的本地源配置）、许可；不随产品发布。
+- **发布记录**：`artifacts/release-manifests/<目录名>.json`，记录版本、源码提交与逐文件哈希；它是构建产物、gitignore，**不进发布目录**。
+- **脚本不创作内容、也不调产品流程**：发布目录里的每个文件只有两种来源——`dotnet publish` 的结果，或从仓库复制的源文件。脚本只做「删除开发件」与「搬运」，不写文件、不启动产品。
+
+  出厂设置种子是 `resources/` 的一部分，属仓库源文件；仓库里没有 `seeds/settings/settings.json`（`tools/audit-resources.ps1` 禁止入库），所以发布目录里也没有——**首启动由应用按代码默认值建立设置文件**。需要预置内容时把它作为源文件入库，而不是让发布脚本生成。
 
 规则：
 
 - 发布默认要求工作树干净并先跑 `build.ps1 -Configuration Release`；`-SkipGate` 只用于本地迭代。
+- 发布前补更新日志：`docs/zh/about/changelog.md` 手写维护，每个交付版本一节。按「功能收尾清理」第 7 步在提交前写好——发布之后的目录只是产物，改动记录只留在这个文件与版本库里。
+- 门禁已经打包并校验过作者包，`release.ps1` 传 `-SkipPack` 复用产物，不在同一次发布里 pack 两遍；`-SkipGate` 时不复用（门禁没跑过）。
 - 默认 `rid=win-x64`（承诺目标）；其他 RID 允许尝试，但不承诺编译/运行，元数据标记 `unverified`。
-- 用户数据目录（`settings/`、`workspace/`、`logs/`、`composites/`、`framework/`）与外部模块目录（`modules/external/`）不进入产品。产品目录就地运行会生成它们的同名目录，因此**运行过的目录不再作为分发源**：`verify-release.ps1` 按 `release.json` 逐文件对账，多一个或少一个都失败。
-- 产品只带目标平台需要的组件：Windows 目标去掉 Linux/macOS 后端（`Avalonia.X11` / `FreeDesktop` / `Native` / `Metal` / `Tmds.DBus.Protocol`）、设计器支持与运行时调试组件（`createdump` / `mscordac*` / `mscordbi` / `msquic` / `System.Net.Quic` / `DiaSymReader`）。`Avalonia.Vulkan.dll` **必须保留**：Win32 渲染后端初始化时无条件加载它，缺了直接抛异常、窗口不创建。
+- 用户数据目录（`settings/`、`workspace/`、`logs/`、`composites/`）与外部模块目录（`modules/external/`）不进入产品。产品目录就地运行会生成它们的同名目录，因此**运行过的目录不再作为分发源**：`verify-release.ps1` 直接拒绝这些禁止项，并按发布记录逐文件对账，多一个或少一个都失败。
+- 产品的 `resources/` 必须与仓库 `resources/` **逐文件相同**（文件集 + SHA256）：这是"脚本没创作内容"的可失败判据，`verify-release.ps1` 每次比对。
+- 产品只带目标平台需要的组件：Windows 目标去掉 Linux/macOS 后端、设计器支持与运行时调试组件。裁剪清单与"必须保留"的反向护栏只有一份，在 `tools/release-profile.ps1` 里；删除端（`package-release.ps1`）与校验端（`verify-release.ps1`）共用它，不在此处抄第二份枚举。
+- **裁剪的判据是"渲染链闭合"，不是"这个文件属于哪个平台"**：`Avalonia.Win32` 与 `Avalonia.Skia` 在程序集层面引用谁，那个程序集就必须在产物里——"只在别的平台加载"是运行期行为，不能拿来判断能否删除。`Avalonia.Vulkan.dll` 与 `Avalonia.Metal.dll` 都属于这一类：缺了前者窗口不创建，缺了后者窗口建得出来但**内容全黑、退出码 0、stderr 为空**（Avalonia 静默降级，没有任何自动信号）。因此 `release-profile.ps1` 除名单外还导出 `Test-ReleaseAssemblyClosure`，在发布与校验两侧各算一遍引用闭包；**新增裁剪项时不要只加文件名，先想清楚它是否在渲染链上**。
 - 不引入 RID 之外的备用发布形态；自包含文件夹是当前唯一产品形态。安装器/压缩包/签名/自动更新暂不做。
 - 模块项目构建时自动归拢到 `artifacts/modules/<配置>/<包名>/`，产品发布时镜像到发布目录的 `modules/`。
 - 模块包只含模块自有文件：模块清单、模块程序集与自有资源；宿主提供的程序集不进入包。
 - `tools/pack-sdk.ps1` 生成五个作者包；`tools/verify-sdk-packages.ps1` 校验包内容；`tools/verify-standalone-module.ps1` 用 SDK 包构建模板模块并由独立宿主装入，`build.ps1` 4d 每次执行。
 - `tools/package-release.ps1` / `tools/package-sdk.ps1` 是分步入口；`tools/verify-release.ps1` 校验已产出的目录。
-- 文档站构建产物在 `artifacts/docs-site/`，与产品发布包相互独立。
+- 文档站构建产物在 `artifacts/docs-site/`，与产品发布包相互独立（临时产物规则见前文「构建产物」）。
 
 ## 文档写作
 
@@ -216,7 +247,7 @@ T3 必须触发的三种情况：
 | 仓库 | 事实、命令与位置、相关 | 项目开发 |
 | 骨架 | 读者、回答、不写、事实来源 | 尚未写的页面 |
 
-模板放在 `docs/templates/`，复制后按需删减。
+模板即上表：按页面类型照该结构写，不另建模板文件。
 
 ### 写法
 
@@ -224,7 +255,7 @@ T3 必须触发的三种情况：
 - 一页回答一个问题；内容能在一页说清就不拆分，规格表与兼容矩阵允许同页，用二级标题分段。行数不作为门禁。
 - 先写做什么、怎么做，再写为什么；机制解释放在"深入理解"层。
 - 面向用户的页面不出现类名、方法名、内部状态名与代码路径；开发层可以使用，但首次出现要给白话说明。
-- 数值、版本号、模块清单不手写：版本由构建注入，模块清单与更新日志由构建生成。
+- 版本号、模块清单与更新日志手写：仓库不生成文档正文，三者与源码保持一致靠人工同步。
 - 不把界面文案写成规范：不写“某条提示应该是……”“某字段的格式必须是……”“状态行提示‘……’”，只写这条文本表示什么。具体措辞由文本表与开发者调整，文档不得把文案钉死。控件名称可以按当前界面引用；状态、错误、格式提示不抄原文。此条与“数值、版本号、模块清单不手写”同级。
 - 术语首次出现给出一句定义，之后全文保持一致；定义集中在站点术语表。
 - 不写"以前是 X，现在是 Y"；历史留在版本库与更新日志里。
@@ -232,9 +263,9 @@ T3 必须触发的三种情况：
 
 ### 新增页面
 
-1. 复制 `docs/templates/stub.md` 到对应层目录，填"读者 / 回答 / 不写 / 事实来源"；标题即页面标题。
+1. 在对应层目录新建页面，按上表该页面类型的结构填写"读者 / 回答 / 不写 / 事实来源"；标题即页面标题。
 2. 在 `docs/mkdocs.yml` 的 `nav` 中登记；未登记的页面、或 nav 顶层不是 7 项，都会让结构检查失败。
-3. 按 `docs/templates/` 里对应的页面类型换掉骨架，再补正文。
+3. 补正文，删掉用不上的骨架段落。
 4. 运行 `docs\build.ps1 -Mode Check`，通过后即可提交。
 
 英文页面放在 `docs/en/` 下相同路径，并在 `docs/mkdocs.en.yml` 中登记。

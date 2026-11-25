@@ -4,7 +4,7 @@ using HYWDebugAssistant.Sdk.Lifecycle;
 namespace HYWDebugAssistant.Modules.ImageFrame;
 
 /// <summary>
-/// **图片框**：在工作区展示一张本地图片或 GIF 动图。
+/// **图片显示器**：在工作区展示一张本地图片或 GIF 动图。
 /// </summary>
 /// <remarks>
 /// <para>

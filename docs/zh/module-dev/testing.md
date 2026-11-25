@@ -70,7 +70,7 @@ public void 声明面应合法()
     <PlatformName>AnyCPU</PlatformName>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="HYWDebugAssistant.Sdk.Testing" Version="{{version}}" />
+    <PackageReference Include="HYWDebugAssistant.Sdk.Testing" Version="<当前版本>" />
     <PackageReference Include="xunit" Version="<与你的测试框架一致>" />
     <PackageReference Include="Shouldly" Version="<可选>" />
     <ProjectReference Include="..\MyModule\HYWDebugAssistant.Vendor.MyModule.csproj" />

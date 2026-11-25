@@ -4,8 +4,8 @@
   <PropertyGroup>
     <HywVersionMajor>0</HywVersionMajor>
     <HywVersionMinor>2</HywVersionMinor>
-    <HywVersionPatch>0</HywVersionPatch>
-    <HywVersionRound>1</HywVersionRound>
+    <HywVersionPatch>1</HywVersionPatch>
+    <HywVersionRound>0</HywVersionRound>
   </PropertyGroup>
 
 </Project>

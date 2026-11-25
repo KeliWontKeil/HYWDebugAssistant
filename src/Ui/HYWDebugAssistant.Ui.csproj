@@ -23,7 +23,7 @@
       · 逻辑名**显式写死**：代码按 `PaletteManifest.ResourceName` 读它，不靠"猜资源名的拼法"
         （拼法随根命名空间/目录变化，猜错的表现是运行期读不到；
          `PaletteManifest` 读不到就抛，因为那是构建产物坏了，不是运行时缺配置）；
-      · 同一个文件也给 `docs/tools/audit-colors.ps1` 读（它校验清单与两份色板 XAML 一一对应）。
+      · 同一个文件也给 `tools/audit-colors.ps1` 读（它校验清单与两份色板 XAML 一一对应）。
     -->
     <EmbeddedResource Include="Styles\palette.json" LogicalName="HYWDebugAssistant.Ui.Styles.palette.json" />
     <!-- 樱色是出厂种子（resources/seeds/settings/appearance/themes/sakura），不嵌入 Ui 运行时。 -->

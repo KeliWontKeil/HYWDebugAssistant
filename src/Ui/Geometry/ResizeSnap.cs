@@ -23,7 +23,7 @@ public enum ResizeEdge
 }
 
 /// <summary>
-/// **尺寸相等参照**：同层另一模块的实例 ID 与其矩形（已换算到缩放窗口的 DIP 口径）。
+/// **尺寸相等参照**：另一模块的实例 ID 与其矩形（已换算到缩放窗口的 DIP 口径）。
 /// </summary>
 /// <param name="Id">参照模块实例 ID（用于状态提示与稳定排序）。</param>
 /// <param name="Rect">参照模块矩形（与被缩放窗口同一坐标系）。</param>
@@ -57,10 +57,10 @@ public readonly record struct ResizeSnapResult(
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-///   <item>候选来源：同层模块外框边、外壳边、同层模块的宽/高；中心线与端口锚点不参与；</item>
+///   <item>候选来源：其它模块的外框边、外壳边、其它模块的宽/高；中心线与端口锚点不参与；</item>
 ///   <item>优先级：贴合 &gt; 边缘对齐 &gt; 尺寸相等（尺寸相等是 <see cref="SnapKind.Size"/>，最低级）；</item>
 ///   <item>未移动的边固定；所有候选必须先通过最小/最大尺寸约束，不合法直接丢弃；</item>
-///   <item>最终矩形若与障碍正面积重合，整次回落原始矩形，不返回辅助线；</item>
+///   <item>最终矩形若与障碍**新增**正面积重合，整次回落原始矩形，不返回辅助线；</item>
 ///   <item>尺寸相等不画“共享边”虚线，由调用方给状态提示；只有边对齐/贴合写 <see cref="Guides"/>。</item>
 /// </list>
 /// </remarks>
@@ -71,8 +71,8 @@ public static partial class SnapEngine
     /// </summary>
     /// <param name="rect">指针推出来的原始矩形（已按指针位移换算，未吸附）。</param>
     /// <param name="edges">正在移动的边。</param>
-    /// <param name="lines">同层模块与外壳的参照线（已按缩放窗口口径换算）。</param>
-    /// <param name="sizeReferences">同层模块的尺寸参照。</param>
+    /// <param name="lines">其它模块与外壳的参照线（已按缩放窗口口径换算）。</param>
+    /// <param name="sizeReferences">其它模块的尺寸参照。</param>
     /// <param name="minWidth">最小宽（DIP）。</param>
     /// <param name="minHeight">最小高（DIP）。</param>
     /// <param name="maxWidth">最大宽（DIP；null = 无上限）。</param>
@@ -80,7 +80,7 @@ public static partial class SnapEngine
     /// <param name="tolerance">边对齐容差（px）。</param>
     /// <param name="flushTolerance">贴合/尺寸相等容差（px）。</param>
     /// <param name="obstacles">
-    /// 同层模块与外壳的障碍（带层号）；缩放**不看层号**：任何重合都回落原始矩形（见下方说明）。
+    /// 其它模块与外壳的障碍（带层号）；缩放**不看层号**：任何新增重合都回落原始矩形（见下方说明）。
     /// </param>
     /// <param name="memory">上一帧的吸附记忆。</param>
     /// <returns>吸附后的矩形、命中级别、辅助线与尺寸参照。</returns>
@@ -217,9 +217,11 @@ public static partial class SnapEngine
             return new ResizeSnapResult(raw, false, false, null, null, []);
         }
 
-        // **缩放刻意不看层号**：缩放不改变"这块在哪个平面"，涨到压住别人就是不可接受的观感，
-        // 所以这里保持"任何重合都回落"。拖动才按目标层逐候选判（见 `SnapGroup`）。
-        if (obstacles is { Count: > 0 } && obstacles.Any(obstacle => RectsOverlap(final, obstacle.Rect)))
+        // **缩放不允许新增任何遮挡**（不分层号）：缩放不改变"这块在哪个平面"，涨到压住别人、
+        // 或涨到自己刚被放在下面的更低层模块上都不可接受，所以这里保持"任何重合都回落"。
+        // 手势起点就已重合的障碍不参与 —— 否则"压在主窗口上"的模块一缩放就整次失灵。
+        if (obstacles is { Count: > 0 }
+            && obstacles.Any(obstacle => !obstacle.AlreadyOverlaps && RectsOverlap(final, obstacle.Rect)))
         {
             return new ResizeSnapResult(raw, false, false, null, null, []);
         }
@@ -311,10 +313,8 @@ public static partial class SnapEngine
         switch (line.Source)
         {
             case SnapLineSource.FrameEdge:
-            case SnapLineSource.CrossBandEdge:
             {
                 // 低侧边对上对方高侧边（或反之）才是接触；否则只是同侧边对齐。
-                // CrossBandEdge 理论上不可达（缩放上下文只喂同带线），并入本分支只为"来源枚举加值"时不会漏。
                 var contact = lowSide != line.IsOwnerLow;
                 var overlap = CrossOverlap(moving, line);
                 kind = contact && overlap > MinOverlap ? SnapKind.Flush : SnapKind.Edge;
@@ -425,7 +425,7 @@ public static partial class SnapEngine
             .ToList();
 
     /// <summary>
-    /// 选一个候选（缩放不做逐候选分层校验：它的障碍判定是"整矩形一旦重合就回落"，见 <see cref="SnapResize"/>）。
+    /// 选一个候选（缩放不做逐候选分层校验：它的障碍判定是"整矩形一旦新增重合就回落"，见 <see cref="SnapResize"/>）。
     /// </summary>
     private static Candidate? Choose(
         List<Candidate> candidates,

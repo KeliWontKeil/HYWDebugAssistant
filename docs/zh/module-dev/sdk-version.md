@@ -7,15 +7,12 @@ SDK 是独立发布目录，**不在产品目录里**：
 ```
 HYWDebugAssistant.Sdk-<版本>/
   packages/                 五个 nupkg
-  template/ModuleTemplate/  模块模板（源码）
-  NuGet.config              本地源：packages + nuget.org
-  README.txt
+  template/ModuleTemplate/  模块模板（源码，含 NuGet.config：packages + nuget.org）
   LICENSE.txt
   THIRD_PARTY_NOTICES.md
-  sdk.json                  版本、提交与文件哈希
 ```
 
-产品发布目录里只有应用程序本体，不包含 SDK 或样例。拿到 SDK 后保持目录完整，在 SDK 根内构建模板；把模板单独复制到别处时，把 `NuGet.config` 的 `hyw-sdk` 指向 SDK 的 `packages/`。
+产品发布目录里只有应用程序本体，不包含 SDK 或样例。拿到 SDK 后保持目录完整，在 SDK 根内构建模板；把模板单独复制到别处时，把模板 `NuGet.config` 的 `hyw-sdk` 指向 SDK 的 `packages/`。
 
 当前 SDK 不发布到 NuGet.org，只通过目录内的本地包使用；后续再考虑公共源或压缩包。
 

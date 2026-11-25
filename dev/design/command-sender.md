@@ -519,7 +519,7 @@ internal static class CommandBytes
 | `docs/zh/module-dev/controls.md` | `ModuleValueList`：行模型、值名表、选择/过滤/行动作、设计期 |
 | `docs/zh/module-dev/ui.md` | 值名驱动行容器的用法；固定槽位的取舍 |
 | `docs/zh/guides/modules/command-sender.md` | 新模块指南（多组字符串、换行语义、转换、拆包、非法禁用、导入导出） |
-| `docs/zh/guides/modules/index.md` | 由 `gen:modules` 生成 |
+| `docs/zh/guides/modules/index.md` | 模块目录表格加一行 |
 | `resources/i18n/HYWDebugAssistant.Sdk.Ui/zh-Hans.json` | 列表控件文案 |
 | `docs/zh/about/changelog.md` | 版本条目 |
 

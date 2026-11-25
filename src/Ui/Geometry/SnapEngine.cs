@@ -54,15 +54,6 @@ public enum SnapLineSource
 
     /// <summary>**外壳对齐边**（左/上/下）：两侧边都可用于对齐，但不产生贴合（不成组）。</summary>
     ShellAlign,
-
-    /// <summary>
-    /// **跨带模块的外框边**：只允许**贴合**（拼上），不产生边缘对齐。
-    /// </summary>
-    /// <remarks>
-    /// 拼接是"空间相接"，与层无关，所以贴得上的边必须能吸成 0 间隙（否则会出现"看着贴上了却没拼上"）；
-    /// 但边缘对齐是"整齐"语义，仍只认同带。这一条是"组的一端悬空在浅带上"时唯一的拼接出路。
-    /// </remarks>
-    CrossBandEdge,
 }
 
 /// <summary>外壳参照线的角色：拼合边 vs 纯对齐边。</summary>
@@ -84,10 +75,10 @@ public enum ShellLineRole
 /// <param name="End">线段终点。</param>
 /// <param name="Source">来源类别（决定候选级别）。</param>
 /// <param name="Owner">归属对象矩形（外框边/中心线/端口锚点有；外壳线为默认值 = 无归属）。</param>
-/// <param name="IsOwnerLow">仅外框边（<see cref="SnapLineSource.FrameEdge"/> / <see cref="SnapLineSource.CrossBandEdge"/>）有意义：是否为归属对象的**低侧**边（左/上）。</param>
+/// <param name="IsOwnerLow">仅外框边（<see cref="SnapLineSource.FrameEdge"/>）有意义：是否为归属对象的**低侧**边（左/上）。</param>
 /// <param name="OwnerLayer">
 /// 归属对象所在的模块层 = 吸上它之后的**目标层**（外壳线与无归属线为 0 = 底板）。
-/// 它只用于判定"会不会压住目标层"，不参与候选排序（排序见 <see cref="SnapKind"/>）。
+/// 它只用于判定"落位会不会**新增遮挡**"，不参与候选排序（排序见 <see cref="SnapKind"/>）。
 /// </param>
 public readonly record struct SnapLine(
     bool AlignsX,
@@ -128,7 +119,7 @@ public readonly record struct SnapReferenceLine(
 /// <param name="Other">对方模块矩形（用于接近范围判定与辅助线长度）。</param>
 /// <param name="MovingOffset">被拖模块该端口在对齐轴上的**归一化位置**（0–1）。</param>
 /// <param name="MovingIndex">组吸附时该端口所属成员在 <c>moving</c> 列表里的下标（单模块为 0）。</param>
-/// <param name="OwnerLayer">对方模块所在的层（= 吸上它之后的目标层；端口只认同带）。</param>
+/// <param name="OwnerLayer">对方模块所在的层（= 吸上它之后的目标层；只用于判落位新增的遮挡）。</param>
 public readonly record struct PortAnchorPair(bool AlignsX, double OtherCoordinate, CanvasRect Other, double MovingOffset, int MovingIndex = 0, int OwnerLayer = 0);
 
 /// <summary>吸附结果（**纯函数**：只由"原始位置 + 参照线"决定，不含跨帧状态）。</summary>
@@ -208,43 +199,37 @@ public static partial class SnapEngine
         string? ReferenceId = null);
 
     /// <summary>
-    /// 由**其他模块外框**生成参照线（4 条边 + 1 条中心线，两个轴各一批）。
+    /// 由**其他模块外框**生成参照线（4 条边 + 2 条中心线，两个轴各一批）。
     /// </summary>
     /// <param name="other">其他模块矩形。</param>
-    /// <param name="flushOnly">
-    /// true = 该模块与本次手势**不在同一带**：只贡献"能拼上的边"（<see cref="SnapLineSource.CrossBandEdge"/>），
-    /// 不带中心线、也不提供边缘对齐——对齐仍只认同带，拼接则跨带。
-    /// </param>
     /// <param name="ownerLayer">该模块所在的层（写进每条线的 <see cref="SnapLine.OwnerLayer"/>）。</param>
     /// <returns>该模块提供的全部参照线。</returns>
-    public static IEnumerable<SnapLine> LinesOf(CanvasRect other, bool flushOnly = false, int ownerLayer = 0)
+    /// <remarks>
+    /// <b>一个模块只提供一套线</b>：无论它与被拖模块差几层，4 条边都同时可用于贴合与对齐。
+    /// 层不参与"谁能跟谁对齐"——层只回答"落位会不会新增遮挡，以及这个遮挡看不看得见"，
+    /// 由调用方通过 <see cref="SnapLine.OwnerLayer"/> 与 <see cref="SnapObstacle"/> 一起判。
+    /// 若按层剪裁候选（例如只给跨层模块留"能拼上的边"），同一件事就有两套判据，
+    /// 结果必然是"能贴合却不能对齐"——两个判据总会在某处给出不同答案。
+    /// </remarks>
+    public static IEnumerable<SnapLine> LinesOf(CanvasRect other, int ownerLayer = 0)
     {
         if (!other.IsValid)
         {
             return [];
         }
 
-        SnapLine[] lines = flushOnly
-            ?
-            [
-                // 只留 4 条外框边（跨带只用来"拼上"）；中心线只有对齐用途，直接省掉。
-                new SnapLine(true, other.Left, other.Top, other.Bottom, SnapLineSource.CrossBandEdge, other, IsOwnerLow: true),
-                new SnapLine(true, other.Right, other.Top, other.Bottom, SnapLineSource.CrossBandEdge, other, IsOwnerLow: false),
-                new SnapLine(false, other.Top, other.Left, other.Right, SnapLineSource.CrossBandEdge, other, IsOwnerLow: true),
-                new SnapLine(false, other.Bottom, other.Left, other.Right, SnapLineSource.CrossBandEdge, other, IsOwnerLow: false),
-            ]
-            :
-            [
-                // 竖线（约束 X）：左右边 + 中心线
-                new SnapLine(true, other.Left, other.Top, other.Bottom, SnapLineSource.FrameEdge, other, IsOwnerLow: true),
-                new SnapLine(true, other.Right, other.Top, other.Bottom, SnapLineSource.FrameEdge, other, IsOwnerLow: false),
-                new SnapLine(true, other.CenterX, other.Top, other.Bottom, SnapLineSource.FrameCenter, other),
+        SnapLine[] lines =
+        [
+            // 竖线（约束 X）：左右边 + 中心线
+            new SnapLine(true, other.Left, other.Top, other.Bottom, SnapLineSource.FrameEdge, other, IsOwnerLow: true),
+            new SnapLine(true, other.Right, other.Top, other.Bottom, SnapLineSource.FrameEdge, other, IsOwnerLow: false),
+            new SnapLine(true, other.CenterX, other.Top, other.Bottom, SnapLineSource.FrameCenter, other),
 
-                // 横线（约束 Y）：上下边 + 中心线
-                new SnapLine(false, other.Top, other.Left, other.Right, SnapLineSource.FrameEdge, other, IsOwnerLow: true),
-                new SnapLine(false, other.Bottom, other.Left, other.Right, SnapLineSource.FrameEdge, other, IsOwnerLow: false),
-                new SnapLine(false, other.CenterY, other.Left, other.Right, SnapLineSource.FrameCenter, other),
-            ];
+            // 横线（约束 Y）：上下边 + 中心线
+            new SnapLine(false, other.Top, other.Left, other.Right, SnapLineSource.FrameEdge, other, IsOwnerLow: true),
+            new SnapLine(false, other.Bottom, other.Left, other.Right, SnapLineSource.FrameEdge, other, IsOwnerLow: false),
+            new SnapLine(false, other.CenterY, other.Left, other.Right, SnapLineSource.FrameCenter, other),
+        ];
 
         if (ownerLayer == 0)
         {
@@ -307,7 +292,7 @@ public static partial class SnapEngine
     /// <param name="portReach">端口锚点的接近范围（px）。</param>
     /// <param name="obstacles">
     /// 组外障碍（**带层号**，见 <see cref="SnapObstacle"/>）：每条候选各自校验，
-    /// 只有"落位后会压住**目标层**"的那一条被剔除，其余候选照常参与，另一轴也不受牵连。
+    /// 只有"落位会**新增遮挡**且这个遮挡看得见"的那一条被剔除，其余候选照常参与，另一轴也不受牵连。
     /// </param>
     /// <param name="memory">上一帧的吸附记忆。</param>
     /// <exception cref="ArgumentException"><paramref name="moving"/> 为空。</exception>
@@ -325,6 +310,11 @@ public static partial class SnapEngine
     /// 同时新模块的层 = 下层重叠件的最大层 + 1 ≤ k，又 R 在层 k 说明 R 压着层 k−1 的东西 ⇒ 层 ≥ k，
     /// 故**层恰为 k**：整件不会被顶上去，参照件也不会被连累抬层。
     /// 即：判据等价于"**该层有空间容纳它，才拼到这一层**"。
+    /// </para>
+    /// <para>
+    /// <b>判据只管"新增"的遮挡</b>：手势开始时就已经重合的实体（<see cref="SnapObstacle.AlreadyOverlaps"/>）
+    /// 不参与判定。否则"压在主窗口上"或"两块叠在一起"这种平凡情形会让每条候选都被判掉，
+    /// 表现为**完全吸不上**——遮挡没有变多，不该被拦。
     /// </para>
     /// </remarks>
     public static SnapResult SnapGroup(
@@ -469,7 +459,7 @@ public static partial class SnapEngine
     }
 
     /// <summary>
-    /// 该位移是否**允许**（不压住目标层的东西）。
+    /// 该位移是否**允许**（不新增一个看得见的遮挡）。
     /// </summary>
     /// <param name="moving">组内成员矩形（原始位置）。</param>
     /// <param name="deltaX">X 位移。</param>
@@ -479,6 +469,7 @@ public static partial class SnapEngine
     /// <remarks>
     /// 判据见 <see cref="SnapObstacle.Blocks"/>：**目标层及以上**的模块都算挡住。
     /// 之所以不能放宽到"任意层都挡"，是因为压在更低层上完全合法，会把密集布局里的拼接全部误杀。
+    /// 起点已重合的障碍（<see cref="SnapObstacle.AlreadyOverlaps"/>）不参与：遮挡没有变多就不该拦。
     /// </remarks>
     private static bool AllowsDelta(
         IReadOnlyList<CanvasRect> moving,
@@ -636,24 +627,6 @@ public static partial class SnapEngine
                 // 外壳的其它边只是对齐参照：两侧边都可以吸齐，但永远不产生贴合（不对齐成组判据）。
                 Add(0, SnapKind.Edge, line, origin, size, target);
                 Add(1, SnapKind.Edge, line, origin, size, target);
-                break;
-            }
-
-            case SnapLineSource.CrossBandEdge:
-            {
-                // 跨带边**只做拼上**：只有"朝外那条边落上去"（= 相接）才登记候选，
-                // 边缘对齐不登记 —— 对齐仍只认同带（层是"整齐"的度量，拼接不是）。
-                var overlap = CrossOverlap(moving, line);
-                if (FlushOrEdge(0, line, overlap) == SnapKind.Flush)
-                {
-                    Add(0, SnapKind.Flush, line, origin, size, target);
-                }
-
-                if (FlushOrEdge(1, line, overlap) == SnapKind.Flush)
-                {
-                    Add(1, SnapKind.Flush, line, origin, size, target);
-                }
-
                 break;
             }
 

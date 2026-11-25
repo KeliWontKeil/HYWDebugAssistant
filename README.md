@@ -8,5 +8,5 @@
 - **对外文档站**：`docs/`（MkDocs 工程；中文内容在 `docs/zh/`，英文在 `docs/en/`）
 - **开发文档**：`dev/`（约束、工作流、状态、验收；不对外发布）
 - **构建与门禁**：`pwsh -File .\build.ps1`
-- **发布**：`pwsh -File .\tools\release.ps1 -OutputDirectory <仓库外的空目录>`（自包含产品目录 + 独立 SDK 目录；当前不压缩）
-- **文档站**：`.\docs\build.ps1 -Mode Check` 结构检查 · `-Mode Serve` 本地预览（需要 Python 3.11+ 与 `docs/requirements.txt` 中的依赖）
+- **发布**：`pwsh -File .\tools\release.ps1 -OutputDirectory <工程目录>\<版本>`（自包含产品目录 + 独立 SDK 目录；当前不压缩）
+- **文档**：`docs/` 是 MkDocs 格式的文档工程（中文在 `docs/zh/`，英文在 `docs/en/`）；`.\docs\build.ps1 -Mode Serve` 本地预览，`-Mode Check` 结构检查（mkdocs 是预览工具，依赖见 `docs/requirements.txt`）

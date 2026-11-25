@@ -1,20 +1,35 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    产品发布：自包含发布 App → 复制资源/内置模块 → 生成设置基线 → 边界校验 → 写 release.json。
+    产品发布：自包含发布 App → 裁剪开发件 → 复制许可 → 边界校验。
 
 .DESCRIPTION
-    产品只包含程序层：可执行文件、运行时依赖、`modules/`、`resources/`、许可与 release.json。
+    产品只包含程序层：可执行文件、运行时依赖、`modules/`、`resources/` 与许可。
     不包含 SDK、样例、源码、用户数据，也不生成压缩包。
 
-    默认 RID = win-x64（当前承诺目标）。其他 RID 允许尝试发布，但不承诺可编译/可运行，
-    脚本会标记 `validation = unverified`，不处理相关平台 bug。
+    **本脚本不创作任何内容，也不调用产品流程**：产物里的每个文件只有三种来源——
+    `dotnet publish` 的结果、从仓库复制过去的源文件（许可）、`dotnet publish` 自带的
+    资源/模块镜像结果。脚本只做「删除开发件」与「搬运」，不写任何文件、不启动产品。
+    需要说明文字或出厂设置种子时，从仓库拿源文件复制，或由人入库。
+
+    `resources\` 是仓库 `resources\` 的纯整拷：仓库里没有 `seeds/settings/settings.json`
+    （审计禁止入库），发布目录里也就没有——首启动由应用自身的代码默认值建立设置文件。
+
+    发布记录（版本、提交、逐文件哈希）写在仓库的 `artifacts\release-manifests\`，
+    它是构建产物而非发布物：分发目录里不留任何脚本作品。
+
+    默认 RID = win-x64（当前承诺目标）。其他 RID 允许尝试发布，但不承诺可编译/可运行。
 
     默认先跑完整门禁 `build.ps1 -Configuration Release`；`-SkipGate` 只用于本地迭代。
-    默认要求工作树干净；`-AllowDirty` 会记录 `sourceDirty = true`，产物不能作为发布基准。
+    默认要求工作树干净；`-AllowDirty` 允许脏树发布，但产物不能作为发布基准。
+
+.PARAMETER OutputDirectory
+    **产品目录本身**（不是父目录），且必须不存在或为空，例如
+    `<工程目录>\<版本>\HYWDebugAssistant-0.2.1.0-win-x64`。
+    注意与 `tools\release.ps1` 的 `-OutputDirectory` 不同：那个要的是**父目录**。
 
 .EXAMPLE
-    ./tools/package-release.ps1 -OutputDirectory D:\dist\HYWDebugAssistant-0.0.0.13-win-x64
+    ./tools/package-release.ps1 -OutputDirectory 'D:\project\c# project\dist-0.2.1.0\HYWDebugAssistant-0.2.1.0-win-x64'
 #>
 [CmdletBinding()]
 param(
@@ -35,6 +50,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 . (Join-Path $PSScriptRoot 'app-output.ps1')
+. (Join-Path $PSScriptRoot 'release-profile.ps1')
 
 foreach ($name in @('Platform', 'Platform(x86)')) {
     if (Test-Path "Env:$name") {
@@ -72,7 +88,7 @@ if ($dirty -and -not $AllowDirty) {
 }
 
 if ($dirty) {
-    Write-Host "[release] [warn] 工作树不干净：release.json 将记录 sourceDirty=true" -ForegroundColor Yellow
+    Write-Host "[release] [warn] 工作树不干净：发布记录将标记 sourceDirty=true" -ForegroundColor Yellow
 }
 
 # ---------------------------------------------------------------- 安全护栏
@@ -83,7 +99,7 @@ $separator = [System.IO.Path]::DirectorySeparatorChar
 
 if ($target -eq $repo -or
     $target.StartsWith($repo + $separator, [StringComparison]::OrdinalIgnoreCase)) {
-    throw "拒绝输出：目标目录在仓库内部（$target）——请指定仓库之外的**新目录**"
+    throw "拒绝输出：目标目录在仓库内部（$target）——请指定仓库外、工程目录下的**新目录**"
 }
 
 $forbidden = @(
@@ -143,45 +159,31 @@ try {
         Remove-Item -LiteralPath $devArtifact.FullName -Force -ErrorAction SilentlyContinue
     }
 
-    # 运行时自带的诊断组件：崩溃转储与调试符号读取，正常使用用不到。
-    # 去掉后崩溃不再产出 dump —— 产品目录里本就不带调试手段，取舍是"少 8 MB 体积"。
-    $diagnostics = @(
-        'createdump.exe',
-        'mscordaccore.dll',
-        'mscordbi.dll',
-        'Microsoft.DiaSymReader.Native.amd64.dll',
-        'msquic.dll',
-        'System.Net.Quic.dll'
-    )
-    foreach ($name in $diagnostics) {
-        Remove-Item -LiteralPath (Join-Path $temp $name) -Force -ErrorAction SilentlyContinue
-    }
-
-    # mscordaccore_amd64_* 之类带版本号后缀，用通配收。
-    foreach ($file in @(Get-ChildItem -LiteralPath $temp -File -Filter 'mscordaccore_*' -ErrorAction SilentlyContinue)) {
-        Remove-Item -LiteralPath $file.FullName -Force -ErrorAction SilentlyContinue
-    }
-
-    # Windows 目标用不到的其它平台后端。
-    # **Avalonia.Vulkan 必须保留**：Win32GlManager 初始化时无条件加载它，缺了直接抛
-    # FileNotFoundException 且窗口不创建（实测）；X11 / FreeDesktop / Native / Metal 则只在
-    # 各自平台上加载，Windows 下删掉不影响启动。
-    if ($rid -like 'win-*') {
-        $otherPlatforms = @(
-            'Avalonia.X11.dll',
-            'Avalonia.FreeDesktop.dll',
-            'Avalonia.FreeDesktop.AtSpi.dll',
-            'Avalonia.Native.dll',
-            'Avalonia.Metal.dll',
-            'Tmds.DBus.Protocol.dll'
-        )
-        foreach ($name in $otherPlatforms) {
-            Remove-Item -LiteralPath (Join-Path $temp $name) -Force -ErrorAction SilentlyContinue
+    # 裁剪清单**只读 release-profile.ps1**：删的人与验的人共用同一份数组，
+    # 否则"删除端加了、校验端没加"会让校验永远绿，"校验端加了、删除端没加"会让发布永远失败。
+    # 通配项（如 mscordaccore_*）在 temp 根上按文件名匹配，兼容带版本号后缀的形态。
+    foreach ($pattern in (Get-ReleaseCullList -Rid $rid)) {
+        foreach ($file in @(Get-ChildItem -LiteralPath $temp -File -Filter $pattern -ErrorAction SilentlyContinue)) {
+            Remove-Item -LiteralPath $file.FullName -Force -ErrorAction SilentlyContinue
         }
     }
 
-    # 设计器支持只在 VS 的 XAML 预览器里用；产品运行期不需要。
-    Remove-Item -LiteralPath (Join-Path $temp 'Avalonia.DesignerSupport.dll') -Force -ErrorAction SilentlyContinue
+    # 反向护栏：裁剪不许把"必须保留"的文件删掉（Vulkan 被 Win32 渲染后端无条件加载）。
+    foreach ($name in (Get-ReleaseCullGuard -Rid $rid)) {
+        if (-not (Test-Path -LiteralPath (Join-Path $temp $name))) {
+            throw "裁剪后缺少必需组件：$name（见 tools/release-profile.ps1 的反向护栏）"
+        }
+    }
+
+    # 闭包判据：手写的删除清单必然漏，缺件时 Avalonia 会**静默降级**（窗口建得出来、
+    # 内容全黑、退出码 0、stderr 为空），所以这里必须算一遍引用闭包，不能只查名单。
+    $renderRoots = Get-ReleaseRendererRoots -Rid $rid
+    if ($renderRoots.Count -gt 0) {
+        $unresolved = @(Test-ReleaseAssemblyClosure -Directory $temp -Roots $renderRoots)
+        if ($unresolved.Count -gt 0) {
+            throw "裁剪后渲染链不闭合：$($unresolved -join '、')（被 $($renderRoots -join '/') 间接引用；见 tools/release-profile.ps1）"
+        }
+    }
 
     # ------------------------------------------------------------ 自包含检查
     $isWindowsTarget = $rid -like 'win-*'
@@ -202,76 +204,16 @@ try {
         Write-Host "[release] [warn] $message（该 RID 未验证）" -ForegroundColor Yellow
     }
 
-    # ------------------------------------------------------------ 设置基线
-    $seedDirectory = Join-Path $temp 'resources\seeds\settings'
-    New-Item -ItemType Directory -Force -Path $seedDirectory | Out-Null
-    $seedPath = Join-Path $seedDirectory 'settings.json'
+    # ------------------------------------------------------------ 出厂设置种子：不生成
+    # 这里**故意什么都不做**。设置种子是 `resources\` 的一部分，属仓库源文件：
+    # 仓库里没有 `seeds/settings/settings.json`（tools/audit-resources.ps1 禁止入库），
+    # 所以发布目录里也没有它。首启动由应用按代码默认值建立设置文件，不依赖预置种子。
+    # 一旦由脚本在这里"生成"一份，发布目录就混进了脚本作品，且校验器只能验证自家产物。
 
-    $hostRunnable = $IsWindows -and $rid -eq 'win-x64'
-    if ($hostRunnable) {
-        $entryName = if ($IsWindows) { 'HYWDebugAssistant.App.exe' } else { 'HYWDebugAssistant.App' }
-        $entry = Join-Path $temp $entryName
-        if (-not (Test-Path -LiteralPath $entry)) { throw "发布目录缺少应用入口：$entry" }
-
-        $seedArgument = '"' + $seedPath + '"'
-        $emit = Start-Process -FilePath $entry `
-            -ArgumentList @('--emit-default-settings', $seedArgument) `
-            -Wait -PassThru -WindowStyle Hidden
-        if ($emit.ExitCode -ne 0) {
-            throw "生成出厂设置基线失败（--emit-default-settings 退出码 $($emit.ExitCode)）"
-        }
-        $seedSource = 'target'
-    }
-    else {
-        # 非宿主 RID：用宿主可运行的 Release App 生成种子；产物本身不保证能在此机器启动。
-        $hostApp = Join-Path $root 'src\App\bin\Release\net10.0\HYWDebugAssistant.App.exe'
-        if (-not (Test-Path -LiteralPath $hostApp)) {
-            Write-Host '[release] 构建宿主可运行的 App 以生成设置基线' -ForegroundColor Cyan
-            dotnet build (Join-Path $root 'src\App\HYWDebugAssistant.App.csproj') -c $Configuration -nologo
-            if ($LASTEXITCODE -ne 0) { throw '宿主 App 构建失败（无法生成设置基线）' }
-        }
-        if (-not (Test-Path -LiteralPath $hostApp)) {
-            throw "找不到宿主可运行的 App.exe：$hostApp；非宿主 RID 需要先在 Windows 上构建宿主 App 才能生成设置基线"
-        }
-
-        $seedArgument = '"' + $seedPath + '"'
-        $emit = Start-Process -FilePath $hostApp `
-            -ArgumentList @('--emit-default-settings', $seedArgument) `
-            -Wait -PassThru -WindowStyle Hidden
-        if ($emit.ExitCode -ne 0) {
-            throw "宿主 App 生成设置基线失败（退出码 $($emit.ExitCode)）"
-        }
-        $seedSource = 'host'
-        Write-Host '[release] [warn] 种子由宿主 App 生成；非宿主 RID 的启动未验证' -ForegroundColor Yellow
-    }
-
-    if (-not (Test-Path -LiteralPath $seedPath)) {
-        throw "生成出厂设置基线后仍找不到文件：$seedPath"
-    }
-
-    # ------------------------------------------------------------ 许可与说明
+    # ------------------------------------------------------------ 许可
+    # 只搬运仓库里已有的文件。产物里不放脚本写的说明文字：README 之类需要时再从仓库复制。
     Copy-Item -LiteralPath (Join-Path $root 'LICENSE.txt') -Destination (Join-Path $temp 'LICENSE.txt') -Force
     Copy-Item -LiteralPath (Join-Path $root 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $temp 'THIRD_PARTY_NOTICES.md') -Force
-
-    $entryName = if ($isWindowsTarget) { 'HYWDebugAssistant.App.exe' } else { 'HYWDebugAssistant.App' }
-    $readme = @"
-何译位调试助手 $version（$rid）
-
-启动：双击 $entryName。
-
-本产品自带 .NET 运行时，不需要另装。
-本目录既是程序目录也是数据目录：设置、组合件与工作区都保存在这里，
-把整个目录拷到别处即可带走全部配置。
-
-首次启动会在本目录建立 settings\、workspace\、composites\、logs\ 并投放出厂主题，
-大约需要十几秒；之后启动是即时的。
-
-modules\     内置模块包
-resources\   界面文本、图标与出厂主题
-
-第三方组件的版权与许可见 THIRD_PARTY_NOTICES.md。
-"@
-    Set-Content -LiteralPath (Join-Path $temp 'README.txt') -Value $readme -Encoding utf8 -NoNewline
 
     # ------------------------------------------------------------ 边界校验
     $forbiddenEntries = @(
@@ -408,11 +350,14 @@ resources\   界面文本、图标与出厂主题
         })
     }
 
-    # ------------------------------------------------------------ release.json
+    # ------------------------------------------------------------ 发布记录（仓库内，不进产物）
+    # 记录写在 artifacts\ 下：它是构建产物区，不是发布物。
+    # 发布目录必须只含 dotnet publish 的结果 + 从仓库复制的源文件 + 产品 CLI 产出的种子，
+    # 一旦把脚本拼的元数据写进去，分发目录就混进了"脚本作品"。
     $appRecords = [System.Collections.Generic.List[object]]::new()
     foreach ($file in (Get-ChildItem $temp -Recurse -File | Sort-Object FullName)) {
         $relative = [System.IO.Path]::GetRelativePath($temp, $file.FullName).Replace('\', '/')
-        if ($relative.StartsWith('modules/') -or $relative.StartsWith('resources/') -or $relative -eq 'release.json') {
+        if ($relative.StartsWith('modules/') -or $relative.StartsWith('resources/')) {
             continue
         }
 
@@ -422,8 +367,9 @@ resources\   界面文本、图标与出厂主题
         })
     }
 
-    $release = [pscustomobject]@{
+    $manifest = [pscustomobject]@{
         kind = 'product'
+        directory = Split-Path -Leaf $target
         version = [string]$version
         sourceCommit = [string]$commit
         sourceDirty = [bool]$dirty
@@ -431,20 +377,23 @@ resources\   界面文本、图标与出厂主题
         selfContained = $true
         promised = [bool]$promised
         validation = $validation
-        seedSource = $seedSource
+        # 产物内容的来源承诺：所有文件都来自 publish 或仓库复制，没有脚本新写的文件。
+        contentSource = 'publish+repository'
         app = $appRecords
         modules = $moduleRecords
         resources = $resourceRecords
     }
 
-    $releaseJson = $release | ConvertTo-Json -Depth 10
-    Set-Content -LiteralPath (Join-Path $temp 'release.json') -Value $releaseJson -Encoding utf8
+    $manifestDirectory = Join-Path $root 'artifacts\release-manifests'
+    New-Item -ItemType Directory -Force -Path $manifestDirectory | Out-Null
+    $manifestPath = Join-Path $manifestDirectory ((Split-Path -Leaf $target) + '.json')
+    Set-Content -LiteralPath $manifestPath -Value ($manifest | ConvertTo-Json -Depth 10) -Encoding utf8
 
-    $written = Get-Content (Join-Path $temp 'release.json') -Raw | ConvertFrom-Json
-    if ([string]$written.version -ne $version) { throw "release.json 的 version 不正确：$($written.version)" }
-    if ([string]$written.rid -ne $rid) { throw "release.json 的 rid 不正确：$($written.rid)" }
+    $written = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    if ([string]$written.version -ne $version) { throw "发布记录的 version 不正确：$($written.version)" }
+    if ([string]$written.rid -ne $rid) { throw "发布记录的 rid 不正确：$($written.rid)" }
     if (@($written.modules).Count -ne $expectedIds.Count) {
-        throw "release.json 的模块数量不正确：$($written.modules).Count"
+        throw "发布记录的模块数量不正确：$(@($written.modules).Count)"
     }
 
     # ------------------------------------------------------------ 落位
@@ -455,10 +404,16 @@ resources\   界面文本、图标与出厂主题
     Move-Item -LiteralPath $temp -Destination $target
     Write-Host "[release] 产品发布完成：$target" -ForegroundColor Green
     Write-Host "[release] version=$version rid=$rid modules=$($moduleRecords.Count) resources=$($resourceRecords.Count) app=$($appRecords.Count)" -ForegroundColor Green
+    Write-Host "[release] 发布记录：$manifestPath" -ForegroundColor Green
 }
 catch {
     if (Test-Path -LiteralPath $temp) {
         Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # 记录先于落位写出：失败时一并撤掉，免得 artifacts 里留下指向不存在目录的清单。
+    if ($manifestPath -and (Test-Path -LiteralPath $manifestPath)) {
+        Remove-Item -LiteralPath $manifestPath -Force -ErrorAction SilentlyContinue
     }
     throw
 }

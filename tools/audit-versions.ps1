@@ -20,7 +20,7 @@
       5. 模块清单 `id` / `dependsOn` 必须是两段（作者 / 模块名），必须有 `resources`，
          不得有 `frameworkCompatibility`。
       6. 文本 / 图标 / 主题 / 色板 JSON 根部不得有 `schemaVersion` / `contractVersion`。
-      7. `release.json`（若存在）的 `version` 必须等于 `version.props`，且无旧字段。
+      7. 发布记录（`artifacts/release-manifests/*.json`）的 `version` 必须等于 `version.props`，且无旧字段。
 
     违规一律打印 `文件:行号`（最多 50 条）并 `exit 1`；目标 0 命中。
 
@@ -304,14 +304,18 @@ foreach ($file in $resourceJsonFiles) {
     }
 }
 
-# ---------------------------------------------------------------- 7. release.json
-
-$releaseFiles = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter 'release.json' | Where-Object {
-        $_.FullName -notmatch $excludedPath
-    })
+# ---------------------------------------------------------------- 7. 发布记录
+# 发布记录是 `artifacts\release-manifests\<目录名>.json`（构建产物，不进发布目录）。
+# 它带 `version`，所以仍受"唯一版本事实源"约束；`artifacts\` 整体在 $excludedPath 里，
+# 这里**单独**把这一条子目录捞回来判（否则这条检查永远不会命中任何文件）。
+$manifestDirectory = Join-Path $root 'artifacts\release-manifests'
+$releaseFiles = @()
+if (Test-Path -LiteralPath $manifestDirectory -PathType Container) {
+    $releaseFiles = @(Get-ChildItem -LiteralPath $manifestDirectory -Recurse -File -Filter '*.json')
+}
 
 foreach ($file in $releaseFiles) {
-    $relative = Get-RelativePath $file.FullName
+    $relative = 'artifacts/release-manifests/' + $file.Name
     $release = $null
     try {
         $release = Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8 | ConvertFrom-Json

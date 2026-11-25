@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    业务模块：图片框 `hyw/image-frame`（工作区美化）。
+    业务模块：图片显示器 `hyw/image-frame`（工作区美化）。
     只引 Sdk / Sdk.Ui；无端口、无角色、无按钮，图片区域用右键菜单更换。
   -->
   <PropertyGroup>

@@ -50,9 +50,6 @@ plugins:
   - search:
       lang: zh
 
-hooks:
-  - tools/gen.py
-
 extra:
   alternate:
     - name: 简体中文

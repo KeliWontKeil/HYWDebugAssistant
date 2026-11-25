@@ -50,7 +50,7 @@
 |---|---|
 | `docs/zh/guides/modules/<slug>.md` | 每个模块一册：一句话定位、界面表、协议/配置、状态句、典型用法、相关。`<slug>` 必须等于模块 id 的尾段 |
 | `docs/mkdocs.yml` | 在「模块目录」下加导航行；**缺页会让 `--strict` 构建失败** |
-| `docs/zh/guides/modules/index.md` | 表格由模块清单生成（页面里的 `gen:modules` 标记），标题与说明取 i18n 的 `module.title` / `module.description`，不手写 |
+| `docs/zh/guides/modules/index.md` | 表格里加一行（标题、标识、说明），与模块清单一致 |
 | 契约页 | 新约定若已有专页（如[波形帧约定](../concepts/waveform-frame.md)），把模块补进"相关" |
 
 ## 收尾

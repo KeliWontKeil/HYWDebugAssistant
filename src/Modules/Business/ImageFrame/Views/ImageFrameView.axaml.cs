@@ -9,7 +9,7 @@ using HYWDebugAssistant.Sdk.Ui.Controls;
 
 namespace HYWDebugAssistant.Modules.ImageFrame.Views;
 
-/// <summary>图片框视图（布局在 <c>ImageFrameView.axaml</c>）。</summary>
+/// <summary>图片显示器视图（布局在 <c>ImageFrameView.axaml</c>）。</summary>
 public sealed partial class ImageFrameView : ModuleView, IModuleViewElement
 {
     private readonly MenuItem? _clearImageItem;
@@ -149,7 +149,7 @@ public sealed partial class ImageFrameView : ModuleView, IModuleViewElement
     }
 }
 
-/// <summary>图片框视图工厂。</summary>
+/// <summary>图片显示器视图工厂。</summary>
 public sealed class ImageFrameViewFactory : IModuleViewFactory
 {
     /// <inheritdoc />

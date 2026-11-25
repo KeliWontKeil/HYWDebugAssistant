@@ -38,9 +38,9 @@ MyModule/
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="HYWDebugAssistant.Sdk" Version="{{version}}" />
+    <PackageReference Include="HYWDebugAssistant.Sdk" Version="<当前版本>" />
     <!-- 有界面时加 Sdk.Ui；用外部接入时加 Sdk.AccessKit；写测试时加 Sdk.Testing。 -->
-    <PackageReference Include="HYWDebugAssistant.Module.Build" Version="{{version}}" PrivateAssets="all" />
+    <PackageReference Include="HYWDebugAssistant.Module.Build" Version="<当前版本>" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
@@ -156,12 +156,9 @@ SDK 是独立发布目录，**不在产品目录里**：
 ```
 HYWDebugAssistant.Sdk-<版本>/
   packages/                          # 五个 nupkg
-  template/ModuleTemplate/           # 模块模板（源码）
-  NuGet.config                       # 本地源指向 packages
-  README.txt
+  template/ModuleTemplate/           # 模块模板（源码，含自己的 NuGet.config）
   LICENSE.txt
   THIRD_PARTY_NOTICES.md
-  sdk.json
 ```
 
 保持整个目录在一起即可开发；模板单独复制时要改本地源。`Sdk.Testing` / `Module.Build` 只给作者的构建与测试使用。
