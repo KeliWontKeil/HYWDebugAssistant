@@ -2,6 +2,7 @@ using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Core.Composition;
 using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Services;
+using HYWDebugAssistant.Hosting.Packages;
 using Shouldly;
 using Xunit;
 
@@ -165,6 +166,68 @@ public class ModuleSourceDiscoveryTests
         source.PackagesFound.ShouldBe(1);
         source.FailedPackages.ShouldBe(1);
         source.Messages.ShouldNotBeEmpty("导入失败必须有一句可定位的说明");
+    }
+
+    /// <summary>
+    /// **只换封面不算"内容变化"**：封面是展示资源，不承载代码 —— 换一张图不该要求重启应用。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 判定依据是"包根文件在进程启动后被改过"。封面若参与这个判定，
+    /// 那么"甲方要求换个图"就会变成"请重启应用"，而重启之后唯一的差别还是那张图。
+    /// </para>
+    /// <para>
+    /// 本用例同时钉住**反面**：改程序集仍然算内容变化。否则"排除封面"很容易被写成
+    /// "干脆不看修改时间"，那会让真正的代码更新静默失效（改了代码没生效，比重启更糟）。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void 只换封面_不算内容变化不要求重启()
+    {
+        using var fixture = new SourceFixture();
+        var root = fixture.CreateRoot("root-a");
+        SourceFixture.CreatePackage(root, "hyw", "alpha", FixtureModuleType.Alpha);
+
+        // 重扫只扫"设置里的根 + 内置目录" ⇒ 把临时根当内置目录（否则重扫扫的是空列表，
+        // 断言会**静默成立** —— 那种"绿得没意义"的用例比没有更糟）。
+        fixture.Services.BuiltInModuleDirectory = root;
+
+        var package = Path.Combine(root, "alpha");
+        fixture.Services.ScanModuleSources([root]).ShouldBe(1);
+
+        // 把包根文件的修改时间统一压到"进程启动之前"：这一包在判定里就是"没重新构建过"。
+        var before = DateTime.UtcNow.AddMinutes(-10);
+        foreach (var file in Directory.EnumerateFiles(package, "*", SearchOption.TopDirectoryOnly))
+        {
+            File.SetLastWriteTimeUtc(file, before);
+        }
+
+        var unchanged = fixture.Services.RescanModuleSources();
+        unchanged.Succeeded.ShouldBeTrue();
+        fixture.Services.GetModuleSources()
+            .ShouldAllBe(source => source.ChangedPackages == 0, "全部文件都是旧的 ⇒ 没有内容变化");
+
+        // 只换封面（其余文件保持旧的修改时间）：仍不该被判成"内容已变化"。
+        var cover = Path.Combine(package, ModulePackageLayout.CoverFileName);
+        File.WriteAllBytes(cover, [0x89, 0x50, 0x4E, 0x47]);
+        File.SetLastWriteTimeUtc(cover, DateTime.UtcNow.AddMinutes(10));
+
+        var afterCover = fixture.Services.RescanModuleSources();
+        afterCover.Succeeded.ShouldBeTrue();
+        fixture.Services.GetModuleSources()
+            .ShouldAllBe(source => source.ChangedPackages == 0, "换封面不是内容变化");
+        fixture.Services.GetModuleCatalog()
+            .ShouldContain(entry => entry.ModuleId == "hyw/alpha" && !entry.NeedsRestart,
+                "只换封面的包不该要求重启应用");
+
+        // 反面：改程序集仍然算内容变化（排除封面不能变成"不看修改时间"）。
+        var assembly = Directory.EnumerateFiles(package, "*.dll", SearchOption.TopDirectoryOnly).First();
+        File.SetLastWriteTimeUtc(assembly, DateTime.UtcNow.AddMinutes(10));
+
+        var afterAssembly = fixture.Services.RescanModuleSources();
+        afterAssembly.Succeeded.ShouldBeTrue();
+        fixture.Services.GetModuleSources()
+            .ShouldContain(source => source.ChangedPackages == 1, "代码更新必须仍然要求重启");
     }
 
     /// <summary>临时根目录 + 真实服务面的测试夹具。</summary>

@@ -1,0 +1,24 @@
+{
+  "language": "zh-Hans",
+  "entries": {
+    "hotkey.conflict": "「{0}」与「{1}」冲突，已忽略（{2}）",
+    "moduleView.failure.construct": "界面构造失败：{0} — {1}",
+    "moduleView.failure.factory": "视图工厂 {0} 未实现 IModuleViewFactory，无法创建模块视图",
+    "moduleView.state.missing": "定义缺失",
+    "moduleWindow.portLabel.internalError": "内部错误：未连接到运行时，标签未提交",
+    "portMarker.tooltip.contractConflict": "\n端口不兼容：{0}",
+    "portMarker.tooltip.contractConflictUnknown": "契约不兼容",
+    "role.undeclared": "未声明角色（{0} 个数据口）",
+    "ui.moduleView.commandNameMissing": "按钮控件缺少 CommandName，无法派发命令",
+    "ui.moduleView.valueNameMissing": "输入控件缺少 Value 名称，无法读写值",
+    "ui.palette.derivationMissingFrom": "色板契约中 {0} 的派生规则缺少 from（源 token 名）",
+    "ui.palette.resourceMissing": "缺少色板契约资源：{0}（由 Ui 工程的 Styles/palette.json 嵌入）",
+    "viewLocator.notFound": "未找到视图：{0}",
+    "windows.anchor.failed": "，{0} 个失败",
+    "windows.notice.anchorMoveFailed": "{0} {1}：锚点未移动 —— {2}",
+    "windows.notice.anchorToggleFailed": "{0} {1}：固定状态未改变 —— {2}",
+    "windows.notice.networkFailed": "{0} {1}：网络名未生效 —— {2}",
+    "windows.reset.configFailed": "{0}：尺寸已还原，但配置还原失败：{1}",
+    "windows.wallpaper.failed": "壁纸设置失败{0}"
+  }
+}

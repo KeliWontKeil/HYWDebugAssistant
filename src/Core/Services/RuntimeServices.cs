@@ -2039,7 +2039,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             {
                 _ = _modulePackages.TryGetValue(d.Id.ToString(), out var package);
                 var preview = package?.PackageDirectory is { Length: > 0 } directory
-                    ? Path.Combine(directory, "preview.png")
+                    ? Path.Combine(directory, ModulePackageLayout.CoverFileName)
                     : null;
                 if (preview is not null && !File.Exists(preview))
                 {
@@ -2055,12 +2055,68 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                     package?.NeedsRestart ?? false,
                     d.Tags,
                     package?.IsExternal ?? false,
-                    preview);
+                    preview,
+                    DescribeTypeKeys(d));
             }).ToList();
 
             _catalogCache = catalog;
             return catalog;
         }
+    }
+
+    /// <summary>
+    /// 一个模块**声明端口**承载的数据类型标识（去重、按序）：清单预览图块的外圈据此着色。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><b>只取声明</b>（`PortSpecs`，来自视图 XAML），不读运行期实例：清单回答的是
+    ///     "这个模块是干什么的"，与"当前现场装入了哪些实例"无关；读实例会让同一模块的行
+    ///     随现场变化而变色，且每帧查询要枚举实例（清单按刷新节拍取）。</item>
+    ///   <item><b>零口模块返回空</b>（`HexStringConverter` / `ImageFrame`）：界面据空值显示中性外圈，
+    ///     不把它当成"某种类型"。</item>
+    ///   <item>用 C# `DeclarePort` 的旧模块同样为空 —— 那是兼容路径，不从已注册实例反推类型。</item>
+    /// </list>
+    /// </remarks>
+    /// <param name="definition">模块定义。</param>
+    /// <returns>类型标识（去重、`Ordinal` 序）；没有端口时为 <see langword="null"/>。</returns>
+    private static List<string>? DescribeTypeKeys(ModuleDefinition definition)
+    {
+        if (definition.PortSpecs.Count == 0)
+        {
+            return null;
+        }
+
+        var keys = new List<string>(definition.PortSpecs.Count);
+        foreach (var spec in definition.PortSpecs)
+        {
+            if (string.IsNullOrWhiteSpace(spec.TypeId))
+            {
+                continue;
+            }
+
+            var seen = false;
+            foreach (var key in keys)
+            {
+                if (string.Equals(key, spec.TypeId, StringComparison.Ordinal))
+                {
+                    seen = true;
+                    break;
+                }
+            }
+
+            if (!seen)
+            {
+                keys.Add(spec.TypeId);
+            }
+        }
+
+        if (keys.Count == 0)
+        {
+            return null;
+        }
+
+        keys.Sort(StringComparer.Ordinal);
+        return keys;
     }
     /// <summary>
     /// 模块包的来源信息（**NeedsRestart 在扫描时算一次并缓存**）：

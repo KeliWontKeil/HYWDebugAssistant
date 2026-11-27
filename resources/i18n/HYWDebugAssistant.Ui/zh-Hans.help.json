@@ -1,0 +1,7 @@
+{
+  "language": "zh-Hans",
+  "entries": {
+    "picker.note": "拖动或滚轮以调整选取范围",
+    "reset.note": "默认配置将覆盖用户修改过的模块尺寸和配置"
+  }
+}

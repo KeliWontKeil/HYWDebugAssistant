@@ -31,6 +31,8 @@ internal static class CatalogText
 /// <param name="NeedsRestart">是否"本次启动后被重新构建过"（需重启应用才生效；框架不实现热重载）。</param>
 /// <param name="CategoryKey">分类键（由标签推导；见 <see cref="ModuleCategories"/>）。</param>
 /// <param name="IsExternal">是否来自默认目录下的外部导入区（`modules\external`）。</param>
+/// <param name="PreviewImage">预览图（无图 ⇒ 占位字形）。</param>
+/// <param name="TypeRing">预览图块的类型色外圈（无类型的模块为 <see langword="null"/>）。</param>
 public sealed record ModuleCatalogRowViewModel(
     string ModuleId,
     string DisplayName,
@@ -40,13 +42,26 @@ public sealed record ModuleCatalogRowViewModel(
     bool NeedsRestart = false,
     string CategoryKey = ModuleCategories.Other,
     bool IsExternal = false,
-    Bitmap? PreviewImage = null)
+    Bitmap? PreviewImage = null,
+    TypeRingViewModel? TypeRing = null)
 {
     /// <summary>整行悬停提示：标题 + 换行 + 描述（描述为空就只标题）。</summary>
     /// <remarks>条目根 `Grid` 有透明背景 ⇒ 整行任意位置都能出提示，而不是只有压在文字上。</remarks>
-    public string TooltipText => Description.Length > 0
-        ? DisplayName + Environment.NewLine + Description
-        : DisplayName;
+    public string TooltipText
+    {
+        get
+        {
+            var text = Description.Length > 0
+                ? DisplayName + Environment.NewLine + Description
+                : DisplayName;
+
+            // 类型色环是**只可意会**的视觉线索：悬停时补一句"这圈颜色是什么"，
+            // 否则用户只能靠猜（类型标识本身不显示 —— 它挤占行宽且是给框架用的内部标识）。
+            return TypeRing is { HasRing: true } ring
+                ? text + Environment.NewLine + CatalogText.Get("catalog.typeRing.tip", string.Join('、', ring.TypeKeys))
+                : text;
+        }
+    }
 
     /// <summary>来源标注（内置/外部；需要重启时并入同一行，保持列表行高一致）。</summary>
     public string OriginNotice =>
@@ -611,7 +626,8 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
                 entry.NeedsRestart,
                 ModuleCategories.FromTags(entry.Tags),
                 entry.IsExternal,
-                PreviewImageStore.Load(entry.PreviewImagePath)))
+                PreviewImageStore.Load(entry.PreviewImagePath),
+                CreateTypeRing(entry.TypeKeys)))
             .ToList();
 
         // 全量保存 + 分类计数 + 应用"分类 + 搜索"过滤（列表用增量同步，避免每帧重建 → 闪烁）
@@ -638,6 +654,53 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
             SelectedPlaceholder = Placeholders.FirstOrDefault(p => string.Equals(p.InstanceId, selectedPlaceholderId, StringComparison.Ordinal));
         }
     }
+
+    /// <summary>
+    /// 造一行的**类型色外圈**；同一组类型标识复用**同一个**环实例。
+    /// </summary>
+    /// <param name="typeKeys">模块声明端口承载的类型标识（空 ⇒ 无环）。</param>
+    /// <returns>环；没有类型时为 <see langword="null"/>。</returns>
+    /// <remarks>
+    /// 列表按刷新节拍重建行模型，而 <see cref="CollectionSync"/> 靠**值相等**判断"要不要换实例"
+    /// ⇒ 环相等必须由身份（签名）决定，见 <see cref="TypeRingViewModel"/>;
+    /// 这里再做一层"同签名复用实例"，使得用户改色时只需对**一个**环发通知，
+    /// 而不是等下一次刷新各自重算（也能避免每次刷新都分配新环）。
+    /// </remarks>
+    private TypeRingViewModel? CreateTypeRing(IReadOnlyList<string>? typeKeys)
+    {
+        if (typeKeys is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        var signature = string.Join(',', typeKeys);
+        if (_typeRings.TryGetValue(signature, out var existing))
+        {
+            return existing;
+        }
+
+        var ring = new TypeRingViewModel(typeKeys);
+        _typeRings[signature] = ring;
+        return ring;
+    }
+
+    /// <summary>
+    /// **用户改了某个类型的颜色** ⇒ 让对应的环重新取色（清单页可见时才需要）。
+    /// </summary>
+    /// <remarks>
+    /// 色板是静态单例，改色不经过视图模型 ⇒ 不主动通知的话，环会一直显示旧色，
+    /// 直到一次"重新扫描"把行模型整批重建（用户会觉得"改了没生效"）。
+    /// </remarks>
+    public void RefreshTypeRings()
+    {
+        foreach (var ring in _typeRings.Values)
+        {
+            ring.RefreshBrush();
+        }
+    }
+
+    /// <summary>已造过的环（按类型签名索引）：复用实例 + 改色时统一刷新。</summary>
+    private readonly Dictionary<string, TypeRingViewModel> _typeRings = new(StringComparer.Ordinal);
 
     private string NextInstanceId(string moduleIdLiteral)
     {

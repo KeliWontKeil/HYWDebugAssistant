@@ -28,6 +28,8 @@ using HYWDebugAssistant.Modules.HexStringConverter;
 using HYWDebugAssistant.Modules.HexStringConverter.Views;
 using HYWDebugAssistant.Modules.ImageFrame;
 using HYWDebugAssistant.Modules.ImageFrame.Views;
+using HYWDebugAssistant.Modules.RawToWaveform;
+using HYWDebugAssistant.Modules.RawToWaveform.Views;
 using HYWDebugAssistant.Modules.ScaleBarHorizontal;
 using HYWDebugAssistant.Modules.ScaleBarHorizontal.Views;
 using HYWDebugAssistant.Modules.ScaleBarVertical;
@@ -42,6 +44,8 @@ using HYWDebugAssistant.Modules.TextSender;
 using HYWDebugAssistant.Modules.TextSender.Views;
 using HYWDebugAssistant.Modules.Udp;
 using HYWDebugAssistant.Modules.Udp.Views;
+using HYWDebugAssistant.Modules.WaveformToRaw;
+using HYWDebugAssistant.Modules.WaveformToRaw.Views;
 using HYWDebugAssistant.Sdk;
 using HYWDebugAssistant.Sdk.Configuration;
 using HYWDebugAssistant.Sdk.Contracts;
@@ -88,6 +92,9 @@ public class ModuleViewSnapshots
         { typeof(ScaleBarVerticalModule), typeof(ScaleBarVerticalViewFactory), typeof(NoConfig) },
         { typeof(AttitudeDisplayModule), typeof(AttitudeDisplayViewFactory), typeof(NoConfig) },
         { typeof(ImageFrameModule), typeof(ImageFrameViewFactory), typeof(NoConfig) },
+        // 两个转换器：各有两种数据类型（入口字节 / 出口波形），清单外圈按两色等分。
+        { typeof(RawToWaveformModule), typeof(RawToWaveformViewFactory), typeof(RawToWaveformConfig) },
+        { typeof(WaveformToRawModule), typeof(WaveformToRawViewFactory), typeof(WaveformToRawConfig) },
     };
 
     /// <summary>四个终端显示模块的设置面板正文（独立视图，单独渲染成人眼可核对的图）。</summary>
@@ -633,6 +640,72 @@ public class ModuleViewSnapshots
             },
             CancellationToken.None);
     }
+
+    /// <summary>
+    /// 生成某模块的**封面**截图（<c>modules\&lt;模块&gt;-cover.png</c>）：按固定的 9:5 画布输出，
+    /// 与清单预览图块同比例（图块会被居中裁切，比例不对就裁掉内容）。
+    /// </summary>
+    /// <param name="moduleType">模块入口类型。</param>
+    /// <param name="factoryType">视图工厂类型。</param>
+    /// <param name="configType">配置类型。</param>
+    /// <remarks>
+    /// **封面不是"模块窗口截图"**：这里把视图**按它自己的自然尺寸**渲染，再整块缩放进 9:5 画布
+    /// （等比、留边），而不是把窗口拉成 9:5。窄高模块（竖标尺、姿态球）拉扁会失真，
+    /// 而缩放的代价只是四周多一点底，人眼看起来仍是"这个模块长什么样"。
+    /// <para>
+    /// 产物经 <c>tools/sync-module-covers.ps1</c> 复制进各模块工程根成为 <c>preview.png</c>。
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Modules))]
+    public async Task 生成快照_模块封面(Type moduleType, Type factoryType, Type configType)
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var previous = ModuleView.IsPreviewHost;
+                ModuleView.IsPreviewHost = true;
+
+                try
+                {
+                    var probe = new TestModuleContext();
+                    var module = (IModule)Activator.CreateInstance(moduleType)!;
+                    module.OnRegistered(probe);
+
+                    var fields = BuildFields(configType, moduleType.Assembly);
+                    var context = new SnapshotContext(probe, fields);
+                    var factory = (IModuleViewFactory)Activator.CreateInstance(factoryType)!;
+                    var view = factory.Create(context);
+                    var host = new ModuleViewHost(context, view);
+                    var (width, height) = WindowSize(view);
+
+                    // 按模块自己的尺寸定死宿主，再等比缩放进 9:5 画布：
+                    // `Viewbox` 只负责缩放，模块内部的布局一分不差（拉扁会失真，缩放不会）。
+                    // 走"预览"口径 = 视图自己画外壳，不再套 `ModulePreviewChrome`。
+                    var window = SnapshotWindow.CreateCover(host, width, height, CoverWidth, CoverHeight);
+
+                    window.Show();
+                    SnapshotTool.Pump();
+
+                    // 故意不调用 host.Refresh()：与"无刷新预览"同一口径（预览初值即可）。
+
+                    var name = moduleType.Name.Replace("Module", string.Empty, StringComparison.Ordinal);
+                    SnapshotTool.Save(window, "modules/" + name + "-cover.png");
+                    window.Close();
+                }
+                finally
+                {
+                    ModuleView.IsPreviewHost = previous;
+                }
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>封面画布宽（9:5，与清单预览图块同比例）。</summary>
+    private const double CoverWidth = 360;
+
+    /// <summary>封面画布高。</summary>
+    private const double CoverHeight = 200;
 
     /// <summary>
     /// 生成某模块的**无刷新预览**截图：模拟预览器，只实例化 XAML、不调用 Refresh。

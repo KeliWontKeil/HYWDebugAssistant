@@ -242,6 +242,20 @@
     </Style>
 
     <!--
+      **预览图块的类型色外圈**（只在模块清单里用；`BorderBrush` 由行模型binding给定，样式只管几何）：
+      · **不占布局**：与图块同尺寸叠在上面，厚度压在图块内侧，行高与图块尺寸因此不变；
+      · 圆角与 `Border.previewTile` 一致，跟着图块的裁剪走；
+      · 比默认边框粗一档：这段彩色要盖过图块自身的中性边框才读得出来。
+    -->
+    <Style Selector="Border.typeRing">
+        <Setter Property="BorderThickness" Value="2" />
+        <Setter Property="CornerRadius" Value="2" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="VerticalAlignment" Value="Stretch" />
+        <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+
+    <!--
       **分类标签**（模块清单顶部横向标签；用户第十轮反馈）：
       **固定宽度**（由使用处给 Width）→ 切换分类**不会推动其它控件**；选中态用边框 + 底色 + 主色文字。
     -->

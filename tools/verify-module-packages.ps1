@@ -35,6 +35,36 @@ $root = Split-Path -Parent $PSScriptRoot
 
 $packageRoot = Join-Path $root "artifacts\modules\$Configuration"
 
+# 封面文件名与上限：与 `build/module-package.props` 的 `$(ModuleCoverFileName)`
+# 及 `src/Hosting/Packages/ModulePackageLayout.CoverFileName` **必须是同一个名字**
+# （MSBuild 引用不了 C# 常量 ⇒ 三处各写一次，这里就是核对它们的地方）。
+$coverFileName = 'preview.png'
+$coverMaxBytes = 1MB
+
+$coverPropertyFile = Join-Path $root 'build\module-package.props'
+if (Test-Path -LiteralPath $coverPropertyFile) {
+    $coverMatch = Select-String -LiteralPath $coverPropertyFile -Pattern '<ModuleCoverFileName[^>]*>([^<]+)<' |
+        Select-Object -First 1
+    if ($coverMatch) {
+        $declared = $coverMatch.Matches[0].Groups[1].Value.Trim()
+        if ($declared -ne $coverFileName) {
+            throw "封面文件名不一致：build/module-package.props 声明 '$declared'，本脚本按 '$coverFileName' 校验"
+        }
+    }
+}
+
+$coverConstantFile = Join-Path $root 'src\Hosting\Packages\ModulePackageLayout.cs'
+if (Test-Path -LiteralPath $coverConstantFile) {
+    $constantMatch = Select-String -LiteralPath $coverConstantFile -Pattern 'CoverFileName\s*=\s*"([^"]+)"' |
+        Select-Object -First 1
+    if ($constantMatch) {
+        $declared = $constantMatch.Matches[0].Groups[1].Value
+        if ($declared -ne $coverFileName) {
+            throw "封面文件名不一致：ModulePackageLayout.CoverFileName = '$declared'，本脚本按 '$coverFileName' 校验"
+        }
+    }
+}
+
 # 应用输出只向 MSBuild 要（不手抄 `bin\<配置>\net10.0`；理由见 tools/app-output.ps1 头注释）。
 $appOutput = Get-AppOutputDirectory -Root $root -Configuration $Configuration
 $appModules = Join-Path $appOutput 'modules'
@@ -153,6 +183,25 @@ function Test-ModulePackages {
             $pattern = Get-ForbiddenHostPattern -FileName $file.Name
             if ($pattern) {
                 throw "模块包含宿主提供程序集（模式 '$pattern'）：$($file.FullName)"
+            }
+        }
+
+        # **封面**（可选）：包根一个 PNG，清单页拿它当模块卡片封面。
+        # 缺图不是错（界面显示占位字形）；有图就必须是真的 PNG 且不过大 ——
+        # 否则界面会走"解码失败 ⇒ 占位"，用户却以为"我给了封面为什么不显示"。
+        $coverPath = Join-Path $package.FullName $coverFileName
+        if (Test-Path -LiteralPath $coverPath -PathType Leaf) {
+            $coverBytes = [System.IO.File]::ReadAllBytes($coverPath)
+            $isPng = $coverBytes.Length -ge 8 -and
+                $coverBytes[0] -eq 0x89 -and $coverBytes[1] -eq 0x50 -and
+                $coverBytes[2] -eq 0x4E -and $coverBytes[3] -eq 0x47
+
+            if (-not $isPng) {
+                throw "模块封面不是 PNG：$coverPath（清单页只认 PNG；扩展名改成 .png 不算）"
+            }
+
+            if ($coverBytes.Length -gt $coverMaxBytes) {
+                throw ("模块封面过大：{0}（{1} 字节 > 上限 {2} 字节）" -f $coverPath, $coverBytes.Length, $coverMaxBytes)
             }
         }
 

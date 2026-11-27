@@ -766,6 +766,11 @@ public sealed record IssueSummaryView(
 /// 模块声明的**标签**（`ModuleDefinitionAttribute.Tags`）【新增 · M1-16 后】——界面据它做**分类**与搜索；
 /// 不声明标签的模块归入"其他"。空/未知为 <see langword="null"/>。
 /// </param>
+/// <param name="TypeKeys">
+/// 模块**声明端口**承载的数据类型标识（去重、按序）：清单预览图块外圈据此着色，
+/// 使"这是什么东西"一眼可辨。取色经 <c>PacketTypePalette</c>（与端口标记、角色方块**同源**）。
+/// 空/未知为 <see langword="null"/>（无端口模块、或改用 C# <c>DeclarePort</c> 的旧模块）。
+/// </param>
 public sealed record ModuleCatalogEntryView(
     string ModuleId,
     string DisplayName,
@@ -775,7 +780,8 @@ public sealed record ModuleCatalogEntryView(
     bool NeedsRestart = false,
     IReadOnlyList<string>? Tags = null,
     bool IsExternal = false,
-    string? PreviewImagePath = null);
+    string? PreviewImagePath = null,
+    IReadOnlyList<string>? TypeKeys = null);
 
 /// <summary>
 /// **建网候选**：发送端 → 接收端，**即将**因「接触且对齐」而连上。

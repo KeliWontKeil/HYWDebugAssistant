@@ -161,11 +161,17 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
         new(Total: 4, Error: 1, Warning: 2, Info: 1);
 
     /// <inheritdoc />
+    /// <remarks>
+    /// 设计期样例**覆盖清单预览图块的四种外圈**：单类型（两类发送器/显示器）、
+    /// 双类型转换器（一色一半）、零端口模块（中性外圈）。设计器里就能看到分色效果，
+    /// 不必等运行时装包。
+    /// </remarks>
     public IReadOnlyList<ModuleCatalogEntryView> GetModuleCatalog() =>
     [
-        new("hyw/text-sender", "文本发送器", "发送一串文本；单次点击 + 连续发送（开关 + 间隔）", "Network", "modules/text-sender", false, ["text", "sender"]),
-        new("hyw/hex-sender", "HEX 发送器", "把一串十六进制文本解析成字节发出去", "Network", "modules/hex-sender", false, ["hex", "sender"]),
-        new("hyw/data-monitor", "数据显示器", "把收到的字节显示出来（文本 / 十六进制）；可暂停、换行、加时间戳、清空、保存 .txt", "None", "modules/data-monitor", false, ["monitor", "display"]),
+        new("hyw/text-sender", "文本发送器", "发送一串文本；单次点击 + 连续发送（开关 + 间隔）", "Network", "modules/text-sender", false, ["text", "sender"], TypeKeys: ["RawBytes"]),
+        new("hyw/hex-sender", "HEX 发送器", "把一串十六进制文本解析成字节发出去", "Network", "modules/hex-sender", false, ["hex", "sender"], TypeKeys: ["RawBytes"]),
+        new("hyw/data-monitor", "数据显示器", "把收到的字节显示出来（文本 / 十六进制）；可暂停、换行、加时间戳、清空、保存 .txt", "None", "modules/data-monitor", false, ["monitor", "display"], TypeKeys: ["RawBytes"]),
+        new("hyw/raw-to-waveform", "原始波形转换器", "把字节流整形成波形帧（两种类型：入口字节、出口波形）", "Network", "modules/raw-to-waveform", false, ["converter", "waveform", "protocol"], TypeKeys: ["RawBytes", "WaveformFrame"]),
         new("hyw/hex-string-converter", "HEX ↔ 字符串转换器", "十六进制与字符串互转的离线小工具（无端口）", "None", "modules/hex-string-converter", false, ["hex", "tool"]),
     ];
 

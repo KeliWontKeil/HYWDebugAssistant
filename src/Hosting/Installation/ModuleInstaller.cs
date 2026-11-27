@@ -165,11 +165,20 @@ public sealed class ModuleInstaller
     }
 
     /// <summary>该包是否在本进程启动后被重新构建过（只看包目录直接文件；与原有 NeedsRestart 口径一致）。</summary>
+    /// <remarks>
+    /// **封面不算"内容变化"**：它是展示资源，不承载任何代码，换一张图不需要重启应用
+    /// （为此弹出「需重启」既吓人又没用：重启了也只是换了张图）。
+    /// 其余包根文件（程序集、清单、依赖）仍然按最新修改时间判定。
+    /// </remarks>
     private bool WasBuiltAfterProcessStart(string packageDirectory)
     {
         try
         {
             var newest = Directory.EnumerateFiles(packageDirectory, "*", SearchOption.TopDirectoryOnly)
+                .Where(path => !string.Equals(
+                    Path.GetFileName(path),
+                    ModulePackageLayout.CoverFileName,
+                    StringComparison.OrdinalIgnoreCase))
                 .Select(File.GetLastWriteTimeUtc)
                 .DefaultIfEmpty(DateTime.MinValue)
                 .Max();

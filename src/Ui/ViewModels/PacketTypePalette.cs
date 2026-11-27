@@ -48,10 +48,13 @@ public static class PacketTypePalette
     /// —— 同一个色值只写一处（以前它在这个类与设置面板的兜底里各写了一遍）。
     /// </para>
     /// </remarks>
-    public static IBrush Placeholder { get; } = new ImmutableSolidColorBrush(Color.Parse(PlaceholderHex));
-
-    /// <summary>占位色的文本形式（**唯一一处**；`Placeholder` 与设置面板的兜底都引它）。</summary>
     public const string PlaceholderHex = "#9AA4B2";
+
+    /// <summary>占位色的**颜色形式**（与 <see cref="Placeholder"/> 同一个值；需要停靠点时用它）。</summary>
+    public static Color PlaceholderColor { get; } = Color.Parse(PlaceholderHex);
+
+    /// <summary>占位画刷（<see cref="PlaceholderColor"/> 的不可变单色版）。</summary>
+    public static IBrush Placeholder { get; } = new ImmutableSolidColorBrush(PlaceholderColor);
 
     /// <summary>自动配色的饱和度（0–1）：中等饱和 —— 深色玻璃上不刺眼、彼此可分。</summary>
     public const double AutoSaturation = 0.52;
@@ -71,6 +74,36 @@ public static class PacketTypePalette
             ? overridden
             : Auto.GetOrAdd(key, static k => new ImmutableSolidColorBrush(AutoColor(k)))
         : Placeholder;
+
+    /// <summary>
+    /// 取某个**数据类型**对应的颜色（<see cref="For"/> 的"颜色"版：需要停靠点/渐变时必须用它）。
+    /// </summary>
+    /// <param name="typeKey">
+    /// 类型标识（未声明类型 ⇒ 结构描述；空/未知 ⇒ 占位色）。
+    /// </param>
+    /// <returns>该类型对应的颜色。</returns>
+    /// <remarks>
+    /// **与 <see cref="For"/> 同源**：覆盖色优先、否则自动配色、空键占位 —— 两处若各算一遍，
+    /// 清单的环与端口标记的窄色条就会在"用户改过色"时不一致。
+    /// <para>
+    /// 覆盖表只经 <see cref="SetOverride"/> 写入（存的都是不可变**单色**画刷），
+    /// 因此"有覆盖 ⇒ 取它的颜色"；万一将来放进非单色画刷，则回落自动配色而不是抛异常。
+    /// </para>
+    /// </remarks>
+    public static Color ColorFor(string? typeKey)
+    {
+        if (typeKey is not { Length: > 0 })
+        {
+            return PlaceholderColor;
+        }
+
+        if (Overrides.TryGetValue(typeKey, out var overridden) && overridden is ISolidColorBrush solid)
+        {
+            return solid.Color;
+        }
+
+        return AutoColor(typeKey);
+    }
 
     /// <summary>设置一个**用户覆盖色**（"数据包类型表"用；同一键重复设置即覆盖）。</summary>
     /// <param name="typeKey">类型身份。</param>

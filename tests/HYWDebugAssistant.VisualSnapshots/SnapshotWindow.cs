@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Media;
 using HYWDebugAssistant.Sdk.Ui.Controls;
 
 namespace HYWDebugAssistant.VisualSnapshots;
@@ -36,4 +37,39 @@ internal static class SnapshotWindow
         Height = height,
         Content = content,
     };
+
+    /// <summary>
+    /// **封面**：把模块按它自己的尺寸定死，再等比缩放进固定比例的画布（清单预览图块的比例）。
+    /// </summary>
+    /// <param name="content">模块视图宿主（按 <paramref name="width"/> × <paramref name="height"/> 布局）。</param>
+    /// <param name="width">模块自然宽。</param>
+    /// <param name="height">模块自然高。</param>
+    /// <param name="coverWidth">画布宽。</param>
+    /// <param name="coverHeight">画布高。</param>
+    /// <remarks>
+    /// **缩放不是拉伸**：窄高模块（竖标尺、姿态球）若被拉成 9:5 会严重失真，
+    /// 而 `Viewbox` 的等比缩放只会在四周留底 —— 人眼看到的仍是"这个模块长什么样"。
+    /// 封面因此不重排模块布局，模块也不需要为封面改任何尺寸声明。
+    /// </remarks>
+    public static Window CreateCover(
+        Control content,
+        double width,
+        double height,
+        double coverWidth,
+        double coverHeight)
+    {
+        content.Width = width;
+        content.Height = height;
+
+        return new Window
+        {
+            Width = coverWidth,
+            Height = coverHeight,
+            Content = new Viewbox
+            {
+                Stretch = Stretch.Uniform,
+                Child = content,
+            },
+        };
+    }
 }

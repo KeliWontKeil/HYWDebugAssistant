@@ -292,10 +292,11 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     /// <param name="hex">`#RRGGBB`；null/空 ⇒ 移除覆盖。</param>
     /// <remarks>
     /// <list type="bullet">
-    ///   <item><b>色板是唯一色彩来源</b>：端口标记的窄色条与叠加层角色方块都经 `PacketTypePalette` 取色
-    ///     ⇒ 这里只改色板，两处自然同步；</item>
+    ///   <item><b>色板是唯一色彩来源</b>：端口标记的窄色条、叠加层角色方块与**模块清单的类型色外圈**
+    ///     都经 `PacketTypePalette` 取色 ⇒ 这里只改色板，三处自然同步；</item>
     ///   <item><b>落盘</b>：写进应用设置（`typeColors`）⇒ 重启仍生效；</item>
-    ///   <item><b>重画</b>：让模块窗口重新读一次类型画刷（标记）并重设角色列表（叠加层触发重绘）。</item>
+    ///   <item><b>重画</b>：让模块窗口重新读一次类型画刷（标记）、重设角色列表（叠加层触发重绘），
+    ///     并让清单的环重新取色（环缓存的是已算好的画刷，不重取就仍显示旧色）。</item>
     /// </list>
     /// </remarks>
     public void ApplyDataTypeColor(string typeKey, string? hex)
@@ -317,6 +318,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
         }
 
         Windows.RefreshTypeColors();
+        Catalog.RefreshTypeRings();
         RefreshDataTypeColors();
     }
 

@@ -78,6 +78,26 @@ public class WaveformViewSnapshots
             630,
             "modules/waveform-display.png");
 
+    /// <summary>波形发生器的**封面**（9:5 画布，等比缩放；模块布局不重排）。</summary>
+    [Fact]
+    public async Task 生成快照_波形发生器_封面() =>
+        await SaveCoverAsync(
+            new WaveformGeneratorViewFactory(),
+            new GeneratorSnapshotContext(),
+            1002,
+            370,
+            "modules/waveform-generator-cover.png");
+
+    /// <summary>波形显示器的**封面**（同上）。</summary>
+    [Fact]
+    public async Task 生成快照_波形显示器_封面() =>
+        await SaveCoverAsync(
+            new WaveformDisplayViewFactory(),
+            new DisplaySnapshotContext(),
+            1002,
+            630,
+            "modules/waveform-display-cover.png");
+
     [Fact]
     public async Task 生成快照_波形显示器_无数据() =>
         await SaveAsync(
@@ -133,6 +153,39 @@ public class WaveformViewSnapshots
                 var view = factory.Create(context);
                 var host = new ModuleViewHost(context, view);
                 var window = SnapshotWindow.CreateFramed(host, view as ModuleView, width, height);
+
+                window.Show();
+                SnapshotTool.Pump();
+                host.Refresh();
+                SnapshotTool.Pump();
+                SnapshotTool.Save(window, path);
+                window.Close();
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>封面的画布宽（9:5，与清单预览图块同比例）。</summary>
+    private const double CoverWidth = 360;
+
+    /// <summary>封面的画布高。</summary>
+    private const double CoverHeight = 200;
+
+    private static async Task SaveCoverAsync(
+        IModuleViewFactory factory,
+        IModuleViewContext context,
+        double width,
+        double height,
+        string path)
+    {
+        await SnapshotSession.Shared.Dispatch(
+            () =>
+            {
+                var view = factory.Create(context);
+                var host = new ModuleViewHost(context, view);
+
+                // 封面按**模块自然尺寸**布局后整体等比缩放：波形模块很宽（1002），
+                // 直接塞进 360 宽的窗口会重排控件（按钮挤在一起），缩放才不会。
+                var window = SnapshotWindow.CreateCover(host, width, height, CoverWidth, CoverHeight);
 
                 window.Show();
                 SnapshotTool.Pump();

@@ -1,7 +1,5 @@
 {
   "language": "zh-Hans",
   "entries": {
-    "access.diag.serialDeviceLost": "串口设备不在系统中",
-    "access.diag.serialNotOpen": "串口未打开"
   }
 }

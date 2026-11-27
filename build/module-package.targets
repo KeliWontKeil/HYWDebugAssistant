@@ -13,6 +13,11 @@
     <ModulePackageRoot Condition="'$(ModulePackageRoot)' == ''">$(BaseOutputPath)module-package\</ModulePackageRoot>
     <ModulePackageRoot Condition="'$(ModulePackageRoot)' == ''">bin\module-package\</ModulePackageRoot>
     <ModulePackageDirectory>$(ModulePackageRoot)$(ModulePackageName)</ModulePackageDirectory>
+    <!--
+      封面文件名：缺省值在 props 里给（外部作者走 props+targets）；仓库内模块只导入 targets，
+      ⇒ 这里再给一次同样的缺省（`Condition` 保证项目里覆盖过的值不被冲掉）。
+    -->
+    <ModuleCoverFileName Condition="'$(ModuleCoverFileName)' == ''">preview.png</ModuleCoverFileName>
   </PropertyGroup>
 
   <!--
@@ -70,6 +75,16 @@
                           Condition="Exists('$(MSBuildProjectDirectory)\Views')" />
       <ModulePortViewFile Include="$(MSBuildProjectDirectory)\ports.axaml"
                           Condition="Exists('$(MSBuildProjectDirectory)\ports.axaml')" />
+
+      <!--
+        **模块封面**（可选）：包根的一张图，清单页拿它当模块卡片封面。
+        从项目目录直接归拢（与 module.json / resources 同一模式），作者把文件放到工程根即可，
+        **不需要**在项目文件里写 `<None Update ... CopyToOutputDirectory>` ——
+        那种写法只影响"复制到输出目录"，而包归拢读的是项目目录；
+        也因为它不是 Content/None 的传递项，经 ProjectReference 时**不会**传到下游程序集。
+      -->
+      <ModuleCoverFile Include="$(MSBuildProjectDirectory)\$(ModuleCoverFileName)"
+                       Condition="Exists('$(MSBuildProjectDirectory)\$(ModuleCoverFileName)')" />
     </ItemGroup>
 
     <!-- 同步一份到输出目录：测试/宿主可能直接从 bin 目录加载（而不是从归拢后的包目录）。 -->
@@ -96,6 +111,12 @@
           SkipUnchangedFiles="true"
           Condition="'@(ModulePortViewFile)' != ''" />
 
+    <!-- 封面在包根：与 module.json 同级（清空包目录后重新放，避免旧图残留）。 -->
+    <Copy SourceFiles="@(ModuleCoverFile)"
+          DestinationFolder="$(ModulePackageDirectory)"
+          SkipUnchangedFiles="true"
+          Condition="'@(ModuleCoverFile)' != ''" />
+
     <Message Importance="high" Text="[module-pkg] $(ModulePackageName) → $(ModulePackageDirectory)" />
   </Target>
 
@@ -110,6 +131,8 @@
     <!-- 端口声明源参与包内容：只改 XAML 也要让归拢重新跑。 -->
     <UpToDateCheckInput Include="Views\**\*.axaml" Condition="Exists('$(MSBuildProjectDirectory)\Views')" />
     <UpToDateCheckInput Include="ports.axaml" Condition="Exists('$(MSBuildProjectDirectory)\ports.axaml')" />
+    <!-- 封面同样参与包内容：只换一张图也要让归拢重新跑（否则"换了封面没生效"）。 -->
+    <UpToDateCheckInput Include="$(ModuleCoverFileName)" Condition="Exists('$(MSBuildProjectDirectory)\$(ModuleCoverFileName)')" />
   </ItemGroup>
 
 </Project>

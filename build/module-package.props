@@ -10,5 +10,12 @@
     <ModulePackageName Condition="'$(ModulePackageName)' == ''">$(MSBuildProjectName.Substring($([MSBuild]::Add($(MSBuildProjectName.LastIndexOf('.')), 1))))</ModulePackageName>
     <!-- 绝对路径：不依赖 BaseOutputPath 在 props 导入时是否已求值。 -->
     <ModulePackageRoot Condition="'$(ModulePackageRoot)' == ''">$(MSBuildProjectDirectory)\bin\module-package\$(Configuration)\</ModulePackageRoot>
+
+    <!--
+      **模块封面文件名**（包根，与 module.json 同级）：放一个同名文件到工程目录即进包，不需要改项目文件。
+      与 `src/Hosting/Packages/ModulePackageLayout.CoverFileName` 必须是同一个名字（那边是读取侧的常量）；
+      MSBuild 无法引用 C# 常量，所以两处各写一次，`tools/verify-module-packages.ps1` 会核对一致性。
+    -->
+    <ModuleCoverFileName Condition="'$(ModuleCoverFileName)' == ''">preview.png</ModuleCoverFileName>
   </PropertyGroup>
 </Project>

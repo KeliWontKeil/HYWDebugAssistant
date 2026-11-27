@@ -1,0 +1,32 @@
+{
+  "language": "zh-Hans",
+  "entries": {
+    "appearance.font.note": "字体为全局设置，不随主题方案变化。西文与中文分别设置。",
+    "appearance.palette.note": "任意改动将会自动生成自定义方案；点击「应用」或「确认」后生效。",
+    "appearance.surface.note": "当前主题方案的背景遮罩透明度：0%完全透明，100%完全不透明，默认70%。",
+    "appearance.system.note": "跟随系统时，浅色与深色模式将使用各自选定的方案。",
+    "appearance.theme.note": "当前主题的壁纸与色板；修改后点击「应用」或「确认」生效。",
+    "appearance.wallpaper.note": "只影响主窗口",
+    "appearance.wallpaper.veil.note": "当前主题的壁纸上主题色遮罩浓度：0% 无遮罩，90% 壁纸几乎不可见",
+    "catalog.help.body": "上方搜索框按名称与描述过滤，分类标签按模块声明的标签归类：端口、数据源、终端、转换器、其他；「全部模块」按这些分类分区排列。列表左侧是预览图，外圈颜色代表该模块承载的数据类型（转换器按两种类型分色，纯工具没有外圈）；第二行标注来源：内置或外部（外部模块从 modules\\external 加载）。选中一行后点「加载」，或直接双击加入。",
+    "composite.help.body": "搜索只过滤「可用组合」。选中一个后点「加载」或直接双击，即可追加到当前工作区；外部组合文件夹需先「导入组合…」复制到默认目录。「已选模块」是本次保存的范围：在模块窗口里点击选择，或点「全选现场」加入全部模块。保存默认写入 composites\\，另存为可选择其他位置。",
+    "interaction.help.dataTypeColors.body": "同一数据类型在所有窗口中的颜色；修改将影响视觉效果。",
+    "interaction.help.display.body": "叠加信息层会在模块窗口里画出连接与数据流向；双击端口标记即可修改网络名。",
+    "interaction.help.snap.body": "拖动时可吸附到其他模块与主窗口右边缘；按住 Alt 临时暂停吸附。两个模块靠近且端口对齐时会自动连网。",
+    "interaction.help.window.body": "（暂无）",
+    "settings.about.quickstart.body": "（暂无）",
+    "settings.about.tagline": "每个模块是一个独立窗口，拼在一起就是调试现场。",
+    "settings.advanced.note": "以下为通信、缓冲、状态显示与文本内存的机制参数，通常无需调整；误调会影响所有模块。",
+    "settings.display.note": "这里限制的是显示文本框的内存，不是模块载荷的 1472 字节协议上限。",
+    "settings.flow.note": "队列容量与满时策略对新建队列生效；暂存容量对新建 / 重新打开的会话生效；其余（探活、关闭等待、丢失判定、饱和/滞留/写超时）立即生效。当前生效值见拓扑诊断 / 模块状态行。",
+    "settings.general.language.note": "更多语言随后续版本提供，切换后重启以生效",
+    "settings.general.controlCharacters.note": "这只影响显示；复制、保存、发送仍使用原始字符。输入框里的 C 转义记法（如 \\x0C）始终显示为蓝色。",
+    "settings.hotkeys.edit.body": "选中文本框后按下新组合键即可修改；点击「默认」以恢复该项默认设置，点击「全部恢复默认」恢复全部快捷键默认设置；清空将不绑定按键。窗口失焦时也响应的系统级热键暂不支持。",
+    "settings.hotkeys.section.note": "任一本应用窗口聚焦时生效",
+    "settings.interaction.window.note": "应用内层级：弹窗在最上，模块窗口居中，主窗口在下。",
+    "settings.storage.note": "全部位于程序目录下，按功能分根：设置、模块、组合、工作区、日志。模块是内置模块包；组合是保存组合文件的默认目录（保存时可另选位置）；工作区保存工作区快照。",
+    "shell.help.about.body": "何译位调试助手（HYWDebugAssistant）：模块化可拓展，高度自定义化的调试助手。",
+    "shell.help.hotkeys.tips": "模块窗口：拖动边框移动（按住 Ctrl 可单独拖动，按住 Alt 暂停吸附）；拖动边中点或角点缩放。\n窗口右下角的按钮依次是：运行/停用、锁定、隐藏、移除。\n建网：双击窗口边缘的口标记，填写网络名；两侧同名即自动连成一条网络，清空名字即退出。连接关系可在「拓扑诊断」里查看。",
+    "workspaceClose.note": "保存后下次启动会恢复全部模块、配置、输入内容、窗口位置和壁纸。不保存只会丢弃本次未保存的修改。"
+  }
+}

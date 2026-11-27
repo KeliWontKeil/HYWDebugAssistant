@@ -113,6 +113,17 @@
                                                       FontSize="18"
                                                       IsVisible="{Binding ShowPreviewPlaceholder}"
                                                       Icon="{x:Static uc:ShellIcons.Modules}" />
+
+                                            <!--
+                                              **类型色外圈**：这个模块承载哪几种数据类型，外圈就是哪几段颜色；
+                                              多类型（如转换器）等分、硬切换。不画文字、不占布局 ——
+                                              它只是图块上的**视觉线索**，说明进悬停提示。
+                                              没有类型的模块（零口工具）不显示本层，保留图块自带的中性边框。
+                                            -->
+                                            <Border IsHitTestVisible="False"
+                                                    Classes="typeRing"
+                                                    IsVisible="{Binding Entry.TypeRing.HasRing}"
+                                                    BorderBrush="{Binding Entry.TypeRing.Brush}" />
                                         </Grid>
                                     </Border>
 

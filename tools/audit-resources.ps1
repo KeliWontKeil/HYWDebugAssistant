@@ -889,6 +889,153 @@ foreach ($ownerGroup in $byOwner) {
     }
 }
 
+# ---------------------------------------------------------------- ③e 框架文本表的分片归属
+
+# 框架文本表按**用途**分三层（模块表不拆，见 ③d）：
+#   · `zh-Hans.json`              用户可见的中短文本：短语、按钮、标签、状态句 —— **精调对象**
+#   · `zh-Hans.diagnostics.json`  专业级/框架级报错与判定原因：求精准，不求好读
+#   · `zh-Hans.help.json`         长描述性文本：帮助正文、说明段落
+#
+# 判据只看**拥有者 + 键路径**（不看值、不看长度）：值会随译文变化，长度判据在译文间会漂移
+# ⇒ 同一个键在不同语言里可能被判进不同分片（那会让译文各自为政）。键路径是身份，跨语言稳定。
+#
+# 规矩与实现顺序（命中即止）：
+#   ① help        末段 ∈ { body, note, tagline, tips }
+#   ② diagnostics 任一段 ∈ { diag, diagnostics, reason, failure }
+#   ③ diagnostics 末段含报错/约束词（见 $diagWords）；
+#                 例外：界面层拥有者的 `*.empty` 是空状态占位（「暂无模块」）⇒ 留 base
+#   ④ diagnostics 整个命名空间都是诊断（见 $diagPrefixes）
+#   ⑤ diagnostics 拥有者整体：Hosting / DataPlane / Access（这三个拥有者没有面向用户的中短文本）
+#   ⑥ 其余         base
+#
+# 这三份判据表是**唯一事实源**：新键落错分片即判红，并给出"该去的文件名"。
+$shardHelpSegments = @('body', 'note', 'tagline', 'tips')
+$shardDiagSegments = @('diag', 'diagnostics', 'reason', 'failure')
+$shardDiagWords = @(
+    'failed', 'failure', 'invalid', 'missing', 'mismatch', 'threw', 'rejected', 'unsupported',
+    'toolarge', 'toodeep', 'toolong', 'conflict', 'unreadable', 'notfound', 'malformed',
+    'duplicate', 'illegal', 'exceeds', 'exceeded', 'outofrange', 'unavailable',
+    'notpersisted', 'notopen', 'notdeclared', 'notregistered', 'notconfigured',
+    'undeclared', 'unresolved', 'notincluded', 'notactive', 'notdisabled',
+    'empty', 'notarray', 'notobject', 'notmodule', 'containswhitespace', 'occupied',
+    'samename', 'dualconsumer', 'nobindings', 'internalerror', 'unbound', 'exhausted',
+    'nonobject', 'nosources', 'folderlimit', 'coverexists', 'targetexists',
+    'onlydefaultdirectory', 'nomodulepackages'
+)
+$shardDiagPrefixes = @(
+    'core.settings', 'core.compat', 'core.seed', 'core.workspace',
+    'core.composite.store', 'core.composite.inspect', 'core.composite.load',
+    'core.services.schema', 'core.services.config', 'core.services.restartSnapshot'
+)
+$shardDiagnosticOwners = @(
+    'HYWDebugAssistant.Hosting', 'HYWDebugAssistant.DataPlane', 'HYWDebugAssistant.Access'
+)
+$shardInterfaceOwners = @(
+    'HYWDebugAssistant.Ui', 'HYWDebugAssistant.Sdk.Ui', 'HYWDebugAssistant.FrameworkUi', 'HYWDebugAssistant.App'
+)
+
+# **模块拥有者不参与**：模块的文本表在模块包里，它们不拆分（作者侧只有一张表，就近维护最省事）。
+$moduleOwnerNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+foreach ($moduleManifest in (Get-ChildItem -LiteralPath (Join-Path $root 'src\Modules') -Recurse -Filter module.json -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' })) {
+    $moduleProject = Get-ChildItem -LiteralPath $moduleManifest.Directory.FullName -File -Filter *.csproj -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($moduleProject) { $null = $moduleOwnerNames.Add([System.IO.Path]::GetFileNameWithoutExtension($moduleProject.Name)) }
+}
+
+function Get-ExpectedTextShard([string]$Owner, [string]$Key) {
+    $segments = $Key.Split('.')
+    $lastLower = $segments[-1].ToLowerInvariant()
+
+    if ($shardHelpSegments -contains $lastLower) { return 'help' }
+
+    foreach ($segment in $segments) {
+        if ($shardDiagSegments -contains $segment.ToLowerInvariant()) { return 'diagnostics' }
+    }
+
+    if (-not ($shardInterfaceOwners -contains $Owner -and $lastLower -eq 'empty')) {
+        foreach ($word in $shardDiagWords) {
+            if ($lastLower.Contains($word, [StringComparison]::Ordinal)) { return 'diagnostics' }
+        }
+    }
+
+    foreach ($prefix in $shardDiagPrefixes) {
+        if ($Key -eq $prefix -or $Key.StartsWith($prefix + '.', [StringComparison]::Ordinal)) { return 'diagnostics' }
+    }
+
+    if ($shardDiagnosticOwners -contains $Owner) { return 'diagnostics' }
+
+    return 'base'
+}
+
+foreach ($table in $tables) {
+    if ($moduleOwnerNames.Contains($table.Owner)) { continue }
+
+    $tablePath = Join-Path $root $table.File
+    $fileName = Split-Path -Leaf $table.File
+
+    # 分片名白名单：`<culture>.json` / `<culture>.diagnostics.json` / `<culture>.help.json`。
+    # 名字写错不会被运行期报错（`TextCatalog` 见 `<culture>.*.json` 就当分片读），
+    # 只会静默生效 ⇒ 必须在这里拦（新增一层目录结构之前先想清楚）。
+    $shard = 'base'
+    if ($fileName -match '^\S+\.diagnostics\.json$') { $shard = 'diagnostics' }
+    elseif ($fileName -match '^\S+\.help\.json$') { $shard = 'help' }
+    elseif ($fileName -notmatch '^\S+\.json$') { continue }
+
+    if ($shard -eq 'base' -and $fileName -ne ($table.Language + '.json')) {
+        Add-Problem $table.File '分片名不在白名单里（只允许 <语言>.json / <语言>.diagnostics.json / <语言>.help.json）'
+        continue
+    }
+
+    foreach ($key in $table.Entries.Keys) {
+        $expected = Get-ExpectedTextShard $table.Owner $key
+        if ($expected -eq $shard) { continue }
+
+        $expectedFile = if ($expected -eq 'base') {
+            $table.Language + '.json'
+        }
+        else {
+            "{0}.{1}.json" -f $table.Language, $expected
+        }
+
+        $line = Get-FirstLineNumber -Path $tablePath -Pattern ([regex]::Escape('"' + $key + '"'))
+        Add-Problem ("{0}:{1}" -f $table.File, $line) `
+            ("键 '{0}' 应在 {1}（当前在 {2}）—— 分片按用途分：base = 用户可见的中短文本，diagnostics = 专业报错，help = 长说明" -f `
+                $key, $expectedFile, $fileName)
+    }
+}
+
+# 分片形状报告（不是判据）：让开发者一眼看到"用户能看到的文本"到底有多少。
+# 每次审计打印一行，数字变了就是有人挪了键 —— 比逐条翻文件直观。
+$shardSummary = [System.Collections.Generic.SortedDictionary[string, string]]::new([StringComparer]::Ordinal)
+foreach ($table in $tables) {
+    if ($moduleOwnerNames.Contains($table.Owner)) { continue }
+    $fileName = Split-Path -Leaf $table.File
+    $kind = if ($fileName -match '\.diagnostics\.json$') { 'diagnostics' }
+    elseif ($fileName -match '\.help\.json$') { 'help' }
+    else { 'base' }
+
+    $bucketKey = "$($table.Owner)|$kind"
+    if (-not $shardSummary.ContainsKey($bucketKey)) {
+        $shardSummary[$bucketKey] = "0|$($table.Owner)|$kind"
+    }
+
+    $parts = $shardSummary[$bucketKey].Split('|')
+    $shardSummary[$bucketKey] = "{0}|{1}|{2}" -f ([int]$parts[0] + $table.Entries.Count), $table.Owner, $kind
+}
+
+Write-Host '[文本表分层]（base = 用户可见中短文本；diagnostics = 专业报错；help = 长说明）'
+$shardRows = foreach ($value in $shardSummary.Values) {
+    $parts = $value.Split('|')
+    [pscustomobject]@{ Owner = $parts[1]; Kind = $parts[2]; Count = [int]$parts[0] }
+}
+
+# 按"拥有者 → 三层的固定次序"打印：同一拥有者的三层挨在一起，便于对照。
+$kindOrder = @{ base = 0; diagnostics = 1; help = 2 }
+foreach ($row in ($shardRows | Sort-Object Owner, @{ Expression = { $kindOrder[$_.Kind] } })) {
+    Write-Host ("  {0,-34} {1,-12} {2,4}" -f $row.Owner, $row.Kind, $row.Count)
+}
+
 # ---------------------------------------------------------------- ③b 配置文本的属主
 
 # 外部接入的 `config.*` 文本由**声明该接入的模块**拥有：参数类型住在框架侧，文本不跟着类型走。

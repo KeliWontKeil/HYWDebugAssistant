@@ -116,20 +116,28 @@ bin/module-package/Release/<模块名>/
 - 实现程序集（可含 `.pdb`）
 - `resources/**`（若项目里有）
 - `views/**/*.axaml`：端口声明源（Hosting 从同一份 XAML 解析端口；不是资源包）
-- 可选的 `preview.png`：模块清单卡片封面（不是窗口截图）
+- 可选的 `preview.png`：模块清单的图块封面（按 9:5 裁切；不是"模块窗口截图"这个概念）
 - 模块私有第三方依赖（含 `runtimes/<rid>/lib|native/…` 平台分片）
 
 包内**不得**有宿主提供的程序集：`HYWDebugAssistant.Sdk*`、`HYWDebugAssistant.Access*`、`Avalonia*`、`System.IO.Ports*`、`SkiaSharp*`、`HarfBuzzSharp*`、`MicroCom.Runtime*`，也不得有 `*.deps.json`。打包规则会自动排除；手工打包时按这份清单剔除。
 
 每次构建会先清空包目录再复制；改过 `module.json` 也会触发重新归拢（它被登记为过期判定输入）。
 
-`preview.png` 放在工程根目录并让它随构建输出（否则不会进包）：
+`preview.png` 放在**工程根目录**即可进包，不需要改项目文件——打包规则直接从工程目录取这个文件，
+与它有没有被复制进输出目录无关：
 
-```xml
-<ItemGroup>
-  <None Update="preview.png" CopyToOutputDirectory="PreserveNewest" />
-</ItemGroup>
 ```
+<模块工程>/preview.png   →   包根 preview.png
+```
+
+清单页拿它作图块封面（按 9:5 居中裁切）。缺图不是错：界面显示占位字形，其余一切照常。
+必须是真 PNG、体积不超过 1 MiB，`tools/verify-module-packages.ps1` 会校验（扩展名改成 `.png` 不算）。
+
+封面**只属于模块自己的包**：它不是 `Content`/`None` 传递项，经 `ProjectReference` 也不会到下游程序集。
+所以不要把 `<None Update="preview.png" CopyToOutputDirectory="PreserveNewest" />` 当成"让封面生效"的手段——
+那一条只影响输出目录副本，对包没有任何作用。
+
+换封面不必重启应用：包的"内容已变化、需重启"判定**不看**封面（它不承载代码）。
 
 ## 资源布局
 
