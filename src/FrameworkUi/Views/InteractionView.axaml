@@ -55,14 +55,6 @@
             <!-- 分区：窗口管理（全局操作 + 模块行操作共用同一套命令与状态） -->
             <Grid ColumnDefinitions="*,Auto">
                 <TextBlock Grid.Column="0" Classes="paneTitle" VerticalAlignment="Center" Text="{loc:Tr interaction.section.window}" />
-                <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="{loc:Tr interaction.help.window.tip}">
-                    <Button.Flyout>
-                        <Flyout Placement="TopEdgeAlignedRight">
-                            <TextBlock MaxWidth="320" TextWrapping="Wrap" FontSize="11"
-                                       Text="{loc:Tr interaction.help.window.body}" />
-                        </Flyout>
-                    </Button.Flyout>
-                </Button>
             </Grid>
 
             <TextBlock FontSize="10" Foreground="{DynamicResource TextMuted}"

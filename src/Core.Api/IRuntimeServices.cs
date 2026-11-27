@@ -27,16 +27,44 @@ public readonly record struct CommandResult(
 }
 
 /// <summary>一个外部路径可能被导入成的形态。</summary>
+/// <remarks>
+/// 判定的深浅口径只有一处：批量扫描器的深度（<c>FolderImportScanner.MaxDepth</c>）。
+/// 分类、冲突查询与执行都读同一份扫描结果，因此"能列出"与"能导入"永远指同一批包。
+/// </remarks>
 public enum ImportPathKind
 {
     /// <summary>不认识（不导入）。</summary>
     None = 0,
 
-    /// <summary>模块包（目录自身或直接子目录含 <c>module.json</c>）。</summary>
+    /// <summary>单个模块包（目录自身或直接子目录含 <c>module.json</c>）。</summary>
     ModulePackage = 1,
 
-    /// <summary>组合包（目录含 <c>composite.json</c>，或路径就是该文件）。</summary>
+    /// <summary>单个组合包（目录含 <c>composite.json</c>，或路径就是该文件）。</summary>
     CompositePackage = 2,
+
+    /// <summary>
+    /// **外层文件夹**：自身不是单个包，但扫描深度内能找到包（模块包或组合包，可混合）。
+    /// </summary>
+    Folder = 3,
+}
+
+/// <summary>
+/// **本次导入要处理的包类别**：让"问哪些冲突"与"导哪些包"用同一个范围。
+/// </summary>
+/// <remarks>
+/// 组合页只导组合包、模块清单页只导模块包、拖入外层文件夹两者都导；
+/// 若冲突查询不跟着分范围，用户就会被问到本次根本不会导入的项。
+/// </remarks>
+public enum ImportScope
+{
+    /// <summary>模块包与组合包（拖入外层文件夹 / 整文件夹导入）。</summary>
+    All = 0,
+
+    /// <summary>只有模块包。</summary>
+    Modules = 1,
+
+    /// <summary>只有组合包。</summary>
+    Composites = 2,
 }
 
 /// <summary>
@@ -225,11 +253,16 @@ public interface IRuntimeQuery
     ///   <item>模块包的同名目录若属于**已加载**的包，也不算冲突 —— 那是只能失败的情形，
     ///     导入时返回 <c>core.services.import.moduleDirectoryOccupied</c>；</item>
     ///   <item>外层文件夹按批量导入同一套扫描规则取冲突（含只装组合包的文件夹）；</item>
+    ///   <item>**只列本次真会导入的类别**（见 <paramref name="scope"/>）：问的与做的必须是同一批包，
+    ///     否则用户会被问到根本不会导入的项；</item>
     ///   <item>不认识或没有包 ⇒ 空列表（不报错，交给导入本身给原因）。</item>
     /// </list>
     /// </remarks>
     /// <param name="sourcePath">外部包目录、外层文件夹，或组合文件路径。</param>
-    IReadOnlyList<ImportConflictView> GetImportConflicts(string sourcePath);
+    /// <param name="scope">本次导入要处理的包类别（缺省 = 模块包与组合包都算）。</param>
+    IReadOnlyList<ImportConflictView> GetImportConflicts(
+        string sourcePath,
+        ImportScope scope = ImportScope.All);
 
     /// <summary>模块视图布局（位置/尺寸/视图开关）；**未摆放过的实例**不在结果中（UI 自行取默认位）。</summary>
     IReadOnlyList<ModuleLayoutView> GetLayout();
@@ -373,6 +406,8 @@ public interface IRuntimeCommand
     /// <remarks>
     /// 包边界优先组合包（含 <c>composite.json</c> 即不再下钻），其次模块包（含 <c>module.json</c>）。
     /// 单个包失败不中断其余；隐藏/系统/重解析点目录跳过，超过上限即停止并报告。
+    /// 本入口两类包都导（拖入外层文件夹就是"把这里面的东西都导进来"）；
+    /// 只导一类的入口是 <see cref="ImportModuleDirectory"/> 与 <see cref="ImportComposite"/>。
     /// </remarks>
     /// <param name="sourceDirectory">外层文件夹。</param>
     /// <param name="conflicts">
@@ -443,6 +478,20 @@ public interface IRuntimeCommand
     /// <remarks>只影响 Issue 列表与计数，不影响模块、网络或配置；不存在的序号忽略。</remarks>
     /// <param name="sequences">要移除的序号集合。</param>
     CommandResult RemoveIssues(IReadOnlyCollection<long> sequences);
+
+    /// <summary>
+    /// **标记一批 Issue 为已读 / 未读**（"选中即已读"、"标记未读"用）。
+    /// </summary>
+    /// <remarks>
+    /// 已读只影响未读标记与入口角标（角标 = 未读错误级条数），不影响运行；
+    /// 不落盘，本次运行有效。不存在的序号忽略。
+    /// </remarks>
+    /// <param name="sequences">要改的序号集合。</param>
+    /// <param name="read"><see langword="true"/> = 已读；<see langword="false"/> = 未读。</param>
+    CommandResult MarkIssuesRead(IReadOnlyCollection<long> sequences, bool read);
+
+    /// <summary>**全部标记为已读**（含当前未显示的那些）；角标随之清零。</summary>
+    CommandResult MarkAllIssuesRead();
 
     /// <summary>**清空全部 Issue**（用户确认后的“清空全部”）；不影响运行中的模块。</summary>
     CommandResult ClearIssues();

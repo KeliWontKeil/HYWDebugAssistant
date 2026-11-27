@@ -331,8 +331,8 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     /// <param name="path">外部文件或文件夹路径。</param>
     /// <param name="conflicts">同名冲突的处置（键 = 来源全路径）；缺省 = 没有冲突。</param>
     /// <remarks>
-    /// 识别由框架查询面统一回答，UI 不写清单文件名字面量；普通目录交给批量导入（2–3 层），
-    /// 无法识别的内容写页面状态，**不再写应用底部状态栏**（那里只留窗口级提示）。
+    /// 识别由框架查询面统一回答（<c>ClassifyImportPath</c>，深度口径与批量扫描器同一处），
+    /// UI 不写清单文件名字面量；**单个包**交给对应页面，**外层文件夹**交给批量导入。
     /// 询问撞名由调用方（视图）先做 —— 见 <see cref="GetImportConflicts"/>。
     /// </remarks>
     public void ImportPath(
@@ -351,7 +351,15 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
                 Composites.ImportComposite(path, conflicts);
                 break;
 
+            case ImportPathKind.Folder:
+                // 外层文件夹：模块包与组合包一起导（同一个扫描器，与冲突查询同一批包）。
+                ShowImportPage(ShellPages.Catalog);
+                Catalog.ImportFolder(path, conflicts);
+                break;
+
             default:
+                // 空目录也走批量导入：由它给出"没有找到模块包或组合文件夹"这句准确的原因，
+                // 而不是笼统的"不支持的内容"。
                 ShowImportPage(ShellPages.Catalog);
 
                 if (Directory.Exists(path))
@@ -518,24 +526,34 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     [ObservableProperty]
     public partial int IssueCount { get; set; }
 
-    /// <summary>错误级 Issue 计数（活动栏徽标与状态栏用）。</summary>
+    /// <summary>错误级 Issue 计数（状态栏摘要用：它是信息，与已读无关）。</summary>
     [ObservableProperty]
     public partial int ErrorIssueCount { get; set; }
 
-    /// <summary>是否存在错误级 Issue（活动栏徽标显隐）。</summary>
-    public bool HasErrors => ErrorIssueCount > 0;
+    /// <summary>
+    /// **未读**错误级 Issue 数（活动栏角标的数据源）。
+    /// </summary>
+    /// <remarks>
+    /// 角标表达的是"有错误你还没看过"：读过就该消失，而不是一直挂着等到删除/清空。
+    /// 因此它取未读数，不取错误总数。
+    /// </remarks>
+    [ObservableProperty]
+    public partial int UnreadErrorIssueCount { get; set; }
+
+    /// <summary>是否还有未读错误级 Issue（活动栏角标显隐）。</summary>
+    public bool HasUnreadErrors => UnreadErrorIssueCount > 0;
 
     /// <summary>当前是否有模块（交互入口的模块数徽标显隐）。</summary>
     public bool HasModules => Windows.ModuleCount > 0;
 
-    /// <summary>徽标悬停说明（只描述错误；警告/信息不参与角标）。</summary>
-    public string IssueBadgeToolTip => ErrorIssueCount > 0
-        ? Loc("shell.issueBadge.tip.errors", ErrorIssueCount)
+    /// <summary>徽标悬停说明（只描述未读错误；警告/信息不参与角标）。</summary>
+    public string IssueBadgeToolTip => UnreadErrorIssueCount > 0
+        ? Loc("shell.issueBadge.tip.errors", UnreadErrorIssueCount)
         : Loc("shell.issueBadge.tip.none");
 
-    partial void OnErrorIssueCountChanged(int value)
+    partial void OnUnreadErrorIssueCountChanged(int value)
     {
-        OnPropertyChanged(nameof(HasErrors));
+        OnPropertyChanged(nameof(HasUnreadErrors));
         OnPropertyChanged(nameof(IssueBadgeToolTip));
     }
 
@@ -787,6 +805,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
         IssueCount = Issues.TotalCount;
         ErrorIssueCount = Issues.ErrorCount;
+        UnreadErrorIssueCount = Issues.UnreadErrorCount;
         ExpireStatusNotice();
         UpdateStatus();
     }

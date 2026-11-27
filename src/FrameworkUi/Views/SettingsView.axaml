@@ -143,7 +143,6 @@
                             <ComboBox Grid.Column="1" ItemsSource="{Binding Languages}"
                                       SelectedItem="{Binding SelectedLanguageChoice, Mode=TwoWay}" />
                         </Grid>
-                        <TextBlock Classes="note" Text="{loc:Tr settings.general.language.note}" />
                         <ui:UiToggle Content="{loc:Tr settings.general.alignAutoNetwork.label}"
                                   IsChecked="{Binding AlignAutoNetworkEnabled, Mode=TwoWay}"
                                   ToolTip.Tip="{loc:Tr settings.general.alignAutoNetwork.tip}" />
@@ -167,7 +166,6 @@
                         <ui:UiToggle Content="{loc:Tr settings.general.controlCharacters.label}"
                                      IsChecked="{Binding ShowControlCharacterMarkers, Mode=TwoWay}"
                                      ToolTip.Tip="{loc:Tr settings.general.controlCharacters.tip}" />
-                        <TextBlock Classes="note" Text="{loc:Tr settings.general.controlCharacters.note}" />
 
                         <Rectangle Classes="settingsRule" />
 
@@ -188,8 +186,6 @@
             <TabItem Header="{loc:Tr settings.advanced.tab.title}">
                 <ScrollViewer>
                     <StackPanel Margin="10" Spacing="6">
-                        <TextBlock Classes="note" Text="{loc:Tr settings.advanced.note}" />
-
                         <Rectangle Classes="settingsRule" />
                         <TextBlock Classes="sec" Text="{loc:Tr settings.advanced.queues.title}" />
                         <Grid ColumnDefinitions="170,190,*">
@@ -337,7 +333,6 @@
                             <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
                                      Text="{Binding TextCharBudget, Mode=TwoWay}" />
                         </Grid>
-                        <TextBlock Classes="note" Text="{loc:Tr settings.display.note}" />
 
                         <Rectangle Classes="settingsRule" />
                         <TextBlock Classes="sec" Text="{loc:Tr settings.advanced.lifecycle.title}" />
@@ -349,7 +344,6 @@
                             <TextBox Grid.Column="1" FontFamily="{DynamicResource FontData}"
                                      Text="{Binding StopTimeoutSeconds, Mode=TwoWay}" />
                         </Grid>
-                        <TextBlock Classes="note" Text="{loc:Tr settings.flow.note}" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -389,7 +383,6 @@
                                                        Options="{Binding FontFamilyOptions}"
                                                        SelectedFont="{Binding DataFontCjk, Mode=TwoWay}" />
                         </Grid>
-                        <TextBlock Classes="note" Text="{loc:Tr appearance.font.note}" />
 
                         <Rectangle Classes="settingsRule" />
 
@@ -446,8 +439,6 @@
                                           SelectedItem="{Binding SelectedSystemDarkChoice, Mode=TwoWay}"
                                           ToolTip.Tip="{loc:Tr appearance.system.dark.tip}" />
                             </Grid>
-                            <TextBlock Classes="note"
-                                       Text="{loc:Tr appearance.system.note}" />
                         </StackPanel>
 
                         <!-- 内置 / 自定义方案：内置不提供改名输入，只有自定义可改名 / 保存 / 删除 -->
@@ -485,69 +476,7 @@
                             </Button>
                         </Grid>
 
-                        <TextBlock Classes="note"
-                                   Text="{loc:Tr appearance.theme.note}" />
-
-                        <Rectangle Classes="settingsRule" />
-
-                        <TextBlock Classes="sec" Text="{loc:Tr appearance.wallpaper.section}" />
-                        <Grid ColumnDefinitions="132,*" ColumnSpacing="10">
-                            <Border Width="132" Height="78" VerticalAlignment="Top"
-                                    Background="{DynamicResource BgWorkspace}"
-                                    BorderBrush="{DynamicResource BorderDefault}" BorderThickness="1"
-                                    CornerRadius="3" ClipToBounds="True">
-                                <Panel>
-                                    <Border Background="{Binding ThemeWallpaperPreview}" />
-                                    <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               IsVisible="{Binding !HasThemeWallpaper}"
-                                               Foreground="{DynamicResource TextMuted}"
-                                               FontSize="10" Text="{loc:Tr appearance.wallpaper.none}" />
-                                </Panel>
-                            </Border>
-                            <StackPanel Grid.Column="1" Spacing="4">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <Button Content="{loc:Tr appearance.wallpaper.pick}" Click="OnPickThemeWallpaper" />
-                                    <Button Content="{loc:Tr appearance.wallpaper.clear}" Click="OnClearThemeWallpaper"
-                                            IsEnabled="{Binding CanClearThemeWallpaper}" />
-                                </StackPanel>
-                                <TextBlock Classes="note"
-                                           Text="{loc:Tr appearance.wallpaper.note}" />
-                            </StackPanel>
-                        </Grid>
-
-                        <Grid ColumnDefinitions="170,220,Auto" ColumnSpacing="6" Margin="0,2,0,0">
-                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                       ToolTip.Tip="{loc:Tr appearance.wallpaper.veil.tip}"
-                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.wallpaper.veil.label}" />
-                            <Slider Grid.Column="1" Minimum="0" Maximum="0.9"
-                                    Value="{Binding WallpaperVeilOpacity, Mode=TwoWay}"
-                                    VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="2" VerticalAlignment="Center"
-                                       FontFamily="{DynamicResource FontData}"
-                                       Text="{Binding WallpaperVeilOpacity, StringFormat='{}{0:P0}'}" />
-                        </Grid>
-                        <TextBlock Classes="note" Text="{loc:Tr appearance.wallpaper.veil.note}" />
-
-                        <Grid ColumnDefinitions="170,220,Auto" ColumnSpacing="6" Margin="0,2,0,0">
-                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                       ToolTip.Tip="{loc:Tr appearance.surface.tip}"
-                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.surface.label}" />
-                            <Slider Grid.Column="1" Minimum="0" Maximum="1.0"
-                                    Value="{Binding SurfaceOpacity, Mode=TwoWay}"
-                                    VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="2" VerticalAlignment="Center"
-                                       FontFamily="{DynamicResource FontData}"
-                                       Text="{Binding SurfaceOpacity, StringFormat='{}{0:P0}'}" />
-                        </Grid>
-                        <TextBlock Classes="note" Text="{loc:Tr appearance.surface.note}" />
-
-                        <Rectangle Classes="settingsRule" />
-
-                        <StackPanel Spacing="2">
-                            <TextBlock Classes="sec" Text="{loc:Tr appearance.palette.section}" />
-                            <TextBlock Classes="note" Text="{loc:Tr appearance.palette.note}" />
-                        </StackPanel>
-
+                        <TextBlock Classes="sec" Text="{loc:Tr appearance.palette.section}" />
                         <ItemsControl x:Name="PaletteGroups" ItemsSource="{Binding PaletteGroups}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="vm:PaletteGroupViewModel">
@@ -596,6 +525,53 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+
+                        <TextBlock Classes="sec" Text="{loc:Tr appearance.wallpaper.section}" />
+                        <Grid ColumnDefinitions="132,*" ColumnSpacing="10">
+                            <Border Width="132" Height="78" VerticalAlignment="Top"
+                                    Background="{DynamicResource BgWorkspace}"
+                                    BorderBrush="{DynamicResource BorderDefault}" BorderThickness="1"
+                                    CornerRadius="3" ClipToBounds="True">
+                                <Panel>
+                                    <Border Background="{Binding ThemeWallpaperPreview}" />
+                                    <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               IsVisible="{Binding !HasThemeWallpaper}"
+                                               Foreground="{DynamicResource TextMuted}"
+                                               FontSize="10" Text="{loc:Tr appearance.wallpaper.none}" />
+                                </Panel>
+                            </Border>
+                            <StackPanel Grid.Column="1" Spacing="4">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="{loc:Tr appearance.wallpaper.pick}" Click="OnPickThemeWallpaper" />
+                                    <Button Content="{loc:Tr appearance.wallpaper.clear}" Click="OnClearThemeWallpaper"
+                                            IsEnabled="{Binding CanClearThemeWallpaper}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid ColumnDefinitions="170,220,Auto" ColumnSpacing="6" Margin="0,2,0,0">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr appearance.wallpaper.veil.tip}"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.wallpaper.veil.label}" />
+                            <Slider Grid.Column="1" Minimum="0" Maximum="0.9"
+                                    Value="{Binding WallpaperVeilOpacity, Mode=TwoWay}"
+                                    VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2" VerticalAlignment="Center"
+                                       FontFamily="{DynamicResource FontData}"
+                                       Text="{Binding WallpaperVeilOpacity, StringFormat='{}{0:P0}'}" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="170,220,Auto" ColumnSpacing="6" Margin="0,2,0,0">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                       ToolTip.Tip="{loc:Tr appearance.surface.tip}"
+                                       Foreground="{DynamicResource TextSecondary}" Text="{loc:Tr appearance.surface.label}" />
+                            <Slider Grid.Column="1" Minimum="0" Maximum="1.0"
+                                    Value="{Binding SurfaceOpacity, Mode=TwoWay}"
+                                    VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2" VerticalAlignment="Center"
+                                       FontFamily="{DynamicResource FontData}"
+                                       Text="{Binding SurfaceOpacity, StringFormat='{}{0:P0}'}" />
+                        </Grid>
 </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -608,7 +584,6 @@
                         <ui:UiToggle Content="{loc:Tr settings.interaction.topmost.label}"
                                   IsChecked="{Binding AppTopmost, Mode=TwoWay}"
                                   ToolTip.Tip="{loc:Tr settings.interaction.topmost.tip}" />
-                        <TextBlock Classes="note" Text="{loc:Tr settings.interaction.window.note}" />
 
                         <Rectangle Classes="settingsRule" />
 
@@ -670,8 +645,6 @@
                 <ScrollViewer>
                     <StackPanel Margin="10" Spacing="8">
                         <TextBlock Classes="sec" Text="{loc:Tr settings.storage.section}" />
-                        <TextBlock Classes="note" TextWrapping="Wrap"
-                                   Text="{loc:Tr settings.storage.note}" />
 
                         <Grid ColumnDefinitions="120,*,Auto" ColumnSpacing="6" Margin="0,4,0,0">
                             <TextBlock Grid.Column="0" VerticalAlignment="Center"
@@ -727,9 +700,6 @@
                                     Click="OnOpenStorageFolder"
                                     CommandParameter="{Binding StorageLogsRoot}" />
                         </Grid>
-
-                        <TextBlock Classes="note" TextWrapping="Wrap"
-                                   Text="{loc:Tr settings.storage.pathNote}" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -739,10 +709,7 @@
                 <Grid RowDefinitions="Auto,*,Auto" Margin="10">
                     <StackPanel Grid.Row="0" Spacing="4">
                         <Grid ColumnDefinitions="*,Auto">
-                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
-                                <TextBlock Classes="sec" VerticalAlignment="Center" Text="{loc:Tr settings.hotkeys.section}" />
-                                <TextBlock Classes="note" VerticalAlignment="Center" Text="{loc:Tr settings.hotkeys.section.note}" />
-                            </StackPanel>
+                            <TextBlock Grid.Column="0" Classes="sec" VerticalAlignment="Center" Text="{loc:Tr settings.hotkeys.section}" />
                             <Button Grid.Column="1" Classes="helpIcon" ToolTip.Tip="{loc:Tr settings.hotkeys.edit.tip}">
                                 <Button.Flyout>
                                     <Flyout Placement="TopEdgeAlignedRight">
@@ -796,7 +763,6 @@
                 <ScrollViewer>
                     <StackPanel Margin="10" Spacing="6">
                         <TextBlock Foreground="{DynamicResource TextPrimary}" Text="{loc:Tr settings.about.title}" />
-                        <TextBlock Classes="note" Text="{loc:Tr settings.about.tagline}" />
                         <TextBlock Classes="note" Text="{x:Static vm:SettingsPanelViewModel.VersionText}" />
 
                         <Grid ColumnDefinitions="*,Auto">

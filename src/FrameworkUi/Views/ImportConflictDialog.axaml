@@ -12,14 +12,11 @@
         FontSize="12">
     <StackPanel Margin="14" Spacing="10">
         <TextBlock Name="MessageText" TextWrapping="Wrap" MaxWidth="460" />
-        <TextBlock Classes="note" FontSize="10" TextWrapping="Wrap" MaxWidth="460"
-                   Foreground="{DynamicResource TextMuted}"
-                   Text="{loc:Tr importConflict.note}" />
         <CheckBox Name="ApplyToAllCheckBox" Content="{loc:Tr importConflict.applyToAll}" FontSize="11" />
         <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+            <Button Name="ReplaceButton" Content="{loc:Tr importConflict.replace}" MinWidth="70" Classes="accent" />
+            <Button Name="SkipButton" Content="{loc:Tr importConflict.skip}" MinWidth="70" />
             <Button Name="CancelButton" Content="{loc:Tr importConflict.cancel}" MinWidth="70" />
-            <Button Name="SkipButton" Content="{loc:Tr importConflict.skip}" MinWidth="86" />
-            <Button Name="ReplaceButton" Content="{loc:Tr importConflict.replace}" MinWidth="86" Classes="accent" />
         </StackPanel>
     </StackPanel>
 </Window>

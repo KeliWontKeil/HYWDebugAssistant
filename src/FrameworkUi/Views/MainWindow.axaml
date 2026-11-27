@@ -165,7 +165,7 @@
                             <uc:Glyph Grid.Column="1" Classes="icon" Icon="{x:Static uc:ShellIcons.Issue}" />
                             <Border Grid.Column="1"
                                     Classes="issueBadge"
-                                    IsVisible="{Binding HasErrors}"
+                                    IsVisible="{Binding HasUnreadErrors}"
                                     CornerRadius="7"
                                     MinWidth="14" Height="14"
                                     HorizontalAlignment="Right" VerticalAlignment="Top"
@@ -174,7 +174,7 @@
                                            Foreground="White"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"
-                                           Text="{Binding ErrorIssueCount}" />
+                                           Text="{Binding UnreadErrorIssueCount}" />
                             </Border>
                         </Grid>
                     </Button>

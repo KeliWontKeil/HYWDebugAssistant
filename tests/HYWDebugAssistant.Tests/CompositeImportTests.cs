@@ -111,16 +111,41 @@ public class CompositeImportTests
 
             importedDirectory = Path.GetDirectoryName(services.ImportComposite(clashing).TargetPath!);
 
+            // 分类与扫描同一口径：只装组合包的文件夹是"外层文件夹"，不是"不认识"。
+            services.ClassifyImportPath(outerRoot).ShouldBe(ImportPathKind.Folder);
+
             // 外层文件夹（不含 module.json）走的是批量导入：同样要先给出冲突。
             var conflicts = services.GetImportConflicts(outerRoot);
             conflicts.ShouldHaveSingleItem();
             Path.GetFileName(conflicts[0].SourcePath).ShouldBe("composite.json");
             conflicts[0].TargetName.ShouldBe("clash");
 
+            // **范围决定问什么**：本页只导组合包时不得问模块包冲突。
+            services.GetImportConflicts(outerRoot, ImportScope.Modules).ShouldBeEmpty();
+            services.GetImportConflicts(outerRoot, ImportScope.Composites).Count.ShouldBe(1);
+
             var result = services.ImportFolder(outerRoot);
 
             result.CompositeCount.ShouldBe(1, "不撞名的那个照常导入");
             result.Failures.ShouldNotBeEmpty("撞名那个在没人回答时必须失败");
+
+            // **组合页入口对外层文件夹必须给同一个结论**：
+            // 冲突列表里列过的项，答复之后必须真的能导进来 —— 只认"路径自身就是组合包"的
+            // 入口做不到这点（它会报"组合文件不存在"）。
+            // 重新问一次：上一步刚把 fresh 也导了，此刻两个名字都被占用。
+            var pending = services.GetImportConflicts(outerRoot, ImportScope.Composites);
+            pending.Count.ShouldBe(2);
+
+            var decisions = pending.ToDictionary(
+                conflict => conflict.SourcePath,
+                _ => ImportConflictChoice.Replace,
+                StringComparer.OrdinalIgnoreCase);
+
+            var folder = services.ImportComposite(outerRoot, decisions);
+
+            folder.Succeeded.ShouldBeTrue(string.Join("；", folder.Failures));
+            folder.ImportedCount.ShouldBe(2, "文件夹里两个组合包都应落地");
+            folder.TargetPath.ShouldBeNull("一次落地多个时不硬造一个代表项");
         }
         finally
         {
@@ -131,6 +156,7 @@ public class CompositeImportTests
             }
 
             TryDeleteDirectory(Path.Combine(StoragePaths.CompositesRoot, "fresh"));
+            TryDeleteDirectory(Path.Combine(StoragePaths.CompositesRoot, "clash"));
         }
     }
 

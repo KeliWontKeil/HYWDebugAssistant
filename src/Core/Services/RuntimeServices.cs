@@ -1053,6 +1053,14 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
         if (ResolveCompositeDocument(sourcePath) is not { } document)
         {
+            // 外层文件夹（含只装组合包的）：**同一套扫描规则**，逐个导入并汇总。
+            // 只认"路径自身就是组合包"会让冲突列表（按扫描器递归取）与执行（只看一层）
+            // 指向不同的包：对话框列得出文件夹里的包，答复后却找不到可导入的对象。
+            if (Directory.Exists(sourcePath))
+            {
+                return ImportCompositesFromFolder(sourcePath, conflicts);
+            }
+
             return FailCompositeImport(CoreText.Get("core.services.composite.fileMissing"));
         }
 
@@ -1076,7 +1084,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                     true,
                     plan.TargetDocument,
                     [CoreText.Get("core.services.composite.inDefaultDirectory")],
-                    []);
+                    []) { ImportedCount = 0 };
             }
 
             if (plan.TargetDocument is not { Length: > 0 } targetDocument)
@@ -1120,7 +1128,7 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                     true,
                     targetDocument,
                     BuildCompositeImportNotices(targetDocument, inspection),
-                    []);
+                    []) { ImportedCount = 1 };
             }
 
             CopyLegacyComposite(plan.SourceDocument, targetDocument);
@@ -1129,12 +1137,76 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 true,
                 targetDocument,
                 BuildCompositeImportNotices(targetDocument, inspection),
-                []);
+                []) { ImportedCount = 1 };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
             return FailCompositeImport(CoreText.Get("core.services.composite.copyFailed", ex.Message));
         }
+    }
+
+    /// <summary>
+    /// 把一个外层文件夹里的**组合包**逐个导入并汇总（模块包不归本入口，见 <see cref="ImportFolder"/>）。
+    /// </summary>
+    /// <param name="sourceDirectory">外层文件夹。</param>
+    /// <param name="conflicts">同名冲突的处置（键 = 来源全路径）。</param>
+    /// <remarks>
+    /// 扫描深度与包边界只有 <see cref="FolderImportScanner"/> 一处；本方法只决定"结果怎么汇总"。
+    /// </remarks>
+    private CompositeImportResult ImportCompositesFromFolder(
+        string sourceDirectory,
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts)
+    {
+        var scan = FolderImportScanner.Scan(sourceDirectory);
+        if (scan.CompositeDirectories.Count == 0)
+        {
+            return FailCompositeImport(CoreText.Get(
+                "core.services.import.noCompositeInFolder",
+                Path.GetFileName(Path.TrimEndingDirectorySeparator(sourceDirectory))));
+        }
+
+        var notices = new List<string>();
+        var failures = new List<string>();
+        var imported = 0;
+        var skipped = 0;
+        string? singleTarget = null;
+
+        foreach (var directory in scan.CompositeDirectories)
+        {
+            var result = ImportComposite(directory, conflicts);
+            if (result.Skipped)
+            {
+                skipped++;
+                notices.AddRange(result.Notices);
+                continue;
+            }
+
+            if (result.Succeeded)
+            {
+                imported++;
+                singleTarget = result.TargetPath;
+                notices.AddRange(result.Notices);
+                continue;
+            }
+
+            failures.AddRange(result.Failures);
+        }
+
+        if (scan.LimitReached)
+        {
+            failures.Add(CoreText.Get("core.services.import.folderLimit", FolderImportScanner.MaxPackages));
+        }
+
+        // 只要有落地就算成功（部分失败仍把成功项如实计入），失败原因照常返回。
+        return new CompositeImportResult(
+            failures.Count == 0,
+            imported == 1 ? singleTarget : null,
+            notices,
+            failures,
+            imported == 0 && skipped > 0 && failures.Count == 0)
+        {
+            ImportedCount = imported,
+        };
     }
 
     /// <summary>
@@ -1247,7 +1319,9 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<ImportConflictView> GetImportConflicts(string sourcePath)
+    public IReadOnlyList<ImportConflictView> GetImportConflicts(
+        string sourcePath,
+        ImportScope scope = ImportScope.All)
     {
         if (string.IsNullOrWhiteSpace(sourcePath))
         {
@@ -1255,22 +1329,29 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         }
 
         var conflicts = new List<ImportConflictView>();
+        var kind = ClassifyImportPath(sourcePath);
 
-        switch (ClassifyImportPath(sourcePath))
+        // 单个组合包：只有范围内含组合包时才问。
+        if (kind == ImportPathKind.CompositePackage)
         {
-            case ImportPathKind.CompositePackage:
-                if (ResolveCompositeDocument(sourcePath) is { } document)
+            if (scope is ImportScope.All or ImportScope.Composites
+                && ResolveCompositeDocument(sourcePath) is { } document)
+            {
+                var plan = DescribeCompositeImport(document);
+                if (plan.Conflicting)
                 {
-                    var plan = DescribeCompositeImport(document);
-                    if (plan.Conflicting)
-                    {
-                        conflicts.Add(new ImportConflictView(plan.SourceDocument, plan.TargetName));
-                    }
+                    conflicts.Add(new ImportConflictView(plan.SourceDocument, plan.TargetName));
                 }
+            }
 
-                break;
+            return conflicts;
+        }
 
-            case ImportPathKind.ModulePackage:
+        // 单个模块包：只有范围内含模块包时才问。
+        if (kind == ImportPathKind.ModulePackage)
+        {
+            if (scope is ImportScope.All or ImportScope.Modules)
+            {
                 foreach (var package in FolderImportScanner.Scan(sourcePath).ModuleDirectories)
                 {
                     if (DescribeModuleImportConflict(package) is { } conflict)
@@ -1278,21 +1359,19 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                         conflicts.Add(conflict);
                     }
                 }
+            }
 
-                break;
+            return conflicts;
+        }
 
-            default:
-                // 外层文件夹（含只装组合包的）：按批量导入同一套扫描规则取冲突。
-                // 少了这一支，批量路径拿不到冲突 ⇒ 直接按"未决定"失败，同样没有提示。
-                if (Directory.Exists(sourcePath))
-                {
-                    foreach (var conflict in DescribeFolderImportConflicts(sourcePath))
-                    {
-                        conflicts.Add(conflict);
-                    }
-                }
-
-                break;
+        // 外层文件夹（含只装组合包的）：按批量导入**同一套扫描规则**取冲突。
+        // 少了这一支，批量路径拿不到冲突 ⇒ 直接按"未决定"失败，同样没有提示。
+        if (kind == ImportPathKind.Folder)
+        {
+            foreach (var conflict in DescribeFolderImportConflicts(sourcePath, scope))
+            {
+                conflicts.Add(conflict);
+            }
         }
 
         return conflicts;
@@ -1300,30 +1379,37 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
 
     /// <summary>外层文件夹导入的冲突列表（顺序 = 扫描顺序，与执行面一致）。</summary>
     /// <param name="sourceDirectory">外层文件夹。</param>
-    private List<ImportConflictView> DescribeFolderImportConflicts(string sourceDirectory)
+    /// <param name="scope">本次导入要处理的包类别。</param>
+    private List<ImportConflictView> DescribeFolderImportConflicts(string sourceDirectory, ImportScope scope)
     {
         var conflicts = new List<ImportConflictView>();
         var scan = FolderImportScanner.Scan(sourceDirectory);
 
-        foreach (var package in scan.ModuleDirectories)
+        if (scope is ImportScope.All or ImportScope.Modules)
         {
-            if (DescribeModuleImportConflict(package) is { } conflict)
+            foreach (var package in scan.ModuleDirectories)
             {
-                conflicts.Add(conflict);
+                if (DescribeModuleImportConflict(package) is { } conflict)
+                {
+                    conflicts.Add(conflict);
+                }
             }
         }
 
-        foreach (var directory in scan.CompositeDirectories)
+        if (scope is ImportScope.All or ImportScope.Composites)
         {
-            if (ResolveCompositeDocument(directory) is not { } document)
+            foreach (var directory in scan.CompositeDirectories)
             {
-                continue;
-            }
+                if (ResolveCompositeDocument(directory) is not { } document)
+                {
+                    continue;
+                }
 
-            var plan = DescribeCompositeImport(document);
-            if (plan.Conflicting)
-            {
-                conflicts.Add(new ImportConflictView(plan.SourceDocument, plan.TargetName));
+                var plan = DescribeCompositeImport(document);
+                if (plan.Conflicting)
+                {
+                    conflicts.Add(new ImportConflictView(plan.SourceDocument, plan.TargetName));
+                }
             }
         }
 
@@ -2315,7 +2401,10 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             e.Issue.Severity.ToString(),
             e.Issue.Message,
             e.Timestamp,
-            e.Issue.Source.ToString()))];
+            e.Issue.Source.ToString())
+        {
+            IsUnread = e.Unread,
+        })];
 
     /// <inheritdoc />
     public IssueSummaryView GetIssueSummary() => _runtime.Issues.Summary();
@@ -2328,6 +2417,28 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         var removed = _runtime.Issues.Remove(sequences);
         return removed > 0
             ? CommandResult.Ok([CoreText.Get("core.services.issues.removed", removed)])
+            : CommandResult.Ok();
+    }
+
+    /// <inheritdoc />
+    public CommandResult MarkIssuesRead(IReadOnlyCollection<long> sequences, bool read)
+    {
+        ArgumentNullException.ThrowIfNull(sequences);
+
+        var changed = _runtime.Issues.MarkRead(sequences, read);
+        return changed > 0
+            ? CommandResult.Ok([CoreText.Get(
+                read ? "core.services.issues.markedRead" : "core.services.issues.markedUnread",
+                changed)])
+            : CommandResult.Ok();
+    }
+
+    /// <inheritdoc />
+    public CommandResult MarkAllIssuesRead()
+    {
+        var changed = _runtime.Issues.MarkAllRead();
+        return changed > 0
+            ? CommandResult.Ok([CoreText.Get("core.services.issues.markedRead", changed)])
             : CommandResult.Ok();
     }
 
@@ -2471,6 +2582,12 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         })];
 
     /// <inheritdoc />
+    /// <remarks>
+    /// **深浅口径只有一处**：路径自身是单个包时按包回答，否则交给批量扫描器
+    /// （<see cref="FolderImportScanner.MaxDepth"/>）—— 分类、冲突查询与执行因此读同一份结论。
+    /// 分类若自定一套更浅的规则（例如只看一层、只认模块包），多层级文件夹会被判成
+    /// <see cref="ImportPathKind.None"/>，而冲突查询按扫描器列得出包、执行又找不到它：三处各说一套。
+    /// </remarks>
     public ImportPathKind ClassifyImportPath(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -2490,17 +2607,10 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 return ImportPathKind.ModulePackage;
             }
 
-            try
-            {
-                return Directory.EnumerateDirectories(path)
-                    .Any(directory => File.Exists(Path.Combine(directory, ModuleManifestReader.FileName)))
-                        ? ImportPathKind.ModulePackage
-                        : ImportPathKind.None;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                return ImportPathKind.None;
-            }
+            var scan = FolderImportScanner.Scan(path);
+            return scan.ModuleDirectories.Count + scan.CompositeDirectories.Count > 0
+                ? ImportPathKind.Folder
+                : ImportPathKind.None;
         }
 
         return File.Exists(path)

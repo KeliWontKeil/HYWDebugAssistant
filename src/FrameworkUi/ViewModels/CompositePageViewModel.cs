@@ -329,15 +329,20 @@ public sealed partial class CompositePageViewModel : ViewModelBase
     /// <remarks>
     /// 询问由视图负责（VM 没有窗口）：先问这里，再把用户的选择作为决定表交给
     /// <see cref="ImportComposite(string, IReadOnlyDictionary{string, ImportConflictChoice}?)"/>。
+    /// 本页只导**组合包**（含"外层文件夹里的组合包"），因此冲突也只问组合包。
     /// </remarks>
     public IReadOnlyList<ImportConflictView> GetImportConflicts(string sourcePath) =>
-        _query.GetImportConflicts(sourcePath);
+        _query.GetImportConflicts(sourcePath, ImportScope.Composites);
 
-    /// <summary>导入外部组合：源是组合文件夹或组合文件；校验后复制到默认目录并选中。</summary>
-    /// <param name="sourcePath">外部组合文件夹或组合文件。</param>
+    /// <summary>
+    /// 导入外部组合：源是组合文件夹、组合文件，或**含多个组合包的外层文件夹**；
+    /// 校验后复制到默认目录并选中。
+    /// </summary>
+    /// <param name="sourcePath">外部组合文件夹、组合文件，或含组合包的外层文件夹。</param>
     /// <param name="conflicts">同名冲突的处置（键 = 来源全路径）；缺省 = 没有冲突。</param>
     /// <remarks>
     /// 状态行写的是**目标**名（不是源名）：同名换了名字时，用户看到的必须与列表里出现的一致。
+    /// 一次导入多个包时改报落地个数（不给"代表项"）。
     /// </remarks>
     public void ImportComposite(
         string sourcePath,
@@ -346,18 +351,28 @@ public sealed partial class CompositePageViewModel : ViewModelBase
         var result = _command.ImportComposite(sourcePath, conflicts);
         var name = DescribeTargetName(result.TargetPath, sourcePath);
 
-        SetStatus(
-            result.Succeeded,
-            result.Skipped
-                ? CompositeText.Get("composite.status.importSkipped", name)
-                : result.Succeeded
-                    ? CompositeText.Get("composite.status.imported", name)
-                    : CompositeText.Get("composite.status.importFailed"),
-            result.Succeeded
-                ? string.Join(Environment.NewLine, result.Notices)
-                : string.Join(Environment.NewLine, result.Failures));
+        var ok = result.Succeeded;
+        var message = result.Skipped
+            ? CompositeText.Get("composite.status.importSkipped", name)
+            : !ok && result.ImportedCount > 0
+                ? CompositeText.Get(
+                    "composite.status.importPartial",
+                    result.ImportedCount,
+                    result.Failures.Count)
+                : ok
+                    ? result.ImportedCount > 1
+                        ? CompositeText.Get("composite.status.importedMultiple", result.ImportedCount)
+                        : CompositeText.Get("composite.status.imported", name)
+                    : CompositeText.Get("composite.status.importFailed");
 
-        if (result.Succeeded && result.TargetPath is { Length: > 0 })
+        // 部分成功也要把"哪些进了"列出来：只写失败原因会让用户以为一个都没导入。
+        var detail = string.Join(
+            Environment.NewLine,
+            ok || result.ImportedCount > 0 ? result.Failures.Concat(result.Notices) : result.Failures);
+
+        SetStatus(ok || result.ImportedCount > 0, message, detail);
+
+        if (result.ImportedCount > 0)
         {
             RefreshCompositeFiles(result.TargetPath);
         }

@@ -739,7 +739,16 @@ public sealed record IssueView(
     string Severity,
     string Message,
     DateTimeOffset Timestamp,
-    string Source = "Framework");
+    string Source = "Framework")
+{
+    /// <summary>
+    /// 是否未读（新上报 = 未读；用户"标为已读 / 全部已读"后变已读）。
+    /// </summary>
+    /// <remarks>
+    /// 已读是**会话状态**，不落盘；它与入口角标读的是同一份事实，故不进 UI 私有集合。
+    /// </remarks>
+    public bool IsUnread { get; init; }
+}
 
 /// <summary>Issue 汇总（全量计数；不受 Issue 面板的“最近 N 条”显示上限影响）。</summary>
 /// <param name="Total">总条数。</param>
@@ -750,7 +759,20 @@ public sealed record IssueSummaryView(
     int Total,
     int Error,
     int Warning,
-    int Info);
+    int Info)
+{
+    /// <summary>未读总条数。</summary>
+    public int UnreadTotal { get; init; }
+
+    /// <summary>未读错误级条数（**活动栏角标的数据源**）。</summary>
+    public int UnreadError { get; init; }
+
+    /// <summary>未读警告级条数。</summary>
+    public int UnreadWarning { get; init; }
+
+    /// <summary>未读信息级条数。</summary>
+    public int UnreadInfo { get; init; }
+}
 
 /// <summary>模块目录项（可用模块清单）。</summary>
 /// <param name="ModuleId">模块标识字面量。</param>
@@ -927,7 +949,7 @@ public readonly record struct ImportConflictView(string SourcePath, string Targe
 
 /// <summary>组合文件导入结果（复制到默认目录后的目标路径）。</summary>
 /// <param name="Succeeded">是否成功（含"源就在默认目录"的无操作早退，以及用户选择跳过）。</param>
-/// <param name="TargetPath">默认目录中的目标文件（失败时为空）。</param>
+/// <param name="TargetPath">默认目录中的目标文件（失败时为空；一次导入多个包时为空）。</param>
 /// <param name="Notices">提示。</param>
 /// <param name="Failures">失败原因。</param>
 /// <param name="Skipped">是否因用户选择「跳过」而没有复制。</param>
@@ -936,7 +958,17 @@ public readonly record struct CompositeImportResult(
     string? TargetPath,
     IReadOnlyList<string> Notices,
     IReadOnlyList<string> Failures,
-    bool Skipped = false);
+    bool Skipped = false)
+{
+    /// <summary>
+    /// 本次真正落地的组合包数（单个组合包 = 1；导入外层文件夹时 = 文件夹内成功的个数）。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="TargetPath"/> 的分工：一次只落地一个时两者都有值，
+    /// 一次落地多个时只有本计数有意义（不硬造一个"代表"目标）。
+    /// </remarks>
+    public int ImportedCount { get; init; }
+}
 
 /// <summary>外层文件夹批量导入的汇总结果。</summary>
 /// <param name="ModuleCount">成功导入的模块包数。</param>

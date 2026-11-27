@@ -1415,7 +1415,7 @@ public sealed partial class SettingsPanelViewModel : ViewModelBase
 
         _loading = false;
         StatusIsOk = true;
-        StatusMessage = Loc("settings.footer.hint");
+        StatusMessage = null;
     }
 
     /// <summary>设置**应用成功**后触发（供外壳重建快捷键绑定、套用窗口层级等）。</summary>

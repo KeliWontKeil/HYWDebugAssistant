@@ -1,3 +1,5 @@
+using HYWDebugAssistant.Core.Api;
+using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Services;
 using Shouldly;
 using Xunit;
@@ -40,6 +42,16 @@ public class ImportFolderScannerTests
             scan.ModuleDirectories.ShouldNotContain(Path.GetFullPath(Path.Combine(boundary, "inner")));
             scan.CompositeDirectories.ShouldBe([Path.GetFullPath(mixed)]);
             scan.ModuleDirectories.ShouldNotContain(Path.GetFullPath(mixed), "同一目录里组合包优先");
+
+            // **分类深度 = 扫描深度**（唯一口径）：分类说"有包"，批量导入就必须找得到包。
+            // 分类若自定一套更浅的规则，多层级文件夹会被判成"不认识"，
+            // 而冲突查询按扫描器列得出包 —— 问的与做的不是同一批。
+            using var runtime = new ModuleRuntime();
+            var services = new RuntimeServices(runtime);
+
+            services.ClassifyImportPath(root).ShouldBe(ImportPathKind.Folder);
+            services.ClassifyImportPath(boundary).ShouldBe(ImportPathKind.ModulePackage);
+            services.ClassifyImportPath(mixed).ShouldBe(ImportPathKind.CompositePackage);
         }
         finally
         {

@@ -34,7 +34,12 @@ public class ImportPathClassificationTests
 
             services.ClassifyImportPath(composite).ShouldBe(ImportPathKind.CompositePackage);
             services.ClassifyImportPath(module).ShouldBe(ImportPathKind.ModulePackage);
-            services.ClassifyImportPath(parent).ShouldBe(ImportPathKind.ModulePackage);
+
+            // 自身不是包、包在下一层的文件夹 = **外层文件夹**（走批量导入）。
+            // 分类深度只有扫描器一处：这里不再按"直接子目录有 module.json"判成单个模块包，
+            // 否则带组合包的混合文件夹会被送进"只导模块"的入口，组合包被静默丢掉。
+            services.ClassifyImportPath(parent).ShouldBe(ImportPathKind.Folder);
+
             services.ClassifyImportPath(unknown).ShouldBe(ImportPathKind.None);
             services.ClassifyImportPath(string.Empty).ShouldBe(ImportPathKind.None);
         }

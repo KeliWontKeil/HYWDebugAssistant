@@ -191,9 +191,6 @@ public sealed partial class IssuesPanelViewModel : ViewModelBase
     private readonly IRuntimeQuery _query;
     private readonly IRuntimeCommand _command;
 
-    /// <summary>已读序号（**本会话**状态）。</summary>
-    private readonly HashSet<long> _read = [];
-
     /// <summary>最近拉取的全部 Issue 行（未过滤；按最新在前）。</summary>
     private readonly List<IssueRowViewModel> _allIssues = [];
 
@@ -282,9 +279,13 @@ public sealed partial class IssuesPanelViewModel : ViewModelBase
     [ObservableProperty]
     public partial int InfoCount { get; set; }
 
-    /// <summary>未读条数（当前已加载集合）。</summary>
+    /// <summary>未读总条数（来自 IssueSummary：含当前未显示的条目）。</summary>
     [ObservableProperty]
     public partial int UnreadCount { get; set; }
+
+    /// <summary>未读**错误级**条数（活动栏角标的数据源：读掉即减，归零即灭）。</summary>
+    [ObservableProperty]
+    public partial int UnreadErrorCount { get; set; }
 
     /// <summary>过滤后的条数。</summary>
     public int FilteredCount => Issues.Count;
@@ -329,20 +330,28 @@ public sealed partial class IssuesPanelViewModel : ViewModelBase
     public string? SelectedDetailText => SelectedIssue?.ToDetailText();
 
     /// <summary>
-    /// 只刷新全量计数（面板关闭时仍要维持状态栏计数，但不拉取/重建列表）。
+    /// 只刷新计数（面板关闭时仍要维持状态栏与角标，但不拉取/重建列表）。
     /// </summary>
+    /// <remarks>
+    /// 未读数也从汇总里取：活动栏角标必须在面板关着时**同样准确**，
+    /// 否则"读完红标还挂着"（只有打开面板才更新）—— 那正是把它挪进 Issue 中心的原因。
+    /// </remarks>
     public void RefreshSummary()
     {
         var summary = _query.GetIssueSummary();
         var changed = TotalCount != summary.Total
             || ErrorCount != summary.Error
             || WarningCount != summary.Warning
-            || InfoCount != summary.Info;
+            || InfoCount != summary.Info
+            || UnreadCount != summary.UnreadTotal
+            || UnreadErrorCount != summary.UnreadError;
 
         TotalCount = summary.Total;
         ErrorCount = summary.Error;
         WarningCount = summary.Warning;
         InfoCount = summary.Info;
+        UnreadCount = summary.UnreadTotal;
+        UnreadErrorCount = summary.UnreadError;
 
         if (changed)
         {
@@ -371,16 +380,13 @@ public sealed partial class IssuesPanelViewModel : ViewModelBase
                 ? current
                 : new IssueRowViewModel(issue, IssueDisplay.ObjectLabel(issue.ObjectPath, instances));
 
-            row.IsUnread = !_read.Contains(issue.Sequence);
+            // 未读由 Issue 自己携带（唯一来源）：面板不再维护第二份已读集合。
+            row.IsUnread = issue.IsUnread;
             nextRows.Add(row);
         }
 
         _allIssues.Clear();
         _allIssues.AddRange(nextRows);
-
-        // 已读集合只保留当前仍存在的序号（删除/清空/滚出上限后不产生死数据）。
-        var alive = nextRows.Select(row => row.Sequence).ToHashSet();
-        _read.RemoveWhere(sequence => !alive.Contains(sequence));
 
         ApplyFilter();
 
@@ -449,7 +455,13 @@ public sealed partial class IssuesPanelViewModel : ViewModelBase
         string.Equals(filter, All, StringComparison.Ordinal)
         || string.Equals(filter, value, StringComparison.Ordinal);
 
-    private void UpdateUnreadCounts() => UnreadCount = _allIssues.Count(row => row.IsUnread);
+    /// <summary>未读计数从汇总取（与角标同一份数），不由已加载集合推算。</summary>
+    private void UpdateUnreadCounts()
+    {
+        var summary = _query.GetIssueSummary();
+        UnreadCount = summary.UnreadTotal;
+        UnreadErrorCount = summary.UnreadError;
+    }
 
     private void NotifySummary()
     {
@@ -510,13 +522,14 @@ public sealed partial class IssuesPanelViewModel : ViewModelBase
         }
     }
 
-    /// <summary>全部已读（当前已加载集合；总数超过上限时说明只覆盖已加载部分）。</summary>
+    /// <summary>全部已读（含当前未显示的那些；活动栏角标随之清零）。</summary>
     [RelayCommand]
     private void MarkAllRead()
     {
+        _ = _command.MarkAllIssuesRead();
+
         foreach (var row in _allIssues)
         {
-            _read.Add(row.Sequence);
             row.IsUnread = false;
         }
 
@@ -543,7 +556,6 @@ public sealed partial class IssuesPanelViewModel : ViewModelBase
             return;
         }
 
-        _read.Remove(selected.Sequence);
         StatusMessage = IssuesText.Get("issues.status.deleted");
         Refresh();
 
@@ -573,27 +585,20 @@ public sealed partial class IssuesPanelViewModel : ViewModelBase
             return;
         }
 
-        _read.Clear();
         SelectedIssue = null;
         IsConfirmingClear = false;
         StatusMessage = IssuesText.Get("issues.status.cleared");
         Refresh();
     }
 
+    /// <summary>标记一行已读/未读（写回 Issue 中心，角标与筛选器同拍跟随）。</summary>
     private void MarkRead(IssueRowViewModel row, bool read)
     {
-        if (read)
-        {
-            _read.Add(row.Sequence);
-        }
-        else
-        {
-            _read.Remove(row.Sequence);
-        }
+        _ = _command.MarkIssuesRead([row.Sequence], read);
 
         row.IsUnread = !read;
         UpdateUnreadCounts();
-        NotifySummary();
+        ApplyFilter();
     }
 
     private void SetSelectedIssueSilently(IssueRowViewModel? value)

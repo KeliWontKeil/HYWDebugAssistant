@@ -506,9 +506,10 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
     /// <remarks>
     /// 询问由视图负责（VM 没有窗口）：先问这里，再把用户的选择作为决定表交给
     /// <see cref="ImportDirectory(string, IReadOnlyDictionary{string, ImportConflictChoice}?)"/>。
+    /// 本页只导**模块包**，因此冲突也只问模块包 —— 问的与做的必须是同一批包。
     /// </remarks>
     public IReadOnlyList<ImportConflictView> GetImportConflicts(string directory) =>
-        _query.GetImportConflicts(directory);
+        _query.GetImportConflicts(directory, ImportScope.Modules);
 
     /// <summary>导入外部模块目录（视图选好目录后调用）。</summary>
     /// <param name="directory">外部包目录或包含多个包的上级目录。</param>

@@ -192,7 +192,9 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     public ImportPathKind ClassifyImportPath(string path) => ImportPathKind.None;
 
     /// <inheritdoc />
-    public IReadOnlyList<ImportConflictView> GetImportConflicts(string sourcePath) => [];
+    public IReadOnlyList<ImportConflictView> GetImportConflicts(
+        string sourcePath,
+        ImportScope scope = ImportScope.All) => [];
 
     public IReadOnlyList<ModuleSourceView> GetModuleSources() =>
     [
@@ -349,6 +351,12 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
 
     /// <inheritdoc />
     public CommandResult RemoveIssues(IReadOnlyCollection<long> sequences) => CommandResult.Ok();
+
+    /// <inheritdoc />
+    public CommandResult MarkIssuesRead(IReadOnlyCollection<long> sequences, bool read) => CommandResult.Ok();
+
+    /// <inheritdoc />
+    public CommandResult MarkAllIssuesRead() => CommandResult.Ok();
 
     /// <inheritdoc />
     public CommandResult ClearIssues() => CommandResult.Ok();
