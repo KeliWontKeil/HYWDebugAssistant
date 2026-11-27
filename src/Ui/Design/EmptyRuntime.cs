@@ -191,6 +191,9 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     /// <inheritdoc />
     public ImportPathKind ClassifyImportPath(string path) => ImportPathKind.None;
 
+    /// <inheritdoc />
+    public IReadOnlyList<ImportConflictView> GetImportConflicts(string sourcePath) => [];
+
     public IReadOnlyList<ModuleSourceView> GetModuleSources() =>
     [
         new(Path.Combine(AppContext.BaseDirectory, "modules"), Exists: true, PackagesFound: 4, SkippedDirectories: 0, FailedPackages: 0, Messages: []),
@@ -301,10 +304,14 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
     public CommandResult InstallModulePackage(string packageDirectory) => CommandResult.Ok();
 
     /// <inheritdoc />
-    public CommandResult ImportModuleDirectory(string sourceDirectory) => CommandResult.Ok();
+    public CommandResult ImportModuleDirectory(
+        string sourceDirectory,
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts = null) => CommandResult.Ok();
 
     /// <inheritdoc />
-    public FolderImportResult ImportFolder(string sourceDirectory) => new(0, 0, [], []);
+    public FolderImportResult ImportFolder(
+        string sourceDirectory,
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts = null) => new(0, 0, [], []);
 
     /// <inheritdoc />
     public CommandResult RescanModuleSources() => CommandResult.Ok();
@@ -372,7 +379,9 @@ public sealed class EmptyRuntime : IRuntimeQuery, IRuntimeCommand
         CommandResult.Ok();
 
     /// <inheritdoc />
-    public CompositeImportResult ImportComposite(string sourcePath) =>
+    public CompositeImportResult ImportComposite(
+        string sourcePath,
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts = null) =>
         new(false, null, [], ["设计时不可导入"]);
 
     /// <inheritdoc />

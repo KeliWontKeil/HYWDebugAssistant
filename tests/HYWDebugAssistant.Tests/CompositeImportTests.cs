@@ -1,3 +1,4 @@
+using HYWDebugAssistant.Core.Api;
 using HYWDebugAssistant.Core.Runtime;
 using HYWDebugAssistant.Core.Services;
 using HYWDebugAssistant.Infrastructure.Storage;
@@ -7,7 +8,7 @@ using Xunit;
 namespace HYWDebugAssistant.Tests;
 
 /// <summary>
-/// 组合文件检查/导入：默认目录扫描、缺失模块标注、导入复制与同名唯一化。
+/// 组合文件检查/导入：默认目录扫描、缺失模块标注、导入复制与同名冲突的替换/跳过。
 /// </summary>
 [Collection(nameof(FileSystemImportTests))]
 public class CompositeImportTests
@@ -44,48 +45,227 @@ public class CompositeImportTests
     }
 
     [Fact]
-    public void 导入_应复制进默认目录并复用相同内容_不同内容唯一命名()
+    public void 导入同名组合_内容一字不差也必须询问而不是静默复用()
     {
         using var runtime = new ModuleRuntime();
         var services = new RuntimeServices(runtime);
         CoreRuntimeTests.AddModule(runtime, "s1", "sender", typeof(CoreRuntimeTests.SenderModule));
 
-        var firstSource = Path.Combine(Path.GetTempPath(), "hyw-import-a-" + Guid.NewGuid().ToString("N"), "same.json");
-        var secondSource = Path.Combine(Path.GetTempPath(), "hyw-import-b-" + Guid.NewGuid().ToString("N"), "same.json");
-        _ = Directory.CreateDirectory(Path.GetDirectoryName(firstSource)!);
-        _ = Directory.CreateDirectory(Path.GetDirectoryName(secondSource)!);
+        var sourceRoot = Path.Combine(Path.GetTempPath(), "hyw-import-same-" + Guid.NewGuid().ToString("N"));
+        var source = Path.Combine(sourceRoot, "same");
+        _ = Directory.CreateDirectory(source);
 
-        string? target = null;
-        string? secondTarget = null;
+        string? targetDocument = null;
         try
         {
-            services.SaveComposite(firstSource, "same", ["s1"]).Succeeded.ShouldBeTrue();
-            services.SaveComposite(secondSource, "same", ["s1"]).Succeeded.ShouldBeTrue();
+            services.SaveComposite(source, "same", ["s1"]).Succeeded.ShouldBeTrue();
 
-            var first = services.ImportComposite(firstSource);
+            var first = services.ImportComposite(source);
             first.Succeeded.ShouldBeTrue(string.Join("；", first.Failures));
-            target = first.TargetPath;
-            target.ShouldNotBeNull();
-            Path.GetDirectoryName(target!).ShouldBe(Path.GetFullPath(StoragePaths.CompositesRoot));
-            File.Exists(target).ShouldBeTrue();
+            targetDocument = first.TargetPath;
+            targetDocument.ShouldNotBeNull();
+            var beforeBytes = File.ReadAllBytes(targetDocument!);
 
-            var duplicate = services.ImportComposite(firstSource);
-            duplicate.Succeeded.ShouldBeTrue();
-            duplicate.TargetPath.ShouldBe(target, "内容相同应复用，不生成副本");
+            // 源目录与默认目录里的那份**内容一字不差**、名字也相同：仍然必须问。
+            // （按内容"复用"会让用户看不到任何提示，等于询问机制失效。）
+            var conflicts = services.GetImportConflicts(source);
+            conflicts.ShouldHaveSingleItem("同名同内容也是冲突");
+            conflicts[0].TargetName.ShouldBe("same");
 
-            var different = services.ImportComposite(secondSource);
-            different.Succeeded.ShouldBeTrue(string.Join("；", different.Failures));
-            secondTarget = different.TargetPath;
-            secondTarget.ShouldNotBeNull();
-            secondTarget.ShouldNotBe(target, "同名但内容不同必须唯一命名");
-            File.Exists(secondTarget).ShouldBeTrue();
+            var again = services.ImportComposite(source);
+
+            again.Succeeded.ShouldBeFalse("没有决定时不得静默复用");
+            again.Failures.ShouldNotBeEmpty();
+            File.ReadAllBytes(targetDocument!).ShouldBe(beforeBytes, "失败时旧内容不得被改动");
+            File.Exists(Path.Combine(Path.GetDirectoryName(targetDocument!)!, "same-2", "composite.json"))
+                .ShouldBeFalse("不得静默改成 -2");
         }
         finally
         {
-            TryDelete(firstSource);
-            TryDelete(secondSource);
-            TryDelete(target);
-            TryDelete(secondTarget);
+            TryDeleteDirectory(sourceRoot);
+            if (targetDocument is { Length: > 0 } && Path.GetDirectoryName(targetDocument) is { Length: > 0 } directory)
+            {
+                TryDeleteDirectory(directory);
+            }
+        }
+    }
+
+    [Fact]
+    public void 导入外层文件夹_只装组合包也应列出冲突()
+    {
+        using var runtime = new ModuleRuntime();
+        var services = new RuntimeServices(runtime);
+        CoreRuntimeTests.AddModule(runtime, "s1", "sender", typeof(CoreRuntimeTests.SenderModule));
+
+        var outerRoot = Path.Combine(Path.GetTempPath(), "hyw-import-outer-" + Guid.NewGuid().ToString("N"));
+        var clashing = Path.Combine(outerRoot, "clash");
+        var fresh = Path.Combine(outerRoot, "fresh");
+        _ = Directory.CreateDirectory(clashing);
+        _ = Directory.CreateDirectory(fresh);
+
+        string? importedDirectory = null;
+        try
+        {
+            services.SaveComposite(clashing, "clash", ["s1"]).Succeeded.ShouldBeTrue();
+            services.SaveComposite(fresh, "fresh", ["s1"]).Succeeded.ShouldBeTrue();
+
+            importedDirectory = Path.GetDirectoryName(services.ImportComposite(clashing).TargetPath!);
+
+            // 外层文件夹（不含 module.json）走的是批量导入：同样要先给出冲突。
+            var conflicts = services.GetImportConflicts(outerRoot);
+            conflicts.ShouldHaveSingleItem();
+            Path.GetFileName(conflicts[0].SourcePath).ShouldBe("composite.json");
+            conflicts[0].TargetName.ShouldBe("clash");
+
+            var result = services.ImportFolder(outerRoot);
+
+            result.CompositeCount.ShouldBe(1, "不撞名的那个照常导入");
+            result.Failures.ShouldNotBeEmpty("撞名那个在没人回答时必须失败");
+        }
+        finally
+        {
+            TryDeleteDirectory(outerRoot);
+            if (importedDirectory is { Length: > 0 })
+            {
+                TryDeleteDirectory(importedDirectory);
+            }
+
+            TryDeleteDirectory(Path.Combine(StoragePaths.CompositesRoot, "fresh"));
+        }
+    }
+
+    [Fact]
+    public void 导入组合_源就是默认目录里的那个包时应早退且不自我覆盖()
+    {
+        using var runtime = new ModuleRuntime();
+        var services = new RuntimeServices(runtime);
+        CoreRuntimeTests.AddModule(runtime, "s1", "sender", typeof(CoreRuntimeTests.SenderModule));
+
+        var sourceRoot = Path.Combine(Path.GetTempPath(), "hyw-import-self-" + Guid.NewGuid().ToString("N"));
+        var source = Path.Combine(sourceRoot, "self");
+        _ = Directory.CreateDirectory(source);
+
+        string? targetDocument = null;
+        try
+        {
+            services.SaveComposite(source, "self", ["s1"]).Succeeded.ShouldBeTrue();
+            targetDocument = services.ImportComposite(source).TargetPath;
+            targetDocument.ShouldNotBeNull();
+            var beforeBytes = File.ReadAllBytes(targetDocument!);
+            var directory = Path.GetDirectoryName(targetDocument!)!;
+
+            // 把默认目录里那个包再"导入"一次 = 什么都不该发生（尤其不能把自己删了）。
+            var again = services.ImportComposite(directory);
+
+            again.Succeeded.ShouldBeTrue(string.Join("；", again.Failures));
+            again.TargetPath.ShouldBe(targetDocument);
+            Directory.Exists(directory).ShouldBeTrue("早退不得删掉来源目录");
+            File.ReadAllBytes(targetDocument!).ShouldBe(beforeBytes);
+        }
+        finally
+        {
+            TryDeleteDirectory(sourceRoot);
+            if (targetDocument is { Length: > 0 } && Path.GetDirectoryName(targetDocument) is { Length: > 0 } directory)
+            {
+                TryDeleteDirectory(directory);
+            }
+        }
+    }
+
+    [Fact]
+    public void 导入同名组合_选择替换应覆盖为目标内容且不产生副本()
+    {
+        using var runtime = new ModuleRuntime();
+        var services = new RuntimeServices(runtime);
+        CoreRuntimeTests.AddModule(runtime, "s1", "sender", typeof(CoreRuntimeTests.SenderModule));
+
+        var sourceRoot = Path.Combine(Path.GetTempPath(), "hyw-import-replace-" + Guid.NewGuid().ToString("N"));
+        var source = Path.Combine(sourceRoot, "pkg");
+        _ = Directory.CreateDirectory(source);
+
+        string? targetDocument = null;
+        try
+        {
+            services.SaveComposite(source, "旧内容", ["s1"]).Succeeded.ShouldBeTrue();
+            var first = services.ImportComposite(source);
+            first.Succeeded.ShouldBeTrue(string.Join("；", first.Failures));
+            targetDocument = first.TargetPath;
+            targetDocument.ShouldNotBeNull();
+
+            // 改内容后以同名再导入，并明确选「替换」。
+            services.SaveComposite(source, "新内容", ["s1"]).Succeeded.ShouldBeTrue();
+            var conflicts = services.GetImportConflicts(source);
+            conflicts.ShouldHaveSingleItem();
+            conflicts[0].TargetName.ShouldBe("pkg");
+
+            var decisions = new Dictionary<string, ImportConflictChoice>(StringComparer.OrdinalIgnoreCase)
+            {
+                [conflicts[0].SourcePath] = ImportConflictChoice.Replace,
+            };
+
+            var replaced = services.ImportComposite(source, decisions);
+
+            replaced.Succeeded.ShouldBeTrue(string.Join("；", replaced.Failures));
+            replaced.TargetPath.ShouldBe(targetDocument, "替换就落在原来的目标上");
+            File.Exists(targetDocument).ShouldBeTrue();
+
+            var names = services.GetCompositeFiles()
+                .Select(file => Path.GetFileName(Path.GetDirectoryName(file.Path)))
+                .ToList();
+            names.ShouldNotContain("pkg-2", "替换不得留下带序号的副本");
+        }
+        finally
+        {
+            TryDeleteDirectory(sourceRoot);
+            if (targetDocument is { Length: > 0 } && Path.GetDirectoryName(targetDocument) is { Length: > 0 } directory)
+            {
+                TryDeleteDirectory(directory);
+            }
+        }
+    }
+
+    [Fact]
+    public void 导入同名组合_选择跳过应保留旧内容并标记为跳过()
+    {
+        using var runtime = new ModuleRuntime();
+        var services = new RuntimeServices(runtime);
+        CoreRuntimeTests.AddModule(runtime, "s1", "sender", typeof(CoreRuntimeTests.SenderModule));
+
+        var sourceRoot = Path.Combine(Path.GetTempPath(), "hyw-import-skip-" + Guid.NewGuid().ToString("N"));
+        var source = Path.Combine(sourceRoot, "pkg");
+        _ = Directory.CreateDirectory(source);
+
+        string? targetDocument = null;
+        try
+        {
+            services.SaveComposite(source, "旧内容", ["s1"]).Succeeded.ShouldBeTrue();
+            targetDocument = services.ImportComposite(source).TargetPath;
+            targetDocument.ShouldNotBeNull();
+            var beforeBytes = File.ReadAllBytes(targetDocument!);
+
+            services.SaveComposite(source, "新内容", ["s1"]).Succeeded.ShouldBeTrue();
+            var conflicts = services.GetImportConflicts(source);
+            conflicts.ShouldHaveSingleItem();
+
+            var decisions = new Dictionary<string, ImportConflictChoice>(StringComparer.OrdinalIgnoreCase)
+            {
+                [conflicts[0].SourcePath] = ImportConflictChoice.Skip,
+            };
+
+            var skipped = services.ImportComposite(source, decisions);
+
+            skipped.Succeeded.ShouldBeTrue(string.Join("；", skipped.Failures));
+            skipped.Skipped.ShouldBeTrue();
+            skipped.TargetPath.ShouldBeNull("跳过时没有落地目标");
+            File.ReadAllBytes(targetDocument!).ShouldBe(beforeBytes, "跳过必须保持旧内容字节不变");
+        }
+        finally
+        {
+            TryDeleteDirectory(sourceRoot);
+            if (targetDocument is { Length: > 0 } && Path.GetDirectoryName(targetDocument) is { Length: > 0 } directory)
+            {
+                TryDeleteDirectory(directory);
+            }
         }
     }
 

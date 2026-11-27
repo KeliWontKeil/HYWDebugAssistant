@@ -150,6 +150,42 @@ public class ModuleSourceDiscoveryTests
     }
 
     [Fact]
+    public void 外部导入_同名目录属于已加载包时应失败且不改动()
+    {
+        using var fixture = new SourceFixture();
+        var builtIn = fixture.CreateRoot("built-in");
+        var external = fixture.CreateRoot("external");
+        var first = fixture.CreateRoot("source-a");
+        var second = fixture.CreateRoot("source-b");
+
+        // 第一个包：hyw/alpha 落进 external\alpha。
+        SourceFixture.CreatePackage(first, "hyw", "alpha", FixtureModuleType.Alpha);
+
+        // 第二个包：ID 是 hyw/beta（不撞 ID），但目录名也叫 alpha（撞目录名）。
+        SourceFixture.CreatePackage(second, "hyw", "beta", FixtureModuleType.Beta);
+        var betaDirectory = Path.Combine(second, "beta");
+        var colliding = Path.Combine(second, "alpha");
+        Directory.Move(betaDirectory, colliding);
+
+        fixture.Services.BuiltInModuleDirectory = builtIn;
+        fixture.Services.ExternalModuleDirectory = external;
+        fixture.Services.ImportModuleDirectory(first).Succeeded.ShouldBeTrue();
+
+        var beforeBytes = File.ReadAllBytes(Path.Combine(external, "alpha", "module.json"));
+
+        // 目录被已加载的包占着：不给用户"替换"的选项（那等于删掉正在用的包）。
+        fixture.Services.GetImportConflicts(colliding).ShouldBeEmpty();
+
+        var result = fixture.Services.ImportModuleDirectory(second);
+
+        result.Succeeded.ShouldBeFalse("同名包目录被已加载的模块占用时必须失败");
+        result.Failures.ShouldNotBeEmpty();
+        Directory.GetDirectories(external).Length.ShouldBe(1, "不得静默改成 alpha-2");
+        File.ReadAllBytes(Path.Combine(external, "alpha", "module.json"))
+            .ShouldBe(beforeBytes, "被占用时旧包不得被改动");
+    }
+
+    [Fact]
     public void 缺少实现程序集的包_应失败并计入诊断()
     {
         using var fixture = new SourceFixture();

@@ -490,7 +490,9 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
     }
 
     /// <inheritdoc />
-    public CommandResult ImportModuleDirectory(string sourceDirectory)
+    public CommandResult ImportModuleDirectory(
+        string sourceDirectory,
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceDirectory);
 
@@ -510,17 +512,23 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             return CommandResult.Fail([CoreText.Get("core.services.noModulePackagesInDirectory")]);
         }
 
-        var (imported, notices, failures) = ImportModulePackages(packages);
+        var (imported, skipped, notices, failures) = ImportModulePackages(packages, conflicts);
 
-        return imported > 0
-            ? new CommandResult(true, failures, notices)
-            : failures.Count > 0
-                ? CommandResult.Fail(failures)
-                : CommandResult.Ok(notices);
+        // 用户明确选过「跳过」也算这一轮有交代：不能报成"整体失败"。
+        if (imported > 0 || skipped > 0)
+        {
+            return new CommandResult(true, failures, notices, skipped);
+        }
+
+        return failures.Count > 0
+            ? CommandResult.Fail(failures)
+            : CommandResult.Ok(notices);
     }
 
     /// <inheritdoc />
-    public FolderImportResult ImportFolder(string sourceDirectory)
+    public FolderImportResult ImportFolder(
+        string sourceDirectory,
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts = null)
     {
         if (string.IsNullOrWhiteSpace(sourceDirectory) || !Directory.Exists(sourceDirectory))
         {
@@ -535,11 +543,14 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         var notices = new List<string>();
         var failures = new List<string>();
         var moduleCount = 0;
+        var skippedCount = 0;
 
         if (scan.ModuleDirectories.Count > 0)
         {
-            var (imported, moduleNotices, moduleFailures) = ImportModulePackages(scan.ModuleDirectories);
+            var (imported, skipped, moduleNotices, moduleFailures) =
+                ImportModulePackages(scan.ModuleDirectories, conflicts);
             moduleCount = imported;
+            skippedCount += skipped;
             notices.AddRange(moduleNotices);
             failures.AddRange(moduleFailures);
         }
@@ -547,8 +558,13 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         var compositeCount = 0;
         foreach (var directory in scan.CompositeDirectories)
         {
-            var result = ImportComposite(directory);
-            if (result.Succeeded)
+            var result = ImportComposite(directory, conflicts);
+            if (result.Skipped)
+            {
+                skippedCount++;
+                notices.AddRange(result.Notices);
+            }
+            else if (result.Succeeded)
             {
                 compositeCount++;
                 notices.AddRange(result.Notices);
@@ -564,20 +580,29 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             failures.Add(CoreText.Get("core.services.import.folderLimit", FolderImportScanner.MaxPackages));
         }
 
-        return new FolderImportResult(moduleCount, compositeCount, notices, failures);
+        return new FolderImportResult(moduleCount, compositeCount, notices, failures, skippedCount);
     }
 
     /// <summary>导入一批已发现的模块包目录；失败项不中断其余。</summary>
-    private (int Imported, List<string> Notices, List<string> Failures) ImportModulePackages(
-        IReadOnlyList<string> packages)
+    /// <param name="packages">包目录（来自扫描器）。</param>
+    /// <param name="conflicts">同名冲突的处置（键 = 来源全路径）。</param>
+    /// <returns>成功导入数、用户跳过数、提示、失败原因。</returns>
+    /// <remarks>
+    /// 同名目录**不再自动加序号**：没有用户决定时按失败处理，因为静默改名会让用户以为
+    /// 导入失败或覆盖成功。目录名被**已加载**的包占着时只能失败 —— 替换等于删掉正在用的包。
+    /// </remarks>
+    private (int Imported, int Skipped, List<string> Notices, List<string> Failures) ImportModulePackages(
+        IReadOnlyList<string> packages,
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts)
     {
         var notices = new List<string>();
         var failures = new List<string>();
         var imported = 0;
+        var skipped = 0;
 
         if (string.IsNullOrWhiteSpace(ExternalModuleDirectory))
         {
-            return (0, notices, [CoreText.Get("core.services.externalDirectoryNotConfigured")]);
+            return (0, 0, notices, [CoreText.Get("core.services.externalDirectoryNotConfigured")]);
         }
 
         _ = Directory.CreateDirectory(ExternalModuleDirectory);
@@ -612,7 +637,44 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 continue;
             }
 
-            var target = CreateUniqueDirectory(ExternalModuleDirectory, packageName);
+            var target = Path.Combine(ExternalModuleDirectory, SanitizeDirectoryName(packageName));
+            var occupiedBy = Directory.Exists(target) ? DescribeLoadedOwner(target) : null;
+            if (occupiedBy is { Length: > 0 })
+            {
+                failures.Add(CoreText.Get(
+                    "core.services.import.moduleDirectoryOccupied",
+                    packageName,
+                    occupiedBy));
+                continue;
+            }
+
+            if (Directory.Exists(target))
+            {
+                var choice = ResolveConflictChoice(conflicts, package);
+                if (choice is null)
+                {
+                    failures.Add(CoreText.Get("core.services.import.conflictUnresolved", packageName));
+                    continue;
+                }
+
+                if (choice == ImportConflictChoice.Skip)
+                {
+                    skipped++;
+                    notices.Add(CoreText.Get("core.services.import.skipped", packageName));
+                    continue;
+                }
+
+                if (!TryReplaceDirectory(package, target, CopyDirectory, out var replaceError))
+                {
+                    failures.Add(CoreText.Get("core.services.import.copyFailed", packageName, replaceError!));
+                    continue;
+                }
+
+                imported++;
+                notices.Add(CoreText.Get("core.services.import.replaced", packageName));
+                continue;
+            }
+
             try
             {
                 CopyDirectory(package, target);
@@ -638,25 +700,85 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
                 IssueCategory.ModuleError, IssueSeverity.Error, failure));
         }
 
-        return (imported, notices, failures);
+        return (imported, skipped, notices, failures);
     }
 
-    private static string CreateUniqueDirectory(string root, string name)
+    /// <summary>把包目录名收敛成合法的目录名（非法字符换成下划线；空 ⇒ <c>module</c>）。</summary>
+    private static string SanitizeDirectoryName(string name)
     {
         var invalid = Path.GetInvalidFileNameChars();
         var clean = new string(name.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray()).Trim();
-        if (clean.Length == 0)
+        return clean.Length == 0 ? "module" : clean;
+    }
+
+    /// <summary>这个目录若是某个**已加载**包的落地目录，返回其模块标识；否则 null。</summary>
+    private string? DescribeLoadedOwner(string directory)
+    {
+        var full = Path.GetFullPath(directory);
+        foreach (var definition in _registry.Definitions)
         {
-            clean = "module";
+            if (string.Equals(Path.GetFullPath(definition.PackageDirectory), full, StringComparison.OrdinalIgnoreCase))
+            {
+                return definition.Id.ToString();
+            }
         }
 
-        var target = Path.Combine(root, clean);
-        for (var suffix = 2; Directory.Exists(target); suffix++)
+        return null;
+    }
+
+    /// <summary>按来源全路径查用户决定；没有决定 ⇒ null（调用方按失败处理）。</summary>
+    private static ImportConflictChoice? ResolveConflictChoice(
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts,
+        string sourcePath)
+    {
+        if (conflicts is null || conflicts.Count == 0)
         {
-            target = Path.Combine(root, $"{clean}-{suffix}");
+            return null;
         }
 
-        return target;
+        var full = Path.GetFullPath(sourcePath);
+        foreach (var pair in conflicts)
+        {
+            if (string.Equals(Path.GetFullPath(pair.Key), full, StringComparison.OrdinalIgnoreCase))
+            {
+                return pair.Value;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// **整目录替换**：先完整复制到同父目录的临时项，成功后再删旧目标并把临时项改名过去。
+    /// </summary>
+    /// <remarks>
+    /// 不保留副本（用户选替换即视为已知风险），但绝不半写：复制失败时旧目标保持原样，
+    /// 临时项被清掉。删除与改名的窗口极小，且都在同一卷上。
+    /// </remarks>
+    /// <param name="copy">具体的复制动作（模块包整目录 / 组合包只取已知文件）。</param>
+    private static bool TryReplaceDirectory(
+        string source,
+        string target,
+        Action<string, string> copy,
+        out string? error)
+    {
+        error = null;
+        var staged = target + ".importing-" + DateTime.Now.ToString("yyyyMMdd-HHmmssffff", CultureInfo.InvariantCulture);
+
+        try
+        {
+            TryDeleteDirectory(staged);
+            copy(source, staged);
+            TryDeleteDirectory(target);
+            Directory.Move(staged, target);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            error = ex.Message;
+            TryDeleteDirectory(staged);
+            return false;
+        }
     }
 
     private static void CopyDirectory(string source, string target)
@@ -920,7 +1042,9 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             : _composites.SavePackage(filePath, name, instanceIds);
 
     /// <inheritdoc />
-    public CompositeImportResult ImportComposite(string sourcePath)
+    public CompositeImportResult ImportComposite(
+        string sourcePath,
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts = null)
     {
         if (string.IsNullOrWhiteSpace(sourcePath))
         {
@@ -943,68 +1067,285 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             var root = StoragePaths.CompositesRoot;
             _ = Directory.CreateDirectory(root);
 
-            var sourceDocument = Path.GetFullPath(document);
-            var sourceDirectory = Path.GetDirectoryName(sourceDocument);
-            var isPackage = string.Equals(Path.GetFileName(sourceDocument), StoragePaths.CompositeDocumentFileName, StringComparison.OrdinalIgnoreCase)
-                && sourceDirectory is { Length: > 0 };
+            var plan = DescribeCompositeImport(document);
 
-            if (isPackage)
+            // 源就在默认目录：这不是导入，无操作早退（也不弹窗）。
+            if (plan.InDefaultDirectory)
             {
-                var packageName = Path.GetFileName(sourceDirectory!);
-                var targetDirectory = UniqueDirectory(root, packageName);
-                CopyCompositePackage(sourceDirectory!, targetDirectory);
-                var targetDocument = CompositeFileStore.DocumentPathFor(targetDirectory);
-                var packageNotices = new List<string> { CoreText.Get("core.services.composite.imported", targetDirectory) };
-                if (inspection.MissingModules.Count > 0)
+                return new CompositeImportResult(
+                    true,
+                    plan.TargetDocument,
+                    [CoreText.Get("core.services.composite.inDefaultDirectory")],
+                    []);
+            }
+
+            if (plan.TargetDocument is not { Length: > 0 } targetDocument)
+            {
+                return FailCompositeImport(CoreText.Get("core.services.composite.fileMissing"));
+            }
+
+            if (plan.Conflicting)
+            {
+                var choice = ResolveConflictChoice(conflicts, plan.SourceDocument);
+                if (choice is null)
                 {
-                    packageNotices.Add(CoreText.Get("core.services.composite.missingModules", inspection.MissingModules.Count));
+                    return FailCompositeImport(CoreText.Get(
+                        "core.services.import.conflictUnresolved",
+                        plan.TargetName));
                 }
 
-                return new CompositeImportResult(true, targetDocument, packageNotices, []);
-            }
-
-            var name = Path.GetFileName(sourceDocument);
-            var target = Path.Combine(root, name);
-
-            if (string.Equals(sourceDocument, Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
-            {
-                return new CompositeImportResult(true, target, [CoreText.Get("core.services.composite.inDefaultDirectory")], []);
-            }
-
-            if (File.Exists(target))
-            {
-                if (FilesEqual(sourceDocument, target))
+                if (choice == ImportConflictChoice.Skip)
                 {
-                    return new CompositeImportResult(true, target, [CoreText.Get("core.services.composite.defaultDirectoryReused")], []);
+                    return new CompositeImportResult(
+                        true,
+                        null,
+                        [CoreText.Get("core.services.import.skipped", plan.TargetName)],
+                        [],
+                        Skipped: true);
+                }
+            }
+
+            if (plan.IsPackage)
+            {
+                var sourceDirectory = Path.GetDirectoryName(plan.SourceDocument)!;
+                var targetDirectory = Path.GetDirectoryName(targetDocument)!;
+                if (!TryReplaceDirectory(sourceDirectory, targetDirectory, CopyCompositePackage, out var replaceError))
+                {
+                    return FailCompositeImport(CoreText.Get(
+                        "core.services.composite.copyFailed",
+                        replaceError!));
                 }
 
-                target = UniqueCompositePath(root, name);
+                return new CompositeImportResult(
+                    true,
+                    targetDocument,
+                    BuildCompositeImportNotices(targetDocument, inspection),
+                    []);
             }
 
-            File.Copy(sourceDocument, target, overwrite: false);
+            CopyLegacyComposite(plan.SourceDocument, targetDocument);
 
-            // 外部组合若带同名 `.preview.png` 封面，一并复制到默认目录。
-            var sourceCover = CompositeFileStore.CoverPathFor(sourceDocument);
-            if (File.Exists(sourceCover))
-            {
-                File.Copy(sourceCover, CompositeFileStore.CoverPathFor(target), overwrite: true);
-            }
-
-            // 扁平组合件的 assets/ 与 JSON 同目录；导入时一并复制到默认目录的 assets/。
-            CopyAssetFiles(sourceDirectory!, Path.GetDirectoryName(target)!);
-
-            var notices = new List<string> { CoreText.Get("core.services.composite.imported", target) };
-            if (inspection.MissingModules.Count > 0)
-            {
-                notices.Add(CoreText.Get("core.services.composite.missingModules", inspection.MissingModules.Count));
-            }
-
-            return new CompositeImportResult(true, target, notices, []);
+            return new CompositeImportResult(
+                true,
+                targetDocument,
+                BuildCompositeImportNotices(targetDocument, inspection),
+                []);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
             return FailCompositeImport(CoreText.Get("core.services.composite.copyFailed", ex.Message));
         }
+    }
+
+    /// <summary>
+    /// **组合导入的判定结果**：目标文档、是否包、是否落在默认目录、是否撞名。
+    /// </summary>
+    /// <param name="SourceDocument">来源组合文档（全路径，决定表的键）。</param>
+    /// <param name="TargetDocument">默认目录中的目标文档（失败时为 null）。</param>
+    /// <param name="TargetName">将被占用的名字（目录名或文件名）。</param>
+    /// <param name="IsPackage">是否组合包（目录形态）。</param>
+    /// <param name="InDefaultDirectory">来源本身就在默认目录（无操作早退，**不是冲突**）。</param>
+    /// <param name="Conflicting">目标目录/文件已存在（**只看名字，不比内容**）。</param>
+    private readonly record struct CompositeImportPlan(
+        string SourceDocument,
+        string? TargetDocument,
+        string TargetName,
+        bool IsPackage,
+        bool InDefaultDirectory,
+        bool Conflicting);
+
+    /// <summary>推导一次组合导入的落点与冲突情况（**只读**，查询面与执行面共用）。</summary>
+    /// <param name="document">来源组合文档（已确认可读）。</param>
+    /// <remarks>
+    /// **撞名只按名字判定**，不比内容：与资源管理器一致，也让"有没有被问过"与"内容恰不恰好相同"
+    /// 脱钩 —— 内容相同却静默复用，用户无法与"什么都没做"区分，询问机制等于失效。
+    /// </remarks>
+    private static CompositeImportPlan DescribeCompositeImport(string document)
+    {
+        var root = Path.GetFullPath(StoragePaths.CompositesRoot);
+        var sourceDocument = Path.GetFullPath(document);
+        var sourceDirectory = Path.GetDirectoryName(sourceDocument);
+
+        var isPackage = string.Equals(
+                Path.GetFileName(sourceDocument),
+                StoragePaths.CompositeDocumentFileName,
+                StringComparison.OrdinalIgnoreCase)
+            && sourceDirectory is { Length: > 0 };
+
+        if (isPackage)
+        {
+            var packageName = Path.GetFileName(sourceDirectory!);
+            var targetDirectory = Path.Combine(root, packageName);
+
+            // 源即目标：不是导入，必须早退 —— 否则"替换"会把来源目录删掉（那是它自己的目录）。
+            var sameDirectory = string.Equals(
+                Path.GetFullPath(sourceDirectory!),
+                Path.GetFullPath(targetDirectory),
+                StringComparison.OrdinalIgnoreCase);
+
+            return new CompositeImportPlan(
+                sourceDocument,
+                CompositeFileStore.DocumentPathFor(targetDirectory),
+                packageName,
+                IsPackage: true,
+                InDefaultDirectory: sameDirectory,
+                Conflicting: !sameDirectory && Directory.Exists(targetDirectory));
+        }
+
+        var name = Path.GetFileName(sourceDocument);
+        var target = Path.Combine(root, name);
+
+        if (string.Equals(sourceDocument, Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+        {
+            return new CompositeImportPlan(
+                sourceDocument, target, name, IsPackage: false, InDefaultDirectory: true, Conflicting: false);
+        }
+
+        return new CompositeImportPlan(
+            sourceDocument,
+            target,
+            name,
+            IsPackage: false,
+            InDefaultDirectory: false,
+            Conflicting: File.Exists(target));
+    }
+
+    /// <summary>导入成功后的提示（含缺失模块计数）。</summary>
+    private static List<string> BuildCompositeImportNotices(string targetDocument, CompositeInspection inspection)
+    {
+        var notices = new List<string> { CoreText.Get("core.services.composite.imported", targetDocument) };
+        if (inspection.MissingModules.Count > 0)
+        {
+            notices.Add(CoreText.Get("core.services.composite.missingModules", inspection.MissingModules.Count));
+        }
+
+        return notices;
+    }
+
+    /// <summary>复制旧扁平组合（JSON + 可选 `<名>.preview.png` 封面 + 同目录 assets/）。</summary>
+    private static void CopyLegacyComposite(string sourceDocument, string targetDocument)
+    {
+        File.Copy(sourceDocument, targetDocument, overwrite: true);
+
+        var sourceCover = CompositeFileStore.CoverPathFor(sourceDocument);
+        var targetCover = CompositeFileStore.CoverPathFor(targetDocument);
+        if (File.Exists(sourceCover))
+        {
+            File.Copy(sourceCover, targetCover, overwrite: true);
+        }
+        else if (File.Exists(targetCover))
+        {
+            // 替换：旧封面属于被替换的内容，留着会与新组合对不上。
+            File.Delete(targetCover);
+        }
+
+        var sourceDirectory = Path.GetDirectoryName(sourceDocument);
+        if (sourceDirectory is { Length: > 0 })
+        {
+            CopyAssetFiles(sourceDirectory, Path.GetDirectoryName(targetDocument)!);
+        }
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<ImportConflictView> GetImportConflicts(string sourcePath)
+    {
+        if (string.IsNullOrWhiteSpace(sourcePath))
+        {
+            return [];
+        }
+
+        var conflicts = new List<ImportConflictView>();
+
+        switch (ClassifyImportPath(sourcePath))
+        {
+            case ImportPathKind.CompositePackage:
+                if (ResolveCompositeDocument(sourcePath) is { } document)
+                {
+                    var plan = DescribeCompositeImport(document);
+                    if (plan.Conflicting)
+                    {
+                        conflicts.Add(new ImportConflictView(plan.SourceDocument, plan.TargetName));
+                    }
+                }
+
+                break;
+
+            case ImportPathKind.ModulePackage:
+                foreach (var package in FolderImportScanner.Scan(sourcePath).ModuleDirectories)
+                {
+                    if (DescribeModuleImportConflict(package) is { } conflict)
+                    {
+                        conflicts.Add(conflict);
+                    }
+                }
+
+                break;
+
+            default:
+                // 外层文件夹（含只装组合包的）：按批量导入同一套扫描规则取冲突。
+                // 少了这一支，批量路径拿不到冲突 ⇒ 直接按"未决定"失败，同样没有提示。
+                if (Directory.Exists(sourcePath))
+                {
+                    foreach (var conflict in DescribeFolderImportConflicts(sourcePath))
+                    {
+                        conflicts.Add(conflict);
+                    }
+                }
+
+                break;
+        }
+
+        return conflicts;
+    }
+
+    /// <summary>外层文件夹导入的冲突列表（顺序 = 扫描顺序，与执行面一致）。</summary>
+    /// <param name="sourceDirectory">外层文件夹。</param>
+    private List<ImportConflictView> DescribeFolderImportConflicts(string sourceDirectory)
+    {
+        var conflicts = new List<ImportConflictView>();
+        var scan = FolderImportScanner.Scan(sourceDirectory);
+
+        foreach (var package in scan.ModuleDirectories)
+        {
+            if (DescribeModuleImportConflict(package) is { } conflict)
+            {
+                conflicts.Add(conflict);
+            }
+        }
+
+        foreach (var directory in scan.CompositeDirectories)
+        {
+            if (ResolveCompositeDocument(directory) is not { } document)
+            {
+                continue;
+            }
+
+            var plan = DescribeCompositeImport(document);
+            if (plan.Conflicting)
+            {
+                conflicts.Add(new ImportConflictView(plan.SourceDocument, plan.TargetName));
+            }
+        }
+
+        return conflicts;
+    }
+
+    /// <summary>一个模块包目录的可处置冲突；不撞名、或撞的是已加载包的目录 ⇒ null。</summary>
+    private ImportConflictView? DescribeModuleImportConflict(string package)
+    {
+        if (string.IsNullOrWhiteSpace(ExternalModuleDirectory))
+        {
+            return null;
+        }
+
+        var packageName = Path.GetFileName(Path.TrimEndingDirectorySeparator(package));
+        var target = Path.Combine(ExternalModuleDirectory, SanitizeDirectoryName(packageName));
+        if (!Directory.Exists(target) || DescribeLoadedOwner(target) is { Length: > 0 })
+        {
+            return null;
+        }
+
+        return new ImportConflictView(Path.GetFullPath(package), packageName);
     }
 
     /// <summary>把"组合文件夹或组合文档"收敛到唯一入口：文件夹取其中的 <c>composite.json</c>。</summary>
@@ -1260,29 +1601,27 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
         return new CompositeRenameResult(false, null, [reason]);
     }
 
-    private static bool FilesEqual(string left, string right)    {
-        var leftInfo = new FileInfo(left);
-        var rightInfo = new FileInfo(right);
-        if (leftInfo.Length != rightInfo.Length)
-        {
-            return false;
-        }
-
-        return File.ReadAllBytes(left).AsSpan().SequenceEqual(File.ReadAllBytes(right));
-    }
-
-    /// <summary>复制一个组合件包的已知文件（JSON/封面/资产），不跟随链接。</summary>
+    /// <summary>复制一个组合件包的**已知文件**（文档 / 封面 / 内容寻址资产），不跟随链接。</summary>
+    /// <remarks>
+    /// 组合包只承诺这三类内容；来源目录里的其它文件不属于组合件，不进默认目录。
+    /// </remarks>
     private static void CopyCompositePackage(string source, string target)
     {
         _ = Directory.CreateDirectory(target);
 
         var document = Path.Combine(source, StoragePaths.CompositeDocumentFileName);
-        File.Copy(document, Path.Combine(target, StoragePaths.CompositeDocumentFileName), overwrite: false);
+        File.Copy(document, Path.Combine(target, StoragePaths.CompositeDocumentFileName), overwrite: true);
 
         var cover = Path.Combine(source, StoragePaths.CompositeCoverFileName);
+        var targetCover = Path.Combine(target, StoragePaths.CompositeCoverFileName);
         if (File.Exists(cover))
         {
-            File.Copy(cover, Path.Combine(target, StoragePaths.CompositeCoverFileName), overwrite: true);
+            File.Copy(cover, targetCover, overwrite: true);
+        }
+        else if (File.Exists(targetCover))
+        {
+            // 替换：旧封面属于被替换的内容，留着会与新组合对不上。
+            File.Delete(targetCover);
         }
 
         CopyAssetFiles(source, target);
@@ -1314,32 +1653,6 @@ public sealed class RuntimeServices : IRuntimeQuery, IRuntimeCommand
             if (!File.Exists(destination))
             {
                 File.Copy(file, destination, overwrite: false);
-            }
-        }
-    }
-
-    private static string UniqueDirectory(string root, string name)
-    {
-        var baseName = string.IsNullOrWhiteSpace(name) ? "composite" : name;
-        var candidate = Path.Combine(root, baseName);
-        for (var suffix = 2; Directory.Exists(candidate) || File.Exists(candidate + ".json"); suffix++)
-        {
-            candidate = Path.Combine(root, $"{baseName}-{suffix}");
-        }
-
-        return candidate;
-    }
-
-    private static string UniqueCompositePath(string root, string fileName)
-    {
-        var stem = Path.GetFileNameWithoutExtension(fileName);
-        var extension = Path.GetExtension(fileName);
-        for (var suffix = 2; ; suffix++)
-        {
-            var candidate = Path.Combine(root, $"{stem}-{suffix}{extension}");
-            if (!File.Exists(candidate))
-            {
-                return candidate;
             }
         }
     }

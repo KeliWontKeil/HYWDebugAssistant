@@ -139,6 +139,8 @@
     "core.services.exitBehaviorInvalid": "关闭行为必须是 Ask / Save / Discard",
     "core.services.externalDirectoryNotConfigured": "未配置外部模块目录",
     "core.services.import.copyFailed": "{0}：复制失败：{1}",
+    "core.services.import.conflictUnresolved": "{0}：默认目录已有同名项，未替换；请重试并选择替换或跳过",
+    "core.services.import.moduleDirectoryOccupied": "{0}：同名包目录正由已加载的模块 {1} 使用，未导入；请删除旧包目录或改名后重试",
     "core.services.import.folderLimit": "一次最多导入 {0} 个包，其余已跳过；请分批导入",
     "core.services.instanceMissingOrPlaceholder": "实例不存在或为占位实例：{0}",
     "core.services.moduleNotRegistered": "模块未注册：{0}（请先加载模块包）",

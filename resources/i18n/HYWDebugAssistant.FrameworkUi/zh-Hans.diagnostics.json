@@ -22,6 +22,7 @@
     "settings.status.themeSaveFailed": "主题「{0}」未保存：{1}",
     "settings.status.writeFailed": "写入失败",
     "shell.drop.unsupported": "拖入的内容不是模块包或组合文件夹",
+    "shell.drop.failed": "导入失败：{0}",
     "shell.message.restartProcessFailed": "新进程启动失败，已留在当前进程：\n{0}",
     "shell.message.restartWorkspaceFailed": "保存工作区失败，已取消重启：\n{0}",
     "shell.message.workspaceSaveFailed": "保存失败，已取消退出：\n{0}",

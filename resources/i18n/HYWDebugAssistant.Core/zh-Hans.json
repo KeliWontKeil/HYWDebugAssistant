@@ -42,7 +42,7 @@
     "core.services.issues.removed": "已移除 {0} 条 Issue",
     "core.services.rescan.contentChanged": "! {0}：内容已变化，需重启应用生效",
     "core.services.rescan.installed": "扫描完成：新载入 {0} 个模块包",
-    "core.services.rescan.nothingNew": "扫描完成：没有发现新的模块包",
+    "core.services.rescan.nothingNew": "扫描完成：未发现新的模块包",
     "core.services.rescan.unchanged": "= {0}：无变化",
     "core.services.wallpaperCleared": "已清除模块壁纸",
     "core.services.wallpaperSet": "已设置模块壁纸",

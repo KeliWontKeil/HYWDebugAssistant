@@ -1,9 +1,9 @@
+using System.IO;
 using System.Runtime.CompilerServices;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Platform.Storage;
 using HYWDebugAssistant.FrameworkUi.ViewModels;
-
 namespace HYWDebugAssistant.FrameworkUi.Views;
 
 /// <summary>
@@ -49,7 +49,7 @@ internal static class FileDropImport
         e.Handled = true;
     }
 
-    private static void OnDrop(object? sender, DragEventArgs e, ShellViewModel shell)
+    private static async void OnDrop(object? sender, DragEventArgs e, ShellViewModel shell)
     {
         e.Handled = true;
 
@@ -58,12 +58,39 @@ internal static class FileDropImport
             return;
         }
 
-        foreach (var item in files)
+        // 拖入是事件入口（`async void` 在此是唯一选择），整体兜住：询问或导入抛出的异常
+        // 不能漏到 UI 线程的未处理异常上，而要把原因写进页面状态。
+        try
         {
-            if (item.TryGetLocalPath() is { Length: > 0 } path)
+            var owner = sender as Window;
+
+            foreach (var item in files)
             {
-                shell.ImportPath(path);
+                if (item.TryGetLocalPath() is not { Length: > 0 } path)
+                {
+                    continue;
+                }
+
+                var conflicts = shell.GetImportConflicts(path);
+                if (conflicts.Count == 0)
+                {
+                    shell.ImportPath(path);
+                    continue;
+                }
+
+                var decisions = await ImportConflictDialog.ResolveAsync(owner, conflicts);
+                if (decisions is null)
+                {
+                    // 取消这一项：余下的拖入项仍然按各自情况处理（与逐项询问一致）。
+                    continue;
+                }
+
+                shell.ImportPath(path, decisions);
             }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            shell.ReportImportPathFailure(ex.Message);
         }
     }
 }

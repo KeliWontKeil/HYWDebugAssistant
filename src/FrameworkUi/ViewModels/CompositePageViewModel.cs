@@ -324,26 +324,59 @@ public sealed partial class CompositePageViewModel : ViewModelBase
         Load(file.Path);
     }
 
+    /// <summary>列出这次导入会撞名的项（只读；空 = 直接导入即可）。</summary>
+    /// <param name="sourcePath">外部组合文件夹或组合文件。</param>
+    /// <remarks>
+    /// 询问由视图负责（VM 没有窗口）：先问这里，再把用户的选择作为决定表交给
+    /// <see cref="ImportComposite(string, IReadOnlyDictionary{string, ImportConflictChoice}?)"/>。
+    /// </remarks>
+    public IReadOnlyList<ImportConflictView> GetImportConflicts(string sourcePath) =>
+        _query.GetImportConflicts(sourcePath);
+
     /// <summary>导入外部组合：源是组合文件夹或组合文件；校验后复制到默认目录并选中。</summary>
-    public void ImportComposite(string sourcePath)
+    /// <param name="sourcePath">外部组合文件夹或组合文件。</param>
+    /// <param name="conflicts">同名冲突的处置（键 = 来源全路径）；缺省 = 没有冲突。</param>
+    /// <remarks>
+    /// 状态行写的是**目标**名（不是源名）：同名换了名字时，用户看到的必须与列表里出现的一致。
+    /// </remarks>
+    public void ImportComposite(
+        string sourcePath,
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts = null)
     {
-        var result = _command.ImportComposite(sourcePath);
-        var name = Directory.Exists(sourcePath)
-            ? Path.GetFileName(Path.TrimEndingDirectorySeparator(sourcePath))
-            : Path.GetFileNameWithoutExtension(sourcePath);
+        var result = _command.ImportComposite(sourcePath, conflicts);
+        var name = DescribeTargetName(result.TargetPath, sourcePath);
+
         SetStatus(
             result.Succeeded,
-            result.Succeeded
-                ? CompositeText.Get("composite.status.imported", name)
-                : CompositeText.Get("composite.status.importFailed"),
+            result.Skipped
+                ? CompositeText.Get("composite.status.importSkipped", name)
+                : result.Succeeded
+                    ? CompositeText.Get("composite.status.imported", name)
+                    : CompositeText.Get("composite.status.importFailed"),
             result.Succeeded
                 ? string.Join(Environment.NewLine, result.Notices)
                 : string.Join(Environment.NewLine, result.Failures));
 
-        if (result.Succeeded)
+        if (result.Succeeded && result.TargetPath is { Length: > 0 })
         {
             RefreshCompositeFiles(result.TargetPath);
         }
+    }
+
+    /// <summary>目标显示名：优先用落地的目标（目录名 / 去掉 .json）；没有目标时回落到源名。</summary>
+    private static string DescribeTargetName(string? targetPath, string sourcePath)
+    {
+        if (targetPath is { Length: > 0 })
+        {
+            var directory = Path.GetDirectoryName(targetPath);
+            return Path.GetFileName(directory) is { Length: > 0 } name
+                ? name
+                : Path.GetFileNameWithoutExtension(targetPath);
+        }
+
+        return Directory.Exists(sourcePath)
+            ? Path.GetFileName(Path.TrimEndingDirectorySeparator(sourcePath))
+            : Path.GetFileNameWithoutExtension(sourcePath);
     }
 
     /// <summary>删除当前选中的组合文件（只删文件，不影响现场模块）。</summary>

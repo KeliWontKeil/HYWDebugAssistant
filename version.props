@@ -5,7 +5,7 @@
     <HywVersionMajor>0</HywVersionMajor>
     <HywVersionMinor>2</HywVersionMinor>
     <HywVersionPatch>1</HywVersionPatch>
-    <HywVersionRound>1</HywVersionRound>
+    <HywVersionRound>2</HywVersionRound>
   </PropertyGroup>
 
 </Project>

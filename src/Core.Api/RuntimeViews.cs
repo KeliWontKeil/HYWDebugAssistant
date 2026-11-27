@@ -916,27 +916,40 @@ public sealed record ModuleWallpaperView(long Revision, byte[] Png);
 /// <param name="Crop">归一化裁切。</param>
 public sealed record ModuleViewImageAssetView(long Revision, byte[] Bytes, ViewImageCrop Crop);
 
+/// <summary>一个**可处置的同名冲突**：导入时会占用的名字在默认目录里已经存在。</summary>
+/// <param name="SourcePath">来源包目录或组合文件（全路径，作决定表的键）。</param>
+/// <param name="TargetName">默认目录里将被占用的名字（组合包 = 目录名，旧扁平 = 文件名）。</param>
+/// <remarks>
+/// 判定**只看名字**：目标名已被占用就是冲突，内容是否相同不影响。
+/// 唯一不进这份列表的是"模块包同名目录正被已加载的包占用"——那只能失败，替换等于删掉在用的包。
+/// </remarks>
+public readonly record struct ImportConflictView(string SourcePath, string TargetName);
+
 /// <summary>组合文件导入结果（复制到默认目录后的目标路径）。</summary>
-/// <param name="Succeeded">是否成功（含“已存在且复用”）。</param>
+/// <param name="Succeeded">是否成功（含"源就在默认目录"的无操作早退，以及用户选择跳过）。</param>
 /// <param name="TargetPath">默认目录中的目标文件（失败时为空）。</param>
 /// <param name="Notices">提示。</param>
 /// <param name="Failures">失败原因。</param>
+/// <param name="Skipped">是否因用户选择「跳过」而没有复制。</param>
 public readonly record struct CompositeImportResult(
     bool Succeeded,
     string? TargetPath,
     IReadOnlyList<string> Notices,
-    IReadOnlyList<string> Failures);
+    IReadOnlyList<string> Failures,
+    bool Skipped = false);
 
 /// <summary>外层文件夹批量导入的汇总结果。</summary>
 /// <param name="ModuleCount">成功导入的模块包数。</param>
 /// <param name="CompositeCount">成功导入的组合包数。</param>
 /// <param name="Notices">逐包成功/重扫提示。</param>
 /// <param name="Failures">逐包失败原因。</param>
+/// <param name="SkippedCount">因用户选择「跳过」而没有复制的项数。</param>
 public readonly record struct FolderImportResult(
     int ModuleCount,
     int CompositeCount,
     IReadOnlyList<string> Notices,
-    IReadOnlyList<string> Failures)
+    IReadOnlyList<string> Failures,
+    int SkippedCount = 0)
 {
     /// <summary>成功导入的包总数。</summary>
     public int ImportedCount => ModuleCount + CompositeCount;

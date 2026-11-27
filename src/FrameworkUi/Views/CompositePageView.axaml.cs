@@ -123,6 +123,23 @@ public partial class CompositePageView : UserControl
 
             if (folders.Count > 0 && folders[0].TryGetLocalPath() is { Length: > 0 } path)
             {
+                var conflicts = viewModel.GetImportConflicts(path);
+                if (conflicts.Count > 0)
+                {
+                    var decisions = await ImportConflictDialog.ResolveAsync(
+                        TopLevel.GetTopLevel(this) as Window,
+                        conflicts);
+
+                    // 取消 = 整批不导入（不要退化成"全部未决定失败"的一串报错）。
+                    if (decisions is null)
+                    {
+                        return;
+                    }
+
+                    viewModel.ImportComposite(path, decisions);
+                    return;
+                }
+
                 viewModel.ImportComposite(path);
             }
         }

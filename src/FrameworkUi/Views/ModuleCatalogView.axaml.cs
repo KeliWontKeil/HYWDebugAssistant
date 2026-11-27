@@ -71,6 +71,20 @@ public partial class ModuleCatalogView : UserControl
 
         if (folders.Count > 0 && folders[0].TryGetLocalPath() is { Length: > 0 } path)
         {
+            var owner = TopLevel.GetTopLevel(this) as Window;
+            var conflicts = catalog.GetImportConflicts(path);
+            if (conflicts.Count > 0)
+            {
+                var decisions = await ImportConflictDialog.ResolveAsync(owner, conflicts);
+                if (decisions is null)
+                {
+                    return;
+                }
+
+                catalog.ImportDirectory(path, decisions);
+                return;
+            }
+
             catalog.ImportDirectory(path);
         }
     }

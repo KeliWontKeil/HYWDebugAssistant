@@ -329,22 +329,26 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
     /// **按外部路径导入**（拖放入口）：识别模块包/组合包并交给对应页面，结果写页面操作状态。
     /// </summary>
     /// <param name="path">外部文件或文件夹路径。</param>
+    /// <param name="conflicts">同名冲突的处置（键 = 来源全路径）；缺省 = 没有冲突。</param>
     /// <remarks>
     /// 识别由框架查询面统一回答，UI 不写清单文件名字面量；普通目录交给批量导入（2–3 层），
     /// 无法识别的内容写页面状态，**不再写应用底部状态栏**（那里只留窗口级提示）。
+    /// 询问撞名由调用方（视图）先做 —— 见 <see cref="GetImportConflicts"/>。
     /// </remarks>
-    public void ImportPath(string path)
+    public void ImportPath(
+        string path,
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts = null)
     {
         switch (_query.ClassifyImportPath(path))
         {
             case ImportPathKind.ModulePackage:
                 ShowImportPage(ShellPages.Catalog);
-                Catalog.ImportDirectory(path);
+                Catalog.ImportDirectory(path, conflicts);
                 break;
 
             case ImportPathKind.CompositePackage:
                 ShowImportPage(ShellPages.Composite);
-                Composites.ImportComposite(path);
+                Composites.ImportComposite(path, conflicts);
                 break;
 
             default:
@@ -352,7 +356,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
                 if (Directory.Exists(path))
                 {
-                    Catalog.ImportFolder(path);
+                    Catalog.ImportFolder(path, conflicts);
                 }
                 else
                 {
@@ -361,6 +365,24 @@ public sealed partial class ShellViewModel : ViewModelBase, IHotkeyActions
 
                 break;
         }
+    }
+
+    /// <summary>列出这个外部路径导入时会撞名的项（只读；空 = 直接导入即可）。</summary>
+    /// <param name="path">外部文件或文件夹路径。</param>
+    public IReadOnlyList<ImportConflictView> GetImportConflicts(string path) =>
+        _query.GetImportConflicts(path);
+
+    /// <summary>
+    /// 把导入通道自身抛出的异常写进页面状态（询问/复制过程中的 IO 失败）。
+    /// </summary>
+    /// <param name="reason">异常说明。</param>
+    /// <remarks>
+    /// 走模块清单页的操作状态行：导入结果一律落在页面底部，不占用应用底部状态栏。
+    /// </remarks>
+    public void ReportImportPathFailure(string reason)
+    {
+        ShowImportPage(ShellPages.Catalog);
+        Catalog.ReportImportError(Loc("shell.drop.failed", reason));
     }
 
     /// <summary>切到拥有导入结果的页面，让页面底部的操作状态可见。</summary>

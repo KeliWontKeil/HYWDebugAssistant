@@ -501,20 +501,34 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
     [RelayCommand]
     private void ImportModules() => ImportModulesRequested?.Invoke(this, EventArgs.Empty);
 
+    /// <summary>列出这次导入会撞名的项（只读；空 = 直接导入即可）。</summary>
+    /// <param name="directory">外部包目录或外层文件夹。</param>
+    /// <remarks>
+    /// 询问由视图负责（VM 没有窗口）：先问这里，再把用户的选择作为决定表交给
+    /// <see cref="ImportDirectory(string, IReadOnlyDictionary{string, ImportConflictChoice}?)"/>。
+    /// </remarks>
+    public IReadOnlyList<ImportConflictView> GetImportConflicts(string directory) =>
+        _query.GetImportConflicts(directory);
+
     /// <summary>导入外部模块目录（视图选好目录后调用）。</summary>
     /// <param name="directory">外部包目录或包含多个包的上级目录。</param>
-    public void ImportDirectory(string directory)
+    /// <param name="conflicts">同名冲突的处置（键 = 来源全路径）；缺省 = 没有冲突。</param>
+    public void ImportDirectory(
+        string directory,
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts = null)
     {
         if (string.IsNullOrWhiteSpace(directory))
         {
             return;
         }
 
-        var result = _command.ImportModuleDirectory(directory);
+        var result = _command.ImportModuleDirectory(directory, conflicts);
         SetStatus(
             result.Succeeded,
             result.Succeeded
-                ? CatalogText.Get("catalog.status.imported")
+                ? result.SkippedCount > 0
+                    ? CatalogText.Get("catalog.status.importSkipped", result.SkippedCount)
+                    : CatalogText.Get("catalog.status.imported")
                 : CatalogText.Get("catalog.status.importFailed"),
             string.Join(Environment.NewLine, result.Succeeded ? result.Notices : result.Failures));
         Refresh();
@@ -528,17 +542,27 @@ public sealed partial class ModuleCatalogViewModel : ViewModelBase
     /// 导入一个外层文件夹：向下最多 3 层找模块包与组合包，逐个导入并汇总到页面状态。
     /// </summary>
     /// <param name="directory">外层文件夹。</param>
-    public void ImportFolder(string directory)
+    /// <param name="conflicts">同名冲突的处置（键 = 来源全路径）；缺省 = 没有冲突。</param>
+    public void ImportFolder(
+        string directory,
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts = null)
     {
         if (string.IsNullOrWhiteSpace(directory))
         {
             return;
         }
 
-        var result = _command.ImportFolder(directory);
+        var result = _command.ImportFolder(directory, conflicts);
         var detail = string.Join(Environment.NewLine, result.Failures.Concat(result.Notices));
 
-        if (result.ImportedCount == 0 && !result.HasFailures)
+        if (result.ImportedCount == 0 && result.SkippedCount > 0 && !result.HasFailures)
+        {
+            SetStatus(
+                true,
+                CatalogText.Get("catalog.status.importSkipped", result.SkippedCount),
+                detail);
+        }
+        else if (result.ImportedCount == 0 && !result.HasFailures)
         {
             SetStatus(false, CatalogText.Get("catalog.status.importFolderNone"));
         }

@@ -12,10 +12,12 @@ public readonly record struct PortRef(string InstanceId, string PortName);
 /// <param name="Succeeded">是否成功（false = 整体拒绝、零副作用）。</param>
 /// <param name="Failures">拒绝原因。</param>
 /// <param name="Notices">提示（如自动建网的歧义提示）。</param>
+/// <param name="SkippedCount">因用户选择「跳过」而没有落地的项数（导入命令用；其余命令恒 0）。</param>
 public readonly record struct CommandResult(
     bool Succeeded,
     IReadOnlyList<string> Failures,
-    IReadOnlyList<string> Notices)
+    IReadOnlyList<string> Notices,
+    int SkippedCount = 0)
 {
     /// <summary>成功。</summary>
     public static CommandResult Ok(IReadOnlyList<string>? notices = null) => new(true, [], notices ?? []);
@@ -35,6 +37,22 @@ public enum ImportPathKind
 
     /// <summary>组合包（目录含 <c>composite.json</c>，或路径就是该文件）。</summary>
     CompositePackage = 2,
+}
+
+/// <summary>
+/// **同名冲突的处置**（对应资源管理器撞名时的「替换 / 跳过」）。
+/// </summary>
+/// <remarks>
+/// 决定表里**没有这个键**才是"没人回答"（该冲突按失败处理），不是 <see cref="Skip"/>：
+/// 静默跳过会让用户以为导入成功。执行侧据此区分"用户选了跳过"与"没人回答"。
+/// </remarks>
+public enum ImportConflictChoice
+{
+    /// <summary>跳过这一项（默认目录里的旧内容保持原样）。</summary>
+    Skip = 0,
+
+    /// <summary>替换（旧内容删除，写入新内容；不保留副本）。</summary>
+    Replace = 1,
 }
 
 /// <summary>
@@ -197,6 +215,22 @@ public interface IRuntimeQuery
     /// <param name="path">外部文件或文件夹路径。</param>
     ImportPathKind ClassifyImportPath(string path);
 
+    /// <summary>
+    /// **列出这个外部路径导入时会撞名的项**（只读，不修改任何文件）。
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>顺序 = 实际导入顺序（对话框逐条询问时按它走）；</item>
+    ///   <item>撞名**只按名字判定**，不比内容：名字已占用就是冲突，与内容是否相同无关；</item>
+    ///   <item>模块包的同名目录若属于**已加载**的包，也不算冲突 —— 那是只能失败的情形，
+    ///     导入时返回 <c>core.services.import.moduleDirectoryOccupied</c>；</item>
+    ///   <item>外层文件夹按批量导入同一套扫描规则取冲突（含只装组合包的文件夹）；</item>
+    ///   <item>不认识或没有包 ⇒ 空列表（不报错，交给导入本身给原因）。</item>
+    /// </list>
+    /// </remarks>
+    /// <param name="sourcePath">外部包目录、外层文件夹，或组合文件路径。</param>
+    IReadOnlyList<ImportConflictView> GetImportConflicts(string sourcePath);
+
     /// <summary>模块视图布局（位置/尺寸/视图开关）；**未摆放过的实例**不在结果中（UI 自行取默认位）。</summary>
     IReadOnlyList<ModuleLayoutView> GetLayout();
 
@@ -325,7 +359,13 @@ public interface IRuntimeCommand
 
     /// <summary>导入外部模块目录（扫描目录自身或 2–3 层内的模块包）。</summary>
     /// <param name="sourceDirectory">外部包目录或包含多个包目录的上级目录。</param>
-    CommandResult ImportModuleDirectory(string sourceDirectory);
+    /// <param name="conflicts">
+    /// 同名冲突的处置（键 = <see cref="ImportConflictView.SourcePath"/>）；缺省 = 没有冲突。
+    /// 冲突项**没有决定**时该包按失败处理，绝不静默改名或覆盖。
+    /// </param>
+    CommandResult ImportModuleDirectory(
+        string sourceDirectory,
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts = null);
 
     /// <summary>
     /// **导入一个外层文件夹**：向下最多 3 层扫描模块包与组合包，逐个导入并汇总结果。
@@ -335,7 +375,12 @@ public interface IRuntimeCommand
     /// 单个包失败不中断其余；隐藏/系统/重解析点目录跳过，超过上限即停止并报告。
     /// </remarks>
     /// <param name="sourceDirectory">外层文件夹。</param>
-    FolderImportResult ImportFolder(string sourceDirectory);
+    /// <param name="conflicts">
+    /// 同名冲突的处置（键 = <see cref="ImportConflictView.SourcePath"/>）；缺省 = 没有冲突。
+    /// </param>
+    FolderImportResult ImportFolder(
+        string sourceDirectory,
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts = null);
 
     /// <summary>
     /// **重扫模块来源根**：按设置里的根列表（内置目录在首位）重新扫描，
@@ -464,10 +509,17 @@ public interface IRuntimeCommand
 
     /// <summary>
     /// **导入外部组合**：源路径可以是**组合文件夹**（含 <c>composite.json</c>）或该文件本身；
-    /// 检查可读后复制到默认目录（同名内容相同则复用，不同则唯一命名）。
+    /// 检查可读后复制到默认目录。默认目录已有同名项时**一律**按 <paramref name="conflicts"/> 处置
+    /// （不比内容：内容相同也要问，否则用户无法与"什么都没做"区分）。
     /// </summary>
     /// <param name="sourcePath">外部组合文件夹或组合文件路径。</param>
-    CompositeImportResult ImportComposite(string sourcePath);
+    /// <param name="conflicts">
+    /// 同名冲突的处置（键 = <see cref="ImportConflictView.SourcePath"/>）；缺省 = 没有冲突。
+    /// 冲突项**没有决定**时按失败返回，绝不静默改名、静默覆盖或静默复用。
+    /// </param>
+    CompositeImportResult ImportComposite(
+        string sourcePath,
+        IReadOnlyDictionary<string, ImportConflictChoice>? conflicts = null);
 
     /// <summary>
     /// **删除默认目录中的一个组合文件**（只删文件，不移除当前现场模块）。
